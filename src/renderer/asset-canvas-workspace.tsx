@@ -73,7 +73,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineAssetCanvasPrompt, createAssetGenerationNode, resolveAssetCanvasAssetId, resolveAssetCanvasImageAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, resolveAssetCanvasAssetId, resolveAssetCanvasImageAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModels, listToolJobs, listVideoModels, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -2138,13 +2138,6 @@ function connectionRelation(
     return canAddVideoReference(target, source, nodes, libraryAssets) ? "video-reference" : undefined;
   }
   return undefined;
-}
-
-function preferredImageOption(model?: ImageModel, preferredAspectRatio = "1:1"): ImageModel["generationOptions"][number] | undefined {
-  return model?.generationOptions.find((option) => option.resolution === "1K" && option.aspectRatio === preferredAspectRatio)
-    ?? model?.generationOptions.find((option) => option.aspectRatio === preferredAspectRatio)
-    ?? model?.generationOptions.find((option) => option.resolution === "1K" && option.aspectRatio === "1:1")
-    ?? model?.generationOptions[0];
 }
 
 function isMediaNodeType(type: AssetCanvasNodeType): type is "image" | "video" {

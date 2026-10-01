@@ -2,6 +2,7 @@ import type {
   AssetCanvasDocument,
   AssetCanvasNode,
   AssetCanvasReference,
+  ImageModel,
   ImageModelRef,
   VideoModelRef,
 } from "./contracts.js";
@@ -61,12 +62,22 @@ export function createAssetGenerationNode(type: AssetCanvasStarter, position: { 
   return { id, type, position, data: { ...DEFAULT_MODEL_3D_CONFIG, images: [] } };
 }
 
-export function createAssetCanvasStarterDocument(type: AssetCanvasStarter, imageModel?: ImageModelRef): { document: AssetCanvasDocument; nodeId: string } {
+export function createAssetCanvasStarterDocument(
+  type: AssetCanvasStarter,
+  options: Parameters<typeof createAssetGenerationNode>[2] = {},
+): { document: AssetCanvasDocument; nodeId: string } {
   const document = createAssetCanvasDocument();
-  const node = createAssetGenerationNode(type, { x: 96, y: 96 }, { imageModel });
+  const node = createAssetGenerationNode(type, { x: 96, y: 96 }, options);
   document.nodes = [node];
   document.editorLayout.nodes = { [node.id]: node.position };
   return { document, nodeId: node.id };
+}
+
+export function preferredImageOption(model?: ImageModel, preferredAspectRatio = "1:1"): ImageModel["generationOptions"][number] | undefined {
+  return model?.generationOptions.find((option) => option.resolution === "1K" && option.aspectRatio === preferredAspectRatio)
+    ?? model?.generationOptions.find((option) => option.aspectRatio === preferredAspectRatio)
+    ?? model?.generationOptions.find((option) => option.resolution === "1K" && option.aspectRatio === "1:1")
+    ?? model?.generationOptions[0];
 }
 
 export function validateAssetCanvasDocument(document: AssetCanvasDocument): void {
