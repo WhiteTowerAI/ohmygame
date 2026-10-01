@@ -30,7 +30,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [recentProjectLimit, setRecentProjectLimit] = useState(RECENT_PROJECT_MAX_COLUMNS);
   const [projectActionError, setProjectActionError] = useState<string>();
-  const [projectType, setProjectType] = useState<ProjectType>("interactive-drama");
+  const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const [createOpen, setCreateOpen] = useState(false);
   const recentProjectsSection = useRef<HTMLElement>(null);
 
