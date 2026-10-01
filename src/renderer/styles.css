@@ -2763,12 +2763,6 @@ button.home-nav-item-active:hover {
   bottom: auto;
 }
 
-.home-discover .project-card-actions-menu {
-  top: 34px;
-  right: 0;
-  bottom: auto;
-}
-
 .project-card {
   position: relative;
   display: block;
@@ -2878,10 +2872,8 @@ button.home-nav-item-active:hover {
 }
 
 .project-card-actions-menu {
-  position: absolute;
-  z-index: 5;
-  right: 0;
-  top: 34px;
+  position: fixed;
+  z-index: 50;
   display: grid;
   width: 108px;
   padding: 4px;
