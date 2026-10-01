@@ -10,7 +10,8 @@ import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-m
 import { PromptBox } from "./prompt-box.js";
 import { PROJECT_TYPES, ProjectTypeIcon, type ProjectTypeOption } from "./project-types.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
-import { activePluginMentions, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, toPluginMention, type ComposerMention } from "./composer-mentions.js";
+import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
+import { createPromptHistory, loadHomePromptHistory, nextPrompt, previousPrompt, saveHomePrompt } from "./prompt-history.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
 import { CANVAS_FORMAT_PRESETS, canvasFormatPreset, type CanvasFormatPresetId } from "../shared/canvas-formats.js";
 
@@ -45,6 +46,9 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [existingProject, setExistingProject] = useState<ProjectState>();
   const selectDirectory = window.ohMyGameDesktop?.selectProjectDirectory;
+  const [storedHistory] = useState(() => loadHomePromptHistory());
+  const [history, setHistory] = useState(() => createPromptHistory(storedHistory.map((entry) => entry.prompt)));
+  const mentionHistory = new Map(storedHistory.map((entry) => [entry.prompt, entry.mentions]));
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
   const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
@@ -81,8 +85,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
       togglePlanning();
       return;
     }
-    const nextPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
-    if ((!nextPrompt && images.length === 0) || creating) return;
+    const submittedPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
+    if ((!submittedPrompt && images.length === 0) || creating) return;
     setCreating(true);
     setError(undefined);
     try {
@@ -94,11 +98,13 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
           : {}),
       });
       const conversation = await createConversation(project.id);
+      const submittedMentions = activePluginMentions(submittedPrompt, pluginMentions);
+      saveHomePrompt({ prompt: submittedPrompt, mentions: submittedMentions });
       onCreate(
         project.id,
         conversation.id,
-        nextPrompt,
-        activePluginMentions(nextPrompt, pluginMentions),
+        submittedPrompt,
+        submittedMentions,
         promptImages(images),
         planning ? "planning" : "normal",
       );
@@ -169,6 +175,27 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   function changePrompt(value: string): void {
     setPrompt(value);
     setPluginMentions((current) => activePluginMentions(formatComposerInvocation(selectedSkill, selectedPlugin, value), current));
+    setHistory((current) => current.index === current.entries.length
+      ? current
+      : { ...current, index: current.entries.length, draft: formatComposerInvocation(selectedSkill, selectedPlugin, value) });
+  }
+
+  function browseHistory(direction: "previous" | "next"): void {
+    const result = direction === "previous" ? previousPrompt(history, formatComposerInvocation(selectedSkill, selectedPlugin, prompt)) : nextPrompt(history);
+    if (!result) return;
+    const skill = parseSkillInvocation(result.prompt);
+    const historicalMentions = mentionHistory.get(result.prompt) ?? [];
+    const plugin = extractLeadingPluginMention(skill?.prompt ?? result.prompt, historicalMentions);
+    setHistory(result.history);
+    setPrompt(plugin.prompt);
+    setSelectedSkill(skill?.name);
+    setSelectedPlugin(plugin.mention);
+    setPluginMentions(historicalMentions);
+    const cursor = plugin.prompt.length;
+    setMentionCursor(cursor);
+    requestAnimationFrame(() => {
+      promptRef.current?.setSelectionRange(cursor, cursor);
+    });
   }
 
   function clearSelectedPlugin(): void {
@@ -307,6 +334,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         )}
         onChange={changePrompt}
         onCommandKeyDown={handleCommandKeyDown}
+        onHistoryNext={() => browseHistory("next")}
+        onHistoryPrevious={() => browseHistory("previous")}
         onSubmit={() => void submit()}
         overlay={mentions.length
           ? <ComposerMentionMenu items={mentions} selected={selectedMention} onSelect={selectMention} />

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   createPromptHistory,
+  loadHomePromptHistory,
   nextPrompt,
   previousPrompt,
   promptHistoryDirection,
   recordPrompt,
+  saveHomePrompt,
 } from "../src/renderer/prompt-history.js";
 
 describe("prompt history", () => {
@@ -47,5 +49,39 @@ describe("prompt history", () => {
 
     expect(previous.prompt).toBe("Second");
     expect(nextPrompt(previous.history)!.prompt).toBe(edited);
+  });
+});
+
+describe("home prompt history storage", () => {
+  function memoryStorage(initial?: string) {
+    const values = new Map<string, string>(initial === undefined ? [] : [["ohmygame.home-prompt-history", initial]]);
+    return {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+    };
+  }
+
+  it("keeps submitted prompts oldest first and moves repeats to the end", () => {
+    const storage = memoryStorage();
+    saveHomePrompt({ prompt: "Make a platformer", mentions: [] }, storage);
+    saveHomePrompt({ prompt: "Make a puzzle game", mentions: [] }, storage);
+    saveHomePrompt({ prompt: " Make a platformer ", mentions: [] }, storage);
+    saveHomePrompt({ prompt: "   ", mentions: [] }, storage);
+    expect(loadHomePromptHistory(storage).map((entry) => entry.prompt)).toEqual(["Make a puzzle game", "Make a platformer"]);
+  });
+
+  it("caps the stored history", () => {
+    const storage = memoryStorage();
+    for (let index = 0; index < 60; index += 1) saveHomePrompt({ prompt: `Prompt ${index}`, mentions: [] }, storage);
+    const entries = loadHomePromptHistory(storage);
+    expect(entries).toHaveLength(50);
+    expect(entries[0]!.prompt).toBe("Prompt 10");
+  });
+
+  it("ignores unreadable or missing storage", () => {
+    expect(loadHomePromptHistory(memoryStorage("not json"))).toEqual([]);
+    expect(loadHomePromptHistory(memoryStorage('[{"prompt":1}]'))).toEqual([]);
+    expect(loadHomePromptHistory(undefined)).toEqual([]);
+    expect(() => saveHomePrompt({ prompt: "Hi", mentions: [] }, undefined)).not.toThrow();
   });
 });
