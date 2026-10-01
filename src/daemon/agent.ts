@@ -24,7 +24,7 @@ import {
 } from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
-import { appendSystemPromptForProject } from "./agent-prompts.js";
+import { appendSystemPromptForProject, type AgentPromptProject } from "./agent-prompts.js";
 import { openRouterAttributionExtension } from "./openrouter-attribution.js";
 
 export interface CodingSession {
@@ -2136,7 +2136,7 @@ function appendPlanState(sessionManager: CodingSession["sessionManager"], state:
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
 
 export async function createPiSession(
-  project: Pick<ProjectState, "workspacePath" | "type">,
+  project: Pick<ProjectState, "workspacePath"> & AgentPromptProject,
   sessionManager: SessionManager,
   customTools: ToolDefinition[] = [],
   modelRuntime?: ModelRuntime,
@@ -2147,7 +2147,7 @@ export async function createPiSession(
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
   const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(project.workspacePath, agentDir, {
     resolvePluginSkills,
-    appendSystemPrompt: appendSystemPromptForProject(project.type),
+    appendSystemPrompt: appendSystemPromptForProject(project),
   });
   const { session } = await createAgentSession({
     cwd: project.workspacePath,

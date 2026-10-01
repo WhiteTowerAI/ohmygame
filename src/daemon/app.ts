@@ -1245,7 +1245,11 @@ export function createApp(options: AppOptions = {}) {
         existing.packageManager !== request.body.packageManager;
       try {
         const project = await projects.setRunSettings(request.params.projectId, request.body);
-        if (restartRequired) await previews.stop(project);
+        if (restartRequired) {
+          await previews.stop(project);
+          // The agent's system prompt names the startup directory, script, and package manager.
+          agents.invalidateProjectSessions(project.id);
+        }
         return project;
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
