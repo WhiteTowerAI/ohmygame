@@ -11,6 +11,11 @@ import { projectDeletionConfirmation } from "./project-deletion.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
+type MediaModels = { image: ImageModel[]; video: VideoModel[] };
+
+// Kept across visits so switching tabs does not refetch provider catalogs before showing model starters.
+let cachedMediaModels: MediaModels | undefined;
+
 const QUICK_START_ICONS: Record<AssetCanvasStarter, IconComponent> = {
   image: Image,
   video: Film,
@@ -27,7 +32,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
   const [creatingStarter, setCreatingStarter] = useState<string>();
-  const [mediaModels, setMediaModels] = useState<{ image: ImageModel[]; video: VideoModel[] }>({ image: [], video: [] });
+  const [mediaModels, setMediaModels] = useState(cachedMediaModels);
 
   async function load() {
     setPhase("loading");
@@ -48,8 +53,11 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
     let disposed = false;
     void waitForRuntime()
       .then(() => Promise.all([listImageModels().catch(() => []), listVideoModels().catch(() => [])]))
-      .then(([image, video]) => { if (!disposed) setMediaModels({ image, video }); })
-      .catch(() => {});
+      .catch(() => [[], []] as [ImageModel[], VideoModel[]])
+      .then(([image, video]) => {
+        cachedMediaModels = { image, video };
+        if (!disposed) setMediaModels(cachedMediaModels);
+      });
     return () => { disposed = true; };
   }, []);
 
@@ -90,8 +98,9 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
 
         <section className="asset-canvas-quick-start" aria-labelledby="asset-canvas-quick-start-heading">
           <h2 id="asset-canvas-quick-start-heading">Quick start</h2>
-          <div className="asset-canvas-quick-grid">
-            {availableQuickStarts(mediaModels.image, mediaModels.video).map((item) => {
+          {/* Hidden until models load so every starter appears at once, while still reserving the row. */}
+          <div className="asset-canvas-quick-grid" aria-busy={!mediaModels} style={mediaModels ? undefined : { visibility: "hidden" }}>
+            {availableQuickStarts(mediaModels?.image ?? [], mediaModels?.video ?? []).map((item) => {
               const Icon = QUICK_START_ICONS[item.type];
               const creating = creatingStarter === item.key;
               return <button key={item.key} type="button" disabled={creatingStarter !== undefined} aria-busy={creating} onClick={() => void quickStart(item)}>
