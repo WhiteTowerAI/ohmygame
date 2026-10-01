@@ -1,0 +1,51 @@
+name: Bug report
+description: Something does not work as expected.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create a new web game project
+        2. Send the prompt "..."
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OhMyGame version
+      description: Shown in the app's settings, or the commit if you run from source.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Windows
+        - Linux (from source)
+        - Web renderer (npm run dev)
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model provider and model
+      description: For example, OpenRouter with a specific model, or an OhMyGame account. Never paste API keys.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Error messages, terminal output, or screenshots. Remove keys and tokens first.
+      render: text

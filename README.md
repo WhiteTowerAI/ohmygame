@@ -42,7 +42,7 @@ We're building one app for all of it: describe what you want, and the agent make
 
 At its heart, OhMyGame is a GUI coding agent for game dev, built on
 [Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). It keeps
-Pi's full toolset and sessions, and extends it for games: Equip general agent the ability to make game assets, and provide studios to build specifc games much easier. 
+Pi's full toolset and sessions, and extends it for games: Equip general agent the ability to make game assets, and provide studios to build specifc games much easier.
 
 Bring your own model. OhMyGame works with 40+ providers through Pi, from
 Anthropic and OpenAI to DeepSeek and Qwen, and can sign in with a subscription you already have. Your keys stay on your machine, there are no per-run credits, and what it makes is yours.
@@ -300,9 +300,9 @@ We're building OhMyGame in public.
 
 ## Contributing
 
-Issues and PRs are welcome. Keep PRs small and focused; see
-[AGENTS.md](AGENTS.md) for branch and commit conventions.
-<!-- TODO(docs): CONTRIBUTING.md and issue templates -->
+Issues and PRs are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+checks, and PR conventions, and [SECURITY.md](SECURITY.md) for reporting
+security issues.
 
 ## Acknowledgements
 

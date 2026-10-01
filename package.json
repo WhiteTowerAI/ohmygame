@@ -3,6 +3,14 @@
   "version": "0.0.0-alpha.3",
   "description": "An open-source local-first agent for creating and publishing games.",
   "author": "WhiteTowerAI",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WhiteTowerAI/ohmygame.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WhiteTowerAI/ohmygame/issues"
+  },
   "private": true,
   "type": "module",
   "main": "dist/desktop/bootstrap.cjs",

@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest an idea or an improvement.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The game or workflow you have in mind, and where OhMyGame gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would help
+      description: How you would like it to work. Rough ideas are fine.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything else
+      description: Workarounds you use now, examples from other tools, or screenshots.
