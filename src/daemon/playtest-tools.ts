@@ -1,5 +1,5 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { Type, type TSchema } from "typebox";
 import type {
   GameRuntimeAdapter,
   GameUseInputCapability,
@@ -39,7 +39,10 @@ const semanticTargetSchema = Type.Union([
   }, { additionalProperties: false }),
 ]);
 
-const actionSchema = Type.Union([
+const resetBridgeAction = Type.Object({ type: Type.Literal("bridge"), method: Type.Literal("reset") }, { additionalProperties: false });
+const valueBridgeAction = Type.Object({ type: Type.Literal("bridge"), method: Type.Union([Type.Literal("setSeed"), Type.Literal("step")]), value: Type.Number() }, { additionalProperties: false });
+
+const inputActions = [
   Type.Object({ type: Type.Literal("click"), target: targetSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("type"), target: semanticTargetSchema, text: Type.String({ maxLength: 10_000 }) }, { additionalProperties: false }),
   Type.Object({
@@ -50,27 +53,38 @@ const actionSchema = Type.Union([
   Type.Object({ type: Type.Literal("touch"), x: Type.Number({ minimum: 0, maximum: 8192 }), y: Type.Number({ minimum: 0, maximum: 8192 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("wait"), milliseconds: Type.Integer({ minimum: 0, maximum: 5_000 }) }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal("resize"), viewport: viewportSchema }, { additionalProperties: false }),
-  Type.Object({ type: Type.Literal("bridge"), method: Type.Literal("reset") }, { additionalProperties: false }),
-  Type.Object({ type: Type.Literal("bridge"), method: Type.Union([Type.Literal("setSeed"), Type.Literal("step")]), value: Type.Number() }, { additionalProperties: false }),
-]);
+] as const;
 
-const parameters = Type.Object({
-  operation: Type.Union([
-    Type.Literal("open"),
-    Type.Literal("inspect"),
-    Type.Literal("act"),
-    Type.Literal("capture"),
-    Type.Literal("close"),
-  ]),
-  path: Type.Optional(Type.String({ maxLength: 1_000, description: "Path, query, or hash within a web game target; used only by open" })),
-  viewport: Type.Optional(viewportSchema),
-  sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Session returned by open; required for inspect, act, capture, and close" })),
-  actions: Type.Optional(Type.Array(actionSchema, { minItems: 1, maxItems: 20, description: "Actions to run; required for act" })),
-}, { additionalProperties: false });
+const actionSchema = Type.Union([...inputActions, resetBridgeAction, valueBridgeAction]);
+
+const parameters = gameUseParameters(actionSchema);
+
+/**
+ * The Playable Nodes player's bridge only resets, so its agent is not offered
+ * setSeed or step; a web game may implement all of them.
+ */
+const resetOnlyParameters = gameUseParameters(Type.Union([...inputActions, resetBridgeAction])) as unknown as typeof parameters;
+
+function gameUseParameters<Action extends TSchema>(action: Action) {
+  return Type.Object({
+    operation: Type.Union([
+      Type.Literal("open"),
+      Type.Literal("inspect"),
+      Type.Literal("act"),
+      Type.Literal("capture"),
+      Type.Literal("close"),
+    ]),
+    path: Type.Optional(Type.String({ maxLength: 1_000, description: "Path, query, or hash within a web game target; used only by open" })),
+    viewport: Type.Optional(viewportSchema),
+    sessionId: Type.Optional(Type.String({ minLength: 1, maxLength: 100, description: "Session returned by open; required for inspect, act, capture, and close" })),
+    actions: Type.Optional(Type.Array(action, { minItems: 1, maxItems: 20, description: "Actions to run; required for act" })),
+  }, { additionalProperties: false });
+}
 
 export function createGameUseTool(
   driver: GameRuntimeAdapter,
   resolveOpenTarget: () => Promise<GameUseOpenTarget>,
+  { bridge = "full" }: { bridge?: "full" | "reset" } = {},
 ): ToolDefinition<typeof parameters> {
   return defineTool<typeof parameters, unknown>({
     name: "game_use",
@@ -82,7 +96,7 @@ export function createGameUseTool(
       "Batch adjacent input and wait steps into one act call; open and act already return fresh state, so inspect only when a separate refresh is needed",
       "Capture screenshots for Canvas or WebGL verification and close playtest sessions when finished",
     ],
-    parameters,
+    parameters: bridge === "reset" ? resetOnlyParameters : parameters,
     executionMode: "sequential",
     execute: async (_toolCallId, input, signal) => {
       if (!driver.available) throw new Error("Game use is not available in this environment");

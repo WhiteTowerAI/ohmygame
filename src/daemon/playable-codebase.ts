@@ -392,16 +392,18 @@ function starterSources(graph: NodeGraph): Record<string, string> {
 
 function nodeHtml(id: string, title: string): string {
   const escapedTitle = escapeHtml(title);
+  const scene = (eyebrow: string, line: string, action = "") =>
+    `<main class="stage is-cover has-backdrop">\n  <div class="backdrop" data-media="backdrop"></div>\n  <p class="eyebrow">${eyebrow}</p>\n  <h1 class="title">${escapedTitle}</h1>\n  <p class="body">${line}</p>\n${action}</main>\n`;
   if (id === "platform") {
-    return `<main><p class="eyebrow">Platform 13</p><h1>${escapedTitle}</h1><p>The last train waits beneath the station lights.</p><button type="button" data-signal="board">Board the train</button></main>\n`;
+    return scene("Platform 13", "The last train waits beneath the station lights.", '  <div class="actions"><button type="button" class="action" data-signal="board">Board the train</button></div>\n');
   }
   if (id === "carriage") {
-    return `<main><p class="eyebrow">01:17</p><h1>${escapedTitle}</h1><p>The empty carriage begins to move.</p><button type="button" data-signal="continue">Continue</button></main>\n`;
+    return scene("01:17", "The empty carriage begins to move.", '  <div class="actions"><button type="button" class="action" data-signal="continue">Continue</button></div>\n');
   }
   if (id === "home") {
-    return `<main><p class="eyebrow">Dawn</p><h1>${escapedTitle}</h1><p>You step onto a familiar platform.</p></main>\n`;
+    return scene("Dawn", "You step onto a familiar platform.");
   }
-  return `<main><h1>${escapedTitle}</h1></main>\n`;
+  return `<main class="stage has-backdrop">\n  <div class="backdrop" data-media="backdrop"></div>\n  <h1 class="title">${escapedTitle}</h1>\n</main>\n`;
 }
 
 function escapeHtml(value: string): string {
@@ -416,26 +418,35 @@ function escapeHtml(value: string): string {
 
 function nodeJavascript(id: string): string {
   if (id === "platform") {
-    return `export function mount(context) {
+    return `import { showBackdrop } from "../../shared/style/components.js";
+
+export function mount(context) {
+  const backdrop = showBackdrop(context);
   const button = context.root.querySelector('[data-signal="board"]');
   const board = async () => {
     await context.state.set("boarded", true);
     await context.navigation.emit("board");
   };
   button.addEventListener("click", board);
-  return () => button.removeEventListener("click", board);
+  return () => {
+    backdrop.cleanup();
+    button.removeEventListener("click", board);
+  };
 }
 `;
   }
   if (id === "carriage") {
     return `import { mountHomeButton } from "../../shared/components/home-button.js";
+import { showBackdrop } from "../../shared/style/components.js";
 
 export function mount(context) {
+  const backdrop = showBackdrop(context);
   const button = context.root.querySelector('[data-signal="continue"]');
   const proceed = () => context.navigation.emit("continue");
   button.addEventListener("click", proceed);
   const removeHomeButton = mountHomeButton(context);
   return () => {
+    backdrop.cleanup();
     button.removeEventListener("click", proceed);
     removeHomeButton();
   };
@@ -444,38 +455,52 @@ export function mount(context) {
   }
   if (id === "home") {
     return `import { mountHomeButton } from "../../shared/components/home-button.js";
+import { showBackdrop } from "../../shared/style/components.js";
 
 export function mount(context) {
-  return mountHomeButton(context);
+  const backdrop = showBackdrop(context);
+  const removeHomeButton = mountHomeButton(context);
+  return () => {
+    backdrop.cleanup();
+    removeHomeButton();
+  };
 }
 `;
   }
-  return "export function mount() {}\n";
+  return `import { showBackdrop } from "../../shared/style/components.js";
+
+export function mount(context) {
+  return showBackdrop(context).cleanup;
+}
+`;
 }
 
 function nodeCss(id: string): string {
   return id === "carriage" || id === "home"
-    ? `@import "../../shared/components/home-button.css";\n${NODE_CSS}`
+    ? `${NODE_CSS}@import "../../shared/components/home-button.css";\n`
     : NODE_CSS;
 }
 
-const NODE_CSS = `@import "../../shared/style/components.css";
-
-:host { display: block; width: 100%; height: 100%; }
-main { box-sizing: border-box; display: grid; width: 100%; height: 100%; place-content: center; justify-items: start; gap: 16px; padding: 8%; color: #f7f3e8; background: #171a1f; font-family: system-ui, sans-serif; }
-h1, p { margin: 0; }
-h1 { font-size: 48px; font-weight: 600; }
-p { max-width: 560px; color: #c7c8c9; font-size: 18px; line-height: 1.6; }
-.eyebrow { color: #d9b36c; font-size: 13px; text-transform: uppercase; }
-button { border: 1px solid #d9b36c; padding: 12px 18px; color: #171a1f; background: #d9b36c; font: inherit; cursor: pointer; }
-`;
+const NODE_CSS = '@import "../../shared/style/components.css";\n';
 
 const HOME_BUTTON_CSS_FILE = "shared/components/home-button.css";
 const HOME_BUTTON_JAVASCRIPT_FILE = "shared/components/home-button.js";
 
-const HOME_BUTTON_CSS = `/* A Home button in the top-left corner. Import this file from the CSS of
-   every Node that mounts the button. */
-.home-button { position: absolute; top: 20px; left: 20px; border: 1px solid #ffffff40; padding: 8px 12px; color: white; background: #111827cc; font: 14px system-ui, sans-serif; cursor: pointer; }
+const HOME_BUTTON_CSS = `/* A Home button in the top-left corner, styled with the Project Style
+   tokens. Import this file from the CSS of every Node that mounts the button. */
+.home-button {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  padding: var(--space-1) 12px;
+  color: var(--color-ink);
+  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
 `;
 
 const HOME_BUTTON_JAVASCRIPT = `/**
