@@ -1,0 +1,17 @@
+{
+  "name": "threejs-world",
+  "version": "0.1.0",
+  "description": "Expand a scene idea into a detailed design, then build and visually inspect a rich, explorable Three.js world.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Three.js World",
+    "shortDescription": "Design and build richly detailed, explorable Three.js worlds.",
+    "longDescription": "Turn a short description of a place into a written world design, realize it as a walkable Three.js scene with a themed presentation layer, and inspect the rendered result until it matches the design.",
+    "defaultPrompt": [
+      "Build an explorable 3D world from this scene idea.",
+      "Add a new region to the current Three.js world.",
+      "Review the current world against its design and fix what looks weak."
+    ],
+    "projectTypes": ["web-game"]
+  }
+}
