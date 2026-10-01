@@ -141,7 +141,8 @@ game, or the renderer.
 
 - **Skills.** The built-in Web Game Studio plugin ships skills for game
   foundations, Three.js, React Three Fiber, Phaser, sprite and 3D asset
-  pipelines, game UI, and playtesting.
+  pipelines, game UI, and playtesting. The built-in Three.js World plugin
+  expands a scene idea into a detailed design and builds an explorable world.
 - **Plugins.** Install OhMyGame plugins, or reuse the Codex and Claude Code
   plugins you already have.
 - **MCP.** Connect MCP servers to give the agent more tools.

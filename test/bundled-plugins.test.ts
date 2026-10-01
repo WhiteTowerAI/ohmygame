@@ -53,4 +53,16 @@ describe("bundled plugins", () => {
       ],
     });
   });
+
+  it("loads the built-in Three.js World skill", async () => {
+    const store = new BundledPluginStore(path.resolve("plugins"));
+
+    await store.load();
+
+    expect(store.read("ohmygame:threejs-world")).toMatchObject({
+      displayName: "Three.js World",
+      projectTypes: ["web-game"],
+      skills: [{ id: "skills/threejs-world/SKILL.md", name: "Threejs World" }],
+    });
+  });
 });
