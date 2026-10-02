@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { PluginMention, ProjectState, PromptImage, PromptMode } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
+import { ExampleShelf, useExamples } from "./examples.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
@@ -22,6 +23,8 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
   const [loadError, setLoadError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
+  const { examples, covers } = useExamples();
+  const dramaExamples = examples.filter((example) => example.type === "interactive-drama").slice(0, RECENT_DRAMA_LIMIT);
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -81,6 +84,15 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
           </button>
         </div>
 
+        {dramaExamples.length ? (
+          <section className="home-discover interactive-drama-explore" aria-labelledby="drama-examples-heading">
+            <div className="home-section-heading">
+              <h2 id="drama-examples-heading">Explore</h2>
+            </div>
+            <ExampleShelf examples={dramaExamples} covers={covers} onOpenProject={onOpenProject} />
+          </section>
+        ) : null}
+
         <section className="home-discover interactive-drama-recent" aria-labelledby="recent-dramas-heading">
           <div className="home-section-heading">
             <h2 id="recent-dramas-heading">Recent dramas</h2>
@@ -90,7 +102,9 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
           </div>
           {phase === "loading" ? <DramaGridSkeleton /> : null}
           {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
-          {phase === "ready" && projects.length === 0 ? <p className="home-project-state">No dramas yet</p> : null}
+          {phase === "ready" && projects.length === 0 ? (
+            <p className="home-project-state">{dramaExamples.length ? "No dramas yet. Play an example above, or describe a story to start." : "No dramas yet"}</p>
+          ) : null}
           {phase === "ready" && projects.length > 0 ? (
             <div className="home-project-grid">
               {projects.map((project, index) => (

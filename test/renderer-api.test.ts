@@ -47,16 +47,16 @@ describe("renderer event stream", () => {
     );
   });
 
-  it("sends Interactive Drama template selection only when requested", async () => {
+  it("sends an example only when one is chosen", async () => {
     installWindow();
     const project = { id: "project", name: "Story", type: "interactive-drama", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project", preview: { status: "waiting" } };
     const fetchMock = vi.fn(async () => Response.json(project, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await createProject({ type: "interactive-drama" });
-    await createProject({ type: "interactive-drama", templateId: "night-train" });
+    await createProject({ type: "interactive-drama", exampleId: "night-train" });
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-drama" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-drama", templateId: "night-train" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-drama", exampleId: "night-train" }) }));
   });
 
   it("loads and updates the Playable codebase contract", async () => {

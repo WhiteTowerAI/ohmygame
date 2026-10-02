@@ -498,7 +498,6 @@ export interface AnswerQuestionnaireRequest {
 export interface CreateProjectRequest {
   name?: string;
   type?: ProjectType;
-  templateId?: "night-train";
   /** Starts the workspace as a copy of a packaged example (see GET /examples). */
   exampleId?: string;
   viewport?: Viewport;

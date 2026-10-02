@@ -101,11 +101,8 @@ The mount function may return a synchronous or asynchronous cleanup function. So
 export function createPlayableStarterCodebase(
   title: string,
   viewport: { width: number; height: number },
-  template: "blank" | "night-train" = "blank",
 ): NodeCodebase {
-  return template === "night-train"
-    ? nightTrainCodebase(title, viewport)
-    : blankCodebase(title, viewport);
+  return blankCodebase(title, viewport);
 }
 
 export async function createNodeCodebase(
@@ -285,66 +282,6 @@ function blankCodebase(
   };
 }
 
-function nightTrainCodebase(
-  title: string,
-  viewport: { width: number; height: number },
-): NodeCodebase {
-  return {
-    graph: {
-      version: 1,
-      title,
-      viewport,
-      entryNodeId: "platform",
-      initialState: { boarded: false },
-      variables: { boarded: "Whether the player has boarded the night train" },
-      assets: {},
-      nodes: [
-        node("platform", "Platform", [
-          { id: "board", label: "Board the train" },
-        ]),
-        node("carriage", "Carriage", [
-          { id: "continue", label: "Continue" },
-          { id: "home", label: "Home", role: "navigation" },
-        ]),
-        node("home", "Last train home", [
-          { id: "home", label: "Home", role: "navigation" },
-        ]),
-      ],
-      edges: [
-        {
-          id: "board-train",
-          source: { nodeId: "platform", signal: "board" },
-          targetNodeId: "carriage",
-          mode: "replace",
-        },
-        {
-          id: "reach-home",
-          source: { nodeId: "carriage", signal: "continue" },
-          targetNodeId: "home",
-          mode: "replace",
-        },
-        {
-          id: "carriage-home",
-          source: { nodeId: "carriage", signal: "home" },
-          targetNodeId: "platform",
-          mode: "replace",
-        },
-        {
-          id: "home-home",
-          source: { nodeId: "home", signal: "home" },
-          targetNodeId: "platform",
-          mode: "replace",
-        },
-      ],
-    },
-    editorLayout: layout({
-      platform: { x: 80, y: 180 },
-      carriage: { x: 600, y: 180 },
-      home: { x: 1120, y: 180 },
-    }),
-  };
-}
-
 function node(
   id: string,
   title: string,
@@ -374,154 +311,18 @@ function layout(
   };
 }
 
+// A new project's only Node starts from the Blank Template. Examples, which
+// ship their own sources, live in the ohmygame-examples repository.
 function starterSources(graph: NodeGraph): Record<string, string> {
   const sources: Record<string, string> = { ...PLAYABLE_PROJECT_STYLE_FILES };
+  const blank = blankSource();
   for (const item of graph.nodes) {
-    // A new project starts from the Blank Template; the sample has its own source.
-    const blank = item.id === "start" ? blankSource() : undefined;
-    sources[item.source.html] = blank?.html ?? nodeHtml(item.id, item.title);
-    sources[item.source.css] = blank?.css ?? nodeCss(item.id);
-    sources[item.source.javascript] = blank?.javascript ?? nodeJavascript(item.id);
-  }
-  if (graph.nodes.some((item) => item.id === "carriage")) {
-    sources[HOME_BUTTON_CSS_FILE] = HOME_BUTTON_CSS;
-    sources[HOME_BUTTON_JAVASCRIPT_FILE] = HOME_BUTTON_JAVASCRIPT;
+    sources[item.source.html] = blank.html;
+    sources[item.source.css] = blank.css;
+    sources[item.source.javascript] = blank.javascript;
   }
   return sources;
 }
-
-function nodeHtml(id: string, title: string): string {
-  const escapedTitle = escapeHtml(title);
-  const scene = (eyebrow: string, line: string, action = "") =>
-    `<main class="stage is-cover has-backdrop">\n  <div class="backdrop" data-media="backdrop"></div>\n  <p class="eyebrow">${eyebrow}</p>\n  <h1 class="title">${escapedTitle}</h1>\n  <p class="body">${line}</p>\n${action}</main>\n`;
-  if (id === "platform") {
-    return scene("Platform 13", "The last train waits beneath the station lights.", '  <div class="actions"><button type="button" class="action" data-signal="board">Board the train</button></div>\n');
-  }
-  if (id === "carriage") {
-    return scene("01:17", "The empty carriage begins to move.", '  <div class="actions"><button type="button" class="action" data-signal="continue">Continue</button></div>\n');
-  }
-  if (id === "home") {
-    return scene("Dawn", "You step onto a familiar platform.");
-  }
-  return `<main class="stage has-backdrop">\n  <div class="backdrop" data-media="backdrop"></div>\n  <h1 class="title">${escapedTitle}</h1>\n</main>\n`;
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[character]!);
-}
-
-function nodeJavascript(id: string): string {
-  if (id === "platform") {
-    return `import { showBackdrop } from "../../shared/style/components.js";
-
-export function mount(context) {
-  const backdrop = showBackdrop(context);
-  const button = context.root.querySelector('[data-signal="board"]');
-  const board = async () => {
-    await context.state.set("boarded", true);
-    await context.navigation.emit("board");
-  };
-  button.addEventListener("click", board);
-  return () => {
-    backdrop.cleanup();
-    button.removeEventListener("click", board);
-  };
-}
-`;
-  }
-  if (id === "carriage") {
-    return `import { mountHomeButton } from "../../shared/components/home-button.js";
-import { showBackdrop } from "../../shared/style/components.js";
-
-export function mount(context) {
-  const backdrop = showBackdrop(context);
-  const button = context.root.querySelector('[data-signal="continue"]');
-  const proceed = () => context.navigation.emit("continue");
-  button.addEventListener("click", proceed);
-  const removeHomeButton = mountHomeButton(context);
-  return () => {
-    backdrop.cleanup();
-    button.removeEventListener("click", proceed);
-    removeHomeButton();
-  };
-}
-`;
-  }
-  if (id === "home") {
-    return `import { mountHomeButton } from "../../shared/components/home-button.js";
-import { showBackdrop } from "../../shared/style/components.js";
-
-export function mount(context) {
-  const backdrop = showBackdrop(context);
-  const removeHomeButton = mountHomeButton(context);
-  return () => {
-    backdrop.cleanup();
-    removeHomeButton();
-  };
-}
-`;
-  }
-  return `import { showBackdrop } from "../../shared/style/components.js";
-
-export function mount(context) {
-  return showBackdrop(context).cleanup;
-}
-`;
-}
-
-function nodeCss(id: string): string {
-  return id === "carriage" || id === "home"
-    ? `${NODE_CSS}@import "../../shared/components/home-button.css";\n`
-    : NODE_CSS;
-}
-
-const NODE_CSS = '@import "../../shared/style/components.css";\n';
-
-const HOME_BUTTON_CSS_FILE = "shared/components/home-button.css";
-const HOME_BUTTON_JAVASCRIPT_FILE = "shared/components/home-button.js";
-
-const HOME_BUTTON_CSS = `/* A Home button in the top-left corner, styled with the Project Style
-   tokens. Import this file from the CSS of every Node that mounts the button. */
-.home-button {
-  position: absolute;
-  top: var(--space-2);
-  left: var(--space-2);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius);
-  padding: var(--space-1) 12px;
-  color: var(--color-ink);
-  background: color-mix(in srgb, var(--color-panel) 80%, transparent);
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-}
-`;
-
-const HOME_BUTTON_JAVASCRIPT = `/**
- * Adds a Home button to a Node. The button emits the Node's own Signal, so
- * every Node that mounts it declares that Signal and routes it in graph.json.
- * Returns a function that removes the button.
- */
-export function mountHomeButton(context, { signal = "home", label = "Home" } = {}) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "home-button";
-  button.textContent = label;
-  const home = () => context.navigation.emit(signal);
-  button.addEventListener("click", home);
-  context.root.append(button);
-  return () => {
-    button.removeEventListener("click", home);
-    button.remove();
-  };
-}
-`;
 
 async function readJson(file: string, label: string): Promise<unknown> {
   try {

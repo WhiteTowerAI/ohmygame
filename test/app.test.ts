@@ -67,7 +67,6 @@ describe("daemon", () => {
   it("accepts a custom viewport only for blank Interactive Drama projects", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-viewport-")),
-      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
     });
     apps.push(app);
 
@@ -87,15 +86,6 @@ describe("daemon", () => {
         viewport: { width: 1280, height: 720 },
       },
     });
-    const template = await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: {
-        type: "interactive-drama",
-        templateId: "night-train",
-        viewport: { width: 720, height: 1280 },
-      },
-    });
     const invalid = await app.inject({
       method: "POST",
       url: "/projects",
@@ -109,7 +99,6 @@ describe("daemon", () => {
     const codebase = (await app.inject({ method: "GET", url: `/projects/${valid.json().id}/playable/codebase` })).json();
     expect(codebase.graph.viewport).toEqual({ width: 720, height: 1280 });
     expect(webProject.statusCode).toBe(400);
-    expect(template.statusCode).toBe(400);
     expect(invalid.statusCode).toBe(400);
   });
 
@@ -249,53 +238,6 @@ describe("daemon", () => {
     expect(invalid.statusCode).toBe(400);
     expect(invalid.json()).toEqual({ error: "Startup directory must be a relative path inside the project workspace" });
     await rm(workspacePath, { recursive: true, force: true });
-  });
-
-  it("creates a fresh Interactive Drama sample when explicitly requested", async () => {
-    const app = createApp({
-      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-starter-create-")),
-      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
-    });
-    apps.push(app);
-    const created = await Promise.all([
-      app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } }),
-      app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } }),
-    ]);
-    expect(created.map((response) => response.statusCode)).toEqual([201, 201]);
-    const projects = (await app.inject({ method: "GET", url: "/projects" })).json();
-    expect(projects).toHaveLength(2);
-    expect(new Set(projects.map((project: { id: string }) => project.id)).size).toBe(2);
-    expect(projects.every((project: { name: string; type: string }) => project.name === "Last Train Home" && project.type === "interactive-drama")).toBe(true);
-
-    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
-    const codebase = (await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/playable/codebase` })).json();
-    expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["platform", "carriage", "home"]);
-    expect((await app.inject({ method: "GET", url: `/projects/${created[0]!.json().id}/cover` })).statusCode).toBe(200);
-  });
-
-  it("creates the Interactive Drama sample without scene media", async () => {
-    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-sample-media-"));
-    const examplesDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-samples-"));
-    const sampleDirectory = path.join(examplesDirectory, "night-train");
-    await mkdir(sampleDirectory);
-    await writeFile(path.join(sampleDirectory, "mara.jpg"), "cover");
-    const app = createApp({ dataDirectory, interactiveDramaExamplesDirectory: examplesDirectory });
-    apps.push(app);
-
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", templateId: "night-train" } })).json();
-    const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-
-    expect(codebase.graph.assets).toEqual({});
-    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).statusCode).toBe(200);
-  });
-
-  it("rejects an Interactive Drama template for another project type", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-template-type-")) });
-    apps.push(app);
-    const response = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", templateId: "night-train" } });
-    expect(response.statusCode).toBe(400);
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
   });
 
   it("creates a Godot project and rejects the removed general type", async () => {
@@ -1648,25 +1590,6 @@ describe("Playable Nodes projects", () => {
     });
     const runtime = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable` })).json();
     expect(runtime).toMatchObject({ available: true, definition: { graph: { entryNodeId: "start" } } });
-  });
-
-  it("creates the sample as a Playable Nodes project", async () => {
-    const app = await createPlayableApp("ohmygame-playable-sample-", {
-      interactiveDramaExamplesDirectory: path.resolve("examples/interactive-drama"),
-    });
-    const project = (await app.inject({
-      method: "POST",
-      url: "/projects",
-      payload: { type: "interactive-drama", templateId: "night-train" },
-    })).json();
-
-    expect(project.name).toBe("Last Train Home");
-    const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["platform", "carriage", "home"]);
-    expect(codebase.graph.shell).toBeUndefined();
-    const runtime = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json();
-    expect(Object.keys(runtime.definition.compiled.nodes)).toEqual(["platform", "carriage", "home"]);
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).statusCode).toBe(200);
   });
 
   it("lists Presets and adds a Node from one", async () => {

@@ -3,7 +3,7 @@ import type { ProjectType } from "./contracts.js";
 export const EXAMPLE_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
 
 /** Project types an example can start. Examples are copied into a workspace and run as is. */
-export const EXAMPLE_PROJECT_TYPES = ["web-game"] as const satisfies readonly ProjectType[];
+export const EXAMPLE_PROJECT_TYPES = ["web-game", "interactive-drama"] as const satisfies readonly ProjectType[];
 
 export interface ExampleSummary {
   id: string;
@@ -17,8 +17,12 @@ export interface PreparedExample extends ExampleSummary {
   /** Source copied into a new project's workspace. */
   directory: string;
   cover: string;
-  /** Static build played without creating a project. */
-  play: string;
+  /**
+   * Static build played without creating a project. Web games are built when
+   * the app is packaged; interactive dramas are compiled by the daemon on play,
+   * so the build always matches this version's Published Player.
+   */
+  play?: string;
 }
 
 export interface PreparedExampleCatalog {
@@ -48,7 +52,8 @@ export function isPreparedExampleCatalog(value: unknown): value is PreparedExamp
   for (const example of catalog.examples as unknown[]) {
     if (!isExampleSummary(example)) return false;
     const prepared = example as unknown as Record<string, unknown>;
-    if (!isRelativePath(prepared.directory) || !isRelativePath(prepared.cover) || !isRelativePath(prepared.play)) return false;
+    if (!isRelativePath(prepared.directory) || !isRelativePath(prepared.cover)) return false;
+    if (example.type === "web-game" ? !isRelativePath(prepared.play) : prepared.play !== undefined) return false;
     if (ids.has(example.id)) return false;
     ids.add(example.id);
   }

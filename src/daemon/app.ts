@@ -9,7 +9,6 @@ import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
-import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
@@ -24,7 +23,6 @@ import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
-import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
@@ -92,7 +90,6 @@ export interface AppOptions {
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
   interactiveDramaPlayerDirectory?: string;
-  interactiveDramaExamplesDirectory?: string;
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
@@ -106,7 +103,6 @@ const createProjectSchema = {
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama", "asset-canvas"] },
-      templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
       exampleId: { type: "string", pattern: EXAMPLE_ID_PATTERN, maxLength: 80 },
       viewport: {
         type: "object",
@@ -502,8 +498,7 @@ export function createApp(options: AppOptions = {}) {
   const publishing = new Set<string>();
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
   const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
-  const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
-  const examples = new ExampleStore(options.examplesDirectory);
+  const examples = new ExampleStore(options.examplesDirectory, (workspacePath, exampleId) => artifacts.preparePlayableExample(workspacePath, exampleId));
   const publisher = new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
@@ -962,8 +957,8 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     try {
       if (request.body?.exampleId) {
-        if (request.body.templateId || request.body.viewport) {
-          return reply.code(400).send({ error: "An example cannot be combined with a template or viewport" });
+        if (request.body.viewport) {
+          return reply.code(400).send({ error: "Examples define their own viewport" });
         }
         const project = await examples.createProject(projects, request.body.exampleId, {
           type: request.body.type,
@@ -972,23 +967,8 @@ export function createApp(options: AppOptions = {}) {
         });
         return reply.code(201).send(project);
       }
-      if (request.body?.templateId && request.body.type !== "interactive-drama") {
-        return reply.code(400).send({ error: "Project templates require a matching project type" });
-      }
       if (request.body?.viewport && request.body.type !== "interactive-drama") {
         return reply.code(400).send({ error: "A viewport requires an Interactive Drama project" });
-      }
-      if (request.body?.viewport && request.body.templateId) {
-        return reply.code(400).send({ error: "Interactive Drama templates define their own viewport" });
-      }
-      if (request.body?.templateId === INTERACTIVE_DRAMA_STARTER.id) {
-        const project = await createInteractiveDramaStarterProject(
-          interactiveDramaExamplesDirectory,
-          projects,
-          request.body.name,
-          request.body.workspacePath,
-        );
-        return reply.code(201).send(project);
       }
       const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
       if (project.type === "interactive-drama") {
