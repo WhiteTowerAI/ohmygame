@@ -1016,6 +1016,15 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/examples", async () => examples.list());
 
+  app.post<{ Params: { exampleId: string } }>("/examples/:exampleId/play", async (request, reply) => {
+    try {
+      return { url: await examples.playUrl(request.params.exampleId) };
+    } catch (cause) {
+      if (cause instanceof ExampleError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
   app.get<{ Params: { exampleId: string } }>("/examples/:exampleId/cover", async (request, reply) => {
     const cover = await examples.cover(request.params.exampleId);
     if (!cover) return reply.code(404).send({ error: "Example not found" });
@@ -2397,6 +2406,7 @@ export function createApp(options: AppOptions = {}) {
     await previews.stopAll();
     await artifacts.close();
     await playableDrafts.close();
+    await examples.close();
   });
   return app;
 }

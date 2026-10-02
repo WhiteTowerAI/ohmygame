@@ -1,7 +1,9 @@
-import { Plus, RefreshCw } from "./icons.js";
+import { Pencil, Play, Plus, RefreshCw } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
-import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import type { ExampleSummary } from "../shared/examples.js";
+import { createProject, deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { ExamplePlayer, useExamples } from "./examples.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
@@ -32,6 +34,10 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const [createOpen, setCreateOpen] = useState(false);
+  const { examples, covers: exampleCovers } = useExamples();
+  const [playingExample, setPlayingExample] = useState<ExampleSummary>();
+  const [remixingExampleId, setRemixingExampleId] = useState<string>();
+  const [remixError, setRemixError] = useState<string>();
   const recentProjectsSection = useRef<HTMLElement>(null);
 
   async function loadProjects() {
@@ -90,7 +96,27 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     }
   }
 
+  async function remixExample(example: ExampleSummary) {
+    if (remixingExampleId) return;
+    setRemixingExampleId(example.id);
+    setRemixError(undefined);
+    try {
+      const project = await createProject({ type: example.type, exampleId: example.id, name: example.name });
+      onOpen(project.id);
+    } catch (error) {
+      setRemixError(errorMessage(error));
+      setRemixingExampleId(undefined);
+    }
+  }
+
+  function playExample(example: ExampleSummary) {
+    setRemixError(undefined);
+    setPlayingExample(example);
+  }
+
   const visibleProjects = showAllProjects ? projects : projects.slice(0, recentProjectLimit);
+  // Examples for the selected project type come first; the What's New card fills the row.
+  const visibleExamples = examples.filter((example) => example.type === projectType).slice(0, recentProjectLimit - 1);
 
   return (
     <main className="home-shell">
@@ -129,13 +155,31 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
 
         <section ref={recentProjectsSection} className="home-discover" aria-labelledby="whats-new-heading">
           <div className="home-section-heading">
-            <h2 id="whats-new-heading">What's New</h2>
+            <h2 id="whats-new-heading">Explore</h2>
           </div>
           <div className="home-whats-new-grid">
+            {visibleExamples.map((example) => (
+              <div className="home-explore-card" key={example.id}>
+                <button className="home-whats-new-item" type="button" onClick={() => playExample(example)} aria-label={`Play ${example.name}`} title={example.description}>
+                  <span className="home-whats-new-icon home-explore-cover" aria-hidden="true">
+                    {exampleCovers[example.id] ? <img src={exampleCovers[example.id]} alt="" /> : null}
+                    <span className="home-explore-play"><Play size={14} />Play</span>
+                  </span>
+                  <span className="home-whats-new-copy">
+                    <strong>{example.name}</strong>
+                    <small>Example</small>
+                  </span>
+                </button>
+                <button className="home-explore-remix" type="button" disabled={remixingExampleId !== undefined} onClick={() => void remixExample(example)} title="Copy this example into a new project you can change">
+                  <Pencil size={13} />Remix
+                </button>
+              </div>
+            ))}
             <button className="home-whats-new-item" type="button" onClick={() => onNavigate(WHATS_NEW_ITEM.page)}>
               <span className="home-whats-new-icon" aria-hidden="true" />
               <span className="home-whats-new-copy">
                 <strong>{WHATS_NEW_ITEM.title}</strong>
+                <small>New</small>
               </span>
             </button>
           </div>
@@ -156,7 +200,9 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           {phase === "loading" ? <ProjectGridSkeleton count={recentProjectLimit} /> : null}
           {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
           {phase === "ready" && projects.length === 0 ? (
-            <p className="home-project-state">No projects yet</p>
+            <p className="home-project-state">
+              {visibleExamples.length ? "No projects yet. Play an example above, or describe a game to start." : "No projects yet"}
+            </p>
           ) : null}
           {phase === "ready" && projects.length > 0 ? (
             <div className="home-project-grid home-recent-projects-grid">
@@ -172,8 +218,19 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
             </div>
           ) : null}
           {projectActionError ? <p className="home-notice" role="alert">{projectActionError}</p> : null}
+          {remixError && !playingExample ? <p className="home-notice" role="alert">{remixError}</p> : null}
         </section>
       </section>
+      {playingExample ? (
+        <ExamplePlayer
+          example={playingExample}
+          coverUrl={exampleCovers[playingExample.id]}
+          remixing={remixingExampleId === playingExample.id}
+          error={remixError}
+          onRemix={() => void remixExample(playingExample)}
+          onClose={() => setPlayingExample(undefined)}
+        />
+      ) : null}
       {createOpen ? <ProjectCreateDialog initialType={projectType} projectTypes={GAME_PROJECT_TYPES} onClose={() => setCreateOpen(false)} onCreated={(project) => {
         setCreateOpen(false);
         onOpen(project.id);

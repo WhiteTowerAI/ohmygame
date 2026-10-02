@@ -19,6 +19,9 @@ async function writeExamples(): Promise<string> {
   await writeFile(path.join(files, "package.json"), JSON.stringify({ scripts: { dev: "vite", build: "vite build" } }));
   await writeFile(path.join(files, "src", "main.ts"), "console.log('pond');\n");
   await writeFile(path.join(directory, "pond", "cover.webp"), "RIFF-cover");
+  await mkdir(path.join(directory, "pond", "play", "assets"), { recursive: true });
+  await writeFile(path.join(directory, "pond", "play", "index.html"), "<title>Pond</title>");
+  await writeFile(path.join(directory, "pond", "play", "assets", "game.js"), "play();");
   const catalog: PreparedExampleCatalog = {
     version: 1,
     source: { repository: "WhiteTowerAI/ohmygame-examples", commit: "0".repeat(40) },
@@ -29,6 +32,7 @@ async function writeExamples(): Promise<string> {
       description: "A small pond.",
       directory: "pond/files",
       cover: "pond/cover.webp",
+      play: "pond/play",
     }],
   };
   await writeFile(path.join(directory, "catalog.json"), JSON.stringify(catalog));
@@ -54,6 +58,24 @@ describe("examples", () => {
     expect(cover.headers["content-type"]).toBe("image/webp");
     expect(cover.body).toBe("RIFF-cover");
     expect((await app.inject({ method: "GET", url: "/examples/missing/cover" })).statusCode).toBe(404);
+  });
+
+  it("serves an example's static build on loopback for playing", async () => {
+    const app = await startApp(await writeExamples());
+
+    const response = await app.inject({ method: "POST", url: "/examples/pond/play" });
+
+    expect(response.statusCode).toBe(200);
+    const { url } = response.json() as { url: string };
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/[\w-]{20,}\/$/);
+    expect(await (await fetch(url)).text()).toBe("<title>Pond</title>");
+    const script = await fetch(`${url}assets/game.js`);
+    expect(script.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(await script.text()).toBe("play();");
+    expect((await fetch(`${url}../cover.webp`)).status).toBe(404);
+    expect((await fetch(new URL("/not-a-token/index.html", url))).status).toBe(404);
+    expect((await app.inject({ method: "POST", url: "/examples/pond/play" })).json()).toEqual({ url });
+    expect((await app.inject({ method: "POST", url: "/examples/lake/play" })).statusCode).toBe(404);
   });
 
   it("has no examples when none were prepared", async () => {
@@ -110,7 +132,7 @@ describe("examples", () => {
     const valid = {
       version: 1,
       source: { repository: "a/b", commit: "c" },
-      examples: [{ id: "pond", type: "web-game", name: "Pond", description: "", directory: "pond/files", cover: "pond/cover.webp" }],
+      examples: [{ id: "pond", type: "web-game", name: "Pond", description: "", directory: "pond/files", cover: "pond/cover.webp", play: "pond/play" }],
     };
     expect(isPreparedExampleCatalog(valid)).toBe(true);
     expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...valid.examples[0], directory: "../outside" }] })).toBe(false);

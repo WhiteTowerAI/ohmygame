@@ -2,8 +2,8 @@ import { Clapperboard, LoaderCircle, Plus, X } from "./icons.js";
 import { useEffect, useId, useRef, useState } from "react";
 import type { CreateProjectRequest, ProjectState, ProjectType } from "../shared/contracts.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
-import type { ExampleSummary } from "../shared/examples.js";
-import { createProject, getExampleCover, listExamples } from "./api.js";
+import { createProject } from "./api.js";
+import { useExamples } from "./examples.js";
 import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel, type ProjectTypeOption } from "./project-types.js";
 import { canvasFormatPreset, type CanvasFormatPresetId } from "../shared/canvas-formats.js";
 import { CanvasFormatOptions } from "./canvas-format-options.js";
@@ -26,8 +26,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [templateId, setTemplateId] = useState<CreateProjectRequest["templateId"]>();
   const [canvasFormat, setCanvasFormat] = useState<CanvasFormatPresetId>("landscape");
-  const [examples, setExamples] = useState<ExampleSummary[]>([]);
-  const [exampleCovers, setExampleCovers] = useState<Record<string, string>>({});
+  const { examples, covers: exampleCovers } = useExamples();
   const [exampleId, setExampleId] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
@@ -36,26 +35,6 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
   const typeExamples = examples.filter((example) => example.type === type);
   const selectedExample = typeExamples.find((example) => example.id === exampleId);
   const namePlaceholder = selectedExample?.name ?? (templateId ? INTERACTIVE_DRAMA_STARTER.name : defaultProjectName(type));
-
-  useEffect(() => {
-    let disposed = false;
-    const coverUrls: string[] = [];
-    void listExamples().then(async (list) => {
-      if (disposed) return;
-      setExamples(list);
-      for (const example of list) {
-        const cover = await getExampleCover(example.id).catch(() => undefined);
-        if (disposed || !cover) continue;
-        const url = URL.createObjectURL(cover);
-        coverUrls.push(url);
-        setExampleCovers((current) => ({ ...current, [example.id]: url }));
-      }
-    }).catch(() => undefined);
-    return () => {
-      disposed = true;
-      for (const url of coverUrls) URL.revokeObjectURL(url);
-    };
-  }, []);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;

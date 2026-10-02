@@ -2,6 +2,7 @@ import { cp, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { isPreparedExampleCatalog, type ExampleSummary, type PreparedExample } from "../shared/examples.js";
+import { LoopbackFileServer } from "./loopback-file-server.js";
 import { ProjectWorkspaceError, type ProjectManager } from "./projects.js";
 
 export class ExampleError extends Error {
@@ -19,6 +20,8 @@ const IGNORABLE_WORKSPACE_FILES = new Set([".DS_Store", "Thumbs.db", "desktop.in
  */
 export class ExampleStore {
   readonly #directory: string | undefined;
+  readonly #playServer = new LoopbackFileServer();
+  readonly #playUrls = new Map<string, Promise<string>>();
   #examples: PreparedExample[] = [];
 
   constructor(directory: string | undefined) {
@@ -48,6 +51,23 @@ export class ExampleStore {
     const example = this.#example(id);
     if (!example) return undefined;
     return readFile(path.join(this.#directory!, example.cover));
+  }
+
+  /** Returns a loopback URL that plays the example's static build. */
+  async playUrl(id: string): Promise<string> {
+    const example = this.#example(id);
+    if (!example) throw new ExampleError(`Example not found: ${id}`, 404);
+    let url = this.#playUrls.get(id);
+    if (!url) {
+      url = this.#playServer.mount(path.join(this.#directory!, example.play)).then((mount) => mount.url);
+      this.#playUrls.set(id, url);
+    }
+    return url;
+  }
+
+  async close(): Promise<void> {
+    this.#playUrls.clear();
+    await this.#playServer.close();
   }
 
   /** Creates a project whose workspace starts as a copy of the example. */

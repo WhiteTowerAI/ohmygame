@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -6,7 +7,8 @@ import { git, replaceDirectory } from "./runtime-directory.js";
 
 // Downloads the pinned commit of the examples repository and packages the
 // examples its catalog lists into .runtime/examples for the daemon and the
-// desktop build. Pass --require to fail when the repository is unreachable;
+// desktop build: each example's source (copied into new projects), cover, and
+// a static build (played straight from Home). Pass --require to fail when the repository is unreachable;
 // otherwise a missing download only disables examples.
 
 interface LockFile {
@@ -61,12 +63,18 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
       if (!(await stat(path.join(exampleDirectory, "package.json"))).isFile()) throw new Error(`${entry.id} has no package.json`);
       const directory = `${entry.id}/files`;
       const cover = `${entry.id}/cover${path.extname(coverFile).toLowerCase()}`;
+      const play = `${entry.id}/play`;
       await cp(exampleDirectory, path.join(prepared, directory), {
         recursive: true,
         filter: (file) => !["node_modules", "dist", ".git"].includes(path.basename(file)),
       });
       await cp(coverFile, path.join(prepared, cover));
-      examples.push({ id: entry.id, type: entry.type, name: entry.name, description: entry.description, directory, cover });
+      console.log(`Building ${entry.id}…`);
+      await npm(["ci", "--no-audit", "--no-fund"], exampleDirectory);
+      await npm(["run", "build"], exampleDirectory);
+      await stat(path.join(exampleDirectory, "dist", "index.html"));
+      await cp(path.join(exampleDirectory, "dist"), path.join(prepared, play), { recursive: true });
+      examples.push({ id: entry.id, type: entry.type, name: entry.name, description: entry.description, directory, cover, play });
     }
     const catalog: PreparedExampleCatalog = {
       version: 1,
@@ -81,6 +89,21 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
+}
+
+function npm(args: string[], cwd: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.platform === "win32" ? "npm.cmd" : "npm", args, {
+      cwd,
+      shell: process.platform === "win32",
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => code === 0 ? resolve() : reject(new Error(`npm ${args.join(" ")} failed in ${cwd}: ${stderr.trim().slice(-2000)}`)));
+  });
 }
 
 function resolveInside(root: string, relativePath: string): string {
@@ -99,6 +122,7 @@ async function isCurrentOutput(directory: string, expectedLockSha256: string): P
     for (const example of catalog.examples) {
       await stat(path.join(directory, example.directory, "package.json"));
       await stat(path.join(directory, example.cover));
+      await stat(path.join(directory, example.play, "index.html"));
     }
     return true;
   } catch (error) {

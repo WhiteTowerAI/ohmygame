@@ -2728,7 +2728,8 @@ button.home-nav-item-active:hover {
 
 .home-whats-new-grid {
   display: grid;
-  grid-template-columns: minmax(0, 232px);
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--recent-project-min-width), 100%), 232px));
+  gap: var(--recent-project-gap);
   padding-bottom: 2px;
 }
 
@@ -2773,10 +2774,241 @@ button.home-nav-item-active:hover {
 .home-whats-new-copy {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 5px 10px 6px;
+}
+
+.home-whats-new-copy small {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* Example cards in the Explore row: the card plays, Remix copies it into a project. */
+.home-explore-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+
+.home-explore-cover {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-hover);
+}
+
+.home-explore-cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.home-explore-play {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 58%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.home-explore-remix {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 92%);
+  color: #17181a;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.home-explore-card:hover .home-explore-play,
+.home-explore-card:focus-within .home-explore-play,
+.home-explore-card:hover .home-explore-remix,
+.home-explore-card:focus-within .home-explore-remix {
+  opacity: 1;
+}
+
+.home-explore-remix:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+@media (hover: none) {
+  .home-explore-play,
+  .home-explore-remix {
+    opacity: 1;
+  }
+}
+
+/* Plays an example's static build over Home. */
+.example-player-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgb(0 0 0 / 62%);
+}
+
+.example-player {
+  display: flex;
+  width: min(1280px, 100%, calc((100vh - 64px - 76px) * 16 / 9));
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--surface-raised);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 35%);
+}
+
+.example-player-stage {
+  aspect-ratio: 16 / 9;
+  background: #050608;
+}
+
+.example-player-stage iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #050608;
+}
+
+.example-player-status {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #c9ccd1;
+  font-size: 13px;
+}
+
+.example-player-toolbar {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 8px 12px 8px 14px;
+  border-top: 1px solid rgb(255 255 255 / 7%);
+}
+
+.example-player-summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.example-player-summary img {
+  width: 96px;
+  height: 54px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.example-player-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.example-player-summary strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.example-player-summary span,
+.example-player-summary p {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.example-player-summary .example-player-error {
+  color: var(--danger, #d14343);
+  white-space: normal;
+}
+
+.example-player-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.example-player-actions button {
+  display: inline-flex;
+  min-width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.example-player-actions button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.example-player-actions .example-player-remix {
+  padding: 0 14px;
+  background: var(--composer-accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.example-player-actions .example-player-remix:hover:not(:disabled) {
+  background: var(--composer-accent-hover);
+}
+
+.example-player-actions button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.example-player:fullscreen {
+  width: 100%;
+  border-radius: 0;
+}
+
+.example-player:fullscreen .example-player-stage {
+  flex: 1;
+  aspect-ratio: auto;
 }
 
 .home-whats-new-copy strong {
