@@ -305,7 +305,10 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string>();
   const operationRef = useRef<string | undefined>(undefined);
+  const openedUrl = useRef<string | undefined>(undefined);
   const endpoint = useProviderEndpoint(provider.id);
+  // A proxy Base URL only applies to API keys; never send a ChatGPT sign-in through it.
+  const editsEndpoint = endpoint.supported && method === "api_key";
 
   useEffect(() => {
     let active = true;
@@ -361,7 +364,7 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
     if (!operationId || !prompt) return;
     const value = prompt.value.type === "select" ? answer || prompt.value.options[0]?.id || "" : answer;
     try {
-      if (endpoint.supported) await endpoint.save();
+      if (editsEndpoint) await endpoint.save();
       await respondToModelAuth(operationId, prompt.id, value);
       setPrompt(undefined);
       setAnswer("");
@@ -378,12 +381,20 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
 
   const external = authExternalTarget(notification);
   const displayedError = error ?? endpoint.error;
+  // Browser sign-in also offers pasting the redirect URL, in case the callback never reaches the app.
+  const browserFallback = prompt?.value.type === "manual_code" && Boolean(external);
+
+  useEffect(() => {
+    if (method !== "oauth" || !external || openedUrl.current === external) return;
+    openedUrl.current = external;
+    void openExternal(external).catch(() => undefined);
+  }, [external, method]);
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={() => void cancel()} />
-      {prompt ? (
+      {prompt && !browserFallback ? (
         <form className="settings-detail-section" onSubmit={(event) => void respond(event)}>
-          {endpoint.supported ? <BaseUrlField endpoint={endpoint} /> : null}
+          {editsEndpoint ? <BaseUrlField endpoint={endpoint} /> : null}
           <label className="settings-detail-field">
             <span className="settings-search-field-label">{prompt.value.message}</span>
             {prompt.value.type === "select" ? (
@@ -396,7 +407,7 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
           </label>
           <div className="settings-form-actions">
             <button className="settings-secondary-button" type="button" onClick={() => void cancel()}>Cancel</button>
-            <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || (endpoint.supported && !endpoint.baseUrl.trim()) || (prompt.value.type !== "select" && !prompt.value.optional && !answer.trim())}>Continue</button>
+            <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || (editsEndpoint && !endpoint.baseUrl.trim()) || (prompt.value.type !== "select" && !prompt.value.optional && !answer.trim())}>Continue</button>
           </div>
         </form>
       ) : (
@@ -405,14 +416,23 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
             <LoaderCircle className="spin" size={16} />
             <span className="settings-detail-status-copy">
               <strong>{method === "oauth" ? "Waiting for sign-in" : "Preparing configuration"}</strong>
-              <small>{notificationText(notification)}</small>
+              <small>{external && method === "oauth" ? "Finish signing in in your browser, then come back here." : notificationText(notification)}</small>
             </span>
           </div>
           {notification?.type === "device_code" ? <div className="settings-device-code">{notification.userCode}</div> : null}
           <div className="settings-form-actions">
             <button className="settings-secondary-button" type="button" onClick={() => void cancel()}>Cancel</button>
-            {external ? <button className="settings-primary-button" type="button" onClick={() => void openExternal(external)}><ExternalLink size={14} />Open browser</button> : null}
+            {external ? <button className="settings-primary-button" type="button" onClick={() => void openExternal(external)}><ExternalLink size={14} />{method === "oauth" ? "Open browser again" : "Open browser"}</button> : null}
           </div>
+          {browserFallback && prompt ? (
+            <form className="settings-detail-field settings-auth-fallback" onSubmit={(event) => void respond(event)}>
+              <label className="settings-detail-hint" htmlFor="model-auth-redirect">Browser didn't return here? Paste the address it ended on.</label>
+              <div className="settings-detail-inline">
+                <input id="model-auth-redirect" className="settings-search-input" value={answer} placeholder={prompt.value.type === "manual_code" ? prompt.value.placeholder : undefined} onChange={(event) => setAnswer(event.target.value)} spellCheck={false} />
+                <button className="settings-secondary-button" type="submit" disabled={!answer.trim()}>Continue</button>
+              </div>
+            </form>
+          ) : null}
         </div>
       )}
       {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
