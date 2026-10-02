@@ -37,7 +37,11 @@ type NewModelAuthEvent = ModelAuthEvent extends infer Event
 export class ModelAuthManager {
   readonly #operations = new Map<string, AuthOperation>();
 
-  constructor(private readonly getRuntime: () => Promise<ModelRuntime>) {}
+  constructor(
+    private readonly getRuntime: () => Promise<ModelRuntime>,
+    /** Stable installation ID; Sign in with ChatGPT sends it to OpenAI as the agent host ID. */
+    private readonly getDeviceId?: () => string,
+  ) {}
 
   async providers(): Promise<ModelProviderSummary[]> {
     const runtime = await this.getRuntime();
@@ -90,7 +94,7 @@ export class ModelAuthManager {
       }),
       prompt: (prompt) => this.#prompt(operation, prompt),
     };
-    void runtime.login(providerId, method, interaction).then(
+    void runtime.login(providerId, method, interaction, this.getDeviceId ? { getDeviceId: this.getDeviceId } : undefined).then(
       () => this.#finish(operation, { type: "completed" }),
       (error) => this.#finish(operation, operation.controller.signal.aborted
         ? { type: "cancelled" }

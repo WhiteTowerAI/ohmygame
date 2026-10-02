@@ -533,7 +533,11 @@ export function createApp(options: AppOptions = {}) {
   const publishProjectRenamed = (project: ProjectState) => {
     events.publish(project.id, "project.renamed", { project });
   };
-  const modelAuth = new ModelAuthManager(getModelRuntime);
+  const modelAuth = new ModelAuthManager(
+    getModelRuntime,
+    // Same ID Pi's own CLI uses, persisted in the agent directory's global settings.
+    () => SettingsManager.create(piAgentDirectory, piAgentDirectory).getOrCreateDeviceId(),
+  );
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch);
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch);
   const tools = new ToolRunner(
