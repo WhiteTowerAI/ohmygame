@@ -1,4 +1,5 @@
 import type { ImageProtocol } from "../shared/contracts.js";
+import { withOpenRouterAttribution } from "./openrouter-attribution.js";
 import { ImageGenerationError, OpenAIImageGenerator, type GeneratedImage, type GeneratedImageMediaType, type ImageGenerationInput } from "./openai-image.js";
 
 export interface ImageSource {
@@ -33,7 +34,7 @@ async function generateOpenRouter(source: ImageSource, model: string, input: Ima
   try {
     response = await request(`${source.baseUrl.replace(/\/$/, "")}/images`, {
       method: "POST",
-      headers: { ...source.headers, authorization: `Bearer ${source.apiKey}`, "content-type": "application/json" },
+      headers: { ...withOpenRouterAttribution(source.headers ?? {}), authorization: `Bearer ${source.apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
         model,
         prompt: input.prompt,

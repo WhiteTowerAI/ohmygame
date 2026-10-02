@@ -1,13 +1,14 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { groupModelsByProvider, ModelSelector } from "../src/renderer/model-selector.js";
+import type { AgentModel } from "../src/shared/contracts.js";
 
-const model = {
+const model: AgentModel = {
   provider: "openai",
   providerName: "OpenAI",
   id: "gpt-test",
   name: "GPT Test",
-  reasoningLevels: ["off", "medium"] as const,
+  reasoningLevels: ["off", "medium"],
 };
 
 describe("ModelSelector", () => {

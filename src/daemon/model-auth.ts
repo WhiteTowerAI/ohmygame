@@ -37,7 +37,15 @@ type NewModelAuthEvent = ModelAuthEvent extends infer Event
 export class ModelAuthManager {
   readonly #operations = new Map<string, AuthOperation>();
 
-  constructor(private readonly getRuntime: () => Promise<ModelRuntime>) {}
+  constructor(
+    private readonly getRuntime: () => Promise<ModelRuntime>,
+    private readonly options: {
+      /** Stable installation ID; Sign in with ChatGPT sends it to OpenAI as the agent host ID. */
+      getDeviceId?: () => string;
+      /** Runs after a sign-in or sign-out changes a provider's stored credential. */
+      onCredentialsChanged?: (runtime: ModelRuntime) => Promise<void>;
+    } = {},
+  ) {}
 
   async providers(): Promise<ModelProviderSummary[]> {
     const runtime = await this.getRuntime();
@@ -90,8 +98,12 @@ export class ModelAuthManager {
       }),
       prompt: (prompt) => this.#prompt(operation, prompt),
     };
-    void runtime.login(providerId, method, interaction).then(
-      () => this.#finish(operation, { type: "completed" }),
+    const { getDeviceId, onCredentialsChanged } = this.options;
+    void runtime.login(providerId, method, interaction, getDeviceId ? { getDeviceId } : undefined).then(
+      async () => {
+        await onCredentialsChanged?.(runtime);
+        this.#finish(operation, { type: "completed" });
+      },
       (error) => this.#finish(operation, operation.controller.signal.aborted
         ? { type: "cancelled" }
         : { type: "error", error: errorMessage(error) }),
@@ -133,6 +145,7 @@ export class ModelAuthManager {
     const runtime = await this.getRuntime();
     if (!runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     await runtime.logout(providerId);
+    await this.options.onCredentialsChanged?.(runtime);
   }
 
   close(): void {

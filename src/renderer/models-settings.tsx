@@ -1,5 +1,5 @@
-import { ArrowLeft, ChevronDown, ExternalLink, LoaderCircle, Search } from "./icons.js";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowLeft, ChevronDown, ChevronRight, Code2, ExternalLink, LoaderCircle, Search, UserRound } from "./icons.js";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   ModelAuthEvent,
   ModelAuthMethod,
@@ -26,7 +26,7 @@ import { PROVIDER_ICONS } from "./provider-icons.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
-const POPULAR_PROVIDER_IDS = ["openrouter", "openai-codex", "openai", "anthropic"];
+const POPULAR_PROVIDER_IDS = ["openrouter", "openai", "anthropic"];
 const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; label: string }> = [
   { value: "all", label: "All" },
   { value: "language", label: "Language" },
@@ -145,7 +145,7 @@ function ProviderRow({ detail, featured = false, onProvider, provider }: { detai
   );
 }
 
-function ProviderMark({ provider }: { provider: ProviderSummary }) {
+function ProviderMark({ provider }: { provider: Pick<ModelProviderSummary, "id"> }) {
   const icon = PROVIDER_ICONS[provider.id];
   if (!icon) return <span className="settings-provider-mark-slot" aria-hidden="true" />;
   return <span className={`settings-provider-mark is-${icon.tone}`} aria-hidden="true"><img src={icon.src} alt="" /></span>;
@@ -191,27 +191,28 @@ function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ModelProvi
   }
 
   return (
-    <section className="settings-panel">
-      <SettingsBack title={provider.name} onBack={onBack} />
-      <form className="settings-auth-form" onSubmit={(event) => void save(event)}>
-        <label htmlFor="meshy-api-key">Meshy API key</label>
-        <input
-          id="meshy-api-key"
-          type="password"
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-          placeholder={provider.configured ? "Replace current key" : "Paste API key"}
-          disabled={saving}
-        />
-        <div className="settings-form-actions">
+    <section className="settings-panel settings-provider-detail">
+      <ProviderDetailHeader provider={provider} onBack={onBack} />
+      {provider.configured ? (
+        <ProviderStatusRow source={provider.source}>
+          <button className="settings-danger-button" type="button" disabled={saving} onClick={() => void clear()}>Disconnect</button>
+        </ProviderStatusRow>
+      ) : null}
+      <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
+        <label className="settings-search-field-label" htmlFor="meshy-api-key">API key</label>
+        <div className="settings-detail-inline">
+          <input
+            id="meshy-api-key"
+            className="settings-search-input"
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={provider.configured ? "Paste a new key to replace the current one" : "Paste your Meshy API key"}
+            disabled={saving}
+          />
           <button className="settings-primary-button" type="submit" disabled={saving || !apiKey.trim()}>
             {saving ? "Saving…" : "Save"}
           </button>
-          {provider.configured ? (
-            <button className="settings-secondary-button" type="button" disabled={saving} onClick={() => void clear()}>
-              Disconnect
-            </button>
-          ) : null}
         </div>
       </form>
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
@@ -221,10 +222,25 @@ function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ModelProvi
 
 function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProviderSummary; onBack: () => void; onChoose: (method: ModelAuthMethod) => void }) {
   return (
-    <section className="settings-panel">
-      <SettingsBack title={provider.name} onBack={onBack} />
-      <div className="settings-methods">
-        {provider.methods.map((method) => <button type="button" key={method.type} onClick={() => onChoose(method.type)}>{method.label}</button>)}
+    <section className="settings-panel settings-provider-detail">
+      <ProviderDetailHeader provider={provider} onBack={onBack} />
+      <div className="settings-detail-section">
+        <DetailSectionHeader title="Connect" description="Choose how OhMyGame should connect to this provider." />
+        <div className="settings-method-list">
+          {provider.methods.map((method) => {
+            const Icon = method.type === "oauth" ? UserRound : Code2;
+            return (
+              <button className="settings-method-row" type="button" key={method.type} onClick={() => onChoose(method.type)}>
+                <span className="settings-method-icon"><Icon size={15} /></span>
+                <span className="settings-method-copy">
+                  <strong>{method.label}</strong>
+                  <small>{method.type === "oauth" ? "Sign in with your account in the browser" : "Paste a key from your provider dashboard"}</small>
+                </span>
+                <ChevronRight size={14} />
+              </button>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
@@ -259,26 +275,25 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
     }
   }
   const displayedError = error ?? endpoint.error;
+  // Only API keys can go through a proxy; a ChatGPT sign-in always talks to OpenAI directly.
+  const showsEndpoint = endpoint.supported && provider.credentialType !== "oauth";
   return (
-    <section className="settings-panel">
-      <SettingsBack title={provider.name} onBack={onBack} />
-      <div className="settings-auth-status"><span className="settings-status-dot" /><span><strong>Connected</strong>{provider.source ? <small>{provider.source}</small> : null}</span></div>
-      {endpoint.supported ? (
-        <form className="settings-auth-form" onSubmit={(event) => void saveEndpoint(event)}>
-          <label htmlFor="model-provider-base-url">Base URL</label>
-          <input id="model-provider-base-url" value={endpoint.baseUrl} onChange={(event) => endpoint.setBaseUrl(event.target.value)} disabled={endpoint.loading} />
-          <div className="settings-form-actions">
-            <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || !endpoint.baseUrl.trim()}>{endpoint.saving ? "Saving…" : "Save"}</button>
-          </div>
-        </form>
-      ) : null}
-      <div className="settings-form-actions">
+    <section className="settings-panel settings-provider-detail">
+      <ProviderDetailHeader provider={provider} onBack={onBack} />
+      <ProviderStatusRow source={provider.source}>
         {provider.credentialType ? (
-          <button className="settings-secondary-button" type="button" disabled={disconnecting} onClick={() => void disconnect()}>{disconnecting ? "Disconnecting…" : "Disconnect"}</button>
+          <button className="settings-danger-button" type="button" disabled={disconnecting} onClick={() => void disconnect()}>{disconnecting ? "Disconnecting…" : "Disconnect"}</button>
         ) : (
           <span className="settings-managed-label">Managed outside OhMyGame</span>
         )}
-      </div>
+      </ProviderStatusRow>
+      {showsEndpoint ? (
+        <form onSubmit={(event) => void saveEndpoint(event)}>
+          <BaseUrlField endpoint={endpoint}>
+            <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || !endpoint.baseUrl.trim() || !endpoint.dirty}>{endpoint.saving ? "Saving…" : "Save"}</button>
+          </BaseUrlField>
+        </form>
+      ) : null}
       {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
       {notice ? <p className="settings-success" role="status">{notice}</p> : null}
     </section>
@@ -292,7 +307,10 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState<string>();
   const operationRef = useRef<string | undefined>(undefined);
+  const openedUrl = useRef<string | undefined>(undefined);
   const endpoint = useProviderEndpoint(provider.id);
+  // A proxy Base URL only applies to API keys; never send a ChatGPT sign-in through it.
+  const editsEndpoint = endpoint.supported && method === "api_key";
 
   useEffect(() => {
     let active = true;
@@ -348,7 +366,7 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
     if (!operationId || !prompt) return;
     const value = prompt.value.type === "select" ? answer || prompt.value.options[0]?.id || "" : answer;
     try {
-      if (endpoint.supported) await endpoint.save();
+      if (editsEndpoint) await endpoint.save();
       await respondToModelAuth(operationId, prompt.id, value);
       setPrompt(undefined);
       setAnswer("");
@@ -365,46 +383,112 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
 
   const external = authExternalTarget(notification);
   const displayedError = error ?? endpoint.error;
+  // Browser sign-in also offers pasting the redirect URL, in case the callback never reaches the app.
+  const browserFallback = prompt?.value.type === "manual_code" && Boolean(external);
+
+  useEffect(() => {
+    if (method !== "oauth" || !external || openedUrl.current === external) return;
+    openedUrl.current = external;
+    void openExternal(external).catch(() => undefined);
+  }, [external, method]);
   return (
-    <section className="settings-panel">
-      <SettingsBack title={provider.name} onBack={() => void cancel()} />
-      {prompt ? (
-        <form className="settings-auth-form" onSubmit={(event) => void respond(event)}>
-          {endpoint.supported ? (
-            <>
-              <label htmlFor="model-provider-base-url">Base URL</label>
-              <input id="model-provider-base-url" value={endpoint.baseUrl} onChange={(event) => endpoint.setBaseUrl(event.target.value)} disabled={endpoint.loading || endpoint.saving} />
-            </>
-          ) : null}
-          <label htmlFor="model-auth-answer">{prompt.value.message}</label>
-          {prompt.value.type === "select" ? (
-            <select id="model-auth-answer" value={answer || prompt.value.options[0]?.id || ""} onChange={(event) => setAnswer(event.target.value)}>
-              {prompt.value.options.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
-            </select>
-          ) : (
-            <input id="model-auth-answer" type={prompt.value.type === "secret" ? "password" : "text"} value={answer} placeholder={prompt.value.placeholder} onChange={(event) => setAnswer(event.target.value)} autoFocus />
-          )}
-          <div className="settings-form-actions"><button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || (endpoint.supported && !endpoint.baseUrl.trim()) || (prompt.value.type !== "select" && !prompt.value.optional && !answer.trim())}>Continue</button></div>
+    <section className="settings-panel settings-provider-detail">
+      <ProviderDetailHeader provider={provider} onBack={() => void cancel()} />
+      {prompt && !browserFallback ? (
+        <form className="settings-detail-section" onSubmit={(event) => void respond(event)}>
+          {editsEndpoint ? <BaseUrlField endpoint={endpoint} /> : null}
+          <label className="settings-detail-field">
+            <span className="settings-search-field-label">{prompt.value.message}</span>
+            {prompt.value.type === "select" ? (
+              <select className="settings-search-input" value={answer || prompt.value.options[0]?.id || ""} onChange={(event) => setAnswer(event.target.value)}>
+                {prompt.value.options.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
+              </select>
+            ) : (
+              <input className="settings-search-input" type={prompt.value.type === "secret" ? "password" : "text"} value={answer} placeholder={prompt.value.placeholder} onChange={(event) => setAnswer(event.target.value)} autoFocus />
+            )}
+          </label>
+          <div className="settings-form-actions">
+            <button className="settings-secondary-button" type="button" onClick={() => void cancel()}>Cancel</button>
+            <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || (editsEndpoint && !endpoint.baseUrl.trim()) || (prompt.value.type !== "select" && !prompt.value.optional && !answer.trim())}>Continue</button>
+          </div>
         </form>
       ) : (
-        <div className="settings-waiting-card">
-          <LoaderCircle className="spin" size={20} />
-          <span><strong>{method === "oauth" ? "Waiting for sign-in" : "Preparing configuration"}</strong><small>{notificationText(notification)}</small></span>
+        <div className="settings-detail-section">
+          <div className="settings-detail-status settings-detail-waiting">
+            <LoaderCircle className="spin" size={16} />
+            <span className="settings-detail-status-copy">
+              <strong>{method === "oauth" ? "Waiting for sign-in" : "Preparing configuration"}</strong>
+              <small>{external && method === "oauth" ? "Finish signing in in your browser, then come back here." : notificationText(notification)}</small>
+            </span>
+          </div>
+          {notification?.type === "device_code" ? <div className="settings-device-code">{notification.userCode}</div> : null}
+          <div className="settings-form-actions">
+            <button className="settings-secondary-button" type="button" onClick={() => void cancel()}>Cancel</button>
+            {external ? <button className="settings-primary-button" type="button" onClick={() => void openExternal(external)}><ExternalLink size={14} />{method === "oauth" ? "Open browser again" : "Open browser"}</button> : null}
+          </div>
+          {browserFallback && prompt ? (
+            <form className="settings-detail-field settings-auth-fallback" onSubmit={(event) => void respond(event)}>
+              <label className="settings-detail-hint" htmlFor="model-auth-redirect">Browser didn't return here? Paste the address it ended on.</label>
+              <div className="settings-detail-inline">
+                <input id="model-auth-redirect" className="settings-search-input" value={answer} placeholder={prompt.value.type === "manual_code" ? prompt.value.placeholder : undefined} onChange={(event) => setAnswer(event.target.value)} spellCheck={false} />
+                <button className="settings-secondary-button" type="submit" disabled={!answer.trim()}>Continue</button>
+              </div>
+            </form>
+          ) : null}
         </div>
       )}
-      {notification?.type === "device_code" ? <div className="settings-device-code">{notification.userCode}</div> : null}
-      <div className="settings-form-actions">
-        <button className="settings-secondary-button" type="button" onClick={() => void cancel()}>Cancel</button>
-        {external ? <button className="settings-provider-button" type="button" onClick={() => void openExternal(external)}><ExternalLink size={14} />Open browser</button> : null}
-      </div>
       {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
     </section>
+  );
+}
+
+function ProviderDetailHeader({ provider, onBack }: { provider: ModelProviderSummary; onBack: () => void }) {
+  return (
+    <header className="settings-provider-detail-header">
+      <button type="button" onClick={onBack} aria-label="Back"><ArrowLeft size={16} /></button>
+      <ProviderMark provider={provider} />
+      <span>
+        <h3>{provider.name}</h3>
+        <small>{providerDescription(provider)}</small>
+      </span>
+    </header>
+  );
+}
+
+function ProviderStatusRow({ source, children }: { source?: string; children: ReactNode }) {
+  return (
+    <div className="settings-detail-status">
+      <span className="settings-detail-status-line">
+        <i aria-hidden="true" />
+        <strong>Connected</strong>
+        {source ? <small>{source}</small> : null}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+function DetailSectionHeader({ title, description }: { title: string; description: string }) {
+  return <div className="settings-search-section-header"><h4>{title}</h4><p>{description}</p></div>;
+}
+
+function BaseUrlField({ endpoint, children }: { endpoint: ReturnType<typeof useProviderEndpoint>; children?: ReactNode }) {
+  return (
+    <div className="settings-detail-field">
+      <label className="settings-search-field-label" htmlFor="model-provider-base-url">Base URL</label>
+      <div className="settings-detail-inline">
+        <input id="model-provider-base-url" className="settings-search-input" value={endpoint.baseUrl} onChange={(event) => endpoint.setBaseUrl(event.target.value)} disabled={endpoint.loading || endpoint.saving} spellCheck={false} />
+        {children}
+      </div>
+      <small className="settings-detail-hint">Requests go to this OpenAI-compatible URL. Change it to use a proxy.</small>
+    </div>
   );
 }
 
 function useProviderEndpoint(providerId: string) {
   const supported = providerId === "openai";
   const [baseUrl, setBaseUrl] = useState("");
+  const [savedBaseUrl, setSavedBaseUrl] = useState("");
   const [loading, setLoading] = useState(supported);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
@@ -413,7 +497,9 @@ function useProviderEndpoint(providerId: string) {
     if (!supported) return;
     let active = true;
     void getOpenAIEndpointSettings().then((settings) => {
-      if (active) setBaseUrl(settings.baseUrl);
+      if (!active) return;
+      setBaseUrl(settings.baseUrl);
+      setSavedBaseUrl(settings.baseUrl);
     }).catch((cause) => {
       if (active) setError(errorMessage(cause));
     }).finally(() => {
@@ -429,19 +515,16 @@ function useProviderEndpoint(providerId: string) {
     try {
       const settings = await updateOpenAIEndpointSettings(baseUrl.trim());
       setBaseUrl(settings.baseUrl);
+      setSavedBaseUrl(settings.baseUrl);
     } finally {
       setSaving(false);
     }
   }
 
-  return { supported, baseUrl, setBaseUrl, loading, saving, error, save };
+  return { supported, baseUrl, setBaseUrl, dirty: baseUrl.trim() !== savedBaseUrl, loading, saving, error, save };
 }
 
-function SettingsBack({ title, onBack }: { title: string; onBack: () => void }) {
-  return <div className="settings-back-heading"><button type="button" onClick={onBack} aria-label="Back"><ArrowLeft size={16} /></button><h3>{title}</h3></div>;
-}
-
-function providerDescription(provider: ProviderSummary): string {
+function providerDescription(provider: Pick<ModelProviderSummary, "methods">): string {
   const oauth = provider.methods.some((method) => method.type === "oauth");
   const apiKey = provider.methods.some((method) => method.type === "api_key");
   if (oauth && apiKey) return "Browser sign-in or API key";

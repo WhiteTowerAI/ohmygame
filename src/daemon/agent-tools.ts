@@ -355,6 +355,6 @@ export function createAgentTools(
       return { content: [{ type: "text", text }], details: { playableCheck: { mode, ok: result.ok, issues } } };
     },
   })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type)
-    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget)]
+    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-drama" ? "reset" : "full" })]
     : [])];
 }

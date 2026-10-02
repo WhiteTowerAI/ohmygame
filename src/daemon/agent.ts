@@ -24,14 +24,15 @@ import {
 } from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
-import { appendSystemPromptForProject } from "./agent-prompts.js";
+import { appendSystemPromptForProject, type AgentPromptProject } from "./agent-prompts.js";
+import { openRouterAttributionExtension } from "./openrouter-attribution.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
   readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "getBranch">;
   prompt(prompt: string, options?: { images?: PiPromptImage[] }): Promise<void>;
-  followUp?(prompt: string, images?: PiPromptImage[]): Promise<void>;
-  steer?(prompt: string, images?: PiPromptImage[]): Promise<void>;
+  followUp?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
+  steer?(prompt: string, images?: PiPromptImage[]): Promise<unknown>;
   compact?(customInstructions?: string): Promise<unknown>;
   abortCompaction?(): void;
   getContextUsage?(): AgentContextUsage | undefined;
@@ -2135,7 +2136,7 @@ function appendPlanState(sessionManager: CodingSession["sessionManager"], state:
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
 
 export async function createPiSession(
-  project: Pick<ProjectState, "workspacePath" | "type">,
+  project: Pick<ProjectState, "workspacePath"> & AgentPromptProject,
   sessionManager: SessionManager,
   customTools: ToolDefinition[] = [],
   modelRuntime?: ModelRuntime,
@@ -2146,7 +2147,7 @@ export async function createPiSession(
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
   const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(project.workspacePath, agentDir, {
     resolvePluginSkills,
-    appendSystemPrompt: appendSystemPromptForProject(project.type),
+    appendSystemPrompt: appendSystemPromptForProject(project),
   });
   const { session } = await createAgentSession({
     cwd: project.workspacePath,
@@ -2209,13 +2210,29 @@ async function createPiResourceLoader(
     cwd: workspacePath,
     agentDir,
     settingsManager: sessionSettings,
+    extensionFactories: [{ name: "openrouter-attribution", factory: openRouterAttributionExtension, hidden: true }],
     additionalSkillPaths: pluginSkills.map((skill) => skill.path),
     appendSystemPrompt: options.appendSystemPrompt
       ? [...options.appendSystemPrompt]
       : [],
+    agentsFilesOverride: ({ agentsFiles }) => ({ agentsFiles: projectContextFiles(agentsFiles, workspacePath, agentDir) }),
   });
   await resourceLoader.reload();
   return { resourceLoader, sessionSettings, pluginSkills };
+}
+
+/**
+ * Pi also loads AGENTS.md and CLAUDE.md from every ancestor of the workspace.
+ * Those describe whatever repository or folder happens to contain the game
+ * (in development, this repository), so only the workspace's own files and
+ * OhMyGame's agent directory count.
+ */
+export function projectContextFiles<File extends { path: string }>(files: readonly File[], workspacePath: string, agentDir: string): File[] {
+  const roots = [path.resolve(workspacePath), path.resolve(agentDir)];
+  return files.filter((file) => {
+    const resolved = path.resolve(file.path);
+    return roots.some((root) => resolved === root || resolved.startsWith(`${root}${path.sep}`));
+  });
 }
 
 function skillCatalog(

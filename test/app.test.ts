@@ -12,7 +12,7 @@ const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } a
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("daemon", () => {
-  it("creates an isolated project with Web Game instructions", async () => {
+  it("creates an empty isolated Web Game project", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
     const response = await app.inject({ method: "POST", url: "/projects", payload: { name: "First" } });
@@ -20,7 +20,7 @@ describe("daemon", () => {
     const project = response.json();
     expect(project.name).toBe("First");
     expect(project.type).toBe("web-game");
-    expect(await readdir(project.workspacePath)).toEqual(["AGENTS.md"]);
+    expect(await readdir(project.workspacePath)).toEqual([]);
     expect(project.preview).toEqual({ status: "waiting" });
   });
 
@@ -336,7 +336,7 @@ describe("daemon", () => {
     expect(renamed.json()).toMatchObject({ name: "Renamed" });
     expect(duplicated.statusCode).toBe(201);
     expect(duplicated.json()).toMatchObject({ name: "Renamed copy" });
-    expect(await readdir(duplicated.json().workspacePath)).toEqual(["AGENTS.md", "index.html"]);
+    expect(await readdir(duplicated.json().workspacePath)).toEqual(["index.html"]);
     expect(deleted.statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });
@@ -365,7 +365,6 @@ describe("daemon", () => {
     });
 
     expect(files.json()).toEqual([
-      { path: "AGENTS.md", size: expect.any(Number) },
       { path: "cover.png", size: 3, mediaType: "image" },
       { path: "empty-folder", size: 0, directory: true },
       { path: "hello world.txt", size: 6 },
@@ -1287,6 +1286,7 @@ describe("daemon", () => {
     const unregisterProvider = vi.fn();
     const runtime = {
       ...fakeModelRuntime([]),
+      listCredentials: async () => [],
       registerProvider,
       unregisterProvider,
     } as unknown as ModelRuntime;
@@ -1313,6 +1313,60 @@ describe("daemon", () => {
     expect(official.json()).toEqual({ baseUrl: "https://api.openai.com/v1" });
     expect(registerProvider).toHaveBeenCalledWith("openai", { baseUrl: "https://relay.example/v1" });
     expect(unregisterProvider).toHaveBeenCalledWith("openai");
+  });
+
+  it("never sends a ChatGPT sign-in through the custom OpenAI endpoint", async () => {
+    const registerProvider = vi.fn();
+    const unregisterProvider = vi.fn();
+    const runtime = {
+      ...fakeModelRuntime([]),
+      listCredentials: async () => [{ providerId: "openai", type: "oauth" }],
+      registerProvider,
+      unregisterProvider,
+    } as unknown as ModelRuntime;
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model-endpoint-oauth-")),
+      createModelRuntime: async () => runtime,
+    });
+    apps.push(app);
+
+    await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/openai/endpoint",
+      payload: { baseUrl: "https://relay.example/v1" },
+    });
+
+    expect(registerProvider).not.toHaveBeenCalled();
+    expect(unregisterProvider).not.toHaveBeenCalled();
+  });
+
+  it("drops the custom OpenAI endpoint once ChatGPT sign-in completes", async () => {
+    const registerProvider = vi.fn();
+    const unregisterProvider = vi.fn();
+    let credentials: Array<{ providerId: string; type: string }> = [];
+    const runtime = {
+      ...fakeModelRuntime([]),
+      getProvider: (provider: string) => ({ name: provider, auth: { oauth: {}, apiKey: { login: true } } }),
+      listCredentials: async () => credentials,
+      login: async () => {
+        credentials = [{ providerId: "openai", type: "oauth" }];
+        return { type: "oauth" };
+      },
+      registerProvider,
+      unregisterProvider,
+    } as unknown as ModelRuntime;
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model-endpoint-signin-")),
+      createModelRuntime: async () => runtime,
+    });
+    apps.push(app);
+
+    await app.inject({ method: "PUT", url: "/settings/models/providers/openai/endpoint", payload: { baseUrl: "https://relay.example/v1" } });
+    expect(registerProvider).toHaveBeenCalledWith("openai", { baseUrl: "https://relay.example/v1" });
+
+    const login = await app.inject({ method: "POST", url: "/settings/models/providers/openai/login", payload: { method: "oauth" } });
+    expect(login.statusCode).toBe(202);
+    await vi.waitFor(() => expect(unregisterProvider).toHaveBeenCalledWith("openai"));
   });
 
   it("does not expose the removed Cloud model connection", async () => {

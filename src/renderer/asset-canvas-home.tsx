@@ -1,21 +1,26 @@
 import { Box, Film, Image, LoaderCircle, Plus, RefreshCw, type IconComponent } from "./icons.js";
 import { useEffect, useState } from "react";
-import type { ProjectState } from "../shared/contracts.js";
+import type { ImageModel, ProjectState, VideoModel } from "../shared/contracts.js";
 import type { AssetCanvasStarter } from "../shared/asset-canvas.js";
-import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { deleteProject, duplicateProject, listImageModels, listProjects, listVideoModels, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
-import { createAssetCanvasQuickStart } from "./asset-canvas-quick-start.js";
+import { availableQuickStarts, createAssetCanvasQuickStart, type AssetCanvasQuickStart } from "./asset-canvas-quick-start.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
-const QUICK_STARTS: Array<{ type: AssetCanvasStarter; model: string; icon: IconComponent }> = [
-  { type: "image", model: "GPT Image 2.5", icon: Image },
-  { type: "video", model: "Video", icon: Film },
-  { type: "model-3d", model: "Meshy T2", icon: Box },
-];
+type MediaModels = { image: ImageModel[]; video: VideoModel[] };
+
+// Kept across visits so switching tabs does not refetch provider catalogs before showing model starters.
+let cachedMediaModels: MediaModels | undefined;
+
+const QUICK_START_ICONS: Record<AssetCanvasStarter, IconComponent> = {
+  image: Image,
+  video: Film,
+  "model-3d": Box,
+};
 
 export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -26,7 +31,8 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   const [error, setError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
-  const [creatingStarter, setCreatingStarter] = useState<AssetCanvasStarter>();
+  const [creatingStarter, setCreatingStarter] = useState<string>();
+  const [mediaModels, setMediaModels] = useState(cachedMediaModels);
 
   async function load() {
     setPhase("loading");
@@ -43,6 +49,18 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
 
   useEffect(() => { void load(); }, []);
 
+  useEffect(() => {
+    let disposed = false;
+    void waitForRuntime()
+      .then(() => Promise.all([listImageModels().catch(() => []), listVideoModels().catch(() => [])]))
+      .catch(() => [[], []] as [ImageModel[], VideoModel[]])
+      .then(([image, video]) => {
+        cachedMediaModels = { image, video };
+        if (!disposed) setMediaModels(cachedMediaModels);
+      });
+    return () => { disposed = true; };
+  }, []);
+
   async function action(run: () => Promise<unknown>) {
     setActionError(undefined);
     try {
@@ -53,12 +71,12 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
     }
   }
 
-  async function quickStart(type: AssetCanvasStarter): Promise<void> {
+  async function quickStart(item: AssetCanvasQuickStart): Promise<void> {
     if (creatingStarter) return;
-    setCreatingStarter(type);
+    setCreatingStarter(item.key);
     setActionError(undefined);
     try {
-      const { project, nodeId } = await createAssetCanvasQuickStart(type);
+      const { project, nodeId } = await createAssetCanvasQuickStart(item);
       setCreatingStarter(undefined);
       onOpenProject(project.id, nodeId);
     } catch (cause) {
@@ -80,13 +98,14 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
 
         <section className="asset-canvas-quick-start" aria-labelledby="asset-canvas-quick-start-heading">
           <h2 id="asset-canvas-quick-start-heading">Quick start</h2>
-          <div className="asset-canvas-quick-grid">
-            {QUICK_STARTS.map((item) => {
-              const Icon = item.icon;
-              const creating = creatingStarter === item.type;
-              return <button key={item.type} type="button" disabled={creatingStarter !== undefined} aria-busy={creating} onClick={() => void quickStart(item.type)}>
+          {/* Hidden until models load so every starter appears at once, while still reserving the row. */}
+          <div className="asset-canvas-quick-grid" aria-busy={!mediaModels} style={mediaModels ? undefined : { visibility: "hidden" }}>
+            {availableQuickStarts(mediaModels?.image ?? [], mediaModels?.video ?? []).map((item) => {
+              const Icon = QUICK_START_ICONS[item.type];
+              const creating = creatingStarter === item.key;
+              return <button key={item.key} type="button" disabled={creatingStarter !== undefined} aria-busy={creating} onClick={() => void quickStart(item)}>
                 <span className="asset-canvas-quick-icon">{creating ? <LoaderCircle className="spin" size={20} /> : <Icon size={20} />}</span>
-                <strong>{item.model}</strong>
+                <strong title={item.label}>{item.label}</strong>
               </button>;
             })}
           </div>

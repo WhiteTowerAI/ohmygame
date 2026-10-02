@@ -1,26 +1,28 @@
-import { Check, ChevronDown, LoaderCircle, Monitor, SendArrow } from "./icons.js";
+import { Check, ChevronDown, Folder, FolderOpen, FolderPlus, LoaderCircle, Monitor, SendArrow } from "./icons.js";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
-import { createConversation, createProject, getHomeComposerCapabilities, updateAgentDefaults, waitForRuntime } from "./api.js";
+import { createConversation, createProject, getHomeComposerCapabilities, listProjects, updateAgentDefaults, waitForRuntime } from "./api.js";
 import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox } from "./prompt-box.js";
 import { PROJECT_TYPES, ProjectTypeIcon, type ProjectTypeOption } from "./project-types.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
-import { activePluginMentions, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, toPluginMention, type ComposerMention } from "./composer-mentions.js";
+import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
+import { createPromptHistory, loadHomePromptHistory, nextPrompt, previousPrompt, saveHomePrompt } from "./prompt-history.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
 import { CANVAS_FORMAT_PRESETS, canvasFormatPreset, type CanvasFormatPresetId } from "../shared/canvas-formats.js";
 
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
-export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES, placeholder, onProjectTypeChange, onCreate }: {
+export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES, placeholder, onProjectTypeChange, onOpenProject, onCreate }: {
   projectType: ProjectType;
   projectTypes?: readonly ProjectTypeOption[];
   placeholder: string;
   onProjectTypeChange?: (type: ProjectType) => void;
+  onOpenProject?: (projectId: string) => void;
   onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => void;
 }) {
   const [prompt, setPrompt] = useState("");
@@ -39,6 +41,14 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   const [model, setModel] = useState<AgentModelRef>();
   const [reasoningLevel, setReasoningLevel] = useState<AgentReasoningLevel>();
   const [canvasFormat, setCanvasFormat] = useState<CanvasFormatPresetId>("landscape");
+  // Always starts as a new managed folder: remembering an external folder would point every new project at it.
+  const [workspacePath, setWorkspacePath] = useState<string>();
+  const [selectingWorkspace, setSelectingWorkspace] = useState(false);
+  const [existingProject, setExistingProject] = useState<ProjectState>();
+  const selectDirectory = window.ohMyGameDesktop?.selectProjectDirectory;
+  const [storedHistory] = useState(() => loadHomePromptHistory());
+  const [history, setHistory] = useState(() => createPromptHistory(storedHistory.map((entry) => entry.prompt)));
+  const mentionHistory = new Map(storedHistory.map((entry) => [entry.prompt, entry.mentions]));
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const modelCatalog = useAgentModels();
   const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
@@ -75,23 +85,26 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
       togglePlanning();
       return;
     }
-    const nextPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
-    if ((!nextPrompt && images.length === 0) || creating) return;
+    const submittedPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
+    if ((!submittedPrompt && images.length === 0) || creating) return;
     setCreating(true);
     setError(undefined);
     try {
       const project = await createProject({
         type: projectType,
+        ...(workspacePath ? { workspacePath } : {}),
         ...(projectType === "interactive-drama"
           ? { viewport: canvasFormatPreset(canvasFormat).viewport }
           : {}),
       });
       const conversation = await createConversation(project.id);
+      const submittedMentions = activePluginMentions(submittedPrompt, pluginMentions);
+      saveHomePrompt({ prompt: submittedPrompt, mentions: submittedMentions });
       onCreate(
         project.id,
         conversation.id,
-        nextPrompt,
-        activePluginMentions(nextPrompt, pluginMentions),
+        submittedPrompt,
+        submittedMentions,
         promptImages(images),
         planning ? "planning" : "normal",
       );
@@ -117,6 +130,33 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
     }
   }
 
+  async function chooseWorkspace(): Promise<void> {
+    if (!selectDirectory) return;
+    setSelectingWorkspace(true);
+    setError(undefined);
+    setExistingProject(undefined);
+    try {
+      const selected = await selectDirectory();
+      if (!selected) return;
+      const owner = (await listProjects()).find((project) => project.workspacePath === selected);
+      if (owner) {
+        setExistingProject(owner);
+        return;
+      }
+      setWorkspacePath(selected);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSelectingWorkspace(false);
+    }
+  }
+
+  function resetWorkspace(): void {
+    setWorkspacePath(undefined);
+    setExistingProject(undefined);
+    setError(undefined);
+  }
+
   function changeModel(nextModel: AgentModel): void {
     const nextReasoningLevel = clampReasoningLevel(reasoningLevel ?? modelCatalog.defaultReasoningLevel, nextModel.reasoningLevels);
     void saveDefaults(nextModel, nextReasoningLevel);
@@ -135,6 +175,27 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   function changePrompt(value: string): void {
     setPrompt(value);
     setPluginMentions((current) => activePluginMentions(formatComposerInvocation(selectedSkill, selectedPlugin, value), current));
+    setHistory((current) => current.index === current.entries.length
+      ? current
+      : { ...current, index: current.entries.length, draft: formatComposerInvocation(selectedSkill, selectedPlugin, value) });
+  }
+
+  function browseHistory(direction: "previous" | "next"): void {
+    const result = direction === "previous" ? previousPrompt(history, formatComposerInvocation(selectedSkill, selectedPlugin, prompt)) : nextPrompt(history);
+    if (!result) return;
+    const skill = parseSkillInvocation(result.prompt);
+    const historicalMentions = mentionHistory.get(result.prompt) ?? [];
+    const plugin = extractLeadingPluginMention(skill?.prompt ?? result.prompt, historicalMentions);
+    setHistory(result.history);
+    setPrompt(plugin.prompt);
+    setSelectedSkill(skill?.name);
+    setSelectedPlugin(plugin.mention);
+    setPluginMentions(historicalMentions);
+    const cursor = plugin.prompt.length;
+    setMentionCursor(cursor);
+    requestAnimationFrame(() => {
+      promptRef.current?.setSelectionRange(cursor, cursor);
+    });
   }
 
   function clearSelectedPlugin(): void {
@@ -258,6 +319,14 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         leading={(
           <>
             <ImagePickerButton disabled={creating} onImages={(next) => { setError(undefined); setImages((items) => [...items, ...next]); }} onError={setError} />
+            {selectDirectory ? (
+              <WorkspaceSelector
+                value={workspacePath}
+                disabled={creating || selectingWorkspace}
+                onChoose={() => void chooseWorkspace()}
+                onUseManaged={resetWorkspace}
+              />
+            ) : null}
             {onProjectTypeChange ? <ProjectTypeSelector disabled={creating} value={projectType} options={projectTypes} onChange={onProjectTypeChange} /> : null}
             {projectType === "interactive-drama" ? <CanvasFormatSelector disabled={creating} value={canvasFormat} onChange={setCanvasFormat} /> : null}
             {planning ? <PlanModeIndicator disabled={creating} onExit={togglePlanning} /> : null}
@@ -265,6 +334,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         )}
         onChange={changePrompt}
         onCommandKeyDown={handleCommandKeyDown}
+        onHistoryNext={() => browseHistory("next")}
+        onHistoryPrevious={() => browseHistory("previous")}
         onSubmit={() => void submit()}
         overlay={mentions.length
           ? <ComposerMentionMenu items={mentions} selected={selectedMention} onSelect={selectMention} />
@@ -275,9 +346,145 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         value={prompt}
         variant="home"
       />
+      {existingProject ? (
+        <p className="home-notice" role="alert">
+          This folder is already the workspace of “{existingProject.name}”.
+          {onOpenProject ? <button type="button" onClick={() => onOpenProject(existingProject.id)}>Open project</button> : null}
+        </p>
+      ) : null}
       {error ? <p className="home-notice" role="alert">{error}</p> : null}
     </>
   );
+}
+
+function WorkspaceSelector({ value, disabled, onChoose, onUseManaged }: {
+  value?: string;
+  disabled?: boolean;
+  onChoose: () => void;
+  onUseManaged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const folderName = value ? workspaceFolderName(value) : undefined;
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
+    if (open) menu.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+  }, [open]);
+
+  function close(): void {
+    setOpen(false);
+    trigger.current?.focus();
+  }
+
+  return (
+    <div className="home-project-type-selector" ref={root}>
+      <button
+        ref={trigger}
+        className="home-project-type-trigger home-workspace-trigger"
+        type="button"
+        aria-controls={menuId}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={value ? `Workspace: ${value}` : "Workspace: new folder in OhMyGame storage"}
+        title={value ?? "Creates a new folder in OhMyGame's project storage"}
+        disabled={disabled}
+        onClick={() => setOpen((currentOpen) => !currentOpen)}
+      >
+        {value ? <Folder size={14} /> : <FolderPlus size={14} />}
+        <span>{folderName ?? "New folder"}</span>
+        <ChevronDown size={12} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div
+          ref={menu}
+          className="home-project-type-menu home-workspace-menu"
+          id={menuId}
+          role="menu"
+          aria-label="Workspace"
+          onKeyDown={(event) => {
+            if (event.key === "Tab") {
+              setOpen(false);
+              return;
+            }
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+            const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+            const nextIndex = event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? items.length - 1
+                : (currentIndex + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+            items[nextIndex]?.focus();
+          }}
+        >
+          <button
+            className={value ? undefined : "is-active"}
+            type="button"
+            role="menuitemradio"
+            aria-checked={!value}
+            onClick={() => {
+              onUseManaged();
+              close();
+            }}
+          >
+            <FolderPlus size={14} aria-hidden="true" />
+            <span>New folder</span>
+            {value ? null : <Check size={13} aria-hidden="true" />}
+          </button>
+          {value ? (
+            <button className="is-active" type="button" role="menuitemradio" aria-checked="true" title={value} onClick={close}>
+              <Folder size={14} aria-hidden="true" />
+              <span>{folderName}</span>
+              <Check size={13} aria-hidden="true" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onChoose();
+            }}
+          >
+            <FolderOpen size={14} aria-hidden="true" />
+            <span>{value ? "Choose another folder…" : "Choose folder…"}</span>
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+export function workspaceFolderName(workspacePath: string): string {
+  const trimmed = workspacePath.replace(/[\\/]+$/, "");
+  return trimmed.slice(Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\")) + 1) || workspacePath;
 }
 
 function CanvasFormatSelector({

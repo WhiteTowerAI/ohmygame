@@ -2,9 +2,9 @@
 
 ## Status
 
-Design in progress. Playable Nodes replaces the current Interactive Drama
-editor and runtime. This directory is the source of truth for the redesign;
-code changes follow these documents rather than the other way round.
+Playable Nodes is the runtime and editor model used for Interactive Stories.
+This directory documents its architecture, authoring experience, agent
+contract, and implementation history.
 
 ## The idea in one paragraph
 
@@ -65,10 +65,10 @@ editor's words.
 
 | Document                     | Question it answers                                  | Status |
 | ---------------------------- | ---------------------------------------------------- | ------ |
-| [vision.md](vision.md)       | Why change, and what the author should be able to do | Draft  |
-| [authoring.md](authoring.md) | What creating a project feels like in the editor     | Draft  |
-| [runtime.md](runtime.md)     | The Node protocol, State, Signals, navigation, saves | Draft  |
-| [agent.md](agent.md)         | What the Agent is given, its rules, and its tools    | Draft  |
-| [roadmap.md](roadmap.md)     | Old editor inventory, PR sequence, and migration     | Draft  |
+| [vision.md](vision.md)       | Why change, and what the author should be able to do | Current |
+| [authoring.md](authoring.md) | What creating a project feels like in the editor     | Current |
+| [runtime.md](runtime.md)     | The Node protocol, State, Signals, navigation, saves | Current |
+| [agent.md](agent.md)         | What the Agent is given, its rules, and its tools    | Current |
+| [roadmap.md](roadmap.md)     | Old editor inventory, PR sequence, and migration     | Historical |
 
 Read them in this order.

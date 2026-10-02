@@ -512,14 +512,29 @@ export function createApp(options: AppOptions = {}) {
     "https://api.openai.com/v1",
     "OpenAI",
   );
+  // The custom Base URL is for OpenAI API keys only. A ChatGPT sign-in token must go to OpenAI
+  // itself, never through a proxy, so the override is dropped while that credential is stored.
+  let openAIEndpointRegistered = false;
+  const syncOpenAIEndpoint = async (runtime: ModelRuntime) => {
+    const baseUrl = openAIEndpoint.override();
+    const signedIn = baseUrl
+      ? (await runtime.listCredentials()).some((credential) => credential.providerId === "openai" && credential.type === "oauth")
+      : false;
+    if (baseUrl && !signedIn) {
+      runtime.registerProvider("openai", { baseUrl });
+      openAIEndpointRegistered = true;
+    } else if (openAIEndpointRegistered) {
+      runtime.unregisterProvider("openai");
+      openAIEndpointRegistered = false;
+    }
+  };
   let modelRuntimePromise: Promise<ModelRuntime> | undefined;
   const getModelRuntime = () => modelRuntimePromise ??= (async () => {
     const runtime = await (options.createModelRuntime ?? (() => ModelRuntime.create({
       authPath: path.join(piAgentDirectory, "auth.json"),
       modelsPath: path.join(piAgentDirectory, "models.json"),
     })))();
-    const baseUrl = openAIEndpoint.override();
-    if (baseUrl) runtime.registerProvider("openai", { baseUrl });
+    await syncOpenAIEndpoint(runtime);
     return runtime;
   })();
   const publishConversationRenamed = (conversation: StoredConversation["summary"]) => {
@@ -533,7 +548,11 @@ export function createApp(options: AppOptions = {}) {
   const publishProjectRenamed = (project: ProjectState) => {
     events.publish(project.id, "project.renamed", { project });
   };
-  const modelAuth = new ModelAuthManager(getModelRuntime);
+  const modelAuth = new ModelAuthManager(getModelRuntime, {
+    // Same ID Pi's own CLI uses, persisted in the agent directory's global settings.
+    getDeviceId: () => SettingsManager.create(piAgentDirectory, piAgentDirectory).getOrCreateDeviceId(),
+    onCredentialsChanged: syncOpenAIEndpoint,
+  });
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch);
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch);
   const tools = new ToolRunner(
@@ -1245,7 +1264,11 @@ export function createApp(options: AppOptions = {}) {
         existing.packageManager !== request.body.packageManager;
       try {
         const project = await projects.setRunSettings(request.params.projectId, request.body);
-        if (restartRequired) await previews.stop(project);
+        if (restartRequired) {
+          await previews.stop(project);
+          // The agent's system prompt names the startup directory, script, and package manager.
+          agents.invalidateProjectSessions(project.id);
+        }
         return project;
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -1646,9 +1669,7 @@ export function createApp(options: AppOptions = {}) {
       try {
         const runtime = await getModelRuntime();
         const settings = await openAIEndpoint.update(request.body.baseUrl);
-        const baseUrl = openAIEndpoint.override();
-        if (baseUrl) runtime.registerProvider("openai", { baseUrl });
-        else runtime.unregisterProvider("openai");
+        await syncOpenAIEndpoint(runtime);
         return settings;
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -1705,6 +1726,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
+  app.get("/image-models/catalog", async () => providerImages.catalog());
+  app.get("/video-models/catalog", async () => providerVideos.catalog());
 
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",

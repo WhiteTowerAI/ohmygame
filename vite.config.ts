@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import react from "@vitejs/plugin-react";
@@ -21,6 +22,11 @@ export default defineConfig({
         playableSandbox: path.resolve(import.meta.dirname, "playable-sandbox.html"),
       },
     },
+  },
+  test: {
+    include: ["test/**/*.test.{ts,tsx}"],
+    // Playable build tests run real esbuild/vite builds and exceed the 5s default under parallel load.
+    testTimeout: 30_000,
   },
   server: {
     strictPort: true,

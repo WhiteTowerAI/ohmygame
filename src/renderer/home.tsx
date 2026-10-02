@@ -30,7 +30,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [showAllProjects, setShowAllProjects] = useState(false);
   const [recentProjectLimit, setRecentProjectLimit] = useState(RECENT_PROJECT_MAX_COLUMNS);
   const [projectActionError, setProjectActionError] = useState<string>();
-  const [projectType, setProjectType] = useState<ProjectType>("interactive-drama");
+  const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const [createOpen, setCreateOpen] = useState(false);
   const recentProjectsSection = useRef<HTMLElement>(null);
 
@@ -96,7 +96,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     <main className="home-shell">
       <AppSidebar active="home" onNavigate={onNavigate} />
 
-      <section className="home-content">
+      <section className="home-content home-content-fitted">
         <WindowDragRegion />
         <div className="home-start">
           <h1>What are we making today?</h1>
@@ -119,6 +119,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
             projectTypes={GAME_PROJECT_TYPES}
             placeholder="Describe the game you want to create..."
             onProjectTypeChange={setProjectType}
+            onOpenProject={onOpen}
             onCreate={onCreate}
           />
           <button className="home-start-blank" type="button" onClick={() => setCreateOpen(true)}>

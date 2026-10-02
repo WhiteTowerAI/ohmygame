@@ -86,6 +86,19 @@ export type ModelAuthEvent = {
 
 export type ImageModelRef = ModelRef;
 
+/** Why a connected provider offers no media models, so the canvas can say so instead of hiding it. */
+export interface MediaProviderStatus {
+  provider: string;
+  providerName: string;
+  state: "ready" | "empty" | "error";
+  message?: string;
+}
+
+export interface MediaModelCatalog<Model> {
+  models: Model[];
+  providers: MediaProviderStatus[];
+}
+
 export interface ImageModel extends ImageModelRef {
   name: string;
   providerName: string;

@@ -43,6 +43,37 @@ describe("ProviderImages", () => {
     expect(new Set(gpt?.generationOptions.map((option) => option.resolution))).toEqual(new Set(["1K", "2K", "4K"]));
   });
 
+  it("explains that a ChatGPT sign-in cannot generate images without asking OpenAI", async () => {
+    const request = vi.fn<typeof fetch>();
+    const images = new ProviderImages(
+      async () => ({ ...runtime(), listCredentials: async () => [{ providerId: "openai", type: "oauth" }] }) as unknown as ModelRuntime,
+      request,
+    );
+
+    const catalog = await images.catalog();
+
+    expect(catalog.models).toEqual([]);
+    expect(catalog.providers).toEqual([expect.objectContaining({ provider: "openai", state: "empty", message: expect.stringContaining("Connect OpenAI with an API key") })]);
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("reports an OpenAI catalog failure", async () => {
+    const images = new ProviderImages(async () => runtime(), vi.fn(async () => new Response("{}", { status: 500 })));
+
+    expect((await images.catalog()).providers).toEqual([expect.objectContaining({ provider: "openai", state: "error", message: "Model request failed (500)" })]);
+  });
+
+  it("reports a connected provider without supported image models", async () => {
+    const images = new ProviderImages(
+      async () => ({ ...runtime(), listCredentials: async () => [] }) as unknown as ModelRuntime,
+      vi.fn(async () => Response.json({ data: [{ id: "text-only" }] })),
+    );
+
+    expect((await images.catalog()).providers).toEqual([
+      { provider: "openai", providerName: "OpenAI", state: "empty", message: "This OpenAI key or endpoint lists no GPT Image models." },
+    ]);
+  });
+
   it("uses the explicitly selected provider and model", async () => {
     const request = vi.fn<typeof fetch>(async (input) => {
       if (String(input).endsWith("/models")) return Response.json({ data: [{ id: "gpt-image-2.5-flare" }] });
@@ -58,7 +89,7 @@ describe("ProviderImages", () => {
     const generation = request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"));
     expect(generation?.[0]).toBe("https://api.openai.com/v1/images/generations");
     expect(generation?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-openai" }));
-    expect(request.mock.calls.filter(([input]) => String(input).endsWith("/models"))).toHaveLength(1);
+    expect(request.mock.calls.filter(([input]) => String(input) === "https://api.openai.com/v1/models")).toHaveLength(1);
   });
 
   it("prefers the model supplied by a generation request", async () => {
@@ -110,10 +141,10 @@ describe("ProviderImages", () => {
 
     await images.generate({ prompt: "A game icon", size: "1024x1024" });
 
-    expect(request.mock.calls.filter(([input]) => String(input).endsWith("/models"))).toHaveLength(1);
+    expect(request.mock.calls.filter(([input]) => String(input) === "https://api.openai.com/v1/models")).toHaveLength(1);
     expect(request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"))?.[0])
       .toBe("https://api.openai.com/v1/images/generations");
-    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toMatchObject({ model: "gpt-image-2.5-flare" });
+    expect(JSON.parse(String(request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"))?.[1]?.body))).toMatchObject({ model: "gpt-image-2.5-flare" });
   });
 
   it("validates the selected model's supported sizes", async () => {
@@ -148,6 +179,7 @@ function runtime(): ModelRuntime {
       : undefined,
     hasConfiguredAuth: (provider: string) => provider === "openai",
     getAuth: async () => ({ auth: { apiKey: "sk-openai" }, source: "test" }),
+    listCredentials: async () => [{ providerId: "openai", type: "api_key" }],
   } as unknown as ModelRuntime;
 }
 

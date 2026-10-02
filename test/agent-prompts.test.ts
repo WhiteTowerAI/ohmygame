@@ -1,38 +1,60 @@
 import { describe, expect, it } from "vitest";
 import { appendSystemPromptForProject } from "../src/daemon/agent-prompts.js";
 
+function prompt(project: Parameters<typeof appendSystemPromptForProject>[0]): string {
+  return appendSystemPromptForProject(project).join("\n\n");
+}
+
 describe("OhMyGame system prompt", () => {
   it("preserves shared interaction guidance for every project type", () => {
-    for (const projectType of ["web-game", "godot-game", "interactive-drama"] as const) {
-      const prompt = appendSystemPromptForProject(projectType).join("\n\n");
+    for (const type of ["web-game", "godot-game", "interactive-drama", "asset-canvas"] as const) {
+      const text = prompt({ type });
 
-      expect(prompt).toContain("brief commentary update before the first tool call");
-      expect(prompt).toContain("use update_plan");
-      expect(prompt).toContain("Do not create files for casual conversation");
+      expect(text).toContain("brief commentary update before the first tool call");
+      expect(text).toContain("update_plan");
+      expect(text).toContain("Do not create or change files for casual conversation");
+      expect(text).toContain("do not revert changes you did not make");
+      expect(text).not.toContain("may be empty");
     }
   });
 
-  it("adds game-making guidance only to Web Game projects", () => {
-    const webGamePrompt = appendSystemPromptForProject("web-game").join("\n\n");
-    const otherProjectPrompts = (["godot-game", "interactive-drama"] as const)
-      .map((projectType) => appendSystemPromptForProject(projectType).join("\n\n"));
+  it("carries the Web Game platform contract in the system prompt", () => {
+    const text = prompt({ type: "web-game" });
 
-    expect(webGamePrompt).toContain("create and evolve games");
-    expect(webGamePrompt).toContain("preserving existing work");
-    expect(webGamePrompt).toContain("smallest reliable change");
-    for (const prompt of otherProjectPrompts) {
-      expect(prompt).not.toContain("create and evolve games");
-      expect(prompt).not.toContain("smallest reliable change");
-    }
+    expect(text).toContain("create and evolve browser games");
+    expect(text).toContain("smallest reliable change");
+    expect(text).toContain("OhMyGame owns the dev server");
+    expect(text).toContain("inside an iframe of any size");
+    expect(text).toContain("__OHMYGAME_PLAYTEST__");
+    expect(text).toContain("the workspace root");
+    expect(text).toContain('a "dev" script and a "build" script');
+    expect(text).toContain("--host 127.0.0.1 --port <port> --strictPort");
+    expect(text).toContain("dist/, build/, or out/");
+    expect(text).toContain("missing from the published build");
+    expect(text).not.toContain("playable_check");
+    expect(text).not.toContain("existing folder as the workspace");
   });
 
-  it("tells the Interactive Drama agent how to build and check Playable Nodes", () => {
-    const prompt = appendSystemPromptForProject("interactive-drama").join("\n\n");
+  it("describes the configured run settings and external workspaces", () => {
+    const text = prompt({ type: "web-game", startupDirectory: "client", startupScript: "start", packageManager: "pnpm", workspaceLocation: "external" });
 
-    expect(prompt).toContain("playable_add_node");
-    expect(prompt).toContain("playable_check");
-    expect(prompt).toContain("game_use");
-    expect(prompt).toContain("<editor-context>");
-    expect(appendSystemPromptForProject("web-game").join("\n\n")).not.toContain("playable_check");
+    expect(text).toContain("the client/ folder of the workspace, run with pnpm");
+    expect(text).toContain('a "start" script');
+    expect(text).toContain('Preview runs the "start" script');
+    expect(text).toContain("existing folder as the workspace");
+  });
+
+  it("tells the Interactive Drama agent how to build, use media in, and check Playable Nodes", () => {
+    const text = prompt({ type: "interactive-drama" });
+
+    expect(text).toContain("playable_add_node");
+    expect(text).toContain("playable_check");
+    expect(text).toContain('mode "publish"');
+    expect(text).toContain('"kind": "workspace"');
+    expect(text).toContain("viewport from graph.json");
+    expect(text).toContain("<editor-context>");
+    expect(text).toContain("drawing");
+    expect(text).not.toContain("create and evolve browser games");
+    expect(text).not.toContain("OhMyGame owns the dev server");
   });
 });

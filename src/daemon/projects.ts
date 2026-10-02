@@ -58,19 +58,6 @@ export interface ProjectRunSettings {
 
 const PROJECT_COVER_FILE = "cover.webp";
 const PLAYABLE_GRAPH_FILE = "graph.json";
-const WEB_GAME_AGENT_INSTRUCTIONS = `# Web Game Project
-
-This workspace is the source of truth for an OhMyGame browser game.
-
-When the user asks to build or modify the game, keep it as a complete Vite-based browser project. Its \`package.json\` must have non-empty \`scripts.dev\` and \`scripts.build\` commands, and the build must produce a static \`dist/index.html\`.
-
-Make the game responsive inside an iframe of any size, without a fixed-width layout or horizontal overflow. Do not leave a development server running; OhMyGame starts the preview after the agent turn.
-
-When game_use is available, verify important changes with real input and screenshots. Do not install Playwright, Puppeteer, browser binaries, or add a test bridge solely for a routine verification pass. If real input cannot reliably reach or identify an important state, use the smallest test-only bridge needed; normal gameplay must not depend on it.
-
-For requests unrelated to building the game, follow the user's request without creating application files unnecessarily.
-`;
-
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
   readonly #assetMetadataWrites = new Map<string, Promise<unknown>>();
@@ -119,7 +106,6 @@ export class ProjectManager {
     await mkdir(projectDirectory, { recursive: true });
     if (!hasExternalWorkspace) {
       await mkdir(workspacePath, { recursive: true });
-      if (type === "web-game") await writeFile(path.join(workspacePath, "AGENTS.md"), WEB_GAME_AGENT_INSTRUCTIONS, "utf8");
     }
     await writeMetadata(projectDirectory, metadata);
     const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace(workspacePath, metadata.startupDirectory, metadata.startupScript), projectDirectory, true);

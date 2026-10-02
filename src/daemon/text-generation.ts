@@ -1,5 +1,6 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { AgentModelRef } from "../shared/contracts.js";
+import { isOpenRouterModel, withOpenRouterAttribution } from "./openrouter-attribution.js";
 
 export async function completeText(
   runtime: ModelRuntime,
@@ -17,6 +18,7 @@ export async function completeText(
     maxTokens: options.maxTokens,
     maxRetries: 0,
     signal: AbortSignal.timeout(options.timeoutMs),
+    ...(isOpenRouterModel(model) ? { transformHeaders: (headers) => withOpenRouterAttribution(stringHeaders(headers)) } : {}),
   });
   if (response.stopReason === "error" || response.stopReason === "aborted") return undefined;
   return response.content.filter((content) => content.type === "text").map((content) => content.text).join(options.separator ?? "").trim() || undefined;
@@ -42,4 +44,8 @@ function boundedText(value: string, maxBytes: number): string {
     result += character;
   }
   return result;
+}
+
+function stringHeaders(headers: Record<string, string | null>): Record<string, string> {
+  return Object.fromEntries(Object.entries(headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }

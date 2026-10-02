@@ -15,7 +15,11 @@ describe("image protocol adapters", () => {
     )).resolves.toEqual({ bytes: Buffer.from("openrouter"), mediaType: "image/webp", requestId: "or-image-1" });
 
     expect(request.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/images");
-    expect(request.mock.calls[0]?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-or", "x-openrouter-title": "OhMyGame" }));
+    expect(request.mock.calls[0]?.[1]?.headers).toEqual(expect.objectContaining({
+      authorization: "Bearer sk-or",
+      "HTTP-Referer": "https://ohmygame.ai/",
+      "x-openrouter-title": "OhMyGame",
+    }));
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
       model: "openai/gpt-image-2.5-flare",
       prompt: "A game icon",

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { VideoModel, VideoModelRef } from "../shared/contracts.js";
+import type { MediaModelCatalog, VideoModel, VideoModelRef } from "../shared/contracts.js";
 import {
   VideoGenerationError,
   type GeneratedVideo,
@@ -25,13 +25,23 @@ export class ProviderVideos implements VideoGenerator {
   ) {}
 
   async models(signal?: AbortSignal): Promise<VideoModel[]> {
+    return (await this.catalog(signal)).models;
+  }
+
+  /** Every connected video provider with its models, or the reason it has none. */
+  async catalog(signal?: AbortSignal): Promise<MediaModelCatalog<VideoModel>> {
+    const source = await this.runtime().then((runtime) => resolveOpenRouterMediaSource(runtime, signal)).catch(() => undefined);
+    if (!source) return { models: [], providers: [] };
     try {
-      const runtime = await this.runtime();
-      const source = await resolveOpenRouterMediaSource(runtime, signal);
-      const openRouter = source ? await listOpenRouterVideoModels(source, this.request, signal).catch(() => []) : [];
-      return openRouter;
-    } catch {
-      return [];
+      const models = await listOpenRouterVideoModels(source, this.request, signal);
+      return {
+        models,
+        providers: [models.length
+          ? { provider: "openrouter", providerName: "OpenRouter", state: "ready" }
+          : { provider: "openrouter", providerName: "OpenRouter", state: "empty", message: "OpenRouter lists no video models for this account." }],
+      };
+    } catch (cause) {
+      return { models: [], providers: [{ provider: "openrouter", providerName: "OpenRouter", state: "error", message: cause instanceof Error ? cause.message : String(cause) }] };
     }
   }
 

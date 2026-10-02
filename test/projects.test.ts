@@ -1,20 +1,15 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ProjectManager } from "../src/daemon/projects.js";
 
 describe("Web Game project codebase", () => {
-  it("stores its runtime requirements in the project workspace", async () => {
+  it("starts with an empty workspace; the platform contract lives in the system prompt", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Game", "web-game");
 
-    const instructions = await readFile(path.join(project.workspacePath, "AGENTS.md"), "utf8");
-    expect(instructions).toContain("complete Vite-based browser project");
-    expect(instructions).toContain("scripts.dev");
-    expect(instructions).toContain("responsive inside an iframe");
-    expect(instructions).toContain("add a test bridge solely for a routine verification pass");
-    expect(instructions).toContain("normal gameplay must not depend on it");
+    expect(await readdir(project.workspacePath)).toEqual([]);
   });
 
   it("persists a runnable startup directory below the workspace root", async () => {
