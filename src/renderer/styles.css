@@ -3479,6 +3479,24 @@ button.home-nav-item-active:hover {
 .project-create-templates button:hover:not(:disabled) {
   background: var(--surface-hover);
 }
+.project-create-templates button.has-cover {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+.project-create-template-cover {
+  display: grid;
+  width: 48px;
+  height: 32px;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  object-fit: cover;
+}
+.project-create-templates button.has-cover small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .project-create-format {
   display: grid;
   gap: 8px;

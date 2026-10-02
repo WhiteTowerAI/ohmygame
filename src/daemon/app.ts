@@ -10,6 +10,7 @@ import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { INTERACTIVE_DRAMA_STARTER } from "../shared/interactive-drama-starter.js";
+import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
@@ -24,6 +25,7 @@ import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { createInteractiveDramaStarterProject } from "./interactive-drama-starter.js";
+import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { Model3DGenerator } from "./model3d.js";
@@ -91,6 +93,8 @@ export interface AppOptions {
   preinstalledPluginsDirectory?: string;
   interactiveDramaPlayerDirectory?: string;
   interactiveDramaExamplesDirectory?: string;
+  /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
+  examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
   webSearchFetch?: typeof fetch;
 }
@@ -103,6 +107,7 @@ const createProjectSchema = {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
       type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama", "asset-canvas"] },
       templateId: { type: "string", enum: [INTERACTIVE_DRAMA_STARTER.id] },
+      exampleId: { type: "string", pattern: EXAMPLE_ID_PATTERN, maxLength: 80 },
       viewport: {
         type: "object",
         additionalProperties: false,
@@ -498,6 +503,7 @@ export function createApp(options: AppOptions = {}) {
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
   const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const interactiveDramaExamplesDirectory = options.interactiveDramaExamplesDirectory ?? path.join(repositoryRoot, "examples", "interactive-drama");
+  const examples = new ExampleStore(options.examplesDirectory);
   const publisher = new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
@@ -675,6 +681,8 @@ export function createApp(options: AppOptions = {}) {
   app.addHook("onReady", async () => {
     await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
+    const examplesWarning = await examples.load();
+    if (examplesWarning) app.log.warn(examplesWarning);
     await localPlugins.list();
   });
 
@@ -953,6 +961,17 @@ export function createApp(options: AppOptions = {}) {
 
   app.post<{ Body: CreateProjectRequest }>("/projects", { schema: createProjectSchema }, async (request, reply) => {
     try {
+      if (request.body?.exampleId) {
+        if (request.body.templateId || request.body.viewport) {
+          return reply.code(400).send({ error: "An example cannot be combined with a template or viewport" });
+        }
+        const project = await examples.createProject(projects, request.body.exampleId, {
+          type: request.body.type,
+          name: request.body.name,
+          workspacePath: request.body.workspacePath,
+        });
+        return reply.code(201).send(project);
+      }
       if (request.body?.templateId && request.body.type !== "interactive-drama") {
         return reply.code(400).send({ error: "Project templates require a matching project type" });
       }
@@ -988,11 +1007,23 @@ export function createApp(options: AppOptions = {}) {
       if (cause instanceof ProjectWorkspaceError || cause instanceof NodeCodebaseError) {
         return reply.code(400).send({ error: cause.message });
       }
+      if (cause instanceof ExampleError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
   });
 
   app.get("/projects", async () => projects.list());
+
+  app.get("/examples", async () => examples.list());
+
+  app.get<{ Params: { exampleId: string } }>("/examples/:exampleId/cover", async (request, reply) => {
+    const cover = await examples.cover(request.params.exampleId);
+    if (!cover) return reply.code(404).send({ error: "Example not found" });
+    reply.header("content-type", "image/webp");
+    reply.header("cache-control", "no-store");
+    reply.header("x-content-type-options", "nosniff");
+    return reply.send(cover);
+  });
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/asset-canvas", async (request, reply) => {
     try {

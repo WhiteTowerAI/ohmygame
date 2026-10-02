@@ -256,6 +256,9 @@ try {
     preinstalledPluginsDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "preinstalled-plugins")
       : path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
+    examplesDirectory: app.isPackaged
+      ? path.join(process.resourcesPath, "examples")
+      : path.join(repositoryRoot, ".runtime", "examples"),
     runtimeBin: app.isPackaged
       ? process.platform === "win32"
         ? path.join(process.resourcesPath, "runtime", "node")

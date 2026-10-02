@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
 import { inspectPluginBundle } from "../src/daemon/local-plugins.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 import type { ResolvedPluginManifest } from "../src/shared/plugins.js";
+import { git, replaceDirectory } from "./runtime-directory.js";
 
 interface LockedPlugin {
   pluginId: string;
@@ -111,37 +111,4 @@ async function isCurrentOutput(directory: string, expectedLockSha256: string): P
     if ((error as NodeJS.ErrnoException).code === "ENOENT" || error instanceof SyntaxError) return false;
     throw error;
   }
-}
-
-async function replaceDirectory(source: string, destination: string): Promise<void> {
-  const backup = `${destination}.previous`;
-  await rm(backup, { recursive: true, force: true });
-  let hasBackup = false;
-  try {
-    await rename(destination, backup);
-    hasBackup = true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-  try {
-    await rename(source, destination);
-  } catch (error) {
-    if (hasBackup) await rename(backup, destination);
-    throw error;
-  }
-  if (hasBackup) await rm(backup, { recursive: true, force: true });
-}
-
-function git(args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("git", args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => { stdout += chunk; });
-    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
-    child.once("error", reject);
-    child.once("close", (code) => code === 0 ? resolve(stdout) : reject(new Error(stderr.trim() || `git exited with ${code}`)));
-  });
 }

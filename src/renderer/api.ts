@@ -47,6 +47,7 @@ import {
   MediaModelCatalog,
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import type { ExampleSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
 import type { NodeCodebase, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
@@ -113,6 +114,17 @@ export async function createProject(input: CreateProjectRequest = {}): Promise<P
 
 export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
+}
+
+export async function listExamples(): Promise<ExampleSummary[]> {
+  return request("/examples");
+}
+
+export async function getExampleCover(exampleId: string): Promise<Blob | undefined> {
+  const response = await fetch(apiUrl(`/examples/${encodeURIComponent(exampleId)}/cover`), { headers: runtimeHeaders() });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }
 
 export async function renameProject(projectId: string, name: string): Promise<ProjectState> {
