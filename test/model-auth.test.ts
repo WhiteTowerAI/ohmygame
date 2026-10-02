@@ -44,13 +44,18 @@ describe("model provider authentication", () => {
 
   it("gives Pi the installation's device ID for sign-in", async () => {
     const login = vi.fn(async () => ({ type: "oauth", access: "access", refresh: "refresh", expires: Date.now() + 60_000 }));
-    const manager = new ModelAuthManager(async () => runtime({ login }), () => "9b2f5c1e-4d7a-4f8e-9c3b-2a1d6e5f4c3b");
+    const onCredentialsChanged = vi.fn(async () => undefined);
+    const manager = new ModelAuthManager(async () => runtime({ login }), {
+      getDeviceId: () => "9b2f5c1e-4d7a-4f8e-9c3b-2a1d6e5f4c3b",
+      onCredentialsChanged,
+    });
 
     await manager.start("test-provider", "oauth");
     await tick();
 
     const options = (login.mock.calls[0] as unknown[] | undefined)?.[3] as { getDeviceId?: () => string } | undefined;
     expect(options?.getDeviceId?.()).toBe("9b2f5c1e-4d7a-4f8e-9c3b-2a1d6e5f4c3b");
+    expect(onCredentialsChanged).toHaveBeenCalledOnce();
     manager.close();
   });
 

@@ -275,6 +275,8 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
     }
   }
   const displayedError = error ?? endpoint.error;
+  // Only API keys can go through a proxy; a ChatGPT sign-in always talks to OpenAI directly.
+  const showsEndpoint = endpoint.supported && provider.credentialType !== "oauth";
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack} />
@@ -285,7 +287,7 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
           <span className="settings-managed-label">Managed outside OhMyGame</span>
         )}
       </ProviderStatusRow>
-      {endpoint.supported ? (
+      {showsEndpoint ? (
         <form onSubmit={(event) => void saveEndpoint(event)}>
           <BaseUrlField endpoint={endpoint}>
             <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || !endpoint.baseUrl.trim() || !endpoint.dirty}>{endpoint.saving ? "Saving…" : "Save"}</button>
