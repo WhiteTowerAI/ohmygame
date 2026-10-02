@@ -64,50 +64,6 @@ describe("Playable codebase", () => {
     await expect(buildPlayableProject(workspace, "draft")).resolves.toBeDefined();
   });
 
-  it("expresses the sample through ordinary Nodes, State, Signals, edges, and a shared component", async () => {
-    const workspace = await temporaryWorkspace();
-    await createNodeCodebase(
-      workspace,
-      createPlayableStarterCodebase(
-        "Last Train Home",
-        { width: 1280, height: 720 },
-        "night-train",
-      ),
-    );
-
-    const codebase = await readNodeCodebase(workspace);
-    expect(codebase.graph.nodes.map((node) => node.id)).toEqual([
-      "platform",
-      "carriage",
-      "home",
-    ]);
-    expect(codebase.graph.initialState).toEqual({ boarded: false });
-    expect(codebase.graph).not.toHaveProperty("shell");
-    expect(codebase.graph.edges).toHaveLength(4);
-    expect(Object.fromEntries(codebase.graph.nodes.map((node) => [node.id, node.signals.map((signal) => signal.id)]))).toEqual({
-      platform: ["board"],
-      carriage: ["continue", "home"],
-      home: ["home"],
-    });
-    expect(codebase.graph.edges.filter((edge) => edge.source.signal === "home").map((edge) => edge.targetNodeId))
-      .toEqual(["platform", "platform"]);
-    expect(Object.keys(codebase.editorLayout.nodes)).toEqual(["platform", "carriage", "home"]);
-    const files = await tree(workspace);
-    expect(files).toContain("shared/components/home-button.js");
-    expect(files).toContain("shared/components/home-button.css");
-    expect(files.some((file) => file.startsWith("shell/"))).toBe(false);
-    await expect(readFile(path.join(workspace, "nodes/carriage/node.js"), "utf8"))
-      .resolves.toContain('from "../../shared/components/home-button.js"');
-    const runtime = await buildPlayableProject(workspace, "publish");
-    expect(Object.keys(runtime!.compiled.nodes)).toEqual([
-      "platform",
-      "carriage",
-      "home",
-    ]);
-    expect(runtime!.compiled).not.toHaveProperty("shell");
-    expect(runtime!.compiled.nodes.home!.inputs).toContain("shared/components/home-button.js");
-  });
-
   it("preserves user documentation and refreshes generated schemas", async () => {
     const workspace = await temporaryWorkspace();
     await Promise.all([

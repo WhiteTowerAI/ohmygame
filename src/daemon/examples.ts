@@ -1,8 +1,10 @@
-import { cp, readFile, readdir } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { isPreparedExampleCatalog, type ExampleSummary, type PreparedExample } from "../shared/examples.js";
 import { LoopbackFileServer } from "./loopback-file-server.js";
+import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { ProjectWorkspaceError, type ProjectManager } from "./projects.js";
 
 export class ExampleError extends Error {
@@ -10,6 +12,9 @@ export class ExampleError extends Error {
     super(message);
   }
 }
+
+/** Compiles an interactive drama workspace into a Published Player directory. */
+export type PreparePlayableExample = (workspacePath: string, exampleId: string) => Promise<string>;
 
 // Files a desktop OS leaves in folders; a folder holding only these counts as empty.
 const IGNORABLE_WORKSPACE_FILES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
@@ -22,10 +27,13 @@ export class ExampleStore {
   readonly #directory: string | undefined;
   readonly #playServer = new LoopbackFileServer();
   readonly #playUrls = new Map<string, Promise<string>>();
+  readonly #temporaryDirectories: string[] = [];
+  readonly #preparePlayable: PreparePlayableExample | undefined;
   #examples: PreparedExample[] = [];
 
-  constructor(directory: string | undefined) {
+  constructor(directory: string | undefined, preparePlayable?: PreparePlayableExample) {
     this.#directory = directory;
+    this.#preparePlayable = preparePlayable;
   }
 
   async load(): Promise<string | undefined> {
@@ -53,14 +61,15 @@ export class ExampleStore {
     return readFile(path.join(this.#directory!, example.cover));
   }
 
-  /** Returns a loopback URL that plays the example's static build. */
+  /** Returns a loopback URL that plays the example, built once per run. */
   async playUrl(id: string): Promise<string> {
     const example = this.#example(id);
     if (!example) throw new ExampleError(`Example not found: ${id}`, 404);
     let url = this.#playUrls.get(id);
     if (!url) {
-      url = this.#playServer.mount(path.join(this.#directory!, example.play)).then((mount) => mount.url);
+      url = this.#playableDirectory(example).then((directory) => this.#playServer.mount(directory)).then((mount) => mount.url);
       this.#playUrls.set(id, url);
+      url.catch(() => this.#playUrls.delete(id));
     }
     return url;
   }
@@ -68,6 +77,19 @@ export class ExampleStore {
   async close(): Promise<void> {
     this.#playUrls.clear();
     await this.#playServer.close();
+    await Promise.all(this.#temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  }
+
+  async #playableDirectory(example: PreparedExample): Promise<string> {
+    if (example.play) return path.join(this.#directory!, example.play);
+    if (!this.#preparePlayable) throw new Error(`${example.name} cannot be played in this build`);
+    // Compile from a scratch copy: packaged examples live in read-only app resources.
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-example-"));
+    this.#temporaryDirectories.push(workspace);
+    await cp(path.join(this.#directory!, example.directory), workspace, { recursive: true });
+    const player = await this.#preparePlayable(workspace, example.id);
+    this.#temporaryDirectories.push(player);
+    return player;
   }
 
   /** Creates a project whose workspace starts as a copy of the example. */
@@ -98,6 +120,8 @@ export class ExampleStore {
           errorOnExist: true,
         });
       }
+      // Agent instructions and schemas follow this app version, not the example.
+      if (example.type === "interactive-drama") await ensureNodeCodebaseContract(project.workspacePath);
       await projects.setCover(project.id, await readFile(path.join(this.#directory!, example.cover)));
       return await projects.refreshPreviewReadiness(project.id);
     } catch (error) {
