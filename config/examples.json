@@ -1,6 +1,6 @@
 {
   "version": 1,
   "repository": "WhiteTowerAI/ohmygame-examples",
-  "release": "feat/night-train",
-  "commit": "56b5284fc788218e3dc35607ae39833e1cceb691"
+  "release": "v0.1.3",
+  "commit": "60cfc3cc8314dfa21864d1420bd0fdef203582f7"
 }
