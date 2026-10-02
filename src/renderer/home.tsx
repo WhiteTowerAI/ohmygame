@@ -96,7 +96,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     <main className="home-shell">
       <AppSidebar active="home" onNavigate={onNavigate} />
 
-      <section className="home-content">
+      <section className="home-content home-content-fitted">
         <WindowDragRegion />
         <div className="home-start">
           <h1>What are we making today?</h1>

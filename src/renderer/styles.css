@@ -2181,6 +2181,24 @@ button.home-nav-item-active:hover {
   scrollbar-width: thin;
 }
 
+/* The top space gives way before the page scrolls, so Home fits the default window. */
+.home-content-fitted {
+  display: flex;
+  flex-direction: column;
+  padding-top: 0;
+  padding-bottom: 32px;
+}
+
+.home-content-fitted::before {
+  min-height: 40px;
+  flex: 0 1 161px;
+  content: "";
+}
+
+.home-content-fitted > * {
+  flex-shrink: 0;
+}
+
 .desktop-macos .window-drag-region {
   position: fixed;
   z-index: 2;
@@ -12214,6 +12232,10 @@ button {
   .home-content {
     overflow: visible;
     padding: 38px 18px 28px;
+  }
+
+  .home-content-fitted::before {
+    display: none;
   }
 
   .asset-canvas-home {
