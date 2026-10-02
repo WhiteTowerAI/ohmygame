@@ -70,7 +70,7 @@ describe("ProviderImages", () => {
     );
 
     expect((await images.catalog()).providers).toEqual([
-      { provider: "openai", providerName: "OpenAI", state: "empty", message: "This OpenAI key or endpoint doesn't offer GPT Image 2.5." },
+      { provider: "openai", providerName: "OpenAI", state: "empty", message: "This OpenAI key or endpoint lists no GPT Image models." },
     ]);
   });
 
@@ -89,7 +89,7 @@ describe("ProviderImages", () => {
     const generation = request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"));
     expect(generation?.[0]).toBe("https://api.openai.com/v1/images/generations");
     expect(generation?.[1]?.headers).toEqual(expect.objectContaining({ authorization: "Bearer sk-openai" }));
-    expect(request.mock.calls.filter(([input]) => String(input).endsWith("/models"))).toHaveLength(1);
+    expect(request.mock.calls.filter(([input]) => String(input) === "https://api.openai.com/v1/models")).toHaveLength(1);
   });
 
   it("prefers the model supplied by a generation request", async () => {
@@ -141,10 +141,10 @@ describe("ProviderImages", () => {
 
     await images.generate({ prompt: "A game icon", size: "1024x1024" });
 
-    expect(request.mock.calls.filter(([input]) => String(input).endsWith("/models"))).toHaveLength(1);
+    expect(request.mock.calls.filter(([input]) => String(input) === "https://api.openai.com/v1/models")).toHaveLength(1);
     expect(request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"))?.[0])
       .toBe("https://api.openai.com/v1/images/generations");
-    expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toMatchObject({ model: "gpt-image-2.5-flare" });
+    expect(JSON.parse(String(request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"))?.[1]?.body))).toMatchObject({ model: "gpt-image-2.5-flare" });
   });
 
   it("validates the selected model's supported sizes", async () => {

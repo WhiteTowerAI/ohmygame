@@ -1,11 +1,15 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ImageModel, ImageModelRef, MediaModelCatalog, MediaProviderStatus } from "../shared/contracts.js";
-import { IMAGE_MODEL_IDS, imageModelDefinition, imageModelsForProvider } from "./image-models.js";
+import { imageModelDefinition, imageModelsForProvider, preferredImageModelId } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
-import { listOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
+import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
+
+const CAPABILITY_TTL_MS = 10 * 60_000;
 
 export class ProviderImages implements ImageGenerator {
+  #capabilities?: { loadedAt: number; models: Promise<ImageModel[]> };
+
   constructor(
     private readonly runtime: () => Promise<ModelRuntime>,
     private readonly request: typeof fetch = fetch,
@@ -46,7 +50,7 @@ export class ProviderImages implements ImageGenerator {
         status: { provider: "openai", providerName: provider.name, state: "empty", message: "Sign in with ChatGPT can't generate images. Connect OpenAI with an API key to use GPT Image 2.5." },
       };
     }
-    return catalogEntry("openai", provider.name, () => this.#openAIModels(runtime, signal), "This OpenAI key or endpoint doesn't offer GPT Image 2.5.");
+    return catalogEntry("openai", provider.name, () => this.#openAIModels(runtime, signal), "This OpenAI key or endpoint lists no GPT Image models.");
   }
 
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
@@ -98,22 +102,31 @@ export class ProviderImages implements ImageGenerator {
     const provider = runtime.getProvider("openai");
     if (!provider || !runtime.hasConfiguredAuth("openai")) return [];
     const source = await runtimeSource(runtime, "openai", signal);
-    return imageModelsForProvider("openai", provider.name, await modelIds(source, this.request, signal));
+    const [ids, catalog] = await Promise.all([modelIds(source, this.request, signal), this.#capabilityCatalog(signal)]);
+    return imageModelsForProvider("openai", provider.name, ids, catalog);
+  }
+
+  /** Capabilities for models reached directly; a failed lookup falls back to each family's defaults. */
+  #capabilityCatalog(signal?: AbortSignal): Promise<ImageModel[]> {
+    if (!this.#capabilities || Date.now() - this.#capabilities.loadedAt > CAPABILITY_TTL_MS) {
+      const models = listPublicOpenRouterImageModels(this.request, signal).catch(() => {
+        this.#capabilities = undefined;
+        return [];
+      });
+      this.#capabilities = { loadedAt: Date.now(), models };
+    }
+    return this.#capabilities.models;
   }
 
   async #openAISelection(runtime: ModelRuntime, requestedId?: string, signal?: AbortSignal): Promise<{ model: ImageModel; source: ImageSource } | undefined> {
     const provider = runtime.getProvider("openai");
     if (!provider || !runtime.hasConfiguredAuth("openai")) return undefined;
     const source = await runtimeSource(runtime, "openai", signal);
-    const ids = await modelIds(source, this.request, signal);
-    const id = requestedId ? (ids.includes(requestedId) ? requestedId : undefined) : preferredModel(ids);
-    const definition = id ? imageModelDefinition(id) : undefined;
+    const [ids, catalog] = await Promise.all([modelIds(source, this.request, signal), this.#capabilityCatalog(signal)]);
+    const id = requestedId ? (ids.includes(requestedId) ? requestedId : undefined) : preferredImageModelId(ids);
+    const definition = id ? imageModelDefinition(id, catalog) : undefined;
     return definition ? { model: { ...definition, provider: "openai", providerName: provider.name }, source } : undefined;
   }
-}
-
-function preferredModel(ids: readonly string[]): string | undefined {
-  return IMAGE_MODEL_IDS.find((id) => ids.includes(id));
 }
 
 interface CatalogEntry {
