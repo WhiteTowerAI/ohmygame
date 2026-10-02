@@ -14,8 +14,11 @@ export interface ExampleSummary {
 
 /** An example as packaged by scripts/prepare-examples.ts. Paths are relative to the catalog. */
 export interface PreparedExample extends ExampleSummary {
+  /** Source copied into a new project's workspace. */
   directory: string;
   cover: string;
+  /** Static build played without creating a project. */
+  play: string;
 }
 
 export interface PreparedExampleCatalog {
@@ -45,7 +48,7 @@ export function isPreparedExampleCatalog(value: unknown): value is PreparedExamp
   for (const example of catalog.examples as unknown[]) {
     if (!isExampleSummary(example)) return false;
     const prepared = example as unknown as Record<string, unknown>;
-    if (!isRelativePath(prepared.directory) || !isRelativePath(prepared.cover)) return false;
+    if (!isRelativePath(prepared.directory) || !isRelativePath(prepared.cover) || !isRelativePath(prepared.play)) return false;
     if (ids.has(example.id)) return false;
     ids.add(example.id);
   }

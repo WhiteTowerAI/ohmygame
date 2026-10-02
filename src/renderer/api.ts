@@ -120,6 +120,10 @@ export async function listExamples(): Promise<ExampleSummary[]> {
   return request("/examples");
 }
 
+export async function playExample(exampleId: string): Promise<{ url: string }> {
+  return request(`/examples/${encodeURIComponent(exampleId)}/play`, { method: "POST" });
+}
+
 export async function getExampleCover(exampleId: string): Promise<Blob | undefined> {
   const response = await fetch(apiUrl(`/examples/${encodeURIComponent(exampleId)}/cover`), { headers: runtimeHeaders() });
   if (response.status === 404) return undefined;
