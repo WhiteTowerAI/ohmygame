@@ -253,6 +253,16 @@ export class ProjectManager {
     return project;
   }
 
+  /** Re-checks whether the workspace can start a preview, e.g. after files were added to it. */
+  async refreshPreviewReadiness(id: string): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (project.preview.status !== "waiting" && project.preview.status !== "stopped") return project;
+    const runnable = await isRunnableStartupWorkspace(project.workspacePath, project.startupDirectory, project.startupScript);
+    project.preview = { status: runnable ? "stopped" : "waiting" };
+    return project;
+  }
+
   async touch(id: string): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);

@@ -22,6 +22,7 @@ interface StartDaemonOptions {
   piAgentDirectory?: string;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
+  examplesDirectory?: string;
   executable?: string;
   environment?: NodeJS.ProcessEnv;
   healthTimeoutMs?: number;
@@ -48,6 +49,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
       ...(options.preinstalledPluginsDirectory ? { OHMYGAME_PREINSTALLED_PLUGINS_DIR: path.resolve(options.preinstalledPluginsDirectory) } : {}),
+      ...(options.examplesDirectory ? { OHMYGAME_EXAMPLES_DIR: path.resolve(options.examplesDirectory) } : {}),
       ...(options.handlePlaytestRequest ? { OHMYGAME_PLAYTEST_IPC: "1" } : {}),
     },
     stdio: options.handlePlaytestRequest ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
