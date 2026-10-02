@@ -83,6 +83,19 @@ export class ArtifactBuilder {
     return preparePlayableProject(project, definition, this.library, this.playerDirectory, `${PLAYTEST_SCOPE_PREFIX}${project.id}`);
   }
 
+  /**
+   * Builds a Published Player for an example workspace that is not a project.
+   * Draft rules, like agent playtests: packaging already checked the example
+   * against the publish rules.
+   */
+  async preparePlayableExample(workspacePath: string, exampleId: string): Promise<string> {
+    if (!this.library || !this.playerDirectory) throw new PublishError("Published Player is not built. Run npm run build:player first.");
+    await assertNodePlayerBuilt(this.playerDirectory);
+    const definition = await buildPlayableProject(workspacePath, "draft");
+    if (!definition) throw new PublishError("This example has no graph.json.");
+    return preparePlayableProject({ id: exampleId, workspacePath }, definition, this.library, this.playerDirectory, `example:${exampleId}`);
+  }
+
   async close(): Promise<void> {
     await Promise.all([...this.#running.values()].map(terminate));
     this.#running.clear();
@@ -111,7 +124,7 @@ async function prepareInteractiveDrama(project: ProjectState, library?: AssetLib
 }
 
 async function preparePlayableProject(
-  project: ProjectState,
+  project: Pick<ProjectState, "id" | "workspacePath">,
   definition: NodePlayerDefinition,
   library: AssetLibrary,
   playerDirectory: string,

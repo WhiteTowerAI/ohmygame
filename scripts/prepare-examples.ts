@@ -2,13 +2,16 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { buildPlayableProject } from "../src/daemon/playable-project.js";
 import { isExampleSummary, isPreparedExampleCatalog, type PreparedExample, type PreparedExampleCatalog } from "../src/shared/examples.js";
 import { git, replaceDirectory } from "./runtime-directory.js";
 
 // Downloads the pinned commit of the examples repository and packages the
 // examples its catalog lists into .runtime/examples for the daemon and the
-// desktop build: each example's source (copied into new projects), cover, and
-// a static build (played straight from Home). Pass --require to fail when the repository is unreachable;
+// desktop build: each example's source (copied into new projects), its cover,
+// and for web games a static build played straight from Home. Interactive
+// dramas are checked with the Playable Nodes compiler here and compiled again
+// by the daemon when played. Pass --require to fail when the repository is unreachable;
 // otherwise a missing download only disables examples.
 
 interface LockFile {
@@ -60,21 +63,32 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
       }
       const exampleDirectory = resolveInside(source, entry.path);
       const coverFile = resolveInside(source, entry.cover);
-      if (!(await stat(path.join(exampleDirectory, "package.json"))).isFile()) throw new Error(`${entry.id} has no package.json`);
       const directory = `${entry.id}/files`;
       const cover = `${entry.id}/cover${path.extname(coverFile).toLowerCase()}`;
-      const play = `${entry.id}/play`;
       await cp(exampleDirectory, path.join(prepared, directory), {
         recursive: true,
         filter: (file) => !["node_modules", "dist", ".git"].includes(path.basename(file)),
       });
       await cp(coverFile, path.join(prepared, cover));
+      const summary = { id: entry.id, type: entry.type, name: entry.name, description: entry.description, directory, cover };
+      if (entry.type === "interactive-drama") {
+        console.log(`Checking ${entry.id}…`);
+        try {
+          if (!(await buildPlayableProject(path.join(prepared, directory), "publish"))) throw new Error("graph.json is missing");
+        } catch (error) {
+          throw new Error(`${entry.id} does not compile: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        examples.push(summary);
+        continue;
+      }
+      if (!(await stat(path.join(exampleDirectory, "package.json"))).isFile()) throw new Error(`${entry.id} has no package.json`);
+      const play = `${entry.id}/play`;
       console.log(`Building ${entry.id}…`);
       await npm(["ci", "--no-audit", "--no-fund"], exampleDirectory);
       await npm(["run", "build"], exampleDirectory);
       await stat(path.join(exampleDirectory, "dist", "index.html"));
       await cp(path.join(exampleDirectory, "dist"), path.join(prepared, play), { recursive: true });
-      examples.push({ id: entry.id, type: entry.type, name: entry.name, description: entry.description, directory, cover, play });
+      examples.push({ ...summary, play });
     }
     const catalog: PreparedExampleCatalog = {
       version: 1,
@@ -122,7 +136,7 @@ async function isCurrentOutput(directory: string, expectedLockSha256: string): P
     for (const example of catalog.examples) {
       await stat(path.join(directory, example.directory, "package.json"));
       await stat(path.join(directory, example.cover));
-      await stat(path.join(directory, example.play, "index.html"));
+      if (example.play) await stat(path.join(directory, example.play, "index.html"));
     }
     return true;
   } catch (error) {

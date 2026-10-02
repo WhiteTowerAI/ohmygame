@@ -3656,61 +3656,6 @@ button.home-nav-item-active:hover {
   background: var(--surface-hover);
   color: var(--text);
 }
-.project-create-templates {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.project-create-templates legend {
-  margin: 0 0 8px;
-  padding: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 500;
-}
-.project-create-templates button {
-  display: grid;
-  height: 62px;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--control-surface);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-.project-create-template-icon {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  color: var(--text-muted);
-}
-.project-create-templates button > span {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-}
-.project-create-templates button strong {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.2;
-}
-.project-create-templates button small {
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.2;
-}
-.project-create-templates button:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
 .project-create-format {
   display: grid;
   gap: 8px;
@@ -3750,16 +3695,11 @@ button.home-nav-item-active:hover {
 }
 :is(
   .project-create-types button,
-  .project-create-templates button,
   .story-format-options > button
 ).is-active {
   background: color-mix(in srgb, var(--text) 10%, var(--surface));
   box-shadow: inset 0 0 0 1px
     color-mix(in srgb, var(--text) 18%, transparent);
-  color: var(--text);
-}
-
-.project-create-templates button.is-active .project-create-template-icon {
   color: var(--text);
 }
 

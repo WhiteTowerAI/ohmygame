@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ExampleSummary } from "../shared/examples.js";
-import { getExampleCover, listExamples, playExample, waitForRuntime } from "./api.js";
-import { LoaderCircle, Maximize, Pencil, X } from "./icons.js";
+import { createProject, getExampleCover, listExamples, playExample, waitForRuntime } from "./api.js";
+import { LoaderCircle, Maximize, Pencil, Play, X } from "./icons.js";
 import { projectTypeLabel } from "./project-types.js";
 
 /** Packaged examples and object URLs for their covers, revoked on unmount. */
@@ -30,6 +30,72 @@ export function useExamples(): { examples: ExampleSummary[]; covers: Record<stri
   }, []);
 
   return { examples, covers };
+}
+
+/**
+ * A row of example cards: clicking a card plays the example, Remix copies it
+ * into a new project and opens it. `children` are extra cards for the row.
+ * `showType` labels each card with its project type, for rows that mix types.
+ */
+export function ExampleShelf({ examples, covers, showType = false, onOpenProject, children }: {
+  examples: readonly ExampleSummary[];
+  covers: Record<string, string>;
+  showType?: boolean;
+  onOpenProject: (projectId: string) => void;
+  children?: ReactNode;
+}) {
+  const [playing, setPlaying] = useState<ExampleSummary>();
+  const [remixingId, setRemixingId] = useState<string>();
+  const [remixError, setRemixError] = useState<string>();
+
+  async function remix(example: ExampleSummary) {
+    if (remixingId) return;
+    setRemixingId(example.id);
+    setRemixError(undefined);
+    try {
+      const project = await createProject({ type: example.type, exampleId: example.id, name: example.name });
+      onOpenProject(project.id);
+    } catch (cause) {
+      setRemixError(cause instanceof Error ? cause.message : String(cause));
+      setRemixingId(undefined);
+    }
+  }
+
+  return (
+    <>
+      <div className="home-whats-new-grid">
+        {examples.map((example) => (
+          <div className="home-explore-card" key={example.id}>
+            <button className="home-whats-new-item" type="button" onClick={() => { setRemixError(undefined); setPlaying(example); }} aria-label={`Play ${example.name}`} title={example.description}>
+              <span className="home-whats-new-icon home-explore-cover" aria-hidden="true">
+                {covers[example.id] ? <img src={covers[example.id]} alt="" /> : null}
+                <span className="home-explore-play"><Play size={14} />Play</span>
+              </span>
+              <span className="home-whats-new-copy">
+                <strong>{example.name}</strong>
+                <small>{showType ? projectTypeLabel(example.type) : "Example"}</small>
+              </span>
+            </button>
+            <button className="home-explore-remix" type="button" disabled={remixingId !== undefined} onClick={() => void remix(example)} title="Copy this example into a new project you can change">
+              <Pencil size={13} />Remix
+            </button>
+          </div>
+        ))}
+        {children}
+      </div>
+      {remixError && !playing ? <p className="home-notice" role="alert">{remixError}</p> : null}
+      {playing ? (
+        <ExamplePlayer
+          example={playing}
+          coverUrl={covers[playing.id]}
+          remixing={remixingId === playing.id}
+          error={remixError}
+          onRemix={() => void remix(playing)}
+          onClose={() => setPlaying(undefined)}
+        />
+      ) : null}
+    </>
+  );
 }
 
 /** Plays an example's static build in place, with a way to remix it into a project. */
