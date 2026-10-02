@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { menuPlacement, projectTime } from "../src/renderer/project-card.js";
+import { menuPlacement } from "../src/renderer/popover-placement.js";
+import { projectTime } from "../src/renderer/project-card.js";
 
 const NOW = new Date("2026-08-31T12:00:00");
 
@@ -27,6 +28,10 @@ describe("project card menu placement", () => {
 
   it("flips above the trigger near the bottom of the window", () => {
     expect(menuPlacement({ top: 720, bottom: 750, right: 600 }, popup, viewport)).toEqual({ top: 604, left: 492 });
+  });
+
+  it("can line up with the trigger's left edge", () => {
+    expect(menuPlacement({ top: 100, bottom: 130, left: 300, right: 360 }, popup, viewport, "start")).toEqual({ top: 134, left: 300 });
   });
 
   it("stays inside the window when neither side fits", () => {

@@ -1,6 +1,7 @@
 import { MoreHorizontal } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { menuPlacement } from "./popover-placement.js";
 import type { ProjectState } from "../shared/contracts.js";
 import { getProjectCover } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
@@ -17,9 +18,6 @@ interface ProjectCardProps {
   onOpen: () => void;
   actions?: ProjectCardActions;
 }
-
-const MENU_GAP = 4;
-const VIEWPORT_MARGIN = 8;
 
 export function ProjectCard({ project, fallback, onOpen, actions }: ProjectCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -110,20 +108,6 @@ export function ProjectCard({ project, fallback, onOpen, actions }: ProjectCardP
       ) : null}
     </article>
   );
-}
-
-/** Places the menu under its trigger, right-aligned, flipping above when there is no room below. */
-export function menuPlacement(
-  anchor: Pick<DOMRect, "top" | "bottom" | "right">,
-  popup: Pick<DOMRect, "width" | "height">,
-  viewport: { width: number; height: number },
-): { top: number; left: number } {
-  const below = anchor.bottom + MENU_GAP;
-  const above = anchor.top - MENU_GAP - popup.height;
-  const fitsBelow = below + popup.height <= viewport.height - VIEWPORT_MARGIN;
-  const top = fitsBelow || above < VIEWPORT_MARGIN ? Math.max(VIEWPORT_MARGIN, Math.min(below, viewport.height - VIEWPORT_MARGIN - popup.height)) : above;
-  const left = Math.max(VIEWPORT_MARGIN, Math.min(anchor.right - popup.width, viewport.width - VIEWPORT_MARGIN - popup.width));
-  return { top, left };
 }
 
 export function ProjectCover({ projectId, fallback }: { projectId: string; fallback: number }) {

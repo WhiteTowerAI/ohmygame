@@ -1,6 +1,7 @@
 import {
   ArrowUp,
   Box,
+  Check,
   ChevronRight,
   Clipboard,
   Copy,
@@ -77,6 +78,7 @@ import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOpti
 import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModels, listToolJobs, listVideoModels, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
+import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
@@ -1143,18 +1145,18 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
           />
           {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
           <div>
-            <select
-              aria-label="Text model"
-              value={selectedModel ? agentModelKey(selectedModel) : ""}
+            <CanvasChipSelect
+              label="Text model"
+              wide
+              value={selectedModel ? agentModelKey(selectedModel) : undefined}
+              placeholder={modelStateLabel}
+              options={(runtime?.models ?? []).map((model) => ({ value: agentModelKey(model), label: model.name }))}
               disabled={runtime?.busy || !selectedModel}
-              onChange={(event) => {
-                const model = runtime?.models.find((candidate) => agentModelKey(candidate) === event.target.value);
+              onChange={(key) => {
+                const model = runtime?.models.find((candidate) => agentModelKey(candidate) === key);
                 if (model) runtime?.onChange({ ...data, textRuntime: undefined, textModel: { provider: model.provider, id: model.id } });
               }}
-            >
-              {!selectedModel ? <option value="">{modelStateLabel}</option> : null}
-              {runtime?.models.map((model) => <option key={agentModelKey(model)} value={agentModelKey(model)}>{model.name}</option>)}
-            </select>
+            />
             <button type="button" title="Generate text" aria-label="Generate text" disabled={runtime?.busy || !data.instruction?.trim() || !selectedModel} onClick={() => runtime?.onGenerate()}>
               {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
             </button>
@@ -1200,17 +1202,29 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
       />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
-        <select aria-label="Image model" value={data.model ? imageModelKey(data.model) : ""} disabled={runtime?.busy} onChange={(event) => selectModel(event.target.value)}>
-          {!selectedModel && data.model ? <option value={imageModelKey(data.model)}>Unavailable model</option> : null}
-          {!data.model ? <option value="">{runtime?.models.length ? "Select model" : "No image model"}</option> : null}
-          {runtime?.models.map((model) => <option key={imageModelKey(model)} value={imageModelKey(model)}>{model.name}</option>)}
-        </select>
-        <select aria-label="Image aspect ratio" value={data.aspectRatio} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, imageRuntime: undefined, aspectRatio: event.target.value as ImageAspectRatio })}>
-          {aspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
-        </select>
-        <select aria-label="Image resolution" value={data.resolution} disabled={!selectedModel || runtime?.busy} onChange={(event) => selectResolution(event.target.value as ImageResolution)}>
-          {resolutions.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
-        </select>
+        <CanvasChipSelect
+          label="Image model"
+          wide
+          value={selectedModel ? imageModelKey(selectedModel) : undefined}
+          placeholder={data.model ? "Unavailable model" : runtime?.models.length ? "Select model" : "No image model"}
+          options={(runtime?.models ?? []).map((model) => ({ value: imageModelKey(model), label: model.name }))}
+          disabled={runtime?.busy}
+          onChange={selectModel}
+        />
+        <CanvasChipSelect
+          label="Image aspect ratio"
+          value={data.aspectRatio}
+          options={aspectRatios.map((ratio) => ({ value: ratio, label: ratio }))}
+          disabled={!selectedModel || runtime?.busy}
+          onChange={(aspectRatio) => runtime?.onChange({ ...data, imageRuntime: undefined, aspectRatio })}
+        />
+        <CanvasChipSelect
+          label="Image resolution"
+          value={data.resolution}
+          options={resolutions.map((resolution) => ({ value: resolution, label: resolution }))}
+          disabled={!selectedModel || runtime?.busy}
+          onChange={selectResolution}
+        />
         <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel} />
       </div>
     </MediaNodeShell>
@@ -1246,19 +1260,36 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
       />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
-        <select aria-label="Video model" value={selectedModel ? modelKey(selectedModel) : ""} disabled={runtime?.busy} onChange={(event) => selectModel(event.target.value)}>
-          {!selectedModel ? <option value="">{runtime?.models.length ? "Select model" : "No video model"}</option> : null}
-          {runtime?.models.map((model) => <option key={modelKey(model)} value={modelKey(model)}>{model.name}</option>)}
-        </select>
-        <select aria-label="Video aspect ratio" value={data.videoAspectRatio ?? ""} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio: event.target.value as VideoAspectRatio })}>
-          {selectedModel?.aspectRatios.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}
-        </select>
-        <select aria-label="Video resolution" value={data.videoResolution ?? ""} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, videoResolution: event.target.value as VideoResolution })}>
-          {selectedModel?.resolutions.map((resolution) => <option key={resolution} value={resolution}>{resolution}</option>)}
-        </select>
-        <select aria-label="Video duration" value={data.duration ?? ""} disabled={!selectedModel || runtime?.busy} onChange={(event) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(event.target.value) })}>
-          {selectedModel?.durations.map((duration) => <option key={duration} value={duration}>{duration}s</option>)}
-        </select>
+        <CanvasChipSelect
+          label="Video model"
+          wide
+          value={selectedModel ? modelKey(selectedModel) : undefined}
+          placeholder={runtime?.models.length ? "Select model" : "No video model"}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelKey(model), label: model.name }))}
+          disabled={runtime?.busy}
+          onChange={selectModel}
+        />
+        <CanvasChipSelect
+          label="Video aspect ratio"
+          value={data.videoAspectRatio}
+          options={(selectedModel?.aspectRatios ?? []).map((ratio) => ({ value: ratio, label: ratio }))}
+          disabled={!selectedModel || runtime?.busy}
+          onChange={(videoAspectRatio) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio })}
+        />
+        <CanvasChipSelect
+          label="Video resolution"
+          value={data.videoResolution}
+          options={(selectedModel?.resolutions ?? []).map((resolution) => ({ value: resolution, label: resolution }))}
+          disabled={!selectedModel || runtime?.busy}
+          onChange={(videoResolution) => runtime?.onChange({ ...data, videoRuntime: undefined, videoResolution })}
+        />
+        <CanvasChipSelect
+          label="Video duration"
+          value={data.duration === undefined ? undefined : String(data.duration)}
+          options={(selectedModel?.durations ?? []).map((duration) => ({ value: String(duration), label: `${duration}s` }))}
+          disabled={!selectedModel || runtime?.busy}
+          onChange={(duration) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(duration) })}
+        />
         <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel} />
       </div>
     </MediaNodeShell>
@@ -1285,16 +1316,17 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
       <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
+        <CanvasChipSelect
+          label="Polycount"
+          value={String(config.targetPolycount)}
+          options={polycountOptions(config.targetPolycount)}
+          disabled={runtime?.busy}
+          onChange={(value) => updateConfig({ targetPolycount: Number(value) })}
+        />
+        <CanvasChipToggle label="Texture" pressed={config.texture} disabled={runtime?.busy} onChange={(texture) => updateConfig({ texture, ...(!texture ? { pbr: false } : {}) })} />
+        <CanvasChipToggle label="PBR" pressed={config.pbr} disabled={runtime?.busy || !config.texture} onChange={(pbr) => updateConfig({ pbr })} />
         <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={!hasImages} />
       </div>
-      <details className="story-media-advanced">
-        <summary>Settings</summary>
-        <div className="story-media-advanced-grid">
-          <label><span>Polycount</span><input type="number" min={100} max={15000} step={100} value={config.targetPolycount} disabled={runtime?.busy} onChange={(event) => updateConfig({ targetPolycount: Number(event.target.value) || DEFAULT_MODEL_3D_CONFIG.targetPolycount })} /></label>
-          <label className="story-media-checkbox"><input type="checkbox" checked={config.texture} disabled={runtime?.busy} onChange={(event) => updateConfig({ texture: event.target.checked, ...(!event.target.checked ? { pbr: false } : {}) })} />Texture</label>
-          {config.texture ? <label className="story-media-checkbox"><input type="checkbox" checked={config.pbr} disabled={runtime?.busy} onChange={(event) => updateConfig({ pbr: event.target.checked })} />PBR</label> : null}
-        </div>
-      </details>
     </MediaNodeShell>
   );
 }
@@ -1590,6 +1622,21 @@ function fitMediaNode(aspectRatio = 16 / 10): { width: number; height: number } 
   const width = Math.min(MEDIA_NODE_MAX_WIDTH, Math.max(MEDIA_NODE_MIN_WIDTH, widthAtMaxHeight));
   const height = Math.min(MEDIA_NODE_MAX_HEIGHT, Math.max(MEDIA_NODE_MIN_HEIGHT, width / aspectRatio));
   return { width: Math.round(width), height: Math.round(height) };
+}
+
+const POLYCOUNT_PRESETS = [1_000, 4_000, 10_000, 15_000];
+
+function polycountOptions(current: number): Array<{ value: string; label: string }> {
+  const values = POLYCOUNT_PRESETS.includes(current) ? POLYCOUNT_PRESETS : [...POLYCOUNT_PRESETS, current].sort((a, b) => a - b);
+  return values.map((value) => ({ value: String(value), label: `${value >= 1_000 ? `${value / 1_000}K` : value} polys` }));
+}
+
+function CanvasChipToggle({ label, pressed, disabled, onChange }: { label: string; pressed: boolean; disabled?: boolean; onChange: (pressed: boolean) => void }) {
+  return (
+    <button className="canvas-chip is-toggle" type="button" aria-pressed={pressed} disabled={disabled} onClick={() => onChange(!pressed)}>
+      {pressed ? <Check size={12} /> : null}<span>{label}</span>
+    </button>
+  );
 }
 
 function GenerateMediaButton({ kind, assetId, runtime, disabled }: {
