@@ -1176,11 +1176,13 @@ describe("AgentTimeline", () => {
   });
 });
 
-function user(): ThreadItem {
+type ThreadItemOf<T extends ThreadItem["type"]> = Extract<ThreadItem, { type: T }>;
+
+function user(): ThreadItemOf<"userMessage"> {
   return { id: "user", turnId: "turn-1", type: "userMessage", text: "Build", timestamp: Date.now() - 1_000 };
 }
 
-function tool(): ThreadItem {
+function tool(): ThreadItemOf<"dynamicToolCall"> {
   return {
     id: "tool",
     turnId: "turn-1",
@@ -1193,6 +1195,6 @@ function tool(): ThreadItem {
   };
 }
 
-function assistant(id: string, text: string, phase?: "commentary" | "final_answer"): ThreadItem {
+function assistant(id: string, text: string, phase?: "commentary" | "final_answer"): ThreadItemOf<"agentMessage"> {
   return { id, turnId: "turn-1", type: "agentMessage", text, status: "completed", phase, timestamp: Date.now() };
 }
