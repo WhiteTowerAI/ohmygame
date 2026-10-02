@@ -43,16 +43,24 @@ describe("ProviderImages", () => {
     expect(new Set(gpt?.generationOptions.map((option) => option.resolution))).toEqual(new Set(["1K", "2K", "4K"]));
   });
 
-  it("explains why a ChatGPT sign-in has no image models", async () => {
+  it("explains that a ChatGPT sign-in cannot generate images without asking OpenAI", async () => {
+    const request = vi.fn<typeof fetch>();
     const images = new ProviderImages(
       async () => ({ ...runtime(), listCredentials: async () => [{ providerId: "openai", type: "oauth" }] }) as unknown as ModelRuntime,
-      vi.fn(async () => new Response("{}", { status: 403 })),
+      request,
     );
 
     const catalog = await images.catalog();
 
     expect(catalog.models).toEqual([]);
-    expect(catalog.providers).toEqual([expect.objectContaining({ provider: "openai", state: "error", message: expect.stringContaining("Connect OpenAI with an API key") })]);
+    expect(catalog.providers).toEqual([expect.objectContaining({ provider: "openai", state: "empty", message: expect.stringContaining("Connect OpenAI with an API key") })]);
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("reports an OpenAI catalog failure", async () => {
+    const images = new ProviderImages(async () => runtime(), vi.fn(async () => new Response("{}", { status: 500 })));
+
+    expect((await images.catalog()).providers).toEqual([expect.objectContaining({ provider: "openai", state: "error", message: "Model request failed (500)" })]);
   });
 
   it("reports a connected provider without supported image models", async () => {

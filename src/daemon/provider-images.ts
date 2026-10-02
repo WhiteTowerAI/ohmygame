@@ -38,13 +38,15 @@ export class ProviderImages implements ImageGenerator {
     const signedIn = await Promise.resolve()
       .then(async () => (await runtime.listCredentials()).some((credential) => credential.providerId === "openai" && credential.type === "oauth"))
       .catch(() => false);
-    const entry = await catalogEntry("openai", provider.name, () => this.#openAIModels(runtime, signal), signedIn
-      ? "Sign in with ChatGPT doesn't include GPT Image 2.5. Connect OpenAI with an API key to use it."
-      : "This OpenAI key or endpoint doesn't offer GPT Image 2.5.");
-    if (entry.status.state === "error" && signedIn) {
-      entry.status.message = `Sign in with ChatGPT can't use image generation (${entry.status.message}). Connect OpenAI with an API key to use GPT Image 2.5.`;
+    // OpenAI rejects image requests made with a ChatGPT sign-in ("ChatPass credential is not
+    // authorized"), and its model list is empty, so don't ask; say what to do instead.
+    if (signedIn) {
+      return {
+        models: [],
+        status: { provider: "openai", providerName: provider.name, state: "empty", message: "Sign in with ChatGPT can't generate images. Connect OpenAI with an API key to use GPT Image 2.5." },
+      };
     }
-    return entry;
+    return catalogEntry("openai", provider.name, () => this.#openAIModels(runtime, signal), "This OpenAI key or endpoint doesn't offer GPT Image 2.5.");
   }
 
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
