@@ -93,8 +93,10 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   }
 
   const visibleProjects = showAllProjects ? projects : projects.slice(0, recentProjectLimit);
-  // Examples for the selected project type come first; the What's New card fills the row.
-  const visibleExamples = examples.filter((example) => example.type === projectType).slice(0, recentProjectLimit - 1);
+  // Explore shows every example, whatever type the prompt above is set to.
+  // Examples take the row first; the What's New card fills a spare column.
+  const visibleExamples = examples.slice(0, recentProjectLimit);
+  const showWhatsNew = visibleExamples.length < recentProjectLimit;
 
   return (
     <main className="home-shell">
@@ -135,14 +137,14 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           <div className="home-section-heading">
             <h2 id="whats-new-heading">Explore</h2>
           </div>
-          <ExampleShelf examples={visibleExamples} covers={exampleCovers} onOpenProject={onOpen}>
-            <button className="home-whats-new-item" type="button" onClick={() => onNavigate(WHATS_NEW_ITEM.page)}>
+          <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen}>
+            {showWhatsNew ? <button className="home-whats-new-item" type="button" onClick={() => onNavigate(WHATS_NEW_ITEM.page)}>
               <span className="home-whats-new-icon" aria-hidden="true" />
               <span className="home-whats-new-copy">
                 <strong>{WHATS_NEW_ITEM.title}</strong>
                 <small>New</small>
               </span>
-            </button>
+            </button> : null}
           </ExampleShelf>
 
           <div className="home-section-heading home-project-heading">

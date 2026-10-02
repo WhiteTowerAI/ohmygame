@@ -35,10 +35,12 @@ export function useExamples(): { examples: ExampleSummary[]; covers: Record<stri
 /**
  * A row of example cards: clicking a card plays the example, Remix copies it
  * into a new project and opens it. `children` are extra cards for the row.
+ * `showType` labels each card with its project type, for rows that mix types.
  */
-export function ExampleShelf({ examples, covers, onOpenProject, children }: {
+export function ExampleShelf({ examples, covers, showType = false, onOpenProject, children }: {
   examples: readonly ExampleSummary[];
   covers: Record<string, string>;
+  showType?: boolean;
   onOpenProject: (projectId: string) => void;
   children?: ReactNode;
 }) {
@@ -71,7 +73,7 @@ export function ExampleShelf({ examples, covers, onOpenProject, children }: {
               </span>
               <span className="home-whats-new-copy">
                 <strong>{example.name}</strong>
-                <small>Example</small>
+                <small>{showType ? projectTypeLabel(example.type) : "Example"}</small>
               </span>
             </button>
             <button className="home-explore-remix" type="button" disabled={remixingId !== undefined} onClick={() => void remix(example)} title="Copy this example into a new project you can change">
