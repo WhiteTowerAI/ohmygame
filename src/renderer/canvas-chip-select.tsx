@@ -36,18 +36,22 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
       const target = event.target as Node;
       if (!menu.current?.contains(target) && !trigger.current?.contains(target)) close();
     };
+    // Scrolling a long list must stay in the menu; only wheel elsewhere moves the canvas.
+    const closeOnCanvasWheel = (event: WheelEvent) => {
+      if (!menu.current?.contains(event.target as Node)) close();
+    };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
     // The menu is fixed to the viewport, so panning or zooming the canvas would leave it behind.
     document.addEventListener("pointerdown", closeOutside, true);
     window.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("wheel", close, { capture: true, passive: true });
+    window.addEventListener("wheel", closeOnCanvasWheel, { capture: true, passive: true });
     window.addEventListener("resize", close);
     return () => {
       document.removeEventListener("pointerdown", closeOutside, true);
       window.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("wheel", close, true);
+      window.removeEventListener("wheel", closeOnCanvasWheel, true);
       window.removeEventListener("resize", close);
     };
   }, [open]);
