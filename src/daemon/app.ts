@@ -1726,6 +1726,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
+  app.get("/image-models/catalog", async () => providerImages.catalog());
+  app.get("/video-models/catalog", async () => providerVideos.catalog());
 
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",

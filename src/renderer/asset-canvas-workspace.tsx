@@ -58,6 +58,7 @@ import {
   type AgentModelRef,
   type CreateLibraryImageRequest,
   type ImageModel,
+  type MediaProviderStatus,
   type ImageModelRef,
   type ImageResolution,
   type LibraryUploadMediaType,
@@ -75,10 +76,11 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, resolveAssetCanvasAssetId, resolveAssetCanvasImageAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModels, listToolJobs, listVideoModels, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
+import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listToolJobs, listVideoModelCatalog, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
-import { CanvasChipSelect } from "./canvas-chip-select.js";
+import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
+import { settingsHash } from "./routes.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
@@ -202,10 +204,12 @@ interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
 
 interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
   models: ImageModel[];
+  providers: MediaProviderStatus[];
 }
 
 interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
   models: VideoModel[];
+  providers: MediaProviderStatus[];
 }
 
 interface MediaReferenceView {
@@ -255,6 +259,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
 
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
   const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
+  const [imageProviders, setImageProviders] = useState<MediaProviderStatus[]>([]);
+  const [videoProviders, setVideoProviders] = useState<MediaProviderStatus[]>([]);
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
   const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
@@ -291,7 +297,10 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     historyGestureBase.current = undefined;
     setCanvasContextMenu(undefined);
     setCopiedNode(undefined);
-    void Promise.all([getAssetCanvas(projectId), loadLibraryAssets(), listImageModels().catch(() => []), listVideoModels().catch(() => [])]).then(([story, assets, models, loadedVideoModels]) => {
+    const emptyCatalog = { models: [], providers: [] };
+    void Promise.all([getAssetCanvas(projectId), loadLibraryAssets(), listImageModelCatalog().catch(() => emptyCatalog), listVideoModelCatalog().catch(() => emptyCatalog)]).then(([story, assets, imageCatalog, videoCatalog]) => {
+      const models = imageCatalog.models;
+      const loadedVideoModels = videoCatalog.models;
       if (disposed) return;
       setViewport(story.viewport);
       const loadedNodes = story.nodes.map((node) => toFlowNode(node, models, loadedVideoModels));
@@ -310,6 +319,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       setLibraryAssets(assets);
       setImageModels(models);
       setVideoModels(loadedVideoModels);
+      setImageProviders(imageCatalog.providers);
+      setVideoProviders(videoCatalog.providers);
       setPhase("ready");
     }).catch((error) => {
       if (disposed) return;
@@ -1010,8 +1021,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     return {
       ...node,
       data: node.type === "image"
-        ? { ...node.data, imageRuntime: { ...referenceRuntime, models: imageModels } satisfies ImageNodeRuntime }
-        : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels } satisfies VideoNodeRuntime },
+        ? { ...node.data, imageRuntime: { ...referenceRuntime, models: imageModels, providers: imageProviders } satisfies ImageNodeRuntime }
+        : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels, providers: videoProviders } satisfies VideoNodeRuntime },
     };
   });
 
@@ -1150,8 +1161,9 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
               wide
               value={selectedModel ? agentModelKey(selectedModel) : undefined}
               placeholder={modelStateLabel}
-              options={(runtime?.models ?? []).map((model) => ({ value: agentModelKey(model), label: model.name }))}
-              disabled={runtime?.busy || !selectedModel}
+              options={(runtime?.models ?? []).map((model) => ({ value: agentModelKey(model), label: model.name, group: model.providerName }))}
+              action={MANAGE_PROVIDERS}
+              disabled={runtime?.busy}
               onChange={(key) => {
                 const model = runtime?.models.find((candidate) => agentModelKey(candidate) === key);
                 if (model) runtime?.onChange({ ...data, textRuntime: undefined, textModel: { provider: model.provider, id: model.id } });
@@ -1207,7 +1219,9 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
           wide
           value={selectedModel ? imageModelKey(selectedModel) : undefined}
           placeholder={data.model ? "Unavailable model" : runtime?.models.length ? "Select model" : "No image model"}
-          options={(runtime?.models ?? []).map((model) => ({ value: imageModelKey(model), label: model.name }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: imageModelKey(model), label: mediaModelName(model), group: model.providerName }))}
+          notes={providerNotes(runtime?.providers)}
+          action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
           onChange={selectModel}
         />
@@ -1265,7 +1279,9 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
           wide
           value={selectedModel ? modelKey(selectedModel) : undefined}
           placeholder={runtime?.models.length ? "Select model" : "No video model"}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelKey(model), label: model.name }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelKey(model), label: mediaModelName(model), group: model.providerName }))}
+          notes={providerNotes(runtime?.providers)}
+          action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
           onChange={selectModel}
         />
@@ -1625,6 +1641,17 @@ function fitMediaNode(aspectRatio = 16 / 10): { width: number; height: number } 
 }
 
 const POLYCOUNT_PRESETS = [1_000, 4_000, 10_000, 15_000];
+
+const MANAGE_PROVIDERS = { label: "Manage providers", onSelect: () => { window.location.hash = settingsHash("providers"); } };
+
+/** OpenRouter names start with the vendor ("ByteDance: Seedance 2.5"); the provider heading already says where it runs. */
+function mediaModelName(model: { provider: string; name: string }): string {
+  return model.provider === "openrouter" ? model.name.replace(/^[^:]{1,40}:\s+/, "") : model.name;
+}
+
+function providerNotes(providers: readonly MediaProviderStatus[] | undefined): CanvasChipNote[] {
+  return (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? [] : [{ group: provider.providerName, message: provider.message }]);
+}
 
 function polycountOptions(current: number): Array<{ value: string; label: string }> {
   const values = POLYCOUNT_PRESETS.includes(current) ? POLYCOUNT_PRESETS : [...POLYCOUNT_PRESETS, current].sort((a, b) => a - b);

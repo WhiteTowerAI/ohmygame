@@ -1,5 +1,5 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { ImageModel, ImageModelRef } from "../shared/contracts.js";
+import type { ImageModel, ImageModelRef, MediaModelCatalog, MediaProviderStatus } from "../shared/contracts.js";
 import { IMAGE_MODEL_IDS, imageModelDefinition, imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
@@ -12,12 +12,39 @@ export class ProviderImages implements ImageGenerator {
   ) {}
 
   async models(signal?: AbortSignal): Promise<ImageModel[]> {
+    return (await this.catalog(signal)).models;
+  }
+
+  /** Every connected image provider with its models, or the reason it has none. */
+  async catalog(signal?: AbortSignal): Promise<MediaModelCatalog<ImageModel>> {
     const runtime = await this.runtime();
-    const [openRouterModels, openAIModels] = await Promise.all([
-      this.#openRouterModels(runtime, signal).catch(() => []),
-      this.#openAIModels(runtime, signal).catch(() => []),
+    const entries = await Promise.all([
+      this.#openRouterEntry(runtime, signal),
+      this.#openAIEntry(runtime, signal),
     ]);
-    return [...openRouterModels, ...openAIModels];
+    const connected = entries.filter((entry): entry is CatalogEntry => Boolean(entry));
+    return { models: connected.flatMap((entry) => entry.models), providers: connected.map((entry) => entry.status) };
+  }
+
+  async #openRouterEntry(runtime: ModelRuntime, signal?: AbortSignal): Promise<CatalogEntry | undefined> {
+    const source = await resolveOpenRouterMediaSource(runtime, signal).catch(() => undefined);
+    if (!source) return undefined;
+    return catalogEntry("openrouter", "OpenRouter", () => listOpenRouterImageModels(source, this.request, signal), "OpenRouter lists no image models for this account.");
+  }
+
+  async #openAIEntry(runtime: ModelRuntime, signal?: AbortSignal): Promise<CatalogEntry | undefined> {
+    const provider = runtime.getProvider("openai");
+    if (!provider || !runtime.hasConfiguredAuth("openai")) return undefined;
+    const signedIn = await Promise.resolve()
+      .then(async () => (await runtime.listCredentials()).some((credential) => credential.providerId === "openai" && credential.type === "oauth"))
+      .catch(() => false);
+    const entry = await catalogEntry("openai", provider.name, () => this.#openAIModels(runtime, signal), signedIn
+      ? "Sign in with ChatGPT doesn't include GPT Image 2.5. Connect OpenAI with an API key to use it."
+      : "This OpenAI key or endpoint doesn't offer GPT Image 2.5.");
+    if (entry.status.state === "error" && signedIn) {
+      entry.status.message = `Sign in with ChatGPT can't use image generation (${entry.status.message}). Connect OpenAI with an API key to use GPT Image 2.5.`;
+    }
+    return entry;
   }
 
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
@@ -85,6 +112,23 @@ export class ProviderImages implements ImageGenerator {
 
 function preferredModel(ids: readonly string[]): string | undefined {
   return IMAGE_MODEL_IDS.find((id) => ids.includes(id));
+}
+
+interface CatalogEntry {
+  models: ImageModel[];
+  status: MediaProviderStatus;
+}
+
+async function catalogEntry(provider: string, providerName: string, list: () => Promise<ImageModel[]>, emptyMessage: string): Promise<CatalogEntry> {
+  try {
+    const models = await list();
+    return {
+      models,
+      status: models.length ? { provider, providerName, state: "ready" } : { provider, providerName, state: "empty", message: emptyMessage },
+    };
+  } catch (cause) {
+    return { models: [], status: { provider, providerName, state: "error", message: cause instanceof Error ? cause.message : String(cause) } };
+  }
 }
 
 async function runtimeSource(runtime: ModelRuntime, provider: string, signal?: AbortSignal): Promise<ImageSource> {

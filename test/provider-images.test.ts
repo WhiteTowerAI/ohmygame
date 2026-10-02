@@ -43,6 +43,29 @@ describe("ProviderImages", () => {
     expect(new Set(gpt?.generationOptions.map((option) => option.resolution))).toEqual(new Set(["1K", "2K", "4K"]));
   });
 
+  it("explains why a ChatGPT sign-in has no image models", async () => {
+    const images = new ProviderImages(
+      async () => ({ ...runtime(), listCredentials: async () => [{ providerId: "openai", type: "oauth" }] }) as unknown as ModelRuntime,
+      vi.fn(async () => new Response("{}", { status: 403 })),
+    );
+
+    const catalog = await images.catalog();
+
+    expect(catalog.models).toEqual([]);
+    expect(catalog.providers).toEqual([expect.objectContaining({ provider: "openai", state: "error", message: expect.stringContaining("Connect OpenAI with an API key") })]);
+  });
+
+  it("reports a connected provider without supported image models", async () => {
+    const images = new ProviderImages(
+      async () => ({ ...runtime(), listCredentials: async () => [] }) as unknown as ModelRuntime,
+      vi.fn(async () => Response.json({ data: [{ id: "text-only" }] })),
+    );
+
+    expect((await images.catalog()).providers).toEqual([
+      { provider: "openai", providerName: "OpenAI", state: "empty", message: "This OpenAI key or endpoint doesn't offer GPT Image 2.5." },
+    ]);
+  });
+
   it("uses the explicitly selected provider and model", async () => {
     const request = vi.fn<typeof fetch>(async (input) => {
       if (String(input).endsWith("/models")) return Response.json({ data: [{ id: "gpt-image-2.5-flare" }] });
@@ -148,6 +171,7 @@ function runtime(): ModelRuntime {
       : undefined,
     hasConfiguredAuth: (provider: string) => provider === "openai",
     getAuth: async () => ({ auth: { apiKey: "sk-openai" }, source: "test" }),
+    listCredentials: async () => [{ providerId: "openai", type: "api_key" }],
   } as unknown as ModelRuntime;
 }
 

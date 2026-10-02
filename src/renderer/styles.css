@@ -6907,18 +6907,83 @@ button {
 .canvas-chip-menu {
   position: fixed;
   z-index: 200;
-  display: grid;
-  max-width: 260px;
-  max-height: min(320px, calc(100vh - 16px));
+  display: flex;
+  max-width: 280px;
+  max-height: min(360px, calc(100vh - 16px));
+  flex-direction: column;
   padding: 4px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
   border-radius: 8px;
   background: var(--menu-surface);
   box-shadow: var(--menu-shadow), 0 0 0 0.5px var(--border);
 }
 
-.canvas-chip-menu > button {
+.canvas-chip-menu-search {
+  display: flex;
+  height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+.canvas-chip-menu-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.canvas-chip-menu-search input::placeholder {
+  color: var(--text-faint);
+}
+
+.canvas-chip-menu-list {
+  display: grid;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.canvas-chip-menu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.canvas-chip-menu-group + .canvas-chip-menu-group {
+  margin-top: 4px;
+  padding-top: 4px;
+}
+
+.canvas-chip-menu-heading {
+  padding: 3px 8px 2px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-chip-menu-note {
+  margin: 0;
+  padding: 4px 8px 6px;
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.canvas-chip-menu-group > button,
+.canvas-chip-menu-action {
   display: flex;
   min-height: 28px;
   align-items: center;
@@ -6935,16 +7000,28 @@ button {
   text-align: left;
 }
 
-.canvas-chip-menu > button > span {
+.canvas-chip-menu-group > button > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.canvas-chip-menu > button:hover,
-.canvas-chip-menu > button:focus-visible,
-.canvas-chip-menu > button[aria-selected="true"] {
+.canvas-chip-menu-action {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+  gap: 7px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 5px 5px;
+  color: var(--text-muted);
+}
+
+.canvas-chip-menu-group > button:hover,
+.canvas-chip-menu-group > button:focus-visible,
+.canvas-chip-menu-group > button[aria-selected="true"],
+.canvas-chip-menu-action:hover,
+.canvas-chip-menu-action:focus-visible {
   outline: 0;
   background: var(--menu-hover);
   color: var(--text);

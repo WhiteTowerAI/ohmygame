@@ -44,6 +44,7 @@ import {
   type PromptResponse,
   type WorkspaceFile,
   type WorkspaceFileContent,
+  MediaModelCatalog,
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
@@ -223,6 +224,15 @@ export async function listImageModels(): Promise<ImageModel[]> {
 
 export async function listVideoModels(): Promise<VideoModel[]> {
   return request("/video-models");
+}
+
+/** Image models grouped by connected provider, with the reason a provider has none. */
+export async function listImageModelCatalog(): Promise<MediaModelCatalog<ImageModel>> {
+  return request("/image-models/catalog");
+}
+
+export async function listVideoModelCatalog(): Promise<MediaModelCatalog<VideoModel>> {
+  return request("/video-models/catalog");
 }
 
 export async function getWebSearchSettings(): Promise<WebSearchSettings> {
