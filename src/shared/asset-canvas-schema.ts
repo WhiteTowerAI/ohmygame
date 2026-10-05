@@ -5,7 +5,7 @@ import {
   VIDEO_RESOLUTIONS,
 } from "./contracts.js";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
-import { MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
+import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
 
 export const ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA = {
   ...EDITOR_LAYOUT_SCHEMA,
@@ -80,6 +80,17 @@ const nodes = [
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
       images: { type: "array", maxItems: MODEL_3D_MAX_REFERENCE_IMAGES, items: reference },
+      assetId: id,
+    },
+  }),
+  node("animate-3d", {
+    type: "object",
+    additionalProperties: false,
+    required: ["heightMeters", "actionIds"],
+    properties: {
+      source: reference,
+      heightMeters: { type: "number", exclusiveMinimum: 0, maximum: 100 },
+      actionIds: { type: "array", maxItems: MAX_ANIMATION_ACTIONS, uniqueItems: true, items: { type: "integer", minimum: 0 } },
       assetId: id,
     },
   }),

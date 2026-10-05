@@ -168,7 +168,7 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "asset";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "animate-3d" | "asset";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -236,6 +236,14 @@ export type AssetCanvasNode = (
     texture: boolean;
     pbr: boolean;
     images: AssetCanvasReference[];
+    assetId?: string;
+  } }
+  | { id: string; type: "animate-3d"; position: AssetCanvasPosition; data: {
+    /** The humanoid GLB to rig: a Model 3D node, a model Asset node, or a Library model. */
+    source?: AssetCanvasReference;
+    heightMeters: number;
+    /** Library actions in clip order. */
+    actionIds: number[];
     assetId?: string;
   } }
 );

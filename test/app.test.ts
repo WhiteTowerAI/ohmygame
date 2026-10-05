@@ -1854,4 +1854,23 @@ describe("Asset Canvas projects", () => {
     expect(updated.edges).toEqual([]);
     expect(Object.keys(updated.editorLayout.nodes)).toEqual(["image"]);
   });
+
+  it("protects and removes Library models used by an Animate 3D node", async () => {
+    const app = await createCanvasApp("ohmygame-asset-canvas-animate-library-");
+    const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
+    await writeFile(path.join(source.workspacePath, "hero.glb"), "glb bytes");
+    const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
+    await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=hero.glb` });
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+    const document = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    document.nodes = [{ id: "animate", type: "animate-3d", position: { x: 0, y: 0 }, data: { source: { type: "library", assetId: asset.id }, heightMeters: 1.7, actionIds: [0] } }];
+    document.editorLayout.nodes = { animate: { x: 0, y: 0 } };
+    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: document })).statusCode).toBe(204);
+
+    expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` })).statusCode).toBe(409);
+    expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}?force=true` })).statusCode).toBe(204);
+
+    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    expect(updated.nodes).toEqual([expect.objectContaining({ id: "animate", data: { heightMeters: 1.7, actionIds: [0] } })]);
+  });
 });

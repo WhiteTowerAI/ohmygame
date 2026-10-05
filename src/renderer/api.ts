@@ -46,6 +46,7 @@ import {
   type WorkspaceFileContent,
   type MediaModelCatalog,
   type Model3DModel,
+  type Model3DAnimationAction,
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { ExampleSummary } from "../shared/examples.js";
@@ -254,6 +255,11 @@ export async function listVideoModelCatalog(): Promise<MediaModelCatalog<VideoMo
 
 export async function listModel3DCatalog(): Promise<MediaModelCatalog<Model3DModel>> {
   return request("/model3d-models/catalog");
+}
+
+/** Preset moves for rigged humanoids; empty until a 3D provider is set up. */
+export async function listModel3DAnimations(): Promise<Model3DAnimationAction[]> {
+  return request("/model3d-animations");
 }
 
 export async function getWebSearchSettings(): Promise<WebSearchSettings> {

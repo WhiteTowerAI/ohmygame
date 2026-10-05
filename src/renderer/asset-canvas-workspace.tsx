@@ -22,6 +22,7 @@ import {
   Trash2,
   Upload,
   Undo2,
+  WandSparkles,
   Redo2,
   Volume2,
   VolumeX,
@@ -65,10 +66,12 @@ import {
   type LibraryUploadMediaType,
   type Model3DGenerationConfig,
   type Model3DModel,
+  type Model3DAnimationAction,
   type PromptImage,
   type ProjectState,
   type RunImageToolRequest,
   type Run3DToolRequest,
+  type RunAnimate3DToolRequest,
   type RunVideoToolRequest,
   type ToolJob,
   type VideoAspectRatio,
@@ -78,7 +81,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, resolveAssetCanvasAssetId, resolveAssetCanvasImageAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DCatalog, listToolJobs, listVideoModelCatalog, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
+import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listToolJobs, listVideoModelCatalog, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
@@ -88,7 +91,7 @@ import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-refere
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { ModelPreview } from "./model-preview.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
-import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_MODEL_3D, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_MAX_REFERENCE_IMAGES, buildModel3DToolRequest, normalizeModel3DConfig, resolveModel3D } from "../shared/generation-config.js";
+import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, DEFAULT_MODEL_3D, DEFAULT_VIDEO_NODE_CONFIG, MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_REFERENCE_IMAGES, buildModel3DToolRequest, normalizeModel3DConfig, resolveModel3D } from "../shared/generation-config.js";
 import "@xyflow/react/dist/style.css";
 
 const ASSET_EDGE_PREFIX = "asset:";
@@ -130,6 +133,7 @@ const CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
       { label: "Image", description: "Generate an image on canvas", icon: ImageIcon, action: { kind: "node", type: "image" } },
       { label: "Video", description: "Generate a video on canvas", icon: Film, action: { kind: "node", type: "video" } },
       { label: "Model 3D", description: "Generate a 3D model on canvas", icon: Box, action: { kind: "node", type: "model-3d" } },
+      { label: "Animate 3D", description: "Rig a 3D character and add moves", icon: WandSparkles, action: { kind: "node", type: "animate-3d" } },
     ],
   },
 ];
@@ -160,12 +164,15 @@ type AssetCanvasFlowData = {
   assetId?: string;
   mediaType?: "image" | "video" | "audio" | "model";
   model3DConfig?: Model3DGenerationConfig;
+  heightMeters?: number;
+  actionIds?: number[];
   contentType?: string;
   assetDuration?: number;
   name?: string;
   imageRuntime?: ImageNodeRuntime;
   videoRuntime?: VideoNodeRuntime;
   model3DRuntime?: Model3DNodeRuntime;
+  animateRuntime?: Animate3DNodeRuntime;
   textRuntime?: TextNodeRuntime;
 };
 type AssetCanvasFlowNode = Node<AssetCanvasFlowData, AssetCanvasNodeType>;
@@ -202,7 +209,8 @@ interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
   /** Names each reference position (e.g. 3D views); the strip then shows every position as a labelled slot. */
   slotLabels?: readonly string[];
   onRemoveReference: (index: number) => void;
-  onUploadReferences: (files: File[]) => void;
+  /** Absent when references can only be connected, not uploaded. */
+  onUploadReferences?: (files: File[]) => void;
 }
 
 interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
@@ -220,13 +228,21 @@ interface Model3DNodeRuntime extends ReferenceMediaNodeRuntime {
   providers: MediaProviderStatus[];
 }
 
+interface Animate3DNodeRuntime extends ReferenceMediaNodeRuntime {
+  actions: Model3DAnimationAction[];
+  actionsStatus: "loading" | "ready" | "error";
+  /** Whether a 3D provider is set up; without one the action library is empty. */
+  configured: boolean;
+  onReloadActions: () => void;
+}
+
 interface MediaReferenceView {
   assetId?: string;
   key: string;
   linked: boolean;
   name: string;
   label: string;
-  type: VideoGenerationReference["type"];
+  type: VideoGenerationReference["type"] | "model";
   duration?: number;
 }
 
@@ -235,6 +251,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   image: ImageNode,
   video: VideoNode,
   "model-3d": Model3DNode,
+  "animate-3d": Animate3DNode,
   asset: AssetNode,
 };
 
@@ -272,6 +289,18 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const [videoProviders, setVideoProviders] = useState<MediaProviderStatus[]>([]);
   const [model3DModels, setModel3DModels] = useState<Model3DModel[]>([]);
   const [model3DProviders, setModel3DProviders] = useState<MediaProviderStatus[]>([]);
+  const [animationActions, setAnimationActions] = useState<{ status: "idle" | "loading" | "ready" | "error"; actions: Model3DAnimationAction[] }>({ status: "idle", actions: [] });
+  const hasAnimateNode = nodes.some((node) => node.type === "animate-3d");
+  const meshyConfigured = model3DModels.length > 0;
+
+  // The move library is only needed once an Animate node exists and a 3D provider is set up.
+  useEffect(() => {
+    if (!hasAnimateNode || !meshyConfigured || animationActions.status !== "idle") return;
+    setAnimationActions({ status: "loading", actions: [] });
+    listModel3DAnimations()
+      .then((actions) => setAnimationActions({ status: "ready", actions }))
+      .catch(() => setAnimationActions({ status: "error", actions: [] }));
+  }, [hasAnimateNode, meshyConfigured, animationActions.status]);
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
   const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
@@ -518,7 +547,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   }, [document]);
   const assetEdges = useMemo(() => nodes.flatMap((node): Edge[] => {
     const derived: Edge[] = [];
-    if (node.type === "image" || node.type === "model-3d") derived.push(...(node.data.images ?? []).flatMap((image) => image.type === "node" ? [{
+    if (node.type === "image" || node.type === "model-3d" || node.type === "animate-3d") derived.push(...(node.data.images ?? []).flatMap((image) => image.type === "node" ? [{
       id: assetEdgeId("image", node.id, image.nodeId),
       source: image.nodeId,
       target: node.id,
@@ -591,7 +620,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
         const relation = edge?.data?.relation;
         const referenceId = edge?.data?.referenceId;
         if (edge && typeof referenceId === "string") setNodes((current) => current.map((node) => {
-          if (relation === "media-image" && node.id === edge.target && (node.type === "image" || node.type === "model-3d")) {
+          if (relation === "media-image" && node.id === edge.target && (node.type === "image" || node.type === "model-3d" || node.type === "animate-3d")) {
             return { ...node, data: { ...node.data, images: (node.data.images ?? []).filter((image) => image.type !== "node" || image.nodeId !== referenceId) } };
           }
           if (relation === "video-reference" && node.id === edge.target && node.type === "video") {
@@ -618,6 +647,13 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     if (relation === "image-reference" && (target.type === "image" || target.type === "model-3d")) {
       setNodes((current) => current.map((node) => node.id === target.id && (node.type === "image" || node.type === "model-3d")
         ? { ...node, data: { ...node.data, images: [...(node.data.images ?? []), { type: "node", nodeId: source.id }] } }
+        : node));
+      return;
+    }
+    if (relation === "model-reference" && target.type === "animate-3d") {
+      // An Animate node rigs one model, so a new connection replaces the previous one.
+      setNodes((current) => current.map((node) => node.id === target.id
+        ? { ...node, data: { ...node.data, assetId: undefined, images: [{ type: "node", nodeId: source.id }] } }
         : node));
       return;
     }
@@ -791,6 +827,19 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     }
   }
 
+  async function generateAnimation(node: AssetCanvasFlowNode): Promise<void> {
+    if (node.type !== "animate-3d") return;
+    const source = node.data.images?.[0];
+    const assetId = source?.type === "library" ? source.assetId : nodes.find((candidate) => candidate.id === source?.nodeId)?.data.assetId;
+    if (!assetId) {
+      setGenerationError({ nodeId: node.id, message: source ? "Generate the connected 3D model before animating it." : "Connect a 3D model before animating." });
+      return;
+    }
+    const actionIds = node.data.actionIds ?? [];
+    if (!actionIds.length) { setGenerationError({ nodeId: node.id, message: "Choose at least one move before animating." }); return; }
+    await generateMedia(node, "animate-3d", { assetId, actionIds, heightMeters: node.data.heightMeters ?? DEFAULT_CHARACTER_HEIGHT_METERS }, "Animated 3D model");
+  }
+
   async function generateModel3D(node: AssetCanvasFlowNode): Promise<void> {
     if (node.type !== "model-3d") return;
     const config = nodeModel3DConfig(node);
@@ -893,7 +942,12 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     }
   }
 
-  async function generateMedia(node: AssetCanvasFlowNode, toolId: "generate-image" | "generate-video" | "image-to-3d", input: RunImageToolRequest | RunVideoToolRequest | Run3DToolRequest, label: string): Promise<void> {
+  async function generateMedia(
+    node: AssetCanvasFlowNode,
+    toolId: "generate-image" | "generate-video" | "image-to-3d" | "animate-3d",
+    input: RunImageToolRequest | RunVideoToolRequest | Run3DToolRequest | RunAnimate3DToolRequest,
+    label: string,
+  ): Promise<void> {
     if (canvasJobs[node.id]?.status === "running" || startingCanvasNodesRef.current.has(node.id)) return;
     startingCanvasNodesRef.current.add(node.id);
     setStartingCanvasNodes((current) => new Set(current).add(node.id));
@@ -999,6 +1053,40 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             models: model3DModels,
             providers: model3DProviders,
           },
+        },
+      };
+    }
+    if (node.type === "animate-3d") {
+      const nodeJob = canvasJobs[node.id];
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          animateRuntime: {
+            generating: nodeJob?.status === "running",
+            busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
+            ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
+            onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
+            onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
+            onChange: (data: AssetCanvasFlowData) => {
+              setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
+              setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
+            },
+            onGenerate: () => void generateAnimation(node),
+            references: modelReferenceViews(node, nodes, libraryAssets),
+            maxReferences: 1,
+            slotLabels: ["Model"],
+            uploading: false,
+            accept: "",
+            addLabel: "Connect a 3D model",
+            onRemoveReference: () => setNodes((current) => current.map((candidate) => candidate.id === node.id
+              ? { ...candidate, data: { ...candidate.data, images: [] } }
+              : candidate)),
+            actions: animationActions.actions,
+            actionsStatus: animationActions.status === "ready" || animationActions.status === "error" ? animationActions.status : "loading",
+            configured: model3DModels.length > 0,
+            onReloadActions: () => setAnimationActions({ status: "idle", actions: [] }),
+          } satisfies Animate3DNodeRuntime,
         },
       };
     }
@@ -1418,6 +1506,124 @@ function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   );
 }
 
+const CHARACTER_HEIGHTS = [1, 1.2, 1.5, 1.7, 1.8, 2];
+
+function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
+  const runtime = data.animateRuntime;
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const actionIds = data.actionIds ?? [];
+  const height = data.heightMeters ?? DEFAULT_CHARACTER_HEIGHT_METERS;
+  const heights = CHARACTER_HEIGHTS.includes(height) ? CHARACTER_HEIGHTS : [...CHARACTER_HEIGHTS, height].sort((a, b) => a - b);
+  const update = (next: Partial<AssetCanvasFlowData>) => runtime?.onChange({ ...data, animateRuntime: undefined, ...next });
+  return (
+    <MediaNodeShell kind="animation" selected={selected} assetId={data.assetId} runtime={runtime}>
+      <MediaReferenceStrip runtime={runtime} large />
+      {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
+      <div className="story-media-controls">
+        <button className="canvas-chip" type="button" disabled={runtime?.busy} onClick={() => setPickerOpen(true)}>
+          <WandSparkles size={12} /><span>{actionIds.length === 1 ? "1 move" : `${actionIds.length} moves`}</span>
+        </button>
+        <CanvasChipSelect
+          label="Character height"
+          value={String(height)}
+          options={heights.map((value) => ({ value: String(value), label: `${value} m` }))}
+          disabled={runtime?.busy}
+          onChange={(value) => update({ heightMeters: Number(value) })}
+        />
+        <GenerateMediaButton kind="animation" assetId={data.assetId} runtime={runtime} disabled={!data.images?.length || actionIds.length === 0} />
+      </div>
+      {pickerOpen && runtime ? (
+        <AnimationActionPicker
+          runtime={runtime}
+          selectedIds={actionIds}
+          onChange={(next) => update({ actionIds: next })}
+          onClose={() => setPickerOpen(false)}
+        />
+      ) : null}
+    </MediaNodeShell>
+  );
+}
+
+function AnimationActionPicker({ runtime, selectedIds, onChange, onClose }: {
+  runtime: Animate3DNodeRuntime;
+  selectedIds: number[];
+  onChange: (actionIds: number[]) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<string>();
+  const dialog = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    dialog.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  const categories = useMemo(() => [...new Set(runtime.actions.map((action) => action.category))], [runtime.actions]);
+  const visible = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return runtime.actions.filter((action) => (!category || action.category === category)
+      && (!normalized || `${action.name} ${action.subCategory}`.toLowerCase().includes(normalized)));
+  }, [runtime.actions, category, query]);
+  const byId = useMemo(() => new Map(runtime.actions.map((action) => [action.id, action])), [runtime.actions]);
+  const full = selectedIds.length >= MAX_ANIMATION_ACTIONS;
+  const toggle = (id: number) => onChange(selectedIds.includes(id) ? selectedIds.filter((candidate) => candidate !== id) : [...selectedIds, id]);
+
+  return createPortal(
+    // Keys typed here (search, Backspace) must not reach React Flow's delete shortcut.
+    <div className="story-video-picker-backdrop nokey" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="story-video-picker story-animation-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-animation-picker-title" tabIndex={-1}>
+        <header><h2 id="story-animation-picker-title">Choose moves</h2><button type="button" aria-label="Close move picker" onClick={onClose}><X size={16} /></button></header>
+        <label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search moves" /></label>
+        <div className="story-animation-picker-categories" role="group" aria-label="Move categories">
+          <button className="canvas-chip is-toggle" type="button" aria-pressed={!category} onClick={() => setCategory(undefined)}>All</button>
+          {categories.map((name) => (
+            <button className="canvas-chip is-toggle" type="button" key={name} aria-pressed={category === name} onClick={() => setCategory(name)}>{splitCamelCase(name)}</button>
+          ))}
+        </div>
+        <div className="story-animation-picker-grid">
+          {!runtime.configured ? <p>Set up Meshy in <button type="button" onClick={MANAGE_PROVIDERS.onSelect}>Manage providers</button> to browse moves.</p>
+            : runtime.actionsStatus === "loading" ? <p><LoaderCircle className="spin" size={16} /> Loading moves...</p>
+            : runtime.actionsStatus === "error" ? <p>Could not load moves. <button type="button" onClick={runtime.onReloadActions}>Try again</button></p>
+            : visible.length === 0 ? <p>No moves match your search</p>
+            : visible.map((action) => {
+              const chosen = selectedIds.includes(action.id);
+              return (
+                <button type="button" key={action.id} aria-pressed={chosen} disabled={!chosen && full} onClick={() => toggle(action.id)} title={`${action.name} · ${splitCamelCase(action.subCategory)}`}>
+                  <span className="story-animation-picker-preview">
+                    {action.previewUrl ? <img src={action.previewUrl} alt="" loading="lazy" /> : <WandSparkles size={20} />}
+                    {chosen ? <span className="story-animation-picker-check"><Check size={12} /></span> : null}
+                  </span>
+                  <strong>{action.name}</strong>
+                  <small>{splitCamelCase(action.subCategory)}</small>
+                </button>
+              );
+            })}
+        </div>
+        <footer>
+          <div className="story-animation-picker-selected" aria-label="Selected moves, in clip order">
+            {selectedIds.length === 0 ? <span>No moves selected</span> : selectedIds.map((id) => (
+              <button className="canvas-chip" type="button" key={id} title="Remove move" onClick={() => toggle(id)}>
+                <span>{byId.get(id)?.name ?? `Move ${id}`}</span><X size={11} />
+              </button>
+            ))}
+          </div>
+          <span>{selectedIds.length}/{MAX_ANIMATION_ACTIONS}</span>
+          <button className="story-animation-picker-done" type="button" onClick={onClose}>Done</button>
+        </footer>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
+/** Meshy names categories in CamelCase ("WalkAndRun"); spaced words read better in the picker. */
+function splitCamelCase(value: string): string {
+  return value.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
 function MediaPrompt({ kind, value, runtime, onChange }: {
   kind: "image" | "video" | "model";
   value: string;
@@ -1484,7 +1690,10 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
           onRemove={() => runtime?.onRemoveReference(index)}
         />
       ))}
-      {references.length < (runtime?.maxReferences ?? 0) ? (
+      {references.length < (runtime?.maxReferences ?? 0) && !runtime.onUploadReferences ? (
+        <div className="story-media-reference-slot" title={runtime.addLabel}><span>{nextSlot ?? runtime.addLabel}</span></div>
+      ) : null}
+      {references.length < (runtime?.maxReferences ?? 0) && runtime.onUploadReferences ? (
         <>
           <button
             className="story-media-reference-add"
@@ -1506,7 +1715,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
             onChange={(event) => {
               const files = [...(event.target.files ?? [])];
               event.target.value = "";
-              runtime?.onUploadReferences(files);
+              runtime.onUploadReferences?.(files);
             }}
           />
         </>
@@ -1533,13 +1742,15 @@ function MediaReferenceThumbnail({ reference, caption, disabled, onRemove }: {
   disabled?: boolean;
   onRemove: () => void;
 }) {
-  const preview = useWorkspaceAssetUrl(undefined, "", 0, reference.type === "audio" ? undefined : reference.assetId);
+  const preview = useWorkspaceAssetUrl(undefined, "", 0, reference.type === "audio" || reference.type === "model" ? undefined : reference.assetId);
   return (
     <div className={`story-media-reference${reference.linked ? " is-linked" : ""}`} title={`${reference.label}: ${reference.name}`}>
       {preview.url && reference.type === "image" ? <img src={preview.url} alt={reference.name} /> : null}
       {preview.url && reference.type === "video" ? <video src={preview.url} muted playsInline preload="metadata" /> : null}
-      {reference.type === "audio" || !preview.url ? reference.type === "audio" ? <Music2 size={18} /> : reference.type === "video" ? <Film size={18} /> : <ImageIcon size={18} /> : null}
-      <small>{caption ?? `${{ image: "I", video: "V", audio: "A" }[reference.type]}${reference.label.split(" ")[1] ?? ""}`}</small>
+      {reference.type === "audio" || reference.type === "model" || !preview.url
+        ? reference.type === "audio" ? <Music2 size={18} /> : reference.type === "model" ? <Box size={18} /> : reference.type === "video" ? <Film size={18} /> : <ImageIcon size={18} />
+        : null}
+      <small>{caption ?? `${{ image: "I", video: "V", audio: "A", model: "M" }[reference.type]}${reference.label.split(" ")[1] ?? ""}`}</small>
       {reference.linked ? <span className="story-media-reference-link" aria-label={`Connected ${reference.type} node`} /> : null}
       <button type="button" title={`Remove ${reference.name}`} aria-label={`Remove ${reference.name}`} disabled={disabled} onClick={onRemove}>
         <X size={11} />
@@ -1549,7 +1760,7 @@ function MediaReferenceThumbnail({ reference, caption, disabled, onRemove }: {
 }
 
 function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, children }: {
-  kind: "image" | "video" | "model";
+  kind: "image" | "video" | "model" | "animation";
   selected: boolean;
   assetId?: string;
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
@@ -1557,9 +1768,10 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, childre
   children: React.ReactNode;
 }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, assetId);
-  const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : Box;
-  const label = kind === "image" ? "Image" : kind === "video" ? "Video" : "Model 3D";
-  const mediaLayout = useMediaNodeLayout(kind === "model" ? undefined : preview.url, aspectRatio);
+  const Icon = kind === "image" ? ImageIcon : kind === "video" ? Film : kind === "animation" ? WandSparkles : Box;
+  const label = kind === "image" ? "Image" : kind === "video" ? "Video" : kind === "animation" ? "Animate 3D" : "Model 3D";
+  const threeD = kind === "model" || kind === "animation";
+  const mediaLayout = useMediaNodeLayout(threeD ? undefined : preview.url, aspectRatio);
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaLayout.style}>
       <div className="story-media-node-label"><Icon size={14} /><span>{label}</span></div>
@@ -1567,19 +1779,21 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, childre
         {preview.url ? <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt="Generated image" onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
-        {preview.url && kind === "model" ? <ModelPreview source={preview.url} label="Generated 3D model" minHeight={220} interactive={false} /> : null}
+        {preview.url && threeD ? <ModelPreview source={preview.url} label={kind === "animation" ? "Animated 3D model" : "Generated 3D model"} minHeight={220} interactive={false} /> : null}
         {!preview.url && !runtime?.generating ? (
           <div className="story-media-empty">
             <Icon size={34} />
             <strong>No {kind} yet</strong>
-            <span>{kind === "model" ? "Add a reference image below, then generate" : `Describe a ${kind} below, then generate`}</span>
+            <span>{kind === "model" ? "Add a reference image below, then generate"
+              : kind === "animation" ? "Connect a humanoid 3D model, pick moves, then animate"
+              : `Describe a ${kind} below, then generate`}</span>
           </div>
         ) : null}
         {runtime?.generating ? (
           <div className="story-media-empty story-media-generation" role="status">
             <LoaderCircle className="spin" size={20} />
-            <strong>{`Generating ${kind === "model" ? "3D model" : kind}...`}</strong>
-            <span>This can take a moment</span>
+            <strong>{kind === "animation" ? "Rigging and animating..." : `Generating ${kind === "model" ? "3D model" : kind}...`}</strong>
+            <span>{kind === "animation" ? "This can take a few minutes" : "This can take a moment"}</span>
           </div>
         ) : null}
       </div>
@@ -1751,13 +1965,13 @@ function CanvasChipToggle({ label, pressed, disabled, onChange }: { label: strin
 }
 
 function GenerateMediaButton({ kind, assetId, runtime, disabled }: {
-  kind: "image" | "video" | "model";
+  kind: "image" | "video" | "model" | "animation";
   assetId?: string;
   runtime?: MediaNodeRuntime;
   disabled: boolean;
 }) {
   const labelKind = kind === "model" ? "3D model" : kind;
-  const label = assetId ? `Generate ${labelKind} again` : `Generate ${labelKind}`;
+  const label = kind === "animation" ? (assetId ? "Animate again" : "Animate") : assetId ? `Generate ${labelKind} again` : `Generate ${labelKind}`;
   if (runtime?.onCancel && runtime.generating) {
     return <button type="button" title="Cancel generation" aria-label="Cancel generation" onClick={runtime.onCancel}><Square size={13} /></button>;
   }
@@ -1927,7 +2141,7 @@ function viewableCanvasAsset(node: AssetCanvasFlowNode): ViewableCanvasAsset | u
   if (!assetId) return undefined;
   if (node.type === "image") return { assetId, mediaType: "image" };
   if (node.type === "video") return { assetId, mediaType: "video" };
-  if (node.type === "model-3d") return { assetId, mediaType: "model" };
+  if (node.type === "model-3d" || node.type === "animate-3d") return { assetId, mediaType: "model" };
   const mediaType = node.data.mediaType;
   return node.type === "asset" && mediaType && mediaType !== "audio" ? { assetId, mediaType } : undefined;
 }
@@ -2096,6 +2310,19 @@ function toFlowNode(node: AssetCanvasNode, imageModels: ImageModel[], videoModel
       },
     };
   }
+  if (node.type === "animate-3d") return {
+    id: node.id,
+    type: "animate-3d",
+    position: node.position,
+    deletable: true,
+    // The flow keeps the source in `images` so connections, edges, and removal share the reference code paths.
+    data: {
+      images: node.data.source ? [node.data.source] : [],
+      heightMeters: node.data.heightMeters,
+      actionIds: node.data.actionIds,
+      ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+    },
+  };
   if (node.type === "model-3d") return {
     id: node.id,
     type: "model-3d",
@@ -2142,6 +2369,9 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
     return toFlowNode(createAssetGenerationNode(type, position, { ...(model ? { videoModel: { provider: model.provider, id: model.id } } : {}), videoAspectRatio: aspectRatio }), imageModels, videoModels);
   }
   if (type === "model-3d") return toFlowNode(createAssetGenerationNode(type, position), imageModels, videoModels);
+  if (type === "animate-3d") {
+    return { id: crypto.randomUUID(), type, position, data: { images: [], heightMeters: DEFAULT_CHARACTER_HEIGHT_METERS, actionIds: [...DEFAULT_ANIMATION_ACTION_IDS] } };
+  }
   const id = crypto.randomUUID();
   return { id, type: "text", position, data: { text: "", instruction: "", ...(defaultTextModel ? { textModel: defaultTextModel } : {}) } };
 }
@@ -2162,6 +2392,20 @@ function assetCanvasDocument(
 }
 
 export function toAssetCanvasNode(node: AssetCanvasFlowNode): AssetCanvasNode {
+  if (node.type === "animate-3d") {
+    const source = node.data.images?.[0];
+    return {
+      id: node.id,
+      type: "animate-3d",
+      position: node.position,
+      data: {
+        ...(source ? { source } : {}),
+        heightMeters: node.data.heightMeters ?? DEFAULT_CHARACTER_HEIGHT_METERS,
+        actionIds: node.data.actionIds ?? [],
+        ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+      },
+    };
+  }
   if (node.type === "asset") return {
     id: node.id,
     type: "asset",
@@ -2271,6 +2515,26 @@ function imageReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
   });
 }
 
+function modelReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNode[], libraryAssets: LibraryAsset[]): MediaReferenceView[] {
+  const source = node.type === "animate-3d" ? node.data.images?.[0] : undefined;
+  if (!source) return [];
+  if (source.type === "library") {
+    const asset = libraryAssets.find((candidate) => candidate.id === source.assetId);
+    return [{ assetId: source.assetId, key: `library:${source.assetId}`, linked: false, name: asset?.name ?? "Missing model", label: "Model", type: "model" }];
+  }
+  const sourceNode = nodes.find((candidate) => candidate.id === source.nodeId);
+  const assetId = sourceNode?.data.assetId;
+  const asset = libraryAssets.find((candidate) => candidate.id === assetId);
+  return [{
+    ...(assetId ? { assetId } : {}),
+    key: `node:${source.nodeId}`,
+    linked: true,
+    type: "model",
+    label: "Model",
+    name: asset?.name ?? (sourceNode ? "Connected 3D model" : "Missing model node"),
+  }];
+}
+
 function videoReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNode[], libraryAssets: LibraryAsset[]): MediaReferenceView[] {
   if (node.type !== "video") return [];
   const counts = { image: 0, video: 0, audio: 0 };
@@ -2331,7 +2595,7 @@ function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data">): Mo
   return normalizeModel3DConfig(node.data.model3DConfig);
 }
 
-type ConnectionRelation = "image-reference" | "video-reference" | "prompt";
+type ConnectionRelation = "image-reference" | "video-reference" | "model-reference" | "prompt";
 
 function connectionRelation(
   source: AssetCanvasFlowNode,
@@ -2354,6 +2618,10 @@ function connectionRelation(
       ? "image-reference"
       : undefined;
   }
+  if (target.type === "animate-3d") {
+    const current = target.data.images?.[0];
+    return isModelSource(source, libraryAssets) && !(current?.type === "node" && current.nodeId === source.id) ? "model-reference" : undefined;
+  }
   if (source.type === "text" && (target.type === "image" || target.type === "video")) {
     return target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
   }
@@ -2365,6 +2633,13 @@ function connectionRelation(
 
 function isMediaNodeType(type: AssetCanvasNodeType): type is "image" | "video" {
   return type === "image" || type === "video";
+}
+
+/** GLB output of a Model 3D node or a Library model; only GLB can be rigged. */
+function isModelSource(node: AssetCanvasFlowNode, libraryAssets: LibraryAsset[]): boolean {
+  if (node.type === "model-3d") return true;
+  if (node.type !== "asset" || node.data.mediaType !== "model") return false;
+  return libraryAssets.find((asset) => asset.id === node.data.assetId)?.contentType === "model/gltf-binary";
 }
 
 function isImageFlowSource(node: AssetCanvasFlowNode | undefined): boolean {
@@ -2400,7 +2675,7 @@ function assetEdgeId(relation: "scene" | "image" | "reference" | "prompt" | "pre
 function removeNodesAndReferences(nodes: AssetCanvasFlowNode[], removedIds: ReadonlySet<string>): AssetCanvasFlowNode[] {
   return nodes
     .filter((node) => !removedIds.has(node.id))
-    .map((node) => node.type === "image" || node.type === "model-3d"
+    .map((node) => node.type === "image" || node.type === "model-3d" || node.type === "animate-3d"
         ? {
             ...node,
             data: {

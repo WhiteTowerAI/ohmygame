@@ -534,7 +534,8 @@ export class ProjectManager {
           (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
           (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
           (node.type === "model-3d" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
-          ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "asset") && node.data.assetId === assetId)
+          (node.type === "animate-3d" && node.data.source?.type === "library" && node.data.source.assetId === assetId) ||
+          (node.type !== "text" && node.data.assetId === assetId)
         ))) references.push(project);
       }
     }
@@ -668,6 +669,12 @@ function removeAssetCanvasReferences(current: AssetCanvasDocument, assetId: stri
           return { ...node, data: { ...data, references } };
         }
         return references.length === node.data.references.length ? node : { ...node, data: { ...node.data, references } };
+      }
+      if (node.type === "animate-3d") {
+        const { assetId: output, source, ...data } = node.data;
+        const keepSource = source && keepReference(source);
+        if (output !== assetId && (!source || keepSource)) return node;
+        return { ...node, data: { ...data, ...(keepSource ? { source } : {}), ...(output !== assetId && output ? { assetId: output } : {}) } };
       }
       return node;
     }),

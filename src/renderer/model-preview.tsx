@@ -87,6 +87,8 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         loading: "eager",
         "camera-controls": interactive || undefined,
         "auto-rotate": true,
+        // Plays the first clip of animated models (e.g. rigged characters); static models are unaffected.
+        autoplay: true,
         "shadow-intensity": "1",
         tabIndex: interactive ? undefined : -1,
         "aria-hidden": interactive ? undefined : true,
