@@ -53,6 +53,7 @@ describe("tool runner", () => {
     await runner.load();
     await runner.run("image-to-3d", {
       images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
+      model: { provider: "meshy", id: "meshy-t2" },
       targetPolycount: 4_000,
       texture: false,
     });
@@ -182,6 +183,8 @@ describe("tool runner", () => {
       ["image-to-3d", { prompt: "model" }],
       ["image-to-3d", { images: [] }],
       ["image-to-3d", { targetPolycount: 4_000 }],
+      ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: { provider: "meshy", id: "meshy-6" } }],
+      ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: null }],
       ["image-to-3d", { images: Array.from({ length: 2 }, () => ({ mediaType: "image/png", data: "aW1hZ2U=" })) }],
       ["generate-image", { prompt: "image", size: "800x600" }],
       ["generate-image", { prompt: "image", size: "1024x1024", resolution: "1K", aspectRatio: "1:1" }],

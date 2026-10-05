@@ -13,6 +13,7 @@ export const DEFAULT_MODEL_3D_CONFIG: Model3DGenerationConfig = {
 export function normalizeModel3DConfig(value: Partial<Model3DGenerationConfig> | undefined): Model3DGenerationConfig {
   const texture = value?.texture ?? DEFAULT_MODEL_3D_CONFIG.texture;
   return {
+    ...(value?.model ? { model: value.model } : {}),
     targetPolycount: validPolycount(value?.targetPolycount) ? value.targetPolycount : DEFAULT_MODEL_3D_CONFIG.targetPolycount,
     texture,
     pbr: texture ? value?.pbr ?? DEFAULT_MODEL_3D_CONFIG.pbr : false,
@@ -23,6 +24,7 @@ export function buildModel3DToolRequest(configValue: Partial<Model3DGenerationCo
   const config = normalizeModel3DConfig(configValue);
   return {
     images,
+    ...(config.model ? { model: config.model } : {}),
     targetPolycount: config.targetPolycount,
     texture: config.texture,
     pbr: config.pbr,

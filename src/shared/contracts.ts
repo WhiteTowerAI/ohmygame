@@ -99,6 +99,13 @@ export interface MediaModelCatalog<Model> {
   providers: MediaProviderStatus[];
 }
 
+export type Model3DModelRef = ModelRef;
+
+export interface Model3DModel extends Model3DModelRef {
+  name: string;
+  providerName: string;
+}
+
 export interface ImageModel extends ImageModelRef {
   name: string;
   providerName: string;
@@ -212,6 +219,7 @@ export type AssetCanvasNode = (
     assetId?: string;
   } }
   | { id: string; type: "model-3d"; position: AssetCanvasPosition; data: {
+    model?: Model3DModelRef;
     targetPolycount: number;
     texture: boolean;
     pbr: boolean;
@@ -628,6 +636,7 @@ export const VIDEO_RESOLUTIONS = ["480p", "720p", "768p", "1080p", "1K", "2K", "
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
 export interface Model3DGenerationConfig {
+  model?: Model3DModelRef;
   targetPolycount: number;
   texture: boolean;
   pbr: boolean;
@@ -660,6 +669,7 @@ export type RunImageToolRequest = RunSizedImageToolRequest | RunConfiguredImageT
 
 export interface Run3DToolRequest {
   images: PromptImage[];
+  model?: Model3DModelRef;
   targetPolycount?: number;
   texture?: boolean;
   pbr?: boolean;

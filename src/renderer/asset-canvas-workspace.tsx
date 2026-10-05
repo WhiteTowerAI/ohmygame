@@ -61,9 +61,11 @@ import {
   type ImageModel,
   type MediaProviderStatus,
   type ImageModelRef,
+  type ModelRef,
   type ImageResolution,
   type LibraryUploadMediaType,
   type Model3DGenerationConfig,
+  type Model3DModel,
   type PromptImage,
   type ProjectState,
   type RunImageToolRequest,
@@ -77,7 +79,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, resolveAssetCanvasAssetId, resolveAssetCanvasImageAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listToolJobs, listVideoModelCatalog, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
+import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DCatalog, listToolJobs, listVideoModelCatalog, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
@@ -166,7 +168,7 @@ type AssetCanvasFlowData = {
   name?: string;
   imageRuntime?: ImageNodeRuntime;
   videoRuntime?: VideoNodeRuntime;
-  model3DRuntime?: ReferenceMediaNodeRuntime;
+  model3DRuntime?: Model3DNodeRuntime;
   textRuntime?: TextNodeRuntime;
 };
 type AssetCanvasFlowNode = Node<AssetCanvasFlowData, AssetCanvasNodeType>;
@@ -211,6 +213,11 @@ interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
 
 interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
   models: VideoModel[];
+  providers: MediaProviderStatus[];
+}
+
+interface Model3DNodeRuntime extends ReferenceMediaNodeRuntime {
+  models: Model3DModel[];
   providers: MediaProviderStatus[];
 }
 
@@ -263,6 +270,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
   const [imageProviders, setImageProviders] = useState<MediaProviderStatus[]>([]);
   const [videoProviders, setVideoProviders] = useState<MediaProviderStatus[]>([]);
+  const [model3DModels, setModel3DModels] = useState<Model3DModel[]>([]);
+  const [model3DProviders, setModel3DProviders] = useState<MediaProviderStatus[]>([]);
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
   const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
@@ -301,7 +310,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     setCanvasContextMenu(undefined);
     setCopiedNode(undefined);
     const emptyCatalog = { models: [], providers: [] };
-    void Promise.all([getAssetCanvas(projectId), loadLibraryAssets(), listImageModelCatalog().catch(() => emptyCatalog), listVideoModelCatalog().catch(() => emptyCatalog)]).then(([story, assets, imageCatalog, videoCatalog]) => {
+    void Promise.all([getAssetCanvas(projectId), loadLibraryAssets(), listImageModelCatalog().catch(() => emptyCatalog), listVideoModelCatalog().catch(() => emptyCatalog), listModel3DCatalog().catch(() => emptyCatalog)]).then(([story, assets, imageCatalog, videoCatalog, model3DCatalog]) => {
       const models = imageCatalog.models;
       const loadedVideoModels = videoCatalog.models;
       if (disposed) return;
@@ -324,6 +333,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       setVideoModels(loadedVideoModels);
       setImageProviders(imageCatalog.providers);
       setVideoProviders(videoCatalog.providers);
+      setModel3DModels(model3DCatalog.models);
+      setModel3DProviders(model3DCatalog.providers);
       setPhase("ready");
     }).catch((error) => {
       if (disposed) return;
@@ -788,10 +799,12 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   async function generateModel3D(node: AssetCanvasFlowNode): Promise<void> {
     if (node.type !== "model-3d") return;
     const config = nodeModel3DConfig(node);
+    const model = selectedModel3D(config, model3DModels);
+    if (!model) { setGenerationError({ nodeId: node.id, message: "Select a 3D model before generating." }); return; }
     try {
       const images = await resolveModelReferenceImages(node);
       if (images.length !== MODEL_3D_REFERENCE_LIMIT) throw new Error("Add one reference image before generating.");
-      await generateMedia(node, "image-to-3d", buildModel3DToolRequest(config, images), "3D model");
+      await generateMedia(node, "image-to-3d", buildModel3DToolRequest({ ...config, model: modelRef(model) }, images), "3D model");
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
     }
@@ -984,6 +997,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
               ? { ...candidate, data: { ...candidate.data, images: (candidate.data.images ?? []).filter((_, candidateIndex) => candidateIndex !== index) } }
               : candidate)),
             onUploadReferences: (files: File[]) => void uploadReferenceImages(node, files),
+            models: model3DModels,
+            providers: model3DProviders,
           },
         },
       };
@@ -1212,7 +1227,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
     .map((option) => option.aspectRatio))];
 
   function selectModel(key: string): void {
-    const model = runtime?.models.find((candidate) => imageModelKey(candidate) === key);
+    const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
     const option = preferredImageOption(model);
     if (!model || !option || !runtime) return;
     runtime.onChange({ ...data, imageRuntime: undefined, model: { provider: model.provider, id: model.id }, resolution: option.resolution, aspectRatio: option.aspectRatio });
@@ -1239,9 +1254,9 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
         <CanvasChipSelect
           label="Image model"
           wide
-          value={selectedModel ? imageModelKey(selectedModel) : undefined}
+          value={selectedModel ? modelRefKey(selectedModel) : undefined}
           placeholder={data.model ? "Unavailable model" : runtime?.models.length ? "Select model" : "No image model"}
-          options={(runtime?.models ?? []).map((model) => ({ value: imageModelKey(model), label: mediaModelName(model), group: model.providerName }))}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), group: model.providerName }))}
           notes={providerNotes(runtime?.providers)}
           action={MANAGE_PROVIDERS}
           disabled={runtime?.busy}
@@ -1337,6 +1352,7 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
 function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.model3DRuntime;
   const config = nodeModel3DConfig({ type: "model-3d", data });
+  const selectedModel = selectedModel3D(config, runtime?.models ?? []);
   const hasImages = Boolean(data.images?.length);
   const updateConfig = (next: Partial<Model3DGenerationConfig>) => runtime?.onChange({
     ...data,
@@ -1354,6 +1370,20 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
       <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
+        <CanvasChipSelect
+          label="3D model"
+          wide
+          value={selectedModel ? modelRefKey(selectedModel) : undefined}
+          placeholder={runtime?.models.length ? "Select model" : "No 3D model"}
+          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: model.name, group: model.providerName }))}
+          notes={providerNotes(runtime?.providers)}
+          action={MANAGE_PROVIDERS}
+          disabled={runtime?.busy}
+          onChange={(key) => {
+            const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
+            if (model) updateConfig({ model: modelRef(model) });
+          }}
+        />
         <CanvasChipSelect
           label="Polycount"
           value={String(config.targetPolycount)}
@@ -2073,6 +2103,7 @@ function toFlowNode(node: AssetCanvasNode, imageModels: ImageModel[], videoModel
     data: {
       prompt: "",
       model3DConfig: normalizeModel3DConfig({
+        model: node.data.model,
         targetPolycount: node.data.targetPolycount,
         texture: node.data.texture,
         pbr: node.data.pbr,
@@ -2182,6 +2213,7 @@ export function toAssetCanvasNode(node: AssetCanvasFlowNode): AssetCanvasNode {
       type: "model-3d",
       position: node.position,
       data: {
+        ...(config.model ? { model: config.model } : {}),
         targetPolycount: config.targetPolycount,
         texture: config.texture,
         pbr: config.pbr,
@@ -2198,7 +2230,7 @@ function modelRef<T extends { provider: string; id: string }>(model: T): { provi
   return { provider: model.provider, id: model.id };
 }
 
-function imageModelKey(model: ImageModelRef): string {
+function modelRefKey(model: ModelRef): string {
   return `${model.provider}:${model.id}`;
 }
 
@@ -2277,6 +2309,11 @@ function modelKey(model: { provider: string; id: string }): string {
 
 function sameModel(model: { provider: string; id: string }, ref?: VideoModelRef): boolean {
   return Boolean(ref && model.provider === ref.provider && model.id === ref.id);
+}
+
+/** The node's saved model while the catalog still offers it, otherwise the first available one. */
+function selectedModel3D(config: Model3DGenerationConfig, models: readonly Model3DModel[]): Model3DModel | undefined {
+  return models.find((model) => sameModel(model, config.model)) ?? models[0];
 }
 
 function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data">): Model3DGenerationConfig {

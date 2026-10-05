@@ -74,6 +74,7 @@ const nodes = [
     additionalProperties: false,
     required: ["targetPolycount", "texture", "pbr", "images"],
     properties: {
+      model,
       targetPolycount: { type: "integer", minimum: 100, maximum: 15_000 },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },

@@ -28,7 +28,7 @@ import {
   type ToolRunFile,
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
-import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
+import { isKnownModel3D, Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
 import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./video-generation.js";
 import type { AssetLibrary } from "./asset-library.js";
 
@@ -157,7 +157,7 @@ export class ToolRunner {
 
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
-      assertOnlyKeys(input, ["images", "targetPolycount", "texture", "pbr"]);
+      assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr"]);
       return this.#run3D(input as Run3DToolRequest, signal);
     }
     if (toolId === "generate-video") {
@@ -243,6 +243,7 @@ export class ToolRunner {
     }
     if (input.texture !== undefined && typeof input.texture !== "boolean") throw new ToolRunError("Texture must be a boolean", 400);
     if (input.pbr !== undefined && typeof input.pbr !== "boolean") throw new ToolRunError("PBR must be a boolean", 400);
+    if (input.model !== undefined && !isKnownModel3D(input.model)) throw new ToolRunError("Unknown 3D model", 400);
     if (!this.model3DGenerator) throw new ToolRunError("3D generation is not configured", 503);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);

@@ -1335,6 +1335,18 @@ describe("daemon", () => {
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: {} })).statusCode).toBe(400);
   });
 
+  it("offers 3D models once Meshy is configured", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model3d-catalog-")) });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({ models: [], providers: [] });
+    await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: { apiKey: "meshy-key" } });
+    expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({
+      models: [{ provider: "meshy", id: "meshy-t2", name: "Meshy T2", providerName: "Meshy" }],
+      providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }],
+    });
+  });
+
   it("validates request bodies before they reach a manager", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);

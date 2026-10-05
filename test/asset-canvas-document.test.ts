@@ -12,7 +12,7 @@ describe("Asset Canvas document", () => {
   it("accepts 3D generation and model Asset nodes", () => {
     const canvas = createAssetCanvasDocument();
     canvas.nodes = [
-      { id: "model-generator", type: "model-3d", position: { x: 80, y: 120 }, data: { targetPolycount: 4_000, texture: true, pbr: true, images: [] } },
+      { id: "model-generator", type: "model-3d", position: { x: 80, y: 120 }, data: { model: { provider: "meshy", id: "meshy-t2" }, targetPolycount: 4_000, texture: true, pbr: true, images: [] } },
       { id: "model-asset", type: "asset", position: { x: 560, y: 120 }, data: { assetId: "library-model", mediaType: "model" } },
     ];
     canvas.editorLayout.nodes = { "model-generator": { x: 80, y: 120 }, "model-asset": { x: 560, y: 120 } };

@@ -44,7 +44,8 @@ import {
   type PromptResponse,
   type WorkspaceFile,
   type WorkspaceFileContent,
-  MediaModelCatalog,
+  type MediaModelCatalog,
+  type Model3DModel,
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { ExampleSummary } from "../shared/examples.js";
@@ -249,6 +250,10 @@ export async function listImageModelCatalog(): Promise<MediaModelCatalog<ImageMo
 
 export async function listVideoModelCatalog(): Promise<MediaModelCatalog<VideoModel>> {
   return request("/video-models/catalog");
+}
+
+export async function listModel3DCatalog(): Promise<MediaModelCatalog<Model3DModel>> {
+  return request("/model3d-models/catalog");
 }
 
 export async function getWebSearchSettings(): Promise<WebSearchSettings> {

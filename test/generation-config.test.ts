@@ -19,4 +19,11 @@ describe("shared generation config", () => {
       images: [image], targetPolycount: 8_000, texture: true, pbr: true,
     });
   });
+
+  it("carries the selected 3D model into the tool request", () => {
+    const image = { mediaType: "image/png" as const, data: "base64" };
+    const model = { provider: "meshy", id: "meshy-t2" };
+    expect(normalizeModel3DConfig({ model })).toEqual({ ...DEFAULT_MODEL_3D_CONFIG, model });
+    expect(buildModel3DToolRequest({ model }, [image])).toEqual({ images: [image], model, ...DEFAULT_MODEL_3D_CONFIG });
+  });
 });
