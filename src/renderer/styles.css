@@ -11444,6 +11444,31 @@ button {
   display: block;
 }
 
+.publish-button {
+  display: inline-flex;
+  height: 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.publish-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.publish-button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
 @container workspace-header (max-width: 520px) {
   .workspace-tabs {
     --workspace-active-tab-width: var(--workspace-tab-width);
@@ -11507,31 +11532,6 @@ button {
   .preview-location-path {
     display: none;
   }
-}
-
-.publish-button {
-  display: inline-flex;
-  height: 32px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.publish-button:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.publish-button:disabled {
-  cursor: default;
-  opacity: 0.42;
 }
 
 .explore-content {
