@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Search, Settings } from "./icons.js";
+import { Check, ChevronDown, Search, Settings, type IconComponent } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { menuPlacement } from "./popover-placement.js";
@@ -22,7 +22,7 @@ const SEARCH_THRESHOLD = 10;
  * The pill-shaped picker used in canvas node composers, matching the Home
  * composer's chips. The menu renders in body so the canvas cannot clip it.
  */
-export function CanvasChipSelect<Value extends string>({ label, value, options, placeholder, disabled = false, wide = false, notes = [], action, onChange }: {
+export function CanvasChipSelect<Value extends string>({ label, value, options, placeholder, disabled = false, wide = false, notes = [], action, optionAction, onChange }: {
   label: string;
   value: Value | undefined;
   options: readonly CanvasChipOption<Value>[];
@@ -32,7 +32,8 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
   wide?: boolean;
   notes?: readonly CanvasChipNote[];
   /** A footer entry, such as opening provider settings. */
-  action?: { label: string; onSelect: () => void };
+  action?: { label: string; icon?: IconComponent; onSelect: () => void };
+  optionAction?: { label: (option: CanvasChipOption<Value>) => string; icon: IconComponent; onSelect: (value: Value, anchor: DOMRect) => void };
   onChange: (value: Value) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -44,6 +45,8 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
   const current = options.find((option) => option.value === value);
   const text = current?.label ?? placeholder ?? "Select";
   const searchable = options.length > SEARCH_THRESHOLD;
+  const ActionIcon = action?.icon ?? Settings;
+  const OptionActionIcon = optionAction?.icon;
   const normalizedQuery = query.trim().toLowerCase();
   const visible = normalizedQuery
     ? options.filter((option) => `${option.label} ${option.group ?? ""}`.toLowerCase().includes(normalizedQuery))
@@ -86,7 +89,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
     const anchor = trigger.current?.getBoundingClientRect();
     const popup = menu.current?.getBoundingClientRect();
     if (!anchor || !popup) return;
-    const minWidth = Math.max(anchor.width, groups.length > 1 || notes.length ? 220 : 120);
+    const minWidth = Math.max(anchor.width, groups.length > 1 || notes.length ? 220 : optionAction ? 180 : 120);
     const placement = menuPlacement(anchor, { width: Math.max(popup.width, minWidth), height: popup.height }, { width: window.innerWidth, height: window.innerHeight }, "start");
     setPosition({ ...placement, minWidth });
     // Placement only depends on the menu as it first opens; filtering must not move it.
@@ -95,7 +98,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
   useEffect(() => {
     if (!open || !position) return;
     if (searchable) search.current?.focus();
-    else menu.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus();
+    else menu.current?.querySelector<HTMLButtonElement>('[aria-selected="true"], [aria-checked="true"]')?.focus();
   }, [open, position, searchable]);
 
   function choose(option: CanvasChipOption<Value>): void {
@@ -111,7 +114,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
       type="button"
       title={`${label}: ${current?.group ? `${current.group} · ` : ""}${text}`}
       aria-label={`${label}: ${text}`}
-      aria-haspopup="listbox"
+      aria-haspopup={optionAction ? "menu" : "listbox"}
       aria-expanded={open}
       disabled={disabled || (options.length === 0 && notes.length === 0 && !action)}
       onClick={() => setOpen((next) => !next)}
@@ -142,16 +145,24 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
             }}
           />
         </label> : null}
-        <div className="canvas-chip-menu-list" role="listbox" aria-label={label}>
+        <div className="canvas-chip-menu-list" role={optionAction ? "menu" : "listbox"} aria-label={label}>
           {groups.map((group) => (
             <div className="canvas-chip-menu-group" role={group.name ? "group" : undefined} aria-label={group.name} key={group.name ?? ""}>
               {group.name && (groups.length > 1 || group.notes.length) ? <div className="canvas-chip-menu-heading">{group.name}</div> : null}
               {group.options.map((option) => {
                 const selected = option.value === value;
-                return <button type="button" role="option" aria-selected={selected} key={option.value} onClick={() => choose(option)}>
+                const choice = <button type="button" role={optionAction ? "menuitemradio" : "option"} aria-selected={optionAction ? undefined : selected} aria-checked={optionAction ? selected : undefined} key={option.value} onClick={() => choose(option)}>
                   <span>{option.label}</span>
                   {selected ? <Check size={13} /> : null}
                 </button>;
+                return optionAction && OptionActionIcon ? <div className="canvas-chip-menu-row" key={option.value}>
+                  {choice}
+                  <button type="button" className="canvas-chip-option-action" role="menuitem" title={optionAction.label(option)} aria-label={optionAction.label(option)} onClick={(event) => {
+                    const anchor = event.currentTarget.getBoundingClientRect();
+                    setOpen(false);
+                    optionAction.onSelect(option.value, anchor);
+                  }}><OptionActionIcon size={14} /></button>
+                </div> : choice;
               })}
               {group.notes.map((note) => <p className="canvas-chip-menu-note" key={note}>{note}</p>)}
             </div>
@@ -166,7 +177,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
             setOpen(false);
             action.onSelect();
           }}
-        ><Settings size={13} /><span>{action.label}</span></button> : null}
+        ><ActionIcon size={13} /><span>{action.label}</span></button> : null}
       </div>,
       document.body,
     ) : null}
@@ -191,7 +202,7 @@ function groupOptions<Value extends string>(options: readonly CanvasChipOption<V
 function moveFocus(event: React.KeyboardEvent, menu: HTMLDivElement | null, search: HTMLInputElement | null): void {
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   event.preventDefault();
-  const items = [...(menu?.querySelectorAll<HTMLButtonElement>('[role="option"], .canvas-chip-menu-action') ?? [])];
+  const items = [...(menu?.querySelectorAll<HTMLButtonElement>('[role="option"], [role="menuitemradio"], [role="menuitem"], .canvas-chip-menu-action') ?? [])];
   const index = items.indexOf(document.activeElement as HTMLButtonElement);
   if (event.key === "ArrowUp" && index <= 0) {
     search?.focus();

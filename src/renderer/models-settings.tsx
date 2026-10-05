@@ -23,6 +23,8 @@ import {
   clearMeshyApiKey,
 } from "./api.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
+import { ProviderModels } from "./provider-models.js";
+import { SegmentedControl } from "./segmented-control.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
@@ -76,11 +78,13 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
       ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
     ].some((value) => value.toLowerCase().includes(normalizedQuery)))
   ));
-  const popularProviders = visibleProviders
+  const connectedProviders = visibleProviders.filter((provider) => provider.status === "connected");
+  const remainingProviders = visibleProviders.filter((provider) => provider.status !== "connected");
+  const popularProviders = remainingProviders
     .filter((provider) => POPULAR_PROVIDER_IDS.includes(provider.id))
     .sort((first, second) => POPULAR_PROVIDER_IDS.indexOf(first.id) - POPULAR_PROVIDER_IDS.indexOf(second.id));
-  const moreProviders = visibleProviders.filter((provider) => !POPULAR_PROVIDER_IDS.includes(provider.id));
-  const filteredProviders = [...popularProviders, ...moreProviders];
+  const moreProviders = remainingProviders.filter((provider) => !POPULAR_PROVIDER_IDS.includes(provider.id));
+  const filteredProviders = [...connectedProviders, ...popularProviders, ...moreProviders];
   const filtering = capability !== "all" || Boolean(normalizedQuery);
   return (
     <section className="settings-panel settings-overview-panel">
@@ -92,15 +96,12 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
         </label>
       </header>
       <div className="settings-provider-list">
-        <div className="settings-provider-filters" role="group" aria-label="Filter providers by capability">
-          {PROVIDER_CAPABILITY_FILTERS.map((filter) => (
-            <button type="button" aria-pressed={capability === filter.value} onClick={() => setCapability(filter.value)} key={filter.value}>{filter.label}</button>
-          ))}
-        </div>
+        <SegmentedControl className="settings-provider-filters" label="Filter providers by capability" options={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}
         {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match these filters.</p> : null}
         {filtering && filteredProviders.length ? <ProviderGroup title="Providers" providers={filteredProviders} onProvider={onProvider} /> : null}
+        {!filtering && connectedProviders.length ? <ProviderGroup title="Connected providers" providers={connectedProviders} onProvider={onProvider} /> : null}
         {!filtering && popularProviders.length ? <ProviderGroup title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
         {!filtering && moreProviders.length ? (
           <section className="settings-provider-group">
@@ -296,6 +297,7 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
       ) : null}
       {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
       {notice ? <p className="settings-success" role="status">{notice}</p> : null}
+      <ProviderModels providerId={provider.id} />
     </section>
   );
 }

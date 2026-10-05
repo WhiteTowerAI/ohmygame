@@ -42,4 +42,12 @@ describe("Asset Canvas remembered settings", () => {
     const settings = nodeGenerationSettings({ type: "video", data: { videoModel: { provider: "fal", id: "kling" }, videoResolution: "1080p", videoAspectRatio: "1:1", duration: 10 } });
     expect(applyRememberedSettings(base, settings, catalogs).data).toMatchObject({ videoModel: { provider: "fal", id: "kling" }, videoResolution: "1080p", videoAspectRatio: "16:9", duration: 10 });
   });
+
+  it("carries a text model only while it remains available", () => {
+    const model = { provider: "openai", id: "gpt-test", name: "GPT Test", providerName: "OpenAI", reasoningLevels: [] };
+    const base: FlowNode = { id: "text-1", type: "text", position: { x: 0, y: 0 }, data: { text: "", instruction: "" } };
+    const settings = nodeGenerationSettings({ type: "text", data: { textModel: model } });
+    expect(applyRememberedSettings(base, settings, { ...catalogs, textModels: [model] }).data.textModel).toEqual({ provider: model.provider, id: model.id });
+    expect(applyRememberedSettings(base, settings, catalogs)).toBe(base);
+  });
 });

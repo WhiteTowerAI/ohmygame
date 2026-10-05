@@ -29,6 +29,14 @@ describe("ModelSelector", () => {
     expect(html).toContain("disabled=\"\"");
   });
 
+  it("keeps the current conversation model named when it is hidden from the menu", () => {
+    const html = renderToStaticMarkup(
+      <ModelSelector models={[]} value={model} onChange={() => undefined} onReasoningChange={() => undefined} />,
+    );
+    expect(html).toContain("GPT Test");
+    expect(html).not.toContain("No language model");
+  });
+
   it("groups models by provider while preserving provider and model order", () => {
     const groups = groupModelsByProvider([
       model,

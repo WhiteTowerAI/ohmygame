@@ -14,6 +14,7 @@ describe("OhMyGame system prompt", () => {
       expect(text).toContain("update_plan");
       expect(text).toContain("Do not create or change files for casual conversation");
       expect(text).toContain("do not revert changes you did not make");
+      expect(text).toContain("its main document before implementing game changes");
       expect(text).not.toContain("may be empty");
     }
   });
@@ -33,6 +34,14 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("missing from the published build");
     expect(text).not.toContain("playable_check");
     expect(text).not.toContain("existing folder as the workspace");
+  });
+
+  it("explains how an explicitly referenced design revision should be used", () => {
+    const text = prompt({ type: "web-game" });
+
+    expect(text).toContain("explicitly referenced snapshot and revision");
+    expect(text).toContain("as the design context for that turn");
+    expect(text).toContain("design/documents/<id>.md and are editable Markdown sources");
   });
 
   it("describes the configured run settings and external workspaces", () => {

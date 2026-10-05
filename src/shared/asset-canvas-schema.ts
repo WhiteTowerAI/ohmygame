@@ -7,6 +7,8 @@ import {
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
 
+export const MAX_ASSET_CANVAS_NODES = 2_000;
+
 export const ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA = {
   ...EDITOR_LAYOUT_SCHEMA,
   properties: {
@@ -35,6 +37,7 @@ const node = (type: string, data: object) => ({
   properties: { id, type: { const: type }, data },
 });
 const nodes = [
+  node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id } }),
   node("text", {
     type: "object",
     additionalProperties: false,
@@ -115,7 +118,7 @@ export const ASSET_CANVAS_SCHEMA = {
       required: ["width", "height"],
       properties: { width: { type: "integer", minimum: 240, maximum: 8192 }, height: { type: "integer", minimum: 240, maximum: 8192 } },
     },
-    nodes: { type: "array", maxItems: 2_000, items: { oneOf: nodes } },
+    nodes: { type: "array", maxItems: MAX_ASSET_CANVAS_NODES, items: { oneOf: nodes } },
     edges: {
       type: "array",
       maxItems: 8_000,

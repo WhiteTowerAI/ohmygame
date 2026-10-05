@@ -1,6 +1,6 @@
 import { Plus, RefreshCw } from "./icons.js";
 import { useEffect, useState } from "react";
-import type { PluginMention, ProjectState, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ExampleShelf, useExamples } from "./examples.js";
@@ -15,7 +15,7 @@ const RECENT_STORY_LIMIT = 4;
 
 export function InteractiveStoryHome({ onNavigate, onCreate, onOpenProject }: {
   onNavigate: (page: AppNavigationTarget) => void;
-  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => void;
+  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpenProject: (projectId: string) => void;
 }) {
   const [projects, setProjects] = useState<ProjectState[]>([]);

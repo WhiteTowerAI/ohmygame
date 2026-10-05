@@ -10,6 +10,7 @@ export interface ProjectCardActions {
   onRename: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  onDesign?: () => void;
 }
 
 interface ProjectCardProps {
@@ -102,6 +103,7 @@ export function ProjectCard({ project, fallback, onOpen, actions, agentStatus }:
               style={menuPosition ?? { top: 0, left: 0, visibility: "hidden" }}
             >
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onRename(); }}>Rename</button>
+              {actions.onDesign ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDesign?.(); }}>Game design</button> : null}
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDuplicate(); }}>Duplicate</button>
               <button className="project-card-actions-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDelete(); }}>
                 {project.workspaceLocation === "external" ? "Remove from OhMyGame" : "Delete"}

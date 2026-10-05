@@ -9,14 +9,15 @@ import {
 } from "./icons.js";
 import {
   useEffect,
+  useCallback,
   useReducer,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, ThreadItem } from "../shared/contracts.js";
-import { preferredAgentModel } from "../shared/agent-models.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
+import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import {
   approvePlan,
   answerQuestionnaire,
@@ -65,7 +66,9 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 interface ProjectShellProps {
   projectId: string;
   conversationId?: string;
-  initialPrompt?: { prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode };
+  view?: "design";
+  onViewChange?: (view: "design" | "workspace") => void;
+  initialPrompt?: { prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] };
   initialDraft?: ComposerDraft;
   initialCanvasNodeId?: string;
   onInitialCanvasNodeHandled?: () => void;
@@ -84,6 +87,8 @@ const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] }
 export function ProjectShell({
   projectId,
   conversationId,
+  view,
+  onViewChange,
   initialPrompt,
   initialDraft,
   initialCanvasNodeId,
@@ -98,7 +103,13 @@ export function ProjectShell({
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
-  const [agentCollapsed, setAgentCollapsed] = useState(false);
+  const [agentCollapsed, setAgentCollapsed] = useState(view === "design");
+  const [designOpen, setDesignOpen] = useState(view === "design");
+  useEffect(() => { setDesignOpen(view === "design"); }, [view]);
+  function changeWorkspaceView(open: boolean): void {
+    setDesignOpen(open);
+    onViewChange?.(open ? "design" : "workspace");
+  }
   const [godotWorkspaceOpen, setGodotWorkspaceOpen] = useState(readGodotWorkspaceOpen);
   const [agentWidth, setAgentWidth] = useState(readAgentWidth);
   const [chatLayout] = useState<ChatLayout>(readChatLayout);
@@ -116,13 +127,15 @@ export function ProjectShell({
   const [dismissedSurface, setDismissedSurface] = useState<string>();
   const [composerDirty, setComposerDirty] = useState(false);
   const [promptRequest, setPromptRequest] = useState<{ text: string; id: number }>();
+  const saveDesign = useRef<(() => Promise<void>) | undefined>(undefined);
+  const registerDesignSave = useCallback((save: (() => Promise<void>) | undefined) => { saveDesign.current = save; }, []);
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   usePlaytestAskRequests(state.project?.id, (text) => {
     setAgentCollapsed(false);
     setPromptRequest({ text, id: Date.now() });
   });
   const modelCatalog = useAgentModels();
-  const effectiveModel = preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
+  const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
   const timeline = useRef<HTMLDivElement>(null);
@@ -323,8 +336,8 @@ export function ProjectShell({
     ) return;
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
-    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions).then(() => {
-      if (initialPrompt.images.length) setWorkspaceRevision((value) => value + 1);
+    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
+      if (initialPrompt.images.length || initialPrompt.attachments?.length) setWorkspaceRevision((value) => value + 1);
     }).catch((error) => {
       dispatch({ type: "notice", message: errorMessage(error) });
     }).finally(() => {
@@ -337,6 +350,17 @@ export function ProjectShell({
     const element = timeline.current;
     if (element && followTimeline.current) element.scrollTop = element.scrollHeight;
   }, [state.turns]);
+
+  useEffect(() => {
+    const element = timeline.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (followTimeline.current) element.scrollTop = element.scrollHeight;
+    });
+    for (const child of element.children) observer.observe(child);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [state.conversation?.id, state.agent.status, state.plan.mode]);
 
   useEffect(() => {
     const updateMaximum = () => {
@@ -391,17 +415,19 @@ export function ProjectShell({
   const playableSurface = playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
   const chatContexts = [playableSurface?.chip, ...(playableChat?.attachments ?? []).map((attachment) => attachment.chip)].filter((chip) => chip !== undefined);
 
-  async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = []): Promise<boolean> {
+  async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = [], references: PromptReference[] = [], designContexts: PromptContext[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
+      await saveDesign.current?.();
       const surface = playableSurface;
       const previewContexts = playableChat?.attachments ?? [];
       const previewImage = previewContexts.length ? await playableChat?.capture().catch(() => undefined) : undefined;
       const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
       const sentImages = previewImage ? [...images, previewImage] : images;
-      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, surface?.references ?? [], sentImages, mode, mentions, attachments, contexts);
+      const allReferences = [...(surface?.references ?? []), ...references.filter((reference) => !(surface?.references ?? []).some((current) => current.path === reference.path))];
+      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts]);
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       setChatReference(undefined);
       if (previewContexts.length) playableChat?.clearAttachments();
@@ -421,6 +447,7 @@ export function ProjectShell({
     followTimeline.current = true;
     const surface = playableChat?.surface;
     try {
+      await saveDesign.current?.();
       await sendPrompt(project.id, conversation.id, text, surface?.references ?? [], [], "normal", [], [], [...(surface ? [surface.context] : []), ...contexts]);
       setAgentCollapsed(false);
       return true;
@@ -451,6 +478,7 @@ export function ProjectShell({
   async function executePlan(): Promise<boolean> {
     if (!project || !conversation) return false;
     try {
+      await saveDesign.current?.();
       await approvePlan(project.id, conversation.id);
       return true;
     } catch (error) {
@@ -652,12 +680,13 @@ export function ProjectShell({
   const isGodotProject = project?.type === "godot-game";
 
   function openWorkspaceFile(path: string): void {
+    changeWorkspaceView(false);
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
     if (isGodotProject) setGodotWorkspaceVisibility(true);
   }
 
   const agentIsCollapsed = !isGodotProject && agentCollapsed;
-  const viewerCollapsed = isGodotProject && !godotWorkspaceOpen;
+  const viewerCollapsed = isGodotProject && !godotWorkspaceOpen && !designOpen;
 
   return (
     <main
@@ -723,16 +752,15 @@ export function ProjectShell({
           </div>
         </header>
 
-        <div className="agent-body">
-          <div
-            className="timeline"
-            aria-live="polite"
-            ref={timeline}
-            onScroll={(event) => {
-              const element = event.currentTarget;
-              followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-            }}
-          >
+        <div
+          className="agent-body"
+          ref={timeline}
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+          }}
+        >
+          <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
             <AgentTimeline
               turns={state.turns}
@@ -768,6 +796,7 @@ export function ProjectShell({
           {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
             key={conversation?.id}
             projectId={project?.id}
+            supportsDesign={project?.type !== "asset-canvas"}
             conversationReady={Boolean(conversation) && state.connection === "open"}
             running={currentConversationBusy}
             stopping={state.agent.status === "cancelling" || sendingInitialPrompt}
@@ -856,6 +885,9 @@ export function ProjectShell({
           onOpenPublish={() => setPublishDialog({ projectId: project.id, status: "open" })}
           onClosePublish={() => setPublishDialog(undefined)}
           onRestart={restartPreview}
+          designOpen={designOpen}
+          onDesignOpenChange={changeWorkspaceView}
+          onDesignSaveReady={registerDesignSave}
           onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
           onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
           chatOnRight={chatLayout === "right"}
@@ -874,6 +906,9 @@ export function ProjectShell({
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
       /> : <PlayableEditorWorkspace
         project={project}
+        designOpen={designOpen}
+        onDesignOpenChange={changeWorkspaceView}
+        onDesignSaveReady={registerDesignSave}
         agentBusy={agentBusy}
         publishing={publishing}
         workspaceRevision={workspaceRevision}

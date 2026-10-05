@@ -24,7 +24,7 @@ export type AppRoute =
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string }
   | { page: "thumbnail"; projectId: string; nodeId: string }
-  | { page: "project"; projectId: string; conversationId?: string };
+  | { page: "project"; projectId: string; conversationId?: string; view?: "design" };
 
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
@@ -64,16 +64,18 @@ export function parseAppRoute(hash: string): AppRoute {
       return { page: "home" };
     }
   }
+  const designMatch = /^#\/projects\/([^/]+)(?:\/conversations\/([^/]+))?\/design$/.exec(hash);
   const conversationMatch = /^#\/projects\/([^/]+)\/conversations\/([^/]+)$/.exec(hash);
   const projectMatch = /^#\/projects\/([^/]+)$/.exec(hash);
-  const match = conversationMatch ?? projectMatch;
+  const match = designMatch ?? conversationMatch ?? projectMatch;
   if (!match?.[1]) return { page: "home" };
   try {
-    const encodedConversationId = conversationMatch?.[2];
+    const encodedConversationId = designMatch?.[2] ?? conversationMatch?.[2];
     return {
       page: "project",
       projectId: decodeURIComponent(match[1]),
       ...(encodedConversationId ? { conversationId: decodeURIComponent(encodedConversationId) } : {}),
+      ...(designMatch ? { view: "design" as const } : {}),
     };
   } catch {
     return { page: "home" };
@@ -89,12 +91,12 @@ export function settingsHash(section: SettingsSection): string {
   return `#/settings/${section}`;
 }
 
-export function projectHash(projectId: string): string {
-  return `#/projects/${encodeURIComponent(projectId)}`;
+export function projectHash(projectId: string, view?: "design"): string {
+  return `#/projects/${encodeURIComponent(projectId)}${view ? "/design" : ""}`;
 }
 
-export function conversationHash(projectId: string, conversationId: string): string {
-  return `${projectHash(projectId)}/conversations/${encodeURIComponent(conversationId)}`;
+export function conversationHash(projectId: string, conversationId: string, view?: "design"): string {
+  return `${projectHash(projectId)}/conversations/${encodeURIComponent(conversationId)}${view ? "/design" : ""}`;
 }
 
 export function gameHash(gameId: string): string {

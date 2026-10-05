@@ -26,7 +26,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
@@ -42,6 +42,7 @@ import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
+const GameDesignWorkspace = lazy(() => import("./game-design-workspace.js").then((module) => ({ default: module.GameDesignWorkspace })));
 type WorkspaceContextMenu = { path: string; directory: boolean; x: number; y: number };
 interface CodingWorkspaceProps {
   project?: ProjectState;
@@ -53,6 +54,9 @@ interface CodingWorkspaceProps {
   onOpenPublish: () => void;
   onClosePublish: () => void;
   onRestart: () => void;
+  designOpen?: boolean;
+  onDesignOpenChange?: (open: boolean) => void;
+  onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
   onProjectUpdated?: (project: ProjectState) => void;
   onClose?: () => void;
   openFileRequest?: { path: string; id: number };
@@ -72,6 +76,9 @@ export function CodingWorkspace({
   onOpenPublish,
   onClosePublish,
   onRestart,
+  designOpen = false,
+  onDesignOpenChange,
+  onDesignSaveReady,
   onProjectUpdated,
   onClose,
   openFileRequest,
@@ -86,6 +93,10 @@ export function CodingWorkspace({
     ? "Godot publishing is not available yet"
     : publishing ? "Publishing" : "Publish";
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
+  const shownTab = designOpen ? "design" : activeTab;
+  const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
+  const designLeave = useRef<((action: () => void) => void) | undefined>(undefined);
+  const registerDesignLeave = useCallback((leave: ((action: () => void) => void) | undefined) => { designLeave.current = leave; }, []);
   const [viewport, setViewport] = useState<PreviewViewport>(project?.previewViewport ?? "fit");
   const [previewPath, setPreviewPath] = useState(project?.previewPath ?? "/");
   const [knownPaths, setKnownPaths] = useState<string[]>(["/"]);
@@ -128,7 +139,7 @@ export function CodingWorkspace({
   }, []);
 
   useEffect(() => {
-    if (!project || activeTab === "preview") return;
+    if (!project || designOpen || activeTab === "preview") return;
     let disposed = false;
     setFilesLoading(true);
     setFilesError(undefined);
@@ -151,7 +162,7 @@ export function CodingWorkspace({
       if (!disposed) setFilesLoading(false);
     });
     return () => { disposed = true; };
-  }, [project?.id, activeTab, workspaceRevision, filesRevision]);
+  }, [project?.id, activeTab, designOpen, workspaceRevision, filesRevision]);
 
   useEffect(() => {
     fileRequest.current += 1;
@@ -212,26 +223,35 @@ export function CodingWorkspace({
     finally { setAgentPlaytestWatchPending(false); }
   }
 
-  const tabs: WorkspaceTabOption<WorkspaceTab>[] = [
+  const tabs: WorkspaceTabOption<WorkspaceTab | "design">[] = [
     ...(supportsPreview ? [{ id: "preview" as const, label: "Preview", icon: Globe2 }] : []),
+    ...(onDesignOpenChange ? [{ id: "design" as const, label: "Design", icon: FileText }] : []),
     { id: "code", label: "Code", icon: Code2 },
     { id: "assets", label: "Library", icon: Layers3 },
   ];
+  const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
+    {chatOnRight && onHome ? (
+      <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home">
+        <House size={14} />
+      </button>
+    ) : null}
+    <WorkspaceTabs tabs={tabs} active={shownTab} onChange={(tab) => {
+      const navigate = () => {
+        if (tab !== "design") setActiveTab(tab);
+        onDesignOpenChange?.(tab === "design");
+      };
+      if (designOpen && designLeave.current) designLeave.current(navigate);
+      else navigate();
+    }} />
+  </div>;
 
   return (
-    <section className="viewer-pane coding-workspace" data-active-tab={activeTab} aria-label="Coding workspace">
+    <section className="viewer-pane coding-workspace" data-active-tab={shownTab} aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
-          {chatOnRight && onHome ? (
-            <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home">
-              <House size={14} />
-            </button>
-          ) : null}
-          <WorkspaceTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
-        </div>
+        {renderNavigation()}
         <div className="viewer-controls-slot">
-          {supportsPreview && activeTab === "preview" ? (
+          {supportsPreview && shownTab === "preview" ? (
             <PreviewControls
               path={previewPath}
               paths={knownPaths}
@@ -249,8 +269,8 @@ export function CodingWorkspace({
             />
           ) : null}
         </div>
-        <div className="viewer-publish">
-          <button
+        <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
+          {!designOpen ? <><button
             className="publish-button workspace-publish-button"
             type="button"
             onClick={onOpenPublish}
@@ -282,20 +302,24 @@ export function CodingWorkspace({
             >
               <PanelToggle size={14} />
             </button>
-          ) : null}
+          ) : null}</> : null}
         </div>
       </header>
+
+      {designOpen && project ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><GameDesignWorkspace
+        project={project} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady}
+      /></Suspense> : null}
 
       {supportsPreview ? (
         <div
           className="coding-workspace-preview-panel"
-          hidden={activeTab !== "preview"}
-          aria-hidden={activeTab !== "preview"}
+          hidden={shownTab !== "preview"}
+          aria-hidden={shownTab !== "preview"}
         >
           <PreviewView project={project} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} />
         </div>
       ) : null}
-      {activeTab === "code" ? (
+      {shownTab === "code" ? (
         <CodeView
           files={files}
           selectedPath={selectedCodePath}
@@ -309,7 +333,7 @@ export function CodingWorkspace({
             ? (path, mode) => window.ohMyGameDesktop!.openProjectFile(project.id, path, mode)
             : undefined}
         />
-      ) : activeTab === "assets" ? (
+      ) : shownTab === "assets" ? (
         <AssetsView
           projectId={project?.id}
           files={files.filter((file) => file.mediaType && !file.directory)}

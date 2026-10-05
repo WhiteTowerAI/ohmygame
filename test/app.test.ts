@@ -972,6 +972,7 @@ describe("daemon", () => {
       }],
       cursor: 2,
     });
+    await expect.poll(() => typeof finishPrompt).toBe("function");
     finishPrompt();
   });
 

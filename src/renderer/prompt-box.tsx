@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { promptHistoryDirection } from "./prompt-history.js";
+import { editPromptList, promptListLines } from "./prompt-lists.js";
 
-export interface DroppedFile {
-  file: File;
-  relativePath?: string;
-}
+export type DroppedFile = TransferredFile;
 
 interface PromptBoxProps {
   value: string;
@@ -49,9 +48,38 @@ export function PromptBox({
 }: PromptBoxProps) {
   const [dropActive, setDropActive] = useState(false);
   const dragDepth = useRef(0);
+  const localTextarea = useRef<HTMLTextAreaElement>(null);
+  const inputRef = textareaRef ?? localTextarea;
+  const listMirror = useRef<HTMLDivElement>(null);
+  const pendingCursor = useRef<number | undefined>(undefined);
+  const lines = variant === "project" ? promptListLines(value) : [];
+  const showListMirror = lines.some(({ list }) => list && /^[-+*]$/.test(list.marker));
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    resizeTextarea(input);
+    if (input && pendingCursor.current !== undefined) {
+      input.setSelectionRange(pendingCursor.current, pendingCursor.current);
+      onSelectionChange?.(pendingCursor.current);
+      pendingCursor.current = undefined;
+    }
+    syncListMirror();
+  }, [value, showListMirror]);
   useEffect(() => {
-    resizeTextarea(textareaRef?.current ?? null);
-  }, [textareaRef, value]);
+    const input = inputRef.current;
+    if (!input) return;
+    const observer = new ResizeObserver(syncListMirror);
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [inputRef]);
+
+  function syncListMirror(): void {
+    const input = inputRef.current;
+    const mirror = listMirror.current;
+    if (!input || !mirror) return;
+    mirror.style.width = `${input.clientWidth}px`;
+    mirror.scrollTop = input.scrollTop;
+    mirror.scrollLeft = input.scrollLeft;
+  }
 
   function submit(event?: FormEvent): void {
     event?.preventDefault();
@@ -62,32 +90,40 @@ export function PromptBox({
     <form
       className={`prompt-box prompt-box-${variant}${dropActive ? " prompt-box-drop-active" : ""}`}
       onSubmit={submit}
+      onKeyDown={(event) => { if (onDropFiles && !disabled) pasteNativeFiles(event, onDropFiles, onDropError); }}
       onDragEnter={(event) => {
-        if (!onDropFiles || !hasFiles(event)) return;
+        if (!onDropFiles || disabled || !hasTransferredFiles(event.dataTransfer)) return;
         event.preventDefault();
         dragDepth.current += 1;
         setDropActive(true);
       }}
       onDragOver={(event) => {
-        if (!onDropFiles || !hasFiles(event)) return;
+        if (!onDropFiles || disabled || !hasTransferredFiles(event.dataTransfer)) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
       }}
       onDragLeave={(event) => {
-        if (!onDropFiles || !hasFiles(event)) return;
+        if (!onDropFiles || disabled || !hasTransferredFiles(event.dataTransfer)) return;
         event.preventDefault();
         dragDepth.current = Math.max(0, dragDepth.current - 1);
         if (dragDepth.current === 0) setDropActive(false);
       }}
       onDrop={(event) => {
-        if (!onDropFiles || !hasFiles(event)) return;
+        if (!onDropFiles || disabled || !hasTransferredFiles(event.dataTransfer)) return;
         event.preventDefault();
         dragDepth.current = 0;
         setDropActive(false);
         const dataTransfer = event.dataTransfer;
-        void droppedFiles(dataTransfer).then((files) => {
+        void transferredFiles(dataTransfer).then((files) => {
           if (files.length) onDropFiles(files);
         }).catch((cause) => onDropError?.(cause instanceof Error ? cause : new Error(String(cause))));
+      }}
+      onPaste={(event) => {
+        if (!onDropFiles || disabled) return;
+        const files = clipboardFiles(event.clipboardData);
+        if (!files.length) return;
+        event.preventDefault();
+        onDropFiles(files.map((file) => ({ file })));
       }}
     >
       {dropActive ? <div className="prompt-box-drop-overlay">Drop files to attach</div> : null}
@@ -95,8 +131,16 @@ export function PromptBox({
       {content}
       <div className="prompt-box-input">
         {prefix}
+        <div className={`prompt-box-editor${showListMirror ? " has-list-mirror" : ""}`}>
+        {showListMirror ? <div className="prompt-box-list-mirror" aria-hidden="true" ref={listMirror}>
+          {lines.map(({ text, list }, index) => <span key={index}>
+            {list && /^[-+*]$/.test(list.marker) ? <>{list.indent}<span className="prompt-box-list-bullet">{list.marker}</span>{list.spacing}{list.task}{list.content}</> : text}
+            {index < lines.length - 1 ? "\n" : ""}
+          </span>)}
+          {value.endsWith("\n") ? " " : null}
+        </div> : null}
         <textarea
-          ref={textareaRef}
+          ref={inputRef}
           aria-label="Prompt"
           disabled={disabled}
           onChange={(event) => {
@@ -105,9 +149,21 @@ export function PromptBox({
           }}
           onSelect={(event) => onSelectionChange?.(event.currentTarget.selectionStart)}
           onInput={(event) => resizeTextarea(event.currentTarget)}
+          onScroll={syncListMirror}
           onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
             if (event.nativeEvent.isComposing || event.keyCode === 229) return;
             if (onCommandKeyDown?.(event)) return;
+            if (variant === "project" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+              const edit = editPromptList(value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, event.key, event.shiftKey);
+              if (edit) {
+                event.preventDefault();
+                if (edit.value !== value) {
+                  pendingCursor.current = edit.cursor;
+                  onChange(edit.value);
+                }
+                return;
+              }
+            }
             const historyDirection = promptHistoryDirection(
               event.key,
               event.currentTarget.selectionStart,
@@ -133,6 +189,7 @@ export function PromptBox({
           rows={1}
           value={value}
         />
+        </div>
       </div>
       <div className="prompt-box-toolbar">
         <div className="prompt-box-leading">{leading}</div>
@@ -142,48 +199,8 @@ export function PromptBox({
   );
 }
 
-function hasFiles(event: DragEvent<HTMLElement>): boolean {
-  return event.dataTransfer.types.includes("Files");
-}
-
-async function droppedFiles(dataTransfer: DataTransfer): Promise<DroppedFile[]> {
-  const entries = [...dataTransfer.items]
-    .map((item) => item.webkitGetAsEntry?.())
-    .filter((entry): entry is FileSystemEntry => Boolean(entry));
-  if (!entries.length) return [...dataTransfer.files].map((file) => ({ file }));
-  return (await Promise.all(entries.map((entry) => filesFromEntry(entry)))).flat();
-}
-
-function filesFromEntry(entry: FileSystemEntry, prefix = ""): Promise<DroppedFile[]> {
-  if (entry.isFile) {
-    return new Promise((resolve, reject) => {
-      (entry as FileSystemFileEntry).file(
-        (file) => resolve([{ file, relativePath: `${prefix}${file.name}` }]),
-        () => reject(new Error(`Could not read ${prefix}${entry.name}`)),
-      );
-    });
-  }
-  if (!entry.isDirectory) return Promise.resolve([]);
-  const directory = entry as FileSystemDirectoryEntry;
-  return readDirectoryEntries(directory.createReader()).then(async (children) => (
-    (await Promise.all(children.map((child) => filesFromEntry(child, `${prefix}${entry.name}/`)))).flat()
-  ));
-}
-
-function readDirectoryEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
-  const entries: FileSystemEntry[] = [];
-  return new Promise((resolve, reject) => {
-    const next = () => reader.readEntries((batch) => {
-      if (!batch.length) return resolve(entries);
-      entries.push(...batch);
-      next();
-    }, reject);
-    next();
-  });
-}
-
 function resizeTextarea(element: HTMLTextAreaElement | null): void {
   if (!element) return;
   element.style.height = "auto";
-  element.style.height = `${Math.min(element.scrollHeight, 132)}px`;
+  element.style.height = `${Math.min(element.scrollHeight + 1, 132)}px`;
 }

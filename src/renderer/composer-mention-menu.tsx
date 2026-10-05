@@ -14,7 +14,8 @@ export function ComposerMentionMenu({ items, selected, onSelect }: {
     const anchor = element?.closest(".prompt-box");
     if (!element || !anchor) return;
     const updateHeight = () => {
-      const availableHeight = Math.max(48, anchor.getBoundingClientRect().top - 12);
+      const boundary = anchor.closest(".agent-body")?.getBoundingClientRect().top ?? 0;
+      const availableHeight = Math.max(48, anchor.getBoundingClientRect().top - boundary - 12);
       element.style.maxHeight = `${Math.min(360, availableHeight)}px`;
     };
     updateHeight();

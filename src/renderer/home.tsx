@@ -1,6 +1,6 @@
 import { Plus, RefreshCw } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { PluginMention, ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { PluginMention, ProjectState, ProjectType, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { ExampleShelf, useExamples } from "./examples.js";
 import { AppSidebar } from "./app-sidebar.js";
@@ -14,7 +14,7 @@ import { WindowDragRegion } from "./window-drag-region.js";
 
 interface HomeProps {
   onNavigate: (page: AppNavigationTarget) => void;
-  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => void;
+  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpen: (projectId: string) => void;
 }
 

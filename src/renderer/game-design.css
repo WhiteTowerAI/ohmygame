@@ -1,0 +1,73 @@
+.design-workspace { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.design-workspace > .viewer-pane.interactive-story-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.design-workspace .interactive-story-body { flex: 1; }
+.design-workspace .interactive-story-canvas { position: relative; }
+.design-loading { flex: 1; display: grid; place-items: center; }
+.design-save-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+.design-save-status.is-error { color: var(--danger); }
+.design-notice { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 11px; background: var(--surface); border-bottom: 1px solid var(--border); z-index: 6; }
+.design-notice span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.design-board-switcher { position: absolute; top: 12px; left: 16px; z-index: 6; display: flex; align-items: center; gap: 5px; max-width: calc(100% - 32px); height: 28px; color: var(--text-muted); }
+.design-board-switcher > svg { flex-shrink: 0; }
+.design-board-switcher .canvas-chip { max-width: 180px; }
+.design-document-node-footer button, .design-expanded-toolbar button, .design-expanded-close, .design-ai-result button, .design-modal header button { display: inline-grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; padding: 0; background: transparent; border: 0; border-radius: 4px; color: var(--text-muted); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
+:is(.design-document-node-footer, .design-expanded-toolbar, .design-ai-result) button:hover, .design-expanded-close:hover { background: var(--surface-hover); color: var(--text); }
+.story-text-node.design-document-node { width: 360px; }
+.design-document-node-header input, .design-document-node-header > span { flex: 1; min-width: 0; height: 18px; padding: 0; font: inherit; line-height: 18px; }
+.design-document-node-header input { border: 0; outline: 0; background: transparent; color: inherit; }
+.design-document-node-header > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.design-document-node-body { width: calc(100% - 20px); height: 260px; overflow: hidden; margin: 0 10px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--story-editor-surface); color: var(--text); font-size: 12px; line-height: 1.6; letter-spacing: 0; overflow-wrap: anywhere; }
+.design-document-node-body:focus-within { border-color: var(--border-strong); }
+.design-document-node-body.is-preview { cursor: grab; user-select: none; }
+.react-flow__node.dragging .design-document-node-body.is-preview { cursor: grabbing; }
+.design-document-node-body > textarea, .design-document-node-preview { display: block; width: 100%; height: 100%; overflow: auto; scrollbar-gutter: stable; padding: 9px 10px; font: inherit; letter-spacing: inherit; text-rendering: inherit; overflow-wrap: inherit; }
+.design-document-node-body > textarea { resize: none; border: 0; border-radius: 0; outline: 0; background: transparent; color: inherit; }
+.design-document-node-body > [hidden] { display: none; }
+.design-document-node-preview .markdown-content { font: inherit; color: inherit; }
+.design-document-node-preview .markdown-content :is(p, h1, h2, h3, h4, h5, h6) { margin: 0 0 1lh; font: inherit; color: inherit; white-space: pre-wrap; }
+.design-document-node-preview .markdown-content :is(h1, h2, h3, h4, h5, h6) { font-weight: 600; }
+.design-document-node-preview .markdown-content :is(ul, ol) { margin: 0 0 1lh; padding-left: 2em; }
+.design-document-node-preview .markdown-content li { margin: 0; padding-left: 0; }
+.design-document-node-preview .markdown-content li > p { margin: 0; }
+.design-document-node-preview .markdown-content li > :is(ul, ol) { margin: 0; }
+.design-document-node-preview .markdown-content > :last-child { margin-bottom: 0; }
+.design-document-node-body img, .design-expanded-preview img { display: block; max-width: 100%; height: auto; margin: 8px 0; border-radius: 4px; }
+.design-document-node-footer { display: flex; justify-content: space-between; height: 28px; align-items: center; padding: 0 10px; margin: -5px 0 5px; }
+.design-mode-control, .design-document-node-actions { display: flex; align-items: center; gap: 2px; }
+.design-mode-control button[aria-pressed="true"], .design-document-node button[aria-pressed="true"] { color: var(--text); background: var(--surface-hover); }
+.design-image-placeholder { color: var(--text-muted); font-size: 11px; }
+.design-expanded-document { position: absolute; inset: 0; display: flex; flex-direction: column; z-index: 12; background: var(--surface); }
+.design-expanded-toolbar { display: flex; gap: 6px; height: 40px; flex-shrink: 0; align-items: center; padding: 0 42px 0 12px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
+.design-expanded-toolbar input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font-size: 12px; }
+.design-expanded-close { position: absolute; top: 8px; right: 10px; }
+.design-expanded-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.design-expanded-body.is-split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.design-expanded-body > textarea { width: 100%; height: 100%; resize: none; background: var(--surface); color: var(--text); border: 0; border-right: 1px solid var(--border); border-radius: 0; padding: 20px; font: 12px/1.7 var(--font-mono, monospace); }
+.design-expanded-preview { overflow: auto; padding: 20px; }
+.design-expanded-preview .markdown-content { max-width: 760px; margin: 0 auto; }
+.design-expanded-ai { width: 100%; max-width: 760px; max-height: 40%; flex-shrink: 0; overflow: auto; margin: 0 auto; padding: 0 12px 12px; }
+.design-ai-result { margin-top: 8px; font-size: 11px; color: var(--text-secondary); }
+.design-ai-result summary { padding: 4px 0; cursor: pointer; }
+.design-ai-result-preview { max-height: 260px; overflow: auto; padding: 8px 0; }
+.design-ai-result footer { display: flex; justify-content: flex-end; gap: 4px; }
+.design-modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; z-index: 1300; padding: 16px; background: rgb(0 0 0 / 35%); }
+.design-modal { width: 400px; max-width: 100%; max-height: calc(100dvh - 32px); overflow: auto; border-radius: 8px; background: var(--menu-surface); padding: 14px; color: var(--text); box-shadow: var(--menu-shadow), 0 0 0 0.5px var(--border); }
+.design-modal > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.design-modal h2 { margin: 0; font-size: 13px; font-weight: 500; }
+.design-modal label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-size: 11px; color: var(--text-muted); }
+.design-modal input, .design-modal select { width: 100%; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 7px 9px; font-size: 12px; }
+.design-modal footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+.design-modal footer button, .design-notice button { padding: 6px 10px; border: 0; border-radius: 5px; background: var(--surface-hover); color: var(--text-secondary); font-size: 11px; }
+.design-modal footer button:hover { color: var(--text); }
+.design-modal p { font-size: 12px; line-height: 1.6; }
+.design-insert-text, .design-conflict-preview pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
+.design-conflict-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 640px) {
+  .design-workspace .react-flow__panel.story-canvas-zoom { bottom: 62px; }
+  .design-board-switcher { top: 10px; left: 10px; }
+  .design-board-switcher .canvas-chip { max-width: 160px; }
+  .design-expanded-toolbar { gap: 4px; padding-left: 8px; }
+  .design-expanded-toolbar > svg { display: none; }
+  .design-expanded-body.is-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+  .design-expanded-body > textarea, .design-expanded-preview { padding: 16px; }
+}

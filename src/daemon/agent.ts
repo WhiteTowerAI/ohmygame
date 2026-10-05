@@ -11,7 +11,8 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import path from "node:path";
-import { promptContextLabels, splitPromptContext } from "./prompt-context.js";
+import { promptContextLabels, splitPromptContext, withProjectDesignContext } from "./prompt-context.js";
+import { gameDesignMetadata } from "./game-design-context.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ThreadItem, ThreadItemError, ToolArtifact } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
@@ -305,6 +306,7 @@ interface AgentManagerOptions {
 interface ManagedSession {
   session: CodingSession;
   unsubscribe: () => void;
+  designContext?: string;
 }
 
 interface ActiveTurn {
@@ -557,8 +559,12 @@ export class AgentManager {
     if (active) {
       if (mode !== "normal") throw new Error("Wait for the agent to finish before changing plan mode");
       if (active.status === "cancelling") throw new Error("Wait for the agent to stop");
-      const wirePrompt = `${promptWithReferences(skillInvocationPrompt(serializePluginMentions(prompt, mentions)), references)}${attachmentContext}`;
       const result = this.#withQueueMutation(key, async () => {
+        const managedDesign = this.#sessions.get(key);
+        const metadata = await gameDesignMetadata(project, Boolean(managedDesign?.designContext));
+        if (managedDesign) managedDesign.designContext = metadata;
+        const privateContext = withProjectDesignContext(attachmentContext, metadata);
+        const wirePrompt = `${promptWithReferences(skillInvocationPrompt(serializePluginMentions(prompt, mentions)), references)}${privateContext}`;
         const event = this.events.publish(
           project.id,
           "prompt.queued",
@@ -566,7 +572,7 @@ export class AgentManager {
           { conversationId: conversation.summary.id, turnId },
           images.length ? { prompt, references } : undefined,
         );
-        const queued = { turnId, prompt, mentions, references, images, attachments, attachmentContext, wirePrompt, queuedEventId: event.id };
+        const queued = { turnId, prompt, mentions, references, images, attachments, attachmentContext: privateContext, wirePrompt, queuedEventId: event.id };
         this.#pendingPrompts.set(key, [...(this.#pendingPrompts.get(key) ?? []), queued]);
         try {
           const managed = await this.#getSession(project, conversation);
@@ -737,6 +743,10 @@ export class AgentManager {
           ...(active.plan ? { plan: active.plan } : {}),
         });
       }
+      const basePrompt = active.attachmentContext ? prompt.slice(0, -active.attachmentContext.length) : prompt;
+      managed.designContext = await gameDesignMetadata(project, Boolean(managed.designContext));
+      active.attachmentContext = withProjectDesignContext(active.attachmentContext, managed.designContext);
+      prompt = `${basePrompt}${active.attachmentContext}`;
       if (isCancelling(active)) {
         this.#markCancelled(project.id, active);
         return "cancelled";

@@ -1,6 +1,7 @@
 import {
   Clapperboard,
   Code2,
+  FileText,
   House,
   LoaderCircle,
   PanelToggle,
@@ -13,6 +14,8 @@ import {
   useMemo,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type CSSProperties,
 } from "react";
 import {
@@ -71,6 +74,7 @@ import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEdgeInspector, P
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
+const GameDesignWorkspace = lazy(() => import("./game-design-workspace.js").then((module) => ({ default: module.GameDesignWorkspace })));
 
 const HISTORY_LIMIT = 50;
 
@@ -92,7 +96,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady }: {
   project: ProjectState;
   agentBusy: boolean;
   publishing: boolean;
@@ -106,10 +110,13 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   chatCollapsed?: boolean;
   onHome?: () => void;
   onToggleChat?: () => void;
+  designOpen?: boolean;
+  onDesignOpenChange?: (open: boolean) => void;
   /** Receives what the open Workbench adds to the next chat message. */
   onChatContextChange?: (state: PlayableChatState | undefined) => void;
   /** Puts a request in the chat prompt. */
   onAskAgent?: (text: string) => void;
+  onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
   /** Sends a request to the AI now, with the open Node as context. */
   onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
 }) {
@@ -129,6 +136,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [workspaceView, setWorkspaceView] = useState<"canvas" | "code">("canvas");
   const [codeRevision, setCodeRevision] = useState(0);
   const [fileRequest, setFileRequest] = useState(openFileRequest);
+  const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
+  const designLeave = useRef<((action: () => void) => void) | undefined>(undefined);
+  const registerDesignLeave = useCallback((leave: ((action: () => void) => void) | undefined) => { designLeave.current = leave; }, []);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string>();
   const [openedNodeId, setOpenedNodeId] = useState<string>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
@@ -170,7 +180,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const canUndo = Boolean(historyPendingBase.current || undoHistory.current.length);
   const canRedo = !historyPendingBase.current && redoHistory.current.length > 0;
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
-  const openedNode = workspaceView === "canvas" && phase === "ready"
+  const openedNode = !designOpen && workspaceView === "canvas" && phase === "ready"
     ? nodes.find((node) => node.id === openedNodeId)?.data.node
     : undefined;
 
@@ -811,10 +821,30 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode, onSelectEdge: selectEdge }), [projectId, technical]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const showCodeTab = technical || workspaceView === "code";
-  const tabs: WorkspaceTabOption<"canvas" | "code">[] = [
+  const tabs: WorkspaceTabOption<"canvas" | "design" | "code">[] = [
     { id: "canvas", label: "Canvas", icon: Clapperboard },
+    ...(onDesignOpenChange ? [{ id: "design" as const, label: "Design", icon: FileText }] : []),
     ...(showCodeTab ? [{ id: "code" as const, label: "Code", icon: Code2 }] : []),
   ];
+  const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
+    {chatOnRight && onHome ? (
+      <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
+    ) : null}
+    <WorkspaceTabs
+      tabs={tabs} active={designOpen ? "design" : workspaceView} label="Workspace mode"
+      onChange={(tab) => {
+        const navigate = () => {
+          if (tab !== "design") {
+            if (tab === "code") clearSelection();
+            setWorkspaceView(tab);
+          }
+          onDesignOpenChange?.(tab === "design");
+        };
+        if (designOpen && designLeave.current) designLeave.current(navigate);
+        else navigate();
+      }}
+    />
+  </div>;
 
   return (
     <section
@@ -829,17 +859,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     >
       <header className="pane-header viewer-header interactive-story-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
-          {chatOnRight && onHome ? (
-            <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
-          ) : null}
-          <WorkspaceTabs tabs={tabs} active={workspaceView} label="Workspace mode" onChange={(tab) => {
-            if (tab === "code") clearSelection();
-            setWorkspaceView(tab);
-          }} />
-        </div>
+        {renderNavigation()}
         <div className="viewer-controls-slot">
-          <PlayableProjectMenu
+          {!designOpen ? <PlayableProjectMenu
             disabled={phase !== "ready"}
             screenSize={viewportRatio(playerViewport)}
             exporting={building}
@@ -853,10 +875,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
               setTechnicalDetails(on);
               if (!on && workspaceView === "code") setWorkspaceView("canvas");
             }}
-          />
+          /> : null}
         </div>
-        <div className="viewer-publish">
-          <button className="icon-button pane-header-action" type="button" title="Playtest" aria-label="Playtest" onClick={() => void startPlaytest()}>
+        <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
+          {!designOpen ? <><button className="icon-button pane-header-action" type="button" title="Playtest" aria-label="Playtest" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
           </button>
           <button className="publish-button workspace-publish-button" type="button" title="Publish" aria-label="Publish" disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
@@ -868,9 +890,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
               <PanelToggle size={14} />
             </button>
           ) : null}
+          </> : null}
         </div>
       </header>
-      {workspaceView !== "code" ? <div className="interactive-story-body">
+      {designOpen ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><GameDesignWorkspace
+        project={project} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady}
+      /></Suspense> : workspaceView !== "code" ? <div className="interactive-story-body">
         <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
@@ -969,12 +994,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onChatContextChange={onChatContextChange}
       /> : null}
       {openedNode && notice ? <div className="story-save-notice is-over-workbench" role="alert">{notice}</div> : null}
-      {variablesOpen && graphMeta && workspaceView === "canvas" && !openedNodeId ? <PlayableVariablesPanel
+      {!designOpen && variablesOpen && graphMeta && workspaceView === "canvas" && !openedNodeId ? <PlayableVariablesPanel
         initialState={graphMeta.initialState}
         descriptions={graphMeta.variables}
         onClose={() => setVariablesOpen(false)}
       /> : null}
-      {canvasSettingsOpen ? <CanvasSettingsDialog
+      {!designOpen && canvasSettingsOpen ? <CanvasSettingsDialog
         viewport={playerViewport}
         hasContent={nodes.length > 0}
         onClose={() => setCanvasSettingsOpen(false)}

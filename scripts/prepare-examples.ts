@@ -134,7 +134,7 @@ async function isCurrentOutput(directory: string, expectedLockSha256: string): P
     const catalog: unknown = JSON.parse(await readFile(path.join(directory, "catalog.json"), "utf8"));
     if (!isPreparedExampleCatalog(catalog)) return false;
     for (const example of catalog.examples) {
-      await stat(path.join(directory, example.directory, "package.json"));
+      await stat(path.join(directory, example.directory, example.type === "web-game" ? "package.json" : "graph.json"));
       await stat(path.join(directory, example.cover));
       if (example.play) await stat(path.join(directory, example.play, "index.html"));
     }
