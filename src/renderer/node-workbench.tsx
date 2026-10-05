@@ -102,13 +102,16 @@ export function LibraryAssetPicker({ title, assets, uploading, onUpload, onClose
 }) {
   const [query, setQuery] = useState("");
   const dialog = useRef<HTMLElement>(null);
+  // Parents may pass a fresh onClose each render; depending on it would re-run this effect and steal focus from search.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     dialog.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onCloseRef.current(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, []);
 
   const visibleAssets = useMemo(() => {
     const normalized = query.trim().toLowerCase();

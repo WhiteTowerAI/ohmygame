@@ -1793,13 +1793,17 @@ function AnimationActionPicker({ runtime, selectedIds, onChange, onClose }: {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>();
   const dialog = useRef<HTMLElement>(null);
+  // The parent passes a fresh onClose on every render (e.g. when clicking the dialog selects the node); depending on
+  // it would re-run this effect and pull focus out of the search field mid-typing.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     dialog.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onCloseRef.current(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  }, []);
 
   const categories = useMemo(() => [...new Set(runtime.actions.map((action) => action.category))], [runtime.actions]);
   const visible = useMemo(() => {
