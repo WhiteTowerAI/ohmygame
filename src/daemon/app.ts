@@ -26,7 +26,8 @@ import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, Project
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
-import { MODEL_3D_MODELS, type Model3DGenerator } from "./model3d.js";
+import type { Model3DGenerator } from "./model3d.js";
+import { MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MODELS } from "../shared/generation-config.js";
 import { MeshyProvider } from "./meshy-provider.js";
 import { MeshySettingsStore } from "./meshy-settings.js";
 import type { ImageGenerator } from "./openai-image.js";
@@ -402,7 +403,7 @@ const toolRunSchema = {
       aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
       outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
       duration: { type: "integer", minimum: 1, maximum: 30 },
-      targetPolycount: { type: "integer", minimum: 100, maximum: 15_000 },
+      targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
       title: { type: "string", minLength: 1, maxLength: 80 },

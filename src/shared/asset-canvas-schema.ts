@@ -5,6 +5,7 @@ import {
   VIDEO_RESOLUTIONS,
 } from "./contracts.js";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
+import { MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
 
 export const ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA = {
   ...EDITOR_LAYOUT_SCHEMA,
@@ -75,10 +76,10 @@ const nodes = [
     required: ["targetPolycount", "texture", "pbr", "images"],
     properties: {
       model,
-      targetPolycount: { type: "integer", minimum: 100, maximum: 15_000 },
+      targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
-      images: { type: "array", maxItems: 1, items: reference },
+      images: { type: "array", maxItems: MODEL_3D_MAX_REFERENCE_IMAGES, items: reference },
       assetId: id,
     },
   }),

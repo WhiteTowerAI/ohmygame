@@ -91,7 +91,7 @@ import { ModelPreview } from "./model-preview.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { viewportRatio } from "../shared/canvas-formats.js";
 import { CanvasSettingsDialog } from "./canvas-settings-dialog.js";
-import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_REFERENCE_LIMIT, buildModel3DToolRequest, normalizeModel3DConfig } from "../shared/generation-config.js";
+import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_MODEL_3D, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_MAX_REFERENCE_IMAGES, buildModel3DToolRequest, normalizeModel3DConfig, resolveModel3D } from "../shared/generation-config.js";
 import "@xyflow/react/dist/style.css";
 
 const ASSET_EDGE_PREFIX = "asset:";
@@ -202,6 +202,8 @@ interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
   uploading: boolean;
   accept: string;
   addLabel: string;
+  /** Names each reference position (e.g. 3D views); the strip then shows every position as a labelled slot. */
+  slotLabels?: readonly string[];
   onRemoveReference: (index: number) => void;
   onUploadReferences: (files: File[]) => void;
 }
@@ -803,7 +805,10 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     if (!model) { setGenerationError({ nodeId: node.id, message: "Select a 3D model before generating." }); return; }
     try {
       const images = await resolveModelReferenceImages(node);
-      if (images.length !== MODEL_3D_REFERENCE_LIMIT) throw new Error("Add one reference image before generating.");
+      if (images.length === 0) throw new Error("Add a reference image before generating.");
+      if (images.length > model.maxReferenceImages) {
+        throw new Error(`${model.name} takes ${model.maxReferenceImages === 1 ? "one reference image" : `up to ${model.maxReferenceImages} reference images`}. Remove the extra ones.`);
+      }
       await generateMedia(node, "image-to-3d", buildModel3DToolRequest({ ...config, model: modelRef(model) }, images), "3D model");
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
@@ -844,7 +849,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
 
   async function uploadReferenceImages(node: AssetCanvasFlowNode, files: File[]): Promise<void> {
     if ((node.type !== "image" && node.type !== "model-3d") || files.length === 0 || uploadingNodeId) return;
-    const available = (node.type === "image" ? imageReferenceLimit(node, imageModels) : MODEL_3D_REFERENCE_LIMIT) - (node.data.images?.length ?? 0);
+    const available = (node.type === "image" ? imageReferenceLimit(node, imageModels) : nodeModel3D(node).maxReferenceImages) - (node.data.images?.length ?? 0);
     if (available <= 0) {
       setGenerationError({ nodeId: node.id, message: "This node cannot accept more reference images." });
       return;
@@ -989,7 +994,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             },
             onGenerate: () => void generateModel3D(node),
             references: imageReferenceViews(node, nodes, libraryAssets),
-            maxReferences: MODEL_3D_REFERENCE_LIMIT,
+            maxReferences: nodeModel3D(node).maxReferenceImages,
+            slotLabels: MODEL_3D_VIEW_LABELS.slice(0, nodeModel3D(node).maxReferenceImages),
             uploading: uploadingNodeId === node.id,
             accept: "image/png,image/jpeg,image/webp",
             addLabel: "Upload reference images",
@@ -1353,6 +1359,7 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
   const runtime = data.model3DRuntime;
   const config = nodeModel3DConfig({ type: "model-3d", data });
   const selectedModel = selectedModel3D(config, runtime?.models ?? []);
+  const { polycount } = nodeModel3D({ type: "model-3d", data });
   const hasImages = Boolean(data.images?.length);
   const updateConfig = (next: Partial<Model3DGenerationConfig>) => runtime?.onChange({
     ...data,
@@ -1381,13 +1388,13 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
           disabled={runtime?.busy}
           onChange={(key) => {
             const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
-            if (model) updateConfig({ model: modelRef(model) });
+            if (model) updateConfig({ model: modelRef(model), targetPolycount: model.polycount.default });
           }}
         />
         <CanvasChipSelect
           label="Polycount"
           value={String(config.targetPolycount)}
-          options={polycountOptions(config.targetPolycount)}
+          options={polycountOptions(polycount.presets, config.targetPolycount)}
           disabled={runtime?.busy}
           onChange={(value) => updateConfig({ targetPolycount: Number(value) })}
         />
@@ -1472,6 +1479,9 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
   const input = useRef<HTMLInputElement>(null);
   const references = runtime?.references ?? [];
   if (!runtime || (runtime.linkedPrompt === undefined && references.length === 0 && runtime.maxReferences === 0)) return null;
+  // References fill positions in order, so only the next open slot takes an upload; later slots just show what can follow.
+  const [nextSlot, ...laterSlots] = runtime.slotLabels?.slice(references.length) ?? [];
+  const addLabel = nextSlot ? `Add ${nextSlot.toLowerCase()} view` : runtime.addLabel;
   return (
     <div className={`story-media-references${large ? " is-large" : ""}`} aria-label="References">
       {runtime?.linkedPrompt !== undefined ? <TextReferenceThumbnail runtime={runtime} /> : null}
@@ -1479,6 +1489,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
         <MediaReferenceThumbnail
           key={reference.key}
           reference={reference}
+          caption={runtime.slotLabels?.[index]}
           disabled={runtime?.busy}
           onRemove={() => runtime?.onRemoveReference(index)}
         />
@@ -1488,12 +1499,13 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
           <button
             className="story-media-reference-add"
             type="button"
-            title={runtime.addLabel}
-            aria-label={runtime.addLabel}
+            title={addLabel}
+            aria-label={addLabel}
             disabled={runtime?.busy}
             onClick={() => input.current?.click()}
           >
             {runtime?.uploading ? <LoaderCircle className="spin" size={large ? 20 : 16} /> : <Plus size={large ? 24 : 18} />}
+            {nextSlot ? <span>{nextSlot}</span> : null}
           </button>
           <input
             ref={input}
@@ -1509,6 +1521,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
           />
         </>
       ) : null}
+      {laterSlots.map((label) => <div className="story-media-reference-slot" key={label} aria-hidden="true"><span>{label}</span></div>)}
     </div>
   );
 }
@@ -1524,8 +1537,9 @@ function TextReferenceThumbnail({ runtime }: { runtime: MediaNodeRuntime }) {
   );
 }
 
-function MediaReferenceThumbnail({ reference, disabled, onRemove }: {
+function MediaReferenceThumbnail({ reference, caption, disabled, onRemove }: {
   reference: MediaReferenceView;
+  caption?: string;
   disabled?: boolean;
   onRemove: () => void;
 }) {
@@ -1535,7 +1549,7 @@ function MediaReferenceThumbnail({ reference, disabled, onRemove }: {
       {preview.url && reference.type === "image" ? <img src={preview.url} alt={reference.name} /> : null}
       {preview.url && reference.type === "video" ? <video src={preview.url} muted playsInline preload="metadata" /> : null}
       {reference.type === "audio" || !preview.url ? reference.type === "audio" ? <Music2 size={18} /> : reference.type === "video" ? <Film size={18} /> : <ImageIcon size={18} /> : null}
-      <small>{{ image: "I", video: "V", audio: "A" }[reference.type]}{reference.label.split(" ")[1]}</small>
+      <small>{caption ?? `${{ image: "I", video: "V", audio: "A" }[reference.type]}${reference.label.split(" ")[1] ?? ""}`}</small>
       {reference.linked ? <span className="story-media-reference-link" aria-label={`Connected ${reference.type} node`} /> : null}
       <button type="button" title={`Remove ${reference.name}`} aria-label={`Remove ${reference.name}`} disabled={disabled} onClick={onRemove}>
         <X size={11} />
@@ -1723,8 +1737,6 @@ function fitMediaNode(aspectRatio = 16 / 10): { width: number; height: number } 
   return { width: Math.round(width), height: Math.round(height) };
 }
 
-const POLYCOUNT_PRESETS = [1_000, 4_000, 10_000, 15_000];
-
 const MANAGE_PROVIDERS = { label: "Manage providers", onSelect: () => { window.location.hash = settingsHash("providers"); } };
 
 /** OpenRouter names start with the vendor ("ByteDance: Seedance 2.5"); the provider heading already says where it runs. */
@@ -1736,8 +1748,8 @@ function providerNotes(providers: readonly MediaProviderStatus[] | undefined): C
   return (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? [] : [{ group: provider.providerName, message: provider.message }]);
 }
 
-function polycountOptions(current: number): Array<{ value: string; label: string }> {
-  const values = POLYCOUNT_PRESETS.includes(current) ? POLYCOUNT_PRESETS : [...POLYCOUNT_PRESETS, current].sort((a, b) => a - b);
+function polycountOptions(presets: readonly number[], current: number): Array<{ value: string; label: string }> {
+  const values = presets.includes(current) ? presets : [...presets, current].sort((a, b) => a - b);
   return values.map((value) => ({ value: String(value), label: `${value >= 1_000 ? `${value / 1_000}K` : value} polys` }));
 }
 
@@ -2108,7 +2120,7 @@ function toFlowNode(node: AssetCanvasNode, imageModels: ImageModel[], videoModel
         texture: node.data.texture,
         pbr: node.data.pbr,
       }),
-      images: node.data.images.slice(0, MODEL_3D_REFERENCE_LIMIT),
+      images: node.data.images.slice(0, MODEL_3D_MAX_REFERENCE_IMAGES),
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
@@ -2217,7 +2229,7 @@ export function toAssetCanvasNode(node: AssetCanvasFlowNode): AssetCanvasNode {
         targetPolycount: config.targetPolycount,
         texture: config.texture,
         pbr: config.pbr,
-        images: (node.data.images ?? []).slice(0, MODEL_3D_REFERENCE_LIMIT),
+        images: (node.data.images ?? []).slice(0, MODEL_3D_MAX_REFERENCE_IMAGES),
         ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
       },
     };
@@ -2249,7 +2261,7 @@ function sameImageModel(left: ImageModelRef, right?: ImageModelRef): boolean {
 function imageReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNode[], libraryAssets: LibraryAsset[]): MediaReferenceView[] {
   if (node.type !== "image" && node.type !== "model-3d") return [];
   return (node.data.images ?? []).map((reference, index) => {
-    const label = node.type === "model-3d" ? "Reference" : `Image ${index + 1}`;
+    const label = node.type === "model-3d" ? MODEL_3D_VIEW_LABELS[index] ?? `View ${index + 1}` : `Image ${index + 1}`;
     if (reference.type === "library") {
       const asset = libraryAssets.find((candidate) => candidate.id === reference.assetId);
       return { assetId: reference.assetId, key: `library:${reference.assetId}:${index}`, linked: false, name: asset?.name ?? "Missing image", label, type: "image" };
@@ -2311,9 +2323,18 @@ function sameModel(model: { provider: string; id: string }, ref?: VideoModelRef)
   return Boolean(ref && model.provider === ref.provider && model.id === ref.id);
 }
 
-/** The node's saved model while the catalog still offers it, otherwise the first available one. */
+/** The model a 3D node runs: its saved choice, or the default when it has none or names one that no longer exists. */
+/** Meshy reads the first image as the front; the rest are any other angles, named here as suggestions. */
+const MODEL_3D_VIEW_LABELS = ["Front", "Side", "Back", "Other angle"];
+
+function nodeModel3D(node: Pick<AssetCanvasFlowNode, "type" | "data">): Model3DModel {
+  return resolveModel3D(nodeModel3DConfig(node).model) ?? DEFAULT_MODEL_3D;
+}
+
+/** The node's model as offered by the catalog; undefined while its provider is not set up. */
 function selectedModel3D(config: Model3DGenerationConfig, models: readonly Model3DModel[]): Model3DModel | undefined {
-  return models.find((model) => sameModel(model, config.model)) ?? models[0];
+  const model = resolveModel3D(config.model) ?? DEFAULT_MODEL_3D;
+  return models.find((candidate) => sameModel(candidate, model));
 }
 
 function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data">): Model3DGenerationConfig {
@@ -2339,7 +2360,7 @@ function connectionRelation(
       : undefined;
   }
   if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "model-3d") {
-    return (target.data.images?.length ?? 0) < MODEL_3D_REFERENCE_LIMIT &&
+    return (target.data.images?.length ?? 0) < nodeModel3D(target).maxReferenceImages &&
       !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id)
       ? "image-reference"
       : undefined;

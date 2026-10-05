@@ -17,23 +17,16 @@ export class MeshyProvider implements Model3DGenerator {
   ) {}
 
   async generate(input: Model3DGenerationInput, signal?: AbortSignal): Promise<Generated3DModel> {
-    if (input.images.length !== 1) throw new Model3DGenerationError("Meshy T2 requires exactly one reference image", 400);
+    const meshy = meshyTask(input);
     const apiKey = this.apiKey();
     if (!apiKey) throw new Model3DGenerationError("Meshy API key is not configured", 503);
     const timeout = AbortSignal.timeout(MAX_WAIT_MS);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     try {
-      const created = await this.json(`${BASE_URL}/image-to-3d`, {
+      const created = await this.json(`${BASE_URL}/${meshy.endpoint}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          image_url: `data:${input.images[0]!.mediaType};base64,${input.images[0]!.data}`,
-          model_type: "smart-topology",
-          ai_model: "meshy-t2",
-          enable_pbr: input.texture === false ? false : input.pbr ?? false,
-          should_texture: input.texture ?? true,
-          target_polycount: input.targetPolycount ?? 4_000,
-        }),
+        body: JSON.stringify(meshy.body),
         signal: requestSignal,
       }, apiKey, "Meshy generation request failed");
       const taskId = string(created.result) ?? string(created.id);
@@ -44,7 +37,7 @@ export class MeshyProvider implements Model3DGenerator {
         let task: Record<string, unknown>;
         try {
           task = await this.json(
-            `${BASE_URL}/image-to-3d/${encodeURIComponent(taskId)}`,
+            `${BASE_URL}/${meshy.endpoint}/${encodeURIComponent(taskId)}`,
             { signal: requestSignal },
             apiKey,
             "Meshy status request failed",
@@ -105,6 +98,33 @@ function networkErrorDetail(cause: unknown): string {
   if (!(inner instanceof Error)) return String(inner);
   const code = (inner as { code?: unknown }).code;
   return typeof code === "string" && !inner.message.includes(code) ? `${code}: ${inner.message}` : inner.message;
+}
+
+/** Meshy runs T2 and 7.1 on different endpoints with different polycount controls. */
+function meshyTask(input: Model3DGenerationInput): { endpoint: string; body: Record<string, unknown> } {
+  const texture = {
+    should_texture: input.texture ?? true,
+    enable_pbr: input.texture === false ? false : input.pbr ?? false,
+  };
+  const images = input.images.map((image) => `data:${image.mediaType};base64,${image.data}`);
+  if (input.model.provider === "meshy" && input.model.id === "meshy-t2") {
+    if (images.length !== 1) throw new Model3DGenerationError("Meshy T2 requires exactly one reference image", 400);
+    return {
+      endpoint: "image-to-3d",
+      // Smart Topology generates straight at the target face count, so no remesh pass is involved.
+      body: { image_url: images[0], model_type: "smart-topology", ai_model: "meshy-t2", ...texture, target_polycount: input.targetPolycount ?? 4_000 },
+    };
+  }
+  if (input.model.provider === "meshy" && input.model.id === "meshy-7.1") {
+    if (images.length < 1 || images.length > 4) throw new Model3DGenerationError("Meshy 7.1 takes 1 to 4 reference images", 400);
+    return {
+      // The multi-image endpoint accepts a single view too, so one endpoint covers 7.1; the first image is the front.
+      endpoint: "multi-image-to-3d",
+      // Standard models only honour target_polycount through the remesh pass.
+      body: { image_urls: images, ai_model: "meshy-7.1", ...texture, should_remesh: true, topology: "triangle", target_polycount: input.targetPolycount ?? 30_000 },
+    };
+  }
+  throw new Model3DGenerationError(`Meshy does not offer ${input.model.provider}/${input.model.id}`, 400);
 }
 
 function record(value: unknown): Record<string, unknown> {

@@ -28,7 +28,8 @@ import {
   type ToolRunFile,
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
-import { isKnownModel3D, Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
+import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
+import { resolveModel3D } from "../shared/generation-config.js";
 import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./video-generation.js";
 import type { AssetLibrary } from "./asset-library.js";
 
@@ -236,14 +237,18 @@ export class ToolRunner {
 
   async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
     const { images } = input;
-    if (!Array.isArray(images) || images.length !== 1) throw new ToolRunError("Provide exactly one reference image", 400);
+    const model = resolveModel3D(input.model);
+    if (!model) throw new ToolRunError("Unknown 3D model", 400);
+    if (!Array.isArray(images) || images.length < 1 || images.length > model.maxReferenceImages) {
+      throw new ToolRunError(model.maxReferenceImages === 1 ? "Provide exactly one reference image" : `Provide 1 to ${model.maxReferenceImages} reference images`, 400);
+    }
     if (images.some((image) => !isPromptImage(image))) throw new ToolRunError("A PNG or JPEG reference image is required", 400);
-    if (input.targetPolycount !== undefined && (!Number.isInteger(input.targetPolycount) || input.targetPolycount < 100 || input.targetPolycount > 15_000)) {
-      throw new ToolRunError("3D poly count must be between 100 and 15000", 400);
+    const { polycount } = model;
+    if (input.targetPolycount !== undefined && (!Number.isInteger(input.targetPolycount) || input.targetPolycount < polycount.min || input.targetPolycount > polycount.max)) {
+      throw new ToolRunError(`3D poly count must be between ${polycount.min} and ${polycount.max}`, 400);
     }
     if (input.texture !== undefined && typeof input.texture !== "boolean") throw new ToolRunError("Texture must be a boolean", 400);
     if (input.pbr !== undefined && typeof input.pbr !== "boolean") throw new ToolRunError("PBR must be a boolean", 400);
-    if (input.model !== undefined && !isKnownModel3D(input.model)) throw new ToolRunError("Unknown 3D model", 400);
     if (!this.model3DGenerator) throw new ToolRunError("3D generation is not configured", 503);
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
@@ -252,6 +257,7 @@ export class ToolRunner {
     try {
       signal?.throwIfAborted();
       const generated = await this.model3DGenerator.generate({
+        model: { provider: model.provider, id: model.id },
         images,
         targetPolycount: input.targetPolycount,
         texture: input.texture,

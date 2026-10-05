@@ -104,6 +104,9 @@ export type Model3DModelRef = ModelRef;
 export interface Model3DModel extends Model3DModelRef {
   name: string;
   providerName: string;
+  /** Distinct views of one object; the first is treated as the front. */
+  maxReferenceImages: number;
+  polycount: { min: number; max: number; default: number; presets: readonly number[] };
 }
 
 export interface ImageModel extends ImageModelRef {

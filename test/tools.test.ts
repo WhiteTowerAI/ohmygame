@@ -30,6 +30,7 @@ describe("tool runner", () => {
     });
 
     expect(generate).toHaveBeenCalledWith({
+      model: { provider: "meshy", id: "meshy-t2" },
       images: [
         { mediaType: "image/png", data: "ZnJvbnQ=" },
       ],
@@ -59,10 +60,21 @@ describe("tool runner", () => {
     });
 
     expect(generate).toHaveBeenCalledWith({
+      model: { provider: "meshy", id: "meshy-t2" },
       images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
       targetPolycount: 4_000,
       texture: false,
     }, undefined);
+  });
+
+  it("runs Meshy 7.1 with several views and its own polycount range", async () => {
+    const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("glb"), mediaType: "model/gltf-binary" as const });
+    const runner = new ToolRunner(await temporaryData(), fakeGenerator(), { generate });
+    await runner.load();
+    const views = Array.from({ length: 4 }, () => ({ mediaType: "image/png" as const, data: "aW1hZ2U=" }));
+    await runner.run("image-to-3d", { images: views, model: { provider: "meshy", id: "meshy-7.1" }, targetPolycount: 100_000 });
+
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: { provider: "meshy", id: "meshy-7.1" }, images: views, targetPolycount: 100_000 }), undefined);
   });
 
   it("runs the selected video model with a Library image reference", async () => {
@@ -185,6 +197,8 @@ describe("tool runner", () => {
       ["image-to-3d", { targetPolycount: 4_000 }],
       ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: { provider: "meshy", id: "meshy-6" } }],
       ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: null }],
+      ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], targetPolycount: 100_000 }],
+      ["image-to-3d", { images: Array.from({ length: 5 }, () => ({ mediaType: "image/png", data: "aW1hZ2U=" })), model: { provider: "meshy", id: "meshy-7.1" } }],
       ["image-to-3d", { images: Array.from({ length: 2 }, () => ({ mediaType: "image/png", data: "aW1hZ2U=" })) }],
       ["generate-image", { prompt: "image", size: "800x600" }],
       ["generate-image", { prompt: "image", size: "1024x1024", resolution: "1K", aspectRatio: "1:1" }],

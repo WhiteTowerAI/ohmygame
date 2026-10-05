@@ -6969,6 +6969,27 @@ button {
   border-style: dashed;
 }
 
+.story-media-reference-slot {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-faint);
+  opacity: 0.6;
+}
+
+.story-media-reference-add:has(> span) {
+  align-content: center;
+  gap: 4px;
+}
+
+:is(.story-media-reference-add, .story-media-reference-slot) > span {
+  font-size: 11px;
+}
+
 .story-media-reference-add:hover:not(:disabled) {
   border-color: var(--border-strong);
   color: var(--text-muted);
@@ -6986,7 +7007,7 @@ button {
 }
 
 .story-media-references.is-large
-  :is(.story-media-reference, .story-media-reference-add) {
+  :is(.story-media-reference, .story-media-reference-add, .story-media-reference-slot) {
   width: 96px;
   height: 96px;
   flex-basis: 96px;
