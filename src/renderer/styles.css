@@ -7439,6 +7439,10 @@ button {
 }
 
 .story-animation-picker {
+  width: min(880px, 100%);
+  max-height: min(760px, calc(100dvh - 48px));
+  /* Without a bounded column, the footer's chip row widens the grid past the dialog and clips its right edge. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto auto minmax(0, 1fr) auto;
 }
 
@@ -7452,9 +7456,9 @@ button {
 .story-animation-picker-grid {
   display: grid;
   min-height: 180px;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
   align-content: start;
-  gap: 8px;
+  gap: 6px;
   overflow: auto;
   padding: 6px 14px 12px;
 }
@@ -7508,21 +7512,12 @@ button {
   opacity: 0.45;
 }
 
-.story-animation-picker-grid strong,
-.story-animation-picker-grid small {
+.story-animation-picker-grid strong {
   overflow: hidden;
+  font-size: 11px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.story-animation-picker-grid strong {
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.story-animation-picker-grid small {
-  color: var(--text-muted);
-  font-size: 10px;
 }
 
 .story-animation-picker-preview {
@@ -7558,12 +7553,18 @@ button {
 
 .story-animation-picker > footer {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
   border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 11px;
+}
+
+.story-animation-picker > footer > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .story-animation-picker-selected {
@@ -7575,6 +7576,7 @@ button {
 }
 
 .story-animation-picker-done {
+  flex: 0 0 auto;
   height: 28px;
   padding: 0 14px;
   border: 0;

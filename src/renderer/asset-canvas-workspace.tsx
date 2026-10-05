@@ -1597,12 +1597,12 @@ function AnimationActionPicker({ runtime, selectedIds, onChange, onClose }: {
                     {chosen ? <span className="story-animation-picker-check"><Check size={12} /></span> : null}
                   </span>
                   <strong>{action.name}</strong>
-                  <small>{splitCamelCase(action.subCategory)}</small>
                 </button>
               );
             })}
         </div>
         <footer>
+          <span>{selectedIds.length}/{MAX_ANIMATION_ACTIONS} selected</span>
           <div className="story-animation-picker-selected" aria-label="Selected moves, in clip order">
             {selectedIds.length === 0 ? <span>No moves selected</span> : selectedIds.map((id) => (
               <button className="canvas-chip" type="button" key={id} title="Remove move" onClick={() => toggle(id)}>
@@ -1610,7 +1610,6 @@ function AnimationActionPicker({ runtime, selectedIds, onChange, onClose }: {
               </button>
             ))}
           </div>
-          <span>{selectedIds.length}/{MAX_ANIMATION_ACTIONS}</span>
           <button className="story-animation-picker-done" type="button" onClick={onClose}>Done</button>
         </footer>
       </section>
@@ -1619,9 +1618,9 @@ function AnimationActionPicker({ runtime, selectedIds, onChange, onClose }: {
   );
 }
 
-/** Meshy names categories in CamelCase ("WalkAndRun"); spaced words read better in the picker. */
+/** Meshy names categories in CamelCase ("WalkAndRun", and once "AttackingwithWeapon"); spaced words read better. */
 function splitCamelCase(value: string): string {
-  return value.replace(/([a-z])([A-Z])/g, "$1 $2");
+  return value.replace(/([a-z])with([A-Z])/g, "$1With$2").replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
 function MediaPrompt({ kind, value, runtime, onChange }: {
