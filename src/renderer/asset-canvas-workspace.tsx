@@ -346,7 +346,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
         setCanvasJobs(Object.fromEntries(latestJobs));
         const completedAssetIds: string[] = [];
         let completedCover: AssetCanvasCoverSource | undefined;
-        for (const job of jobs) {
+        // Jobs arrive newest first; only the latest job per node may set its asset, or older results overwrite newer ones on reopen.
+        for (const job of latestJobs.values()) {
           const nodeId = job.context?.nodeId;
           const file = job.run?.files[0];
           if (job.status !== "succeeded" || !nodeId || !file?.assetId || hydratedJobRuns.current.has(job.id)) continue;
