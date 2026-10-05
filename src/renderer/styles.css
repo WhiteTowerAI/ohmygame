@@ -6630,10 +6630,6 @@ button {
   transform: translate(50%, -50%);
 }
 
-.story-asset-edge .react-flow__edge-path {
-  stroke-dasharray: 6 5;
-}
-
 .story-media-node {
   width: var(--story-media-width, 440px);
   overflow: visible;

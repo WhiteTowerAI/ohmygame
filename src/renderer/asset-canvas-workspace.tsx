@@ -552,7 +552,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       source: image.nodeId,
       target: node.id,
       sourceHandle: OUTPUT_HANDLE,
-      className: "story-asset-edge",
       selected: selectedAssetEdgeId === assetEdgeId("image", node.id, image.nodeId),
       data: { relation: "media-image", referenceId: image.nodeId },
     }] : []));
@@ -561,7 +560,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       source: reference.nodeId,
       target: node.id,
       sourceHandle: OUTPUT_HANDLE,
-      className: "story-asset-edge",
       selected: selectedAssetEdgeId === assetEdgeId("reference", node.id, reference.nodeId),
       data: { relation: "video-reference", referenceId: reference.nodeId },
     }] : []));
@@ -570,7 +568,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       source: node.data.promptSource.nodeId,
       target: node.id,
       sourceHandle: OUTPUT_HANDLE,
-      className: "story-asset-edge",
       selected: selectedAssetEdgeId === assetEdgeId("prompt", node.id, node.data.promptSource.nodeId),
       data: { relation: "media-prompt", referenceId: node.data.promptSource.nodeId },
     });
