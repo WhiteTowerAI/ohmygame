@@ -25,8 +25,8 @@ describe("Meshy provider", () => {
     });
 
     expect(request.mock.calls.map(([url]) => url)).toEqual([
-      "https://api.meshy.ai/openapi/v2/image-to-3d",
-      "https://api.meshy.ai/openapi/v2/image-to-3d/task-1",
+      "https://api.meshy.ai/openapi/v1/image-to-3d",
+      "https://api.meshy.ai/openapi/v1/image-to-3d/task-1",
       "https://files.example/model.glb",
     ]);
     expect(request.mock.calls[0]?.[1]?.headers).toEqual({
@@ -35,11 +35,43 @@ describe("Meshy provider", () => {
     });
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
       image_url: "data:image/png;base64,aW1hZ2U=",
+      model_type: "smart-topology",
+      ai_model: "meshy-t2",
       enable_pbr: true,
       should_texture: true,
-      topology: "triangle",
       target_polycount: 8_000,
     });
+  });
+
+  it("keeps polling through a dropped status request", async () => {
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ result: "task-1" }))
+      .mockRejectedValueOnce(new TypeError("fetch failed", { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) }))
+      .mockResolvedValueOnce(Response.json({ status: "SUCCEEDED", model_urls: { glb: "https://files.example/model.glb" } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200 }));
+    const provider = new MeshyProvider(() => "meshy-key", request, 0);
+
+    await expect(provider.generate({ images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], texture: true, pbr: false }))
+      .resolves.toMatchObject({ requestId: "task-1" });
+    expect(request).toHaveBeenCalledTimes(4);
+  });
+
+  it("reports why Meshy could not be reached", async () => {
+    const request = vi.fn<typeof fetch>()
+      .mockRejectedValue(new TypeError("fetch failed", { cause: Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" }) }));
+    const provider = new MeshyProvider(() => "meshy-key", request, 0);
+
+    await expect(provider.generate({ images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], texture: true, pbr: false }))
+      .rejects.toMatchObject({ message: "Could not reach Meshy (UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error)", statusCode: 502 });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes the HTTP status in Meshy errors", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ message: "Not found" }, { status: 404 }));
+    const provider = new MeshyProvider(() => "meshy-key", request, 0);
+
+    await expect(provider.generate({ images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], texture: true, pbr: false }))
+      .rejects.toMatchObject({ message: "Meshy 404: Not found", statusCode: 400 });
   });
 
   it("requires a configured key and exactly one image", async () => {

@@ -1,10 +1,13 @@
 import type { Model3DGenerationInput, Model3DGenerator, Generated3DModel } from "./model3d.js";
 import { Model3DGenerationError } from "./model3d.js";
 
-const BASE_URL = "https://api.meshy.ai/openapi/v2";
+// Image to 3D lives under v1; v2 only serves text-to-3D and answers this path with 404 "Not found".
+const BASE_URL = "https://api.meshy.ai/openapi/v1";
 const POLL_INTERVAL_MS = 2_000;
 const MAX_WAIT_MS = 15 * 60_000;
 const MAX_GLB_BYTES = 100 * 1024 * 1024;
+/** Consecutive status polls that may fail to connect before the job gives up; one dropped request should not lose a paid task. */
+const MAX_POLL_NETWORK_FAILURES = 3;
 
 export class MeshyProvider implements Model3DGenerator {
   constructor(
@@ -25,23 +28,33 @@ export class MeshyProvider implements Model3DGenerator {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           image_url: `data:${input.images[0]!.mediaType};base64,${input.images[0]!.data}`,
+          model_type: "smart-topology",
+          ai_model: "meshy-t2",
           enable_pbr: input.texture === false ? false : input.pbr ?? false,
           should_texture: input.texture ?? true,
-          topology: "triangle",
           target_polycount: input.targetPolycount ?? 4_000,
         }),
         signal: requestSignal,
       }, apiKey, "Meshy generation request failed");
       const taskId = string(created.result) ?? string(created.id);
       if (!taskId) throw new Model3DGenerationError("Meshy returned no task ID");
+      let networkFailures = 0;
       while (true) {
         requestSignal.throwIfAborted();
-        const task = await this.json(
-          `${BASE_URL}/image-to-3d/${encodeURIComponent(taskId)}`,
-          { signal: requestSignal },
-          apiKey,
-          "Meshy status request failed",
-        );
+        let task: Record<string, unknown>;
+        try {
+          task = await this.json(
+            `${BASE_URL}/image-to-3d/${encodeURIComponent(taskId)}`,
+            { signal: requestSignal },
+            apiKey,
+            "Meshy status request failed",
+          );
+          networkFailures = 0;
+        } catch (cause) {
+          if (!(cause instanceof MeshyNetworkError) || ++networkFailures >= MAX_POLL_NETWORK_FAILURES) throw cause;
+          await delay(this.pollIntervalMs, requestSignal);
+          continue;
+        }
         const status = string(task.status)?.toUpperCase();
         if (status === "SUCCEEDED" || status === "COMPLETED") {
           const url = record(task.model_urls).glb;
@@ -70,14 +83,28 @@ export class MeshyProvider implements Model3DGenerator {
       response = await this.request(url, { ...init, headers: { authorization: `Bearer ${apiKey}`, ...init.headers } });
     } catch (cause) {
       if (init.signal?.aborted) throw init.signal.reason ?? cause;
-      throw new Model3DGenerationError("Could not reach Meshy", 502);
+      throw new MeshyNetworkError(cause);
     }
     const body = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (response.ok) return body;
     if (response.status === 401 || response.status === 403) throw new Model3DGenerationError("Meshy API key was rejected", 503);
     if (response.status === 429) throw new Model3DGenerationError("Meshy is temporarily rate limited", 429);
-    throw new Model3DGenerationError(string(body.message) ?? message, response.status >= 500 ? 502 : 400);
+    throw new Model3DGenerationError(`Meshy ${response.status}: ${string(body.message) ?? message}`, response.status >= 500 ? 502 : 400);
   }
+}
+
+class MeshyNetworkError extends Model3DGenerationError {
+  constructor(cause: unknown) {
+    super(`Could not reach Meshy (${networkErrorDetail(cause)})`, 502);
+  }
+}
+
+/** fetch only says "fetch failed"; the useful part (ECONNRESET, connect timeout, ...) sits on its cause. */
+function networkErrorDetail(cause: unknown): string {
+  const inner = cause instanceof Error && cause.cause instanceof Error ? cause.cause : cause;
+  if (!(inner instanceof Error)) return String(inner);
+  const code = (inner as { code?: unknown }).code;
+  return typeof code === "string" && !inner.message.includes(code) ? `${code}: ${inner.message}` : inner.message;
 }
 
 function record(value: unknown): Record<string, unknown> {
