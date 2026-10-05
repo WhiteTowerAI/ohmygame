@@ -22,6 +22,7 @@ import {
   type PreviewViewport,
   type ProjectPackageManager,
   type ProjectFileOpenMode,
+  type ProjectAgentActivity,
   type ProjectState,
   type AssetCanvasDocument,
   type AssetCanvasTextGenerationRequest,
@@ -114,6 +115,10 @@ export async function createProject(input: CreateProjectRequest = {}): Promise<P
 
 export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
+}
+
+export async function listProjectActivity(signal?: AbortSignal): Promise<ProjectAgentActivity[]> {
+  return request("/projects/activity", { signal });
 }
 
 export async function listExamples(): Promise<ExampleSummary[]> {

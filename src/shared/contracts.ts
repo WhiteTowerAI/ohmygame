@@ -149,6 +149,11 @@ export interface ProjectState {
   publication?: PublicationState;
 }
 
+export interface ProjectAgentActivity {
+  projectId: string;
+  status: Extract<AgentStatus, "running" | "cancelling">;
+}
+
 export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "asset";
 
 export interface AssetCanvasPosition {

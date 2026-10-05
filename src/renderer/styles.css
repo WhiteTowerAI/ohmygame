@@ -3320,6 +3320,18 @@ button.home-nav-item-active:hover {
   font-size: 11px;
 }
 
+.project-card-activity {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+
+.project-card-activity svg {
+  flex: 0 0 auto;
+}
+
 .home-project-state {
   margin: 0;
   padding: 24px 0;
@@ -12418,6 +12430,10 @@ button {
     grid-template-columns: 1fr;
     height: auto;
     min-height: 100dvh;
+  }
+
+  .home-shell:has(> .sidebar-page) {
+    grid-template-rows: 52px minmax(0, 1fr);
   }
 
   .home-sidebar {
