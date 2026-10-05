@@ -240,7 +240,6 @@ interface Animate3DNodeRuntime extends ReferenceMediaNodeRuntime {
 interface MediaReferenceView {
   assetId?: string;
   key: string;
-  linked: boolean;
   name: string;
   label: string;
   type: VideoGenerationReference["type"] | "model";
@@ -1728,9 +1727,8 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
 function TextReferenceThumbnail({ runtime }: { runtime: MediaNodeRuntime }) {
   const text = runtime.linkedPrompt?.trim() ?? "";
   return (
-    <div className="story-media-reference story-text-reference is-linked" title={text || "Connected Text node is empty"}>
+    <div className="story-media-reference story-text-reference" title={text || "Connected Text node is empty"}>
       <FileText size={19} />
-      <span className="story-media-reference-link" aria-label="Connected Text node" />
       <button type="button" title="Disconnect text" aria-label="Disconnect text" disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size={11} /></button>
     </div>
   );
@@ -1744,14 +1742,13 @@ function MediaReferenceThumbnail({ reference, caption, disabled, onRemove }: {
 }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, reference.type === "audio" || reference.type === "model" ? undefined : reference.assetId);
   return (
-    <div className={`story-media-reference${reference.linked ? " is-linked" : ""}`} title={`${reference.label}: ${reference.name}`}>
+    <div className="story-media-reference" title={`${reference.label}: ${reference.name}`}>
       {preview.url && reference.type === "image" ? <img src={preview.url} alt={reference.name} /> : null}
       {preview.url && reference.type === "video" ? <video src={preview.url} muted playsInline preload="metadata" /> : null}
       {reference.type === "audio" || reference.type === "model" || !preview.url
         ? reference.type === "audio" ? <Music2 size={18} /> : reference.type === "model" ? <Box size={18} /> : reference.type === "video" ? <Film size={18} /> : <ImageIcon size={18} />
         : null}
-      <small>{caption ?? `${{ image: "I", video: "V", audio: "A", model: "M" }[reference.type]}${reference.label.split(" ")[1] ?? ""}`}</small>
-      {reference.linked ? <span className="story-media-reference-link" aria-label={`Connected ${reference.type} node`} /> : null}
+      {caption ? <small>{caption}</small> : null}
       <button type="button" title={`Remove ${reference.name}`} aria-label={`Remove ${reference.name}`} disabled={disabled} onClick={onRemove}>
         <X size={11} />
       </button>
@@ -2456,7 +2453,7 @@ function imageReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
     const label = node.type === "model-3d" ? MODEL_3D_VIEW_LABELS[index] ?? `View ${index + 1}` : `Image ${index + 1}`;
     if (reference.type === "library") {
       const asset = libraryAssets.find((candidate) => candidate.id === reference.assetId);
-      return { assetId: reference.assetId, key: `library:${reference.assetId}:${index}`, linked: false, name: asset?.name ?? "Missing image", label, type: "image" };
+      return { assetId: reference.assetId, key: `library:${reference.assetId}:${index}`, name: asset?.name ?? "Missing image", label, type: "image" };
     }
     const source = nodes.find((candidate) => candidate.id === reference.nodeId && isImageFlowSource(candidate));
     const assetId = source?.data.assetId;
@@ -2464,7 +2461,6 @@ function imageReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
     return {
       ...(assetId ? { assetId } : {}),
       key: `node:${reference.nodeId}`,
-      linked: true,
       type: "image",
       label,
       name: source?.type === "image"
@@ -2479,7 +2475,7 @@ function modelReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
   if (!source) return [];
   if (source.type === "library") {
     const asset = libraryAssets.find((candidate) => candidate.id === source.assetId);
-    return [{ assetId: source.assetId, key: `library:${source.assetId}`, linked: false, name: asset?.name ?? "Missing model", label: "Model", type: "model" }];
+    return [{ assetId: source.assetId, key: `library:${source.assetId}`, name: asset?.name ?? "Missing model", label: "Model", type: "model" }];
   }
   const sourceNode = nodes.find((candidate) => candidate.id === source.nodeId);
   const assetId = sourceNode?.data.assetId;
@@ -2487,7 +2483,6 @@ function modelReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
   return [{
     ...(assetId ? { assetId } : {}),
     key: `node:${source.nodeId}`,
-    linked: true,
     type: "model",
     label: "Model",
     name: asset?.name ?? (sourceNode ? "Connected 3D model" : "Missing model node"),
@@ -2508,7 +2503,6 @@ function videoReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNo
     return {
       ...(assetId ? { assetId } : {}),
       key: reference.type === "library" ? `library:${reference.assetId}:${index}` : `node:${reference.nodeId}`,
-      linked: reference.type === "node",
       name: asset?.name ?? (source?.type === "image" || source?.type === "video" ? source.data.prompt?.trim() || `Connected ${type}` : source ? `Connected ${type}` : `Missing ${type} node`),
       label: `${titleCase(type)} ${counts[type]}`,
       type,
