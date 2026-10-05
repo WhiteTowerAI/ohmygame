@@ -77,6 +77,53 @@ describe("tool runner", () => {
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: { provider: "meshy", id: "meshy-7.1" }, images: views, targetPolycount: 100_000 }), undefined);
   });
 
+  it("animates a Library GLB and stores the result as a new asset", async () => {
+    const dataDirectory = await temporaryData();
+    const library = new AssetLibrary(dataDirectory);
+    await library.load();
+    const source = await library.add("hero.glb", Buffer.from("rigless"));
+    const animate = vi.fn().mockResolvedValue({ bytes: Buffer.from("animated"), mediaType: "model/gltf-binary" as const });
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn(), animate }, undefined, library);
+    await runner.load();
+
+    const run = await runner.run("animate-3d", { assetId: source.id, actionIds: [0, 30], heightMeters: 1.6 });
+
+    expect(animate).toHaveBeenCalledWith({ model: Buffer.from("rigless"), actionIds: [0, 30], heightMeters: 1.6 }, undefined);
+    expect(run).toMatchObject({ toolId: "animate-3d", files: [{ name: "model.glb", mediaType: "model/gltf-binary" }] });
+    expect(run.files[0]?.assetId).not.toBe(source.id);
+    expect(await readFile(path.join(dataDirectory, "tools", "runs", run.id, "model.glb"))).toEqual(Buffer.from("animated"));
+  });
+
+  it("rejects animation requests it cannot run", async () => {
+    const dataDirectory = await temporaryData();
+    const library = new AssetLibrary(dataDirectory);
+    await library.load();
+    const model = await library.add("hero.glb", Buffer.from("glb"));
+    const image = await library.add("hero.png", Buffer.from("png"));
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn(), animate: vi.fn() }, undefined, library);
+    await runner.load();
+
+    await expect(runner.run("animate-3d", { assetId: model.id, actionIds: [] })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(runner.run("animate-3d", { assetId: model.id, actionIds: [1, 1] })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(runner.run("animate-3d", { assetId: model.id, actionIds: Array.from({ length: 11 }, (_, index) => index) })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(runner.run("animate-3d", { assetId: image.id, actionIds: [0] })).rejects.toMatchObject({ statusCode: 400, message: "Only GLB models can be animated" });
+    await expect(runner.run("animate-3d", { assetId: "missing", actionIds: [0] })).rejects.toMatchObject({ statusCode: 404 });
+    const withoutAnimation = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn() }, undefined, library);
+    await expect(withoutAnimation.run("animate-3d", { assetId: model.id, actionIds: [0] })).rejects.toMatchObject({ statusCode: 503 });
+  });
+
+  it("keeps a loaded animation library and retries a failed load", async () => {
+    const animations = vi.fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue([{ id: 0, name: "Idle", category: "DailyActions", subCategory: "Idle" }]);
+    const runner = new ToolRunner(await temporaryData(), fakeGenerator(), { generate: vi.fn(), animations });
+
+    await expect(runner.animationActions()).rejects.toThrow("offline");
+    await expect(runner.animationActions()).resolves.toHaveLength(1);
+    await expect(runner.animationActions()).resolves.toHaveLength(1);
+    expect(animations).toHaveBeenCalledTimes(2);
+  });
+
   it("runs the selected video model with a Library image reference", async () => {
     const generate = vi.fn().mockResolvedValue({
       bytes: Buffer.from("video"),

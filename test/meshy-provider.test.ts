@@ -104,6 +104,51 @@ describe("Meshy provider", () => {
     });
   });
 
+  it("rigs a model, then bakes the chosen actions into one animated GLB", async () => {
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ result: "rig-1" }))
+      .mockResolvedValueOnce(Response.json({ status: "SUCCEEDED", result: { rigged_character_glb_url: "https://files.example/rigged.glb" } }))
+      .mockResolvedValueOnce(Response.json({ result: "anim-1" }))
+      .mockResolvedValueOnce(Response.json({ status: "SUCCEEDED", result: { animation_glb_url: "https://files.example/animated.glb" } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([9]), { status: 200 }));
+    const provider = new MeshyProvider(() => "meshy-key", request, 0);
+
+    await expect(provider.animate({ model: Buffer.from("glb"), actionIds: [0, 30], heightMeters: 1.6 }))
+      .resolves.toEqual({ bytes: Buffer.from([9]), mediaType: "model/gltf-binary", requestId: "anim-1" });
+    expect(request.mock.calls.map(([url]) => url)).toEqual([
+      "https://api.meshy.ai/openapi/v1/rigging",
+      "https://api.meshy.ai/openapi/v1/rigging/rig-1",
+      "https://api.meshy.ai/openapi/v1/animations",
+      "https://api.meshy.ai/openapi/v1/animations/anim-1",
+      "https://files.example/animated.glb",
+    ]);
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({ model_url: "data:model/gltf-binary;base64,Z2xi", height_meters: 1.6 });
+    expect(JSON.parse(String(request.mock.calls[2]?.[1]?.body))).toEqual({ rig_task_id: "rig-1", action_ids: [0, 30] });
+  });
+
+  it("reports why Meshy could not rig a model", async () => {
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ result: "rig-1" }))
+      .mockResolvedValueOnce(Response.json({ status: "FAILED", task_error: { message: "Pose estimation failed" } }));
+    const provider = new MeshyProvider(() => "meshy-key", request, 0);
+
+    await expect(provider.animate({ model: Buffer.from("glb"), actionIds: [0] }))
+      .rejects.toMatchObject({ message: "Pose estimation failed", statusCode: 400 });
+  });
+
+  it("lists the animation library", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([
+      { action_id: 0, name: "Idle", category: "DailyActions", sub_category: "Idle", preview_url: "https://cdn.example/idle.gif" },
+      { action_id: "bad", name: "Broken" },
+    ]));
+    const provider = new MeshyProvider(() => "meshy-key", request, 0);
+
+    await expect(provider.animations()).resolves.toEqual([
+      { id: 0, name: "Idle", category: "DailyActions", subCategory: "Idle", previewUrl: "https://cdn.example/idle.gif" },
+    ]);
+    expect(request.mock.calls[0]?.[0]).toBe("https://api.meshy.ai/openapi/v1/animations/library");
+  });
+
   it("rejects models and view counts Meshy cannot run", async () => {
     const provider = new MeshyProvider(() => "meshy-key", vi.fn<typeof fetch>());
     await expect(provider.generate({ model: MESHY_7_1, images: Array.from({ length: 5 }, () => IMAGE), texture: true, pbr: false }))

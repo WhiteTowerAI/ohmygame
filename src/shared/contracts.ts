@@ -109,6 +109,15 @@ export interface Model3DModel extends Model3DModelRef {
   polycount: { min: number; max: number; default: number; presets: readonly number[] };
 }
 
+/** A preset move from the 3D provider's animation library. */
+export interface Model3DAnimationAction {
+  id: number;
+  name: string;
+  category: string;
+  subCategory: string;
+  previewUrl?: string;
+}
+
 export interface ImageModel extends ImageModelRef {
   name: string;
   providerName: string;
@@ -645,7 +654,7 @@ export interface Model3DGenerationConfig {
   pbr: boolean;
 }
 
-export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video"] as const;
+export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 interface RunSizedImageToolRequest {
@@ -692,7 +701,14 @@ export interface VideoGenerationReference {
   assetId: string;
 }
 
-export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest;
+/** Rigs a humanoid Library model and bakes preset actions into it, one clip per action. */
+export interface RunAnimate3DToolRequest {
+  assetId: string;
+  actionIds: number[];
+  heightMeters?: number;
+}
+
+export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest;
 
 export interface ToolRunFile {
   name: string;

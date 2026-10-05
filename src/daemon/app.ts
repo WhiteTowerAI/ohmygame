@@ -27,7 +27,7 @@ import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { Model3DGenerator } from "./model3d.js";
-import { MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MODELS } from "../shared/generation-config.js";
+import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MODELS } from "../shared/generation-config.js";
 import { MeshyProvider } from "./meshy-provider.js";
 import { MeshySettingsStore } from "./meshy-settings.js";
 import type { ImageGenerator } from "./openai-image.js";
@@ -409,6 +409,9 @@ const toolRunSchema = {
       title: { type: "string", minLength: 1, maxLength: 80 },
       projectId: { type: "string", minLength: 1, maxLength: 200 },
       nodeId: { type: "string", minLength: 1, maxLength: 200 },
+      assetId: { type: "string", minLength: 1, maxLength: 100 },
+      actionIds: { type: "array", minItems: 1, maxItems: MAX_ANIMATION_ACTIONS, uniqueItems: true, items: { type: "integer", minimum: 0 } },
+      heightMeters: { type: "number", exclusiveMinimum: 0, maximum: 100 },
       image: {
         type: "object",
         additionalProperties: false,
@@ -1763,6 +1766,15 @@ export function createApp(options: AppOptions = {}) {
   app.get("/model3d-models/catalog", async (): Promise<MediaModelCatalog<Model3DModel>> => meshySettings.get().configured
     ? { models: [...MODEL_3D_MODELS], providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }] }
     : { models: [], providers: [] });
+  app.get("/model3d-animations", async (_request, reply) => {
+    if (!meshySettings.get().configured) return [];
+    try {
+      return await tools.animationActions();
+    } catch (cause) {
+      if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
 
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",

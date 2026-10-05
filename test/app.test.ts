@@ -678,6 +678,7 @@ describe("daemon", () => {
       "generate_image",
       "generate_3d_asset",
       "generate_video",
+      "animate_3d_asset",
     ]);
   });
 

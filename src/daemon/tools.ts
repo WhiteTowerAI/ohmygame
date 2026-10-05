@@ -19,6 +19,7 @@ import {
   type ImageSize,
   type RunImageToolRequest,
   type Run3DToolRequest,
+  type RunAnimate3DToolRequest,
   type RunVideoToolRequest,
   type RunToolRequest,
   type ToolId,
@@ -28,8 +29,8 @@ import {
   type ToolRunFile,
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
-import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
-import { resolveModel3D } from "../shared/generation-config.js";
+import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
+import { MAX_ANIMATION_ACTIONS, resolveModel3D } from "../shared/generation-config.js";
 import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./video-generation.js";
 import type { AssetLibrary } from "./asset-library.js";
 
@@ -61,6 +62,7 @@ export class ToolRunError extends Error {
 export class ToolRunner {
   readonly #runsDirectory: string;
   readonly #jobs = new Map<string, ToolJobRecord>();
+  #animationActions: Promise<Model3DAnimationAction[]> | undefined;
 
   constructor(
     dataDirectory: string,
@@ -156,10 +158,25 @@ export class ToolRunner {
     for (const job of terminal.slice(HISTORY_LIMIT)) this.#jobs.delete(job.id);
   }
 
+  /** The provider's preset animations. The list rarely changes, so a successful load is kept; failures are retried. */
+  async animationActions(): Promise<Model3DAnimationAction[]> {
+    const generator = this.model3DGenerator;
+    if (!generator?.animations) throw new ToolRunError("3D animation is not configured", 503);
+    this.#animationActions ??= generator.animations().catch((cause: unknown) => {
+      this.#animationActions = undefined;
+      throw cause instanceof Model3DGenerationError ? new ToolRunError(cause.message, cause.statusCode) : cause;
+    });
+    return this.#animationActions;
+  }
+
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr"]);
       return this.#run3D(input as Run3DToolRequest, signal);
+    }
+    if (toolId === "animate-3d") {
+      assertOnlyKeys(input, ["assetId", "actionIds", "heightMeters"]);
+      return this.#runAnimate3D(input as RunAnimate3DToolRequest, signal);
     }
     if (toolId === "generate-video") {
       assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution"]);
@@ -250,25 +267,56 @@ export class ToolRunner {
     if (input.texture !== undefined && typeof input.texture !== "boolean") throw new ToolRunError("Texture must be a boolean", 400);
     if (input.pbr !== undefined && typeof input.pbr !== "boolean") throw new ToolRunError("PBR must be a boolean", 400);
     if (!this.model3DGenerator) throw new ToolRunError("3D generation is not configured", 503);
+    const generator = this.model3DGenerator;
+    const primaryImage = images[0]!;
+    return this.#storeModelRun("image-to-3d", signal, () => generator.generate({
+      model: { provider: model.provider, id: model.id },
+      images,
+      targetPolycount: input.targetPolycount,
+      texture: input.texture,
+      pbr: input.pbr,
+    }, signal), {
+      fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
+      mediaType: primaryImage.mediaType as "image/png" | "image/jpeg",
+      bytes: Buffer.from(primaryImage.data, "base64"),
+    });
+  }
+
+  async #runAnimate3D(input: RunAnimate3DToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+    const { actionIds, heightMeters } = input;
+    if (typeof input.assetId !== "string" || !input.assetId) throw new ToolRunError("Choose a 3D model to animate", 400);
+    if (!Array.isArray(actionIds) || actionIds.length < 1 || actionIds.length > MAX_ANIMATION_ACTIONS
+      || actionIds.some((id) => !Number.isInteger(id) || id < 0) || new Set(actionIds).size !== actionIds.length) {
+      throw new ToolRunError(`Choose 1 to ${MAX_ANIMATION_ACTIONS} different animations`, 400);
+    }
+    if (heightMeters !== undefined && (typeof heightMeters !== "number" || !Number.isFinite(heightMeters) || heightMeters <= 0 || heightMeters > 100)) {
+      throw new ToolRunError("Character height must be a positive number of meters", 400);
+    }
+    const generator = this.model3DGenerator;
+    if (!generator?.animate) throw new ToolRunError("3D animation is not configured", 503);
+    if (!this.assetLibrary) throw new ToolRunError("The asset library is unavailable", 503);
+    const source = await this.assetLibrary.content(input.assetId).catch(() => undefined);
+    if (!source) throw new ToolRunError("The 3D model is no longer in the Library", 404);
+    if (source.asset.contentType !== "model/gltf-binary") throw new ToolRunError("Only GLB models can be animated", 400);
+    const model = await readFile(source.absolutePath);
+    return this.#storeModelRun("animate-3d", signal, () => generator.animate!({ model, actionIds, ...(heightMeters !== undefined ? { heightMeters } : {}) }, signal));
+  }
+
+  /** Saves a generated GLB as a run and a Library asset, undoing both if anything fails part way. */
+  async #storeModelRun(
+    toolId: "image-to-3d" | "animate-3d",
+    signal: AbortSignal | undefined,
+    produce: () => Promise<Generated3DModel>,
+    preview?: { fileName: string; mediaType: "image/png" | "image/jpeg"; bytes: Buffer },
+  ): Promise<ToolRun> {
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
     const destination = path.join(this.#runsDirectory, id);
     let registeredAssetId: string | undefined;
     try {
       signal?.throwIfAborted();
-      const generated = await this.model3DGenerator.generate({
-        model: { provider: model.provider, id: model.id },
-        images,
-        targetPolycount: input.targetPolycount,
-        texture: input.texture,
-        pbr: input.pbr,
-      }, signal);
+      const generated = await produce();
       signal?.throwIfAborted();
-      const primaryImage = images[0];
-      const preview = primaryImage ? {
-        fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
-        mediaType: primaryImage.mediaType as "image/png" | "image/jpeg",
-      } : undefined;
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("model.glb", generated.bytes, {
           sourceKey: `tool:${id}:model.glb`,
@@ -277,18 +325,18 @@ export class ToolRunner {
       const run: StoredToolRun = {
         version: 1,
         id,
-        toolId: "image-to-3d",
+        toolId,
         createdAt: new Date().toISOString(),
         files: [{
           name: "model.glb",
           mediaType: generated.mediaType,
           ...(registeredAssetId ? { assetId: registeredAssetId } : {}),
         }],
-        ...(preview ? { preview } : {}),
+        ...(preview ? { preview: { fileName: preview.fileName, mediaType: preview.mediaType } } : {}),
       };
       await mkdir(temporary, { recursive: true });
       await writeFile(path.join(temporary, "model.glb"), generated.bytes);
-      if (preview && primaryImage) await writeFile(path.join(temporary, preview.fileName), Buffer.from(primaryImage.data, "base64"));
+      if (preview) await writeFile(path.join(temporary, preview.fileName), preview.bytes);
       await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
       await rename(temporary, destination);
       return publicRun(run);
@@ -450,6 +498,7 @@ function publicJob({ input: _, metadata: __, controller: ___, ...job }: ToolJobR
 function toolName(toolId: ToolId): string {
   if (toolId === "generate-video") return "Generated Video";
   if (toolId === "image-to-3d") return "Generated 3D Model";
+  if (toolId === "animate-3d") return "Animated 3D Model";
   return "Generated Image";
 }
 
