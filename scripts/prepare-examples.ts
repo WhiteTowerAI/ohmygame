@@ -10,7 +10,7 @@ import { git, replaceDirectory } from "./runtime-directory.js";
 // examples its catalog lists into .runtime/examples for the daemon and the
 // desktop build: each example's source (copied into new projects), its cover,
 // and for web games a static build played straight from Home. Interactive
-// dramas are checked with the Playable Nodes compiler here and compiled again
+// stories are checked with the Playable Nodes compiler here and compiled again
 // by the daemon when played. Pass --require to fail when the repository is unreachable;
 // otherwise a missing download only disables examples.
 
@@ -71,7 +71,7 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
       });
       await cp(coverFile, path.join(prepared, cover));
       const summary = { id: entry.id, type: entry.type, name: entry.name, description: entry.description, directory, cover };
-      if (entry.type === "interactive-drama") {
+      if (entry.type === "interactive-story") {
         console.log(`Checking ${entry.id}…`);
         try {
           if (!(await buildPlayableProject(path.join(prepared, directory), "publish"))) throw new Error("graph.json is missing");

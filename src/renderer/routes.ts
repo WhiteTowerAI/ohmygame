@@ -3,7 +3,7 @@ export type SidebarPage =
   | "projects"
   | "library"
   | "plugins"
-  | "interactive-drama"
+  | "interactive-story"
   | "asset-canvas"
   | "community";
 
@@ -14,7 +14,7 @@ type SidebarRoutePage = Exclude<SidebarPage, "community">;
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "providers";
 
 const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
-  "home", "projects", "library", "plugins", "interactive-drama", "asset-canvas",
+  "home", "projects", "library", "plugins", "interactive-story", "asset-canvas",
 ]);
 
 export type AppRoute =
@@ -64,14 +64,12 @@ export function parseAppRoute(hash: string): AppRoute {
       return { page: "home" };
     }
   }
-  const studioConversationMatch = /^#\/projects\/([^/]+)\/interactive-drama\/conversations\/([^/]+)$/.exec(hash);
-  const studioMatch = /^#\/projects\/([^/]+)\/interactive-drama$/.exec(hash);
   const conversationMatch = /^#\/projects\/([^/]+)\/conversations\/([^/]+)$/.exec(hash);
   const projectMatch = /^#\/projects\/([^/]+)$/.exec(hash);
-  const match = studioConversationMatch ?? studioMatch ?? conversationMatch ?? projectMatch;
+  const match = conversationMatch ?? projectMatch;
   if (!match?.[1]) return { page: "home" };
   try {
-    const encodedConversationId = studioConversationMatch?.[2] ?? conversationMatch?.[2];
+    const encodedConversationId = conversationMatch?.[2];
     return {
       page: "project",
       projectId: decodeURIComponent(match[1]),

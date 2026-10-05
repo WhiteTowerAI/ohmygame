@@ -255,21 +255,21 @@ describe("agent tools", () => {
     expect(result.details).toEqual({ artifact: { type: "video", path: relativePath, mediaType: "video/mp4" } });
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
-  it("registers playable_add_node only for Interactive Drama and creates the Node", async () => {
+  it("registers playable_add_node only for Interactive Story and creates the Node", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playable-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
     const webGame = await projects.create("Browser Game");
-    const drama = await projects.create("Ash Club", "interactive-drama");
+    const story = await projects.create("Ash Club", "interactive-story");
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
     await createNodeCodebase(
-      drama.workspacePath,
+      story.workspacePath,
       createPlayableStarterCodebase("Ash Club", { width: 1280, height: 720 }),
     );
 
     expect(createAgentTools(webGame, runner, projects).some(({ name }) => name === "playable_add_node")).toBe(false);
-    const tool = createAgentTools(drama, runner, projects).find(({ name }) => name === "playable_add_node");
+    const tool = createAgentTools(story, runner, projects).find(({ name }) => name === "playable_add_node");
     if (!tool) throw new Error("Expected the add Node tool");
 
     const result = await tool.execute("call-node", { preset: "blank", id: "opening" }, undefined, undefined, {} as never);
@@ -280,33 +280,33 @@ describe("agent tools", () => {
       files: ["nodes/opening/index.html", "nodes/opening/style.css", "nodes/opening/node.js"],
       signals: ["next"],
     } });
-    const graph = JSON.parse(await readFile(path.join(drama.workspacePath, "graph.json"), "utf8"));
+    const graph = JSON.parse(await readFile(path.join(story.workspacePath, "graph.json"), "utf8"));
     expect(graph.nodes.map((node: { id: string }) => node.id)).toEqual(["start", "opening"]);
     await expect(tool.execute("call-dup", { preset: "blank", id: "opening" }, undefined, undefined, {} as never))
       .rejects.toThrow(/already exists/);
   });
 
-  it("reports playable_check issues for Interactive Drama projects", async () => {
+  it("reports playable_check issues for Interactive Story projects", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playable-check-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
     const webGame = await projects.create("Browser Game");
-    const drama = await projects.create("Ash Club", "interactive-drama");
+    const story = await projects.create("Ash Club", "interactive-story");
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
     await createNodeCodebase(
-      drama.workspacePath,
+      story.workspacePath,
       createPlayableStarterCodebase("Ash Club", { width: 1280, height: 720 }),
     );
 
     expect(createAgentTools(webGame, runner, projects).some(({ name }) => name === "playable_check")).toBe(false);
-    const tool = createAgentTools(drama, runner, projects).find(({ name }) => name === "playable_check");
+    const tool = createAgentTools(story, runner, projects).find(({ name }) => name === "playable_check");
     if (!tool) throw new Error("Expected the check tool");
 
     const passing = await tool.execute("call-check", {}, undefined, undefined, {} as never);
     expect(passing.details).toEqual({ playableCheck: { mode: "draft", ok: true, issues: [] } });
 
-    const graphPath = path.join(drama.workspacePath, "graph.json");
+    const graphPath = path.join(story.workspacePath, "graph.json");
     const graph = JSON.parse(await readFile(graphPath, "utf8"));
     await writeFile(graphPath, JSON.stringify({ ...graph, entryNodeId: "missing" }));
     const failing = await tool.execute("call-check-again", { mode: "publish" }, undefined, undefined, {} as never);

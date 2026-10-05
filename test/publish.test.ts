@@ -88,9 +88,9 @@ describePublishContract("remote publish", () => {
     expect((await runtime.daemon.inject({ method: "POST", url: `/community/game/${published.game.id}/use`, payload: { accessToken: token } })).statusCode).toBe(404);
   });
 
-  it("builds and publishes an Interactive Drama as a static game", async () => {
+  it("builds and publishes an Interactive Story as a static game", async () => {
     const runtime = await testRuntime();
-    const project = await createProject(runtime.daemon, "Drama", "interactive-drama");
+    const project = await createProject(runtime.daemon, "Story", "interactive-story");
     const videoContents = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
     const video = (await runtime.daemon.inject({
       method: "POST",
@@ -100,7 +100,7 @@ describePublishContract("remote publish", () => {
     })).json();
     await writePublishableGraph(project.workspacePath, video.id);
 
-    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
+    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
     expect(built.statusCode).toBe(200);
     expect(built.headers["content-type"]).toBe("application/zip");
 
@@ -119,13 +119,13 @@ describePublishContract("remote publish", () => {
     expect(await readFile(path.join(output, ...manifest.assets.clip.path.slice(2).split("/")))).toEqual(videoContents);
   }, 20_000);
 
-  it("does not apply the remote publish size limit to a local Interactive Drama build", async () => {
+  it("does not apply the remote publish size limit to a local Interactive Story build", async () => {
     const runtime = await testRuntime();
-    const project = await createProject(runtime.daemon, "Large Drama", "interactive-drama");
+    const project = await createProject(runtime.daemon, "Large Story", "interactive-story");
     await writePublishableGraph(project.workspacePath);
     await writeFile(path.join(runtime.playerDirectory, "large.bin"), randomBytes(26 * 1024 * 1024));
 
-    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-drama/build` });
+    const built = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/build` });
 
     expect(built.statusCode, built.body).toBe(200);
     expect(built.rawPayload.length).toBeGreaterThan(25 * 1024 * 1024);
@@ -467,14 +467,14 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
     publishApiUrl: apiUrl,
     publishFetch,
     imageGenerator,
-    interactiveDramaPlayerDirectory: playerDirectory,
+    interactiveStoryPlayerDirectory: playerDirectory,
   });
   apps.push(daemon);
   await daemon.ready();
   return { apiUrl, daemon, playerDirectory, publishData, publishServer };
 }
 
-async function createProject(app: FastifyInstance, name: string, type?: "web-game" | "interactive-drama") {
+async function createProject(app: FastifyInstance, name: string, type?: "web-game" | "interactive-story") {
   return (await app.inject({ method: "POST", url: "/projects", payload: { name, ...(type ? { type } : {}) } })).json();
 }
 

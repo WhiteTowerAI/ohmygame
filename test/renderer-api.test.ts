@@ -49,14 +49,14 @@ describe("renderer event stream", () => {
 
   it("sends an example only when one is chosen", async () => {
     installWindow();
-    const project = { id: "project", name: "Story", type: "interactive-drama", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project", preview: { status: "waiting" } };
+    const project = { id: "project", name: "Story", type: "interactive-story", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project", preview: { status: "waiting" } };
     const fetchMock = vi.fn(async () => Response.json(project, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await createProject({ type: "interactive-drama" });
-    await createProject({ type: "interactive-drama", exampleId: "night-train" });
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-drama" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-drama", exampleId: "night-train" }) }));
+    await createProject({ type: "interactive-story" });
+    await createProject({ type: "interactive-story", exampleId: "night-train" });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-story" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-story", exampleId: "night-train" }) }));
   });
 
   it("loads and updates the Playable codebase contract", async () => {
@@ -572,7 +572,7 @@ describe("renderer project API", () => {
       .mockResolvedValueOnce(Response.json(asset, { status: 201 }))
       .mockResolvedValueOnce(new Response(new Blob(["video"])))
       .mockResolvedValueOnce(Response.json(asset))
-      .mockResolvedValueOnce(Response.json([{ id: "project", name: "Story", type: "interactive-drama" }]))
+      .mockResolvedValueOnce(Response.json([{ id: "project", name: "Story", type: "interactive-story" }]))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -581,7 +581,7 @@ describe("renderer project API", () => {
     await expect(createLibraryImage({ name: "reference.png", image: { mediaType: "image/png", data: "aW1hZ2U=" } })).resolves.toEqual(asset);
     await expect(getLibraryAsset("video")).resolves.toBeInstanceOf(Blob);
     await expect(renameLibraryAsset("video", "Opening")).resolves.toEqual(asset);
-    await expect(listLibraryAssetReferences("video")).resolves.toEqual([{ id: "project", name: "Story", type: "interactive-drama" }]);
+    await expect(listLibraryAssetReferences("video")).resolves.toEqual([{ id: "project", name: "Story", type: "interactive-story" }]);
     await expect(deleteLibraryAsset("video")).resolves.toBeUndefined();
     await expect(forceDeleteLibraryAsset("video")).resolves.toBeUndefined();
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([

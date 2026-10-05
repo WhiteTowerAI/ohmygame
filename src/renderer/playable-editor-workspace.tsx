@@ -48,7 +48,7 @@ import {
 import { viewportRatio } from "../shared/canvas-formats.js";
 import {
   addPlayableNode,
-  buildInteractiveDrama,
+  buildInteractiveStory,
   getNodeCodebase,
   getPlayableValidation,
   getWorkspaceFile,
@@ -740,7 +740,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setBuilding(true);
     try {
       await save(codebase);
-      const artifact = await buildInteractiveDrama(projectId);
+      const artifact = await buildInteractiveStory(projectId);
       const url = URL.createObjectURL(artifact);
       const link = window.document.createElement("a");
       link.href = url;
@@ -811,7 +811,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   return (
     <section
-      className={`viewer-pane interactive-drama-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
+      className={`viewer-pane interactive-story-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
       aria-label="Playable Nodes workspace"
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
@@ -820,9 +820,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         "--story-canvas-stage-height": `${canvasStageHeight}px`,
       } as CSSProperties}
     >
-      <header className="interactive-drama-header window-drag-handle">
+      <header className="interactive-story-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <div className="interactive-drama-project-tools">
+        <div className="interactive-story-project-tools">
           <PlayableProjectMenu
             disabled={phase !== "ready"}
             screenSize={viewportRatio(playerViewport)}
@@ -839,31 +839,31 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             }}
           />
           {chatOnRight && onHome ? (
-            <button className="interactive-drama-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
+            <button className="interactive-story-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
           ) : null}
         </div>
-        {showCodeTab ? <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
+        {showCodeTab ? <nav className="workspace-tabs interactive-story-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
           <button type="button" className={`workspace-tab${workspaceView === "canvas" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "canvas"} title="Canvas" onClick={() => setWorkspaceView("canvas")}><Clapperboard size={14} /><span>Canvas</span></button>
           <button type="button" className={`workspace-tab${workspaceView === "code" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "code"} title="Code" onClick={() => { clearSelection(); setWorkspaceView("code"); }}><Code2 size={15} /><span>Code</span></button>
         </nav> : null}
-        <div className="interactive-drama-header-actions">
-          <button className="interactive-drama-action" type="button" title="Play the game in a new window" onClick={() => void startPlaytest()}>
+        <div className="interactive-story-header-actions">
+          <button className="interactive-story-action" type="button" title="Play the game in a new window" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
             <span>Playtest</span>
           </button>
           {chatOnRight && chatCollapsed && onToggleChat ? (
-            <button className="interactive-drama-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
+            <button className="interactive-story-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
               <PanelToggle size={14} />
             </button>
           ) : null}
-          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
+          <button className="interactive-story-action interactive-story-action-primary" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
           </button>
         </div>
       </header>
-      {workspaceView !== "code" ? <div className="interactive-drama-body">
-        <div className="interactive-drama-canvas">
+      {workspaceView !== "code" ? <div className="interactive-story-body">
+        <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (

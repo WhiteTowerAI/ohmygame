@@ -1147,24 +1147,24 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   }
 
   return (
-    <section className="viewer-pane interactive-drama-workspace" aria-label="Asset Canvas workspace">
-      <header className="interactive-drama-header window-drag-handle">
+    <section className="viewer-pane interactive-story-workspace" aria-label="Asset Canvas workspace">
+      <header className="interactive-story-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <div className="interactive-drama-project-tools">
+        <div className="interactive-story-project-tools">
           {chatOnRight && onHome ? (
-            <button className="interactive-drama-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
+            <button className="interactive-story-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
           ) : null}
         </div>
-        <div className="interactive-drama-header-actions">
+        <div className="interactive-story-header-actions">
           {chatOnRight && chatCollapsed && onToggleChat ? (
-            <button className="interactive-drama-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
+            <button className="interactive-story-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
               <PanelToggle size={14} />
             </button>
           ) : null}
         </div>
       </header>
-      <div className="interactive-drama-body">
-        <div className="interactive-drama-canvas">
+      <div className="interactive-story-body">
+        <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading canvas...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (

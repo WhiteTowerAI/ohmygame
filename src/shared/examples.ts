@@ -3,7 +3,7 @@ import type { ProjectType } from "./contracts.js";
 export const EXAMPLE_ID_PATTERN = "^[a-z0-9]+(?:-[a-z0-9]+)*$";
 
 /** Project types an example can start. Examples are copied into a workspace and run as is. */
-export const EXAMPLE_PROJECT_TYPES = ["web-game", "interactive-drama"] as const satisfies readonly ProjectType[];
+export const EXAMPLE_PROJECT_TYPES = ["web-game", "interactive-story"] as const satisfies readonly ProjectType[];
 
 export interface ExampleSummary {
   id: string;
@@ -19,7 +19,7 @@ export interface PreparedExample extends ExampleSummary {
   cover: string;
   /**
    * Static build played without creating a project. Web games are built when
-   * the app is packaged; interactive dramas are compiled by the daemon on play,
+   * the app is packaged; interactive stories are compiled by the daemon on play,
    * so the build always matches this version's Published Player.
    */
   play?: string;

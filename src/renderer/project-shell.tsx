@@ -832,7 +832,7 @@ export function ProjectShell({
         onLostPointerCapture={finishAgentResize}
       />
 
-      {!project ? <section className="viewer-pane" /> : project.type !== "interactive-drama" && project.type !== "asset-canvas" ? (
+      {!project ? <section className="viewer-pane" /> : project.type !== "interactive-story" && project.type !== "asset-canvas" ? (
         <CodingWorkspace
           project={project}
           agentBusy={agentBusy}

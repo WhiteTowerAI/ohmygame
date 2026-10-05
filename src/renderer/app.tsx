@@ -8,7 +8,7 @@ import { ProjectShell } from "./project-shell.js";
 import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { loadQuickStartModels } from "./asset-canvas-quick-start.js";
-import { InteractiveDramaHome } from "./interactive-drama-home.js";
+import { InteractiveStoryHome } from "./interactive-story-home.js";
 import { SettingsPage } from "./settings-page.js";
 import type { PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
@@ -47,7 +47,7 @@ export function App() {
   if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
   if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
   if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
-  if (route.page === "interactive-drama") return <InteractiveDramaHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
+  if (route.page === "interactive-story") return <InteractiveStoryHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
   if (route.page === "asset-canvas") return <AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openAssetCanvasProject} />;
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "playtest") return null;

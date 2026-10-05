@@ -5,19 +5,19 @@ describe("project types", () => {
   it("keeps the shared labels and display order", () => {
     expect(PROJECT_TYPES).toEqual([
       { label: "Web Game", value: "web-game" },
-      { label: "Interactive Drama", value: "interactive-drama" },
+      { label: "Interactive Story", value: "interactive-story" },
       { label: "Asset Canvas", value: "asset-canvas" },
       { label: "Godot", value: "godot-game" },
     ]);
   });
 
   it("keeps Asset Canvas out of the home game types", () => {
-    expect(GAME_PROJECT_TYPES.map(({ value }) => value)).toEqual(["web-game", "interactive-drama", "godot-game"]);
+    expect(GAME_PROJECT_TYPES.map(({ value }) => value)).toEqual(["web-game", "interactive-story", "godot-game"]);
   });
 
   it("provides labels and default names", () => {
-    expect(projectTypeLabel("interactive-drama")).toBe("Interactive Drama");
-    expect(defaultProjectName("interactive-drama")).toBe("Untitled drama");
+    expect(projectTypeLabel("interactive-story")).toBe("Interactive Story");
+    expect(defaultProjectName("interactive-story")).toBe("Untitled story");
     expect(defaultProjectName("web-game")).toBe("Untitled project");
   });
 });

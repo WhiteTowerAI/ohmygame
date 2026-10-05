@@ -20,8 +20,8 @@ interface HomeProps {
 
 const RECENT_PROJECT_MAX_COLUMNS = 4;
 const WHATS_NEW_ITEM = {
-  title: "Interactive Drama is here",
-  page: "interactive-drama" as SidebarPage,
+  title: "Interactive Story is here",
+  page: "interactive-story" as SidebarPage,
 };
 
 export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
