@@ -47,7 +47,7 @@ export class ProviderImages implements ImageGenerator {
     if (signedIn) {
       return {
         models: [],
-        status: { provider: "openai", providerName: provider.name, state: "empty", message: "Sign in with ChatGPT can't generate images. Connect OpenAI with an API key to use GPT Image 2.5." },
+        status: { provider: "openai", providerName: provider.name, state: "empty", message: "Sign in with ChatGPT can't generate images. To use GPT Image, connect OpenAI with an API key instead, or connect OpenRouter." },
       };
     }
     return catalogEntry("openai", provider.name, () => this.#openAIModels(runtime, signal), "This OpenAI key or endpoint lists no GPT Image models.");
