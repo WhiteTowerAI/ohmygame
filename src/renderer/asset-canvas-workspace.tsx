@@ -83,7 +83,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, resolveAssetCanvasAssetId, resolveAssetCanvasImageAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listToolJobs, listVideoModelCatalog, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
+import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listToolJobs, listVideoModelCatalog, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
 import { downloadLibraryAsset, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -188,7 +188,6 @@ interface MediaNodeRuntime {
   onChange: (data: AssetCanvasFlowData, removedHandle?: string | string[]) => void;
   onGenerate: () => void;
   onCancel?: () => void;
-  onRetry?: () => void;
   linkedPrompt?: string;
   onDisconnectPrompt?: () => void;
 }
@@ -311,6 +310,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
   const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
+  // The last settings picked per node type, so a new node starts where the user left off.
+  const rememberedSettings = useRef<RememberedSettings>({});
   const [viewedAsset, setViewedAsset] = useState<ViewableCanvasAsset>();
   const [sentAsset, setSentAsset] = useState<{ assetId: string; name: string }>();
   const [startingCanvasNodes, setStartingCanvasNodes] = useState<Set<string>>(() => new Set());
@@ -683,7 +684,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const canRedo = !historyPendingBase.current && editorRedoHistory.current.length > 0;
 
   function addNode(type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }): void {
-    const node = { ...createFlowNode(type, position, imageModels, videoModels, defaultTextModel), selected: true };
+    const created = createFlowNode(type, position, imageModels, videoModels, defaultTextModel);
+    const node = { ...applyRememberedSettings(created, rememberedSettings.current[type], { imageModels, videoModels, textModels: textModelCatalog.models }), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
   }
 
@@ -1005,16 +1007,10 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     }
   }
 
-  async function retryCanvasJob(nodeId: string): Promise<void> {
-    const job = canvasJobs[nodeId];
-    if (!job || (job.status !== "failed" && job.status !== "cancelled")) return;
-    try {
-      const next = await retryToolJob(job.id);
-      setCanvasJobs((current) => ({ ...current, [nodeId]: next }));
-      setGenerationError((error) => error?.nodeId === nodeId ? undefined : error);
-    } catch (error) {
-      setGenerationError({ nodeId, message: errorMessage(error) });
-    }
+  function rememberSettings(node: AssetCanvasFlowNode, data: AssetCanvasFlowData): void {
+    const next = nodeGenerationSettings({ type: node.type, data });
+    if (!next || JSON.stringify(next) === JSON.stringify(nodeGenerationSettings(node))) return;
+    rememberedSettings.current[node.type] = next;
   }
 
   const renderedNodes = nodes.map((node) => {
@@ -1042,6 +1038,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
           busy: Boolean(generatingTextNodeId),
           ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
           onChange: (data: AssetCanvasFlowData) => {
+            rememberSettings(node, data);
             setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
             setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
           },
@@ -1060,8 +1057,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
             ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
-            onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
+              rememberSettings(node, data);
               setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
               setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
             },
@@ -1095,7 +1092,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
             ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
-            onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
               setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
               setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
@@ -1126,8 +1122,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
       ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
       onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
-      onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
       onChange: (data) => {
+        rememberSettings(node, data);
         setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
         setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
       },
@@ -2019,9 +2015,6 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled }: {
   if (runtime?.onCancel && runtime.generating) {
     return <button type="button" title="Cancel generation" aria-label="Cancel generation" onClick={runtime.onCancel}><Square size={13} /></button>;
   }
-  if (runtime?.onRetry && !runtime.generating) {
-    return <button type="button" title="Retry generation" aria-label="Retry generation" onClick={runtime.onRetry}><ArrowUp size={18} /></button>;
-  }
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => runtime?.onGenerate()}>
       {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
@@ -2397,6 +2390,52 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
   }
   const id = crypto.randomUUID();
   return { id, type: "text", position, data: { text: "", instruction: "", ...(defaultTextModel ? { textModel: defaultTextModel } : {}) } };
+}
+
+/** The generation settings a node passes on to the next node of its type. */
+type NodeGenerationSettings = Pick<AssetCanvasFlowData, "textModel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "model3DConfig">;
+type RememberedSettings = Partial<Record<AssetCanvasNodeType, NodeGenerationSettings>>;
+
+export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | "data">): NodeGenerationSettings | undefined {
+  const { data } = node;
+  if (node.type === "text") return data.textModel ? { textModel: { provider: data.textModel.provider, id: data.textModel.id } } : {};
+  if (node.type === "image") return { model: data.model, resolution: data.resolution, aspectRatio: data.aspectRatio };
+  if (node.type === "video") return { videoModel: data.videoModel, videoResolution: data.videoResolution, videoAspectRatio: data.videoAspectRatio, duration: data.duration };
+  if (node.type === "model-3d") return { model3DConfig: data.model3DConfig };
+  return undefined;
+}
+
+/** Starts a new node with remembered settings, dropping any the current catalogs no longer offer. */
+export function applyRememberedSettings(
+  node: AssetCanvasFlowNode,
+  settings: NodeGenerationSettings | undefined,
+  catalogs: { imageModels: readonly ImageModel[]; videoModels: readonly VideoModel[]; textModels: readonly AgentModel[] },
+): AssetCanvasFlowNode {
+  if (!settings) return node;
+  if (node.type === "image") {
+    const model = catalogs.imageModels.find((candidate) => sameImageModel(candidate, settings.model));
+    if (!model) return node;
+    const option = model.generationOptions.find((candidate) => candidate.resolution === settings.resolution && candidate.aspectRatio === settings.aspectRatio)
+      ?? preferredImageOption(model);
+    return { ...node, data: { ...node.data, model: { provider: model.provider, id: model.id }, ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}) } };
+  }
+  if (node.type === "video") {
+    const model = catalogs.videoModels.find((candidate) => sameModel(candidate, settings.videoModel));
+    if (!model) return node;
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        videoModel: { provider: model.provider, id: model.id },
+        videoResolution: settings.videoResolution && model.resolutions.includes(settings.videoResolution) ? settings.videoResolution : model.resolutions[0],
+        videoAspectRatio: settings.videoAspectRatio && model.aspectRatios.includes(settings.videoAspectRatio) ? settings.videoAspectRatio : model.aspectRatios[0],
+        duration: settings.duration !== undefined && model.durations.includes(settings.duration) ? settings.duration : model.durations[0],
+      },
+    };
+  }
+  if (node.type === "model-3d" && settings.model3DConfig) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig(settings.model3DConfig) } };
+  if (node.type === "text" && catalogs.textModels.some((model) => sameAgentModel(model, settings.textModel))) return { ...node, data: { ...node.data, textModel: settings.textModel } };
+  return node;
 }
 
 function assetCanvasDocument(
