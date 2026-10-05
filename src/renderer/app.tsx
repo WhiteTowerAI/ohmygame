@@ -7,6 +7,7 @@ import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
 import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { AssetCanvasHome } from "./asset-canvas-home.js";
+import { loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { InteractiveDramaHome } from "./interactive-drama-home.js";
 import { SettingsPage } from "./settings-page.js";
 import type { PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
@@ -20,6 +21,9 @@ export function App() {
   const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
   const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
+
+  // Provider catalogs are slow; load them now so asset canvas quick starts open without waiting.
+  useEffect(() => { void loadQuickStartModels(); }, []);
 
   useEffect(() => {
     const updateRoute = () => setRoute(parseAppRoute(window.location.hash));
