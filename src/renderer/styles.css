@@ -5597,6 +5597,39 @@ button.home-nav-item-active:hover {
   color: var(--text-faint);
 }
 
+.send-to-project-dialog.project-switcher-popover {
+  position: static;
+  width: min(340px, 100%);
+}
+
+.send-to-project-dialog .project-switcher-item {
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+}
+
+.send-to-project-dialog .project-switcher-item > svg:last-child {
+  color: var(--text-faint);
+}
+
+.send-to-project-dialog .send-to-project-result {
+  min-height: 0;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 10px 14px 12px;
+  color: var(--text);
+  line-height: 1.5;
+  text-align: left;
+}
+
+.send-to-project-dialog .send-to-project-result > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--success, currentColor);
+}
+
+.send-to-project-dialog .send-to-project-result code {
+  overflow-wrap: anywhere;
+}
+
 .plugin-try-popover .project-switcher-footer button:disabled {
   cursor: default;
   opacity: 0.5;
