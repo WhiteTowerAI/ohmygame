@@ -9,6 +9,7 @@ import {
   FileText,
   Film,
   Folder,
+  FolderPlus,
   Image as ImageIcon,
   House,
   LoaderCircle,
@@ -85,8 +86,9 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, resolveAssetCanvasAssetId, resolveAssetCanvasImageAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listToolJobs, listVideoModelCatalog, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
+import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listToolJobs, listVideoModelCatalog, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
 import { downloadLibraryAsset, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
+import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { settingsHash } from "./routes.js";
@@ -198,7 +200,6 @@ interface MediaNodeRuntime {
   onChange: (data: AssetCanvasFlowData, removedHandle?: string | string[]) => void;
   onGenerate: () => void;
   onCancel?: () => void;
-  onRetry?: () => void;
   linkedPrompt?: string;
   onDisconnectPrompt?: () => void;
 }
@@ -280,7 +281,6 @@ export interface CanvasBoardStorage {
   jobs(): Promise<ToolJob[]>;
   start(nodeId: string, toolId: "generate-image" | "generate-video" | "image-to-3d" | "animate-3d", input: RunImageToolRequest | RunVideoToolRequest | Run3DToolRequest | RunAnimate3DToolRequest): Promise<ToolJob>;
   cancel(jobId: string): Promise<ToolJob>;
-  retry(jobId: string): Promise<ToolJob>;
 }
 export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, storage, designDocuments, overlay, onSaveReady, onStatusChange }: {
   project: ProjectState;
@@ -345,7 +345,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
   const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
+  // The last settings picked per node type, so a new node starts where the user left off.
+  const rememberedSettings = useRef<RememberedSettings>({});
   const [viewedAsset, setViewedAsset] = useState<ViewableCanvasAsset>();
+  const [sentAsset, setSentAsset] = useState<{ assetId: string; name: string }>();
   const [startingCanvasNodes, setStartingCanvasNodes] = useState<Set<string>>(() => new Set());
   const startingCanvasNodesRef = useRef(new Set<string>());
   const hydratedJobRuns = useRef(new Set<string>());
@@ -790,7 +793,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       });
       return;
     }
-    const node = { ...createFlowNode(type, position, imageModels, videoModels, defaultTextModel), selected: true };
+    const created = createFlowNode(type, position, imageModels, videoModels, defaultTextModel);
+    const node = { ...applyRememberedSettings(created, rememberedSettings.current[type], { imageModels, videoModels, textModels: textModelCatalog.models }), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
   }
 
@@ -971,6 +975,11 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   function downloadAsset(assetId: string, fallbackName: string): void {
     const name = libraryAssets.find((candidate) => candidate.id === assetId)?.name ?? fallbackName;
     void downloadLibraryAsset(assetId, name).catch((cause) => setNotice(`Could not download: ${errorMessage(cause)}`));
+  }
+
+  function sendAssetToProject(assetId: string, fallbackName: string): void {
+    setViewedAsset(undefined);
+    setSentAsset({ assetId, name: libraryAssets.find((candidate) => candidate.id === assetId)?.name ?? fallbackName });
   }
 
   function clearSelection(): void {
@@ -1208,16 +1217,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
   }
 
-  async function retryCanvasJob(nodeId: string): Promise<void> {
-    const job = canvasJobs[nodeId];
-    if (!job || (job.status !== "failed" && job.status !== "cancelled")) return;
-    try {
-      const next = storageRef.current ? await storageRef.current.retry(job.id) : await retryToolJob(job.id);
-      setCanvasJobs((current) => ({ ...current, [nodeId]: next }));
-      setGenerationError((error) => error?.nodeId === nodeId ? undefined : error);
-    } catch (error) {
-      setGenerationError({ nodeId, message: errorMessage(error) });
-    }
+  function rememberSettings(node: AssetCanvasFlowNode, data: AssetCanvasFlowData): void {
+    const next = nodeGenerationSettings({ type: node.type, data });
+    if (!next || JSON.stringify(next) === JSON.stringify(nodeGenerationSettings(node))) return;
+    rememberedSettings.current[node.type] = next;
   }
 
   const renderedNodes = nodes.map((node) => {
@@ -1246,6 +1249,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           busy: Boolean(generatingTextNodeId),
           ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
           onChange: (data: AssetCanvasFlowData) => {
+            rememberSettings(node, data);
             setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
             setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
           },
@@ -1264,8 +1268,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
             ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
-            onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
+              rememberSettings(node, data);
               setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
               setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
             },
@@ -1299,7 +1303,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
             ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
-            onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
               setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
               setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
@@ -1330,8 +1333,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
       ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
       onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
-      onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
       onChange: (data) => {
+        rememberSettings(node, data);
         setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
         setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
       },
@@ -1476,6 +1479,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             canDuplicate={Boolean(contextMenuNode)}
             canView={Boolean(contextMenuNode && viewableCanvasAsset(contextMenuNode))}
             canDownload={Boolean(contextMenuNode?.data.assetId)}
+            canSendToProject={Boolean(contextMenuNode?.data.assetId)}
             nodeActionsDisabled={Boolean(contextMenuNodeMissing)}
             importing={importingAssets}
             onClose={() => setCanvasContextMenu(undefined)}
@@ -1486,6 +1490,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             onUpload={(file) => void importAssetFile(file, canvasContextMenu.flowPosition)}
             onView={() => { if (contextMenuNode) openViewer(contextMenuNode); }}
             onDownload={() => { if (contextMenuNode?.data.assetId) downloadAsset(contextMenuNode.data.assetId, contextMenuNode.data.name || titleCase(contextMenuNode.type ?? "asset")); }}
+            onSendToProject={() => { if (contextMenuNode?.data.assetId) sendAssetToProject(contextMenuNode.data.assetId, contextMenuNode.data.name || titleCase(contextMenuNode.type ?? "asset")); }}
             onCopy={() => { if (canvasContextMenu.nodeId) copyCanvasNode(canvasContextMenu.nodeId); }}
             onDuplicate={() => { if (canvasContextMenu.nodeId) duplicateCanvasNode(canvasContextMenu.nodeId); }}
             onDelete={() => { if (canvasContextMenu.nodeId) removeCanvasNodes(new Set([canvasContextMenu.nodeId])); }}
@@ -1498,8 +1503,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         asset={viewedAsset}
         name={libraryAssets.find((candidate) => candidate.id === viewedAsset.assetId)?.name ?? titleCase(viewedAsset.mediaType)}
         onDownload={(name) => downloadAsset(viewedAsset.assetId, name)}
+        onSendToProject={(name) => sendAssetToProject(viewedAsset.assetId, name)}
         onClose={() => setViewedAsset(undefined)}
       /> : null}
+      {sentAsset ? <SendToProjectDialog assetId={sentAsset.assetId} name={sentAsset.name} onClose={() => setSentAsset(undefined)} /> : null}
     </section>
   );
 }
@@ -2186,9 +2193,6 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled }: {
   if (runtime?.onCancel && runtime.generating) {
     return <button type="button" title="Cancel generation" aria-label="Cancel generation" onClick={runtime.onCancel}><Square size={13} /></button>;
   }
-  if (runtime?.onRetry && !runtime.generating) {
-    return <button type="button" title="Retry generation" aria-label="Retry generation" onClick={runtime.onRetry}><ArrowUp size={18} /></button>;
-  }
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => runtime?.onGenerate()}>
       {runtime?.generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
@@ -2331,14 +2335,23 @@ function eventWithin(event: { target: EventTarget | null }, selector: string): b
   return event.target instanceof Element && Boolean(event.target.closest(selector));
 }
 
-function CanvasAssetViewer({ asset, name, onDownload, onClose }: { asset: ViewableCanvasAsset; name: string; onDownload: (name: string) => void; onClose: () => void }) {
+function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose }: {
+  asset: ViewableCanvasAsset;
+  name: string;
+  onDownload: (name: string) => void;
+  onSendToProject: (name: string) => void;
+  onClose: () => void;
+}) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, asset.assetId);
   // React Flow ignores key presses inside .nokey, so Backspace/Delete here never removes the node behind the dialog.
   return <div className="nokey">
     <AssetDialogShell
       title={name}
       labelledBy="canvas-asset-viewer-title"
-      headerActions={<button type="button" title="Download" aria-label={`Download ${name}`} onClick={() => onDownload(name)}><Download size={17} /></button>}
+      headerActions={<>
+        <button type="button" title="Add to project" aria-label={`Add ${name} to a project`} onClick={() => onSendToProject(name)}><FolderPlus size={17} /></button>
+        <button type="button" title="Download" aria-label={`Download ${name}`} onClick={() => onDownload(name)}><Download size={17} /></button>
+      </>}
       onClose={onClose}
       preview={preview.url
         ? <AssetMedia type={asset.mediaType} url={preview.url} label={name} />
@@ -2358,6 +2371,7 @@ function AssetCanvasContextMenu({
   canDuplicate,
   canView,
   canDownload,
+  canSendToProject,
   nodeActionsDisabled,
   importing,
   onClose,
@@ -2368,6 +2382,7 @@ function AssetCanvasContextMenu({
   onUpload,
   onView,
   onDownload,
+  onSendToProject,
   onCopy,
   onDuplicate,
   onDelete,
@@ -2381,6 +2396,7 @@ function AssetCanvasContextMenu({
   canDuplicate: boolean;
   canView: boolean;
   canDownload: boolean;
+  canSendToProject: boolean;
   nodeActionsDisabled: boolean;
   importing: boolean;
   onClose: () => void;
@@ -2391,6 +2407,7 @@ function AssetCanvasContextMenu({
   onUpload: (file: File) => void;
   onView: () => void;
   onDownload: () => void;
+  onSendToProject: () => void;
   onCopy: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -2453,6 +2470,7 @@ function AssetCanvasContextMenu({
       </> : <>
         {canView ? <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onView)}><Maximize size={15} /><span>View</span></button> : null}
         {canDownload ? <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onDownload)}><Download size={15} /><span>Download</span></button> : null}
+        {canSendToProject ? <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onSendToProject)}><FolderPlus size={15} /><span>Add to project…</span></button> : null}
         <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy node</span></button>
         <button type="button" role="menuitem" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
         <button className="is-danger" type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
@@ -2557,6 +2575,52 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
   }
   const id = crypto.randomUUID();
   return { id, type: "text", position, data: { text: "", instruction: "", ...(defaultTextModel ? { textModel: defaultTextModel } : {}) } };
+}
+
+/** The generation settings a node passes on to the next node of its type. */
+type NodeGenerationSettings = Pick<AssetCanvasFlowData, "textModel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "model3DConfig">;
+type RememberedSettings = Partial<Record<AssetCanvasNodeType, NodeGenerationSettings>>;
+
+export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | "data">): NodeGenerationSettings | undefined {
+  const { data } = node;
+  if (node.type === "text") return data.textModel ? { textModel: { provider: data.textModel.provider, id: data.textModel.id } } : {};
+  if (node.type === "image") return { model: data.model, resolution: data.resolution, aspectRatio: data.aspectRatio };
+  if (node.type === "video") return { videoModel: data.videoModel, videoResolution: data.videoResolution, videoAspectRatio: data.videoAspectRatio, duration: data.duration };
+  if (node.type === "model-3d") return { model3DConfig: data.model3DConfig };
+  return undefined;
+}
+
+/** Starts a new node with remembered settings, dropping any the current catalogs no longer offer. */
+export function applyRememberedSettings(
+  node: AssetCanvasFlowNode,
+  settings: NodeGenerationSettings | undefined,
+  catalogs: { imageModels: readonly ImageModel[]; videoModels: readonly VideoModel[]; textModels: readonly AgentModel[] },
+): AssetCanvasFlowNode {
+  if (!settings) return node;
+  if (node.type === "image") {
+    const model = catalogs.imageModels.find((candidate) => sameImageModel(candidate, settings.model));
+    if (!model) return node;
+    const option = model.generationOptions.find((candidate) => candidate.resolution === settings.resolution && candidate.aspectRatio === settings.aspectRatio)
+      ?? preferredImageOption(model);
+    return { ...node, data: { ...node.data, model: { provider: model.provider, id: model.id }, ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}) } };
+  }
+  if (node.type === "video") {
+    const model = catalogs.videoModels.find((candidate) => sameModel(candidate, settings.videoModel));
+    if (!model) return node;
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        videoModel: { provider: model.provider, id: model.id },
+        videoResolution: settings.videoResolution && model.resolutions.includes(settings.videoResolution) ? settings.videoResolution : model.resolutions[0],
+        videoAspectRatio: settings.videoAspectRatio && model.aspectRatios.includes(settings.videoAspectRatio) ? settings.videoAspectRatio : model.aspectRatios[0],
+        duration: settings.duration !== undefined && model.durations.includes(settings.duration) ? settings.duration : model.durations[0],
+      },
+    };
+  }
+  if (node.type === "model-3d" && settings.model3DConfig) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig(settings.model3DConfig) } };
+  if (node.type === "text" && catalogs.textModels.some((model) => sameModel(model, settings.textModel))) return { ...node, data: { ...node.data, textModel: settings.textModel } };
+  return node;
 }
 
 function assetCanvasDocument(
@@ -2745,7 +2809,7 @@ function modelKey(model: { provider: string; id: string }): string {
   return `${model.provider}:${model.id}`;
 }
 
-function sameModel(model: { provider: string; id: string }, ref?: VideoModelRef): boolean {
+function sameModel(model: ModelRef, ref?: ModelRef): boolean {
   return Boolean(ref && model.provider === ref.provider && model.id === ref.id);
 }
 

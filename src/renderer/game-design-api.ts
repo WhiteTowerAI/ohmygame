@@ -19,6 +19,5 @@ export const insertDesignImage = (id: string, documentId: string, assetId: strin
 export const listDesignJobs = (id: string): Promise<ToolJob[]> => request(`${base(id)}/jobs`);
 export const startDesignJob = (id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest): Promise<ToolJob> => request(`${base(id)}/boards/${encodeURIComponent(boardId)}/nodes/${encodeURIComponent(nodeId)}/generate/${toolId}`, { method: "POST", body: JSON.stringify(input) });
 export const cancelDesignJob = (id: string, jobId: string): Promise<ToolJob> => request(`${base(id)}/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
-export const retryDesignJob = (id: string, jobId: string): Promise<ToolJob> => request(`${base(id)}/jobs/${encodeURIComponent(jobId)}/retry`, { method: "POST" });
 export const generateDesignText = (id: string, instruction: string, model: AgentModelRef): Promise<AssetCanvasTextGenerationResponse> => request(`${base(id)}/text/generate`, { method: "POST", body: JSON.stringify({ instruction, model }) });
 export const generateDesignDocument = (id: string, documentId: string, input: DesignDocumentGenerationRequest): Promise<DesignDocumentGenerationResponse> => request(`${base(id)}/documents/${encodeURIComponent(documentId)}/generate`, { method: "POST", body: JSON.stringify(input) });

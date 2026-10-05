@@ -4,7 +4,7 @@ import type { AssetCanvasDocument, ProjectState } from "../shared/contracts.js";
 import { mergeCanvasDocument, type DesignBoardDetail } from "../shared/design-boards.js";
 import { CanvasBoardEditor, type CanvasBoardStorage } from "./asset-canvas-workspace.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
-import { changeDesignBoard, createDesignBoard, deleteDesignBoard, getDesignBoard, saveDesignBoard, listDesignJobs, startDesignJob, cancelDesignJob, retryDesignJob } from "./game-design-api.js";
+import { changeDesignBoard, createDesignBoard, deleteDesignBoard, getDesignBoard, saveDesignBoard, listDesignJobs, startDesignJob, cancelDesignJob } from "./game-design-api.js";
 import { useDesignDocuments } from "./use-game-design.js";
 import { ExpandedDesignDocument, type CanvasDesignDocuments } from "./design-document-node.js";
 import { Check, ChevronLeft, ChevronRight, Layers3, LoaderCircle, MoreHorizontal, Pencil, Plus, Trash2, X } from "./icons.js";
@@ -95,7 +95,6 @@ export function GameDesignWorkspace({ project, headerActionsTarget, onLeaveReady
       jobs: async () => (await listDesignJobs(project.id)).filter((job) => job.context?.boardId === activeId),
       start: (nodeId, toolId, input) => startDesignJob(project.id, activeId, nodeId, toolId, input),
       cancel: (jobId) => cancelDesignJob(project.id, jobId),
-      retry: (jobId) => retryDesignJob(project.id, jobId),
     };
   }, [project.id, activeId, boardRevision]);
   const design: CanvasDesignDocuments = {
