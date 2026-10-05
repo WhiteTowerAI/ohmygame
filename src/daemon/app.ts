@@ -492,6 +492,12 @@ const meshySettingsSchema = {
 
 const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
 
+/** The Player build's sandbox page and its script, by the URL the daemon serves each at. */
+const PLAYABLE_SANDBOX_FILES = new Map([
+  ["/playable-sandbox/playable-sandbox.html", "playable-sandbox.html"],
+  ["/playable-sandbox/assets/playable-sandbox.js", "assets/playable-sandbox.js"],
+]);
+
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
@@ -502,7 +508,8 @@ export function createApp(options: AppOptions = {}) {
   const attachments = new AgentAttachmentStore();
   const conversations = new ConversationManager();
   const publishing = new Set<string>();
-  const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
+  const playerDirectory = options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player");
+  const artifacts = new ArtifactBuilder(library, playerDirectory);
   const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const examples = new ExampleStore(options.examplesDirectory, (workspacePath, exampleId) => artifacts.preparePlayableExample(workspacePath, exampleId));
   const publisher = new RemotePublisher({
@@ -697,13 +704,23 @@ export function createApp(options: AppOptions = {}) {
       reply.header("vary", "Origin");
     }
     if (request.method === "OPTIONS") return reply.code(204).send();
-    if (!options.accessToken) return;
+    if (!options.accessToken || (request.method === "GET" && PLAYABLE_SANDBOX_FILES.has(request.url))) return;
     if (!matchesBearerToken(request.headers.authorization, options.accessToken)) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  // The page Scenes run in. The desktop app loads its own pages from file://,
+  // where a sandboxed frame may not load its script, so the frame comes from
+  // here instead. It is the public Player build, so it needs no token.
+  for (const [url, file] of PLAYABLE_SANDBOX_FILES) {
+    app.get(url, async (_request, reply) => reply
+      .type(file.endsWith(".html") ? "text/html; charset=utf-8" : "text/javascript; charset=utf-8")
+      .header("cache-control", "no-cache")
+      .send(await readFile(path.join(playerDirectory, file))));
+  }
 
   app.get("/settings/connections", async () => connections.list());
 

@@ -31,7 +31,7 @@ import {
   playableRuntimeKey,
   type PlayableProjectValidationIssue,
 } from "../shared/playable-editor.js";
-import { getNodeRuntime } from "./api.js";
+import { getNodeRuntime, playableSandboxUrl } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { LibraryAssetPicker, uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPreview } from "./node-workbench.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
@@ -298,6 +298,7 @@ export function PlayableNodeWorkbench({
     {runtime.definition && runtime.assets ? <NodePlayer
       key={session}
       definition={runtime.definition}
+      frameUrl={playableSandboxUrl()}
       assets={runtime.assets}
       saveKey={`ohmygame:playable:preview:${projectId}`}
       storage={storage}

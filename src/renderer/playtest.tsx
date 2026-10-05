@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getNodeRuntime } from "./api.js";
+import { getNodeRuntime, playableSandboxUrl } from "./api.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
 import { PlaytestOverlay, requestAskAgent, takePlaytestStart, usePlaytestStartRequests, type PlaytestStart } from "./playable-playtest.js";
 import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
@@ -70,6 +70,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
         <NodePlayer
           key={session}
           definition={playable.definition}
+          frameUrl={playableSandboxUrl()}
           assets={playable.assets}
           saveKey={saveKey}
           {...(start ? {
