@@ -34,7 +34,7 @@ import {
 } from "../shared/playable-nodes.js";
 import type { NodePlayerDefinition, PlayableTextEdit } from "../shared/playable-player-protocol.js";
 import { parsePlayableSourceLocation, replacePlayableElementText } from "../shared/playable-text-edit.js";
-import { playableBackdrop, setPlayableBackdrop } from "../shared/playable-backdrop.js";
+import { clearPlayableBackdrop, playableBackdrop, setPlayableBackdrop } from "../shared/playable-backdrop.js";
 import {
   addPlayableNodeAsset,
   playableEdgeId,
@@ -584,6 +584,25 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     return true;
   }
 
+  /**
+   * Takes the Asset off the Node's background. The Asset stays declared,
+   * since other code may still use it. Resolves false when the Node's HTML
+   * has no single background to clear.
+   */
+  async function removeBackdrop(nodeId: string): Promise<boolean> {
+    const graph = codebase?.graph;
+    const node = graph?.nodes.find((candidate) => candidate.id === nodeId);
+    if (!graph || !node) return false;
+    const path = node.source.html;
+    const file = await getWorkspaceFile(projectId, path);
+    if (file.content === undefined || file.truncated) return false;
+    const before = file.content;
+    const html = clearPlayableBackdrop(before);
+    if (html === undefined) return false;
+    if (html !== before) await writeSources(graph, { [path]: html }, { [path]: before });
+    return true;
+  }
+
   function openNode(nodeId: string): void {
     setCanvasContextMenu(undefined);
     setSelectedEdgeId(undefined);
@@ -936,6 +955,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           return assetId;
         }}
         onSetBackdrop={(asset) => writeBackdrop(openedNode.id, asset)}
+        onRemoveBackdrop={() => removeBackdrop(openedNode.id)}
         {...(backdrop ? { backdrop } : {})}
         onPlayFromHere={(start) => void startPlaytest(start)}
         onChatContextChange={onChatContextChange}
