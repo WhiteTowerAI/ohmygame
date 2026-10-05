@@ -83,7 +83,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, resolveAssetCanvasAssetId, resolveAssetCanvasImageAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listToolJobs, listVideoModelCatalog, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
+import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listToolJobs, listVideoModelCatalog, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
 import { downloadLibraryAsset, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -188,7 +188,6 @@ interface MediaNodeRuntime {
   onChange: (data: AssetCanvasFlowData, removedHandle?: string | string[]) => void;
   onGenerate: () => void;
   onCancel?: () => void;
-  onRetry?: () => void;
   linkedPrompt?: string;
   onDisconnectPrompt?: () => void;
 }
@@ -1005,18 +1004,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     }
   }
 
-  async function retryCanvasJob(nodeId: string): Promise<void> {
-    const job = canvasJobs[nodeId];
-    if (!job || (job.status !== "failed" && job.status !== "cancelled")) return;
-    try {
-      const next = await retryToolJob(job.id);
-      setCanvasJobs((current) => ({ ...current, [nodeId]: next }));
-      setGenerationError((error) => error?.nodeId === nodeId ? undefined : error);
-    } catch (error) {
-      setGenerationError({ nodeId, message: errorMessage(error) });
-    }
-  }
-
   const renderedNodes = nodes.map((node) => {
     if (node.type === "asset") return {
       ...node,
@@ -1060,7 +1047,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
             ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
-            onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
               setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
               setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
@@ -1095,7 +1081,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id),
             ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
             onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
-            onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
             onChange: (data: AssetCanvasFlowData) => {
               setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
               setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
@@ -1126,7 +1111,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       busy: nodeJob?.status === "running" || startingCanvasNodes.has(node.id) || Boolean(uploadingNodeId),
       ...(nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? { error: nodeJob.error } : generationError?.nodeId === node.id ? { error: generationError.message } : {}),
       onCancel: nodeJob?.status === "running" ? () => void cancelCanvasJob(node.id) : undefined,
-      onRetry: nodeJob?.status === "failed" || nodeJob?.status === "cancelled" ? () => void retryCanvasJob(node.id) : undefined,
       onChange: (data) => {
         setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
         setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
@@ -2018,9 +2002,6 @@ function GenerateMediaButton({ kind, assetId, runtime, disabled }: {
   const label = kind === "animation" ? (assetId ? "Animate again" : "Animate") : assetId ? `Generate ${labelKind} again` : `Generate ${labelKind}`;
   if (runtime?.onCancel && runtime.generating) {
     return <button type="button" title="Cancel generation" aria-label="Cancel generation" onClick={runtime.onCancel}><Square size={13} /></button>;
-  }
-  if (runtime?.onRetry && !runtime.generating) {
-    return <button type="button" title="Retry generation" aria-label="Retry generation" onClick={runtime.onRetry}><ArrowUp size={18} /></button>;
   }
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled || runtime?.busy} onClick={() => runtime?.onGenerate()}>
