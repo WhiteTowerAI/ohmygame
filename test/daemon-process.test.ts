@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { startDaemon } from "../src/desktop/daemon-process.js";
 
 describe("desktop daemon process", () => {
-  it("waits for health and stops the managed child", async () => {
+  it.each([false, true])("waits for health and stops the managed child (development=%s)", async (development) => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-desktop-"));
     const pidFile = path.join(directory, "pid");
     const entry = path.join(directory, "daemon.mjs");
@@ -15,7 +15,7 @@ describe("desktop daemon process", () => {
       writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
       const server = createServer((request, response) => {
         response.statusCode = request.url === "/health" && request.headers.authorization === "Bearer test-token" ? 200 : 401;
-        response.end();
+        response.end(JSON.stringify({ development: process.argv.includes("--dev") }));
       });
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
@@ -28,6 +28,7 @@ describe("desktop daemon process", () => {
       allowedOrigins: ["null"],
       executable: process.execPath,
       environment: {},
+      development,
       healthTimeoutMs: 2_000,
     });
     const pid = Number(await readFile(pidFile, "utf8"));
@@ -37,6 +38,9 @@ describe("desktop daemon process", () => {
       headers: { authorization: "Bearer test-token" },
     })).status).toBe(200);
     expect(daemon.runtime.token).toBe("test-token");
+    expect(await (await fetch(`${daemon.runtime.url}/health`, {
+      headers: { authorization: "Bearer test-token" },
+    })).json()).toEqual({ development });
     await daemon.stop();
     await vi.waitFor(() => expect(isRunning(pid)).toBe(false));
   });

@@ -21,6 +21,8 @@ import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { PlayableDraftServer } from "./playable-draft-server.js";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
+import { LocalPublisher } from "./publish/local.js";
+import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager } from "./preview.js";
 import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
 import { ExampleError, ExampleStore } from "./examples.js";
@@ -79,6 +81,8 @@ export interface AppOptions {
   allowedOrigins?: string[];
   publishApiUrl?: string;
   publishFetch?: typeof fetch;
+  /** Enabled by the development entry point only when product auth is unconfigured. */
+  localDebug?: boolean;
   createSession?: SessionFactory;
   imageGenerator?: ImageGenerator;
   imageFetch?: typeof fetch;
@@ -499,7 +503,8 @@ export function createApp(options: AppOptions = {}) {
   const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
   const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const examples = new ExampleStore(options.examplesDirectory, (workspacePath, exampleId) => artifacts.preparePlayableExample(workspacePath, exampleId));
-  const publisher = new RemotePublisher({
+  const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
+  const publisher = localPublisher ?? new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
   });
@@ -2263,6 +2268,9 @@ export function createApp(options: AppOptions = {}) {
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (!localPublisher && request.body.accessToken === LOCAL_DEBUG_ACCESS_TOKEN) {
+        return reply.code(401).send({ error: "Local debug sign-in is unavailable outside local development" });
+      }
       if (agents.isProjectBusy(project.id)) {
         return reply.code(409).send({ error: "Wait for the agent to finish before publishing" });
       }
@@ -2387,6 +2395,7 @@ export function createApp(options: AppOptions = {}) {
     await artifacts.close();
     await playableDrafts.close();
     await examples.close();
+    await localPublisher?.close();
   });
   return app;
 }

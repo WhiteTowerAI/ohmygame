@@ -265,6 +265,7 @@ try {
         : path.join(process.resourcesPath, "runtime", "node", "bin")
       : undefined,
     environment: app.isPackaged ? await packagedEnvironment() : undefined,
+    development: !useBuiltRenderer,
     handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
   });
   updater = new DesktopUpdater(app.getVersion(), async () => {

@@ -25,6 +25,7 @@ interface StartDaemonOptions {
   examplesDirectory?: string;
   executable?: string;
   environment?: NodeJS.ProcessEnv;
+  development?: boolean;
   healthTimeoutMs?: number;
   handlePlaytestRequest?: (request: PlaytestRequest, signal: AbortSignal) => Promise<PlaytestResult>;
 }
@@ -37,7 +38,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
     const pathKey = Object.keys(environment).find((key) => key.toLowerCase() === "path") ?? "PATH";
     environment[pathKey] = [path.resolve(options.runtimeBin), environment[pathKey]].filter(Boolean).join(path.delimiter);
   }
-  const child = spawn(options.executable ?? process.execPath, [path.resolve(options.daemonEntry)], {
+  const child = spawn(options.executable ?? process.execPath, [path.resolve(options.daemonEntry), ...(options.development ? ["--dev"] : [])], {
     env: {
       ...environment,
       ELECTRON_RUN_AS_NODE: "1",

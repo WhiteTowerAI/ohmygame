@@ -23,7 +23,7 @@
     "clean:desktop-build": "node scripts/clean-desktop-build.mjs",
     "build:desktop-app": "npm run clean:desktop-build && npm run prepare:preinstalled-plugins && npm run prepare:examples -- --require && npm run build:node && npm run build:renderer && npm run build:player",
     "dev": "npm run build:player && concurrently --kill-others --names daemon,renderer --prefix-colors cyan,green \"npm:dev:daemon\" \"npm:dev:renderer\"",
-    "dev:daemon": "npm run prepare:preinstalled-plugins && npm run prepare:examples && tsx watch src/daemon/server.ts",
+    "dev:daemon": "npm run prepare:preinstalled-plugins && npm run prepare:examples && tsx watch src/daemon/server.ts --dev",
     "dev:desktop": "npm run prepare:preinstalled-plugins && npm run prepare:examples && npm run build:node && npm run build:player && concurrently --kill-others --names renderer,desktop --prefix-colors green,cyan \"npm:dev:renderer\" \"electron .\"",
     "dev:renderer": "vite --host 127.0.0.1 --port 43120",
     "start": "node dist/daemon/server.js",

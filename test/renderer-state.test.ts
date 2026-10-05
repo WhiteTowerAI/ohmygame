@@ -3,6 +3,18 @@ import type { ConversationDetail, ConversationSummary, ProjectState, RuntimeEven
 import { initialRendererState, rendererReducer } from "../src/renderer/state.js";
 
 describe("rendererReducer", () => {
+  it("stores the publication from the HTTP response without overwriting newer project state", () => {
+    const state = initialized();
+    const publication = {
+      gameId: "game-1", deploymentId: "deployment-1", playUrl: "https://play.example/game-1",
+      publishedAt: "2026-10-05T03:00:00.000Z", title: "Published title", description: "Game description",
+    };
+    const next = rendererReducer(state, { type: "publication-updated", projectId: "project-1", publication });
+    expect(next.project).toEqual({ ...state.project, publication });
+    expect(next.lastEventId).toBe(state.lastEventId);
+    expect(rendererReducer(state, { type: "publication-updated", projectId: "another-project", publication })).toBe(state);
+  });
+
   it("loads shared turns without deriving a parallel item list", () => {
     const turns = [turn("turn-1", "completed", [user("turn-1", "Hi")])];
     const state = rendererReducer(initialRendererState, { type: "initialized", project: project(), detail: detail({ turns }) });

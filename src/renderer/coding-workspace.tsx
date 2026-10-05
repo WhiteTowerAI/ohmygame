@@ -48,6 +48,9 @@ interface CodingWorkspaceProps {
   publishing: boolean;
   workspaceRevision: number;
   onPublish: (details: PublishDetails) => Promise<boolean>;
+  publishDialog?: "open" | "success";
+  onOpenPublish: () => void;
+  onClosePublish: () => void;
   onRestart: () => void;
   onProjectUpdated?: (project: ProjectState) => void;
   onClose?: () => void;
@@ -64,6 +67,9 @@ export function CodingWorkspace({
   publishing,
   workspaceRevision,
   onPublish,
+  publishDialog,
+  onOpenPublish,
+  onClosePublish,
   onRestart,
   onProjectUpdated,
   onClose,
@@ -89,7 +95,6 @@ export function CodingWorkspace({
   const [filesError, setFilesError] = useState<string>();
   const [filesRevision, setFilesRevision] = useState(0);
   const [reload, setReload] = useState(0);
-  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [agentPlaytestWatch, setAgentPlaytestWatch] = useState<PlaytestWatchState | undefined>(() => (
     typeof window !== "undefined" && window.ohMyGameDesktop?.agentPlaytests ? { visible: false, activeSessions: 0 } : undefined
@@ -252,7 +257,7 @@ export function CodingWorkspace({
           <button
             className="publish-button workspace-publish-button"
             type="button"
-            onClick={() => setPublishDialogOpen(true)}
+            onClick={onOpenPublish}
             disabled={!project || publishingUnavailable || publishing || agentBusy}
             title={publishLabel}
             aria-label={publishLabel}
@@ -318,7 +323,7 @@ export function CodingWorkspace({
           onFilesChanged={() => setFilesRevision((value) => value + 1)}
         />
       ) : null}
-      {project && publishDialogOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishDialogOpen(false)} onPublish={onPublish} /> : null}
+      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
       {project && projectSettingsOpen ? <ProjectSettingsDialog project={project} previewUrl={previewPageUrl} onClose={() => setProjectSettingsOpen(false)} onSaved={async (updated) => {
         const restartRequired = updated.startupDirectory !== project.startupDirectory ||
           updated.startupScript !== project.startupScript || updated.packageManager !== project.packageManager;

@@ -1,4 +1,4 @@
-import type { ConversationAgentSettings, ConversationAgentState, ConversationDetail, ConversationSummary, PendingPrompt, PlanSessionState, ProjectState, PromptContextLabel, RuntimeEvent, ThreadItem, Turn, TurnStatus } from "../shared/contracts.js";
+import type { ConversationAgentSettings, ConversationAgentState, ConversationDetail, ConversationSummary, PendingPrompt, PlanSessionState, ProjectState, PublicationState, PromptContextLabel, RuntimeEvent, ThreadItem, Turn, TurnStatus } from "../shared/contracts.js";
 import { finalizeTurnItems } from "../shared/turns.js";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting";
@@ -20,6 +20,7 @@ export interface RendererState {
 export type RendererAction =
   | { type: "initialized"; project: ProjectState; detail: ConversationDetail }
   | { type: "project-updated"; project: ProjectState }
+  | { type: "publication-updated"; projectId: string; publication: PublicationState }
   | { type: "conversation-loaded"; detail: ConversationDetail }
   | { type: "runtime-event"; event: RuntimeEvent }
   | { type: "conversation-settings"; settings: ConversationAgentSettings }
@@ -57,6 +58,9 @@ export function rendererReducer(state: RendererState, action: RendererAction): R
     };
   }
   if (action.type === "project-updated") return { ...state, project: action.project };
+  if (action.type === "publication-updated") return state.project?.id === action.projectId
+    ? { ...state, project: { ...state.project, publication: action.publication } }
+    : state;
   if (action.type === "connection") return { ...state, connection: action.status };
   if (action.type === "conversation-settings") return { ...state, settings: action.settings };
   if (action.type === "notice") return { ...state, notice: action.message };
