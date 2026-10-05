@@ -2629,9 +2629,6 @@ button.home-nav-item-active:hover {
   color: var(--text);
 }
 
-.home-story-format-menu {
-  width: 210px;
-}
 .home-workspace-trigger > span {
   max-width: 140px;
   overflow: hidden;
@@ -2645,16 +2642,6 @@ button.home-nav-item-active:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.home-story-format-menu button {
-  grid-template-columns: 26px minmax(0, 1fr) auto 14px;
-}
-.home-story-format-menu button > .story-format-frame {
-  justify-self: center;
-}
-.home-story-format-menu button > small {
-  color: var(--text-faint);
-  font-size: 10px;
 }
 
 .home-notice {
@@ -3655,19 +3642,6 @@ button.home-nav-item-active:hover {
 .project-create-types button:hover:not(:disabled) {
   background: var(--surface-hover);
   color: var(--text);
-}
-.project-create-format {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.project-create-format legend {
-  padding: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 500;
 }
 .story-format-options {
   display: grid;
