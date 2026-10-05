@@ -2,11 +2,11 @@ import {
   Check,
   ChevronRight,
   Copy,
+  Diskette,
   FilePenLine,
   FileText,
   Gamepad2,
   Image,
-  Layers3,
   LoaderCircle,
   Pencil,
   Plug,
@@ -525,7 +525,7 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
   }
   if (item.type === "contextCompaction") {
     const label = compactionLabel(item);
-    const icon = item.status === "inProgress" ? <LoaderCircle className="spin" size={13} /> : item.status === "completed" ? <Check size={13} /> : <X size={13} />;
+    const icon = <Diskette size={13} aria-hidden="true" />;
     const shimmering = item.status === "inProgress";
     if (item.status === "completed" && item.summary) {
       return (

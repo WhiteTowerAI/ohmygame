@@ -105,6 +105,7 @@ export function ProjectShell({
   const [maximumAgentWidth, setMaximumAgentWidth] = useState(DEFAULT_AGENT_WIDTH);
   const [resizingAgent, setResizingAgent] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
   const [openFileRequest, setOpenFileRequest] = useState<{ path: string; id: number }>();
   const [modelChanging, setModelChanging] = useState(false);
@@ -359,9 +360,9 @@ export function ProjectShell({
     const project = state.project;
     const busy = sendingInitialPrompt ||
       state.agent.status === "running" || state.agent.status === "cancelling";
-    if (project?.type !== "web-game" || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
+    if ((project?.type !== "web-game" && project?.type !== "interactive-story") || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
     const pending = takePendingPublish(sessionStorage, project.id);
-    if (pending) void publish(pending);
+    if (pending) void publish(pending).catch(() => undefined);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
 
   if (state.phase === "fatal") {
@@ -370,6 +371,7 @@ export function ProjectShell({
 
   const project = state.project;
   const conversation = state.conversation;
+  const publishDialogStatus = publishDialog?.projectId === project?.id ? publishDialog?.status : undefined;
 
   const displayedModel = state.settings.model ?? modelCatalog.defaultModel ?? modelCatalog.models[0];
   const activeTurn = state.turns.findLast((turn) => turn.status === "inProgress");
@@ -552,7 +554,7 @@ export function ProjectShell({
     }
   }
 
-  async function publish(details: PublishDetails = { title: project?.publication?.title ?? project?.name ?? "Untitled game", description: project?.publication?.description ?? "" }): Promise<boolean> {
+  async function publish(details: PublishDetails): Promise<boolean> {
     if (!project || publishing || agentBusy) return false;
     const resumeAfterWebSignIn = !window.ohMyGameDesktop && auth.state.status !== "signed-in";
     if (resumeAfterWebSignIn) rememberPendingPublish(sessionStorage, project.id, details);
@@ -565,14 +567,24 @@ export function ProjectShell({
         return false;
       }
       forgetPendingPublish(sessionStorage);
-      await publishProject(project.id, accessToken, details);
+      const result = await publishProject(project.id, accessToken, details);
+      const publication = {
+        gameId: result.game.id,
+        deploymentId: result.game.deploymentId,
+        playUrl: result.game.playUrl,
+        publishedAt: result.game.publishedAt,
+        title: result.game.title,
+        description: result.game.description,
+      };
+      dispatch({ type: "publication-updated", projectId: project.id, publication });
+      setPublishDialog({ projectId: project.id, status: "success" });
       return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
+      throw error;
     } finally {
       setPublishing(false);
     }
-    return false;
   }
 
   async function newConversation() {
@@ -840,6 +852,9 @@ export function ProjectShell({
           workspaceRevision={workspaceRevision}
           openFileRequest={openFileRequest}
           onPublish={publish}
+          publishDialog={publishDialogStatus}
+          onOpenPublish={() => setPublishDialog({ projectId: project.id, status: "open" })}
+          onClosePublish={() => setPublishDialog(undefined)}
           onRestart={restartPreview}
           onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
           onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
@@ -864,6 +879,9 @@ export function ProjectShell({
         workspaceRevision={workspaceRevision}
         openFileRequest={openFileRequest}
         onPublish={publish}
+        publishDialog={publishDialogStatus}
+        onOpenPublish={() => setPublishDialog({ projectId: project.id, status: "open" })}
+        onClosePublish={() => setPublishDialog(undefined)}
         chatOnRight={chatLayout === "right"}
         chatCollapsed={agentIsCollapsed}
         onHome={requestHome}

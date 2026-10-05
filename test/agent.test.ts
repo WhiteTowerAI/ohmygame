@@ -574,6 +574,45 @@ describe("conversationItems", () => {
 });
 
 describe("AgentManager", () => {
+  it("aggregates activity across conversations until all project work ends", async () => {
+    const completions = [deferred<void>(), deferred<void>(), deferred<void>()];
+    const sessions = completions.map((completion) => {
+      const session = new FakeSession();
+      session.prompt.mockImplementation(() => completion.promise);
+      return session;
+    });
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async (_project, conversation) => sessions[Number(conversation.summary.id)]!,
+    });
+    const project = createProject();
+    const otherProject = { ...createProject(), id: "project-2" };
+    const conversations = [createConversation(project, "0"), createConversation(project, "1"), createConversation(otherProject, "2")];
+
+    expect(manager.projectActivity()).toEqual([]);
+    const turns = conversations.map((conversation, index) => manager.prompt(index === 2 ? otherProject : project, conversation, "Build"));
+    await vi.waitFor(() => sessions.forEach((session) => expect(session.prompt).toHaveBeenCalled()));
+    expect(manager.projectActivity()).toEqual([
+      { projectId: project.id, status: "running" },
+      { projectId: otherProject.id, status: "running" },
+    ]);
+
+    await manager.cancel(project.id, "0", turns[0].turnId);
+    expect(manager.projectActivity()[0]).toEqual({ projectId: project.id, status: "running" });
+    await manager.cancel(project.id, "1", turns[1].turnId);
+    expect(manager.projectActivity()[0]).toEqual({ projectId: project.id, status: "cancelling" });
+    completions[0].resolve();
+    await expect(turns[0].result).resolves.toBe("cancelled");
+    expect(manager.projectActivity()[0]).toEqual({ projectId: project.id, status: "cancelling" });
+
+    completions[1].resolve();
+    await expect(turns[1].result).resolves.toBe("cancelled");
+    expect(manager.projectActivity()).toEqual([{ projectId: otherProject.id, status: "running" }]);
+    completions[2].resolve();
+    await expect(turns[2].result).resolves.toBe("completed");
+    expect(manager.projectActivity()).toEqual([]);
+    await manager.close();
+  });
+
   it("pauses a planning turn for a questionnaire and resumes it with structured answers", async () => {
     const session = new FakeSession();
     const prompt = deferred<void>();
@@ -925,6 +964,7 @@ describe("AgentManager", () => {
 
     await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow("Auth unavailable");
     expect(manager.agentState(conversation)).toEqual({ status: "error", error: "Auth unavailable" });
+    expect(manager.projectActivity()).toEqual([]);
     expect(events.since(project.id).at(-1)?.type).toBe("agent.error");
     await manager.close();
   });
@@ -1301,10 +1341,12 @@ describe("AgentManager", () => {
 
     const turn = await manager.compact(project, conversation);
     await started.promise;
+    expect(manager.projectActivity()).toEqual([{ projectId: project.id, status: "running" }]);
     expect(manager.activeStart(project.id, conversation.summary.id)).toEqual(expect.objectContaining({ id: expect.any(Number), timestamp: expect.any(String) }));
     await manager.cancel(project.id, conversation.summary.id, turn.turnId);
 
     await expect(turn.result).resolves.toBe("cancelled");
+    expect(manager.projectActivity()).toEqual([]);
     expect(session.abortCompaction).toHaveBeenCalledOnce();
     expect(events.since(project.id).map((event) => event.type)).toEqual(["item.started", "item.completed", "agent.cancelled"]);
     expect(events.since(project.id).at(-2)?.data).toEqual({
