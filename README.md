@@ -247,7 +247,16 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
 ```
 
-Without them the app stays usable while signed out. For desktop OAuth, add
+When either value is missing, `npm run dev` and `npm run dev:desktop` on
+localhost automatically use a local debug account. Click **Sign in** to sign in
+immediately; signing out and restoring the session on reload also work.
+Publishing builds the actual game and serves a temporary local snapshot, which
+appears in Community. No Supabase or cloud service is needed. These games and
+their local links are available only while the daemon is running; they are not
+uploaded or publicly shared. Configuring both values restores real authentication
+and cloud publishing. Production builds never enable the debug fallback.
+
+For desktop OAuth, add
 `http://127.0.0.1:*/auth/callback/**` to the redirect allow list. The desktop
 app opens OAuth in the system browser and receives the result through a
 temporary loopback server.

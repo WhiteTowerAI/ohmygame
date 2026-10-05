@@ -68,6 +68,7 @@ import type { PlayableChatState } from "./playable-chat.js";
 import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, toPlayableEdge, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
 import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
 import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEdgeInspector, PlayableProjectMenu } from "./playable-canvas-menus.js";
+import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 
@@ -91,13 +92,16 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent }: {
   project: ProjectState;
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision?: number;
   openFileRequest?: { path: string; id: number };
   onPublish: (details: PublishDetails) => Promise<boolean>;
+  publishDialog?: "open" | "success";
+  onOpenPublish: () => void;
+  onClosePublish: () => void;
   chatOnRight?: boolean;
   chatCollapsed?: boolean;
   onHome?: () => void;
@@ -136,7 +140,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [thumbnailRevision, setThumbnailRevision] = useState(0);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
-  const [publishOpen, setPublishOpen] = useState(false);
   const [building, setBuilding] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
@@ -755,7 +758,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }
 
   async function publishGame(details: PublishDetails): Promise<boolean> {
-    if (!codebase) return false;
+    if (!codebase) throw new Error("The game is still loading. Try publishing again when it is ready.");
     await save(codebase);
     return onPublish(details);
   }
@@ -808,6 +811,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode, onSelectEdge: selectEdge }), [projectId, technical]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const showCodeTab = technical || workspaceView === "code";
+  const tabs: WorkspaceTabOption<"canvas" | "code">[] = [
+    { id: "canvas", label: "Canvas", icon: Clapperboard },
+    ...(showCodeTab ? [{ id: "code" as const, label: "Code", icon: Code2 }] : []),
+  ];
 
   return (
     <section
@@ -820,9 +827,18 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         "--story-canvas-stage-height": `${canvasStageHeight}px`,
       } as CSSProperties}
     >
-      <header className="interactive-drama-header window-drag-handle">
+      <header className="pane-header viewer-header interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <div className="interactive-drama-project-tools">
+        <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
+          {chatOnRight && onHome ? (
+            <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
+          ) : null}
+          <WorkspaceTabs tabs={tabs} active={workspaceView} label="Workspace mode" onChange={(tab) => {
+            if (tab === "code") clearSelection();
+            setWorkspaceView(tab);
+          }} />
+        </div>
+        <div className="viewer-controls-slot">
           <PlayableProjectMenu
             disabled={phase !== "ready"}
             screenSize={viewportRatio(playerViewport)}
@@ -838,28 +854,20 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
               if (!on && workspaceView === "code") setWorkspaceView("canvas");
             }}
           />
-          {chatOnRight && onHome ? (
-            <button className="interactive-drama-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
-          ) : null}
         </div>
-        {showCodeTab ? <nav className="workspace-tabs interactive-drama-workspace-switch" data-active-tab={workspaceView} data-tab-count="2" aria-label="Workspace mode">
-          <button type="button" className={`workspace-tab${workspaceView === "canvas" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "canvas"} title="Canvas" onClick={() => setWorkspaceView("canvas")}><Clapperboard size={14} /><span>Canvas</span></button>
-          <button type="button" className={`workspace-tab${workspaceView === "code" ? " workspace-tab-active" : ""}`} aria-pressed={workspaceView === "code"} title="Code" onClick={() => { clearSelection(); setWorkspaceView("code"); }}><Code2 size={15} /><span>Code</span></button>
-        </nav> : null}
-        <div className="interactive-drama-header-actions">
-          <button className="interactive-drama-action" type="button" title="Play the game in a new window" onClick={() => void startPlaytest()}>
+        <div className="viewer-publish">
+          <button className="icon-button pane-header-action" type="button" title="Playtest" aria-label="Playtest" onClick={() => void startPlaytest()}>
             <Play size={14} fill="currentColor" />
-            <span>Playtest</span>
           </button>
-          {chatOnRight && chatCollapsed && onToggleChat ? (
-            <button className="interactive-drama-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
-              <PanelToggle size={14} />
-            </button>
-          ) : null}
-          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
+          <button className="publish-button workspace-publish-button" type="button" title="Publish" aria-label="Publish" disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
           </button>
+          {chatOnRight && chatCollapsed && onToggleChat ? (
+            <button className="icon-button pane-header-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
+              <PanelToggle size={14} />
+            </button>
+          ) : null}
         </div>
       </header>
       {workspaceView !== "code" ? <div className="interactive-drama-body">
@@ -972,7 +980,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onClose={() => setCanvasSettingsOpen(false)}
         onChange={(viewport) => setGraphMeta((current) => current ? { ...current, viewport } : current)}
       /> : null}
-      {publishOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishOpen(false)} onPublish={publishGame} /> : null}
+      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
     </section>
   );
 }

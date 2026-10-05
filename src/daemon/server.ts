@@ -4,14 +4,21 @@ import { createApp } from "./app.js";
 import { ensureOhMyGamePiEnvironment } from "./pi-agent.js";
 import { configureNetworkProxy } from "./proxy.js";
 import { ProcessPlaytestDriver } from "./playtest-driver.js";
+import { isLocalDebugEnabled, isLoopbackHostname } from "../shared/local-debug.js";
 
 configureNetworkProxy();
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-try {
-  process.loadEnvFile(path.join(repositoryRoot, ".env.local"));
-} catch (error) {
-  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+const development = process.argv.includes("--dev");
+const mode = development ? "development" : "production";
+// Match Vite's precedence; loadEnvFile preserves values already in process.env.
+for (const file of [`.env.${mode}.local`, `.env.${mode}`, ".env.local", ".env"]) {
+  try {
+    process.loadEnvFile(path.join(repositoryRoot, file));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 }
+const host = process.env.DAEMON_HOST ?? "127.0.0.1";
 const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(repositoryRoot, ".data");
 const piAgentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
 process.env.PI_CODING_AGENT_DIR = piAgentDirectory;
@@ -49,9 +56,14 @@ try {
       .filter(Boolean),
     logger: true,
     publishApiUrl: process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL,
+    localDebug: isLocalDebugEnabled(
+      development && isLoopbackHostname(host),
+      process.env.VITE_SUPABASE_URL,
+      process.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    ),
     playtestDriver,
   });
-  await app.listen({ host: process.env.DAEMON_HOST ?? "127.0.0.1", port: Number(process.env.DAEMON_PORT ?? 43110) });
+  await app.listen({ host, port: Number(process.env.DAEMON_PORT ?? 43110) });
 } catch (error) {
   app?.log.error(error);
   await app?.close();

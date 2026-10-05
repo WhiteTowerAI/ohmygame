@@ -23,7 +23,9 @@ describe("coding workspace", () => {
         agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
-        onPublish: async () => true,
+        onPublish: async () => false,
+        onOpenPublish: () => undefined,
+        onClosePublish: () => undefined,
         onRestart: () => undefined,
       }),
     );
@@ -31,6 +33,45 @@ describe("coding workspace", () => {
     expect(html).toContain("Preview will appear here");
     expect(html).toContain("Describe your game in the agent panel");
     expect(html).toContain('aria-label="Project settings"');
+    expect(html).not.toContain('aria-label="View publication"');
+  });
+
+  it("keeps a single Publish entry after publishing", () => {
+    const html = renderToStaticMarkup(createElement(CodingWorkspace, {
+      project: {
+        id: "project-1", name: "Published game", type: "web-game",
+        updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project-1",
+        preview: { status: "waiting" },
+        publication: { gameId: "game-1", deploymentId: "deployment-1", playUrl: "https://play.example/game-1", publishedAt: "2026-10-05T03:00:00.000Z" },
+      },
+      agentBusy: false, publishing: false, workspaceRevision: 0,
+      onPublish: async () => false, onRestart: () => undefined,
+      onOpenPublish: () => undefined, onClosePublish: () => undefined,
+    }));
+    expect(html.match(/aria-label="Publish"/g)).toHaveLength(1);
+    expect(html).toContain("<span>Publish</span>");
+    expect(html).not.toContain('aria-label="View publication"');
+    expect(html).not.toContain('aria-label="Publish update"');
+  });
+
+  it("shows the resumed publish result through the workspace dialog", () => {
+    const html = renderToStaticMarkup(createElement(CodingWorkspace, {
+      project: {
+        id: "project-1", name: "Draft title", type: "web-game",
+        updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project-1",
+        preview: { status: "waiting" },
+        publication: { gameId: "game-1", deploymentId: "deployment-1", title: "Published title", playUrl: "https://play.example/game-1", publishedAt: "2026-10-05T03:00:00.000Z" },
+      },
+      agentBusy: false, publishing: false, workspaceRevision: 0,
+      publishDialog: "success",
+      onPublish: async () => false, onRestart: () => undefined,
+      onOpenPublish: () => undefined, onClosePublish: () => undefined,
+    }));
+    expect(html.match(/role="dialog"/g)).toHaveLength(1);
+    expect(html).toContain("Published successfully");
+    expect(html).toContain("Published title");
+    expect(html).toContain('value="https://play.example/game-1"');
+    expect(html).not.toContain("<form");
   });
 
   it("exposes Godot workspace controls without enabling publishing", () => {
@@ -47,7 +88,9 @@ describe("coding workspace", () => {
         agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
-        onPublish: async () => true,
+        onPublish: async () => false,
+        onOpenPublish: () => undefined,
+        onClosePublish: () => undefined,
         onRestart: () => undefined,
         onClose: () => undefined,
       }),
@@ -75,7 +118,9 @@ describe("coding workspace", () => {
         agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
-        onPublish: async () => true,
+        onPublish: async () => false,
+        onOpenPublish: () => undefined,
+        onClosePublish: () => undefined,
         onRestart: () => undefined,
       }),
     );
@@ -98,7 +143,9 @@ describe("coding workspace", () => {
         agentBusy: false,
         publishing: false,
         workspaceRevision: 0,
-        onPublish: async () => true,
+        onPublish: async () => false,
+        onOpenPublish: () => undefined,
+        onClosePublish: () => undefined,
         onRestart: () => undefined,
       }),
     );

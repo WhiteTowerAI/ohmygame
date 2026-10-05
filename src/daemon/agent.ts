@@ -13,7 +13,7 @@ import {
 import path from "node:path";
 import { promptContextLabels, splitPromptContext } from "./prompt-context.js";
 import { createHash, randomUUID } from "node:crypto";
-import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ThreadItem, ThreadItemError, ToolArtifact } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ThreadItem, ThreadItemError, ToolArtifact } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
@@ -370,6 +370,14 @@ export class AgentManager {
 
   agentState(conversation: StoredConversation): ConversationAgentState {
     return this.#agentStates.get(conversationKey(conversation.summary.projectId, conversation.summary.id)) ?? { status: "idle" };
+  }
+
+  projectActivity(): ProjectAgentActivity[] {
+    const statuses = new Map<string, ProjectAgentActivity["status"]>();
+    for (const active of this.#activeTurns.values()) {
+      if (statuses.get(active.projectId) !== "running") statuses.set(active.projectId, active.status);
+    }
+    return [...statuses].map(([projectId, status]) => ({ projectId, status }));
   }
 
   restorePlanState(conversation: StoredConversation, state: PlanSessionState): void {

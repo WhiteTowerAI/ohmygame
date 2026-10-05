@@ -1,8 +1,8 @@
-import { MoreHorizontal } from "./icons.js";
+import { LoaderCircle, MoreHorizontal } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { menuPlacement } from "./popover-placement.js";
-import type { ProjectState } from "../shared/contracts.js";
+import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
 import { getProjectCover } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 
@@ -17,9 +17,11 @@ interface ProjectCardProps {
   fallback: number;
   onOpen: () => void;
   actions?: ProjectCardActions;
+  agentStatus?: ProjectAgentActivity["status"];
 }
 
-export function ProjectCard({ project, fallback, onOpen, actions }: ProjectCardProps) {
+export function ProjectCard({ project, fallback, onOpen, actions, agentStatus }: ProjectCardProps) {
+  const activityLabel = agentStatus === "cancelling" ? "Stopping" : "Working";
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -66,11 +68,14 @@ export function ProjectCard({ project, fallback, onOpen, actions }: ProjectCardP
         <span className="project-card-meta">
           <span className="project-card-copy">
             <span className="project-card-name" title={project.name}>{project.name}</span>
-            <span className="project-card-details" title={`${projectTypeLabel(project.type)} · ${projectTimestamp(project.updatedAt) ?? projectTime(project.updatedAt)}`}>
+            <span className="project-card-details" title={`${projectTypeLabel(project.type)} · ${agentStatus ? `Agent ${activityLabel}` : projectTimestamp(project.updatedAt) ?? projectTime(project.updatedAt)}`}>
               <ProjectTypeIcon type={project.type} size={12} />
               <span>{projectTypeLabel(project.type)}</span>
               <i aria-hidden="true">·</i>
-              <span className="project-card-time">{projectTime(project.updatedAt)}</span>
+              {agentStatus ? <span className="project-card-activity" role="status">
+                <LoaderCircle className="spin" size={11} aria-hidden="true" />
+                {activityLabel}
+              </span> : <span className="project-card-time">{projectTime(project.updatedAt)}</span>}
             </span>
           </span>
         </span>

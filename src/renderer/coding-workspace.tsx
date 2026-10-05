@@ -39,6 +39,7 @@ import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { ProjectSettingsDialog } from "./project-settings-dialog.js";
 import { AssetMedia } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 type WorkspaceContextMenu = { path: string; directory: boolean; x: number; y: number };
@@ -48,6 +49,9 @@ interface CodingWorkspaceProps {
   publishing: boolean;
   workspaceRevision: number;
   onPublish: (details: PublishDetails) => Promise<boolean>;
+  publishDialog?: "open" | "success";
+  onOpenPublish: () => void;
+  onClosePublish: () => void;
   onRestart: () => void;
   onProjectUpdated?: (project: ProjectState) => void;
   onClose?: () => void;
@@ -64,6 +68,9 @@ export function CodingWorkspace({
   publishing,
   workspaceRevision,
   onPublish,
+  publishDialog,
+  onOpenPublish,
+  onClosePublish,
   onRestart,
   onProjectUpdated,
   onClose,
@@ -89,7 +96,6 @@ export function CodingWorkspace({
   const [filesError, setFilesError] = useState<string>();
   const [filesRevision, setFilesRevision] = useState(0);
   const [reload, setReload] = useState(0);
-  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [agentPlaytestWatch, setAgentPlaytestWatch] = useState<PlaytestWatchState | undefined>(() => (
     typeof window !== "undefined" && window.ohMyGameDesktop?.agentPlaytests ? { visible: false, activeSessions: 0 } : undefined
@@ -206,6 +212,12 @@ export function CodingWorkspace({
     finally { setAgentPlaytestWatchPending(false); }
   }
 
+  const tabs: WorkspaceTabOption<WorkspaceTab>[] = [
+    ...(supportsPreview ? [{ id: "preview" as const, label: "Preview", icon: Globe2 }] : []),
+    { id: "code", label: "Code", icon: Code2 },
+    { id: "assets", label: "Library", icon: Layers3 },
+  ];
+
   return (
     <section className="viewer-pane coding-workspace" data-active-tab={activeTab} aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
@@ -216,18 +228,7 @@ export function CodingWorkspace({
               <House size={14} />
             </button>
           ) : null}
-          <nav
-            className="workspace-tabs"
-            data-active-tab={activeTab}
-            data-tab-count={supportsPreview ? 3 : 2}
-            aria-label="Workspace views"
-          >
-            {supportsPreview ? (
-              <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
-            ) : null}
-            <Tab active={activeTab === "code"} icon={<Code2 size={15} />} label="Code" onClick={() => setActiveTab("code")} />
-            <Tab active={activeTab === "assets"} icon={<Layers3 size={15} />} label="Library" onClick={() => setActiveTab("assets")} />
-          </nav>
+          <WorkspaceTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
         </div>
         <div className="viewer-controls-slot">
           {supportsPreview && activeTab === "preview" ? (
@@ -252,7 +253,7 @@ export function CodingWorkspace({
           <button
             className="publish-button workspace-publish-button"
             type="button"
-            onClick={() => setPublishDialogOpen(true)}
+            onClick={onOpenPublish}
             disabled={!project || publishingUnavailable || publishing || agentBusy}
             title={publishLabel}
             aria-label={publishLabel}
@@ -318,7 +319,7 @@ export function CodingWorkspace({
           onFilesChanged={() => setFilesRevision((value) => value + 1)}
         />
       ) : null}
-      {project && publishDialogOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishDialogOpen(false)} onPublish={onPublish} /> : null}
+      {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
       {project && projectSettingsOpen ? <ProjectSettingsDialog project={project} previewUrl={previewPageUrl} onClose={() => setProjectSettingsOpen(false)} onSaved={async (updated) => {
         const restartRequired = updated.startupDirectory !== project.startupDirectory ||
           updated.startupScript !== project.startupScript || updated.packageManager !== project.packageManager;
@@ -326,21 +327,6 @@ export function CodingWorkspace({
         if (restartRequired) onRestart();
       }} /> : null}
     </section>
-  );
-}
-
-function Tab({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
-  return (
-    <button
-      className={`workspace-tab${active ? " workspace-tab-active" : ""}`}
-      type="button"
-      aria-pressed={active}
-      title={label}
-      onClick={onClick}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 }
 

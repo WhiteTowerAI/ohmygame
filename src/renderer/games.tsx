@@ -41,13 +41,11 @@ export function GamesPage({
 
   return (
     <SidebarPageLayout active="community" onNavigate={onNavigate}>
-      <SidebarPageHeader title="Community">
-        <div className="library-toolbar">
-          <button className="icon-button quiet-button" type="button" onClick={() => void load()} title="Refresh" aria-label="Refresh">
-            <RefreshCw className={phase === "loading" ? "spin" : undefined} size={15} />
-          </button>
-        </div>
-      </SidebarPageHeader>
+      <SidebarPageHeader title="Community" actions={(
+        <button className="projects-icon-button" type="button" onClick={() => void load()} disabled={phase === "loading"} title="Refresh" aria-label="Refresh">
+          <RefreshCw className={phase === "loading" ? "spin" : undefined} size={15} />
+        </button>
+      )} />
 
       <section className="explore-content">
         {phase === "loading" ? <div className="explore-state"><LoaderCircle className="spin" size={20} />Loading games</div> : null}
