@@ -17,7 +17,7 @@ interface CreateWindowOptions {
   aspectRatio?: number;
   minWidth?: number;
   minHeight?: number;
-  /** Never shown, and keeps rendering while hidden so it can be captured. */
+  /** Never shown or heard, and keeps rendering while hidden so it can be captured. */
   hidden?: boolean;
   /** Runs before the renderer loads, so the page can reach the window early. */
   beforeLoad?: (window: BrowserWindow) => void;
@@ -91,7 +91,10 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   window.webContents.on("will-navigate", (event, url) => {
     if (withoutHash(url) !== rendererTarget) event.preventDefault();
   });
-  if (!options.hidden) window.once("ready-to-show", () => window.show());
+  // A hidden window, such as a Scene thumbnail capture, runs the game out of
+  // sight, so it must not be heard either.
+  if (options.hidden) window.webContents.setAudioMuted(true);
+  else window.once("ready-to-show", () => window.show());
   options.beforeLoad?.(window);
 
   await window.loadURL(loadTarget);

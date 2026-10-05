@@ -13,6 +13,7 @@ vi.mock("electron", () => ({
       on: vi.fn((event: string, handler: (event: { preventDefault(): void }, url: string) => void) => {
         if (event === "will-navigate") this.onNavigate = handler;
       }),
+      setAudioMuted: vi.fn(),
     };
     readonly once = vi.fn();
     readonly loadURL = vi.fn(async () => {});
@@ -55,6 +56,20 @@ describe("desktop window", () => {
     const rejected = { preventDefault: vi.fn() };
     window.onNavigate?.(rejected, "https://untrusted.example/");
     expect(rejected.preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it("mutes a hidden window, such as a thumbnail capture", async () => {
+    const options = {
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+    };
+    await createDesktopWindow({ ...options, hidden: true });
+    await createDesktopWindow(options);
+    const [hidden, shown] = electron.windows as { webContents: { setAudioMuted: ReturnType<typeof vi.fn> } }[];
+
+    expect(hidden!.webContents.setAudioMuted).toHaveBeenCalledWith(true);
+    expect(shown!.webContents.setAudioMuted).not.toHaveBeenCalled();
   });
 
   it("opens only HTTP links in the system browser", async () => {

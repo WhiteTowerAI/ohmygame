@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Box, ChevronRight, Film, Image as ImageIcon, LoaderCircle, Music2, Search, Upload, X } from "./icons.js";
+import { Box, ChevronRight, Film, Image as ImageIcon, LoaderCircle, Music2, Play, Search, Upload, X } from "./icons.js";
 import type { LibraryUploadMediaType } from "../shared/contracts.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { uploadLibraryAsset } from "./api.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
+import { useNearViewport } from "./asset-gallery.js";
+import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 /**
  * Workbench pieces for the Playable Nodes editor: a breadcrumb back to the
@@ -126,18 +128,33 @@ export function LibraryAssetPicker({ title, assets, uploading, onUpload, onClose
         <label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" /></label>
         <div className="story-video-picker-list">
           {visibleAssets.length === 0 ? <p>{assets.length ? "No assets match your search" : "No assets in Library"}</p> : null}
-          {visibleAssets.map((asset) => {
-            const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : ImageIcon;
-            return <button type="button" key={asset.id} onClick={() => onSelect(asset)}>
-              <span><Icon size={17} /></span>
-              <span><strong>{asset.prompt ?? asset.name}</strong><small>{asset.name}</small></span>
-            </button>;
-          })}
+          {visibleAssets.map((asset) => <LibraryPickerItem key={asset.id} asset={asset} onSelect={() => onSelect(asset)} />)}
         </div>
       </section>
     </div>,
     document.body,
   );
+}
+
+/** One Library asset in the picker: a thumbnail, loaded once it scrolls near view, and its name. */
+function LibraryPickerItem({ asset, onSelect }: { asset: LibraryAsset; onSelect: () => void }) {
+  const [item, visible] = useNearViewport<HTMLButtonElement>();
+  const [failed, setFailed] = useState(false);
+  const visual = asset.mediaType === "image" || asset.mediaType === "video";
+  const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, visible && visual ? asset.assetId : undefined);
+  const shown = Boolean(preview.url) && !failed;
+  const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : ImageIcon;
+  const title = asset.prompt ?? asset.name;
+  return <button type="button" ref={item} onClick={onSelect} title={title}>
+    <span className="story-video-picker-thumbnail">
+      {shown && asset.mediaType === "image" ? <img src={preview.url} alt="" onError={() => setFailed(true)} /> : null}
+      {/* A video shows its first frame. */}
+      {shown && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
+      {!shown ? <Icon size={20} /> : null}
+      {asset.mediaType === "video" ? <span className="story-video-picker-badge"><Play size={10} />Video</span> : null}
+    </span>
+    <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}</span>
+  </button>;
 }
 
 /** Uploads a media file to the Library, with the limits every editor shares. */

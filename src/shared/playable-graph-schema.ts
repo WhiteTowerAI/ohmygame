@@ -135,7 +135,6 @@ export const PLAYABLE_GRAPH_SCHEMA = {
     },
     nodes: {
       type: "array",
-      minItems: 1,
       maxItems: 500,
       items: {
         type: "object",

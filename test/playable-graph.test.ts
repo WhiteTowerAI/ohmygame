@@ -3,6 +3,7 @@ import {
   playableEdgeForSignal,
   playableNodeById,
   playableOutgoingEdges,
+  withPlayableEntry,
 } from "../src/shared/playable-graph.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../src/shared/playable-graph-schema.js";
 import {
@@ -195,6 +196,24 @@ describe("Node Graph contract", () => {
         message: 'Signal "menu.inspect" must be connected before publishing.',
       }),
     );
+  });
+
+  it("accepts a project with no Nodes as a draft but not for publish", () => {
+    const graph = { ...createNodeGraphFixture(), nodes: [], edges: [], entryNodeId: "start" };
+
+    expect(validateNodeGraph(graph, { mode: "draft" })).toEqual({ ok: true, issues: [] });
+    expect(
+      validateNodeGraph(graph, { mode: "publish", availableFiles: PLAYABLE_FIXTURE_FILES }).issues,
+    ).toEqual([expect.objectContaining({ code: "missing-node", path: "/nodes" })]);
+  });
+
+  it("makes the first Node the Start when the Entry Node names none of them", () => {
+    const graph = createNodeGraphFixture();
+
+    expect(withPlayableEntry(graph)).toBe(graph);
+    expect(withPlayableEntry({ ...graph, entryNodeId: "gone" }).entryNodeId).toBe(graph.nodes[0]!.id);
+    const empty = { ...graph, nodes: [], entryNodeId: "gone" };
+    expect(withPlayableEntry(empty)).toBe(empty);
   });
 
   it("requires a workspace file inventory for publish validation", () => {

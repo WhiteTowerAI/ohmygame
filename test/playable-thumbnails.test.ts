@@ -6,6 +6,7 @@ import {
   listPlayableThumbnails,
   PlayableThumbnailError,
   readGraphNodeIds,
+  readPlayableCover,
   readPlayableThumbnail,
   writePlayableThumbnail,
 } from "../src/daemon/playable-thumbnails.js";
@@ -26,6 +27,23 @@ describe("Node thumbnail cache", () => {
     expect(await listPlayableThumbnails(workspace)).toEqual({ menu: entry });
     expect(await readPlayableThumbnail(workspace, "menu")).toEqual(IMAGE);
     expect((await readdir(path.join(workspace, ".ohmygame", "thumbnails"))).sort()).toEqual(["menu.json", "menu.webp"]);
+  });
+
+  it("covers the project with the Start Scene's thumbnail, or else the first one captured", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-thumbnails-"));
+    const nodeIds = new Set(["menu", "archive"]);
+    const graph = (entryNodeId: string) => JSON.stringify({ entryNodeId, nodes: [{ id: "menu" }, { id: "archive" }] });
+    await writeFile(path.join(workspace, "graph.json"), graph("menu"));
+    expect(await readPlayableCover(workspace)).toBeUndefined();
+
+    const archive = Buffer.concat([IMAGE, Buffer.from("archive")]);
+    await writePlayableThumbnail(workspace, "archive", "0123abcd", archive, nodeIds);
+    expect(await readPlayableCover(workspace)).toEqual(archive);
+
+    await writePlayableThumbnail(workspace, "menu", "0123abcd", IMAGE, nodeIds);
+    expect(await readPlayableCover(workspace)).toEqual(IMAGE);
+    await writeFile(path.join(workspace, "graph.json"), graph("archive"));
+    expect(await readPlayableCover(workspace)).toEqual(archive);
   });
 
   it("drops the thumbnails of Nodes the graph no longer has", async () => {

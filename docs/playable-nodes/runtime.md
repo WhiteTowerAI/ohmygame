@@ -35,8 +35,10 @@ AGENTS.md, README.md    rules and reference for the Agent and authors
 .ohmygame/              editor cache (thumbnails); never published
 ```
 
-A new project contains one ordinary `start` node so `entryNodeId` is always
-valid, plus the default Project Style.
+A new project contains one ordinary `start` node, plus the default Project
+Style. A project may also have no nodes, for example after the author deletes
+them all: it is a valid draft, `entryNodeId` then names nothing, and the
+first node added becomes the Entry Node.
 
 ## Graph document
 
@@ -364,7 +366,8 @@ for publishing. Each issue has a stable `code`, a JSON Pointer `path`, and an
 actionable `message`. It checks that:
 
 - IDs are non-empty and unique in their scope;
-- `entryNodeId` and edge targets exist;
+- `entryNodeId` and edge targets exist; with no nodes, draft accepts the
+  project and publish asks for a node;
 - every edge starts at a declared Signal of a node, with at most one edge per
   pair;
 - every node asset dependency exists in `assets`;

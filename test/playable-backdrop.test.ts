@@ -8,10 +8,10 @@ describe("setPlayableBackdrop", () => {
       const { html } = PLAYABLE_PRESETS.find((preset) => preset.id === id)!.source("Opening");
       expect(playableBackdrop(html)).toBe("missing");
       const edited = setPlayableBackdrop(html, "opening", "video")!;
-      expect(edited).toContain('<div class="backdrop" data-media="backdrop" data-asset="opening" data-type="video">');
+      expect(edited).toMatch(/<div class="backdrop[^"]*" data-media="backdrop" data-asset="opening" data-type="video">/);
       expect(playableBackdrop(edited)).toBe("set");
       // Everything but the background tag stays as it was.
-      expect(edited.replace(/<div class="backdrop"[^>]*>/, "")).toBe(html.replace(/<div class="backdrop"[^>]*>/, ""));
+      expect(edited.replace(/<div class="backdrop[^>]*>/, "")).toBe(html.replace(/<div class="backdrop[^>]*>/, ""));
     }
   });
 
