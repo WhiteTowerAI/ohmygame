@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
+import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 
 function argument(name: string): string {
   const prefix = `--${name}=`;
@@ -26,6 +27,10 @@ if (process.isMainFrame) {
     revealPluginSkill: (pluginId: string, skillId: string) => ipcRenderer.invoke("ohmygame:reveal-plugin-skill", pluginId, skillId) as Promise<void>,
     selectPluginDirectory: () => ipcRenderer.invoke("ohmygame:select-plugin-directory") as Promise<string | undefined>,
     selectProjectDirectory: () => ipcRenderer.invoke("ohmygame:select-project-directory") as Promise<string | undefined>,
+    clipboard: Object.freeze({
+      files: () => ipcRenderer.invoke("ohmygame:clipboard-files") as Promise<DesktopClipboardFile[]>,
+      paste: () => ipcRenderer.invoke("ohmygame:paste-native") as Promise<void>,
+    }),
     capturePage: (bounds: { x: number; y: number; width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
     captureNodeThumbnail: (projectId: string, nodeId: string, viewport: { width: number; height: number }) =>

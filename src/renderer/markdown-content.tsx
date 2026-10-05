@@ -24,17 +24,19 @@ const FILE_ICON_EXTENSIONS: Record<Exclude<WorkspaceFileIconKind, "file">, Reado
   model: new Set(["blend", "dae", "fbx", "glb", "gltf", "obj", "stl"]),
 };
 
-export function MarkdownContent({ text, className = "", workspacePath, onOpenWorkspaceFile }: {
+export function MarkdownContent({ text, className = "", workspacePath, onOpenWorkspaceFile, renderImage }: {
   text: string;
   className?: string;
   workspacePath?: string;
   onOpenWorkspaceFile?: (path: string) => void;
+  renderImage?: (src: string | undefined, alt: string | undefined) => ReactNode;
 }) {
   return (
     <div className={`markdown-content${className ? ` ${className}` : ""}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          ...(renderImage ? { img: ({ src, alt }: { src?: string; alt?: string }) => renderImage(src, alt) } : {}),
           a: ({ href, children }) => {
             const filePath = onOpenWorkspaceFile ? workspaceLinkPath(href, workspacePath) : undefined;
             if (filePath) {

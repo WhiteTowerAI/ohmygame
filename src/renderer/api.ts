@@ -58,6 +58,7 @@ import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidatio
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
+import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 
 const API_BASE = "/api";
 
@@ -78,6 +79,10 @@ declare global {
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
+      clipboard: {
+        files: () => Promise<DesktopClipboardFile[]>;
+        paste: () => Promise<void>;
+      };
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
       /** Captures a Node's thumbnail in a hidden window; `false` when it could not. */
       captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }) => Promise<boolean>;
@@ -733,7 +738,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(apiUrl(path), {
     ...init,
     headers: {

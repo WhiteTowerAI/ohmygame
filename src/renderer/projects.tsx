@@ -10,7 +10,7 @@ import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
 interface ProjectsPageProps {
   onNavigate: (page: AppNavigationTarget) => void;
-  onOpenProject: (projectId: string) => void;
+  onOpenProject: (projectId: string, view?: "design") => void;
 }
 
 type ProjectSort = "updated" | "name";
@@ -149,7 +149,7 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
               agentStatus={activity.find((item) => item.projectId === project.id)?.status}
               fallback={index % 4}
               onOpen={() => onOpenProject(project.id)}
-              actions={{ onRename: () => rename(project), onDuplicate: () => duplicate(project), onDelete: () => remove(project) }}
+              actions={{ onRename: () => rename(project), onDuplicate: () => duplicate(project), onDelete: () => remove(project), ...(project.type !== "asset-canvas" ? { onDesign: () => onOpenProject(project.id, "design") } : {}) }}
             />
           ))}
         </div>

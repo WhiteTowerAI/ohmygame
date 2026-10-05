@@ -173,7 +173,7 @@ export interface ProjectAgentActivity {
   status: Extract<AgentStatus, "running" | "cancelling">;
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "animate-3d" | "asset";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "animate-3d" | "asset" | "document";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -207,6 +207,7 @@ export interface AssetCanvasTextGenerationResponse {
 }
 
 export type AssetCanvasNode = (
+  | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string } }
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
     mediaType: "image" | "video" | "audio" | "model";
@@ -310,7 +311,7 @@ export interface PromptReference {
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset";
+  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "design-document";
   label: string;
   text: string;
 }
@@ -741,6 +742,7 @@ export type ToolJobStatus = "running" | "succeeded" | "failed" | "cancelled";
 export interface ToolJobContext {
   projectId: string;
   nodeId: string;
+  boardId?: string;
 }
 
 export interface ToolJob {

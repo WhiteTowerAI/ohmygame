@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, session, shell } from "electron";
+import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { applySystemProxy } from "./system-proxy.js";
@@ -87,6 +88,17 @@ handle("ohmygame:open-auth-url", async (_event, url: unknown) => {
 handle("ohmygame:take-auth-callback", () => oauth.takeCallback());
 handle("ohmygame:auth-callback-url", () => oauth.callbackUrl());
 handle("ohmygame:cancel-auth", () => oauth.cancel());
+handle("ohmygame:clipboard-files", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid clipboard source");
+  const paths = await clipboardFilePaths(clipboard);
+  const files = await loadClipboardFiles(paths);
+  if (paths.length && !files.length) throw new Error("The copied folder does not contain any files.");
+  return files;
+});
+handle("ohmygame:paste-native", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid clipboard source");
+  event.sender.paste();
+});
 handle("ohmygame:set-appearance", (event, appearance: unknown) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow || senderWindow.isDestroyed()) throw new Error("Invalid appearance source");

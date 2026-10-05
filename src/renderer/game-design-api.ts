@@ -1,0 +1,24 @@
+import type { AgentModelRef, AssetCanvasTextGenerationResponse, RunToolRequest, ToolId, ToolJob } from "../shared/contracts.js";
+import type { GameDesignDetail, DesignDocumentGenerationRequest, DesignDocumentGenerationResponse } from "../shared/game-design.js";
+import type { DesignBoardDetail, DesignWorkspaceDetail, DesignWorkspaceIndex } from "../shared/design-boards.js";
+import { request } from "./api.js";
+
+const base = (projectId: string) => `/projects/${encodeURIComponent(projectId)}/design`;
+const query = (documentId?: string) => documentId ? `?documentId=${encodeURIComponent(documentId)}` : "";
+export const getDesignWorkspace = (id: string): Promise<DesignWorkspaceDetail> => request(`${base(id)}/workspace`);
+export const setMainDesignDocument = (id: string, documentId: string): Promise<void> => request(`${base(id)}/main-document`, { method: "PUT", body: JSON.stringify({ documentId }) });
+export const getDesignBoard = (id: string, boardId: string): Promise<DesignBoardDetail> => request(`${base(id)}/boards/${encodeURIComponent(boardId)}`);
+export const saveDesignBoard = (id: string, detail: DesignBoardDetail): Promise<DesignBoardDetail> => request(`${base(id)}/boards/${encodeURIComponent(detail.board.id)}`, { method: "PUT", body: JSON.stringify(detail) });
+export const createDesignBoard = (id: string, name: string): Promise<DesignWorkspaceIndex> => request(`${base(id)}/boards`, { method: "POST", body: JSON.stringify({ name }) });
+export const changeDesignBoard = (id: string, boardId: string, patch: { name?: string; direction?: number }): Promise<DesignWorkspaceIndex> => request(`${base(id)}/boards/${encodeURIComponent(boardId)}`, { method: "PATCH", body: JSON.stringify(patch) });
+export const deleteDesignBoard = (id: string, boardId: string): Promise<DesignWorkspaceIndex> => request(`${base(id)}/boards/${encodeURIComponent(boardId)}`, { method: "DELETE" });
+export const createDesignDocument = (id: string, title: string): Promise<GameDesignDetail> => request(`${base(id)}/documents`, { method: "POST", body: JSON.stringify({ title }) });
+export const getGameDesign = (id: string, documentId?: string): Promise<{ design: GameDesignDetail | null }> => request(`${base(id)}${query(documentId)}`);
+export const saveGameDesign = (id: string, detail: GameDesignDetail, documentId?: string): Promise<GameDesignDetail> => request(`${base(id)}${query(documentId)}`, { method: "PUT", body: JSON.stringify(detail) });
+export const insertDesignImage = (id: string, documentId: string, assetId: string): Promise<GameDesignDetail> => request(`${base(id)}/documents/${encodeURIComponent(documentId)}/images`, { method: "POST", body: JSON.stringify({ assetId }) });
+export const listDesignJobs = (id: string): Promise<ToolJob[]> => request(`${base(id)}/jobs`);
+export const startDesignJob = (id: string, boardId: string, nodeId: string, toolId: ToolId, input: RunToolRequest): Promise<ToolJob> => request(`${base(id)}/boards/${encodeURIComponent(boardId)}/nodes/${encodeURIComponent(nodeId)}/generate/${toolId}`, { method: "POST", body: JSON.stringify(input) });
+export const cancelDesignJob = (id: string, jobId: string): Promise<ToolJob> => request(`${base(id)}/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
+export const retryDesignJob = (id: string, jobId: string): Promise<ToolJob> => request(`${base(id)}/jobs/${encodeURIComponent(jobId)}/retry`, { method: "POST" });
+export const generateDesignText = (id: string, instruction: string, model: AgentModelRef): Promise<AssetCanvasTextGenerationResponse> => request(`${base(id)}/text/generate`, { method: "POST", body: JSON.stringify({ instruction, model }) });
+export const generateDesignDocument = (id: string, documentId: string, input: DesignDocumentGenerationRequest): Promise<DesignDocumentGenerationResponse> => request(`${base(id)}/documents/${encodeURIComponent(documentId)}/generate`, { method: "POST", body: JSON.stringify(input) });

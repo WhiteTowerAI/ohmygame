@@ -1,13 +1,13 @@
 import { Check, ChevronDown, Folder, FolderOpen, FolderPlus, LoaderCircle, SendArrow } from "./icons.js";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectState, ProjectType, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectState, ProjectType, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { preferredAgentModel } from "../shared/agent-models.js";
 import { createConversation, createProject, getHomeComposerCapabilities, listProjects, updateAgentDefaults, waitForRuntime } from "./api.js";
-import { ImageAttachmentStrip, ImagePickerButton, promptImages, type ComposerImage } from "./image-attachments.js";
+import { AttachmentStrip, AttachmentPickerButton, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
 import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
-import { PromptBox } from "./prompt-box.js";
+import { PromptBox, type DroppedFile } from "./prompt-box.js";
 import { PROJECT_TYPES, ProjectTypeIcon, type ProjectTypeOption } from "./project-types.js";
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
@@ -22,7 +22,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   placeholder: string;
   onProjectTypeChange?: (type: ProjectType) => void;
   onOpenProject?: (projectId: string) => void;
-  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => void;
+  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
 }) {
   const [prompt, setPrompt] = useState("");
   const [selectedSkill, setSelectedSkill] = useState<string>();
@@ -33,7 +33,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   const [selectedMention, setSelectedMention] = useState(0);
   const [dismissedMention, setDismissedMention] = useState<string>();
   const [planning, setPlanning] = useState(false);
-  const [images, setImages] = useState<ComposerImage[]>([]);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const created = useRef<{ project: ProjectState; conversationId?: string; workspacePath?: string } | undefined>(undefined);
   const [creating, setCreating] = useState(false);
   const [savingDefaults, setSavingDefaults] = useState(false);
   const [error, setError] = useState<string>();
@@ -84,30 +85,40 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
       return;
     }
     const submittedPrompt = formatComposerInvocation(selectedSkill, selectedPlugin, prompt.trim());
-    if ((!submittedPrompt && images.length === 0) || creating) return;
+    if ((!submittedPrompt && attachments.length === 0) || creating) return;
     setCreating(true);
     setError(undefined);
     try {
-      const project = await createProject({
-        type: projectType,
-        ...(workspacePath ? { workspacePath } : {}),
-      });
-      const conversation = await createConversation(project.id);
+      if (!created.current || created.current.project.type !== projectType || created.current.workspacePath !== workspacePath) {
+        created.current = { project: await createProject({ type: projectType, ...(workspacePath ? { workspacePath } : {}) }), workspacePath };
+      }
+      const project = created.current.project;
+      created.current.conversationId ??= (await createConversation(project.id)).id;
+      const uploaded = await uploadAttachments(project.id, crypto.randomUUID(), attachments);
       const submittedMentions = activePluginMentions(submittedPrompt, pluginMentions);
       saveHomePrompt({ prompt: submittedPrompt, mentions: submittedMentions });
       onCreate(
         project.id,
-        conversation.id,
+        created.current.conversationId,
         submittedPrompt,
         submittedMentions,
-        promptImages(images),
+        [],
         planning ? "planning" : "normal",
+        uploaded,
       );
     } catch (cause) {
       setError(errorMessage(cause));
       setCreating(false);
     }
   }
+
+  function addAttachments(next: ComposerAttachment[]): void {
+    setError(undefined);
+    try { setAttachments(appendAttachments(attachments, next)); }
+    catch (cause) { setError(errorMessage(cause)); }
+    promptRef.current?.focus();
+  }
+  function addFiles(files: DroppedFile[]): void { addAttachments(attachmentFiles(files)); }
 
   async function saveDefaults(nextModel: AgentModelRef, nextReasoningLevel: AgentReasoningLevel): Promise<void> {
     if (savingDefaults) return;
@@ -289,7 +300,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
             <button
               className="icon-button send-button"
               type="submit"
-              disabled={(!selectedSkill && !selectedPlugin && !prompt.trim() && images.length === 0) || creating}
+              disabled={(!selectedSkill && !selectedPlugin && !prompt.trim() && attachments.length === 0) || creating}
               title="Create project"
               aria-label="Create project"
             >
@@ -297,7 +308,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
             </button>
           </>
         )}
-        content={<ImageAttachmentStrip images={images} onRemove={(id) => setImages((items) => items.filter((image) => image.id !== id))} />}
+        content={<AttachmentStrip items={attachments} onRemove={(id) => setAttachments((items) => items.filter((attachment) => attachment.id !== id))} />}
         disabled={creating}
         prefix={<ComposerCapabilityReferences
           skill={selectedSkill}
@@ -313,7 +324,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         />}
         leading={(
           <>
-            <ImagePickerButton disabled={creating} onImages={(next) => { setError(undefined); setImages((items) => [...items, ...next]); }} onError={setError} />
+            <AttachmentPickerButton disabled={creating} onFiles={addAttachments} />
             {selectDirectory ? (
               <WorkspaceSelector
                 value={workspacePath}
@@ -339,6 +350,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         onSelectionChange={setMentionCursor}
         value={prompt}
         variant="home"
+        onDropFiles={creating ? undefined : addFiles}
+        onDropError={(cause) => setError(cause.message)}
       />
       {existingProject ? (
         <p className="home-notice" role="alert">

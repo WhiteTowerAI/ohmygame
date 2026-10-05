@@ -11,6 +11,7 @@ import { validateNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import { readNodeCodebase, writeNodeCodebase } from "./playable-codebase.js";
 import { ASSET_CANVAS_FILE, createAssetCanvasCodebase, readAssetCanvasCodebase, writeAssetCanvasCodebase } from "./asset-canvas-codebase.js";
+import { designReferencesAsset, removeDesignAssetReferences } from "./game-design.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -508,6 +509,11 @@ export class ProjectManager {
       if (project.workspaceAvailable === false) continue;
       const metadata = await readAssetMetadata(project.workspacePath);
       let referenced = Object.values(metadata.libraryAssets).includes(assetId);
+      try {
+        referenced ||= await designReferencesAsset(project.workspacePath, assetId);
+      } catch (cause) {
+        throw new ProjectLibraryReferenceError(`Cannot verify design references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+      }
       if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
         try {
           const graph = await readNodeGraphForReferences(project.workspacePath);
@@ -535,7 +541,7 @@ export class ProjectManager {
           (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
           (node.type === "model-3d" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
           (node.type === "animate-3d" && node.data.source?.type === "library" && node.data.source.assetId === assetId) ||
-          (node.type !== "text" && node.data.assetId === assetId)
+          (node.type !== "text" && node.type !== "document" && node.data.assetId === assetId)
         ))) references.push(project);
       }
     }
@@ -544,6 +550,7 @@ export class ProjectManager {
 
   async removeLibraryAssetReferences(assetId: string): Promise<void> {
     for (const project of await this.referencesLibraryAsset(assetId)) {
+      await removeDesignAssetReferences(project.workspacePath, assetId);
       const metadata = await readAssetMetadata(project.workspacePath);
       for (const [assetPath, linkedId] of Object.entries(metadata.libraryAssets)) {
         if (linkedId !== assetId) continue;

@@ -6093,11 +6093,11 @@ button {
 }
 
 .viewer-pane.interactive-story-workspace {
-  --interactive-story-grid: #34373d;
-  --story-edge-color: #91a89b;
-  --story-editor-surface: #1b1c20;
-  --story-editor-stage: #141519;
-  --story-player-empty-background: #737574;
+  --interactive-story-grid: #333333;
+  --story-edge-color: #898989;
+  --story-editor-surface: var(--surface);
+  --story-editor-stage: #202020;
+  --story-player-empty-background: #737373;
   container-type: inline-size;
   display: grid;
   grid-template-rows: 50px minmax(0, 1fr) auto;
@@ -6106,10 +6106,10 @@ button {
 }
 
 :root[data-appearance="light"] .viewer-pane.interactive-story-workspace {
-  --interactive-story-grid: #d5d8d2;
-  --story-edge-color: #789084;
-  --story-editor-surface: #fff;
-  --story-editor-stage: #f3f4f0;
+  --interactive-story-grid: #dedede;
+  --story-edge-color: #969696;
+  --story-editor-surface: var(--surface);
+  --story-editor-stage: #fafafa;
 }
 
 .interactive-story-workspace.is-node-editor-open {
@@ -6505,6 +6505,13 @@ button {
 .story-node.is-selected {
   border-color: var(--theme-accent);
 }
+
+.interactive-story-canvas:focus { outline: none; }
+.canvas-file-drop-overlay { position: absolute; inset: 8px; z-index: 20; display: flex; align-items: center; justify-content: center; gap: 8px; pointer-events: none; border: 1px dashed var(--theme-accent); border-radius: 8px; background: color-mix(in srgb, var(--surface) 90%, transparent); color: var(--text-secondary); font-size: 12px; }
+.canvas-file-import-status { position: absolute; top: 14px; right: 16px; z-index: 6; display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; }
+.canvas-transfer-error { top: 50px; display: flex; align-items: flex-start; gap: 8px; max-height: 160px; overflow: auto; }
+.canvas-transfer-error span { white-space: pre-wrap; overflow-wrap: anywhere; }
+.canvas-transfer-error button { display: grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; padding: 0; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
 
 .react-flow__node {
   transition:
@@ -7314,6 +7321,7 @@ button {
 }
 
 .canvas-chip-menu-group > button,
+.canvas-chip-menu-row > button,
 .canvas-chip-menu-action {
   display: flex;
   min-height: 28px;
@@ -7337,6 +7345,12 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.canvas-chip-menu-row { display: flex; align-items: center; gap: 2px; }
+.canvas-chip-menu-row > [role="menuitemradio"] { flex: 1; min-width: 0; }
+.canvas-chip-menu-row > [role="menuitemradio"] > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-chip-menu-row > .canvas-chip-option-action { flex: 0 0 24px; min-height: 24px; justify-content: center; padding: 0; color: var(--text-muted); }
+.canvas-chip-menu-row > button:is(:hover, :focus-visible, [aria-checked="true"]) { outline: 0; background: var(--menu-hover); color: var(--text); }
 
 .canvas-chip-menu-action {
   flex: 0 0 auto;
@@ -10559,6 +10573,45 @@ button {
   color: #cdd0d5;
 }
 
+.composer-attach-control {
+  position: relative;
+}
+
+.composer-attach-menu {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: grid;
+  min-width: 200px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised, var(--surface));
+  box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 18%));
+}
+
+.composer-attach-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.composer-attach-menu button:hover,
+.composer-attach-menu button:focus-visible {
+  background: var(--surface-hover);
+}
+
 .composer-attach-button:hover:not(:disabled) {
   background: var(--surface-hover);
   color: var(--text);
@@ -12158,12 +12211,12 @@ button {
 .file-tree-node {
   display: flex;
   width: calc(100% - 12px);
-  height: 100%;
+  height: calc(100% - 2px);
   min-width: 0;
   box-sizing: border-box;
   align-items: center;
   gap: 6px;
-  margin: 0 6px;
+  margin: 1px 6px;
   padding-right: 8px;
   border-radius: 4px;
   color: #cdd0d5;

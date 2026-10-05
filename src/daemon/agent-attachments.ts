@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { lstat, mkdir, open, readFile, readdir, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ConversationAttachment, PromptAttachment, PromptImage, ProjectState } from "../shared/contracts.js";
+import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FILES } from "../shared/file-transfer.js";
 
 const ATTACHMENTS_DIRECTORY = ".data/agent-attachments";
 const FILES_DIRECTORY = "files";
@@ -19,9 +20,9 @@ const ATTACHMENT_KINDS = new Set<PromptAttachment["kind"]>([
   "image", "text", "document", "audio", "video", "model", "archive", "binary",
 ]);
 
-export const MAX_AGENT_ATTACHMENT_BYTES = 500 * 1024 * 1024;
-export const MAX_AGENT_ATTACHMENTS_PER_TURN = 1_000;
-export const MAX_AGENT_ATTACHMENT_BATCH_BYTES = 1024 * 1024 * 1024;
+export const MAX_AGENT_ATTACHMENT_BYTES = MAX_ATTACHMENT_BYTES;
+export const MAX_AGENT_ATTACHMENTS_PER_TURN = MAX_ATTACHMENT_FILES;
+export const MAX_AGENT_ATTACHMENT_BATCH_BYTES = MAX_ATTACHMENT_BATCH_BYTES;
 export const MAX_AGENT_ATTACHMENT_PROJECT_BYTES = 10 * 1024 * 1024 * 1024;
 export const UNCLAIMED_ATTACHMENT_TTL_MS = 24 * 60 * 60 * 1_000;
 

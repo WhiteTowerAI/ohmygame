@@ -30,6 +30,11 @@ describe("renderer routes", () => {
     expect(conversationHash("project 1", "chat 1")).toBe("#/projects/project%201/conversations/chat%201");
   });
 
+  it("keeps the design view when opening a project or its conversation directly", () => {
+    expect(parseAppRoute(projectHash("project 1", "design"))).toEqual({ page: "project", projectId: "project 1", view: "design" });
+    expect(parseAppRoute(conversationHash("project 1", "chat 1", "design"))).toEqual({ page: "project", projectId: "project 1", conversationId: "chat 1", view: "design" });
+  });
+
   it("parses and formats Settings routes", () => {
     expect(DEFAULT_SETTINGS_SECTION).toBe("providers");
     expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "providers" });

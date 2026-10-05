@@ -1,8 +1,7 @@
-import { SendArrow, Square, X } from "./icons.js";
+import { FileText, SendArrow, Square, X } from "./icons.js";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
-import { AttachmentPickerButton, AttachmentStrip, attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
-import { uploadProjectAttachment } from "./api.js";
+import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference } from "../shared/contracts.js";
+import { AttachmentPickerButton, AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
 import { PromptBox, type DroppedFile } from "./prompt-box.js";
@@ -13,13 +12,12 @@ import { PromptContextIcon, type ChatContextChip, type ChatReference } from "./c
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
-
-const MAX_ATTACHMENTS = 1_000;
-const MAX_ATTACHMENT_TOTAL_BYTES = 1024 * 1024 * 1024;
-const MAX_ATTACHMENT_BYTES = 500 * 1024 * 1024;
+import { getGameDesign } from "./game-design-api.js";
+import { designDocumentPath } from "../shared/game-design.js";
 
 interface ComposerProps {
   projectId?: string;
+  supportsDesign?: boolean;
   conversationReady: boolean;
   running: boolean;
   stopping: boolean;
@@ -36,7 +34,7 @@ interface ComposerProps {
   capabilities: ConversationCapabilities;
   initialDraft?: ComposerDraft;
   onInitialDraftHandled?: () => void;
-  onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[]) => Promise<boolean>;
+  onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[], references: PromptReference[], contexts: PromptContext[]) => Promise<boolean>;
   onCompact: (instructions?: string) => Promise<void>;
   onContextUsage: () => Promise<number | undefined>;
   onCancelPlan: () => Promise<boolean>;
@@ -61,8 +59,14 @@ export interface ComposerDraft {
   mentions: PluginMention[];
 }
 
+interface DesignDocumentReference {
+  references: PromptReference[];
+  context: PromptContext;
+}
+
 export function Composer({
   projectId,
+  supportsDesign = false,
   conversationReady,
   running,
   stopping,
@@ -103,6 +107,8 @@ export function Composer({
   const [selectedPlugin, setSelectedPlugin] = useState(initialPlugin.mention);
   const [pluginMentions, setPluginMentions] = useState<PluginMention[]>(initialDraft?.mentions ?? []);
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [designReference, setDesignReference] = useState<DesignDocumentReference>();
+  const [referencingDesign, setReferencingDesign] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
   const [history, setHistory] = useState(() => createPromptHistory(promptHistory.map((entry) => entry.prompt)));
@@ -121,7 +127,7 @@ export function Composer({
     planning ? { plugins: capabilities.plugins, skills: [] } : capabilities,
     activeMention,
   ) : [];
-  const dirty = Boolean(prompt || selectedSkill || selectedPlugin || attachments.length || reference);
+  const dirty = Boolean(prompt || selectedSkill || selectedPlugin || attachments.length || reference || designReference);
 
   useEffect(() => setSelectedMention(0), [activeMention?.trigger, activeMention?.query]);
   useEffect(() => {
@@ -166,7 +172,15 @@ export function Composer({
         setAttachmentError(error instanceof Error ? error.message : String(error));
         return;
       }
-      const submitted = await onSubmit(value, activePluginMentions(value, pluginMentions), [], planning ? "planning" : "normal", uploaded);
+      const submitted = await onSubmit(
+        value,
+        activePluginMentions(value, pluginMentions),
+        [],
+        planning ? "planning" : "normal",
+        uploaded,
+        designReference?.references ?? [],
+        designReference ? [designReference.context] : [],
+      );
       if (submitted) {
         setHistory((current) => recordPrompt(current, value));
         setMentionHistory((current) => new Map(current).set(value, activePluginMentions(value, pluginMentions)));
@@ -176,11 +190,36 @@ export function Composer({
         setPluginMentions([]);
         setMentionCursor(0);
         setAttachments([]);
+        setDesignReference(undefined);
         setAttachmentError(undefined);
         textarea.current?.focus();
       }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function referenceDesign(): Promise<void> {
+    if (!projectId || inputDisabled) return;
+    setAttachmentError(undefined);
+    setReferencingDesign(true);
+    try {
+      const result = await getGameDesign(projectId);
+      if (!result.design) throw new Error("This project does not have a game design document yet");
+      setDesignReference({
+        references: [{ type: "workspace-file", path: designDocumentPath(result.design.document.id) }],
+        context: {
+          kind: "design-document",
+          label: result.design.document.title || "Game design",
+          text: "Reference the saved game design document for this message.",
+        },
+      });
+      textarea.current?.focus();
+    } catch (cause) {
+      setAttachmentError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setReferencingDesign(false);
+      requestAnimationFrame(() => textarea.current?.focus());
     }
   }
 
@@ -217,26 +256,8 @@ export function Composer({
 
   function addAttachments(next: ComposerAttachment[]): void {
     setAttachmentError(undefined);
-    if (next.some((attachment) => attachment.file.size > MAX_ATTACHMENT_BYTES)) {
-      setAttachmentError("An attachment cannot exceed 500 MB");
-      return;
-    }
-    const existingPaths = new Set(attachments.map((attachment) => attachment.relativePath));
-    const duplicate = next.find((attachment) => existingPaths.has(attachment.relativePath));
-    if (duplicate) {
-      setAttachmentError(`“${duplicate.relativePath}” is already attached`);
-      return;
-    }
-    const combined = [...attachments, ...next];
-    if (combined.length > MAX_ATTACHMENTS) {
-      setAttachmentError("Attach at most 1,000 files at a time");
-      return;
-    }
-    if (combined.reduce((total, attachment) => total + attachment.file.size, 0) > MAX_ATTACHMENT_TOTAL_BYTES) {
-      setAttachmentError("Attached files cannot exceed 1 GB in total");
-      return;
-    }
-    setAttachments(combined);
+    try { setAttachments(appendAttachments(attachments, next)); }
+    catch (cause) { setAttachmentError(cause instanceof Error ? cause.message : String(cause)); return; }
     textarea.current?.focus();
   }
 
@@ -296,7 +317,7 @@ export function Composer({
   const showPlanCommand = !selectedSkill && !selectedPlugin && canTogglePlanning && matchesPlanCommand(prompt);
   const showCompactCommand = !selectedSkill && !selectedPlugin && conversationReady && !running && !stopping && matchesCompactCommand(prompt);
   const planInputLocked = awaitingApproval || planMode === "executing" || (planMode === "planning" && running);
-  const inputDisabled = !conversationReady || planInputLocked || submitting;
+  const inputDisabled = !conversationReady || planInputLocked || submitting || referencingDesign;
 
   useEffect(() => {
     if (showPlanCommand) setSelectedCommand("plan");
@@ -364,6 +385,15 @@ export function Composer({
     setSelectedPlugin(plugin.mention);
     setPluginMentions(item.mentions);
     setAttachments([]);
+    const referencedDesign = item.references.find((reference) => reference.type === "workspace-file" && /^design\/documents\/[a-zA-Z0-9_-]+\.md$/.test(reference.path));
+    setDesignReference(referencedDesign ? {
+      references: [referencedDesign],
+      context: {
+        kind: "design-document",
+        label: "Game design",
+        text: "The user explicitly referenced this saved design document.",
+      },
+    } : undefined);
     onClearReference?.();
     setMentionCursor(nextPrompt.length);
     setAttachmentError(undefined);
@@ -476,6 +506,14 @@ export function Composer({
             <div className="composer-reference-text">{reference.text}</div>
             <button type="button" className="composer-reference-remove" onClick={onClearReference} aria-label="Remove selected text">×</button>
           </div> : null}
+          {designReference ? <div className="composer-contexts" aria-label="Referenced game design">
+            <div className="composer-context is-design-document" title={designReference.context.label}>
+              <FileText size={12} />
+              <span>{designReference.context.label}</span>
+              <small>Game design</small>
+              <button type="button" onClick={() => setDesignReference(undefined)} aria-label="Remove game design reference"><X size={11} /></button>
+            </div>
+          </div> : null}
           <AttachmentStrip items={attachments} onRemove={(id) => setAttachments((items) => items.filter((attachment) => attachment.id !== id))} />
         </>}
         disabled={inputDisabled}
@@ -496,6 +534,7 @@ export function Composer({
             <AttachmentPickerButton
               disabled={inputDisabled}
               onFiles={addAttachments}
+              onDesignReference={supportsDesign ? () => { void referenceDesign(); } : undefined}
             />
             {planning ? (
               <PlanModeIndicator disabled={running || stopping} onExit={() => { void togglePlanning(); }} />
@@ -537,17 +576,4 @@ export function Composer({
 
 function formatComposerPrompt(skill: string | undefined, plugin: PluginMention | undefined, prompt: string): string {
   return formatComposerInvocation(skill, plugin, prompt);
-}
-
-async function uploadAttachments(projectId: string, batchId: string, attachments: ComposerAttachment[]): Promise<PromptAttachment[]> {
-  const uploaded = new Array<PromptAttachment>(attachments.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: Math.min(4, attachments.length) }, async () => {
-    while (next < attachments.length) {
-      const index = next++;
-      const attachment = attachments[index]!;
-      uploaded[index] = await uploadProjectAttachment(projectId, batchId, attachment.file, attachment.relativePath);
-    }
-  }));
-  return uploaded;
 }

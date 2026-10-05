@@ -16,7 +16,11 @@ import { matchesBearerToken } from "./access.js";
 import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
-import { generateCreativeText } from "./text-generation.js";
+import { generateCreativeText, generateDesignDocumentMarkdown } from "./text-generation.js";
+import type { DesignDocumentGenerationRequest, GameDesignDetail } from "../shared/game-design.js";
+import { registerGameDesignRoutes } from "./game-design-routes.js";
+import { GameDesignError } from "./game-design.js";
+import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { PlayableDraftServer } from "./playable-draft-server.js";
 import { promptContextBlock } from "./prompt-context.js";
@@ -286,7 +290,7 @@ const promptSchema = {
           additionalProperties: false,
           required: ["kind", "label", "text"],
           properties: {
-            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset"] },
+            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset", "design-document"] },
             label: { type: "string", minLength: 1, maxLength: 200 },
             text: { type: "string", minLength: 1, maxLength: 16_000 },
           },
@@ -680,6 +684,7 @@ export function createApp(options: AppOptions = {}) {
     logger: options.logger ?? false,
     ajv: { customOptions: { coerceTypes: false } },
   });
+  const designs = registerGameDesignRoutes(app, { projects, library, tools, toolInputSchema: { ...toolRunSchema.body, properties: { ...toolRunSchema.body.properties, model: modelRefSchema } } });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
     done(null, body);
@@ -1242,11 +1247,18 @@ export function createApp(options: AppOptions = {}) {
     bodyLimit: 32_000,
   };
 
-  const generateText = (projectType: ProjectType, error: string) => async (request: FastifyRequest<{ Params: { projectId: string }; Body: AssetCanvasTextGenerationRequest }>, reply: FastifyReply) => {
+  const generateText = (projectType: ProjectType | "design", error: string) => async (request: FastifyRequest<{ Params: { projectId: string; documentId?: string }; Body: AssetCanvasTextGenerationRequest & { revision?: string } }>, reply: FastifyReply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== projectType) {
+    if (projectType === "design" ? project.type === "asset-canvas" : project.type !== projectType) {
       return reply.code(400).send({ error });
+    }
+    let document: GameDesignDetail | undefined;
+    if (request.params.documentId) {
+      try { document = await designs.read(project.id, request.params.documentId); }
+      catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+      if (!document) return reply.code(404).send({ error: "Document not found" });
+      if (document.revision !== request.body.revision) return reply.code(409).send({ error: "The document changed. Retry with the latest version." });
     }
     const runtime = await getModelRuntime();
     const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
@@ -1257,8 +1269,9 @@ export function createApp(options: AppOptions = {}) {
     const model = runtime.getModel(selected.provider, selected.id);
     if (!model || !runtime.hasConfiguredAuth(selected.provider)) return reply.code(409).send({ error: "The selected language model is not available" });
     try {
-      const text = await generateCreativeText(runtime, selected, request.body.instruction);
+      const text = document ? await generateDesignDocumentMarkdown(runtime, selected, document.document, request.body.instruction) : await generateCreativeText(runtime, selected, request.body.instruction);
       if (!text) return reply.code(502).send({ error: "The language model returned no text" });
+      if (document) return { markdown: text, model: selected, revision: document.revision };
       return { text, model: selected };
     } catch (cause) {
       return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -1269,6 +1282,17 @@ export function createApp(options: AppOptions = {}) {
     "/projects/:projectId/asset-canvas/text/generate",
     textGenerationOptions,
     generateText("asset-canvas", "Text generation requires an Asset Canvas project"),
+  );
+
+  app.post<{ Params: { projectId: string }; Body: AssetCanvasTextGenerationRequest }>(
+    "/projects/:projectId/design/text/generate", textGenerationOptions,
+    generateText("design", "Design text generation requires a game project"),
+  );
+
+  app.post<{ Params: { projectId: string; documentId: string }; Body: DesignDocumentGenerationRequest }>(
+    "/projects/:projectId/design/documents/:documentId/generate",
+    { ...textGenerationOptions, schema: { body: { ...textGenerationOptions.schema.body, required: ["instruction", "revision"], properties: { ...textGenerationOptions.schema.body.properties, revision: { type: "string", minLength: 1, maxLength: 100 } } } } },
+    generateText("design", "Document generation requires a game project"),
   );
 
   app.patch<{ Params: { projectId: string }; Body: { name: string } }>(
@@ -1340,6 +1364,7 @@ export function createApp(options: AppOptions = {}) {
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
     await previews.stop(project);
     agents.forgetProject(project.id);
+    await designs.cancelProject(project.id);
     await projects.delete(project.id);
     return reply.code(204).send();
   });
@@ -2064,6 +2089,19 @@ export function createApp(options: AppOptions = {}) {
         if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
         throw cause;
       }
+      const contexts = (request.body.contexts ?? []).filter((context) => context.kind !== "design-document");
+      if (request.body.contexts?.some((context) => context.kind === "design-document")) {
+        try {
+          const documentPath = references.find((reference) => /^design\/documents\/[a-zA-Z0-9_-]{1,100}\.md$/.test(reference.path))?.path;
+          const detail = await designs.read(project.id, documentPath?.split("/").at(-1)?.slice(0, -3));
+          if (!detail) throw new GameDesignError("This project does not have a game design document yet", 404);
+          contexts.push(gameDesignReference(detail));
+          const source = `design/documents/${detail.document.id}.md`;
+          if (!references.some((reference) => reference.path === source)) references.push({ type: "workspace-file", path: source });
+        } catch (cause) {
+          return reply.code(cause instanceof GameDesignError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
+        }
+      }
       let resolvedAttachments;
       try {
         resolvedAttachments = await Promise.all((request.body.attachments ?? []).map((attachment) => attachments.resolve(project, attachment)));
@@ -2098,7 +2136,7 @@ export function createApp(options: AppOptions = {}) {
           request.body.mode ?? "normal",
           mentions,
           undefined,
-          `${attachments.promptContext(project, resolvedAttachments)}${promptContextBlock(request.body.contexts ?? [])}`,
+          `${attachments.promptContext(project, resolvedAttachments)}${promptContextBlock(contexts)}`,
           attachments.conversationAttachments(resolvedAttachments),
         );
       } catch (cause) {

@@ -10,7 +10,7 @@ import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { InteractiveStoryHome } from "./interactive-story-home.js";
 import { SettingsPage } from "./settings-page.js";
-import type { PluginMention, PromptImage, PromptMode } from "../shared/contracts.js";
+import type { PluginMention, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { pluginMentionToken } from "../shared/plugins.js";
 import { createConversation, createPluginAuthoringSession, createProject } from "./api.js";
@@ -18,7 +18,7 @@ import type { ComposerDraft } from "./composer.js";
 
 export function App() {
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
-  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode }>();
+  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
   const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
 
@@ -57,6 +57,12 @@ export function App() {
       key={route.projectId}
       projectId={route.projectId}
       conversationId={route.conversationId}
+      view={route.view}
+      onViewChange={(view) => {
+        const next = { ...route, view: view === "design" ? "design" as const : undefined };
+        window.history.pushState(null, "", next.conversationId ? conversationHash(next.projectId, next.conversationId, next.view) : projectHash(next.projectId, next.view));
+        setRoute(next);
+      }}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
       initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
       initialCanvasNodeId={initialCanvasNode?.projectId === route.projectId ? initialCanvasNode.nodeId : undefined}
@@ -68,16 +74,16 @@ export function App() {
     />
   );
 
-  function openCreatedProject(projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode): void {
-    setInitialPrompt({ conversationId, prompt, mentions, images, mode });
+  function openCreatedProject(projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
+    setInitialPrompt({ conversationId, prompt, mentions, images, mode, attachments });
     navigateToConversation(projectId, conversationId);
   }
 
-  function openProject(projectId: string): void {
+  function openProject(projectId: string, view?: "design"): void {
     setInitialPrompt(undefined);
     setInitialDraft(undefined);
     setInitialCanvasNode(undefined);
-    navigateToProject(projectId);
+    navigateToProject(projectId, view);
   }
 
   function openAssetCanvasProject(projectId: string, nodeId?: string): void {
@@ -114,14 +120,16 @@ export function App() {
     setInitialPrompt(undefined);
   }
 
-  function navigateToProject(projectId: string): void {
-    window.history.pushState(null, "", projectHash(projectId));
-    setRoute({ page: "project", projectId });
+  function navigateToProject(projectId: string, view?: "design"): void {
+    window.history.pushState(null, "", projectHash(projectId, view));
+    setRoute({ page: "project", projectId, ...(view ? { view } : {}) });
   }
 
   function navigateToConversation(projectId: string, conversationId: string, replace = false): void {
-    window.history[replace ? "replaceState" : "pushState"](null, "", conversationHash(projectId, conversationId));
-    setRoute({ page: "project", projectId, conversationId });
+    const current = parseAppRoute(window.location.hash);
+    const view = current.page === "project" && current.projectId === projectId ? current.view : undefined;
+    window.history[replace ? "replaceState" : "pushState"](null, "", conversationHash(projectId, conversationId, view));
+    setRoute({ page: "project", projectId, conversationId, ...(view ? { view } : {}) });
   }
 
   function goHome(): void {
