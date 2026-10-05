@@ -35,4 +35,12 @@ describe("Asset Canvas clipboard", () => {
     expect(duplicate.type === "image" && duplicate.data.promptSource).toBeUndefined();
     expect(duplicate.type === "image" && duplicate.data.images).toEqual([{ type: "library", assetId: "library" }]);
   });
+
+  it("keeps an Animate node's Library model but not its connected node", () => {
+    const connected: AssetCanvasNode = { id: "animate", type: "animate-3d", position: { x: 0, y: 0 }, data: { source: { type: "node", nodeId: "model" }, heightMeters: 1.7, actionIds: [0] } };
+    const library: AssetCanvasNode = { ...connected, data: { ...connected.data, source: { type: "library", assetId: "hero" } } };
+
+    expect(duplicateAssetCanvasNode(connected, { x: 0, y: 0 }, "copy").data).toEqual({ heightMeters: 1.7, actionIds: [0] });
+    expect(duplicateAssetCanvasNode(library, { x: 0, y: 0 }, "copy").data).toEqual(library.data);
+  });
 });

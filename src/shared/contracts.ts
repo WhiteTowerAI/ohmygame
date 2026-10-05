@@ -3,7 +3,7 @@ import type { WebSearchToolMetadata } from "./web-search.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
-export type ProjectType = "web-game" | "godot-game" | "interactive-drama" | "asset-canvas";
+export type ProjectType = "web-game" | "godot-game" | "interactive-story" | "asset-canvas";
 export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
 export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile"] as const;
@@ -99,6 +99,25 @@ export interface MediaModelCatalog<Model> {
   providers: MediaProviderStatus[];
 }
 
+export type Model3DModelRef = ModelRef;
+
+export interface Model3DModel extends Model3DModelRef {
+  name: string;
+  providerName: string;
+  /** Distinct views of one object; the first is treated as the front. */
+  maxReferenceImages: number;
+  polycount: { min: number; max: number; default: number; presets: readonly number[] };
+}
+
+/** A preset move from the 3D provider's animation library. */
+export interface Model3DAnimationAction {
+  id: number;
+  name: string;
+  category: string;
+  subCategory: string;
+  previewUrl?: string;
+}
+
 export interface ImageModel extends ImageModelRef {
   name: string;
   providerName: string;
@@ -154,7 +173,7 @@ export interface ProjectAgentActivity {
   status: Extract<AgentStatus, "running" | "cancelling">;
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "asset";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "animate-3d" | "asset";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -217,10 +236,19 @@ export type AssetCanvasNode = (
     assetId?: string;
   } }
   | { id: string; type: "model-3d"; position: AssetCanvasPosition; data: {
+    model?: Model3DModelRef;
     targetPolycount: number;
     texture: boolean;
     pbr: boolean;
     images: AssetCanvasReference[];
+    assetId?: string;
+  } }
+  | { id: string; type: "animate-3d"; position: AssetCanvasPosition; data: {
+    /** The humanoid GLB to rig: a Model 3D node, a model Asset node, or a Library model. */
+    source?: AssetCanvasReference;
+    heightMeters: number;
+    /** Library actions in clip order. */
+    actionIds: number[];
     assetId?: string;
   } }
 );
@@ -633,12 +661,13 @@ export const VIDEO_RESOLUTIONS = ["480p", "720p", "768p", "1080p", "1K", "2K", "
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
 
 export interface Model3DGenerationConfig {
+  model?: Model3DModelRef;
   targetPolycount: number;
   texture: boolean;
   pbr: boolean;
 }
 
-export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video"] as const;
+export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 interface RunSizedImageToolRequest {
@@ -665,6 +694,7 @@ export type RunImageToolRequest = RunSizedImageToolRequest | RunConfiguredImageT
 
 export interface Run3DToolRequest {
   images: PromptImage[];
+  model?: Model3DModelRef;
   targetPolycount?: number;
   texture?: boolean;
   pbr?: boolean;
@@ -684,7 +714,14 @@ export interface VideoGenerationReference {
   assetId: string;
 }
 
-export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest;
+/** Rigs a humanoid Library model and bakes preset actions into it, one clip per action. */
+export interface RunAnimate3DToolRequest {
+  assetId: string;
+  actionIds: number[];
+  heightMeters?: number;
+}
+
+export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest;
 
 export interface ToolRunFile {
   name: string;

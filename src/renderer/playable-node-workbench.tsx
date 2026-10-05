@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Brush,
   Image,
+  ImageOff,
   InfoCircle,
   LoaderCircle,
   MessageSquarePlus,
@@ -31,7 +32,7 @@ import {
   playableRuntimeKey,
   type PlayableProjectValidationIssue,
 } from "../shared/playable-editor.js";
-import { getNodeRuntime } from "./api.js";
+import { getNodeRuntime, playableSandboxUrl } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { LibraryAssetPicker, uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPreview } from "./node-workbench.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
@@ -99,6 +100,7 @@ export function PlayableNodeWorkbench({
   onWriteText,
   onAddAsset,
   onSetBackdrop,
+  onRemoveBackdrop,
   backdrop,
   onPlayFromHere,
   onChatContextChange,
@@ -123,6 +125,11 @@ export function PlayableNodeWorkbench({
    * takes back; resolves false when the background cannot be set in place.
    */
   onSetBackdrop?: (asset: PlayableAssetRequest) => Promise<boolean>;
+  /**
+   * Takes the Asset off the Scene's background, as a step the editor's Undo
+   * takes back; resolves false when there is no background to clear.
+   */
+  onRemoveBackdrop?: () => Promise<boolean>;
   /** Whether the Scene's background shows anything yet; unset when the editor cannot set it. */
   backdrop?: "missing" | "set";
   /** Opens a Playtest that starts at this Scene. */
@@ -251,6 +258,15 @@ export function PlayableNodeWorkbench({
     }
   }, [onAddAsset, onSetBackdrop, showToast]);
 
+  const removeBackdrop = useCallback(async () => {
+    try {
+      if (!onRemoveBackdrop || !await onRemoveBackdrop()) return showToast({ tone: "error", text: "This Scene has no background to remove" });
+      setPicks((current) => current.filter((pick) => pick.mediaSlot !== "backdrop"));
+    } catch (cause) {
+      showToast({ tone: "error", text: `Could not remove the background: ${errorMessage(cause)}` });
+    }
+  }, [onRemoveBackdrop, showToast]);
+
   const preview: PlayablePreviewOptions = { policy: "report", startNodeId: node.id };
   const nodeIssues = issues.filter((issue) => issue.surfaceId === node.id
     || issue.path.startsWith(`nodes/${node.id}/`)
@@ -258,6 +274,7 @@ export function PlayableNodeWorkbench({
   const errors = previewErrors(graph, node, nodeIssues, runtime.error, snapshot, diagnostics);
   const ready = Boolean(runtime.definition && runtime.assets);
   const canSetBackdrop = Boolean(backdrop && onSetBackdrop);
+  const canRemoveBackdrop = Boolean(backdrop === "set" && onRemoveBackdrop);
   const chooser = useMediaChooser((asset, target) => void addMedia(asset, target), (text) => showToast({ tone: "error", text }));
 
   // In the header, where the canvas has Playtest.
@@ -283,7 +300,9 @@ export function PlayableNodeWorkbench({
           disabled={!ready}
           uploading={chooser.uploading}
           canSetBackdrop={canSetBackdrop}
+          canRemoveBackdrop={canRemoveBackdrop}
           onChoose={chooser.choose}
+          onRemoveBackdrop={() => void removeBackdrop()}
         />}
       />
       <PreviewToasts
@@ -298,6 +317,7 @@ export function PlayableNodeWorkbench({
     {runtime.definition && runtime.assets ? <NodePlayer
       key={session}
       definition={runtime.definition}
+      frameUrl={playableSandboxUrl()}
       assets={runtime.assets}
       saveKey={`ohmygame:playable:preview:${projectId}`}
       storage={storage}
@@ -484,12 +504,14 @@ function useMediaChooser(onAsset: (asset: PlayableAssetRequest, target: MediaTar
   };
 }
 
-/** The toolbar's Media action: as the Scene's background, or into the chat. */
-function MediaMenu({ disabled, uploading, canSetBackdrop, onChoose }: {
+/** The toolbar's Media action: as the Scene's background, or into the chat, or taking the background off. */
+function MediaMenu({ disabled, uploading, canSetBackdrop, canRemoveBackdrop, onChoose, onRemoveBackdrop }: {
   disabled: boolean;
   uploading: boolean;
   canSetBackdrop: boolean;
+  canRemoveBackdrop: boolean;
   onChoose: (to: MediaTarget) => void;
+  onRemoveBackdrop: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -504,6 +526,7 @@ function MediaMenu({ disabled, uploading, canSetBackdrop, onChoose }: {
     {open ? <div ref={menu} className="playable-preview-popover is-media" role="menu" aria-label="Media">
       <button type="button" role="menuitem" disabled={!canSetBackdrop} title={canSetBackdrop ? "Show it behind this Scene" : "This Scene has no background to set; add it to the chat instead"} onClick={choose("backdrop")}><Image size={13} /><span>As background</span></button>
       <button type="button" role="menuitem" onClick={choose("chat")}><MessageSquarePlus size={13} /><span>Add to chat</span></button>
+      {canRemoveBackdrop ? <button type="button" role="menuitem" title="Take the background off this Scene" onClick={() => { setOpen(false); onRemoveBackdrop(); }}><ImageOff size={13} /><span>Remove background</span></button> : null}
     </div> : null}
   </span>;
 }

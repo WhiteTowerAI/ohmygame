@@ -34,7 +34,7 @@ import {
 } from "../shared/playable-nodes.js";
 import type { NodePlayerDefinition, PlayableTextEdit } from "../shared/playable-player-protocol.js";
 import { parsePlayableSourceLocation, replacePlayableElementText } from "../shared/playable-text-edit.js";
-import { playableBackdrop, setPlayableBackdrop } from "../shared/playable-backdrop.js";
+import { clearPlayableBackdrop, playableBackdrop, setPlayableBackdrop } from "../shared/playable-backdrop.js";
 import {
   addPlayableNodeAsset,
   playableEdgeId,
@@ -48,7 +48,7 @@ import {
 import { viewportRatio } from "../shared/canvas-formats.js";
 import {
   addPlayableNode,
-  buildInteractiveDrama,
+  buildInteractiveStory,
   getNodeCodebase,
   getPlayableValidation,
   getWorkspaceFile,
@@ -587,6 +587,25 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     return true;
   }
 
+  /**
+   * Takes the Asset off the Node's background. The Asset stays declared,
+   * since other code may still use it. Resolves false when the Node's HTML
+   * has no single background to clear.
+   */
+  async function removeBackdrop(nodeId: string): Promise<boolean> {
+    const graph = codebase?.graph;
+    const node = graph?.nodes.find((candidate) => candidate.id === nodeId);
+    if (!graph || !node) return false;
+    const path = node.source.html;
+    const file = await getWorkspaceFile(projectId, path);
+    if (file.content === undefined || file.truncated) return false;
+    const before = file.content;
+    const html = clearPlayableBackdrop(before);
+    if (html === undefined) return false;
+    if (html !== before) await writeSources(graph, { [path]: html }, { [path]: before });
+    return true;
+  }
+
   function openNode(nodeId: string): void {
     setCanvasContextMenu(undefined);
     setSelectedEdgeId(undefined);
@@ -599,22 +618,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   /**
    * Drops the Node and its edges from the graph. The Node's files stay on disk
-   * so an undo brings the Node back complete. The Entry Node moves off the
-   * removed Nodes, because a graph that points at a missing Node cannot be
-   * saved at all.
+   * so an undo brings the Node back complete. When the Start is removed,
+   * buildCodebase makes the first remaining Node the Start; removing the last
+   * Node leaves an empty project.
    */
   function removeNodes(removed: ReadonlySet<string>): void {
     if (!removed.size) return;
-    setGraphMeta((current) => {
-      if (!current) return current;
-      const remaining = nodes.filter((node) => !removed.has(node.id));
-      return {
-        ...current,
-        entryNodeId: removed.has(current.entryNodeId)
-          ? remaining[0]?.id ?? current.entryNodeId
-          : current.entryNodeId,
-      };
-    });
     setNodes((current) => current.filter((node) => !removed.has(node.id)));
     setEdges((current) => current.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target)));
     setSelectedEdgeId(undefined);
@@ -734,7 +743,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setBuilding(true);
     try {
       await save(codebase);
-      const artifact = await buildInteractiveDrama(projectId);
+      const artifact = await buildInteractiveStory(projectId);
       const url = URL.createObjectURL(artifact);
       const link = window.document.createElement("a");
       link.href = url;
@@ -789,7 +798,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         ...node,
         data: {
           node: node.data.node,
-          entry: graphMeta?.entryNodeId === node.id,
+          entry: codebase?.graph.entryNodeId === node.id,
           issues: nodeIssues.get(node.id) ?? [],
           connected: connected.get(node.id) ?? {},
           failed: failed.has(node.id),
@@ -798,7 +807,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         },
       };
     });
-  }, [nodes, edges, selectedEdgeId, issues, graphMeta, thumbnails, builtDefinition]);
+  }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase, thumbnails, builtDefinition]);
   const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode, onSelectEdge: selectEdge }), [projectId, technical]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const showCodeTab = technical || workspaceView === "code";
@@ -809,7 +818,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   return (
     <section
-      className={`viewer-pane interactive-drama-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
+      className={`viewer-pane interactive-story-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
       aria-label="Playable Nodes workspace"
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
@@ -818,7 +827,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         "--story-canvas-stage-height": `${canvasStageHeight}px`,
       } as CSSProperties}
     >
-      <header className="pane-header viewer-header interactive-drama-header window-drag-handle">
+      <header className="pane-header viewer-header interactive-story-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
           {chatOnRight && onHome ? (
@@ -861,8 +870,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           ) : null}
         </div>
       </header>
-      {workspaceView !== "code" ? <div className="interactive-drama-body">
-        <div className="interactive-drama-canvas">
+      {workspaceView !== "code" ? <div className="interactive-story-body">
+        <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (
@@ -914,7 +923,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             canRedo={canRedo}
             canPaste={Boolean(copiedNode) && !writing}
             busy={writing}
-            isEntry={canvasContextMenu.nodeId === graphMeta?.entryNodeId}
+            isEntry={canvasContextMenu.nodeId === codebase?.graph.entryNodeId}
             onClose={() => setCanvasContextMenu(undefined)}
             onUndo={() => void undoEditorChange()?.catch(() => {})}
             onRedo={() => void redoEditorChange()?.catch(() => {})}
@@ -954,6 +963,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           return assetId;
         }}
         onSetBackdrop={(asset) => writeBackdrop(openedNode.id, asset)}
+        onRemoveBackdrop={() => removeBackdrop(openedNode.id)}
         {...(backdrop ? { backdrop } : {})}
         onPlayFromHere={(start) => void startPlaytest(start)}
         onChatContextChange={onChatContextChange}

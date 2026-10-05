@@ -5,6 +5,7 @@ import {
 } from "./playable-codebase.js";
 import { playablePreset, PLAYABLE_PRESET_IDS } from "./playable-presets.js";
 import { freePlayablePosition, type NodeEditorLayout } from "../shared/playable-codebase.js";
+import { withPlayableEntry } from "../shared/playable-graph.js";
 
 const NODE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const MAX_TITLE_LENGTH = 120;
@@ -63,7 +64,8 @@ export async function addPlayableNode(
   };
   // Without a title the starter text keeps the Preset's own wording.
   const starter = preset.source(request.title ? title : preset.label);
-  const graph = {
+  // The first Node of an empty project becomes its Start.
+  const graph = withPlayableEntry({
     ...codebase.graph,
     nodes: [
       ...codebase.graph.nodes,
@@ -75,7 +77,7 @@ export async function addPlayableNode(
         signals: preset.signals.map((signal) => ({ ...signal })),
       },
     ],
-  };
+  });
   const editorLayout: NodeEditorLayout = {
     ...codebase.editorLayout,
     nodes: {

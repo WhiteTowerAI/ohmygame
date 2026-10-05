@@ -1,7 +1,7 @@
 import { LoaderCircle } from "./icons.js";
 import { createElement, useEffect, useRef, useState } from "react";
 
-type ModelViewerElement = HTMLElement & { loaded?: boolean };
+type ModelViewerElement = HTMLElement & { loaded?: boolean; availableAnimations?: string[] };
 
 type ModelViewerError = CustomEvent<{
   type?: "loadfailure" | "webglcontextlost";
@@ -19,6 +19,8 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   const [loaded, setLoaded] = useState(false);
   const [progress, setProgress] = useState(0);
   const [modelError, setModelError] = useState<string>();
+  const [clips, setClips] = useState<string[]>([]);
+  const [clip, setClip] = useState<string>();
 
   useEffect(() => {
     if (componentReady) return;
@@ -35,6 +37,8 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     setLoaded(false);
     setProgress(0);
     setModelError(undefined);
+    setClips([]);
+    setClip(undefined);
   }, [source]);
 
   useEffect(() => {
@@ -44,6 +48,8 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
     const handleLoad = () => {
       setProgress(1);
       setLoaded(true);
+      // Rigged models carry one clip per move; model-viewer only autoplays the first unless one is named.
+      setClips([...(viewer.availableAnimations ?? [])]);
     };
     const handleProgress = (event: Event) => {
       const nextProgress = (event as ModelViewerProgress).detail?.totalProgress;
@@ -87,6 +93,9 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         loading: "eager",
         "camera-controls": interactive || undefined,
         "auto-rotate": true,
+        // Plays the first clip of animated models (e.g. rigged characters); static models are unaffected.
+        autoplay: true,
+        "animation-name": clip,
         "shadow-intensity": "1",
         tabIndex: interactive ? undefined : -1,
         "aria-hidden": interactive ? undefined : true,
@@ -98,6 +107,17 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         </span>
       ) : null}
       {modelError ? <span className="model-preview-state model-preview-error" role="alert">{modelError}</span> : null}
+      {clips.length > 1 ? (
+        // nodrag/nowheel keep canvas nodes from treating the picker as a drag or zoom.
+        <select
+          className="model-preview-clips nodrag nowheel"
+          aria-label="Animation clip"
+          value={clip ?? clips[0]}
+          onChange={(event) => setClip(event.target.value)}
+        >
+          {clips.map((name) => <option key={name} value={name}>{name.replace(/_/g, " ")}</option>)}
+        </select>
+      ) : null}
     </div>
   );
 }

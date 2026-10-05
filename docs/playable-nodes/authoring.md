@@ -18,13 +18,13 @@ Every authoring surface is designed around that loop. Editing code by hand is
 possible, but it is an escape hatch that most authors never open, and no
 normal task should require it.
 
-The editor also reuses the parts of the current Interactive Drama editor that
+The editor also reuses the parts of the current Interactive Story editor that
 already work well. The redesign removes node-type-specific forms; it does not
 replace the whole interface.
 
 ## Workspace
 
-The workspace keeps the current Interactive Drama layout:
+The workspace keeps the current Interactive Story layout:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -237,6 +237,13 @@ from the Code view with technical details on.
   warmer, like lamp light on old paper").
 - Changing the style updates every Scene that uses it.
 
+The default Project Style looks like an interactive film: black bars, a
+vignette, and film grain over the background, dialogue as subtitles, answers
+as dark bars across the screen, a ring for timed presses, and pulsing dots
+for hotspots. Sizes follow the screen width (`cqw`), so a Scene looks the
+same at any size. Until the author sets a background, each Template shows a
+placeholder picture chosen by a class on its `.backdrop`.
+
 Project Style is how two different screens, such as the Ash Club menu and
 archive, stay recognizably part of one game.
 
@@ -378,11 +385,11 @@ with the default Project Style and no background.
 | Template         | Starter content                                                  | Starter Signals        |
 | ---------------- | ---------------------------------------------------------------- | ---------------------- |
 | Blank            | The background; a click or the video's end continues             | `next`                 |
-| Main menu        | Title, subtitle, a list of entries, over the background          | `start`                |
-| Choice           | A line and options that can read State                           | `option-a`, `option-b` |
-| QTE              | A key or button to press before a timer runs out                 | `success`, `fail`      |
-| Hotspot          | A picture with clickable spots, one Signal per spot              | `door`, `window`       |
-| Ending           | Ending title and text, replay and return-to-menu actions         | none                   |
+| Main menu        | Title, tagline, a list of entries, over the background           | `start`                |
+| Choice           | A subtitle line and answer bars that can read State              | `option-a`, `option-b` |
+| QTE              | A key to press before a ring runs out                            | `success`, `fail`      |
+| Hotspot          | A picture with pulsing spots, one Signal per spot                | `door`, `window`       |
+| Ending           | Stamped ending title, closing lines, and Play again              | none                   |
 
 Starter Signals are ordinary declared Signals; the author or Agent renames
 and adds them freely. The set follows the old editor's story nodes: Open UI

@@ -7,13 +7,17 @@ const api = vi.hoisted(() => ({
   listImageModels: vi.fn(),
   listVideoModels: vi.fn(),
   updateAssetCanvas: vi.fn(),
+  waitForRuntime: vi.fn(),
 }));
 
 vi.mock("../src/renderer/api.js", () => api);
 
-import { ASSET_CANVAS_QUICK_STARTS, availableQuickStarts, createAssetCanvasQuickStart } from "../src/renderer/asset-canvas-quick-start.js";
+type QuickStartModule = typeof import("../src/renderer/asset-canvas-quick-start.js");
 
-const starter = (key: string) => ASSET_CANVAS_QUICK_STARTS.find((item) => item.key === key)!;
+// The module caches model lists, so each test gets a fresh copy.
+let quickStart: QuickStartModule;
+const starter = (key: string) => quickStart.ASSET_CANVAS_QUICK_STARTS.find((item) => item.key === key)!;
+const createAssetCanvasQuickStart: QuickStartModule["createAssetCanvasQuickStart"] = (item) => quickStart.createAssetCanvasQuickStart(item);
 const GPT_IMAGE = imageModel("openrouter", "openai/gpt-image-2.5-flare");
 const NANO_BANANA = imageModel("openrouter", "google/gemini-3.1-flash-image", [{ resolution: "2K", aspectRatio: "16:9" }]);
 const SEEDANCE_MINI = videoModel("bytedance/seedance-2.0-mini");
@@ -29,8 +33,11 @@ const PROJECT: ProjectState = {
 };
 
 describe("Asset Canvas quick start", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    vi.resetModules();
+    quickStart = await import("../src/renderer/asset-canvas-quick-start.js");
+    api.waitForRuntime.mockResolvedValue(undefined);
     api.createProject.mockResolvedValue(PROJECT);
     api.deleteProject.mockResolvedValue(undefined);
     api.updateAssetCanvas.mockResolvedValue(undefined);
@@ -38,15 +45,10 @@ describe("Asset Canvas quick start", () => {
     api.listVideoModels.mockResolvedValue([]);
   });
 
-  it("lists generic starters first and only the model starters that are available", () => {
-    expect(ASSET_CANVAS_QUICK_STARTS.map((item) => item.label)).toEqual([
+  it("lists generic starters first, then every model starter", () => {
+    expect(quickStart.ASSET_CANVAS_QUICK_STARTS.map((item) => item.label)).toEqual([
       "Image", "Video", "3D", "GPT Image 2.5", "Nano Banana 2", "Seedance 2.0", "Seedance 2.5",
     ]);
-    expect(availableQuickStarts([], []).map((item) => item.key)).toEqual(["image", "video", "model-3d"]);
-    expect(availableQuickStarts(
-      [imageModel("openai", "gpt-image-2.5-flare")],
-      [SEEDANCE_MINI, SEEDANCE_25],
-    ).map((item) => item.key)).toEqual(["image", "video", "model-3d", "gpt-image-2.5", "seedance-2.5"]);
   });
 
   it("creates a canvas with the selected image model and a setting it supports", async () => {
@@ -84,9 +86,26 @@ describe("Asset Canvas quick start", () => {
     }));
   });
 
-  it("does not create a project when the starter's model is unavailable", async () => {
-    await expect(createAssetCanvasQuickStart(starter("gpt-image-2.5"))).rejects.toThrow("GPT Image 2.5 is not available");
+  it("does not create a project when no provider offers the starter's model", async () => {
+    const created = createAssetCanvasQuickStart(starter("gpt-image-2.5"));
+
+    await expect(created).rejects.toBeInstanceOf(quickStart.QuickStartModelUnavailableError);
+    await expect(created).rejects.toThrow("GPT Image 2.5 needs a provider that offers it.");
     expect(api.createProject).not.toHaveBeenCalled();
+  });
+
+  it("reuses loaded models, and looks again when a starter's model is missing", async () => {
+    await quickStart.loadQuickStartModels();
+    await createAssetCanvasQuickStart(starter("image"));
+    expect(api.listImageModels).toHaveBeenCalledTimes(1);
+
+    api.listImageModels.mockResolvedValue([GPT_IMAGE]);
+    await createAssetCanvasQuickStart(starter("gpt-image-2.5"));
+
+    expect(api.listImageModels).toHaveBeenCalledTimes(2);
+    expect(api.updateAssetCanvas).toHaveBeenLastCalledWith(PROJECT.id, expect.objectContaining({
+      nodes: [expect.objectContaining({ data: expect.objectContaining({ model: { provider: "openrouter", id: "openai/gpt-image-2.5-flare" } }) })],
+    }));
   });
 
   it("removes a project when its starter canvas cannot be written", async () => {

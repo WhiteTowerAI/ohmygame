@@ -21,7 +21,7 @@
     "build:renderer": "vite build && vite build --config vite.sandbox.config.ts --outDir dist/renderer",
     "build:player": "vite build --config vite.player.config.ts && vite build --config vite.sandbox.config.ts --outDir dist/player",
     "clean:desktop-build": "node scripts/clean-desktop-build.mjs",
-    "build:desktop-app": "npm run clean:desktop-build && npm run prepare:preinstalled-plugins && npm run prepare:examples -- --require && npm run build:node && npm run build:renderer && npm run build:player",
+    "build:desktop-app": "npm run clean:desktop-build && npm run prepare:preinstalled-plugins && npm run prepare:examples && npm run build:node && npm run build:renderer && npm run build:player",
     "dev": "npm run build:player && concurrently --kill-others --names daemon,renderer --prefix-colors cyan,green \"npm:dev:daemon\" \"npm:dev:renderer\"",
     "dev:daemon": "npm run prepare:preinstalled-plugins && npm run prepare:examples && tsx watch src/daemon/server.ts --dev",
     "dev:desktop": "npm run prepare:preinstalled-plugins && npm run prepare:examples && npm run build:node && npm run build:player && concurrently --kill-others --names renderer,desktop --prefix-colors green,cyan \"npm:dev:renderer\" \"electron .\"",

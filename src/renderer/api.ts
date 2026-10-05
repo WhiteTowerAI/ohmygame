@@ -45,7 +45,9 @@ import {
   type PromptResponse,
   type WorkspaceFile,
   type WorkspaceFileContent,
-  MediaModelCatalog,
+  type MediaModelCatalog,
+  type Model3DModel,
+  type Model3DAnimationAction,
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { ExampleSummary } from "../shared/examples.js";
@@ -256,6 +258,15 @@ export async function listVideoModelCatalog(): Promise<MediaModelCatalog<VideoMo
   return request("/video-models/catalog");
 }
 
+export async function listModel3DCatalog(): Promise<MediaModelCatalog<Model3DModel>> {
+  return request("/model3d-models/catalog");
+}
+
+/** Preset moves for rigged humanoids; empty until a 3D provider is set up. */
+export async function listModel3DAnimations(): Promise<Model3DAnimationAction[]> {
+  return request("/model3d-animations");
+}
+
 export async function getWebSearchSettings(): Promise<WebSearchSettings> {
   return request("/settings/web-search");
 }
@@ -358,8 +369,8 @@ export async function publishProject(projectId: string, accessToken: string, met
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
 }
 
-export async function buildInteractiveDrama(projectId: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-drama/build`), {
+export async function buildInteractiveStory(projectId: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/build`), {
     method: "POST",
     headers: runtimeHeaders(),
   });
@@ -895,6 +906,16 @@ function parseModelAuthEvent(block: string): ModelAuthEvent | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The page Scenes run in. The desktop app loads its own pages from file://,
+ * where Chromium will not let the sandboxed frame load its script, so there
+ * the daemon serves it.
+ */
+export function playableSandboxUrl(): string {
+  const runtime = desktopRuntime();
+  return runtime ? `${runtime.daemonUrl}/playable-sandbox/playable-sandbox.html` : "./playable-sandbox.html";
 }
 
 function apiUrl(path: string): string {

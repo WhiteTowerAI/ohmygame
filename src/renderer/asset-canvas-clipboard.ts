@@ -19,5 +19,6 @@ export function duplicateAssetCanvasNode(
     duplicate.data.promptSource = undefined;
     duplicate.data.references = duplicate.data.references.filter((reference) => reference.type === "library");
   }
+  if (duplicate.type === "animate-3d" && duplicate.data.source?.type === "node") delete duplicate.data.source;
   return duplicate;
 }

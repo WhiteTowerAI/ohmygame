@@ -2,7 +2,8 @@ import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId } from "../shared/contracts.js";
+import { type Model3DAnimationAction, type PlanMode, type PlanState, type ProjectState, type QuestionnaireResult, type RunVideoToolRequest, type ToolId } from "../shared/contracts.js";
+import { DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
@@ -18,6 +19,7 @@ const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
   "image-to-3d": "generate_3d_asset",
   "generate-video": "generate_video",
+  "animate-3d": "animate_3d_asset",
 };
 const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin"]);
 
@@ -250,6 +252,50 @@ export function createAgentTools(
       }
     },
   }), defineTool({
+    name: PI_TOOL_NAMES["animate-3d"],
+    label: "Animate 3D Asset",
+    description: "Rig a textured humanoid GLB in the current project and bake preset animations into a new GLB, one named clip per action, ready for a three.js AnimationMixer. Only two-legged humanoid characters facing +Z can be rigged.",
+    parameters: Type.Object({
+      modelPath: Type.String({ description: "Path to a GLB model in the current project workspace" }),
+      actions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {
+        minItems: 1,
+        maxItems: MAX_ANIMATION_ACTIONS,
+        description: "Animation names from the provider library, such as Idle, Casual Walk, Run Fast, Regular Jump, Attack, Hit Reaction, or Dead. Defaults to that set.",
+      })),
+      heightMeters: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 100, description: `Approximate character height in meters; defaults to ${DEFAULT_CHARACTER_HEIGHT_METERS}` })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.modelPath);
+      if (source.contentType !== "model/gltf-binary") throw new Error("Only GLB models can be animated");
+      const library = await tools.animationActions();
+      const actions = input.actions
+        ? input.actions.map((name) => findAnimationAction(library, name))
+        : DEFAULT_ANIMATION_ACTION_IDS.flatMap((id) => library.filter((action) => action.id === id));
+      const assetId = await projects.ensureLibraryAsset(project.id, input.modelPath);
+      const run = await tools.run("animate-3d", {
+        assetId,
+        actionIds: [...new Set(actions.map((action) => action.id))],
+        ...(input.heightMeters !== undefined ? { heightMeters: input.heightMeters } : {}),
+      }, signal);
+      try {
+        const output = run.files[0];
+        if (!output) throw new Error("3D animation returned no output");
+        const file = await tools.file(run.id, output.name);
+        if (!file) throw new Error("Animated 3D model could not be read");
+        signal?.throwIfAborted();
+        const relativePath = await projects.addGeneratedAsset(project.id, `model-animated-${run.id}.glb`, file.bytes, {
+          ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
+        });
+        return {
+          content: [{ type: "text", text: `Animated 3D model saved to ${relativePath} with clips: ${actions.map((action) => action.name).join(", ")}` }],
+          details: { artifact: { type: "model", path: relativePath, mediaType: output.mediaType } },
+        };
+      } finally {
+        await tools.removeRun(run.id);
+      }
+    },
+  }), defineTool({
     name: PI_TOOL_NAMES["generate-video"],
     label: "Generate Video",
     description: "Generate a video from a text prompt, optionally animating a PNG, JPEG, or WebP image from the current project.",
@@ -298,7 +344,7 @@ export function createAgentTools(
         await tools.removeRun(run.id);
       }
     },
-  }), ...(project.type === "interactive-drama" ? [defineTool({
+  }), ...(project.type === "interactive-story" ? [defineTool({
     name: "playable_add_node",
     label: "Add Node",
     description: [
@@ -355,6 +401,16 @@ export function createAgentTools(
       return { content: [{ type: "text", text }], details: { playableCheck: { mode, ok: result.ok, issues } } };
     },
   })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type)
-    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-drama" ? "reset" : "full" })]
+    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full" })]
     : [])];
+}
+
+/** Matches an agent-supplied action name to the library, case-insensitively, and suggests close names when it misses. */
+function findAnimationAction(library: readonly Model3DAnimationAction[], name: string): Model3DAnimationAction {
+  const wanted = name.trim().toLowerCase();
+  const exact = library.find((action) => action.name.toLowerCase() === wanted);
+  if (exact) return exact;
+  const words = wanted.split(/\s+/).filter(Boolean);
+  const suggestions = library.filter((action) => words.some((word) => action.name.toLowerCase().includes(word))).slice(0, 8).map((action) => action.name);
+  throw new Error(`Unknown animation "${name}".${suggestions.length ? ` Similar names: ${suggestions.join(", ")}.` : ""}`);
 }

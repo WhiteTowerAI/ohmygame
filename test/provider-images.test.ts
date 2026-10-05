@@ -53,7 +53,7 @@ describe("ProviderImages", () => {
     const catalog = await images.catalog();
 
     expect(catalog.models).toEqual([]);
-    expect(catalog.providers).toEqual([expect.objectContaining({ provider: "openai", state: "empty", message: expect.stringContaining("Connect OpenAI with an API key") })]);
+    expect(catalog.providers).toEqual([expect.objectContaining({ provider: "openai", state: "empty", message: expect.stringContaining("connect OpenAI with an API key instead, or connect OpenRouter") })]);
     expect(request).not.toHaveBeenCalled();
   });
 

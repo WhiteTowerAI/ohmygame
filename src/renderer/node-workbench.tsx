@@ -1,10 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Box, ChevronRight, Film, Image as ImageIcon, LoaderCircle, Music2, Search, Upload, X } from "./icons.js";
+import { ChevronRight, LoaderCircle, Search, Upload, X } from "./icons.js";
 import type { LibraryUploadMediaType } from "../shared/contracts.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { uploadLibraryAsset } from "./api.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
+import { useNearViewport } from "./asset-gallery.js";
+import { AssetThumbnail, assetTypeBadge } from "./asset-browser.js";
 
 /**
  * Workbench pieces for the Playable Nodes editor: a breadcrumb back to the
@@ -126,18 +128,26 @@ export function LibraryAssetPicker({ title, assets, uploading, onUpload, onClose
         <label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" /></label>
         <div className="story-video-picker-list">
           {visibleAssets.length === 0 ? <p>{assets.length ? "No assets match your search" : "No assets in Library"}</p> : null}
-          {visibleAssets.map((asset) => {
-            const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : ImageIcon;
-            return <button type="button" key={asset.id} onClick={() => onSelect(asset)}>
-              <span><Icon size={17} /></span>
-              <span><strong>{asset.prompt ?? asset.name}</strong><small>{asset.name}</small></span>
-            </button>;
-          })}
+          {visibleAssets.map((asset) => <LibraryPickerItem key={asset.id} asset={asset} onSelect={() => onSelect(asset)} />)}
         </div>
       </section>
     </div>,
     document.body,
   );
+}
+
+/** One Library asset in the picker: the Library's own thumbnail, loaded once it scrolls near view, and its name. */
+function LibraryPickerItem({ asset, onSelect }: { asset: LibraryAsset; onSelect: () => void }) {
+  const [item, visible] = useNearViewport<HTMLButtonElement>();
+  const badge = assetTypeBadge(asset.mediaType);
+  const title = asset.prompt ?? asset.name;
+  return <button type="button" ref={item} onClick={onSelect} title={title}>
+    <span className="story-video-picker-thumbnail">
+      <AssetThumbnail asset={asset} visible={visible} />
+      {badge ? <span className="story-video-picker-badge">{badge}</span> : null}
+    </span>
+    <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}</span>
+  </button>;
 }
 
 /** Uploads a media file to the Library, with the limits every editor shares. */

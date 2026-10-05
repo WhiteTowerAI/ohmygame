@@ -24,6 +24,12 @@ export class PlayableNavigationError extends Error {
 export function createPlayableNavigation(
   graph: NodeGraph,
 ): PlayableNavigationState {
+  if (!graph.nodes.length) {
+    throw new PlayableNavigationError(
+      "unknown-node",
+      "The project has no Scenes yet. Add a Scene to play it.",
+    );
+  }
   if (!playableNodeById(graph, graph.entryNodeId)) {
     throw new PlayableNavigationError(
       "unknown-node",

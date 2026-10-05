@@ -508,7 +508,7 @@ export class ProjectManager {
       if (project.workspaceAvailable === false) continue;
       const metadata = await readAssetMetadata(project.workspacePath);
       let referenced = Object.values(metadata.libraryAssets).includes(assetId);
-      if (project.type === "interactive-drama" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+      if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
         try {
           const graph = await readNodeGraphForReferences(project.workspacePath);
           referenced ||= Object.values(graph.assets).some((asset) => (
@@ -534,7 +534,8 @@ export class ProjectManager {
           (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
           (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
           (node.type === "model-3d" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
-          ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "asset") && node.data.assetId === assetId)
+          (node.type === "animate-3d" && node.data.source?.type === "library" && node.data.source.assetId === assetId) ||
+          (node.type !== "text" && node.data.assetId === assetId)
         ))) references.push(project);
       }
     }
@@ -559,7 +560,7 @@ export class ProjectManager {
         await this.touch(project.id);
         continue;
       }
-      if (project.type === "interactive-drama" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+      if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
         const graph = await readNodeGraphForReferences(project.workspacePath);
         const removedIds = new Set(Object.entries(graph.assets).flatMap(([id, asset]) => (
           asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
@@ -668,6 +669,12 @@ function removeAssetCanvasReferences(current: AssetCanvasDocument, assetId: stri
           return { ...node, data: { ...data, references } };
         }
         return references.length === node.data.references.length ? node : { ...node, data: { ...node.data, references } };
+      }
+      if (node.type === "animate-3d") {
+        const { assetId: output, source, ...data } = node.data;
+        const keepSource = source && keepReference(source);
+        if (output !== assetId && (!source || keepSource)) return node;
+        return { ...node, data: { ...data, ...(keepSource ? { source } : {}), ...(output !== assetId && output ? { assetId: output } : {}) } };
       }
       return node;
     }),
@@ -828,7 +835,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
-      (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-drama" || parsed.type === "asset-canvas") &&
+      (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-story" || parsed.type === "asset-canvas") &&
       (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
       (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
       (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&

@@ -39,6 +39,12 @@ const EDGE_OPTIONS = {
   style: { stroke: EDGE_COLOR, strokeWidth: 1.5 },
   markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: EDGE_COLOR },
 };
+// The edge options set the stroke inline, which React Flow's `.selected` CSS cannot override, so selection restyles the edge itself.
+const SELECTED_EDGE_COLOR = "var(--theme-accent)";
+const SELECTED_EDGE_OPTIONS = {
+  style: { stroke: SELECTED_EDGE_COLOR, strokeWidth: 2 },
+  markerEnd: { ...EDGE_OPTIONS.markerEnd, color: SELECTED_EDGE_COLOR },
+};
 const SNAP_GRID: [number, number] = [CANVAS_GRID_SIZE, CANVAS_GRID_SIZE];
 
 type EditorCanvasProps<N extends Node> = Omit<ReactFlowProps<N, Edge>, "onPaneContextMenu" | "onNodeDrag"> & {
@@ -55,6 +61,7 @@ type EditorCanvasProps<N extends Node> = Omit<ReactFlowProps<N, Edge>, "onPaneCo
  */
 export function EditorCanvas<N extends Node>({
   nodes,
+  edges,
   addControl,
   onOpenMenu,
   onInit,
@@ -84,6 +91,7 @@ export function EditorCanvas<N extends Node>({
     <ReactFlow<N, Edge>
       className={`story-canvas story-canvas-${mode}`}
       nodes={nodes}
+      edges={edges?.map((edge) => edge.selected ? { ...edge, ...SELECTED_EDGE_OPTIONS } : edge)}
       defaultEdgeOptions={EDGE_OPTIONS}
       connectionLineStyle={EDGE_OPTIONS.style}
       minZoom={0.25}
@@ -110,7 +118,7 @@ export function EditorCanvas<N extends Node>({
       onPaneContextMenu={(event) => openMenu(event, "pane")}
       onNodeContextMenu={(event, node) => { onNodeContextMenu?.(event, node); openMenu(event, "node", node.id); }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-drama-grid)" />
+      <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-story-grid)" />
       <AlignmentGuides guides={guides} />
       <ZoomControls />
       <Panel className="story-canvas-toolbar" position="bottom-center">

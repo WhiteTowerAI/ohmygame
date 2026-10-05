@@ -104,6 +104,7 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
     if (node.type === "video") {
       for (const reference of node.data.references) validateReference(node.id, reference, nodes, ["image", "video", "asset"]);
     }
+    if (node.type === "animate-3d" && node.data.source) validateReference(node.id, node.data.source, nodes, ["model-3d", "asset"]);
     if ((node.type === "image" || node.type === "video") && node.data.promptSource) {
       const source = nodes.get(node.data.promptSource.nodeId);
       if (source?.type !== "text" || source.id === node.id) throw new Error(`Node ${node.id} has an invalid Text reference`);

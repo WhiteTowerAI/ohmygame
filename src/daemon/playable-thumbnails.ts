@@ -78,6 +78,30 @@ export async function writePlayableThumbnail(
 }
 
 /**
+ * The picture of an Interactive Story that has no cover of its own: the
+ * Start Scene's thumbnail, or the first Scene that has one. Undefined until
+ * any Scene has been captured.
+ */
+export async function readPlayableCover(workspacePath: string): Promise<Buffer | undefined> {
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(path.join(workspacePath, "graph.json"), "utf8"));
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(value)) return undefined;
+  const nodeIds = Array.isArray(value.nodes)
+    ? value.nodes.flatMap((node) => isRecord(node) && typeof node.id === "string" && NODE_ID_PATTERN.test(node.id) ? [node.id] : [])
+    : [];
+  const entry = typeof value.entryNodeId === "string" && nodeIds.includes(value.entryNodeId) ? [value.entryNodeId] : [];
+  for (const nodeId of [...entry, ...nodeIds.filter((id) => !entry.includes(id))]) {
+    const thumbnail = await readPlayableThumbnail(workspacePath, nodeId).catch(() => undefined);
+    if (thumbnail) return thumbnail;
+  }
+  return undefined;
+}
+
+/**
  * The Node IDs graph.json declares. Only the IDs matter here, so a graph with
  * other problems still keeps its thumbnails.
  */

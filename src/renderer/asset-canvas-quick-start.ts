@@ -1,6 +1,6 @@
 import type { ImageModel, ProjectState, VideoModel } from "../shared/contracts.js";
 import { createAssetCanvasStarterDocument, preferredImageOption, type AssetCanvasStarter } from "../shared/asset-canvas.js";
-import { createProject, deleteProject, listImageModels, listVideoModels, updateAssetCanvas } from "./api.js";
+import { createProject, deleteProject, listImageModels, listVideoModels, updateAssetCanvas, waitForRuntime } from "./api.js";
 
 export interface AssetCanvasQuickStart {
   key: string;
@@ -20,21 +20,35 @@ export const ASSET_CANVAS_QUICK_STARTS: readonly AssetCanvasQuickStart[] = [
   { key: "seedance-2.5", type: "video", label: "Seedance 2.5", modelId: "seedance-2.5" },
 ];
 
-/** Hides model-specific starters whose model the configured providers do not offer. */
-export function availableQuickStarts(
-  imageModels: readonly ImageModel[],
-  videoModels: readonly VideoModel[],
-  quickStarts: readonly AssetCanvasQuickStart[] = ASSET_CANVAS_QUICK_STARTS,
-): AssetCanvasQuickStart[] {
-  return quickStarts.filter((item) => {
-    if (!item.modelId) return true;
-    const models = item.type === "image" ? imageModels : item.type === "video" ? videoModels : [];
-    return models.some((model) => matchesModelId(model.id, item.modelId!));
-  });
+/** Thrown when no connected provider offers a model-specific starter's model. */
+export class QuickStartModelUnavailableError extends Error {
+  constructor(item: AssetCanvasQuickStart) {
+    super(`${item.label} needs a provider that offers it.`);
+    this.name = "QuickStartModelUnavailableError";
+  }
+}
+
+type MediaModels = { image: ImageModel[]; video: VideoModel[] };
+
+// Provider catalogs can take seconds, so the app loads them ahead of a click and starters reuse the result.
+let cachedModels: MediaModels | undefined;
+let pendingModels: Promise<MediaModels> | undefined;
+
+/** Refreshes the media model lists, joining a load already in flight. */
+export function loadQuickStartModels(): Promise<MediaModels> {
+  pendingModels ??= waitForRuntime()
+    .then(() => Promise.all([listImageModels().catch(() => []), listVideoModels().catch(() => [])]))
+    .catch(() => [[], []] as [ImageModel[], VideoModel[]])
+    .then(([image, video]) => {
+      cachedModels = { image, video };
+      return cachedModels;
+    })
+    .finally(() => { pendingModels = undefined; });
+  return pendingModels;
 }
 
 export async function createAssetCanvasQuickStart(item: AssetCanvasQuickStart): Promise<{ project: ProjectState; nodeId: string }> {
-  const { document, nodeId } = createAssetCanvasStarterDocument(item.type, await starterOptions(item));
+  const { document, nodeId } = createAssetCanvasStarterDocument(item.type, starterOptions(item, await modelsFor(item)));
   const project = await createProject({ type: "asset-canvas" });
   try {
     await updateAssetCanvas(project.id, document);
@@ -49,9 +63,25 @@ export async function createAssetCanvasQuickStart(item: AssetCanvasQuickStart): 
   return { project, nodeId };
 }
 
-async function starterOptions(item: AssetCanvasQuickStart): Promise<Parameters<typeof createAssetCanvasStarterDocument>[1]> {
+// A model the cached lists lack may come from a provider connected since, so look again before giving up.
+async function modelsFor(item: AssetCanvasQuickStart): Promise<MediaModels> {
+  if (cachedModels && (!item.modelId || hasModel(item, cachedModels))) return cachedModels;
+  const models = await loadQuickStartModels();
+  if (item.modelId && !hasModel(item, models)) throw new QuickStartModelUnavailableError(item);
+  return models;
+}
+
+function hasModel(item: AssetCanvasQuickStart, models: MediaModels): boolean {
+  return Boolean(item.modelId) && starterModels(item, models).some((model) => matchesModelId(model.id, item.modelId!));
+}
+
+function starterModels(item: AssetCanvasQuickStart, models: MediaModels): ReadonlyArray<ImageModel | VideoModel> {
+  return item.type === "image" ? models.image : item.type === "video" ? models.video : [];
+}
+
+function starterOptions(item: AssetCanvasQuickStart, models: MediaModels): Parameters<typeof createAssetCanvasStarterDocument>[1] {
   if (item.type === "image") {
-    const model = pickModel(item, await listImageModels());
+    const model = pickModel(item, models.image);
     const option = preferredImageOption(model);
     return model ? {
       imageModel: { provider: model.provider, id: model.id },
@@ -59,7 +89,7 @@ async function starterOptions(item: AssetCanvasQuickStart): Promise<Parameters<t
     } : {};
   }
   if (item.type === "video") {
-    const model = pickModel(item, await listVideoModels());
+    const model = pickModel(item, models.video);
     return model ? { videoModel: { provider: model.provider, id: model.id }, videoAspectRatio: model.aspectRatios[0] } : {};
   }
   return {};
@@ -67,10 +97,7 @@ async function starterOptions(item: AssetCanvasQuickStart): Promise<Parameters<t
 
 // Generic starters take the first available model, like a new node on the canvas does.
 function pickModel<Model extends { id: string }>(item: AssetCanvasQuickStart, models: readonly Model[]): Model | undefined {
-  if (!item.modelId) return models[0];
-  const model = models.find((candidate) => matchesModelId(candidate.id, item.modelId!));
-  if (!model) throw new Error(`${item.label} is not available`);
-  return model;
+  return item.modelId ? models.find((model) => matchesModelId(model.id, item.modelId!)) : models[0];
 }
 
 function matchesModelId(id: string, modelId: string): boolean {

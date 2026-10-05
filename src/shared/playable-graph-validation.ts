@@ -93,7 +93,12 @@ export function validateNodeGraph(
       );
     }
   }
-  if (!nodes.has(graph.entryNodeId)) {
+  // An empty project is a valid draft, but there is nothing to publish.
+  if (!graph.nodes.length) {
+    if (options.mode === "publish") {
+      issue(issues, "missing-node", "/nodes", "The project has no Scenes. Add a Scene before publishing.");
+    }
+  } else if (!nodes.has(graph.entryNodeId)) {
     issue(
       issues,
       "missing-node",

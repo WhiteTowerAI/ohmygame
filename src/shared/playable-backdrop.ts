@@ -38,6 +38,17 @@ export function setPlayableBackdrop(
   return `${html.slice(0, tag.index)}${opening}${html.slice(tag.index + tag[0].length)}`;
 }
 
+/**
+ * Takes the Asset off the Node's background by removing `data-asset` and
+ * `data-type` from its `.backdrop`, which stays for the next one. Undefined
+ * when the HTML has no single background.
+ */
+export function clearPlayableBackdrop(html: string): string | undefined {
+  const tag = backdropTag(html);
+  if (!tag) return undefined;
+  return `${html.slice(0, tag.index)}${tag[0].replace(ASSET_ATTRIBUTE, "")}${html.slice(tag.index + tag[0].length)}`;
+}
+
 function escapeAttribute(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { WorkspaceFile } from "../shared/contracts.js";
 import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, MoreHorizontal, Music2, Play, Search, X } from "./icons.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -54,13 +54,7 @@ export function WorkspaceAssetCard({ asset, onOpen, onRename, onDelete }: {
   onDelete: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [previewFailed, setPreviewFailed] = useState(false);
   const [card, visible] = useNearViewport<HTMLElement>();
-  const preview = useWorkspaceAssetUrl(visible && asset.mediaType !== "audio" ? asset.projectId : undefined, asset.path, asset.revision, visible ? asset.assetId : undefined);
-  const showPreview = Boolean(preview.url) && !previewFailed;
-  const FallbackIcon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : preview.error || previewFailed ? X : ImageIcon;
-  const TypeIcon = asset.mediaType === "video" ? Play : asset.mediaType === "model" ? Box : undefined;
-  const typeLabel = asset.mediaType === "video" ? "Video" : asset.mediaType === "model" ? "3D" : undefined;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -81,14 +75,8 @@ export function WorkspaceAssetCard({ asset, onOpen, onRename, onDelete }: {
   return <AssetCardShell
     title={asset.prompt ?? fileName(asset.path)}
     subtitle={<>{mediaTypeLabel(asset.mediaType)}{asset.projectName ? ` · ${asset.projectName}` : ""}</>}
-    preview={<>
-      {showPreview && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setPreviewFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
-      {showPreview && asset.mediaType === "image" ? <img src={preview.url} alt="" onError={() => setPreviewFailed(true)} /> : null}
-      {preview.url && !previewFailed && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={fileName(asset.path)} interactive={false} /> : null}
-      {!showPreview && visible && asset.mediaType === "model" && !preview.error ? <LoaderCircle className="spin" size={18} /> : null}
-      {!showPreview && (!visible || asset.mediaType !== "model" || preview.error) ? <FallbackIcon size={FallbackIcon === X ? 22 : 28} /> : null}
-    </>}
-    badge={TypeIcon && typeLabel ? <><TypeIcon size={11} />{typeLabel}</> : undefined}
+    preview={<AssetThumbnail asset={asset} visible={visible} />}
+    badge={assetTypeBadge(asset.mediaType)}
     actions={<div className="library-asset-actions">
         <button className="library-asset-menu" type="button" aria-label={`Asset actions for ${fileName(asset.path)}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
         {menuOpen ? <div className="library-asset-actions-menu" role="menu">
@@ -99,6 +87,28 @@ export function WorkspaceAssetCard({ asset, onOpen, onRename, onDelete }: {
     articleRef={card}
     onOpen={onOpen}
   />;
+}
+
+/** An asset's thumbnail: an image, a video's first frame, or a still 3D model, loaded once `visible`. */
+export function AssetThumbnail({ asset, visible }: { asset: BrowsableAsset; visible: boolean }) {
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const preview = useWorkspaceAssetUrl(visible && asset.mediaType !== "audio" ? asset.projectId : undefined, asset.path, asset.revision, visible ? asset.assetId : undefined);
+  const showPreview = Boolean(preview.url) && !previewFailed;
+  const FallbackIcon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : preview.error || previewFailed ? X : ImageIcon;
+  return <>
+    {showPreview && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setPreviewFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
+    {showPreview && asset.mediaType === "image" ? <img src={preview.url} alt="" onError={() => setPreviewFailed(true)} /> : null}
+    {preview.url && !previewFailed && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={fileName(asset.path)} interactive={false} /> : null}
+    {!showPreview && visible && asset.mediaType === "model" && !preview.error ? <LoaderCircle className="spin" size={18} /> : null}
+    {!showPreview && (!visible || asset.mediaType !== "model" || preview.error) ? <FallbackIcon size={FallbackIcon === X ? 22 : 28} /> : null}
+  </>;
+}
+
+/** The corner badge on a thumbnail, for media a still frame does not make obvious. */
+export function assetTypeBadge(mediaType: BrowsableAsset["mediaType"]): ReactNode {
+  if (mediaType === "video") return <><Play size={11} />Video</>;
+  if (mediaType === "model") return <><Box size={11} />3D</>;
+  return undefined;
 }
 
 export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete }: {

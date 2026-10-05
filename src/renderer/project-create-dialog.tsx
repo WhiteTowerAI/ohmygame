@@ -3,8 +3,6 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { createProject } from "./api.js";
 import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel, type ProjectTypeOption } from "./project-types.js";
-import { canvasFormatPreset, type CanvasFormatPresetId } from "../shared/canvas-formats.js";
-import { CanvasFormatOptions } from "./canvas-format-options.js";
 
 export function ProjectCreateDialog({ initialType = "web-game", fixedType, projectTypes = PROJECT_TYPES, onClose, onCreated }: {
   initialType?: ProjectType;
@@ -22,7 +20,6 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
   const [type, setType] = useState<ProjectType>(fixedType ?? initialType);
   const [workspacePath, setWorkspacePath] = useState<string>();
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
-  const [canvasFormat, setCanvasFormat] = useState<CanvasFormatPresetId>("landscape");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
   creatingRef.current = creating;
@@ -62,7 +59,6 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
       const project = await createProject({
         name: name.trim() || defaultProjectName(type),
         type,
-        ...(type === "interactive-drama" ? { viewport: canvasFormatPreset(canvasFormat).viewport } : {}),
         ...(workspacePath ? { workspacePath } : {}),
       });
       onCreated(project);
@@ -132,12 +128,6 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
                   <span>{option.label}</span>
                 </button>
               ))}
-            </fieldset>
-          ) : null}
-          {type === "interactive-drama" ? (
-            <fieldset className="project-create-format">
-              <legend>Canvas format</legend>
-              <CanvasFormatOptions value={canvasFormat} disabled={creating} onChange={setCanvasFormat} />
             </fieldset>
           ) : null}
           {error ? <p className="project-create-error" role="alert">{error}</p> : null}

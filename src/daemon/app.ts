@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasDocument, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasDocument, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelCatalog, type Model3DModel, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -29,6 +29,7 @@ import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import type { Model3DGenerator } from "./model3d.js";
+import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MODELS } from "../shared/generation-config.js";
 import { MeshyProvider } from "./meshy-provider.js";
 import { MeshySettingsStore } from "./meshy-settings.js";
 import type { ImageGenerator } from "./openai-image.js";
@@ -69,6 +70,7 @@ import {
   listPlayableThumbnails,
   PlayableThumbnailError,
   readGraphNodeIds,
+  readPlayableCover,
   readPlayableThumbnail,
   writePlayableThumbnail,
 } from "./playable-thumbnails.js";
@@ -93,7 +95,7 @@ export interface AppOptions {
   createModelRuntime?: () => Promise<ModelRuntime>;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
-  interactiveDramaPlayerDirectory?: string;
+  interactiveStoryPlayerDirectory?: string;
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
@@ -106,7 +108,7 @@ const createProjectSchema = {
     additionalProperties: false,
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
-      type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama", "asset-canvas"] },
+      type: { type: "string", enum: ["web-game", "godot-game", "interactive-story", "asset-canvas"] },
       exampleId: { type: "string", pattern: EXAMPLE_ID_PATTERN, maxLength: 80 },
       viewport: {
         type: "object",
@@ -399,17 +401,21 @@ const toolRunSchema = {
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 32_000 },
       imageModel: modelRefSchema,
+      model: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
       resolution: { type: "string", enum: [...new Set([...IMAGE_RESOLUTIONS, ...VIDEO_RESOLUTIONS])] },
       aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
       outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
       duration: { type: "integer", minimum: 1, maximum: 30 },
-      targetPolycount: { type: "integer", minimum: 100, maximum: 15_000 },
+      targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
       title: { type: "string", minLength: 1, maxLength: 80 },
       projectId: { type: "string", minLength: 1, maxLength: 200 },
       nodeId: { type: "string", minLength: 1, maxLength: 200 },
+      assetId: { type: "string", minLength: 1, maxLength: 100 },
+      actionIds: { type: "array", minItems: 1, maxItems: MAX_ANIMATION_ACTIONS, uniqueItems: true, items: { type: "integer", minimum: 0 } },
+      heightMeters: { type: "number", exclusiveMinimum: 0, maximum: 100 },
       image: {
         type: "object",
         additionalProperties: false,
@@ -490,6 +496,12 @@ const meshySettingsSchema = {
 
 const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
 
+/** The Player build's sandbox page and its script, by the URL the daemon serves each at. */
+const PLAYABLE_SANDBOX_FILES = new Map([
+  ["/playable-sandbox/playable-sandbox.html", "playable-sandbox.html"],
+  ["/playable-sandbox/assets/playable-sandbox.js", "assets/playable-sandbox.js"],
+]);
+
 export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
@@ -500,7 +512,8 @@ export function createApp(options: AppOptions = {}) {
   const attachments = new AgentAttachmentStore();
   const conversations = new ConversationManager();
   const publishing = new Set<string>();
-  const artifacts = new ArtifactBuilder(library, options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player"));
+  const playerDirectory = options.interactiveStoryPlayerDirectory ?? path.join(repositoryRoot, "dist", "player");
+  const artifacts = new ArtifactBuilder(library, playerDirectory);
   const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const examples = new ExampleStore(options.examplesDirectory, (workspacePath, exampleId) => artifacts.preparePlayableExample(workspacePath, exampleId));
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
@@ -631,7 +644,7 @@ export function createApp(options: AppOptions = {}) {
             driver: options.playtestDriver,
             resolveOpenTarget: async () => ({
               runtime: "web",
-              url: project.type === "interactive-drama"
+              url: project.type === "interactive-story"
                 ? await playableDrafts.open(project)
                 : project.preview.status === "ready" && project.preview.url
                   ? project.preview.url
@@ -696,13 +709,23 @@ export function createApp(options: AppOptions = {}) {
       reply.header("vary", "Origin");
     }
     if (request.method === "OPTIONS") return reply.code(204).send();
-    if (!options.accessToken) return;
+    if (!options.accessToken || (request.method === "GET" && PLAYABLE_SANDBOX_FILES.has(request.url))) return;
     if (!matchesBearerToken(request.headers.authorization, options.accessToken)) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  // The page Scenes run in. The desktop app loads its own pages from file://,
+  // where a sandboxed frame may not load its script, so the frame comes from
+  // here instead. It is the public Player build, so it needs no token.
+  for (const [url, file] of PLAYABLE_SANDBOX_FILES) {
+    app.get(url, async (_request, reply) => reply
+      .type(file.endsWith(".html") ? "text/html; charset=utf-8" : "text/javascript; charset=utf-8")
+      .header("cache-control", "no-cache")
+      .send(await readFile(path.join(playerDirectory, file))));
+  }
 
   app.get("/settings/connections", async () => connections.list());
 
@@ -972,11 +995,11 @@ export function createApp(options: AppOptions = {}) {
         });
         return reply.code(201).send(project);
       }
-      if (request.body?.viewport && request.body.type !== "interactive-drama") {
-        return reply.code(400).send({ error: "A viewport requires an Interactive Drama project" });
+      if (request.body?.viewport && request.body.type !== "interactive-story") {
+        return reply.code(400).send({ error: "A viewport requires an Interactive Story project" });
       }
       const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
-      if (project.type === "interactive-drama") {
+      if (project.type === "interactive-story") {
         try {
           await createNodeCodebase(
             project.workspacePath,
@@ -1046,7 +1069,7 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Node Runtime requires an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Node Runtime requires an Interactive Story project" });
     try {
       const definition = await buildPlayableProject(project.workspacePath);
       return definition ? { available: true, definition } : { available: false };
@@ -1069,7 +1092,7 @@ export function createApp(options: AppOptions = {}) {
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
-      if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable validation requires an Interactive Drama project" });
+      if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable validation requires an Interactive Story project" });
       return validatePlayableProject(project.workspacePath, request.query.mode ?? "draft");
     },
   );
@@ -1077,7 +1100,7 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/codebase", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable codebases require an Interactive Story project" });
     try {
       return await readNodeCodebase(project.workspacePath);
     } catch (cause) {
@@ -1091,7 +1114,7 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable codebases require an Interactive Story project" });
     try {
       await writeNodeCodebase(project.workspacePath, request.body);
     } catch (cause) {
@@ -1143,7 +1166,7 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Node thumbnails require an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Node thumbnails require an Interactive Story project" });
     if (!isWebp(request.body)) return reply.code(400).send({ error: "A Node thumbnail must be a WebP image" });
     try {
       const nodeIds = await readGraphNodeIds(project.workspacePath);
@@ -1184,7 +1207,7 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable Nodes require an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable Nodes require an Interactive Story project" });
     let result;
     try {
       result = await addPlayableNode(project.workspacePath, request.body);
@@ -1496,9 +1519,17 @@ export function createApp(options: AppOptions = {}) {
     return project ?? reply.code(404).send({ error: "Project not found" });
   });
 
+  /** The project's own cover; an Interactive Story without one shows a Scene's thumbnail. */
+  const projectCover = async (projectId: string): Promise<Buffer | undefined> => {
+    const cover = await projects.cover(projectId);
+    const project = projects.get(projectId);
+    if (cover || project?.type !== "interactive-story") return cover;
+    return readPlayableCover(project.workspacePath);
+  };
+
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/cover", async (request, reply) => {
     if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
-    const cover = await projects.cover(request.params.projectId);
+    const cover = await projectCover(request.params.projectId);
     if (!cover) return reply.code(404).send({ error: "Project cover not found" });
     reply.header("content-type", "image/webp");
     reply.header("cache-control", "no-store");
@@ -1755,6 +1786,19 @@ export function createApp(options: AppOptions = {}) {
   app.get("/video-models", async () => providerVideos.models());
   app.get("/image-models/catalog", async () => providerImages.catalog());
   app.get("/video-models/catalog", async () => providerVideos.catalog());
+  // 3D models all run on Meshy, so they are offered once its key is set; "Manage providers" covers the rest.
+  app.get("/model3d-models/catalog", async (): Promise<MediaModelCatalog<Model3DModel>> => meshySettings.get().configured
+    ? { models: [...MODEL_3D_MODELS], providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }] }
+    : { models: [], providers: [] });
+  app.get("/model3d-animations", async (_request, reply) => {
+    if (!meshySettings.get().configured) return [];
+    try {
+      return await tools.animationActions();
+    } catch (cause) {
+      if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
 
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
     "/projects/:projectId/conversations",
@@ -2282,7 +2326,7 @@ export function createApp(options: AppOptions = {}) {
       try {
         const result = await publisher.publish(
           project,
-          await artifacts.create(project, await projects.cover(project.id)),
+          await artifacts.create(project, await projectCover(project.id)),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
         );
@@ -2307,14 +2351,14 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-drama/build", async (request, reply) => {
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/build", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Build requires an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Build requires an Interactive Story project" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before building" });
     if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
     try {
-      const artifact = await artifacts.buildInteractiveDrama(project);
+      const artifact = await artifacts.buildInteractiveStory(project);
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
