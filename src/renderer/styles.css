@@ -2137,9 +2137,9 @@ select.settings-search-input {
   mask-image: url("./assets/sidebar/plugins.svg");
   -webkit-mask-image: url("./assets/sidebar/plugins.svg");
 }
-.home-nav-icon-interactive-drama {
-  mask-image: url("./assets/sidebar/interactive-drama.svg");
-  -webkit-mask-image: url("./assets/sidebar/interactive-drama.svg");
+.home-nav-icon-interactive-story {
+  mask-image: url("./assets/sidebar/interactive-story.svg");
+  -webkit-mask-image: url("./assets/sidebar/interactive-story.svg");
 }
 .home-nav-icon-asset-canvas {
   mask-image: url("./assets/sidebar/assets.svg");
@@ -2502,7 +2502,7 @@ button.home-nav-item-active:hover {
   color: var(--text);
 }
 
-.interactive-drama-recent .home-section-heading {
+.interactive-story-recent .home-section-heading {
   margin-bottom: 15px;
 }
 
@@ -6092,8 +6092,8 @@ button {
   background: var(--surface);
 }
 
-.viewer-pane.interactive-drama-workspace {
-  --interactive-drama-grid: #34373d;
+.viewer-pane.interactive-story-workspace {
+  --interactive-story-grid: #34373d;
   --story-edge-color: #91a89b;
   --story-editor-surface: #1b1c20;
   --story-editor-stage: #141519;
@@ -6105,19 +6105,19 @@ button {
   background: var(--surface);
 }
 
-:root[data-appearance="light"] .viewer-pane.interactive-drama-workspace {
-  --interactive-drama-grid: #d5d8d2;
+:root[data-appearance="light"] .viewer-pane.interactive-story-workspace {
+  --interactive-story-grid: #d5d8d2;
   --story-edge-color: #789084;
   --story-editor-surface: #fff;
   --story-editor-stage: #f3f4f0;
 }
 
-.interactive-drama-workspace.is-node-editor-open {
+.interactive-story-workspace.is-node-editor-open {
   position: relative;
   display: block;
 }
-.interactive-drama-workspace.is-node-editor-open > .interactive-drama-header,
-.interactive-drama-workspace.is-node-editor-open > .interactive-drama-body {
+.interactive-story-workspace.is-node-editor-open > .interactive-story-header,
+.interactive-story-workspace.is-node-editor-open > .interactive-story-body {
   display: none;
 }
 .story-node-editor-page {
@@ -6234,7 +6234,7 @@ button {
   height: 100%;
   object-fit: cover;
 }
-.interactive-drama-header {
+.interactive-story-header {
   position: relative;
   z-index: 4;
   display: grid;
@@ -6256,7 +6256,7 @@ button {
   height: 100%;
 }
 
-.interactive-drama-header-actions {
+.interactive-story-header-actions {
   display: flex;
   grid-column: 3;
   grid-row: 1;
@@ -6264,7 +6264,7 @@ button {
   gap: 8px;
 }
 
-.interactive-drama-project-tools {
+.interactive-story-project-tools {
   display: inline-flex;
   grid-column: 1;
   grid-row: 1;
@@ -6272,7 +6272,7 @@ button {
   gap: 6px;
   app-region: no-drag;
 }
-.interactive-drama-project-tools > button {
+.interactive-story-project-tools > button {
   display: inline-flex;
   height: 30px;
   align-items: center;
@@ -6287,12 +6287,12 @@ button {
   font-size: 10px;
   font-weight: 600;
 }
-.interactive-drama-project-tools > button:hover {
+.interactive-story-project-tools > button:hover {
   border-color: var(--border-strong);
   color: var(--text);
 }
 
-.interactive-drama-home-button {
+.interactive-story-home-button {
   display: inline-flex;
   width: 30px;
   height: 30px;
@@ -6306,18 +6306,18 @@ button {
   cursor: pointer;
 }
 
-.interactive-drama-home-button:hover,
-.interactive-drama-home-button:focus-visible {
+.interactive-story-home-button:hover,
+.interactive-story-home-button:focus-visible {
   background: var(--surface-hover);
   color: var(--text);
 }
 
-.interactive-drama-home-button:focus-visible {
+.interactive-story-home-button:focus-visible {
   outline: 1px solid var(--focus-ring);
   outline-offset: 1px;
 }
 
-.interactive-drama-project-tools > button > small {
+.interactive-story-project-tools > button > small {
   min-width: 15px;
   padding: 1px 4px;
   border-radius: 4px;
@@ -6327,7 +6327,7 @@ button {
   text-align: center;
 }
 
-.interactive-drama-action {
+.interactive-story-action {
   display: flex;
   height: 32px;
   align-items: center;
@@ -6343,31 +6343,31 @@ button {
   cursor: pointer;
 }
 
-.interactive-drama-action:hover {
+.interactive-story-action:hover {
   border-color: var(--border-strong);
   background: var(--surface-hover);
 }
 
-.interactive-drama-action.is-active {
+.interactive-story-action.is-active {
   border-color: var(--border-strong);
   background: var(--surface-hover);
 }
 
-.interactive-drama-canvas {
+.interactive-story-canvas {
   position: relative;
   min-width: 0;
   min-height: 0;
   background: var(--canvas);
 }
 
-.interactive-drama-body {
+.interactive-story-body {
   display: grid;
   min-width: 0;
   min-height: 0;
   grid-template-columns: minmax(0, 1fr);
 }
 
-.interactive-drama-canvas .react-flow {
+.interactive-story-canvas .react-flow {
   background: var(--canvas);
 }
 
@@ -6395,10 +6395,10 @@ button {
 }
 
 @container (max-width: 860px) {
-  .interactive-drama-header-actions .interactive-drama-action span {
+  .interactive-story-header-actions .interactive-story-action span {
     display: none;
   }
-  .interactive-drama-action {
+  .interactive-story-action {
     width: 32px;
     padding: 0;
   }
@@ -6745,10 +6745,6 @@ button {
   transform: translate(50%, -50%);
 }
 
-.story-asset-edge .react-flow__edge-path {
-  stroke-dasharray: 6 5;
-}
-
 .story-media-node {
   width: var(--story-media-width, 440px);
   overflow: visible;
@@ -7083,17 +7079,6 @@ button {
 .story-media-reference:hover > button,
 .story-media-reference:focus-within > button {
   display: grid;
-}
-
-.story-media-reference-link {
-  position: absolute;
-  bottom: 3px;
-  left: 3px;
-  width: 7px;
-  height: 7px;
-  border: 1px solid #18201e;
-  border-radius: 50%;
-  background: #76b5a4;
 }
 
 .story-media-reference-add {
@@ -7747,7 +7732,7 @@ button {
 .story-video-picker-thumbnail {
   position: relative;
   display: grid;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 4 / 3;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -7761,6 +7746,12 @@ button {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.story-video-picker-thumbnail .model-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 0 !important;
+  pointer-events: none;
 }
 .story-video-picker-badge {
   position: absolute;
@@ -8095,12 +8086,12 @@ button {
 }
 
 @container (max-width: 620px) {
-  .interactive-drama-action {
+  .interactive-story-action {
     width: 32px;
     padding: 0;
   }
 
-  .interactive-drama-action span {
+  .interactive-story-action span {
     display: none;
   }
 }
@@ -8405,31 +8396,31 @@ button {
 }
 
 .viewer-header > .workspace-navigation-drag-exclusion,
-.interactive-drama-header > .workspace-navigation-drag-exclusion {
+.interactive-story-header > .workspace-navigation-drag-exclusion {
   display: none;
 }
 
 .workspace-shell-agent-collapsed
-  :is(.viewer-header, .interactive-drama-header)
+  :is(.viewer-header, .interactive-story-header)
   > .workspace-navigation-drag-exclusion {
   display: block;
   width: 102px;
 }
 
-.workspace-shell-agent-collapsed :is(.viewer-header, .interactive-drama-header, .story-node-editor-header) {
+.workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
   padding-left: calc(var(--workspace-navigation-left) + 112px);
 }
 
-.workspace-shell-chat-right.workspace-shell-agent-collapsed :is(.viewer-header, .interactive-drama-header, .story-node-editor-header) {
+.workspace-shell-chat-right.workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
   padding-left: 18px;
 }
 
-.desktop-macos .workspace-shell-chat-right :is(.viewer-header, .interactive-drama-header, .story-node-editor-header) {
+.desktop-macos .workspace-shell-chat-right :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
   padding-left: var(--workspace-navigation-left);
 }
 
 .workspace-shell-chat-right.workspace-shell-agent-collapsed
-  :is(.viewer-header, .interactive-drama-header)
+  :is(.viewer-header, .interactive-story-header)
   > .workspace-navigation-drag-exclusion {
   display: none;
 }
@@ -12917,7 +12908,7 @@ button {
     padding-right: 8px;
   }
 
-  .workspace-shell-agent-collapsed :is(.viewer-header, .interactive-drama-header, .story-node-editor-header) {
+  .workspace-shell-agent-collapsed :is(.viewer-header, .interactive-story-header, .story-node-editor-header) {
     padding-left: calc(var(--workspace-navigation-left) + 80px);
   }
 
@@ -14107,7 +14098,7 @@ button {
 .playable-editor-workspace {
   position: relative;
 }
-.interactive-drama-project-tools > button.is-active {
+.interactive-story-project-tools > button.is-active {
   border-color: var(--border-strong);
   background: var(--surface-hover);
   color: var(--text);
@@ -14229,7 +14220,7 @@ button {
   margin: 0;
   color: var(--text-faint);
 }
-.interactive-drama-project-tools > button:disabled {
+.interactive-story-project-tools > button:disabled {
   cursor: default;
   opacity: 0.5;
 }

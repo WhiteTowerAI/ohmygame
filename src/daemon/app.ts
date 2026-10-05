@@ -95,7 +95,7 @@ export interface AppOptions {
   createModelRuntime?: () => Promise<ModelRuntime>;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
-  interactiveDramaPlayerDirectory?: string;
+  interactiveStoryPlayerDirectory?: string;
   /** Examples prepared by scripts/prepare-examples.ts; omitted means no examples. */
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
@@ -108,7 +108,7 @@ const createProjectSchema = {
     additionalProperties: false,
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
-      type: { type: "string", enum: ["web-game", "godot-game", "interactive-drama", "asset-canvas"] },
+      type: { type: "string", enum: ["web-game", "godot-game", "interactive-story", "asset-canvas"] },
       exampleId: { type: "string", pattern: EXAMPLE_ID_PATTERN, maxLength: 80 },
       viewport: {
         type: "object",
@@ -512,7 +512,7 @@ export function createApp(options: AppOptions = {}) {
   const attachments = new AgentAttachmentStore();
   const conversations = new ConversationManager();
   const publishing = new Set<string>();
-  const playerDirectory = options.interactiveDramaPlayerDirectory ?? path.join(repositoryRoot, "dist", "player");
+  const playerDirectory = options.interactiveStoryPlayerDirectory ?? path.join(repositoryRoot, "dist", "player");
   const artifacts = new ArtifactBuilder(library, playerDirectory);
   const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const examples = new ExampleStore(options.examplesDirectory, (workspacePath, exampleId) => artifacts.preparePlayableExample(workspacePath, exampleId));
@@ -644,7 +644,7 @@ export function createApp(options: AppOptions = {}) {
             driver: options.playtestDriver,
             resolveOpenTarget: async () => ({
               runtime: "web",
-              url: project.type === "interactive-drama"
+              url: project.type === "interactive-story"
                 ? await playableDrafts.open(project)
                 : project.preview.status === "ready" && project.preview.url
                   ? project.preview.url
@@ -995,11 +995,11 @@ export function createApp(options: AppOptions = {}) {
         });
         return reply.code(201).send(project);
       }
-      if (request.body?.viewport && request.body.type !== "interactive-drama") {
-        return reply.code(400).send({ error: "A viewport requires an Interactive Drama project" });
+      if (request.body?.viewport && request.body.type !== "interactive-story") {
+        return reply.code(400).send({ error: "A viewport requires an Interactive Story project" });
       }
       const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
-      if (project.type === "interactive-drama") {
+      if (project.type === "interactive-story") {
         try {
           await createNodeCodebase(
             project.workspacePath,
@@ -1069,7 +1069,7 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Node Runtime requires an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Node Runtime requires an Interactive Story project" });
     try {
       const definition = await buildPlayableProject(project.workspacePath);
       return definition ? { available: true, definition } : { available: false };
@@ -1092,7 +1092,7 @@ export function createApp(options: AppOptions = {}) {
     async (request, reply) => {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
-      if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable validation requires an Interactive Drama project" });
+      if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable validation requires an Interactive Story project" });
       return validatePlayableProject(project.workspacePath, request.query.mode ?? "draft");
     },
   );
@@ -1100,7 +1100,7 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/codebase", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable codebases require an Interactive Story project" });
     try {
       return await readNodeCodebase(project.workspacePath);
     } catch (cause) {
@@ -1114,7 +1114,7 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable codebases require an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable codebases require an Interactive Story project" });
     try {
       await writeNodeCodebase(project.workspacePath, request.body);
     } catch (cause) {
@@ -1166,7 +1166,7 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Node thumbnails require an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Node thumbnails require an Interactive Story project" });
     if (!isWebp(request.body)) return reply.code(400).send({ error: "A Node thumbnail must be a WebP image" });
     try {
       const nodeIds = await readGraphNodeIds(project.workspacePath);
@@ -1207,7 +1207,7 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Playable Nodes require an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable Nodes require an Interactive Story project" });
     let result;
     try {
       result = await addPlayableNode(project.workspacePath, request.body);
@@ -1519,11 +1519,11 @@ export function createApp(options: AppOptions = {}) {
     return project ?? reply.code(404).send({ error: "Project not found" });
   });
 
-  /** The project's own cover; an Interactive Drama without one shows a Scene's thumbnail. */
+  /** The project's own cover; an Interactive Story without one shows a Scene's thumbnail. */
   const projectCover = async (projectId: string): Promise<Buffer | undefined> => {
     const cover = await projects.cover(projectId);
     const project = projects.get(projectId);
-    if (cover || project?.type !== "interactive-drama") return cover;
+    if (cover || project?.type !== "interactive-story") return cover;
     return readPlayableCover(project.workspacePath);
   };
 
@@ -2351,14 +2351,14 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-drama/build", async (request, reply) => {
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/build", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-drama") return reply.code(409).send({ error: "Build requires an Interactive Drama project" });
+    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Build requires an Interactive Story project" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before building" });
     if (publishing.has(project.id)) return reply.code(409).send({ error: "Project is already being published" });
     try {
-      const artifact = await artifacts.buildInteractiveDrama(project);
+      const artifact = await artifacts.buildInteractiveStory(project);
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)

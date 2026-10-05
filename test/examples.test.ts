@@ -36,18 +36,18 @@ async function writeExamples(): Promise<string> {
       play: "pond/play",
     }],
   };
-  // An interactive drama example holds only the project files; the app adds
+  // An interactive story example holds only the project files; the app adds
   // AGENTS.md, README.md and schemas when it copies the example.
-  const drama = path.join(directory, "train", "files");
-  await mkdir(drama, { recursive: true });
-  await createNodeCodebase(drama, createPlayableStarterCodebase("Night Train", { width: 1280, height: 720 }));
-  for (const owned of ["AGENTS.md", "README.md", "schemas"]) await rm(path.join(drama, owned), { recursive: true });
+  const story = path.join(directory, "train", "files");
+  await mkdir(story, { recursive: true });
+  await createNodeCodebase(story, createPlayableStarterCodebase("Night Train", { width: 1280, height: 720 }));
+  for (const owned of ["AGENTS.md", "README.md", "schemas"]) await rm(path.join(story, owned), { recursive: true });
   await writeFile(path.join(directory, "train", "cover.webp"), "RIFF-train");
   catalog.examples.push({
     id: "train",
-    type: "interactive-drama",
+    type: "interactive-story",
     name: "Night Train",
-    description: "A short drama.",
+    description: "A short story.",
     directory: "train/files",
     cover: "train/cover.webp",
   });
@@ -65,11 +65,11 @@ async function writePlayer(): Promise<string> {
   return directory;
 }
 
-async function startApp(examplesDirectory?: string, interactiveDramaPlayerDirectory?: string) {
+async function startApp(examplesDirectory?: string, interactiveStoryPlayerDirectory?: string) {
   const app = createApp({
     dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-examples-data-")),
     examplesDirectory,
-    ...(interactiveDramaPlayerDirectory ? { interactiveDramaPlayerDirectory } : {}),
+    ...(interactiveStoryPlayerDirectory ? { interactiveStoryPlayerDirectory } : {}),
   });
   apps.push(app);
   await app.ready();
@@ -82,7 +82,7 @@ describe("examples", () => {
 
     expect((await app.inject({ method: "GET", url: "/examples" })).json()).toEqual([
       { id: "pond", type: "web-game", name: "Pond", description: "A small pond." },
-      { id: "train", type: "interactive-drama", name: "Night Train", description: "A short drama." },
+      { id: "train", type: "interactive-story", name: "Night Train", description: "A short story." },
     ]);
     const cover = await app.inject({ method: "GET", url: "/examples/pond/cover" });
     expect(cover.statusCode).toBe(200);
@@ -109,7 +109,7 @@ describe("examples", () => {
     expect((await app.inject({ method: "POST", url: "/examples/lake/play" })).statusCode).toBe(404);
   });
 
-  it("compiles an interactive drama example with the Published Player when played", async () => {
+  it("compiles an interactive story example with the Published Player when played", async () => {
     const app = await startApp(await writeExamples(), await writePlayer());
 
     const response = await app.inject({ method: "POST", url: "/examples/train/play" });
@@ -123,21 +123,21 @@ describe("examples", () => {
     expect((await app.inject({ method: "POST", url: "/examples/train/play" })).json()).toEqual({ url });
   });
 
-  it("creates an interactive drama from an example with this version's agent contract", async () => {
+  it("creates an interactive story from an example with this version's agent contract", async () => {
     const app = await startApp(await writeExamples());
 
-    const response = await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", exampleId: "train" } });
+    const response = await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story", exampleId: "train" } });
 
     expect(response.statusCode).toBe(201);
     const project = response.json();
-    expect(project).toMatchObject({ name: "Night Train", type: "interactive-drama" });
+    expect(project).toMatchObject({ name: "Night Train", type: "interactive-story" });
     for (const owned of ["AGENTS.md", "README.md", "schemas/graph.schema.json"]) {
       expect((await stat(path.join(project.workspacePath, owned))).isFile()).toBe(true);
     }
     const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
     expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["start"]);
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/cover` })).body).toBe("RIFF-train");
-    expect((await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-drama", exampleId: "train", viewport: { width: 720, height: 1280 } } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story", exampleId: "train", viewport: { width: 720, height: 1280 } } })).statusCode).toBe(400);
   });
 
   it("has no examples when none were prepared", async () => {
@@ -202,7 +202,7 @@ describe("examples", () => {
     expect(isPreparedExampleCatalog({ ...valid, examples: [valid.examples[0], valid.examples[0]] })).toBe(false);
     const { play: _play, ...withoutPlay } = valid.examples[0];
     expect(isPreparedExampleCatalog({ ...valid, examples: [withoutPlay] })).toBe(false);
-    expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...withoutPlay, type: "interactive-drama" }] })).toBe(true);
-    expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...valid.examples[0], type: "interactive-drama" }] })).toBe(false);
+    expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...withoutPlay, type: "interactive-story" }] })).toBe(true);
+    expect(isPreparedExampleCatalog({ ...valid, examples: [{ ...valid.examples[0], type: "interactive-story" }] })).toBe(false);
   });
 });

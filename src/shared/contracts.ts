@@ -3,7 +3,7 @@ import type { WebSearchToolMetadata } from "./web-search.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
-export type ProjectType = "web-game" | "godot-game" | "interactive-drama" | "asset-canvas";
+export type ProjectType = "web-game" | "godot-game" | "interactive-story" | "asset-canvas";
 export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
 export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile"] as const;

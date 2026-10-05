@@ -13,7 +13,7 @@ export class ExampleError extends Error {
   }
 }
 
-/** Compiles an interactive drama workspace into a Published Player directory. */
+/** Compiles an interactive story workspace into a Published Player directory. */
 export type PreparePlayableExample = (workspacePath: string, exampleId: string) => Promise<string>;
 
 // Files a desktop OS leaves in folders; a folder holding only these counts as empty.
@@ -121,7 +121,7 @@ export class ExampleStore {
         });
       }
       // Agent instructions and schemas follow this app version, not the example.
-      if (example.type === "interactive-drama") await ensureNodeCodebaseContract(project.workspacePath);
+      if (example.type === "interactive-story") await ensureNodeCodebaseContract(project.workspacePath);
       await projects.setCover(project.id, await readFile(path.join(this.#directory!, example.cover)));
       return await projects.refreshPreviewReadiness(project.id);
     } catch (error) {

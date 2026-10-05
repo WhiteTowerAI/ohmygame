@@ -508,7 +508,7 @@ export class ProjectManager {
       if (project.workspaceAvailable === false) continue;
       const metadata = await readAssetMetadata(project.workspacePath);
       let referenced = Object.values(metadata.libraryAssets).includes(assetId);
-      if (project.type === "interactive-drama" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+      if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
         try {
           const graph = await readNodeGraphForReferences(project.workspacePath);
           referenced ||= Object.values(graph.assets).some((asset) => (
@@ -560,7 +560,7 @@ export class ProjectManager {
         await this.touch(project.id);
         continue;
       }
-      if (project.type === "interactive-drama" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+      if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
         const graph = await readNodeGraphForReferences(project.workspacePath);
         const removedIds = new Set(Object.entries(graph.assets).flatMap(([id, asset]) => (
           asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
@@ -835,7 +835,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
-      (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-drama" || parsed.type === "asset-canvas") &&
+      (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-story" || parsed.type === "asset-canvas") &&
       (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
       (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
       (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&

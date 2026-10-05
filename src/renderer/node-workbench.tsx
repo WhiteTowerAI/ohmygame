@@ -1,12 +1,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Box, ChevronRight, Film, Image as ImageIcon, LoaderCircle, Music2, Play, Search, Upload, X } from "./icons.js";
+import { ChevronRight, LoaderCircle, Search, Upload, X } from "./icons.js";
 import type { LibraryUploadMediaType } from "../shared/contracts.js";
 import type { LibraryAsset } from "./library-assets.js";
 import { uploadLibraryAsset } from "./api.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
 import { useNearViewport } from "./asset-gallery.js";
-import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { AssetThumbnail, assetTypeBadge } from "./asset-browser.js";
 
 /**
  * Workbench pieces for the Playable Nodes editor: a breadcrumb back to the
@@ -136,22 +136,15 @@ export function LibraryAssetPicker({ title, assets, uploading, onUpload, onClose
   );
 }
 
-/** One Library asset in the picker: a thumbnail, loaded once it scrolls near view, and its name. */
+/** One Library asset in the picker: the Library's own thumbnail, loaded once it scrolls near view, and its name. */
 function LibraryPickerItem({ asset, onSelect }: { asset: LibraryAsset; onSelect: () => void }) {
   const [item, visible] = useNearViewport<HTMLButtonElement>();
-  const [failed, setFailed] = useState(false);
-  const visual = asset.mediaType === "image" || asset.mediaType === "video";
-  const preview = useWorkspaceAssetUrl(undefined, asset.path, asset.revision, visible && visual ? asset.assetId : undefined);
-  const shown = Boolean(preview.url) && !failed;
-  const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : ImageIcon;
+  const badge = assetTypeBadge(asset.mediaType);
   const title = asset.prompt ?? asset.name;
   return <button type="button" ref={item} onClick={onSelect} title={title}>
     <span className="story-video-picker-thumbnail">
-      {shown && asset.mediaType === "image" ? <img src={preview.url} alt="" onError={() => setFailed(true)} /> : null}
-      {/* A video shows its first frame. */}
-      {shown && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
-      {!shown ? <Icon size={20} /> : null}
-      {asset.mediaType === "video" ? <span className="story-video-picker-badge"><Play size={10} />Video</span> : null}
+      <AssetThumbnail asset={asset} visible={visible} />
+      {badge ? <span className="story-video-picker-badge">{badge}</span> : null}
     </span>
     <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}</span>
   </button>;

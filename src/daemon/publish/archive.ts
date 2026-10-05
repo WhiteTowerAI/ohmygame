@@ -39,8 +39,8 @@ export class ArtifactBuilder {
     return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES);
   }
 
-  async buildInteractiveDrama(project: ProjectState): Promise<Buffer> {
-    if (project.type !== "interactive-drama") throw new PublishError("Build requires an Interactive Drama project");
+  async buildInteractiveStory(project: ProjectState): Promise<Buffer> {
+    if (project.type !== "interactive-story") throw new PublishError("Build requires an Interactive Story project");
     return this.#create(project);
   }
 
@@ -48,8 +48,8 @@ export class ArtifactBuilder {
     let temporary: string | undefined;
     try {
       let source: string;
-      if (project.type === "interactive-drama") {
-        temporary = await prepareInteractiveDrama(project, this.library, this.playerDirectory);
+      if (project.type === "interactive-story") {
+        temporary = await prepareInteractiveStory(project, this.library, this.playerDirectory);
         source = temporary;
       } else {
         const workspacePath = project.type === "web-game"
@@ -70,7 +70,7 @@ export class ArtifactBuilder {
    * is kept apart from the published game's. The caller removes the directory.
    */
   async preparePlayableDraft(project: ProjectState): Promise<string> {
-    if (project.type !== "interactive-drama") throw new PublishError("Playable drafts require an Interactive Drama project");
+    if (project.type !== "interactive-story") throw new PublishError("Playable drafts require an Interactive Story project");
     if (!this.library || !this.playerDirectory) throw new PublishError("Published Player is not built. Run npm run build:player first.");
     await assertNodePlayerBuilt(this.playerDirectory);
     let definition: NodePlayerDefinition | undefined;
@@ -110,7 +110,7 @@ async function publishStartupDirectory(project: ProjectState): Promise<string> {
   }
 }
 
-async function prepareInteractiveDrama(project: ProjectState, library?: AssetLibrary, playerDirectory?: string): Promise<string> {
+async function prepareInteractiveStory(project: ProjectState, library?: AssetLibrary, playerDirectory?: string): Promise<string> {
   if (!library || !playerDirectory) throw new PublishError("The Published Player is not available.");
   await assertNodePlayerBuilt(playerDirectory);
   let playable: NodePlayerDefinition | undefined;

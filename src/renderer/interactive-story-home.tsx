@@ -11,9 +11,9 @@ import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
-const RECENT_DRAMA_LIMIT = 4;
+const RECENT_STORY_LIMIT = 4;
 
-export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
+export function InteractiveStoryHome({ onNavigate, onCreate, onOpenProject }: {
   onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode) => void;
   onOpenProject: (projectId: string) => void;
@@ -24,14 +24,14 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
   const { examples, covers } = useExamples();
-  const dramaExamples = examples.filter((example) => example.type === "interactive-drama").slice(0, RECENT_DRAMA_LIMIT);
+  const storyExamples = examples.filter((example) => example.type === "interactive-story").slice(0, RECENT_STORY_LIMIT);
 
   async function load(): Promise<void> {
     setPhase("loading");
     setLoadError(undefined);
     try {
       await waitForRuntime();
-      setProjects(recentInteractiveDramaProjects(await listProjects()));
+      setProjects(recentInteractiveStoryProjects(await listProjects()));
       setPhase("ready");
     } catch (cause) {
       setLoadError(errorMessage(cause));
@@ -68,42 +68,42 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
 
   return (
     <main className="home-shell">
-      <AppSidebar active="interactive-drama" onNavigate={onNavigate} />
-      <section className="home-content interactive-drama-home">
+      <AppSidebar active="interactive-story" onNavigate={onNavigate} />
+      <section className="home-content interactive-story-home">
         <WindowDragRegion />
         <div className="home-start">
           <h1>What story are we telling?</h1>
           <ProjectPromptCreator
-            projectType="interactive-drama"
-            placeholder="Describe the interactive drama you want to create..."
+            projectType="interactive-story"
+            placeholder="Describe the interactive story you want to create..."
             onOpenProject={onOpenProject}
             onCreate={onCreate}
           />
           <button className="home-start-blank" type="button" onClick={() => setCreateOpen(true)}>
-            <Plus size={14} />New drama
+            <Plus size={14} />New story
           </button>
         </div>
 
-        {dramaExamples.length ? (
-          <section className="home-discover interactive-drama-explore" aria-labelledby="drama-examples-heading">
+        {storyExamples.length ? (
+          <section className="home-discover interactive-story-explore" aria-labelledby="story-examples-heading">
             <div className="home-section-heading">
-              <h2 id="drama-examples-heading">Explore</h2>
+              <h2 id="story-examples-heading">Explore</h2>
             </div>
-            <ExampleShelf examples={dramaExamples} covers={covers} onOpenProject={onOpenProject} />
+            <ExampleShelf examples={storyExamples} covers={covers} onOpenProject={onOpenProject} />
           </section>
         ) : null}
 
-        <section className="home-discover interactive-drama-recent" aria-labelledby="recent-dramas-heading">
+        <section className="home-discover interactive-story-recent" aria-labelledby="recent-stories-heading">
           <div className="home-section-heading">
-            <h2 id="recent-dramas-heading">Recent dramas</h2>
+            <h2 id="recent-stories-heading">Recent stories</h2>
             {phase === "error" ? (
               <button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button>
             ) : null}
           </div>
-          {phase === "loading" ? <DramaGridSkeleton /> : null}
+          {phase === "loading" ? <StoryGridSkeleton /> : null}
           {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
           {phase === "ready" && projects.length === 0 ? (
-            <p className="home-project-state">{dramaExamples.length ? "No dramas yet. Play an example above, or describe a story to start." : "No dramas yet"}</p>
+            <p className="home-project-state">{storyExamples.length ? "No stories yet. Play an example above, or describe a story to start." : "No stories yet"}</p>
           ) : null}
           {phase === "ready" && projects.length > 0 ? (
             <div className="home-project-grid">
@@ -121,7 +121,7 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
           {actionError ? <p className="home-notice" role="alert">{actionError}</p> : null}
         </section>
       </section>
-      {createOpen ? <ProjectCreateDialog fixedType="interactive-drama" onClose={() => setCreateOpen(false)} onCreated={(project) => {
+      {createOpen ? <ProjectCreateDialog fixedType="interactive-story" onClose={() => setCreateOpen(false)} onCreated={(project) => {
         setCreateOpen(false);
         onOpenProject(project.id);
       }} /> : null}
@@ -129,16 +129,16 @@ export function InteractiveDramaHome({ onNavigate, onCreate, onOpenProject }: {
   );
 }
 
-export function recentInteractiveDramaProjects(projects: readonly ProjectState[]): ProjectState[] {
+export function recentInteractiveStoryProjects(projects: readonly ProjectState[]): ProjectState[] {
   return projects
-    .filter((project) => project.type === "interactive-drama")
+    .filter((project) => project.type === "interactive-story")
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .slice(0, RECENT_DRAMA_LIMIT);
+    .slice(0, RECENT_STORY_LIMIT);
 }
 
-function DramaGridSkeleton() {
+function StoryGridSkeleton() {
   return (
-    <div className="home-project-grid" aria-label="Loading dramas">
+    <div className="home-project-grid" aria-label="Loading stories">
       {[0, 1, 2, 3].map((item) => <div className="project-card home-project-skeleton" key={item} />)}
     </div>
   );

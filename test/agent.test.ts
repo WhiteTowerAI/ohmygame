@@ -1541,7 +1541,7 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
-  it("uses the shared planning tools for Interactive Drama", async () => {
+  it("uses the shared planning tools for Interactive Story", async () => {
     const session = new FakeSession();
     const manager = new AgentManager(new RuntimeEventBus(), {
       createSession: async () => session,
@@ -1549,7 +1549,7 @@ describe("AgentManager", () => {
         ? ["read", "update_plan"]
         : ["read", "write", "edit", "update_plan"],
     });
-    const project = { ...createProject(), type: "interactive-drama" as const };
+    const project = { ...createProject(), type: "interactive-story" as const };
     const conversation = createConversation(project);
 
     await manager.prompt(project, conversation, "Plan a node change", [], [], "planning").result;

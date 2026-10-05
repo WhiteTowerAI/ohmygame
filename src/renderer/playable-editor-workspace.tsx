@@ -48,7 +48,7 @@ import {
 import { viewportRatio } from "../shared/canvas-formats.js";
 import {
   addPlayableNode,
-  buildInteractiveDrama,
+  buildInteractiveStory,
   getNodeCodebase,
   getPlayableValidation,
   getWorkspaceFile,
@@ -743,7 +743,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setBuilding(true);
     try {
       await save(codebase);
-      const artifact = await buildInteractiveDrama(projectId);
+      const artifact = await buildInteractiveStory(projectId);
       const url = URL.createObjectURL(artifact);
       const link = window.document.createElement("a");
       link.href = url;
@@ -818,7 +818,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   return (
     <section
-      className={`viewer-pane interactive-drama-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
+      className={`viewer-pane interactive-story-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
       aria-label="Playable Nodes workspace"
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
@@ -827,7 +827,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         "--story-canvas-stage-height": `${canvasStageHeight}px`,
       } as CSSProperties}
     >
-      <header className="pane-header viewer-header interactive-drama-header window-drag-handle">
+      <header className="pane-header viewer-header interactive-story-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
           {chatOnRight && onHome ? (
@@ -870,8 +870,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           ) : null}
         </div>
       </header>
-      {workspaceView !== "code" ? <div className="interactive-drama-body">
-        <div className="interactive-drama-canvas">
+      {workspaceView !== "code" ? <div className="interactive-story-body">
+        <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (

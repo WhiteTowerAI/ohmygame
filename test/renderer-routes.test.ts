@@ -6,7 +6,7 @@ describe("renderer routes", () => {
     expect(parseAppRoute("")).toEqual({ page: "home" });
     expect(parseAppRoute("#/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/unknown")).toEqual({ page: "home" });
-    for (const page of ["projects", "library", "plugins", "interactive-drama", "asset-canvas"] as const) {
+    for (const page of ["projects", "library", "plugins", "interactive-story", "asset-canvas"] as const) {
       expect(parseAppRoute(`#/${page}`)).toEqual({ page });
       expect(sidebarHash(page)).toBe(`#/${page}`);
     }
@@ -42,18 +42,6 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/settings/unknown")).toEqual({ page: "home" });
   });
 
-  it("parses legacy Interactive Drama routes", () => {
-    expect(parseAppRoute("#/projects/project%201/interactive-drama")).toEqual({
-      page: "project",
-      projectId: "project 1",
-    });
-    expect(parseAppRoute("#/projects/project%201/interactive-drama/conversations/chat%201")).toEqual({
-      page: "project",
-      projectId: "project 1",
-      conversationId: "chat 1",
-    });
-  });
-
   it("parses and formats game routes", () => {
     expect(parseAppRoute("#/community/games/game%201")).toEqual({ page: "game", gameId: "game 1" });
     expect(gameHash("game 1")).toBe("#/community/games/game%201");
@@ -78,8 +66,6 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/projects/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/projects/one/more")).toEqual({ page: "home" });
     expect(parseAppRoute("#/projects/one/conversations/")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/projects/one/interactive-drama/conversations/")).toEqual({ page: "home" });
-    expect(parseAppRoute("#/projects/one/interactive-drama/more")).toEqual({ page: "home" });
     expect(parseAppRoute("#/projects/%")).toEqual({ page: "home" });
     expect(parseAppRoute("#/games/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/games/%")).toEqual({ page: "home" });

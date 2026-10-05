@@ -175,7 +175,7 @@ const InterfaceSchema = Type.Object({
   projectTypes: Type.Optional(Type.Array(Type.Union([
     Type.Literal("web-game"),
     Type.Literal("godot-game"),
-    Type.Literal("interactive-drama"),
+    Type.Literal("interactive-story"),
     Type.Literal("asset-canvas"),
   ]), { minItems: 1, uniqueItems: true })),
 }, { additionalProperties: false });

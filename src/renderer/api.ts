@@ -369,8 +369,8 @@ export async function publishProject(projectId: string, accessToken: string, met
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
 }
 
-export async function buildInteractiveDrama(projectId: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-drama/build`), {
+export async function buildInteractiveStory(projectId: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/build`), {
     method: "POST",
     headers: runtimeHeaders(),
   });

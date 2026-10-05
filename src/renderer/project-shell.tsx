@@ -360,7 +360,7 @@ export function ProjectShell({
     const project = state.project;
     const busy = sendingInitialPrompt ||
       state.agent.status === "running" || state.agent.status === "cancelling";
-    if ((project?.type !== "web-game" && project?.type !== "interactive-drama") || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
+    if ((project?.type !== "web-game" && project?.type !== "interactive-story") || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
     const pending = takePendingPublish(sessionStorage, project.id);
     if (pending) void publish(pending).catch(() => undefined);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
@@ -844,7 +844,7 @@ export function ProjectShell({
         onLostPointerCapture={finishAgentResize}
       />
 
-      {!project ? <section className="viewer-pane" /> : project.type !== "interactive-drama" && project.type !== "asset-canvas" ? (
+      {!project ? <section className="viewer-pane" /> : project.type !== "interactive-story" && project.type !== "asset-canvas" ? (
         <CodingWorkspace
           project={project}
           agentBusy={agentBusy}

@@ -62,10 +62,10 @@ describe("Published Player", () => {
     const archive = await new ArtifactBuilder(
       library,
       player,
-    ).buildInteractiveDrama({
+    ).buildInteractiveStory({
       id: "playable-project",
       name: "Ash Club",
-      type: "interactive-drama",
+      type: "interactive-story",
       updatedAt: new Date(0).toISOString(),
       workspacePath: workspace,
       preview: { status: "stopped" },
@@ -120,7 +120,7 @@ describe("Published Player", () => {
     const library = new AssetLibrary(data);
     await library.load();
 
-    const files = await unzip(await new ArtifactBuilder(library, player).buildInteractiveDrama(project(workspace)));
+    const files = await unzip(await new ArtifactBuilder(library, player).buildInteractiveStory(project(workspace)));
     const manifest = JSON.parse(files.get("manifest.json")!.toString("utf8"));
     const mediaFiles = [...files.keys()].filter((file) => file.startsWith("assets/media/"));
 
@@ -136,7 +136,7 @@ describe("Published Player", () => {
     const library = new AssetLibrary(data);
     await library.load();
 
-    await expect(new ArtifactBuilder(library, player).buildInteractiveDrama(project(workspace)))
+    await expect(new ArtifactBuilder(library, player).buildInteractiveStory(project(workspace)))
       .rejects.toMatchObject({ message: "Library asset not found", statusCode: 409 });
   });
 
@@ -152,7 +152,7 @@ describe("Published Player", () => {
     const library = new AssetLibrary(data);
     await library.load();
 
-    await expect(new ArtifactBuilder(library, player).buildInteractiveDrama(project(workspace)))
+    await expect(new ArtifactBuilder(library, player).buildInteractiveStory(project(workspace)))
       .rejects.toThrow('Asset "background" is not a compatible video asset.');
   });
 
@@ -166,7 +166,7 @@ describe("Published Player", () => {
     await writePlayableFixtureWorkspace(workspace, graph);
     const library = new AssetLibrary(data);
     await library.load();
-    const files = await unzip(await new ArtifactBuilder(library, player).buildInteractiveDrama(project(workspace)));
+    const files = await unzip(await new ArtifactBuilder(library, player).buildInteractiveStory(project(workspace)));
     const output = await temporary("ohmygame-playable-publish-output-");
     for (const [relative, contents] of files) {
       await mkdir(path.dirname(path.join(output, relative)), { recursive: true });
@@ -189,7 +189,7 @@ describe("Published Player", () => {
     await writePlayableFixtureWorkspace(workspace, graph);
     const library = new AssetLibrary(data);
     await library.load();
-    const files = await unzip(await new ArtifactBuilder(library, player).buildInteractiveDrama(project(workspace)));
+    const files = await unzip(await new ArtifactBuilder(library, player).buildInteractiveStory(project(workspace)));
     const output = await temporary("ohmygame-playable-publish-output-");
     for (const [relative, contents] of files) {
       await mkdir(path.dirname(path.join(output, relative)), { recursive: true });
@@ -226,10 +226,10 @@ describe("Published Player", () => {
     const library = new AssetLibrary(data);
     await library.load();
 
-    await expect(new ArtifactBuilder(library, player).buildInteractiveDrama({
+    await expect(new ArtifactBuilder(library, player).buildInteractiveStory({
       id: "playable-project",
       name: "Ash Club",
-      type: "interactive-drama",
+      type: "interactive-story",
       updatedAt: new Date(0).toISOString(),
       workspacePath: workspace,
       preview: { status: "stopped" },
@@ -254,7 +254,7 @@ function project(workspacePath: string) {
   return {
     id: "playable-project",
     name: "Ash Club",
-    type: "interactive-drama" as const,
+    type: "interactive-story" as const,
     updatedAt: new Date(0).toISOString(),
     workspacePath,
     preview: { status: "stopped" as const },
