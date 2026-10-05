@@ -6,7 +6,7 @@ import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
 interface ModelSelectorProps {
   models: AgentModel[];
   status?: AgentModelCatalogStatus;
-  value?: AgentModelRef;
+  value?: AgentModelRef | AgentModel;
   reasoningLevel?: AgentReasoningLevel;
   disabled?: boolean;
   onChange: (model: AgentModel) => void;
@@ -20,7 +20,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const trigger = useRef<HTMLButtonElement>(null);
   const menuId = useId();
   const currentKey = value ? modelKey(value) : "";
-  const current = models.find((model) => modelKey(model) === currentKey);
+  const current = models.find((model) => modelKey(model) === currentKey) ?? (value && "name" in value ? value : undefined);
   const providerGroups = groupModelsByProvider(models);
 
   useEffect(() => {
@@ -165,12 +165,14 @@ export function useAgentModels(): AgentModelCatalogState {
   const [catalog, setCatalog] = useState<AgentModelCatalogState>(EMPTY_CATALOG);
   useEffect(() => {
     let disposed = false;
+    let generation = 0;
     const load = () => {
+      const request = ++generation;
       setCatalog((current) => ({ ...current, status: "loading" }));
       void waitForRuntime().then(listModels).then((available) => {
-        if (!disposed) setCatalog({ ...available, status: "ready" });
+        if (!disposed && request === generation) setCatalog({ ...available, status: "ready" });
       }).catch(() => {
-        if (!disposed) setCatalog((current) => ({ ...current, models: [], defaultModel: undefined, status: "error" }));
+        if (!disposed && request === generation) setCatalog((current) => ({ ...current, models: [], hiddenModels: undefined, defaultModel: undefined, status: "error" }));
       });
     };
     load();

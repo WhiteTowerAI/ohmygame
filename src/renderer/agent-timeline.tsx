@@ -13,6 +13,7 @@ import {
   Search,
   Terminal,
   Wrench,
+  WandSparkles,
   Wifi,
   WifiOff,
   X,
@@ -412,6 +413,7 @@ function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: b
 type ToolIcon = IconComponent | typeof GodotIcon;
 
 function toolGroupIcon(tools: ToolItem[]): ToolIcon {
+  if (tools.some((tool) => tool.type === "dynamicToolCall" && tool.tool === "generate_image")) return WandSparkles;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "edit" || tool.tool === "write"))) return FilePenLine;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "read" || tool.tool === "ls"))) return FileText;
   if (tools.some((tool) => tool.type === "dynamicToolCall" && (tool.tool === "grep" || tool.tool === "find"))) return Search;
@@ -795,6 +797,7 @@ function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | 
     case "ls": return { icon: FileText, label: withTarget("Listing", values) };
     case "web_search": return { icon: Search, label: searchLabel("Searching the web for", values) };
     case "game_use": return { icon: Gamepad2, label: playtestLabel(values, false) };
+    case "generate_image": return { icon: WandSparkles, label: "Generating image" };
     default: return { icon: Wrench, label: toolName };
   }
 }
@@ -816,6 +819,7 @@ function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToo
     case "ls": return { icon: FileText, label: withTarget("Listed", values) };
     case "web_search": return { icon: Search, label: searchLabel("Searched the web for", values) };
     case "game_use": return { icon: Gamepad2, label: playtestLabel(values, true) };
+    case "generate_image": return { icon: WandSparkles, label: "Generated image" };
     default: return { icon: Wrench, label: `Used ${toolName}` };
   }
 }

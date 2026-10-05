@@ -32,6 +32,7 @@ import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, Project
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
+import { normalizeCustomProviderModel, ProviderModelSettingsStore } from "./provider-model-settings.js";
 import type { Model3DGenerator } from "./model3d.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MODELS } from "../shared/generation-config.js";
 import { MeshyProvider } from "./meshy-provider.js";
@@ -528,6 +529,7 @@ export function createApp(options: AppOptions = {}) {
   const previews = new PreviewManager(events);
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
   const meshySettings = new MeshySettingsStore(dataDirectory);
+  const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
     dataDirectory,
@@ -697,7 +699,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), providerModelSettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
@@ -1679,16 +1681,20 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/models", async () => {
     const runtime = await getModelRuntime();
-    const models = await runtime.getAvailable();
+    const available = await runtime.getAvailable();
+    const models = available.filter((model) => providerModelSettings.isVisible(model));
+    const hidden = available.filter((model) => !providerModelSettings.isVisible(model));
     const defaultModel = findAgentModel(models, configuredDefaultModel(dataDirectory, piAgentDirectory));
+    const summary = (model: RuntimeModel) => ({
+      provider: model.provider,
+      providerName: runtime.getProvider(model.provider)?.name ?? model.provider,
+      id: model.id,
+      name: model.name,
+      reasoningLevels: supportedReasoningLevels(model),
+    });
     return {
-      models: models.map((model) => ({
-        provider: model.provider,
-        providerName: runtime.getProvider(model.provider)?.name ?? model.provider,
-        id: model.id,
-        name: model.name,
-        reasoningLevels: supportedReasoningLevels(model),
-      })),
+      models: models.map(summary),
+      ...(hidden.length ? { hiddenModels: hidden.map(summary) } : {}),
       ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
       defaultReasoningLevel: defaultReasoningLevel(dataDirectory, piAgentDirectory),
     };
@@ -1744,6 +1750,66 @@ export function createApp(options: AppOptions = {}) {
   app.delete("/settings/models/providers/meshy", async (_request, reply) => { await meshySettings.clear(); return reply.code(204).send(); });
 
   app.get("/settings/models/providers/openai/endpoint", async () => openAIEndpoint.get());
+
+  const providerModels = async (runtime: ModelRuntime, providerId: string) => {
+    const models = runtime.getModels(providerId);
+    const custom = await providerModelSettings.customModels(providerId);
+    return {
+      models: models.map((model) => ({
+        provider: model.provider, providerName: runtime.getProvider(providerId)?.name ?? providerId,
+        id: model.id, name: model.name, reasoningLevels: supportedReasoningLevels(model),
+        visible: providerModelSettings.isVisible(model), custom: custom.some((item) => item.id === model.id),
+      })),
+      defaultApi: models[0]?.api ?? "openai-completions",
+      defaultBaseUrl: runtime.getProvider(providerId)?.baseUrl ?? models[0]?.baseUrl,
+      canAddCustomModel: runtime.hasConfiguredAuth(providerId) && !runtime.isUsingOAuth(providerId),
+    };
+  };
+
+  app.get<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models", async (request, reply) => {
+    const runtime = await getModelRuntime();
+    if (!runtime.getProvider(request.params.providerId)) return reply.code(404).send({ error: "Provider not found" });
+    return providerModels(runtime, request.params.providerId);
+  });
+
+  app.put<{ Params: { providerId: string }; Body: { ids: string[]; visible: boolean } }>("/settings/models/providers/:providerId/models/visibility", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["ids", "visible"], properties: { ids: { type: "array", minItems: 1, maxItems: 10_000, items: { type: "string", minLength: 1, maxLength: 200 } }, visible: { type: "boolean" } } } },
+  }, async (request, reply) => {
+    const runtime = await getModelRuntime();
+    const { providerId } = request.params;
+    if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    const known = new Set(runtime.getModels(providerId).map((model) => model.id));
+    if (request.body.ids.some((id) => !known.has(id))) return reply.code(400).send({ error: "Model not found" });
+    await providerModelSettings.setVisibility(providerId, request.body.ids, request.body.visible);
+    return providerModels(runtime, providerId);
+  });
+
+  app.post<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models/custom", async (request, reply) => {
+    const runtime = await getModelRuntime();
+    const { providerId } = request.params;
+    if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    try {
+      const settings = await providerModels(runtime, providerId);
+      if (!settings.canAddCustomModel) return reply.code(400).send({ error: "Custom models require an API key connection" });
+      const model = normalizeCustomProviderModel(request.body, settings.defaultApi, settings.defaultBaseUrl);
+      if (runtime.getModel(providerId, model.id)) return reply.code(409).send({ error: "A model with this ID already exists" });
+      await providerModelSettings.addCustomModel(providerId, model);
+      await providerModelSettings.setVisibility(providerId, [model.id], true);
+      await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      return reply.code(201).send(await providerModels(runtime, providerId));
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+
+  app.delete<{ Params: { providerId: string; modelId: string } }>("/settings/models/providers/:providerId/models/custom/:modelId", async (request, reply) => {
+    const runtime = await getModelRuntime();
+    const { providerId, modelId } = request.params;
+    if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    try {
+      await providerModelSettings.removeCustomModel(providerId, modelId);
+      await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      return providerModels(runtime, providerId);
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
 
   app.put<{ Body: { baseUrl: string } }>(
     "/settings/models/providers/openai/endpoint",
@@ -1840,7 +1906,7 @@ export function createApp(options: AppOptions = {}) {
       } else {
         const runtime = await getModelRuntime();
         selectedModel = preferredAgentModel(
-          await runtime.getAvailable(),
+          (await runtime.getAvailable()).filter((model) => providerModelSettings.isVisible(model)),
           undefined,
           configuredDefaultModel(dataDirectory, piAgentDirectory),
         );

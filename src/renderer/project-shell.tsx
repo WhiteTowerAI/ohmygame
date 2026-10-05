@@ -17,7 +17,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
-import { preferredAgentModel } from "../shared/agent-models.js";
+import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import {
   approvePlan,
   answerQuestionnaire,
@@ -135,7 +135,7 @@ export function ProjectShell({
     setPromptRequest({ text, id: Date.now() });
   });
   const modelCatalog = useAgentModels();
-  const effectiveModel = preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
+  const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
   const timeline = useRef<HTMLDivElement>(null);
@@ -350,6 +350,17 @@ export function ProjectShell({
     const element = timeline.current;
     if (element && followTimeline.current) element.scrollTop = element.scrollHeight;
   }, [state.turns]);
+
+  useEffect(() => {
+    const element = timeline.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      if (followTimeline.current) element.scrollTop = element.scrollHeight;
+    });
+    for (const child of element.children) observer.observe(child);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [state.conversation?.id, state.agent.status, state.plan.mode]);
 
   useEffect(() => {
     const updateMaximum = () => {
@@ -741,16 +752,15 @@ export function ProjectShell({
           </div>
         </header>
 
-        <div className="agent-body">
-          <div
-            className="timeline"
-            aria-live="polite"
-            ref={timeline}
-            onScroll={(event) => {
-              const element = event.currentTarget;
-              followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-            }}
-          >
+        <div
+          className="agent-body"
+          ref={timeline}
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+          }}
+        >
+          <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
             <AgentTimeline
               turns={state.turns}

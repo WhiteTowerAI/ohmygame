@@ -14,6 +14,8 @@ import {
   type ModelAuthEvent,
   type ModelAuthMethod,
   type ModelProviderEndpointSettings,
+  type ProviderModelSettings,
+  type CustomProviderModel,
   type ProviderSummary,
   type CreateProjectRequest,
   type CommunityGame,
@@ -194,6 +196,28 @@ export function notifyAgentModelsChanged(): void {
 
 export async function listProviders(): Promise<ProviderSummary[]> {
   return request("/settings/providers");
+}
+
+export async function getProviderModels(providerId: string): Promise<ProviderModelSettings> {
+  return request(`/settings/models/providers/${encodeURIComponent(providerId)}/models`);
+}
+
+export async function setProviderModelVisibility(providerId: string, ids: string[], visible: boolean): Promise<ProviderModelSettings> {
+  const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/visibility`, { method: "PUT", body: JSON.stringify({ ids, visible }) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function addCustomProviderModel(providerId: string, model: CustomProviderModel): Promise<ProviderModelSettings> {
+  const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/custom`, { method: "POST", body: JSON.stringify(model) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function removeCustomProviderModel(providerId: string, modelId: string): Promise<ProviderModelSettings> {
+  const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/custom/${encodeURIComponent(modelId)}`, { method: "DELETE" });
+  notifyAgentModelsChanged();
+  return result;
 }
 
 export async function getOpenAIEndpointSettings(): Promise<ModelProviderEndpointSettings> {

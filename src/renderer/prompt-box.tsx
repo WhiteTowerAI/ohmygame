@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { promptHistoryDirection } from "./prompt-history.js";
+import { editPromptList, promptListLines } from "./prompt-lists.js";
 
 export type DroppedFile = TransferredFile;
 
@@ -47,9 +48,38 @@ export function PromptBox({
 }: PromptBoxProps) {
   const [dropActive, setDropActive] = useState(false);
   const dragDepth = useRef(0);
+  const localTextarea = useRef<HTMLTextAreaElement>(null);
+  const inputRef = textareaRef ?? localTextarea;
+  const listMirror = useRef<HTMLDivElement>(null);
+  const pendingCursor = useRef<number | undefined>(undefined);
+  const lines = variant === "project" ? promptListLines(value) : [];
+  const showListMirror = lines.some(({ list }) => list && /^[-+*]$/.test(list.marker));
+  useLayoutEffect(() => {
+    const input = inputRef.current;
+    resizeTextarea(input);
+    if (input && pendingCursor.current !== undefined) {
+      input.setSelectionRange(pendingCursor.current, pendingCursor.current);
+      onSelectionChange?.(pendingCursor.current);
+      pendingCursor.current = undefined;
+    }
+    syncListMirror();
+  }, [value, showListMirror]);
   useEffect(() => {
-    resizeTextarea(textareaRef?.current ?? null);
-  }, [textareaRef, value]);
+    const input = inputRef.current;
+    if (!input) return;
+    const observer = new ResizeObserver(syncListMirror);
+    observer.observe(input);
+    return () => observer.disconnect();
+  }, [inputRef]);
+
+  function syncListMirror(): void {
+    const input = inputRef.current;
+    const mirror = listMirror.current;
+    if (!input || !mirror) return;
+    mirror.style.width = `${input.clientWidth}px`;
+    mirror.scrollTop = input.scrollTop;
+    mirror.scrollLeft = input.scrollLeft;
+  }
 
   function submit(event?: FormEvent): void {
     event?.preventDefault();
@@ -101,8 +131,16 @@ export function PromptBox({
       {content}
       <div className="prompt-box-input">
         {prefix}
+        <div className={`prompt-box-editor${showListMirror ? " has-list-mirror" : ""}`}>
+        {showListMirror ? <div className="prompt-box-list-mirror" aria-hidden="true" ref={listMirror}>
+          {lines.map(({ text, list }, index) => <span key={index}>
+            {list && /^[-+*]$/.test(list.marker) ? <>{list.indent}<span className="prompt-box-list-bullet">{list.marker}</span>{list.spacing}{list.task}{list.content}</> : text}
+            {index < lines.length - 1 ? "\n" : ""}
+          </span>)}
+          {value.endsWith("\n") ? " " : null}
+        </div> : null}
         <textarea
-          ref={textareaRef}
+          ref={inputRef}
           aria-label="Prompt"
           disabled={disabled}
           onChange={(event) => {
@@ -111,9 +149,21 @@ export function PromptBox({
           }}
           onSelect={(event) => onSelectionChange?.(event.currentTarget.selectionStart)}
           onInput={(event) => resizeTextarea(event.currentTarget)}
+          onScroll={syncListMirror}
           onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
             if (event.nativeEvent.isComposing || event.keyCode === 229) return;
             if (onCommandKeyDown?.(event)) return;
+            if (variant === "project" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+              const edit = editPromptList(value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, event.key, event.shiftKey);
+              if (edit) {
+                event.preventDefault();
+                if (edit.value !== value) {
+                  pendingCursor.current = edit.cursor;
+                  onChange(edit.value);
+                }
+                return;
+              }
+            }
             const historyDirection = promptHistoryDirection(
               event.key,
               event.currentTarget.selectionStart,
@@ -139,6 +189,7 @@ export function PromptBox({
           rows={1}
           value={value}
         />
+        </div>
       </div>
       <div className="prompt-box-toolbar">
         <div className="prompt-box-leading">{leading}</div>
@@ -151,5 +202,5 @@ export function PromptBox({
 function resizeTextarea(element: HTMLTextAreaElement | null): void {
   if (!element) return;
   element.style.height = "auto";
-  element.style.height = `${Math.min(element.scrollHeight, 132)}px`;
+  element.style.height = `${Math.min(element.scrollHeight + 1, 132)}px`;
 }

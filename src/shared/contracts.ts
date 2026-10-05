@@ -32,6 +32,7 @@ export interface AgentModel extends AgentModelRef {
 
 export interface AgentModelCatalog {
   models: AgentModel[];
+  hiddenModels?: AgentModel[];
   defaultModel?: AgentModelRef;
   defaultReasoningLevel: AgentReasoningLevel;
 }
@@ -61,6 +62,26 @@ export interface ProviderSummary extends ModelProviderSummary {
 
 export interface ModelProviderEndpointSettings {
   baseUrl: string;
+}
+
+export const CUSTOM_MODEL_APIS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai", "google-vertex"] as const;
+
+export interface CustomProviderModel {
+  id: string;
+  name: string;
+  api: string;
+  baseUrl?: string;
+  contextWindow: number;
+  maxTokens: number;
+  reasoning: boolean;
+  supportsImages: boolean;
+}
+
+export interface ProviderModelSettings {
+  models: Array<AgentModel & { visible: boolean; custom: boolean }>;
+  defaultApi: string;
+  defaultBaseUrl?: string;
+  canAddCustomModel: boolean;
 }
 
 export type ModelAuthPrompt =

@@ -11,8 +11,13 @@ import { ConnectionsSettings } from "./connections-settings.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
+import { SegmentedControl } from "./segmented-control.js";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
+const CHAT_LAYOUT_OPTIONS: readonly { value: ChatLayout; label: string }[] = [
+  { value: "left", label: "Left" },
+  { value: "right", label: "Right" },
+];
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
   { section: "providers", label: "Providers & Models", icon: Server },
@@ -124,10 +129,7 @@ function AppearanceSettings() {
         <h4 className="settings-section-heading">Workspace</h4>
         <div className="settings-chat-layout-row">
           <span className="settings-chat-layout-label">Chat position</span>
-          <div className="settings-chat-layout-control" role="group" aria-label="Chat panel position">
-            <button className={chatLayout === "left" ? "is-selected" : ""} type="button" aria-pressed={chatLayout === "left"} onClick={() => chooseChatLayout("left")}>Left</button>
-            <button className={chatLayout === "right" ? "is-selected" : ""} type="button" aria-pressed={chatLayout === "right"} onClick={() => chooseChatLayout("right")}>Right</button>
-          </div>
+          <SegmentedControl className="settings-chat-layout-control" label="Chat panel position" options={CHAT_LAYOUT_OPTIONS} value={chatLayout} onChange={chooseChatLayout} />
         </div>
       </div>
     </section>
