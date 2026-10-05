@@ -67,6 +67,7 @@ import {
   listPlayableThumbnails,
   PlayableThumbnailError,
   readGraphNodeIds,
+  readPlayableCover,
   readPlayableThumbnail,
   writePlayableThumbnail,
 } from "./playable-thumbnails.js";
@@ -1489,9 +1490,17 @@ export function createApp(options: AppOptions = {}) {
     return project ?? reply.code(404).send({ error: "Project not found" });
   });
 
+  /** The project's own cover; an Interactive Drama without one shows a Scene's thumbnail. */
+  const projectCover = async (projectId: string): Promise<Buffer | undefined> => {
+    const cover = await projects.cover(projectId);
+    const project = projects.get(projectId);
+    if (cover || project?.type !== "interactive-drama") return cover;
+    return readPlayableCover(project.workspacePath);
+  };
+
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/cover", async (request, reply) => {
     if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
-    const cover = await projects.cover(request.params.projectId);
+    const cover = await projectCover(request.params.projectId);
     if (!cover) return reply.code(404).send({ error: "Project cover not found" });
     reply.header("content-type", "image/webp");
     reply.header("cache-control", "no-store");
@@ -2272,7 +2281,7 @@ export function createApp(options: AppOptions = {}) {
       try {
         const result = await publisher.publish(
           project,
-          await artifacts.create(project, await projects.cover(project.id)),
+          await artifacts.create(project, await projectCover(project.id)),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
         );
