@@ -7632,7 +7632,7 @@ button {
 .story-video-picker-thumbnail {
   position: relative;
   display: grid;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 4 / 3;
   place-items: center;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -7646,6 +7646,12 @@ button {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.story-video-picker-thumbnail .model-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 0 !important;
+  pointer-events: none;
 }
 .story-video-picker-badge {
   position: absolute;
