@@ -39,6 +39,7 @@ import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { ProjectSettingsDialog } from "./project-settings-dialog.js";
 import { AssetMedia } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 type WorkspaceContextMenu = { path: string; directory: boolean; x: number; y: number };
@@ -211,6 +212,12 @@ export function CodingWorkspace({
     finally { setAgentPlaytestWatchPending(false); }
   }
 
+  const tabs: WorkspaceTabOption<WorkspaceTab>[] = [
+    ...(supportsPreview ? [{ id: "preview" as const, label: "Preview", icon: Globe2 }] : []),
+    { id: "code", label: "Code", icon: Code2 },
+    { id: "assets", label: "Library", icon: Layers3 },
+  ];
+
   return (
     <section className="viewer-pane coding-workspace" data-active-tab={activeTab} aria-label="Coding workspace">
       <header className="pane-header viewer-header window-drag-handle">
@@ -221,18 +228,7 @@ export function CodingWorkspace({
               <House size={14} />
             </button>
           ) : null}
-          <nav
-            className="workspace-tabs"
-            data-active-tab={activeTab}
-            data-tab-count={supportsPreview ? 3 : 2}
-            aria-label="Workspace views"
-          >
-            {supportsPreview ? (
-              <Tab active={activeTab === "preview"} icon={<Globe2 size={14} />} label="Preview" onClick={() => setActiveTab("preview")} />
-            ) : null}
-            <Tab active={activeTab === "code"} icon={<Code2 size={15} />} label="Code" onClick={() => setActiveTab("code")} />
-            <Tab active={activeTab === "assets"} icon={<Layers3 size={15} />} label="Library" onClick={() => setActiveTab("assets")} />
-          </nav>
+          <WorkspaceTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
         </div>
         <div className="viewer-controls-slot">
           {supportsPreview && activeTab === "preview" ? (
@@ -331,21 +327,6 @@ export function CodingWorkspace({
         if (restartRequired) onRestart();
       }} /> : null}
     </section>
-  );
-}
-
-function Tab({ active, icon, label, onClick }: { active: boolean; icon: React.ReactNode; label: string; onClick: () => void }) {
-  return (
-    <button
-      className={`workspace-tab${active ? " workspace-tab-active" : ""}`}
-      type="button"
-      aria-pressed={active}
-      title={label}
-      onClick={onClick}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 }
 

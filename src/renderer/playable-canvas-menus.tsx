@@ -1,5 +1,4 @@
 import {
-  ChevronDown,
   Clapperboard,
   Clipboard,
   Code2,
@@ -88,7 +87,14 @@ export function PlayableProjectMenu({ disabled, screenSize, exporting, canExport
   const [position, setPosition] = useState<{ top: number; left: number }>();
 
   useLayoutEffect(() => {
-    if (position) menu.current?.focus();
+    if (!position || !menu.current) return;
+    const bounds = menu.current.getBoundingClientRect();
+    const next = {
+      top: Math.max(6, Math.min(position.top, window.innerHeight - bounds.height - 6)),
+      left: Math.max(6, Math.min(position.left, window.innerWidth - bounds.width - 6)),
+    };
+    if (next.top !== position.top || next.left !== position.left) setPosition(next);
+    menu.current.focus();
   }, [position]);
 
   useEffect(() => {
@@ -115,8 +121,9 @@ export function PlayableProjectMenu({ disabled, screenSize, exporting, canExport
     <button
       ref={button}
       type="button"
-      className={position || variablesOpen ? "is-active" : undefined}
+      className={`icon-button pane-header-action${position || variablesOpen ? " is-active" : ""}`}
       title="Project settings"
+      aria-label="Project settings"
       aria-haspopup="menu"
       aria-expanded={Boolean(position)}
       disabled={disabled}
@@ -125,7 +132,7 @@ export function PlayableProjectMenu({ disabled, screenSize, exporting, canExport
         const bounds = button.current?.getBoundingClientRect();
         if (bounds) setPosition({ top: bounds.bottom + 4, left: bounds.left });
       }}
-    ><Settings size={14} /><span>Project</span><ChevronDown size={12} /></button>
+    ><Settings size={14} /></button>
     {position ? createPortal(<div
       ref={menu}
       className="story-canvas-context-menu playable-project-menu"
