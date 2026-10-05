@@ -1247,7 +1247,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   }
 
   return (
-    <MediaNodeShell kind="image" selected={selected} assetId={data.assetId} aspectRatio={data.aspectRatio} inputCount={data.images?.length} runtime={runtime}>
+    <MediaNodeShell kind="image" selected={selected} assetId={data.assetId} aspectRatio={data.aspectRatio} runtime={runtime}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="image"
@@ -1307,7 +1307,7 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   }
 
   return (
-    <MediaNodeShell kind="video" selected={selected} assetId={data.assetId} aspectRatio={data.videoAspectRatio} inputCount={data.references?.length} runtime={runtime}>
+    <MediaNodeShell kind="video" selected={selected} assetId={data.assetId} aspectRatio={data.videoAspectRatio} runtime={runtime}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="video"
@@ -1371,7 +1371,6 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
       kind="model"
       selected={selected}
       assetId={data.assetId}
-      inputCount={data.images?.length}
       runtime={runtime}
     >
       <MediaReferenceStrip runtime={runtime} large />
@@ -1558,12 +1557,11 @@ function MediaReferenceThumbnail({ reference, caption, disabled, onRemove }: {
   );
 }
 
-function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, runtime, children }: {
+function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, children }: {
   kind: "image" | "video" | "model";
   selected: boolean;
   assetId?: string;
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
-  inputCount?: number;
   runtime?: MediaNodeRuntime;
   children: React.ReactNode;
 }) {
@@ -1573,7 +1571,7 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, 
   const mediaLayout = useMediaNodeLayout(kind === "model" ? undefined : preview.url, aspectRatio);
   return (
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaLayout.style}>
-      <div className="story-media-node-label"><Icon size={14} /><span>{label}{inputCount ? ` · ${inputCount} ${kind === "video" ? "references" : inputCount === 1 ? "image" : "images"}` : ""}</span></div>
+      <div className="story-media-node-label"><Icon size={14} /><span>{label}</span></div>
       <div data-alignment-frame className={`story-media-stage${runtime?.generating ? " is-generating" : ""}`}>
         {preview.url ? <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt="Generated image" onLoad={mediaLayout.onImageLoad} /> : null}
