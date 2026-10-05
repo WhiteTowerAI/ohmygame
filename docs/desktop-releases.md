@@ -1,8 +1,8 @@
 # Desktop releases
 
-OhMyGame uses `electron-updater` with a generic HTTPS update feed. The source
-repository may remain private: release artifacts are built by GitHub Actions
-and copied to a public, read-only Cloudflare R2 custom domain.
+OhMyGame uses `electron-updater` with a generic HTTPS update feed. Release
+artifacts are built by GitHub Actions and copied to a public, read-only
+Cloudflare R2 custom domain, so updates do not depend on GitHub.
 
 ## Update feed
 
@@ -22,24 +22,24 @@ so clients never observe a manifest before its referenced files exist.
 
 Configure these GitHub Actions repository variables:
 
-| Variable | Example | Purpose |
-| --- | --- | --- |
-| `DESKTOP_UPDATE_URL` | `https://updates.ohmygame.ai/desktop` | Public feed URL embedded in the app |
-| `R2_ACCOUNT_ID` | Cloudflare account ID | Builds the R2 S3 endpoint |
-| `R2_BUCKET` | `ohmygame-releases` | Destination bucket |
-| `R2_DESKTOP_UPDATE_PREFIX` | `desktop` | Destination key prefix, without surrounding slashes |
+| Variable                   | Example                               | Purpose                                             |
+| -------------------------- | ------------------------------------- | --------------------------------------------------- |
+| `DESKTOP_UPDATE_URL`       | `https://updates.ohmygame.ai/desktop` | Public feed URL embedded in the app                 |
+| `R2_ACCOUNT_ID`            | Cloudflare account ID                 | Builds the R2 S3 endpoint                           |
+| `R2_BUCKET`                | `ohmygame-releases`                   | Destination bucket                                  |
+| `R2_DESKTOP_UPDATE_PREFIX` | `desktop`                             | Destination key prefix, without surrounding slashes |
 
 Configure these repository secrets:
 
-| Secret | Purpose |
-| --- | --- |
-| `R2_ACCESS_KEY_ID` | R2 API token access key with object write access |
-| `R2_SECRET_ACCESS_KEY` | R2 API token secret |
-| `CSC_LINK` | Base64-encoded Apple Developer ID certificate |
-| `CSC_KEY_PASSWORD` | Apple certificate password |
-| `APPLE_ID` | Apple account used for notarization |
-| `APPLE_APP_SPECIFIC_PASSWORD` | Apple app-specific password |
-| `APPLE_TEAM_ID` | Apple Developer team ID |
+| Secret                        | Purpose                                          |
+| ----------------------------- | ------------------------------------------------ |
+| `R2_ACCESS_KEY_ID`            | R2 API token access key with object write access |
+| `R2_SECRET_ACCESS_KEY`        | R2 API token secret                              |
+| `CSC_LINK`                    | Base64-encoded Apple Developer ID certificate    |
+| `CSC_KEY_PASSWORD`            | Apple certificate password                       |
+| `APPLE_ID`                    | Apple account used for notarization              |
+| `APPLE_APP_SPECIFIC_PASSWORD` | Apple app-specific password                      |
+| `APPLE_TEAM_ID`               | Apple Developer team ID                          |
 
 The R2 credentials belong only in GitHub Secrets. Do not include GitHub, R2,
 or code-signing credentials in the application or the public update bucket.

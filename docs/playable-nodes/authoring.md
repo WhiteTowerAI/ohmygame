@@ -353,24 +353,6 @@ short:
 If real use shows authors constantly switching between the two workspaces,
 an asset side panel on the Flow canvas can be reconsidered then.
 
-## Reuse from the current editor
-
-| Current editor part                                   | In Playable Nodes                                                     |
-| ----------------------------------------------------- | --------------------------------------------------------------------- |
-| Workspace header, chat placement, breadcrumb          | Keep                                                                  |
-| Flow canvas interactions (menu, guides, clipboard)    | Keep, with one Scene card and Exit ports                              |
-| `NodeWorkbenchLayout` (preview, inspector, resizing)  | Remove; Scenes use a preview-only Workbench with tools                |
-| Library asset picker and upload                       | Keep, behind the preview toolbar's Media menu                         |
-| Playtest entry point                                  | Keep, driven by the Node Runtime, with Ask AI to fix on errors        |
-| Variables dialog                                      | Read-only list in Project ▾; the Agent adds and changes Variables     |
-| Story issue banners                                   | Become Scene issue markers and validation messages                    |
-| Per-type forms (Open UI, Scene, Choice, Ending, …)    | Remove; replaced by conversation and Scene content                    |
-| Condition and Update State nodes                      | Remove; Scenes read State and take distinct Exits                     |
-| Story Map and Settings system nodes                   | Remove; ordinary Scenes and shared components                         |
-| Text, Image, Video, and 3D generation nodes           | Stay in Asset Canvas only                                             |
-
-The detailed inventory and PR order belong in `roadmap.md`.
-
 ## Design decisions
 
 ### Templates
@@ -382,14 +364,14 @@ wants next. The brief is not shown to the author. Each Template's picture in
 **Add a Scene** is a capture of the Scene it creates: the starter source
 with the default Project Style and no background.
 
-| Template         | Starter content                                                  | Starter Signals        |
-| ---------------- | ---------------------------------------------------------------- | ---------------------- |
-| Blank            | The background; a click or the video's end continues             | `next`                 |
-| Main menu        | Title, tagline, a list of entries, over the background           | `start`                |
-| Choice           | A subtitle line and answer bars that can read State              | `option-a`, `option-b` |
-| QTE              | A key to press before a ring runs out                            | `success`, `fail`      |
-| Hotspot          | A picture with pulsing spots, one Signal per spot                | `door`, `window`       |
-| Ending           | Stamped ending title, closing lines, and Play again              | none                   |
+| Template  | Starter content                                        | Starter Signals        |
+| --------- | ------------------------------------------------------ | ---------------------- |
+| Blank     | The background; a click or the video's end continues   | `next`                 |
+| Main menu | Title, tagline, a list of entries, over the background | `start`                |
+| Choice    | A subtitle line and answer bars that can read State    | `option-a`, `option-b` |
+| QTE       | A key to press before a ring runs out                  | `success`, `fail`      |
+| Hotspot   | A picture with pulsing spots, one Signal per spot      | `door`, `window`       |
+| Ending    | Stamped ending title, closing lines, and Play again    | none                   |
 
 Starter Signals are ordinary declared Signals; the author or Agent renames
 and adds them freely. The set follows the old editor's story nodes: Open UI
@@ -418,7 +400,7 @@ Thumbnails are screenshots of the real Scene, never a separate rendering.
   workspace. They are not part of `graph.json`, `editor/layout.json`, or the
   published project.
 - A thumbnail records the hash of the Scene's compiled output. When the source
-  changes, the card keeps the old image with a *stale* marker until the next
+  changes, the card keeps the old image with a _stale_ marker until the next
   capture replaces it.
 - A Scene that has no thumbnail yet, or whose run fails, shows its first
   declared image asset, or a neutral card with its title.
@@ -477,9 +459,8 @@ image stays still. Exits decide when to move on.
 
 ### Multi-node Agent changes
 
-The Agent may create several Scenes and Exits in one turn. Turn
-review below comes after the MVP
-([roadmap](roadmap.md#after-the-mvp)).
+The Agent may create several Scenes and Exits in one turn. The turn
+review below is not built yet.
 
 - Before each Agent turn, the editor records a checkpoint of `graph.json`,
   `editor/layout.json`, and the node and `shared/` source files.

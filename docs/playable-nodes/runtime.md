@@ -65,7 +65,11 @@ first node added becomes the Entry Node.
     {
       "id": "main-menu",
       "title": "Main menu",
-      "source": { "html": "nodes/main-menu/index.html", "css": "nodes/main-menu/style.css", "javascript": "nodes/main-menu/node.js" },
+      "source": {
+        "html": "nodes/main-menu/index.html",
+        "css": "nodes/main-menu/style.css",
+        "javascript": "nodes/main-menu/node.js"
+      },
       "assets": ["club-background"],
       "signals": [
         { "id": "enter-club", "label": "进入俱乐部" },
@@ -75,7 +79,11 @@ first node added becomes the Entry Node.
     {
       "id": "archive",
       "title": "Archive",
-      "source": { "html": "nodes/archive/index.html", "css": "nodes/archive/style.css", "javascript": "nodes/archive/node.js" },
+      "source": {
+        "html": "nodes/archive/index.html",
+        "css": "nodes/archive/style.css",
+        "javascript": "nodes/archive/node.js"
+      },
       "assets": ["archive-desk"],
       "signals": [
         { "id": "home", "label": "首页", "role": "navigation" },
@@ -84,10 +92,30 @@ first node added becomes the Entry Node.
     }
   ],
   "edges": [
-    { "id": "e1", "source": { "nodeId": "main-menu", "signal": "enter-club" }, "targetNodeId": "game-lobby", "mode": "replace" },
-    { "id": "e2", "source": { "nodeId": "main-menu", "signal": "open-archive" }, "targetNodeId": "archive", "mode": "push" },
-    { "id": "e3", "source": { "nodeId": "archive", "signal": "home" }, "targetNodeId": "main-menu", "mode": "replace" },
-    { "id": "e4", "source": { "nodeId": "archive", "signal": "rules" }, "targetNodeId": "game-rules", "mode": "push" }
+    {
+      "id": "e1",
+      "source": { "nodeId": "main-menu", "signal": "enter-club" },
+      "targetNodeId": "game-lobby",
+      "mode": "replace"
+    },
+    {
+      "id": "e2",
+      "source": { "nodeId": "main-menu", "signal": "open-archive" },
+      "targetNodeId": "archive",
+      "mode": "push"
+    },
+    {
+      "id": "e3",
+      "source": { "nodeId": "archive", "signal": "home" },
+      "targetNodeId": "main-menu",
+      "mode": "replace"
+    },
+    {
+      "id": "e4",
+      "source": { "nodeId": "archive", "signal": "rules" },
+      "targetNodeId": "game-rules",
+      "mode": "push"
+    }
   ]
 }
 ```
@@ -117,7 +145,9 @@ Every node exports one function:
 export function mount(context) {
   const open = context.root.querySelector("[data-open]");
   const onClick = async () => {
-    await context.navigation.emit(context.state.get("hasKey") ? "door-opened" : "door-locked");
+    await context.navigation.emit(
+      context.state.get("hasKey") ? "door-opened" : "door-locked",
+    );
   };
   open.addEventListener("click", onClick, { signal: context.lifecycle.signal });
 }
@@ -322,9 +352,18 @@ The Runtime publishes a serializable snapshot to the host:
   "currentNodeId": "archive",
   "backStack": ["main-menu"],
   "state": {},
-  "recentSignals": [{ "nodeId": "main-menu", "signal": "open-archive", "edgeId": "e2", "at": "…" }],
+  "recentSignals": [
+    {
+      "nodeId": "main-menu",
+      "signal": "open-archive",
+      "edgeId": "e2",
+      "at": "…"
+    }
+  ],
   "stateAccess": { "archive": { "read": ["roundsCompleted"], "wrote": [] } },
-  "errors": [{ "nodeId": "archive", "code": "undeclared-asset", "message": "…" }],
+  "errors": [
+    { "nodeId": "archive", "code": "undeclared-asset", "message": "…" }
+  ],
   "save": { "present": true, "savedAt": "…" }
 }
 ```
@@ -358,6 +397,9 @@ JavaScript module and stylesheet per node.
 - The result records the input files used by each surface for error reporting
   and incremental rebuilds.
 - Preview builds add source-location attributes; publish builds do not.
+
+Codebase updates from the editor are applied under one workspace lock and
+rolled back as a whole if any write fails.
 
 ## Validation
 
@@ -396,18 +438,6 @@ Playtest, and writes a static directory with the Player, sandbox,
   any mismatch.
 - Editor layout, source files, thumbnails, Library paths, and workspace
   metadata are never published.
-
-## Daemon endpoints
-
-```text
-GET  /projects/:id/playable/codebase     graph and editor layout
-PUT  /projects/:id/playable/codebase     graph, layout, and optional source writes/deletions
-GET  /projects/:id/playable              compiled Player definition
-GET  /projects/:id/playable/validation   issues in draft or publish mode
-```
-
-Codebase updates are applied under one workspace lock and rolled back as a
-whole if any write fails.
 
 ## Deferred
 
