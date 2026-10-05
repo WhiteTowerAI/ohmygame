@@ -12,7 +12,6 @@ import {
   House,
   LoaderCircle,
   Maximize,
-  Monitor,
   Music2,
   Pause,
   PanelToggle,
@@ -89,8 +88,6 @@ import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-refere
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { ModelPreview } from "./model-preview.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
-import { viewportRatio } from "../shared/canvas-formats.js";
-import { CanvasSettingsDialog } from "./canvas-settings-dialog.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_MODEL_3D, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_MAX_REFERENCE_IMAGES, buildModel3DToolRequest, normalizeModel3DConfig, resolveModel3D } from "../shared/generation-config.js";
 import "@xyflow/react/dist/style.css";
 
@@ -254,6 +251,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const projectId = project.id;
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [notice, setNotice] = useState<string>();
+  // The canvas file format still requires a viewport; nothing in Asset Canvas uses it, so it is only carried through saves.
   const [viewport, setViewport] = useState({ width: 1280, height: 720 });
   const [nodes, setNodes] = useState<AssetCanvasFlowNode[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
@@ -284,7 +282,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const [generatingTextNodeId, setGeneratingTextNodeId] = useState<string>();
   const [uploadingNodeId, setUploadingNodeId] = useState<string>();
   const [importingAssets, setImportingAssets] = useState(false);
-  const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [generationError, setGenerationError] = useState<{ nodeId: string; message: string }>();
   const latestCanvas = useRef<AssetCanvasDocument | undefined>(undefined);
   const queuedCanvas = useRef<string | undefined>(undefined);
@@ -643,10 +640,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const canInsertCopiedNode = Boolean(copiedNode);
   const canUndo = Boolean(historyPendingBase.current || editorUndoHistory.current.length);
   const canRedo = !historyPendingBase.current && editorRedoHistory.current.length > 0;
-  const playerViewport = viewport;
-  const playerViewportAspect = playerViewport.width / playerViewport.height;
-  const canvasStageWidth = 440 * Math.min(1, playerViewportAspect);
-  const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
 
   function addNode(type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }): void {
     const node = { ...createFlowNode(type, position, imageModels, videoModels, defaultTextModel), selected: true };
@@ -1066,14 +1059,13 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   }
 
   return (
-    <section className="viewer-pane interactive-drama-workspace" aria-label="Asset Canvas workspace" style={{ "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`, "--story-viewport-aspect": playerViewportAspect, "--story-canvas-stage-width": `${canvasStageWidth}px`, "--story-canvas-stage-height": `${canvasStageHeight}px` } as CSSProperties}>
+    <section className="viewer-pane interactive-drama-workspace" aria-label="Asset Canvas workspace">
       <header className="interactive-drama-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         <div className="interactive-drama-project-tools">
           {chatOnRight && onHome ? (
             <button className="interactive-drama-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
           ) : null}
-          <button type="button" title="Canvas format" onClick={() => setCanvasSettingsOpen(true)}><Monitor size={14} /><span>{viewportRatio(playerViewport)}</span></button>
         </div>
         <div className="interactive-drama-header-actions">
           {chatOnRight && chatCollapsed && onToggleChat ? (
@@ -1160,7 +1152,6 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
         name={libraryAssets.find((candidate) => candidate.id === viewedAsset.assetId)?.name ?? titleCase(viewedAsset.mediaType)}
         onClose={() => setViewedAsset(undefined)}
       /> : null}
-      {canvasSettingsOpen ? <CanvasSettingsDialog viewport={viewport} hasContent={nodes.length > 0} onClose={() => setCanvasSettingsOpen(false)} onChange={setViewport} /> : null}
     </section>
   );
 }
