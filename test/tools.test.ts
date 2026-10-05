@@ -202,6 +202,19 @@ describe("tool runner", () => {
       .rejects.toMatchObject({ statusCode: 503, message: "Image generation is not configured" });
   });
 
+  it("passes the selected model through tool job requests", async () => {
+    const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("video"), mediaType: "video/mp4" as const });
+    const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator(), videoGenerator: { generate } });
+    apps.push(app);
+    const response = await app.inject({
+      method: "POST",
+      url: "/tools/generate-video/jobs",
+      payload: { prompt: "A nebula", model: TEST_VIDEO_MODEL, duration: 6, aspectRatio: "16:9", resolution: "720p" },
+    });
+    expect(response.statusCode).toBe(202);
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: TEST_VIDEO_MODEL }), expect.anything()));
+  });
+
   it("limits tool request bodies", async () => {
     const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator() });
     apps.push(app);

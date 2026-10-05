@@ -396,6 +396,7 @@ const toolRunSchema = {
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 32_000 },
       imageModel: modelRefSchema,
+      model: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
       resolution: { type: "string", enum: [...new Set([...IMAGE_RESOLUTIONS, ...VIDEO_RESOLUTIONS])] },
       aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
