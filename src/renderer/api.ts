@@ -522,6 +522,11 @@ export async function getLibraryAsset(assetId: string): Promise<Blob> {
   return response.blob();
 }
 
+/** Copies a Library asset into the project's `assets/imported/` folder; sending the same asset again returns the existing file. */
+export async function addLibraryAssetToProject(projectId: string, assetId: string): Promise<{ path: string; assetId: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/library-assets/${encodeURIComponent(assetId)}`, { method: "POST" });
+}
+
 export async function renameLibraryAsset(assetId: string, name: string): Promise<LibraryAsset> {
   return request(`/library/assets/${encodeURIComponent(assetId)}`, { method: "PATCH", body: JSON.stringify({ name }) });
 }
