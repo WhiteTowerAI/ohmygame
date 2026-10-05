@@ -359,7 +359,6 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   #resetIdleTimer(state: PlaytestSession): void {
     clearTimeout(state.idleTimer);
     state.idleTimer = setTimeout(() => this.#close(state.id), this.idleTimeoutMs);
-    state.idleTimer.unref?.();
   }
 
   #assertLive(state: PlaytestSession): void {
