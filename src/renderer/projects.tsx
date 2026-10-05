@@ -1,7 +1,7 @@
 import { ArrowDownUp, FolderPlus, LoaderCircle, RefreshCw, Search, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectState } from "../shared/contracts.js";
-import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
+import { deleteProject, duplicateProject, listProjectActivity, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
@@ -17,6 +17,7 @@ type ProjectSort = "updated" | "name";
 
 export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
+  const [activity, setActivity] = useState<ProjectAgentActivity[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
@@ -40,6 +41,38 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
   }
 
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    if (phase !== "ready") return;
+    const controller = new AbortController();
+    let pending = false;
+    async function refreshActivity(): Promise<void> {
+      if (pending || document.hidden || controller.signal.aborted) return;
+      pending = true;
+      try {
+        const current = await listProjectActivity(controller.signal);
+        if (!controller.signal.aborted) setActivity((previous) => (
+          previous.length === current.length && previous.every((item, index) => (
+            item.projectId === current[index]?.projectId && item.status === current[index]?.status
+          )) ? previous : current
+        ));
+      } catch {
+        // Keep the last state during a temporary runtime disconnect.
+      } finally {
+        pending = false;
+      }
+    }
+    void refreshActivity();
+    const timer = window.setInterval(() => { void refreshActivity(); }, 2_000);
+    const refresh = () => { void refreshActivity(); };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [phase]);
   useEffect(() => {
     if (!sortOpen) return;
     const close = (event: MouseEvent) => {
@@ -113,6 +146,7 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
             <ProjectCard
               key={project.id}
               project={project}
+              agentStatus={activity.find((item) => item.projectId === project.id)?.status}
               fallback={index % 4}
               onOpen={() => onOpenProject(project.id)}
               actions={{ onRename: () => rename(project), onDuplicate: () => duplicate(project), onDelete: () => remove(project) }}

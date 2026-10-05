@@ -1022,6 +1022,8 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/projects", async () => projects.list());
 
+  app.get("/projects/activity", async () => agents.projectActivity());
+
   app.get("/examples", async () => examples.list());
 
   app.post<{ Params: { exampleId: string } }>("/examples/:exampleId/play", async (request, reply) => {

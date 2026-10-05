@@ -1,4 +1,4 @@
-import { FileText, FolderInput, Plus, X } from "./icons.js";
+import { FileText, Plus, X } from "./icons.js";
 import { Fragment, useEffect, useMemo, useRef } from "react";
 import { formatBytes } from "./format-bytes.js";
 
@@ -29,7 +29,6 @@ export function AttachmentPickerButton({
   onFiles: (files: ComposerAttachment[]) => void;
 }) {
   const filesInput = useRef<HTMLInputElement>(null);
-  const folderInput = useRef<HTMLInputElement>(null);
   const select = (files: FileList | null) => {
     const attachments = attachmentFiles([...(files ?? [])]);
     if (attachments.length) onFiles(attachments);
@@ -47,31 +46,8 @@ export function AttachmentPickerButton({
       >
         <Plus size={17} />
       </button>
-      <button
-        className="icon-button composer-attach-button"
-        type="button"
-        disabled={disabled}
-        onClick={() => folderInput.current?.click()}
-        title="Attach folder"
-        aria-label="Attach folder"
-      >
-        <FolderInput size={16} />
-      </button>
       <input
         ref={filesInput}
-        className="visually-hidden"
-        type="file"
-        multiple
-        onChange={(event) => {
-          select(event.target.files);
-          event.target.value = "";
-        }}
-      />
-      <input
-        ref={(input) => {
-          folderInput.current = input;
-          if (input) input.setAttribute("webkitdirectory", "");
-        }}
         className="visually-hidden"
         type="file"
         multiple

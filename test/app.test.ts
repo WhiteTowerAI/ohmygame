@@ -13,6 +13,43 @@ const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } a
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("daemon", () => {
+  it("exposes project activity without requiring a conversation event subscription", async () => {
+    let finish!: () => void;
+    const completion = new Promise<void>((resolve) => { finish = resolve; });
+    const prompt = vi.fn(async () => completion);
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-project-activity-")),
+      createSession: async () => ({
+        messages: [],
+        prompt,
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+      }),
+    });
+    apps.push(app);
+    const activity = async () => (await app.inject({ method: "GET", url: "/projects/activity" })).json();
+    expect(await activity()).toEqual([]);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+        payload: { prompt: "Build" },
+      });
+      expect(response.statusCode).toBe(202);
+      await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
+      expect(await activity()).toEqual([{ projectId: project.id, status: "running" }]);
+      expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([expect.objectContaining({ id: project.id })]);
+      await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns/${response.json().turnId}/cancel` });
+      expect(await activity()).toEqual([{ projectId: project.id, status: "cancelling" }]);
+    } finally {
+      finish();
+    }
+    await vi.waitFor(async () => expect(await activity()).toEqual([]));
+  });
+
   it("creates an empty isolated Web Game project", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
