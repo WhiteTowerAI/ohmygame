@@ -1,5 +1,22 @@
 # Runtime
 
+```text
+┌──────────── Desktop app / web renderer ─────────────┐
+│  Conversation            │  Live preview / watch    │
+└──────────────┬──────────────────────────────────────┘
+               │ local HTTP + SSE (127.0.0.1)
+┌──────────────┴──────── Local daemon ────────────────┐
+│  Pi agent · playtest · Asset Canvas · plugins · MCP │
+│  project workspaces · preview dev server            │
+└──────────────┬──────────────────────────────────────┘
+               │ Publish (static build only)
+┌──────────────┴──────── OhMyGame Cloud ──────────────┐
+│  immutable deployments · Community                  │
+└─────────────────────────────────────────────────────┘
+```
+
+Everything except publishing runs locally.
+
 ## Project shell
 
 `npm run dev` starts the renderer and daemon:

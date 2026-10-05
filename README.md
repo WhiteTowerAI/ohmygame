@@ -12,10 +12,10 @@
 Everything you need to make games with AI, in one open-source app. Bring any
 model.
 
-<!-- TODO(links): real download URLs from the release feed -->
+<!-- Update the download links on each release -->
 <p>
-  <a href="https://TODO"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
-  <a href="https://TODO"><img src="https://img.shields.io/badge/Download-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" /></a>
+  <a href="https://github.com/WhiteTowerAI/ohmygame/releases/download/v0.0.0-beta.1/OhMyGame-0.0.0-beta.1-arm64.dmg"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
+  <a href="https://github.com/WhiteTowerAI/ohmygame/releases/download/v0.0.0-beta.1/OhMyGame-0.0.0-beta.1-x64.exe"><img src="https://img.shields.io/badge/Download-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" /></a>
 </p>
 
 <p>
@@ -23,19 +23,17 @@ model.
   <a href="#any-model-your-keys"><img src="https://img.shields.io/badge/models-40%2B%20providers%20%C2%B7%20BYOK-black?style=flat-square" alt="40+ model providers, BYOK" /></a>
   <img src="https://img.shields.io/badge/local--first-yes-2ea44f?style=flat-square" alt="Local-first" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License Apache 2.0" /></a>
-  <img src="https://img.shields.io/badge/status-alpha-orange?style=flat-square" alt="Status alpha" />
+  <img src="https://img.shields.io/badge/status-beta-orange?style=flat-square" alt="Status beta" />
 </p>
 
-<!-- TODO(links): community, X, and Discord URLs; keep only the ones that are live -->
 <p>
-  <a href="https://discord.gg/TkrgvGQ2Zc">Join Discord</a> ·
-  <a href="https://x.com/dihuang111">X</a>
+  <a href="https://discord.gg/TkrgvGQ2Zc">Join Discord</a>
 </p>
 
 </div>
 
 > [!NOTE]
-> OhMyGame is in early alpha (`0.0.0-alpha.3`). Expect rough edges, join us and let's build it together!
+> OhMyGame is in beta (`0.0.0-beta.1`). Expect rough edges, join us and let's build it together!
 
 ## What it is
 
@@ -50,11 +48,7 @@ Pi's full toolset and sessions, and extends it for games: Equip general agent th
 Bring your own model. OhMyGame works with 40+ providers through Pi, from
 Anthropic and OpenAI to DeepSeek and Qwen, and can sign in with a subscription you already have. Your keys stay on your machine, there are no per-run credits, and what it makes is yours.
 
-## Demo
-
-https://github.com/user-attachments/assets/TODO
-
-## What you can make
+## Features
 
 ### 🎮 Web games: from one sentence to something you can play
 
@@ -68,18 +62,17 @@ them, then looks at the result. It has no real-time reflexes yet.
 
 <!-- TODO(asset): GIF, Project Shell: conversation left, live preview right,
 then the agent playing in the watch window with the key overlay -->
-<img src="docs/assets/web-game.gif" alt="Building a web game and watching the agent play it" width="860" />
+<!-- <img src="docs/assets/web-game.gif" alt="Building a web game and watching the agent play it" width="860" /> -->
 
 ### 🎨 Asset Canvas: art, video, and 3D on one board
 
 Generate images, video, and 3D models side by side. Nodes can use each other
 as references, so one character design can lead to more
 images, a video, or a textured 3D model. Results go into a shared Asset
-Library that your games can use. Generation needs your own provider keys or
-an OhMyGame account.
+Library that your games can use. Generation uses your own provider keys.
 
 <!-- TODO(asset): GIF, Asset Canvas: text → image → 3D model chain -->
-<img src="docs/assets/asset-canvas.gif" alt="Generating linked image, video, and 3D assets on the Asset Canvas" width="860" />
+<!-- <img src="docs/assets/asset-canvas.gif" alt="Generating linked image, video, and 3D assets on the Asset Canvas" width="860" /> -->
 
 ### 🎬 Interactive stories: one screen at a time
 
@@ -97,7 +90,7 @@ made with OhMyGame. Leave out until there is a real one. -->
 
 OhMyGame builds the game and uploads only the static output. Each publish is a
 new immutable deployment under the same link, and the game shows up in the
-[Community](https://TODO) where others can play it.
+[Community](https://ohmygame.ai/) where others can play it.
 
 ## How it's built
 
@@ -118,7 +111,8 @@ way it edits code, and the visual editors read and write the same files.
 **3 · Game-specific tools.** On top of Pi's coding tools, the agent can play
 the game it built (`game_use`), generate images, video, and 3D models, add and
 check story nodes, search the web, and install plugins, all as ordinary tool
-calls.
+calls. Connect MCP servers for more tools, or reuse the Codex and Claude Code
+plugins you already have.
 
 ## Any model, your keys
 
@@ -130,35 +124,11 @@ OhMyGame does not lock you into one model or charge per run.
 - **Sign in with a subscription you already have**, such as ChatGPT Plus/Pro or
   GitHub Copilot, or paste an API key.
   <!-- TODO(legal): check each provider's terms before naming more subscriptions -->
-- **Media models** for images, video, and 3D through OpenAI, Gemini, fal,
+- **Media models** for images, video, and 3D through OpenAI, Gemini,
   OpenRouter, and Meshy.
-- **Or use an OhMyGame account** if you would rather not manage keys.
-  <!-- TODO(copy): pricing link for the OhMyGame account -->
 
 Keys stay in the local daemon. They never reach the agent's workspace, your
 game, or the renderer.
-
-## Extend it
-
-- **Skills.** The built-in Web Game Studio plugin ships skills for game
-  foundations, Three.js, React Three Fiber, Phaser, sprite and 3D asset
-  pipelines, game UI, and playtesting. The built-in Three.js World plugin
-  expands a scene idea into a detailed design and builds an explorable world.
-- **Plugins.** Install OhMyGame plugins, or reuse the Codex and Claude Code
-  plugins you already have.
-- **MCP.** Connect MCP servers to give the agent more tools.
-
-## What's next
-
-<!-- TODO(roadmap): confirm the list and link each item to an issue -->
-
-- First-run setup that walks you through connecting a model
-- Plain-language playtest reports you can read without looking at code
-- More platforms: Intel Macs and Linux
-
-Want to help with one of these? Look for
-[`help wanted`](https://github.com/WhiteTowerAI/ohmygame/labels/help%20wanted)
-issues.
 
 ## Quick start
 
@@ -168,7 +138,7 @@ Grab the installer from the buttons at the top or from
 [Releases](https://github.com/WhiteTowerAI/ohmygame/releases). Builds are
 available for macOS (Apple silicon) and Windows (x64).
 
-Open the app, connect a model provider under **Providers**, and describe your
+Open the app, connect a model provider under **Providers & Models**, and describe your
 first game.
 
 <!-- TODO(copy): short first-run guide once the BYOK onboarding lands:
@@ -187,138 +157,33 @@ npm run dev            # web renderer + local daemon
 npm run dev:desktop    # Electron app
 ```
 
-The web renderer opens at `http://127.0.0.1:43120`. See
-[Development](#development) for configuration.
+See [CONTRIBUTING.md](CONTRIBUTING.md#configuration) for configuration.
 
-## Made something?
+## Privacy
 
-We'd love to see it. Share it in [Discussions](https://TODO) with the prompt
-you used.
-
-<!-- TODO(asset): once there are 3+ real community games, replace this with a
-"Made with OhMyGame" table: thumbnail, name, playable link, original prompt -->
-
-## How it works
-
-```text
-┌──────────── Desktop app / web renderer ─────────────┐
-│  Conversation            │  Live preview / watch    │
-└──────────────┬──────────────────────────────────────┘
-               │ local HTTP + SSE (127.0.0.1)
-┌──────────────┴──────── Local daemon ────────────────┐
-│  Pi agent · playtest · Asset Canvas · plugins · MCP │
-│  project workspaces · preview dev server            │
-└──────────────┬──────────────────────────────────────┘
-               │ Publish (static build only)
-┌──────────────┴──────── OhMyGame Cloud ──────────────┐
-│  immutable deployments · Community                  │
-└─────────────────────────────────────────────────────┘
-```
-
-The agent is built on the
-[Pi coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent).
-Everything except publishing runs locally. Details: [docs/runtime.md](docs/runtime.md).
-
-## Privacy and telemetry
-
-- Model and provider keys stay in the local daemon.
-- Publishing uploads only the static build output. Your sign-in token is used
-  for that request only and is never stored or sent to the agent.
-- Builds with analytics configured send anonymous usage events (PostHog,
-  session recording off) and crash reports (Sentry, no PII). Builds from
-  source send nothing unless you set the keys yourself.
+Everything runs on your machine except publishing, which uploads only your
+game's static build. Release builds send anonymous usage events (PostHog,
+no session recording) and crash reports (Sentry, no personal data). Builds
+from source send nothing.
 
 <!-- TODO(copy): how to turn telemetry off in the desktop app, once there is a
 setting for it -->
 
-## Development
+## Roadmap
 
-Run `npm test`, `npm run typecheck`, and `npm run build` before sending a PR.
+<!-- TODO(links): link "roadmap" to the pinned Roadmap issue once the repo is public -->
 
-<details>
-<summary>Sign-in (Supabase)</summary>
-
-Product sign-in uses Supabase Auth with Google and GitHub. Enable both
-providers in Supabase, add the renderer URL to the allowed redirect URLs, and
-set these public values in `.env.local`:
-
-```dotenv
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
-```
-
-When either value is missing, `npm run dev` and `npm run dev:desktop` on
-localhost automatically use a local debug account. Click **Sign in** to sign in
-immediately; signing out and restoring the session on reload also work.
-Publishing builds the actual game and serves a temporary local snapshot, which
-appears in Community. No Supabase or cloud service is needed. These games and
-their local links are available only while the daemon is running; they are not
-uploaded or publicly shared. Configuring both values restores real authentication
-and cloud publishing. Production builds never enable the debug fallback.
-
-For desktop OAuth, add
-`http://127.0.0.1:*/auth/callback/**` to the redirect allow list. The desktop
-app opens OAuth in the system browser and receives the result through a
-temporary loopback server.
-
-</details>
-
-<details>
-<summary>Publishing against a local cloud</summary>
-
-The Community website and Publish v1 service live in
-[`ohmygame-cloud`](https://github.com/WhiteTowerAI/ohmygame-cloud). Point the
-client at a local or preview deployment in `.env.local`:
-
-```dotenv
-CLOUD_API_URL=http://127.0.0.1:43130
-```
-
-The server contract is in
-[`ohmygame-cloud/docs/publish-v1.md`](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md).
-
-</details>
-
-<details>
-<summary>Projects, proxies, and the desktop daemon</summary>
-
-- Projects, workspaces, and Pi sessions live in the daemon data directory. In
-  the desktop app a project can use an existing folder as its workspace;
-  removing the project never deletes that folder.
-- The daemon honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` (either case)
-  and always keeps local traffic off the proxy.
-- The desktop app starts a managed daemon on a free port with a random
-  process-scoped access token. The renderer has no Node.js access.
-- Desktop release signing and the update feed:
-  [docs/desktop-releases.md](docs/desktop-releases.md).
-
-</details>
-
-## Follow along
-
-We're building OhMyGame in public.
-
-<!-- TODO(links): list only the channels that are live -->
-
-- Changelog: [Releases](https://github.com/WhiteTowerAI/ohmygame/releases)
-- Feedback and games: [Discussions](https://TODO)
-- Updates: [X](https://x.com/TODO)
-
-<!-- TODO(badge): enable once there is some history to show
-[![Star History](https://api.star-history.com/svg?repos=WhiteTowerAI/ohmygame&type=Date)](https://star-history.com/#WhiteTowerAI/ohmygame&Date)
--->
+We're working on first-run setup, plain-language playtest reports, and
+Intel Mac / Linux builds. See the [roadmap](https://TODO) for what's next,
+and vote with 👍 on what matters to you. Want to help? Look for
+[`help wanted`](https://github.com/WhiteTowerAI/ohmygame/labels/help%20wanted)
+issues.
 
 ## Contributing
 
 Issues and PRs are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
 checks, and PR conventions, and [SECURITY.md](SECURITY.md) for reporting
 security issues.
-
-## Acknowledgements
-
-OhMyGame's agent runs on
-[Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent).
-<!-- TODO(copy): other projects and asset sources worth crediting -->
 
 ## License
 

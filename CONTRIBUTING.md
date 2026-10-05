@@ -22,9 +22,61 @@ npm run dev            # web renderer + local daemon
 npm run dev:desktop    # Electron app
 ```
 
-See the [README](README.md#development) for sign-in, publishing, and proxy
-configuration, and [docs/runtime.md](docs/runtime.md) for how the renderer,
+See [Configuration](#configuration) for sign-in, publishing, and proxy
+settings, and [docs/runtime.md](docs/runtime.md) for how the renderer,
 daemon, and agent fit together.
+
+## Configuration
+
+### Sign-in (Supabase)
+
+Product sign-in uses Supabase Auth with Google and GitHub. Enable both
+providers in Supabase, add the renderer URL to the allowed redirect URLs, and
+set these public values in `.env.local`:
+
+```dotenv
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your-key
+```
+
+When either value is missing, `npm run dev` and `npm run dev:desktop` on
+localhost automatically use a local debug account. Click **Sign in** to sign in
+immediately; signing out and restoring the session on reload also work.
+Publishing builds the actual game and serves a temporary local snapshot, which
+appears in Community. No Supabase or cloud service is needed. These games and
+their local links are available only while the daemon is running; they are not
+uploaded or publicly shared. Configuring both values restores real authentication
+and cloud publishing. Production builds never enable the debug fallback.
+
+For desktop OAuth, add
+`http://127.0.0.1:*/auth/callback/**` to the redirect allow list. The desktop
+app opens OAuth in the system browser and receives the result through a
+temporary loopback server.
+
+### Publishing against a local cloud
+
+The Community website and Publish v1 service live in
+[`ohmygame-cloud`](https://github.com/WhiteTowerAI/ohmygame-cloud). Point the
+client at a local or preview deployment in `.env.local`:
+
+```dotenv
+CLOUD_API_URL=http://127.0.0.1:43130
+```
+
+The server contract is in
+[`ohmygame-cloud/docs/publish-v1.md`](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md).
+
+### Projects, proxies, and the desktop daemon
+
+- Projects, workspaces, and Pi sessions live in the daemon data directory. In
+  the desktop app a project can use an existing folder as its workspace;
+  removing the project never deletes that folder.
+- The daemon honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` (either case)
+  and always keeps local traffic off the proxy.
+- The desktop app starts a managed daemon on a free port with a random
+  process-scoped access token. The renderer has no Node.js access.
+- Desktop release signing and the update feed:
+  [docs/desktop-releases.md](docs/desktop-releases.md).
 
 ## Checks
 
