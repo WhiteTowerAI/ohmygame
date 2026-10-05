@@ -1,11 +1,12 @@
 import { Plus, RefreshCw } from "./icons.js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ExampleShelf, useExamples } from "./examples.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
+import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
@@ -23,6 +24,8 @@ export function InteractiveStoryHome({ onNavigate, onCreate, onOpenProject }: {
   const [loadError, setLoadError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<ProjectState>();
+  const renameTrigger = useRef<HTMLElement | null>(null);
   const { examples, covers } = useExamples();
   const storyExamples = examples.filter((example) => example.type === "interactive-story").slice(0, RECENT_STORY_LIMIT);
 
@@ -51,8 +54,8 @@ export function InteractiveStoryHome({ onNavigate, onCreate, onOpenProject }: {
     }
   }
 
-  function rename(project: ProjectState): void {
-    const name = window.prompt("Rename project", project.name)?.trim();
+  function rename(project: ProjectState, input: string): void {
+    const name = input.trim();
     if (!name || name === project.name) return;
     void runAction(() => renameProject(project.id, name));
   }
@@ -113,7 +116,10 @@ export function InteractiveStoryHome({ onNavigate, onCreate, onOpenProject }: {
                   project={project}
                   fallback={index % 4}
                   onOpen={() => onOpenProject(project.id)}
-                  actions={{ onRename: () => rename(project), onDuplicate: () => duplicate(project), onDelete: () => remove(project) }}
+                  actions={{ onRename: () => {
+                    renameTrigger.current = document.querySelector<HTMLElement>('.project-card-menu[aria-expanded="true"]');
+                    setRenameTarget(project);
+                  }, onDuplicate: () => duplicate(project), onDelete: () => remove(project) }}
                 />
               ))}
             </div>
@@ -121,6 +127,11 @@ export function InteractiveStoryHome({ onNavigate, onCreate, onOpenProject }: {
           {actionError ? <p className="home-notice" role="alert">{actionError}</p> : null}
         </section>
       </section>
+      {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(name) => {
+        const project = renameTarget;
+        setRenameTarget(undefined);
+        rename(project, name);
+      }} /> : null}
       {createOpen ? <ProjectCreateDialog fixedType="interactive-story" onClose={() => setCreateOpen(false)} onCreated={(project) => {
         setCreateOpen(false);
         onOpenProject(project.id);

@@ -4,6 +4,7 @@ import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js"
 import { deleteProject, duplicateProject, listProjectActivity, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
+import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
@@ -25,6 +26,8 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
   const [sortOpen, setSortOpen] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<ProjectState>();
+  const renameTrigger = useRef<HTMLElement | null>(null);
   const sortControl = useRef<HTMLDivElement>(null);
 
   async function load(): Promise<void> {
@@ -94,8 +97,8 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
     }
   }
 
-  function rename(project: ProjectState): void {
-    const name = window.prompt("Rename project", project.name)?.trim();
+  function rename(project: ProjectState, input: string): void {
+    const name = input.trim();
     if (!name || name === project.name) return;
     void runAction(() => renameProject(project.id, name));
   }
@@ -149,13 +152,21 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
               agentStatus={activity.find((item) => item.projectId === project.id)?.status}
               fallback={index % 4}
               onOpen={() => onOpenProject(project.id)}
-              actions={{ onRename: () => rename(project), onDuplicate: () => duplicate(project), onDelete: () => remove(project), ...(project.type !== "asset-canvas" ? { onDesign: () => onOpenProject(project.id, "design") } : {}) }}
+              actions={{ onRename: () => {
+                renameTrigger.current = document.querySelector<HTMLElement>('.project-card-menu[aria-expanded="true"]');
+                setRenameTarget(project);
+              }, onDuplicate: () => duplicate(project), onDelete: () => remove(project), ...(project.type !== "asset-canvas" ? { onDesign: () => onOpenProject(project.id, "design") } : {}) }}
             />
           ))}
         </div>
       ) : null}
       {phase === "ready" && projects.length > 0 && visibleProjects.length === 0 ? <ProjectState><FolderPlus size={18} />No projects match your search</ProjectState> : null}
       {actionError ? <p className="projects-notice" role="alert">{actionError}</p> : null}
+      {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(name) => {
+        const project = renameTarget;
+        setRenameTarget(undefined);
+        rename(project, name);
+      }} /> : null}
       {createOpen ? <ProjectCreateDialog onClose={() => setCreateOpen(false)} onCreated={(project) => {
         setCreateOpen(false);
         onOpenProject(project.id);
