@@ -11,6 +11,7 @@ import {
   Image as ImageIcon,
   House,
   LoaderCircle,
+  Maximize,
   Monitor,
   Music2,
   Pause,
@@ -85,6 +86,7 @@ import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { ModelPreview } from "./model-preview.js";
+import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { viewportRatio } from "../shared/canvas-formats.js";
 import { CanvasSettingsDialog } from "./canvas-settings-dialog.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_VIDEO_NODE_CONFIG, MODEL_3D_REFERENCE_LIMIT, buildModel3DToolRequest, normalizeModel3DConfig } from "../shared/generation-config.js";
@@ -264,6 +266,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
   const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
+  const [viewedAsset, setViewedAsset] = useState<ViewableCanvasAsset>();
   const [startingCanvasNodes, setStartingCanvasNodes] = useState<Set<string>>(() => new Set());
   const startingCanvasNodesRef = useRef(new Set<string>());
   const hydratedJobRuns = useRef(new Set<string>());
@@ -495,7 +498,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const step = undoShortcut(event);
-      if (!step || isTextEntry(event.target)) return;
+      if (!step || isTextEntry(event.target) || eventWithin(event, ".nokey")) return;
       event.preventDefault();
       if (step === "redo") redoEditorChange();
       else undoEditorChange();
@@ -704,6 +707,11 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     if (!removedIds.size) return;
     setNodes((current) => removeNodesAndReferences(current, removedIds));
     setEdges((current) => current.filter((edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)));
+  }
+
+  function openViewer(node: AssetCanvasFlowNode): void {
+    const asset = viewableCanvasAsset(node);
+    if (asset) setViewedAsset(asset);
   }
 
   function clearSelection(): void {
@@ -1080,7 +1088,13 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
               onConnect={onConnect}
               onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
               onEdgeClick={(_event, edge) => setSelectedAssetEdgeId(edge.id.startsWith(ASSET_EDGE_PREFIX) ? edge.id : undefined)}
-              onNodeClick={() => { setCanvasContextMenu(undefined); setSelectedAssetEdgeId(undefined); }}
+              onNodeClick={(event, node) => {
+                setCanvasContextMenu(undefined);
+                setSelectedAssetEdgeId(undefined);
+                if (eventWithin(event, ".story-media-view-button")) openViewer(node);
+              }}
+              // Only the preview opens the viewer; the prompt, chips, and video controls below keep their own double-click.
+              onNodeDoubleClick={(event, node) => { if (eventWithin(event, ".story-media-stage")) openViewer(node); }}
               onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
               onNodeContextMenu={(_event, node) => {
                 setSelectedAssetEdgeId(undefined);
@@ -1103,6 +1117,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             canRedo={canRedo}
             canPaste={canInsertCopiedNode}
             canDuplicate={Boolean(contextMenuNode)}
+            canView={Boolean(contextMenuNode && viewableCanvasAsset(contextMenuNode))}
             nodeActionsDisabled={Boolean(contextMenuNodeMissing)}
             importing={importingAssets}
             onClose={() => setCanvasContextMenu(undefined)}
@@ -1111,6 +1126,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             onPaste={() => { if (copiedNode) insertNodeCopy(copiedNode, canvasContextMenu.flowPosition); }}
             onAdd={(item) => addCanvasNode(item, canvasContextMenu.flowPosition)}
             onUpload={(file) => void importAssetFile(file, canvasContextMenu.flowPosition)}
+            onView={() => { if (contextMenuNode) openViewer(contextMenuNode); }}
             onCopy={() => { if (canvasContextMenu.nodeId) copyCanvasNode(canvasContextMenu.nodeId); }}
             onDuplicate={() => { if (canvasContextMenu.nodeId) duplicateCanvasNode(canvasContextMenu.nodeId); }}
             onDelete={() => { if (canvasContextMenu.nodeId) removeCanvasNodes(new Set([canvasContextMenu.nodeId])); }}
@@ -1118,6 +1134,11 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
           {notice && phase === "ready" ? <div className="story-save-notice" role="alert">{notice}</div> : null}
         </div>
       </div>
+      {viewedAsset ? <CanvasAssetViewer
+        asset={viewedAsset}
+        name={libraryAssets.find((candidate) => candidate.id === viewedAsset.assetId)?.name ?? titleCase(viewedAsset.mediaType)}
+        onClose={() => setViewedAsset(undefined)}
+      /> : null}
       {canvasSettingsOpen ? <CanvasSettingsDialog viewport={viewport} hasContent={nodes.length > 0} onClose={() => setCanvasSettingsOpen(false)} onChange={setViewport} /> : null}
     </section>
   );
@@ -1358,6 +1379,7 @@ function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
     <div className={`story-node story-media-node story-library-asset-node story-library-${kind}-node${selected ? " is-selected" : ""}`} style={style}>
       <div className="story-media-node-label"><Icon size={14} /><span>{data.name || titleCase(kind)}</span><small>Library</small></div>
       <div data-alignment-frame className="story-media-stage">
+        {preview.url && kind !== "audio" ? <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || "Library image"} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && kind === "model" ? <ModelPreview source={preview.url} label={data.name || "3D model"} minHeight={220} interactive={false} /> : null}
@@ -1509,6 +1531,7 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, inputCount = 0, 
     <div className={`story-node story-media-node story-generation-media-node${selected ? " is-selected" : ""}`} style={mediaLayout.style}>
       <div className="story-media-node-label"><Icon size={14} /><span>{label}{inputCount ? ` · ${inputCount} ${kind === "video" ? "references" : inputCount === 1 ? "image" : "images"}` : ""}</span></div>
       <div data-alignment-frame className={`story-media-stage${runtime?.generating ? " is-generating" : ""}`}>
+        {preview.url ? <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt="Generated image" onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && kind === "model" ? <ModelPreview source={preview.url} label="Generated 3D model" minHeight={220} interactive={false} /> : null}
@@ -1863,12 +1886,57 @@ function AssetCanvasAddControl({
   </>;
 }
 
+interface ViewableCanvasAsset {
+  assetId: string;
+  mediaType: Exclude<AssetMediaType, "audio">;
+}
+
+function viewableCanvasAsset(node: AssetCanvasFlowNode): ViewableCanvasAsset | undefined {
+  const assetId = node.data.assetId;
+  if (!assetId) return undefined;
+  if (node.type === "image") return { assetId, mediaType: "image" };
+  if (node.type === "video") return { assetId, mediaType: "video" };
+  if (node.type === "model-3d") return { assetId, mediaType: "model" };
+  const mediaType = node.data.mediaType;
+  return node.type === "asset" && mediaType && mediaType !== "audio" ? { assetId, mediaType } : undefined;
+}
+
+/** The workspace opens the viewer from onNodeClick, which already knows the node. */
+function MediaViewButton() {
+  return (
+    <button className="story-media-view-button nodrag" type="button" title="View" aria-label="View" onDoubleClick={(event) => event.stopPropagation()}>
+      <Maximize size={14} />
+    </button>
+  );
+}
+
+function eventWithin(event: { target: EventTarget | null }, selector: string): boolean {
+  return event.target instanceof Element && Boolean(event.target.closest(selector));
+}
+
+function CanvasAssetViewer({ asset, name, onClose }: { asset: ViewableCanvasAsset; name: string; onClose: () => void }) {
+  const preview = useWorkspaceAssetUrl(undefined, "", 0, asset.assetId);
+  // React Flow ignores key presses inside .nokey, so Backspace/Delete here never removes the node behind the dialog.
+  return <div className="nokey">
+    <AssetDialogShell
+      title={name}
+      labelledBy="canvas-asset-viewer-title"
+      onClose={onClose}
+      preview={preview.url
+        ? <AssetMedia type={asset.mediaType} url={preview.url} label={name} />
+        : <span className="library-dialog-state">{preview.error ? "Asset unavailable" : "Loading asset..."}</span>}
+      footer={null}
+    />
+  </div>;
+}
+
 function AssetCanvasContextMenu({
   menu,
   canUndo,
   canRedo,
   canPaste,
   canDuplicate,
+  canView,
   nodeActionsDisabled,
   importing,
   onClose,
@@ -1877,6 +1945,7 @@ function AssetCanvasContextMenu({
   onPaste,
   onAdd,
   onUpload,
+  onView,
   onCopy,
   onDuplicate,
   onDelete,
@@ -1886,6 +1955,7 @@ function AssetCanvasContextMenu({
   canRedo: boolean;
   canPaste: boolean;
   canDuplicate: boolean;
+  canView: boolean;
   nodeActionsDisabled: boolean;
   importing: boolean;
   onClose: () => void;
@@ -1894,6 +1964,7 @@ function AssetCanvasContextMenu({
   onPaste: () => void;
   onAdd: (item: CanvasNodeCreationLeaf) => void;
   onUpload: (file: File) => void;
+  onView: () => void;
   onCopy: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -1953,6 +2024,7 @@ function AssetCanvasContextMenu({
           }}
         />
       </> : <>
+        {canView ? <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onView)}><Maximize size={15} /><span>View</span></button> : null}
         <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy node</span></button>
         <button type="button" role="menuitem" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
         <button className="is-danger" type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
