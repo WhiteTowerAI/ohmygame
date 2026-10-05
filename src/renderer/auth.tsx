@@ -1,6 +1,7 @@
 import { createClient, type User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SignInDialog, type SignInProvider } from "./sign-in-dialog.js";
+import { isLocalDebugEnabled, isLoopbackHostname, LOCAL_DEBUG_ACCESS_TOKEN, LOCAL_DEBUG_USER } from "../shared/local-debug.js";
 
 export type AuthState =
   | { status: "loading" }
@@ -23,13 +24,27 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const supabase = createSupabaseClient();
+export const localDebug = isLocalDebugEnabled(
+  import.meta.env.DEV && typeof window !== "undefined" && isLoopbackHostname(window.location.hostname),
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+);
+const LOCAL_SESSION_KEY = "ohmygame-local-debug-session";
 
 interface AuthClient {
   auth: Pick<ReturnType<typeof createClient>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signOut">;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AuthState>(supabase ? { status: "loading" } : { status: "signed-out" });
+  const [state, setState] = useState<AuthState>(() => {
+    if (supabase) return { status: "loading" };
+    try {
+      if (localDebug && localStorage.getItem(LOCAL_SESSION_KEY) === "signed-in") {
+        return { status: "signed-in", user: LOCAL_DEBUG_USER };
+      }
+    } catch { /* Storage may be unavailable in the browser. */ }
+    return { status: "signed-out" };
+  });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState<string>();
   const [pendingProvider, setPendingProvider] = useState<SignInProvider>();
@@ -91,18 +106,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(() => ({
     state,
     openSignIn: () => {
+      if (localDebug) {
+        signInLocally();
+        return;
+      }
       setError(undefined);
       setDialogOpen(true);
     },
     requestAccessToken,
     signOut: async () => {
-      if (!supabase) return;
       settleAccessTokenRequest(undefined);
+      if (localDebug) {
+        try { localStorage.removeItem(LOCAL_SESSION_KEY); } catch { /* Keep sign-out available without storage. */ }
+        setState({ status: "signed-out" });
+        return;
+      }
+      if (!supabase) return;
       await signOut(supabase);
     },
   }), [state]);
 
   async function requestAccessToken(): Promise<string | undefined> {
+    if (localDebug) {
+      signInLocally();
+      return LOCAL_DEBUG_ACCESS_TOKEN;
+    }
     if (!supabase) {
       setError("Supabase Auth is not configured.");
       setDialogOpen(true);
@@ -129,6 +157,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const resolve = pendingAccessToken.current;
     pendingAccessToken.current = undefined;
     resolve?.(accessToken);
+  }
+
+  function signInLocally(): void {
+    try { localStorage.setItem(LOCAL_SESSION_KEY, "signed-in"); } catch { /* A session still works without storage. */ }
+    setState({ status: "signed-in", user: LOCAL_DEBUG_USER });
+    settleAccessTokenRequest(LOCAL_DEBUG_ACCESS_TOKEN);
+    setDialogOpen(false);
+    setError(undefined);
   }
 
   async function signIn(provider: SignInProvider) {

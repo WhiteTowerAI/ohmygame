@@ -91,13 +91,16 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent }: {
   project: ProjectState;
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision?: number;
   openFileRequest?: { path: string; id: number };
   onPublish: (details: PublishDetails) => Promise<boolean>;
+  publishDialog?: "open" | "success";
+  onOpenPublish: () => void;
+  onClosePublish: () => void;
   chatOnRight?: boolean;
   chatCollapsed?: boolean;
   onHome?: () => void;
@@ -136,7 +139,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [thumbnailRevision, setThumbnailRevision] = useState(0);
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
-  const [publishOpen, setPublishOpen] = useState(false);
   const [building, setBuilding] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
@@ -755,7 +757,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }
 
   async function publishGame(details: PublishDetails): Promise<boolean> {
-    if (!codebase) return false;
+    if (!codebase) throw new Error("The game is still loading. Try publishing again when it is ready.");
     await save(codebase);
     return onPublish(details);
   }
@@ -856,7 +858,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
               <PanelToggle size={14} />
             </button>
           ) : null}
-          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Publish" disabled={agentBusy || publishing || building} onClick={() => setPublishOpen(true)}>
+          <button className="interactive-drama-action interactive-drama-action-primary" type="button" title="Publish" aria-label="Publish" disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
           </button>
@@ -972,7 +974,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onClose={() => setCanvasSettingsOpen(false)}
         onChange={(viewport) => setGraphMeta((current) => current ? { ...current, viewport } : current)}
       /> : null}
-      {publishOpen ? <PublishDialog project={project} publishing={publishing} onClose={() => setPublishOpen(false)} onPublish={publishGame} /> : null}
+      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
     </section>
   );
 }

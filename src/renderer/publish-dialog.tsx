@@ -1,18 +1,21 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { ProjectState } from "../shared/contracts.js";
+import type { ProjectState, PublicationState } from "../shared/contracts.js";
 import { getProjectCover, setProjectCover } from "./api.js";
 import { imageToWebP } from "./image.js";
-import { Image, LoaderCircle, Upload, X } from "./icons.js";
+import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, RefreshCw, Upload, X } from "./icons.js";
+import { localDebug } from "./auth.js";
+import { gameHash } from "./routes.js";
 
 export interface PublishDetails {
   title: string;
   description: string;
 }
 
-export function PublishDialog({ project, publishing, onClose, onPublish }: {
+export function PublishDialog({ project, publishing, justPublished = false, onClose, onPublish }: {
   project: ProjectState;
   publishing: boolean;
   onClose: () => void;
+  justPublished?: boolean;
   onPublish: (details: PublishDetails) => Promise<boolean>;
 }) {
   const titleId = useId();
@@ -27,17 +30,29 @@ export function PublishDialog({ project, publishing, onClose, onPublish }: {
   const [error, setError] = useState<string>();
   const [coverProcessing, setCoverProcessing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [editing, setEditing] = useState(!project.publication);
+  const publication = editing ? undefined : project.publication;
   const busy = publishing || submitting || coverProcessing;
+  const submitLabel = coverProcessing ? "Processing cover..." : busy ? "Publishing..." : project.publication ? "Publish update" : "Publish";
 
   useEffect(() => {
     let active = true;
     void getProjectCover(project.id).then((value) => { if (active && coverSelection.current === 0) setCover(value); }).catch(() => undefined);
-    titleInput.current?.focus();
     return () => {
       active = false;
       coverSelection.current += 1;
     };
   }, [project.id]);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    return () => previousFocus?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (editing) titleInput.current?.focus();
+    else dialog.current?.focus();
+  }, [editing]);
 
   useEffect(() => {
     if (!cover) {
@@ -51,15 +66,25 @@ export function PublishDialog({ project, publishing, onClose, onPublish }: {
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onClose();
+      // Auth can open above this dialog while publishing waits for a token.
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+      if (dialogs[dialogs.length - 1] !== dialog.current) return;
+      if (event.key === "Escape" && !busy) {
+        event.preventDefault();
+        onClose();
+      }
       if (event.key !== "Tab" || !dialog.current) return;
-      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])")];
+      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])")];
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      if (!first || !last) return;
+      if (!first || !last) {
+        event.preventDefault();
+        dialog.current.focus();
+        return;
+      }
       if (document.activeElement === dialog.current || (!event.shiftKey && document.activeElement === last)) {
         event.preventDefault();
-        first.focus();
+        (event.shiftKey ? last : first).focus();
       } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
@@ -94,8 +119,10 @@ export function PublishDialog({ project, publishing, onClose, onPublish }: {
     setSubmitting(true);
     try {
       if (coverChanged.current && cover) await setProjectCover(project.id, cover);
-      if (await onPublish({ title: normalizedTitle, description: description.trim() })) onClose();
-      else setError("Publishing did not complete. Please try again.");
+      if (await onPublish({ title: normalizedTitle, description: description.trim() })) {
+        setEditing(false);
+        coverChanged.current = false;
+      } else setError("Publishing did not complete. Please try again.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -104,9 +131,19 @@ export function PublishDialog({ project, publishing, onClose, onPublish }: {
   }
 
   return <div className="project-create-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <section ref={dialog} className="publish-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
-      <header><h2 id={titleId}>Publish game</h2><button type="button" disabled={busy} onClick={onClose} aria-label="Close"><X size={16} /></button></header>
-      <form onSubmit={(event) => void submit(event)}>
+    <section ref={dialog} className="publish-dialog" role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby={titleId} tabIndex={-1}>
+      <header><h2 id={titleId}>{publication ? justPublished ? "Game published" : "Published game" : project.publication ? "Publish update" : "Publish game"}</h2><button type="button" disabled={busy} onClick={onClose} aria-label="Close"><X size={16} /></button></header>
+      {publication ? <PublicationDetails
+        publication={publication}
+        name={project.name}
+        coverUrl={coverUrl}
+        justPublished={justPublished}
+        onClose={onClose}
+        onUpdate={() => {
+          setEditing(true);
+          setError(undefined);
+        }}
+      /> : <form onSubmit={(event) => void submit(event)}>
         <label className="publish-cover-field">
           <span>Cover</span>
           <span className="publish-cover-preview">
@@ -117,9 +154,71 @@ export function PublishDialog({ project, publishing, onClose, onPublish }: {
         </label>
         <label><span>Name</span><input ref={titleInput} value={title} maxLength={200} disabled={busy} required onChange={(event) => setTitle(event.target.value)} /></label>
         <label><span>Description</span><textarea value={description} maxLength={2000} disabled={busy} rows={4} placeholder="Describe what makes this game worth playing" onChange={(event) => setDescription(event.target.value)} /></label>
+        {localDebug ? <LocalPublishNotice /> : null}
         {error ? <p className="project-create-error" role="alert">{error}</p> : null}
-        <footer><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="project-create-submit" type="submit" disabled={busy || !title.trim()}>{busy ? <LoaderCircle className="spin" size={14} /> : null}Publish</button></footer>
-      </form>
+        <footer><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="project-create-submit" type="submit" aria-label={submitLabel} disabled={busy || !title.trim()}>{busy ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span role={busy ? "status" : undefined}>{submitLabel}</span></button></footer>
+      </form>}
     </section>
   </div>;
+}
+
+export function PublicationDetails({ publication, name, coverUrl, justPublished = false, onClose, onUpdate }: {
+  publication: PublicationState;
+  name: string;
+  coverUrl?: string;
+  justPublished?: boolean;
+  onClose: () => void;
+  onUpdate: () => void;
+}) {
+  const linkId = useId();
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
+  useEffect(() => { setCopied(false); setCopyError(false); }, [publication.playUrl]);
+
+  async function copyLink(): Promise<void> {
+    setCopyError(false);
+    try {
+      await navigator.clipboard.writeText(publication.playUrl);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setCopyError(true);
+    }
+  }
+
+  return <div className="publication-details">
+    <div className="publication-summary">
+      {coverUrl ? <img src={coverUrl} alt="Game cover" /> : <Check className="publication-check" size={22} />}
+      <div>
+        <h3>{publication.title ?? name}</h3>
+        {justPublished ? <p role="status">Published successfully</p> : null}
+        <time dateTime={publication.publishedAt} title="Last published"><RefreshCw size={12} aria-hidden="true" />{publicationTime(publication.publishedAt)}</time>
+      </div>
+    </div>
+    {publication.gameId.startsWith("local-") ? <LocalPublishNotice /> : null}
+    <div className="publication-link-field">
+      <label htmlFor={linkId}>Game link</label>
+      <div>
+        <input id={linkId} readOnly value={publication.playUrl} onFocus={(event) => event.currentTarget.select()} />
+        <button type="button" className="icon-button" onClick={() => void copyLink()} title={copied ? "Link copied" : "Copy game link"} aria-label="Copy game link">
+          {copied ? <Check size={16} /> : <Copy size={16} />}
+        </button>
+        <a className="icon-button" href={publication.playUrl} target="_blank" rel="noopener noreferrer" title="Open game" aria-label="Open game"><ExternalLink size={16} /></a>
+      </div>
+      <p className={`publication-copy-status${copyError ? " is-error" : ""}`} role={copyError ? "alert" : "status"}>{copyError ? "Could not copy the link." : copied ? "Link copied" : ""}</p>
+    </div>
+    <div className="publication-secondary-actions">
+      <a href={gameHash(publication.gameId)} onClick={onClose}>View in Community</a>
+      <button type="button" onClick={onUpdate}><Upload size={13} />Publish update</button>
+    </div>
+  </div>;
+}
+
+function LocalPublishNotice() {
+  return <p className="publish-local-notice"><InfoCircle size={15} /><span>Local debug publish. This link only works on this computer until the local runtime stops or restarts.</span></p>;
+}
+
+function publicationTime(value: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date) : "Unknown publication time";
 }
