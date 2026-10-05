@@ -54,7 +54,7 @@ describe("Playable codebase", () => {
     expect(await readJson(workspace, "schemas/editor-layout.schema.json")).toEqual(EDITOR_LAYOUT_SCHEMA);
     // The first Node is the Blank Template: a background that continues to `next`.
     expect(await readFile(path.join(workspace, "nodes/start/index.html"), "utf8"))
-      .toContain('<div class="backdrop" data-media="backdrop"></div>');
+      .toContain('<div class="backdrop is-night" data-media="backdrop"></div>');
     expect(codebase.graph.nodes[0]!.signals).toEqual([{ id: "next", label: "Next" }]);
     expect(await readFile(path.join(workspace, "AGENTS.md"), "utf8"))
       .toContain("Every Node follows the same protocol");
