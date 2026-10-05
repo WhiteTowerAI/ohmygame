@@ -1,5 +1,5 @@
 import { Box, Film, Image, LoaderCircle, Plus, RefreshCw, type IconComponent } from "./icons.js";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import type { AssetCanvasStarter } from "../shared/asset-canvas.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
@@ -7,6 +7,7 @@ import { AppSidebar } from "./app-sidebar.js";
 import { ASSET_CANVAS_QUICK_STARTS, createAssetCanvasQuickStart, loadQuickStartModels, QuickStartModelUnavailableError, type AssetCanvasQuickStart } from "./asset-canvas-quick-start.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
+import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
@@ -26,6 +27,8 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   const [error, setError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<ProjectState>();
+  const renameTrigger = useRef<HTMLElement | null>(null);
   const [creatingStarter, setCreatingStarter] = useState<string>();
   const [quickStartError, setQuickStartError] = useState<{ message: string; manageProviders: boolean }>();
 
@@ -117,8 +120,8 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
               onOpen={() => onOpenProject(project.id)}
               actions={{
                 onRename: () => {
-                  const name = window.prompt("Rename project", project.name)?.trim();
-                  if (name && name !== project.name) void action(() => renameProject(project.id, name));
+                  renameTrigger.current = document.querySelector<HTMLElement>('.project-card-menu[aria-expanded="true"]');
+                  setRenameTarget(project);
                 },
                 onDuplicate: () => void action(() => duplicateProject(project.id)),
                 onDelete: () => {
@@ -131,6 +134,12 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
         </section>
       </div>
     </section>
+    {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(input) => {
+      const project = renameTarget;
+      setRenameTarget(undefined);
+      const name = input.trim();
+      if (name && name !== project.name) void action(() => renameProject(project.id, name));
+    }} /> : null}
     {createOpen ? <ProjectCreateDialog fixedType="asset-canvas" onClose={() => setCreateOpen(false)} onCreated={(project) => { setCreateOpen(false); onOpenProject(project.id); }} /> : null}
   </main>;
 }
