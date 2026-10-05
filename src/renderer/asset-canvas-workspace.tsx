@@ -212,6 +212,9 @@ interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
   onRemoveReference: (index: number) => void;
   /** Absent when references can only be connected, not uploaded. */
   onUploadReferences?: (files: File[]) => void;
+  /** The Library images the + button offers next to Upload. */
+  libraryImages?: LibraryAsset[];
+  onAddLibraryReference?: (asset: LibraryAsset) => void;
 }
 
 interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
@@ -282,6 +285,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
   const [copiedNode, setCopiedNode] = useState<AssetCanvasNode>();
   const [libraryAssets, setLibraryAssets] = useState<LibraryAsset[]>([]);
+  const libraryImages = useMemo(() => libraryAssets.filter((asset) => asset.mediaType === "image"), [libraryAssets]);
 
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
   const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
@@ -919,6 +923,17 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     }
   }
 
+  function addLibraryReference(node: AssetCanvasFlowNode, asset: LibraryAsset): void {
+    const reference: AssetCanvasReference = { type: "library", assetId: asset.id };
+    setGenerationError(undefined);
+    setNodes((current) => current.map((candidate) => candidate.id !== node.id ? candidate
+      : candidate.type === "image" || candidate.type === "model-3d"
+        ? { ...candidate, data: { ...candidate.data, images: [...(candidate.data.images ?? []), reference] } }
+        : candidate.type === "video"
+          ? { ...candidate, data: { ...candidate.data, references: [...(candidate.data.references ?? []), reference] } }
+          : candidate));
+  }
+
   async function uploadVideoReferences(node: AssetCanvasFlowNode, files: File[]): Promise<void> {
     if (node.type !== "video" || files.length === 0 || uploadingNodeId) return;
     setUploadingNodeId(node.id);
@@ -1042,11 +1057,13 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             slotLabels: MODEL_3D_VIEW_LABELS.slice(0, nodeModel3D(node).maxReferenceImages),
             uploading: uploadingNodeId === node.id,
             accept: "image/png,image/jpeg,image/webp",
-            addLabel: "Upload reference images",
+            addLabel: "Add reference images",
             onRemoveReference: (index: number) => setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "model-3d"
               ? { ...candidate, data: { ...candidate.data, images: (candidate.data.images ?? []).filter((_, candidateIndex) => candidateIndex !== index) } }
               : candidate)),
             onUploadReferences: (files: File[]) => void uploadReferenceImages(node, files),
+            libraryImages,
+            onAddLibraryReference: (asset: LibraryAsset) => addLibraryReference(node, asset),
             models: model3DModels,
             providers: model3DProviders,
           },
@@ -1115,7 +1132,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       maxReferences: node.type === "image" ? imageReferenceLimit(node, imageModels) : selectedVideoModel(node, videoModels)?.maxImageReferences ?? 0,
       uploading: uploadingNodeId === node.id,
       accept: "image/png,image/jpeg,image/webp",
-      addLabel: "Upload reference images",
+      addLabel: "Add reference images",
       onRemoveReference: (index) => {
         setSelectedAssetEdgeId(undefined);
         setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "image"
@@ -1125,6 +1142,8 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
           : candidate));
       },
       onUploadReferences: (files) => node.type === "image" ? void uploadReferenceImages(node, files) : void uploadVideoReferences(node, files),
+      libraryImages,
+      onAddLibraryReference: (asset) => addLibraryReference(node, asset),
     };
     return {
       ...node,
@@ -1669,6 +1688,7 @@ function CanvasTextarea({ value, onChange, ...props }: Omit<TextareaHTMLAttribut
 
 function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMediaNodeRuntime; large?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const references = runtime?.references ?? [];
   if (!runtime || (runtime.linkedPrompt === undefined && references.length === 0 && runtime.maxReferences === 0)) return null;
   // References fill positions in order, so only the next open slot takes an upload; later slots just show what can follow.
@@ -1697,7 +1717,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
             title={addLabel}
             aria-label={addLabel}
             disabled={runtime?.busy}
-            onClick={() => input.current?.click()}
+            onClick={() => runtime.onAddLibraryReference ? setLibraryOpen(true) : input.current?.click()}
           >
             {runtime?.uploading ? <LoaderCircle className="spin" size={large ? 20 : 16} /> : <Plus size={large ? 24 : 18} />}
             {nextSlot ? <span>{nextSlot}</span> : null}
@@ -1711,9 +1731,18 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
             onChange={(event) => {
               const files = [...(event.target.files ?? [])];
               event.target.value = "";
+              setLibraryOpen(false);
               runtime.onUploadReferences?.(files);
             }}
           />
+          {libraryOpen && runtime.onAddLibraryReference ? <LibraryAssetPicker
+            title={addLabel}
+            assets={runtime.libraryImages ?? []}
+            uploading={runtime.uploading}
+            onUpload={() => input.current?.click()}
+            onClose={() => setLibraryOpen(false)}
+            onSelect={(asset) => { setLibraryOpen(false); runtime.onAddLibraryReference?.(asset); }}
+          /> : null}
         </>
       ) : null}
       {laterSlots.map((label) => <div className="story-media-reference-slot" key={label} aria-hidden="true"><span>{label}</span></div>)}
