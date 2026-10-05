@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { playableThumbnailHash } from "../shared/playable-editor.js";
 import type { NodePlayerDefinition, PlayablePreviewOptions } from "../shared/playable-player-protocol.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
-import { getNodeRuntime, setPlayableThumbnail } from "./api.js";
+import { getNodeRuntime, playableSandboxUrl, setPlayableThumbnail } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
 import { loadPlayableAssets } from "./playable-assets.js";
@@ -62,6 +62,7 @@ export function NodeThumbnailPage({ projectId, nodeId }: { projectId: string; no
   return <div ref={stage} className="playable-thumbnail-page">
     {playable ? <NodePlayer
       definition={playable.definition}
+      frameUrl={playableSandboxUrl()}
       assets={playable.assets}
       saveKey={`ohmygame:playable:thumbnail:${projectId}`}
       storage={storage}

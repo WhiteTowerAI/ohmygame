@@ -1025,6 +1025,29 @@ describe("daemon", () => {
     finishPrompt();
   });
 
+  it("serves the Playable sandbox without a token", async () => {
+    const playerDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-player-"));
+    await mkdir(path.join(playerDirectory, "assets"));
+    await writeFile(path.join(playerDirectory, "playable-sandbox.html"), "<script src=\"./assets/playable-sandbox.js\"></script>");
+    await writeFile(path.join(playerDirectory, "assets", "playable-sandbox.js"), "console.log(1);");
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")),
+      interactiveDramaPlayerDirectory: playerDirectory,
+      accessToken: "secret",
+    });
+    apps.push(app);
+    const page = await app.inject({ method: "GET", url: "/playable-sandbox/playable-sandbox.html" });
+    expect(page.statusCode).toBe(200);
+    expect(page.headers["content-type"]).toMatch(/^text\/html/);
+    expect(page.body).toContain("./assets/playable-sandbox.js");
+    const script = await app.inject({ method: "GET", url: "/playable-sandbox/assets/playable-sandbox.js" });
+    expect(script.statusCode).toBe(200);
+    expect(script.headers["content-type"]).toMatch(/^text\/javascript/);
+    // Everything else still needs the token.
+    expect((await app.inject({ method: "GET", url: "/projects" })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/playable-sandbox/playable-sandbox.html?x" })).statusCode).toBe(401);
+  });
+
   it("exposes health and rejects empty prompts", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);

@@ -903,6 +903,16 @@ function parseModelAuthEvent(block: string): ModelAuthEvent | undefined {
   }
 }
 
+/**
+ * The page Scenes run in. The desktop app loads its own pages from file://,
+ * where Chromium will not let the sandboxed frame load its script, so there
+ * the daemon serves it.
+ */
+export function playableSandboxUrl(): string {
+  const runtime = desktopRuntime();
+  return runtime ? `${runtime.daemonUrl}/playable-sandbox/playable-sandbox.html` : "./playable-sandbox.html";
+}
+
 function apiUrl(path: string): string {
   const runtime = desktopRuntime();
   return runtime ? `${runtime.daemonUrl}${path}` : `${API_BASE}${path}`;
