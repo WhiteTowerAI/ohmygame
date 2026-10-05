@@ -1475,7 +1475,7 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
         />
         <CanvasChipToggle label="Texture" pressed={config.texture} disabled={runtime?.busy} onChange={(texture) => updateConfig({ texture, ...(!texture ? { pbr: false } : {}) })} />
         <CanvasChipToggle label="PBR" pressed={config.pbr} disabled={runtime?.busy || !config.texture} onChange={(pbr) => updateConfig({ pbr })} />
-        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={!hasImages} />
+        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={!hasImages || !selectedModel} />
       </div>
     </MediaNodeShell>
   );
@@ -1527,7 +1527,7 @@ function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, 
           disabled={runtime?.busy}
           onChange={(value) => update({ heightMeters: Number(value) })}
         />
-        <GenerateMediaButton kind="animation" assetId={data.assetId} runtime={runtime} disabled={!data.images?.length || actionIds.length === 0} />
+        <GenerateMediaButton kind="animation" assetId={data.assetId} runtime={runtime} disabled={!runtime?.configured || !data.images?.length || actionIds.length === 0} />
       </div>
       {pickerOpen && runtime ? (
         <AnimationActionPicker
