@@ -177,6 +177,42 @@ describe("electron playtest driver", () => {
     expect(states.at(-1)).toEqual({ visible: false, activeSessions: 0 });
   });
 
+  it("closes sessions the agent leaves idle", async () => {
+    vi.useFakeTimers();
+    try {
+      const driver = new ElectronPlaytestDriver(undefined, 1_000);
+      const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+      if (opened.operation !== "open") throw new Error("Expected open result");
+      const window = electron.windows[0]!;
+
+      vi.advanceTimersByTime(900);
+      await driver.request({ operation: "inspect", sessionId: opened.snapshot.sessionId });
+      vi.advanceTimersByTime(900);
+      expect(window.destroyed).toBe(false);
+      expect(driver.watchState().activeSessions).toBe(1);
+
+      vi.advanceTimersByTime(100);
+      expect(window.destroyed).toBe(true);
+      expect(driver.watchState().activeSessions).toBe(0);
+      await expect(driver.request({ operation: "inspect", sessionId: opened.snapshot.sessionId })).rejects.toThrow("Game session not found");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops the idle timer when a session is closed", async () => {
+    vi.useFakeTimers();
+    try {
+      const driver = new ElectronPlaytestDriver(undefined, 1_000);
+      const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+      if (opened.operation !== "open") throw new Error("Expected open result");
+      await driver.request({ operation: "close", sessionId: opened.snapshot.sessionId });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("blocks navigation and redirects away from the preview origin", async () => {
     const driver = new ElectronPlaytestDriver();
     await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });

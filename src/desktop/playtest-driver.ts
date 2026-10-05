@@ -24,6 +24,7 @@ interface PlaytestSession {
   ready: boolean;
   logs: PlaytestLog[];
   failedRequests: PlaytestFailedRequest[];
+  idleTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** A frame of the page and how its coordinates map to the window's. */
@@ -40,6 +41,8 @@ type FrameElements = Pick<PlaytestSnapshot, "elements"> & { text: string };
 const MAX_LOGS = 100;
 const MAX_FAILED_REQUESTS = 100;
 const MAX_SESSIONS = 4;
+/** Sessions the agent leaves open are closed after this long without a request. */
+const IDLE_TIMEOUT_MS = 10 * 60_000;
 const MAX_ELEMENTS = 100;
 const MAX_TEXT = 4_000;
 
@@ -52,6 +55,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
 
   constructor(
     private readonly onWatchStateChange?: (state: PlaytestWatchState) => void,
+    private readonly idleTimeoutMs = IDLE_TIMEOUT_MS,
   ) {}
 
   watchState(): PlaytestWatchState {
@@ -75,9 +79,9 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     signal?.throwIfAborted();
     switch (request.operation) {
       case "open": return { operation: "open", snapshot: await this.#open(request.target, request.viewport, signal) };
-      case "inspect": return { operation: "inspect", snapshot: await this.#inspect(this.#session(request.sessionId), signal) };
-      case "act": return { operation: "act", snapshot: await this.#act(this.#session(request.sessionId), request.actions, signal) };
-      case "capture": return { operation: "capture", capture: await this.#capture(this.#session(request.sessionId), signal) };
+      case "inspect": return { operation: "inspect", snapshot: await this.#inspect(this.#activeSession(request.sessionId), signal) };
+      case "act": return { operation: "act", snapshot: await this.#act(this.#activeSession(request.sessionId), request.actions, signal) };
+      case "capture": return { operation: "capture", capture: await this.#capture(this.#activeSession(request.sessionId), signal) };
       case "close":
         this.#close(request.sessionId);
         return { operation: "close" };
@@ -123,6 +127,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     });
     const state: PlaytestSession = { id, origin: url.origin, window, ready: false, logs: [], failedRequests: [] };
     this.#sessions.set(id, state);
+    this.#resetIdleTimer(state);
     this.#publishWatchState();
     window.on("close", (event) => {
       if (this.#closingSessions.has(id)) return;
@@ -130,6 +135,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       this.setVisible(false);
     });
     window.once("closed", () => {
+      clearTimeout(state.idleTimer);
       this.#closingSessions.delete(id);
       if (this.#sessions.delete(id)) this.#publishWatchState();
     });
@@ -344,6 +350,18 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     return state;
   }
 
+  #activeSession(id: string): PlaytestSession {
+    const state = this.#session(id);
+    this.#resetIdleTimer(state);
+    return state;
+  }
+
+  #resetIdleTimer(state: PlaytestSession): void {
+    clearTimeout(state.idleTimer);
+    state.idleTimer = setTimeout(() => this.#close(state.id), this.idleTimeoutMs);
+    state.idleTimer.unref?.();
+  }
+
   #assertLive(state: PlaytestSession): void {
     if (state.window.isDestroyed() || state.window.webContents.isDestroyed()) {
       this.#sessions.delete(state.id);
@@ -354,6 +372,7 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   #close(id: string): void {
     const state = this.#sessions.get(id);
     if (!state) return;
+    clearTimeout(state.idleTimer);
     this.#sessions.delete(id);
     this.#publishWatchState();
     if (state.window.webContents.debugger.isAttached()) state.window.webContents.debugger.detach();
