@@ -1,5 +1,6 @@
 import { type Edge, type Node } from "@xyflow/react";
 import type { NodeCodebase, NodeEditorLayout } from "../shared/playable-codebase.js";
+import { withPlayableEntry } from "../shared/playable-graph.js";
 import {
   type NodeGraph,
   type NodeSource,
@@ -37,11 +38,11 @@ export function buildCodebase(
   view: "canvas" | "code",
 ): NodeCodebase {
   return {
-    graph: {
+    graph: withPlayableEntry({
       ...meta,
       nodes: nodes.map((node) => node.data.node),
       edges: edges.flatMap((edge) => toPlayableEdge(edge) ?? []),
-    },
+    }),
     editorLayout: {
       ...layout,
       view,

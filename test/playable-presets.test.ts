@@ -7,6 +7,7 @@ import {
   createNodeCodebase,
   createPlayableStarterCodebase,
   readNodeCodebase,
+  writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
 import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, playablePreset } from "../src/daemon/playable-presets.js";
@@ -183,6 +184,23 @@ describe("addPlayableNode", () => {
     expect(result).toMatchObject({ title: "Node 2", signals: [] });
     const codebase = await readNodeCodebase(workspacePath);
     expect(codebase.editorLayout.nodes.home).toEqual({ x: 900, y: 60 });
+  });
+
+  it("makes the first Node of an empty project its Start", async () => {
+    const workspacePath = await createWorkspace("add-node-empty");
+    const codebase = await readNodeCodebase(workspacePath);
+    await writeNodeCodebase(workspacePath, {
+      graph: { ...codebase.graph, nodes: [], edges: [] },
+      editorLayout: { ...codebase.editorLayout, nodes: {} },
+      sourceDeletions: ["nodes/start/index.html", "nodes/start/style.css", "nodes/start/node.js"],
+    });
+    expect((await validatePlayableProject(workspacePath, "draft")).issues).toEqual([]);
+
+    await addPlayableNode(workspacePath, { preset: "main-menu", id: "menu" });
+
+    const next = await readNodeCodebase(workspacePath);
+    expect(next.graph.entryNodeId).toBe("menu");
+    expect((await validatePlayableProject(workspacePath, "draft")).issues).toEqual([]);
   });
 
   it("rejects an unknown Preset, a bad ID, and a duplicate Node", async () => {

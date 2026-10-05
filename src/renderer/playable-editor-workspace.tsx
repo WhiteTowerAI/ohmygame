@@ -596,22 +596,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   /**
    * Drops the Node and its edges from the graph. The Node's files stay on disk
-   * so an undo brings the Node back complete. The Entry Node moves off the
-   * removed Nodes, because a graph that points at a missing Node cannot be
-   * saved at all.
+   * so an undo brings the Node back complete. When the Start is removed,
+   * buildCodebase makes the first remaining Node the Start; removing the last
+   * Node leaves an empty project.
    */
   function removeNodes(removed: ReadonlySet<string>): void {
     if (!removed.size) return;
-    setGraphMeta((current) => {
-      if (!current) return current;
-      const remaining = nodes.filter((node) => !removed.has(node.id));
-      return {
-        ...current,
-        entryNodeId: removed.has(current.entryNodeId)
-          ? remaining[0]?.id ?? current.entryNodeId
-          : current.entryNodeId,
-      };
-    });
     setNodes((current) => current.filter((node) => !removed.has(node.id)));
     setEdges((current) => current.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target)));
     setSelectedEdgeId(undefined);
@@ -786,7 +776,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         ...node,
         data: {
           node: node.data.node,
-          entry: graphMeta?.entryNodeId === node.id,
+          entry: codebase?.graph.entryNodeId === node.id,
           issues: nodeIssues.get(node.id) ?? [],
           connected: connected.get(node.id) ?? {},
           failed: failed.has(node.id),
@@ -795,7 +785,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         },
       };
     });
-  }, [nodes, edges, selectedEdgeId, issues, graphMeta, thumbnails, builtDefinition]);
+  }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase, thumbnails, builtDefinition]);
   const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode, onSelectEdge: selectEdge }), [projectId, technical]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const showCodeTab = technical || workspaceView === "code";
@@ -906,7 +896,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             canRedo={canRedo}
             canPaste={Boolean(copiedNode) && !writing}
             busy={writing}
-            isEntry={canvasContextMenu.nodeId === graphMeta?.entryNodeId}
+            isEntry={canvasContextMenu.nodeId === codebase?.graph.entryNodeId}
             onClose={() => setCanvasContextMenu(undefined)}
             onUndo={() => void undoEditorChange()?.catch(() => {})}
             onRedo={() => void redoEditorChange()?.catch(() => {})}
