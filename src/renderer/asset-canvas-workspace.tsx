@@ -90,6 +90,7 @@ import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
 import { findAssetCanvasCoverSource, type AssetCanvasCoverSource } from "../shared/asset-canvas-cover.js";
 import { ModelPreview } from "./model-preview.js";
+import { LibraryAssetPicker } from "./node-workbench.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, DEFAULT_MODEL_3D, DEFAULT_VIDEO_NODE_CONFIG, MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_REFERENCE_IMAGES, buildModel3DToolRequest, normalizeModel3DConfig, resolveModel3D } from "../shared/generation-config.js";
 import "@xyflow/react/dist/style.css";
@@ -1989,47 +1990,6 @@ function formatPreviewTime(timeMs: number): string {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
 }
 
-function AssetCanvasAssetPicker({ title, assets, onClose, onSelect }: {
-  title: string;
-  assets: LibraryAsset[];
-  onClose: () => void;
-  onSelect: (asset: LibraryAsset) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const dialog = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    dialog.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-
-  const visibleAssets = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return normalized
-      ? assets.filter((asset) => `${asset.name} ${asset.prompt ?? ""}`.toLowerCase().includes(normalized))
-      : assets;
-  }, [assets, query]);
-
-  return createPortal(
-    <div className="story-video-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="story-video-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-video-picker-title" tabIndex={-1}>
-        <header><h2 id="story-video-picker-title">{title}</h2><button type="button" aria-label="Close Library picker" onClick={onClose}><X size={16} /></button></header>
-        <label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" /></label>
-        <div className="story-video-picker-list">
-          {visibleAssets.length === 0 ? <p>{assets.length ? "No assets match your search" : "No assets in Library"}</p> : null}
-          {visibleAssets.map((asset) => {
-            const Icon = asset.mediaType === "video" ? Film : asset.mediaType === "audio" ? Music2 : asset.mediaType === "model" ? Box : ImageIcon;
-            return <button type="button" key={asset.id} onClick={() => onSelect(asset)}><span><Icon size={17} /></span><span><strong>{asset.prompt ?? asset.name}</strong><small>{asset.name}</small></span></button>;
-          })}
-        </div>
-      </section>
-    </div>,
-    document.body,
-  );
-}
-
 function AssetCanvasAddControl({
   libraryAssets,
   importing,
@@ -2122,7 +2082,7 @@ function AssetCanvasAddControl({
           <Plus size={18} />
         </button>
       </div>
-      {libraryOpen ? <AssetCanvasAssetPicker title="Add from Library" assets={libraryAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
+      {libraryOpen ? <LibraryAssetPicker title="Add from Library" assets={libraryAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
         if (position) onAddAsset(asset, position);
         setLibraryOpen(false);
