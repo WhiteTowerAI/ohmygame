@@ -2,7 +2,7 @@
 
 ## The problem: we decided what a screen can be
 
-The current Interactive Drama editor offers a fixed set of node types: Start,
+The current Interactive Story editor offers a fixed set of node types: Start,
 Open UI, Scene, Interaction, Choice, Ending, Story Map, Settings, Condition,
 and Update State. Each type has its own form, its own rules, and its own
 player surface.

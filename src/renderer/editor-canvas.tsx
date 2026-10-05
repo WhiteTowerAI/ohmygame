@@ -110,7 +110,7 @@ export function EditorCanvas<N extends Node>({
       onPaneContextMenu={(event) => openMenu(event, "pane")}
       onNodeContextMenu={(event, node) => { onNodeContextMenu?.(event, node); openMenu(event, "node", node.id); }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-drama-grid)" />
+      <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-story-grid)" />
       <AlignmentGuides guides={guides} />
       <ZoomControls />
       <Panel className="story-canvas-toolbar" position="bottom-center">

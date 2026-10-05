@@ -78,7 +78,7 @@ export async function writePlayableThumbnail(
 }
 
 /**
- * The picture of an Interactive Drama that has no cover of its own: the
+ * The picture of an Interactive Story that has no cover of its own: the
  * Start Scene's thumbnail, or the first Scene that has one. Undefined until
  * any Scene has been captured.
  */

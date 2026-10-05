@@ -344,7 +344,7 @@ export function createAgentTools(
         await tools.removeRun(run.id);
       }
     },
-  }), ...(project.type === "interactive-drama" ? [defineTool({
+  }), ...(project.type === "interactive-story" ? [defineTool({
     name: "playable_add_node",
     label: "Add Node",
     description: [
@@ -401,7 +401,7 @@ export function createAgentTools(
       return { content: [{ type: "text", text }], details: { playableCheck: { mode, ok: result.ok, issues } } };
     },
   })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type)
-    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-drama" ? "reset" : "full" })]
+    ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full" })]
     : [])];
 }
 

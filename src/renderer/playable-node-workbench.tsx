@@ -280,7 +280,7 @@ export function PlayableNodeWorkbench({
   // In the header, where the canvas has Playtest.
   const actions = <div className="story-node-editor-actions">
     <button type="button" className="icon-button pane-header-action" title="Play this Scene again from the start" aria-label="Replay" disabled={!runtime.definition} onClick={() => setSession((current) => current + 1)}><RotateCcw size={14} /></button>
-    {onPlayFromHere ? <button type="button" className="interactive-drama-action" title="Playtest the game from this Scene" onClick={() => onPlayFromHere({ nodeId: node.id })}><Play size={14} fill="currentColor" /><span>Play from here</span></button> : null}
+    {onPlayFromHere ? <button type="button" className="interactive-story-action" title="Playtest the game from this Scene" onClick={() => onPlayFromHere({ nodeId: node.id })}><Play size={14} fill="currentColor" /><span>Play from here</span></button> : null}
   </div>;
 
   const previewPane = <WorkbenchPreview

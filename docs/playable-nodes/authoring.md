@@ -18,13 +18,13 @@ Every authoring surface is designed around that loop. Editing code by hand is
 possible, but it is an escape hatch that most authors never open, and no
 normal task should require it.
 
-The editor also reuses the parts of the current Interactive Drama editor that
+The editor also reuses the parts of the current Interactive Story editor that
 already work well. The redesign removes node-type-specific forms; it does not
 replace the whole interface.
 
 ## Workspace
 
-The workspace keeps the current Interactive Drama layout:
+The workspace keeps the current Interactive Story layout:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐

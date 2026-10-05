@@ -14,7 +14,7 @@ export interface NodePlayerDefinition {
   graphSignature: string;
 }
 
-// `available: false` marks an Interactive Drama project whose graph.json is missing.
+// `available: false` marks an Interactive Story project whose graph.json is missing.
 export type NodeRuntimeResponse =
   | { available: true; definition: NodePlayerDefinition }
   | { available: false };

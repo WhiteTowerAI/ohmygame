@@ -47,7 +47,7 @@ describe("plugin runtime", () => {
 
     await expect(resolvePluginSkills([local], settings, "web-game")).resolves.toHaveLength(1);
     await expect(resolvePluginSkills([local], settings, "godot-game")).resolves.toEqual([]);
-    await expect(resolvePluginSkills([local], settings, "interactive-drama")).resolves.toEqual([]);
+    await expect(resolvePluginSkills([local], settings, "interactive-story")).resolves.toEqual([]);
     await expect(resolvePluginSkills([local], settings)).resolves.toHaveLength(1);
   });
 });
