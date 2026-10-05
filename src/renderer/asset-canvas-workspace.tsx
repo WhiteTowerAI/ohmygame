@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Clipboard,
   Copy,
+  Download,
   FileText,
   Film,
   Folder,
@@ -82,7 +83,7 @@ import {
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, resolveAssetCanvasAssetId, resolveAssetCanvasImageAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { cancelToolJob, createLibraryImage, generateAssetCanvasText, getAssetCanvas, getLibraryAsset, getProjectCover, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listToolJobs, listVideoModelCatalog, retryToolJob, setProjectCover, startToolJob, updateAssetCanvas, uploadLibraryAsset } from "./api.js";
-import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
+import { downloadLibraryAsset, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { settingsHash } from "./routes.js";
@@ -757,6 +758,11 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
     if (asset) setViewedAsset(asset);
   }
 
+  function downloadAsset(assetId: string, fallbackName: string): void {
+    const name = libraryAssets.find((candidate) => candidate.id === assetId)?.name ?? fallbackName;
+    void downloadLibraryAsset(assetId, name).catch((cause) => setNotice(`Could not download: ${errorMessage(cause)}`));
+  }
+
   function clearSelection(): void {
     setSelectedAssetEdgeId(undefined);
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
@@ -1235,6 +1241,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             canPaste={canInsertCopiedNode}
             canDuplicate={Boolean(contextMenuNode)}
             canView={Boolean(contextMenuNode && viewableCanvasAsset(contextMenuNode))}
+            canDownload={Boolean(contextMenuNode?.data.assetId)}
             nodeActionsDisabled={Boolean(contextMenuNodeMissing)}
             importing={importingAssets}
             onClose={() => setCanvasContextMenu(undefined)}
@@ -1244,6 +1251,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
             onAdd={(item) => addCanvasNode(item, canvasContextMenu.flowPosition)}
             onUpload={(file) => void importAssetFile(file, canvasContextMenu.flowPosition)}
             onView={() => { if (contextMenuNode) openViewer(contextMenuNode); }}
+            onDownload={() => { if (contextMenuNode?.data.assetId) downloadAsset(contextMenuNode.data.assetId, contextMenuNode.data.name || titleCase(contextMenuNode.type ?? "asset")); }}
             onCopy={() => { if (canvasContextMenu.nodeId) copyCanvasNode(canvasContextMenu.nodeId); }}
             onDuplicate={() => { if (canvasContextMenu.nodeId) duplicateCanvasNode(canvasContextMenu.nodeId); }}
             onDelete={() => { if (canvasContextMenu.nodeId) removeCanvasNodes(new Set([canvasContextMenu.nodeId])); }}
@@ -1254,6 +1262,7 @@ export function AssetCanvasWorkspace({ project, initialNodeId, onInitialNodeHand
       {viewedAsset ? <CanvasAssetViewer
         asset={viewedAsset}
         name={libraryAssets.find((candidate) => candidate.id === viewedAsset.assetId)?.name ?? titleCase(viewedAsset.mediaType)}
+        onDownload={(name) => downloadAsset(viewedAsset.assetId, name)}
         onClose={() => setViewedAsset(undefined)}
       /> : null}
     </section>
@@ -2141,13 +2150,14 @@ function eventWithin(event: { target: EventTarget | null }, selector: string): b
   return event.target instanceof Element && Boolean(event.target.closest(selector));
 }
 
-function CanvasAssetViewer({ asset, name, onClose }: { asset: ViewableCanvasAsset; name: string; onClose: () => void }) {
+function CanvasAssetViewer({ asset, name, onDownload, onClose }: { asset: ViewableCanvasAsset; name: string; onDownload: (name: string) => void; onClose: () => void }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, asset.assetId);
   // React Flow ignores key presses inside .nokey, so Backspace/Delete here never removes the node behind the dialog.
   return <div className="nokey">
     <AssetDialogShell
       title={name}
       labelledBy="canvas-asset-viewer-title"
+      headerActions={<button type="button" title="Download" aria-label={`Download ${name}`} onClick={() => onDownload(name)}><Download size={17} /></button>}
       onClose={onClose}
       preview={preview.url
         ? <AssetMedia type={asset.mediaType} url={preview.url} label={name} />
@@ -2164,6 +2174,7 @@ function AssetCanvasContextMenu({
   canPaste,
   canDuplicate,
   canView,
+  canDownload,
   nodeActionsDisabled,
   importing,
   onClose,
@@ -2173,6 +2184,7 @@ function AssetCanvasContextMenu({
   onAdd,
   onUpload,
   onView,
+  onDownload,
   onCopy,
   onDuplicate,
   onDelete,
@@ -2183,6 +2195,7 @@ function AssetCanvasContextMenu({
   canPaste: boolean;
   canDuplicate: boolean;
   canView: boolean;
+  canDownload: boolean;
   nodeActionsDisabled: boolean;
   importing: boolean;
   onClose: () => void;
@@ -2192,6 +2205,7 @@ function AssetCanvasContextMenu({
   onAdd: (item: CanvasNodeCreationLeaf) => void;
   onUpload: (file: File) => void;
   onView: () => void;
+  onDownload: () => void;
   onCopy: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -2252,6 +2266,7 @@ function AssetCanvasContextMenu({
         />
       </> : <>
         {canView ? <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onView)}><Maximize size={15} /><span>View</span></button> : null}
+        {canDownload ? <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onDownload)}><Download size={15} /><span>Download</span></button> : null}
         <button type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy node</span></button>
         <button type="button" role="menuitem" disabled={nodeActionsDisabled || !canDuplicate} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
         <button className="is-danger" type="button" role="menuitem" disabled={nodeActionsDisabled} onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
