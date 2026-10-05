@@ -175,7 +175,7 @@ perform the interaction, confirm the expected Signal and target in
 
 ## Turn review
 
-Turn review comes after the MVP ([roadmap](roadmap.md#after-the-mvp)). Until
+Turn review is not built yet ([design](authoring.md#multi-node-agent-changes)). Until
 then the Agent makes the complete change in one turn and summarizes it at the
 end: nodes created or changed, Signals and edges added, Variables added,
 assets generated or declared, and what was verified.

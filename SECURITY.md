@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-OhMyGame is in early alpha. Security fixes go into the latest release only.
+OhMyGame is in beta. Security fixes go into the latest release only.
 
 ## Reporting a vulnerability
 
