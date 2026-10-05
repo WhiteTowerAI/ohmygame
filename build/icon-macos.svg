@@ -1,0 +1,44 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- macOS app icon: logo.svg on Apple's 824px rounded tile with a transparent margin. Regenerate icon.icns with `swift scripts/build-mac-icon.swift`. -->
+  <defs>
+    <filter id="tile-shadow" x="0" y="0" width="1024" height="1024" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+    <clipPath id="tile"><rect x="100" y="100" width="824" height="824" rx="185.4"/></clipPath>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185.4" fill="#11151D" filter="url(#tile-shadow)"/>
+  <g clip-path="url(#tile)">
+    <g transform="translate(100 100) scale(2.942857)">
+  <g filter="url(#logo-shadow)">
+    <path d="M94.436 59C103.87 59 113.072 61.9271 120.773 67.377L126.168 71.1953C130.359 74.1608 135.366 75.7529 140.499 75.7529C145.634 75.7529 150.641 74.161 154.831 71.1953L160.227 67.377C167.927 61.9271 177.129 59 186.562 59H193.146C197.491 59 201.88 59.2743 205.975 60.7266C231.589 69.8111 249.208 103.021 247.934 178.353C247.677 193.53 244.125 210.306 230.431 216.854C226.163 218.895 221.16 220.25 215.462 220.25C208.626 220.25 203.196 218.301 199.005 215.555C189.181 209.115 181.982 198.361 171.554 192.954C165.276 189.699 158.308 188 151.238 188H129.761C122.691 188 115.723 189.699 109.446 192.954C99.018 198.361 91.8189 209.113 81.9946 215.555C77.8039 218.301 72.3737 220.25 65.5366 220.25C59.8388 220.25 54.8353 218.895 50.5678 216.854C36.8732 210.306 33.3216 193.53 33.0649 178.353C31.7905 103.022 49.4091 69.8111 75.0229 60.7266C79.1179 59.2743 83.5071 59 87.852 59H94.436Z" fill="url(#face-gradient)"/>
+    <circle cx="94.2234" cy="120.375" r="11.9928" fill="#111318"/>
+    <circle cx="94.2234" cy="120.375" r="4.4343" fill="#2B2E34"/>
+    <rect x="182.758" y="100.219" width="11.892" height="36.7846" rx="5.946" fill="#111318"/>
+    <rect x="170.312" y="112.665" width="36.784" height="11.892" rx="5.946" fill="#111318"/>
+  </g>
+  <defs>
+    <filter id="logo-shadow" x="8" y="44" width="265" height="211.25" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="10"/>
+      <feGaussianBlur stdDeviation="12.5"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.2 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="shadow-large"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="4"/>
+      <feGaussianBlur stdDeviation="3"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.4 0"/>
+      <feBlend mode="normal" in2="shadow-large" result="shadow-small"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="shadow-small" result="shape"/>
+    </filter>
+    <linearGradient id="face-gradient" x1="141.5" y1="64.5404" x2="140.499" y2="220.25" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.4423" stop-color="#FCFDFF"/>
+      <stop offset="1" stop-color="#EDF1FC"/>
+    </linearGradient>
+  </defs>
+</g>
+  </g>
+</svg>
