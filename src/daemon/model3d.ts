@@ -1,6 +1,7 @@
-import type { PromptImage } from "../shared/contracts.js";
+import type { Model3DModelRef, PromptImage } from "../shared/contracts.js";
 
 export interface Model3DGenerationInput {
+  model: Model3DModelRef;
   images: PromptImage[];
   targetPolycount?: number;
   texture?: boolean;

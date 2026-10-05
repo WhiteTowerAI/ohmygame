@@ -6785,6 +6785,35 @@ button {
   aspect-ratio: var(--story-viewport-ratio, 16 / 9);
 }
 
+.story-media-view-button {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.story-media-node:hover .story-media-view-button,
+.story-media-node.is-selected .story-media-view-button,
+.story-media-view-button:focus-visible {
+  opacity: 1;
+}
+
+.story-media-view-button:hover {
+  background: rgb(0 0 0 / 75%);
+}
+
 .story-media-node.is-selected .story-media-stage {
   border-color: var(--theme-accent);
 }
@@ -6940,6 +6969,27 @@ button {
   border-style: dashed;
 }
 
+.story-media-reference-slot {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-faint);
+  opacity: 0.6;
+}
+
+.story-media-reference-add:has(> span) {
+  align-content: center;
+  gap: 4px;
+}
+
+:is(.story-media-reference-add, .story-media-reference-slot) > span {
+  font-size: 11px;
+}
+
 .story-media-reference-add:hover:not(:disabled) {
   border-color: var(--border-strong);
   color: var(--text-muted);
@@ -6957,7 +7007,7 @@ button {
 }
 
 .story-media-references.is-large
-  :is(.story-media-reference, .story-media-reference-add) {
+  :is(.story-media-reference, .story-media-reference-add, .story-media-reference-slot) {
   width: 96px;
   height: 96px;
   flex-basis: 96px;

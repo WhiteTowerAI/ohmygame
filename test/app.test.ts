@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
 import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
+import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
@@ -1333,6 +1334,18 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/settings/models/providers/meshy" })).json())
       .toEqual({ configured: false });
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: {} })).statusCode).toBe(400);
+  });
+
+  it("offers 3D models once Meshy is configured", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model3d-catalog-")) });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({ models: [], providers: [] });
+    await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: { apiKey: "meshy-key" } });
+    expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({
+      models: MODEL_3D_MODELS,
+      providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }],
+    });
   });
 
   it("validates request bodies before they reach a manager", async () => {

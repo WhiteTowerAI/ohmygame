@@ -1,20 +1,15 @@
 import { Box, Film, Image, LoaderCircle, Plus, RefreshCw, type IconComponent } from "./icons.js";
 import { useEffect, useState } from "react";
-import type { ImageModel, ProjectState, VideoModel } from "../shared/contracts.js";
+import type { ProjectState } from "../shared/contracts.js";
 import type { AssetCanvasStarter } from "../shared/asset-canvas.js";
-import { deleteProject, duplicateProject, listImageModels, listProjects, listVideoModels, renameProject, waitForRuntime } from "./api.js";
+import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
-import { availableQuickStarts, createAssetCanvasQuickStart, type AssetCanvasQuickStart } from "./asset-canvas-quick-start.js";
+import { ASSET_CANVAS_QUICK_STARTS, createAssetCanvasQuickStart, loadQuickStartModels, QuickStartModelUnavailableError, type AssetCanvasQuickStart } from "./asset-canvas-quick-start.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
-
-type MediaModels = { image: ImageModel[]; video: VideoModel[] };
-
-// Kept across visits so switching tabs does not refetch provider catalogs before showing model starters.
-let cachedMediaModels: MediaModels | undefined;
 
 const QUICK_START_ICONS: Record<AssetCanvasStarter, IconComponent> = {
   image: Image,
@@ -32,7 +27,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
   const [creatingStarter, setCreatingStarter] = useState<string>();
-  const [mediaModels, setMediaModels] = useState(cachedMediaModels);
+  const [quickStartError, setQuickStartError] = useState<{ message: string; manageProviders: boolean }>();
 
   async function load() {
     setPhase("loading");
@@ -49,17 +44,8 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
 
   useEffect(() => { void load(); }, []);
 
-  useEffect(() => {
-    let disposed = false;
-    void waitForRuntime()
-      .then(() => Promise.all([listImageModels().catch(() => []), listVideoModels().catch(() => [])]))
-      .catch(() => [[], []] as [ImageModel[], VideoModel[]])
-      .then(([image, video]) => {
-        cachedMediaModels = { image, video };
-        if (!disposed) setMediaModels(cachedMediaModels);
-      });
-    return () => { disposed = true; };
-  }, []);
+  // Picks up providers connected since the last visit, so a starter click rarely waits.
+  useEffect(() => { void loadQuickStartModels(); }, []);
 
   async function action(run: () => Promise<unknown>) {
     setActionError(undefined);
@@ -74,15 +60,16 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   async function quickStart(item: AssetCanvasQuickStart): Promise<void> {
     if (creatingStarter) return;
     setCreatingStarter(item.key);
-    setActionError(undefined);
+    setQuickStartError(undefined);
     try {
       const { project, nodeId } = await createAssetCanvasQuickStart(item);
       setCreatingStarter(undefined);
       onOpenProject(project.id, nodeId);
     } catch (cause) {
       setCreatingStarter(undefined);
-      setActionError(errorMessage(cause));
-      await load();
+      const manageProviders = cause instanceof QuickStartModelUnavailableError;
+      setQuickStartError({ message: errorMessage(cause), manageProviders });
+      if (!manageProviders) await load();
     }
   }
 
@@ -98,9 +85,8 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
 
         <section className="asset-canvas-quick-start" aria-labelledby="asset-canvas-quick-start-heading">
           <h2 id="asset-canvas-quick-start-heading">Quick start</h2>
-          {/* Hidden until models load so every starter appears at once, while still reserving the row. */}
-          <div className="asset-canvas-quick-grid" aria-busy={!mediaModels} style={mediaModels ? undefined : { visibility: "hidden" }}>
-            {availableQuickStarts(mediaModels?.image ?? [], mediaModels?.video ?? []).map((item) => {
+          <div className="asset-canvas-quick-grid">
+            {ASSET_CANVAS_QUICK_STARTS.map((item) => {
               const Icon = QUICK_START_ICONS[item.type];
               const creating = creatingStarter === item.key;
               return <button key={item.key} type="button" disabled={creatingStarter !== undefined} aria-busy={creating} onClick={() => void quickStart(item)}>
@@ -109,6 +95,10 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
               </button>;
             })}
           </div>
+          {quickStartError ? <p className="home-notice" role="alert">
+            {quickStartError.message}
+            {quickStartError.manageProviders ? <button type="button" onClick={() => onNavigate("settings")}>Manage providers</button> : null}
+          </p> : null}
         </section>
 
         <section className="home-discover asset-canvas-recent" aria-labelledby="recent-asset-canvases-heading">
