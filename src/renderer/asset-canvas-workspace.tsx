@@ -28,7 +28,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent, type TextareaHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import {
   Handle,
@@ -1133,7 +1133,7 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
     <div className={`story-node story-text-node${selected ? " is-selected" : ""}`}>
       <div data-alignment-frame className="story-text-output">
         <div className="story-media-node-label"><FileText size={14} /><span>Text</span></div>
-        <textarea
+        <CanvasTextarea
           className="nodrag nowheel"
           aria-label="Text output"
           rows={5}
@@ -1141,18 +1141,18 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
           disabled={runtime?.busy}
           readOnly={!selected}
           placeholder="Generated or manually written text"
-          onChange={(event) => runtime?.onChange({ ...data, textRuntime: undefined, text: event.target.value })}
+          onChange={(text) => runtime?.onChange({ ...data, textRuntime: undefined, text })}
         />
       </div>
       {selected ? (
         <div className="story-text-composer nodrag nowheel">
-          <textarea
+          <CanvasTextarea
             aria-label="Text generation instruction"
             rows={3}
             value={data.instruction ?? ""}
             disabled={runtime?.busy}
             placeholder="Describe the text you want to generate"
-            onChange={(event) => runtime?.onChange({ ...data, textRuntime: undefined, instruction: event.target.value })}
+            onChange={(instruction) => runtime?.onChange({ ...data, textRuntime: undefined, instruction })}
           />
           {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
           <div>
@@ -1375,13 +1375,42 @@ function MediaPrompt({ kind, value, runtime, onChange }: {
   onChange: (prompt: string) => void;
 }) {
   return (
-    <textarea
+    <CanvasTextarea
       aria-label={`${kind === "model" ? "3D model" : titleCase(kind)} prompt`}
       rows={3}
       value={value}
       disabled={runtime?.busy}
       placeholder={`Describe the ${kind === "model" ? "3D model" : kind} you want to create`}
-      onChange={(event) => onChange(event.target.value)}
+      onChange={onChange}
+    />
+  );
+}
+
+/**
+ * React Flow copies `nodes` into its store in an effect, so node data reaches inputs one render late and React
+ * resets the DOM value right after each change — which cancels IME composition (Chinese, Japanese, ...).
+ * Keep the draft local while focused and only follow the node value when the field isn't being edited.
+ */
+function CanvasTextarea({ value, onChange, ...props }: Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "value" | "onChange" | "onFocus" | "onBlur"> & {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const editing = useRef(false);
+  useEffect(() => {
+    if (props.disabled) editing.current = false;
+    if (!editing.current) setDraft(value);
+  }, [value, props.disabled]);
+  return (
+    <textarea
+      {...props}
+      value={draft}
+      onFocus={() => { editing.current = true; }}
+      onBlur={() => { editing.current = false; setDraft(value); }}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        onChange(event.target.value);
+      }}
     />
   );
 }
