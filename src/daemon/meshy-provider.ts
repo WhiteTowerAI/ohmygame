@@ -1,5 +1,6 @@
-import type { Model3DGenerationInput, Model3DGenerator, Generated3DModel } from "./model3d.js";
+import type { Generated3DModel, Model3DAnimationAction, Model3DAnimationInput, Model3DGenerationInput, Model3DGenerator } from "./model3d.js";
 import { Model3DGenerationError } from "./model3d.js";
+import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 
 // Image to 3D lives under v1; v2 only serves text-to-3D and answers this path with 404 "Not found".
 const BASE_URL = "https://api.meshy.ai/openapi/v1";
@@ -18,56 +19,102 @@ export class MeshyProvider implements Model3DGenerator {
 
   async generate(input: Model3DGenerationInput, signal?: AbortSignal): Promise<Generated3DModel> {
     const meshy = meshyTask(input);
+    return this.#session(signal, "Meshy generation timed out", async (apiKey, requestSignal) => {
+      const { taskId, task } = await this.#runTask(apiKey, meshy.endpoint, meshy.body, requestSignal, "Meshy generation request failed");
+      return { bytes: await this.#downloadGlb(record(task.model_urls).glb, requestSignal), mediaType: "model/gltf-binary", requestId: taskId };
+    });
+  }
+
+  /** Rigs a humanoid GLB, then bakes the chosen library actions into one file with a clip per action. */
+  async animate(input: Model3DAnimationInput, signal?: AbortSignal): Promise<Generated3DModel> {
+    if (input.actionIds.length < 1 || input.actionIds.length > MAX_ANIMATION_ACTIONS) {
+      throw new Model3DGenerationError(`Choose 1 to ${MAX_ANIMATION_ACTIONS} animations`, 400);
+    }
+    return this.#session(signal, "Meshy animation timed out", async (apiKey, requestSignal) => {
+      const rig = await this.#runTask(apiKey, "rigging", {
+        model_url: `data:model/gltf-binary;base64,${input.model.toString("base64")}`,
+        height_meters: input.heightMeters,
+      }, requestSignal, "Meshy rigging request failed");
+      const { taskId, task } = await this.#runTask(apiKey, "animations", {
+        rig_task_id: rig.taskId,
+        action_ids: input.actionIds,
+      }, requestSignal, "Meshy animation request failed");
+      return { bytes: await this.#downloadGlb(record(task.result).animation_glb_url, requestSignal), mediaType: "model/gltf-binary", requestId: taskId };
+    });
+  }
+
+  /** Lists Meshy's preset animations; the call is free, so the daemon can show them before anything is spent. */
+  async animations(signal?: AbortSignal): Promise<Model3DAnimationAction[]> {
+    return this.#session(signal, "Meshy animation library timed out", async (apiKey, requestSignal) => {
+      const body = await this.json(`${BASE_URL}/animations/library`, { signal: requestSignal }, apiKey, "Meshy animation library request failed");
+      const items: unknown[] = Array.isArray(body) ? body : [];
+      return items.flatMap((item) => {
+        const value = record(item);
+        const id = value.action_id;
+        const name = string(value.name);
+        if (typeof id !== "number" || !Number.isInteger(id) || !name) return [];
+        return [{
+          id,
+          name,
+          category: string(value.category) ?? "Other",
+          subCategory: string(value.sub_category) ?? "Other",
+          ...(httpUrl(value.preview_url) ? { previewUrl: value.preview_url } : {}),
+        }];
+      });
+    });
+  }
+
+  async #session<T>(signal: AbortSignal | undefined, timeoutMessage: string, run: (apiKey: string, signal: AbortSignal) => Promise<T>): Promise<T> {
     const apiKey = this.apiKey();
     if (!apiKey) throw new Model3DGenerationError("Meshy API key is not configured", 503);
     const timeout = AbortSignal.timeout(MAX_WAIT_MS);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     try {
-      const created = await this.json(`${BASE_URL}/${meshy.endpoint}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(meshy.body),
-        signal: requestSignal,
-      }, apiKey, "Meshy generation request failed");
-      const taskId = string(created.result) ?? string(created.id);
-      if (!taskId) throw new Model3DGenerationError("Meshy returned no task ID");
-      let networkFailures = 0;
-      while (true) {
-        requestSignal.throwIfAborted();
-        let task: Record<string, unknown>;
-        try {
-          task = await this.json(
-            `${BASE_URL}/${meshy.endpoint}/${encodeURIComponent(taskId)}`,
-            { signal: requestSignal },
-            apiKey,
-            "Meshy status request failed",
-          );
-          networkFailures = 0;
-        } catch (cause) {
-          if (!(cause instanceof MeshyNetworkError) || ++networkFailures >= MAX_POLL_NETWORK_FAILURES) throw cause;
-          await delay(this.pollIntervalMs, requestSignal);
-          continue;
-        }
-        const status = string(task.status)?.toUpperCase();
-        if (status === "SUCCEEDED" || status === "COMPLETED") {
-          const url = record(task.model_urls).glb;
-          if (!httpUrl(url)) throw new Model3DGenerationError("Meshy task completed without a GLB artifact");
-          const content = await this.request(url, { signal: requestSignal });
-          if (!content.ok) throw new Model3DGenerationError(`Meshy GLB download failed (${content.status})`, content.status);
-          const bytes = Buffer.from(await content.arrayBuffer());
-          if (bytes.length > MAX_GLB_BYTES) throw new Model3DGenerationError("Meshy GLB output is too large", 413);
-          return { bytes, mediaType: "model/gltf-binary", requestId: taskId };
-        }
-        if (status === "FAILED" || status === "CANCELED" || status === "CANCELLED") {
-          throw new Model3DGenerationError(string(task.message) ?? `Meshy task ${status.toLowerCase()}`, 400);
-        }
-        await delay(this.pollIntervalMs, requestSignal);
-      }
+      return await run(apiKey, requestSignal);
     } catch (cause) {
-      if (timeout.aborted && !signal?.aborted) throw new Model3DGenerationError("Meshy generation timed out", 504);
-      if (cause instanceof Model3DGenerationError) throw cause;
+      if (timeout.aborted && !signal?.aborted) throw new Model3DGenerationError(timeoutMessage, 504);
       throw cause;
     }
+  }
+
+  /** Creates a task and polls it until it finishes; Meshy's task endpoints all share this shape. */
+  async #runTask(apiKey: string, endpoint: string, body: Record<string, unknown>, signal: AbortSignal, message: string): Promise<{ taskId: string; task: Record<string, unknown> }> {
+    const created = await this.json(`${BASE_URL}/${endpoint}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    }, apiKey, message);
+    const taskId = string(created.result) ?? string(created.id);
+    if (!taskId) throw new Model3DGenerationError("Meshy returned no task ID");
+    let networkFailures = 0;
+    while (true) {
+      signal.throwIfAborted();
+      let task: Record<string, unknown>;
+      try {
+        task = await this.json(`${BASE_URL}/${endpoint}/${encodeURIComponent(taskId)}`, { signal }, apiKey, "Meshy status request failed");
+        networkFailures = 0;
+      } catch (cause) {
+        if (!(cause instanceof MeshyNetworkError) || ++networkFailures >= MAX_POLL_NETWORK_FAILURES) throw cause;
+        await delay(this.pollIntervalMs, signal);
+        continue;
+      }
+      const status = string(task.status)?.toUpperCase();
+      if (status === "SUCCEEDED" || status === "COMPLETED") return { taskId, task };
+      if (status === "FAILED" || status === "CANCELED" || status === "CANCELLED") {
+        throw new Model3DGenerationError(string(record(task.task_error).message) ?? string(task.message) ?? `Meshy task ${status.toLowerCase()}`, 400);
+      }
+      await delay(this.pollIntervalMs, signal);
+    }
+  }
+
+  async #downloadGlb(url: unknown, signal: AbortSignal): Promise<Buffer> {
+    if (!httpUrl(url)) throw new Model3DGenerationError("Meshy task completed without a GLB artifact");
+    const content = await this.request(url, { signal });
+    if (!content.ok) throw new Model3DGenerationError(`Meshy GLB download failed (${content.status})`, content.status);
+    const bytes = Buffer.from(await content.arrayBuffer());
+    if (bytes.length > MAX_GLB_BYTES) throw new Model3DGenerationError("Meshy GLB output is too large", 413);
+    return bytes;
   }
 
   private async json(url: string, init: RequestInit, apiKey: string, message: string): Promise<Record<string, unknown>> {

@@ -16,7 +16,7 @@ const AGENT_INSTRUCTIONS = `# Asset Canvas Project
 
 This workspace is an OhMyGame Asset Canvas. It is not an Interactive Drama runtime.
 
-- \`canvas.json\` contains only Text, Image, Video, Model 3D, and imported Asset nodes.
+- \`canvas.json\` contains only Text, Image, Video, Model 3D, Animate 3D, and imported Asset nodes.
 - \`editor/layout.json\` stores editor-only positions and viewport state.
 - Read \`schemas/asset-canvas.schema.json\` before editing canvas data.
 - Keep node IDs stable and keep the layout Node IDs exactly synchronized with \`canvas.json\`.

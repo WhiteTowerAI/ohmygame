@@ -27,6 +27,9 @@ describe("agent tools", () => {
     expect(activePiToolNames(["generate-video"])).toEqual([
       "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "generate_video",
     ]);
+    expect(activePiToolNames(["animate-3d"])).toEqual([
+      "read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin", "animate_3d_asset",
+    ]);
     expect(activePiToolNames(
       [],
       ["read", "generate_image", "web_search"],
