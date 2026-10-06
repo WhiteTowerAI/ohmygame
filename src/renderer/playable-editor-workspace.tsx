@@ -35,7 +35,8 @@ import {
   type PlayableNavigationMode,
   type PlayableNode,
 } from "../shared/playable-nodes.js";
-import type { NodePlayerDefinition, PlayableTextEdit } from "../shared/playable-player-protocol.js";
+import { setPlayableElementTranslate } from "../shared/playable-move.js";
+import type { NodePlayerDefinition, PlayableMove, PlayableTextEdit } from "../shared/playable-player-protocol.js";
 import { parsePlayableSourceLocation, replacePlayableElementText } from "../shared/playable-text-edit.js";
 import { clearPlayableBackdrop, playableBackdrop, setPlayableBackdrop } from "../shared/playable-backdrop.js";
 import {
@@ -577,6 +578,23 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }
 
   /**
+   * Writes a move from the preview back to the `style` of the element in the
+   * surface HTML that holds it. False when it cannot be done in place.
+   */
+  async function writeMove(move: PlayableMove): Promise<boolean> {
+    const graph = codebase?.graph;
+    const location = move.pick.source ? parsePlayableSourceLocation(move.pick.source) : undefined;
+    const node = graph?.nodes.find((candidate) => candidate.id === move.pick.nodeId);
+    if (!graph || !location || !node || node.source.html !== location.file) return false;
+    const file = await getWorkspaceFile(projectId, location.file);
+    const before = file.truncated ? undefined : file.content;
+    const html = before === undefined ? undefined : setPlayableElementTranslate(before, location, move.pick.tag, move.translate);
+    if (before === undefined || html === undefined) return false;
+    if (html !== before) await writeSources(graph, { [location.file]: html }, { [location.file]: before });
+    return true;
+  }
+
+  /**
    * Declares a video or image and shows it as the Node's background. The
    * Asset it replaces stays declared, since other code may still use it.
    * Resolves with a way to put the background back, or undefined when the
@@ -982,6 +1000,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         {...(onAskAgent ? { onAskAgent } : {})}
         {...(onSendToAgent ? { onSendToAgent } : {})}
         onWriteText={writeText}
+        onWriteMove={writeMove}
         onAddAsset={async (asset) => {
           const { graph, assetId } = addPlayableNodeAsset(codebase.graph, openedNode.id, asset);
           await writeGraph(graph);

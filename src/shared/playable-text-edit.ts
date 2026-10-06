@@ -44,7 +44,8 @@ export function replacePlayableElementText(
   return `${html.slice(0, open)}${leading}${escapeText(after.trim())}${trailing}${html.slice(close)}`;
 }
 
-function offsetOf(html: string, line: number, column: number): number | undefined {
+/** The offset of a 1-based line and column in `html`, or undefined past its end. */
+export function offsetOf(html: string, line: number, column: number): number | undefined {
   let offset = 0;
   for (let current = 1; current < line; current += 1) {
     const next = html.indexOf("\n", offset);
@@ -56,7 +57,7 @@ function offsetOf(html: string, line: number, column: number): number | undefine
 }
 
 /** The offset just after a start tag's `>`, skipping quoted attribute values. */
-function startTagEnd(html: string, start: number): number | undefined {
+export function startTagEnd(html: string, start: number): number | undefined {
   let quote: string | undefined;
   for (let index = start + 1; index < html.length; index += 1) {
     const char = html[index];

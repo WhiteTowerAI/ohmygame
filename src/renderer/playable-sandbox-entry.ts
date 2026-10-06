@@ -103,6 +103,7 @@ function startPicking(instanceId: string, tool: PlayablePreviewTool): void {
   current.host.startPicking(tool, {
     onPick: (pick, additive) => post({ kind: "ohmygame:playable:picked", instanceId, pick, additive }),
     onTextEdit: (edit) => post({ kind: "ohmygame:playable:text-edited", instanceId, edit }),
+    onMove: (move) => post({ kind: "ohmygame:playable:moved", instanceId, move }),
     onCancel: () => post({ kind: "ohmygame:playable:pick-cancelled", instanceId }),
   });
 }

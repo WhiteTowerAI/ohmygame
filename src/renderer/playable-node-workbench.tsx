@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   MessageSquarePlus,
   MousePointer2,
+  Move,
   Play,
   RotateCcw,
   Trash2,
@@ -22,11 +23,11 @@ import {
   type PlayableNode,
 } from "../shared/playable-nodes.js";
 import { playableNodeById } from "../shared/playable-graph.js";
-import type { NodePlayerDefinition, PlayablePreviewOptions, PlayableTextEdit } from "../shared/playable-player-protocol.js";
+import type { NodePlayerDefinition, PlayableMove, PlayablePreviewOptions, PlayableTextEdit } from "../shared/playable-player-protocol.js";
 import type { PlayablePickResult } from "../shared/playable-picker.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import type { PromptContext } from "../shared/contracts.js";
-import { playableElementContext, playableTextEditRequest } from "../shared/playable-chat-context.js";
+import { playableElementContext, playableMoveRequest, playableTextEditRequest } from "../shared/playable-chat-context.js";
 import {
   playableAssetType,
   playableRuntimeKey,
@@ -63,9 +64,9 @@ export interface PreviewRuntime {
 
 /**
  * What the pointer does in the preview: play the game, pick elements for the
- * chat, edit text in place, or draw over it for the chat.
+ * chat, edit text in place, move elements, or draw over it for the chat.
  */
-export type PreviewTool = "play" | "select" | "text" | "draw";
+export type PreviewTool = "play" | "select" | "text" | "move" | "draw";
 
 /**
  * A short message over the preview: where an Exit would go, since the preview
@@ -98,6 +99,7 @@ export function PlayableNodeWorkbench({
   onAskAgent,
   onSendToAgent,
   onWriteText,
+  onWriteMove,
   onAddAsset,
   onSetBackdrop,
   onRemoveBackdrop,
@@ -118,6 +120,8 @@ export function PlayableNodeWorkbench({
   onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
   /** Writes a text edit back to surface HTML; resolves false when it cannot be made in place. */
   onWriteText: (edit: PlayableTextEdit) => Promise<boolean>;
+  /** Writes a move back to surface HTML; resolves false when it cannot be made in place. */
+  onWriteMove: (move: PlayableMove) => Promise<boolean>;
   /** Declares an asset on the Scene and resolves with its ID once saved. */
   onAddAsset: (asset: PlayableAssetRequest) => Promise<string>;
   /**
@@ -237,6 +241,20 @@ export function PlayableNodeWorkbench({
     })();
   }, [askAgent, onWriteText, showToast]);
 
+  const onMove = useCallback((move: PlayableMove) => {
+    void (async () => {
+      if (move.inPlace) {
+        try {
+          if (await onWriteMove(move)) return;
+        } catch (cause) {
+          return showToast({ tone: "error", text: `Could not move it: ${errorMessage(cause)}` });
+        }
+      }
+      const excerpt = move.pick.text ? ` "${move.pick.text}"` : "";
+      await askAgent(playableMoveRequest(move.translate), [playableElementContext(move.pick)], `Moving <${move.pick.tag}>${excerpt}`);
+    })();
+  }, [askAgent, onWriteMove, showToast]);
+
   /**
    * As background, the editor sets the Scene's background. Otherwise the
    * media goes into the chat, declared on the Scene, for the message to say
@@ -322,9 +340,10 @@ export function PlayableNodeWorkbench({
       saveKey={`ohmygame:playable:preview:${projectId}`}
       storage={storage}
       preview={preview}
-      {...(tool === "select" || tool === "text" ? { tool } : {})}
+      {...(tool === "select" || tool === "text" || tool === "move" ? { tool } : {})}
       onPick={onPick}
       onTextEdit={onTextEdit}
+      onMove={onMove}
       onPickCancel={onPickCancel}
       onSnapshot={setSnapshot}
       onDiagnostic={onDiagnostic}
@@ -358,12 +377,14 @@ const TOOLS: { tool: PreviewTool; label: string; title: string; icon: IconCompon
   { tool: "play", label: "Play", title: "Play the preview", icon: Play },
   { tool: "select", label: "Select", title: "Pick things to talk about with the AI. Shift-click to pick more.", icon: MousePointer2 },
   { tool: "text", label: "Text", title: "Click text to change it", icon: Type },
+  { tool: "move", label: "Move", title: "Drag things to move them", icon: Move },
   { tool: "draw", label: "Draw", title: "Draw on the preview to show the AI what you mean", icon: Brush },
 ];
 
 const TOOL_HINTS: Record<Exclude<PreviewTool, "play">, string> = {
   select: "Click to pick · Shift-click for more · Esc to play",
   text: "Click text to change it · Enter to keep · Esc to play",
+  move: "Drag to move · Esc to play",
   draw: "Draw, then say what you want in the chat · Esc to play",
 };
 

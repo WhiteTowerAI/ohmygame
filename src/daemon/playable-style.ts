@@ -478,9 +478,14 @@ kbd,
   50% { opacity: 0.9; }
 }
 
-/* Entrance: content rises into place. Stagger with style="--delay: 0.2s". */
+/* Entrance: content rises into place. Stagger with style="--delay: 0.2s".
+   The rise adds to the element's own translate, so a moved element rises
+   into the place it was moved to. */
 .rise {
-  animation: rise 0.8s var(--delay, 0s) cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation:
+    rise 0.8s var(--delay, 0s) cubic-bezier(0.2, 0.7, 0.2, 1) both,
+    rise-up 0.8s var(--delay, 0s) cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-composition: replace, add;
 }
 
 /* A title whose letters draw together as it appears. */
@@ -489,8 +494,13 @@ kbd,
 }
 
 @keyframes rise {
-  from { opacity: 0; translate: 0 1.2cqw; }
-  to { opacity: 1; translate: 0 0; }
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rise-up {
+  from { translate: 0 1.2cqw; }
+  to { translate: 0 0; }
 }
 
 @keyframes spread {

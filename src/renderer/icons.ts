@@ -127,6 +127,10 @@ export const Hand = forwardRef<SVGSVGElement, IconProps>(function Hand({ size = 
   return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M18 11V7.5a1.5 1.5 0 0 0-3 0V10m0-2.5V6a1.5 1.5 0 0 0-3 0v4m0-3V5.5a1.5 1.5 0 0 0-3 0V11m0-3.5a1.5 1.5 0 0 0-3 0V13l-1.2-1.2a1.7 1.7 0 0 0-2.4 2.4l4 4A6 6 0 0 0 10.6 20H13a5 5 0 0 0 5-5v-4Z", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
 });
 
+export const Move = forwardRef<SVGSVGElement, IconProps>(function Move({ size = 24, ...props }, ref) {
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M12 3v18M3 12h18M9.5 5.5 12 3l2.5 2.5M9.5 18.5 12 21l2.5-2.5M5.5 9.5 3 12l2.5 2.5M18.5 9.5 21 12l-2.5 2.5", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
+});
+
 export {
   AddFolderIcon as FolderPlus,
   AddIcon as Plus,
