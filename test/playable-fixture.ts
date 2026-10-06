@@ -1,6 +1,33 @@
 import type { NodeGraph } from "../src/shared/playable-nodes.js";
+import type { NodeCodebase } from "../src/shared/playable-codebase.js";
+import { createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+
+/**
+ * A new project, which has no Scenes, with one Blank Scene `start` added, for
+ * tests that need a Scene to work on.
+ */
+export function createStarterCodebaseWithScene(
+  title: string,
+  viewport: { width: number; height: number },
+): NodeCodebase {
+  const codebase = createPlayableStarterCodebase(title, viewport);
+  return {
+    graph: {
+      ...codebase.graph,
+      entryNodeId: "start",
+      nodes: [{
+        id: "start",
+        title: "Node 1",
+        source: { html: "nodes/start/index.html", css: "nodes/start/style.css", javascript: "nodes/start/node.js" },
+        assets: [],
+        signals: [{ id: "next", label: "Next" }],
+      }],
+    },
+    editorLayout: { ...codebase.editorLayout, nodes: { start: { x: 120, y: 180 } } },
+  };
+}
 
 export const PLAYABLE_FIXTURE_FILES = new Set([
   "assets/background.webp",

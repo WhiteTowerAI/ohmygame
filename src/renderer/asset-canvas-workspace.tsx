@@ -103,7 +103,6 @@ import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js"
 import { exportCanvasAsset, generateCanvasText } from "./canvas-api.js";
 import type { CanvasBoardStorage } from "./canvas-board-storage.js";
 import { CanvasTextarea, CanvasTextComposer } from "./canvas-text-composer.js";
-import "@xyflow/react/dist/style.css";
 
 const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";

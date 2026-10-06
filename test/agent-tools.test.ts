@@ -285,7 +285,8 @@ describe("agent tools", () => {
       signals: ["next"],
     } });
     const graph = JSON.parse(await readFile(path.join(story.workspacePath, "graph.json"), "utf8"));
-    expect(graph.nodes.map((node: { id: string }) => node.id)).toEqual(["start", "opening"]);
+    expect(graph.nodes.map((node: { id: string }) => node.id)).toEqual(["opening"]);
+    expect(graph.entryNodeId).toBe("opening");
     await expect(tool.execute("call-dup", { preset: "blank", id: "opening" }, undefined, undefined, {} as never))
       .rejects.toThrow(/already exists/);
   });

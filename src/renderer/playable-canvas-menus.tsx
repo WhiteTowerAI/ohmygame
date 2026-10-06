@@ -24,6 +24,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { CanvasContextMenu, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
@@ -118,18 +119,22 @@ export function PlayableProjectMenu({ disabled, screenSize, exporting, canExport
   </>;
 }
 
-export function PlayableAddControl({ presets, busy, onAdd }: {
+/** Opens Add a Scene and adds the chosen Template at the center of the canvas. */
+export function PlayableAddControl({ presets, busy, onAdd, className, children }: {
   presets: readonly PlayablePresetSummary[];
   busy: boolean;
   onAdd: (presetId: string, position: { x: number; y: number }) => void;
+  className?: string;
+  /** The button's content; the tool bar's + by default. */
+  children?: ReactNode;
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const canvasCenter = useCanvasCenter();
   const closeAdd = useCallback(() => setAddOpen(false), []);
 
   return <>
-    <button className={addOpen ? "is-active" : undefined} type="button" title="Add Scene" aria-label="Add Scene" aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
-      {busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />}
+    <button className={[className, addOpen ? "is-active" : undefined].filter(Boolean).join(" ") || undefined} type="button" title="Add Scene" {...(children ? {} : { "aria-label": "Add Scene" })} aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
+      {children ?? (busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />)}
     </button>
     {addOpen ? createPortal(<PlayableTemplateDialog
       presets={presets}
@@ -142,6 +147,23 @@ export function PlayableAddControl({ presets, busy, onAdd }: {
       }}
     />, document.body) : null}
   </>;
+}
+
+/** What an empty canvas shows: where to start, from a Template or the chat. */
+export function PlayableEmptyCanvas({ presets, busy, onAdd }: {
+  presets: readonly PlayablePresetSummary[];
+  busy: boolean;
+  onAdd: (presetId: string, position: { x: number; y: number }) => void;
+}) {
+  return <div className="playable-canvas-empty">
+    <div>
+      <strong>No Scenes yet</strong>
+      <p>Start from a Template, or describe your story in the chat.</p>
+      <PlayableAddControl presets={presets} busy={busy} onAdd={onAdd} className="playable-canvas-empty-add">
+        {busy ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />}<span>Add a Scene</span>
+      </PlayableAddControl>
+    </div>
+  </div>;
 }
 
 export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, story, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onStoryOption, onDelete }: {

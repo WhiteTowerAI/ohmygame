@@ -1653,6 +1653,13 @@ describe("daemon", () => {
 });
 
 /** Declares a Library asset in the project's graph and uses it on the Start node. */
+/** A new project has no Scenes; adds a Blank one, `start`, through the editor's endpoint. */
+async function addStartScene(app: Pick<ReturnType<typeof createApp>, "inject">, projectId: string): Promise<void> {
+  const added = await app.inject({ method: "POST", url: `/projects/${projectId}/playable/nodes`, payload: { preset: "blank", id: "start" } });
+  expect(added.statusCode, added.body).toBe(200);
+}
+
+/** Declares a Library asset on the project's first Scene, adding one when there is none. */
 async function useLibraryAssetInGraph(
   app: ReturnType<typeof createApp>,
   projectId: string,
@@ -1660,7 +1667,11 @@ async function useLibraryAssetInGraph(
   type: "image" | "video",
   assetId: string,
 ): Promise<void> {
-  const codebase = (await app.inject({ method: "GET", url: `/projects/${projectId}/playable/codebase` })).json();
+  let codebase = (await app.inject({ method: "GET", url: `/projects/${projectId}/playable/codebase` })).json();
+  if (!codebase.graph.nodes.length) {
+    await addStartScene(app, projectId);
+    codebase = (await app.inject({ method: "GET", url: `/projects/${projectId}/playable/codebase` })).json();
+  }
   codebase.graph.assets[id] = { type, source: { kind: "library", assetId } };
   codebase.graph.nodes[0].assets.push(id);
   const saved = await app.inject({ method: "PUT", url: `/projects/${projectId}/playable/codebase`, payload: codebase });
@@ -1687,7 +1698,7 @@ describe("Playable Nodes projects", () => {
     return app;
   }
 
-  it("creates blank Interactive Story projects as Playable Nodes", async () => {
+  it("creates Interactive Story projects as Playable Nodes with no Scenes yet", async () => {
     const app = await createPlayableApp("ohmygame-playable-create-");
     const response = await app.inject({
       method: "POST",
@@ -1700,12 +1711,11 @@ describe("Playable Nodes projects", () => {
     expect(codebase.graph).toMatchObject({
       title: "Nodes",
       viewport: { width: 720, height: 1280 },
-      entryNodeId: "start",
-      nodes: [{ id: "start", signals: [{ id: "next", label: "Next" }] }],
+      nodes: [],
       edges: [],
     });
     const runtime = (await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable` })).json();
-    expect(runtime).toMatchObject({ available: true, definition: { graph: { entryNodeId: "start" } } });
+    expect(runtime).toMatchObject({ available: true, definition: { graph: { nodes: [] } } });
   });
 
   it("lists Presets and adds a Node from one", async () => {
@@ -1727,13 +1737,16 @@ describe("Playable Nodes projects", () => {
     expect(created.statusCode).toBe(200);
     expect(created.json()).toMatchObject({ id: "menu", title: "Ash Club", signals: ["start", "story-map"] });
     const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
-    expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["start", "menu"]);
+    // The first Scene of a new project becomes its Start.
+    expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["menu"]);
+    expect(codebase.graph.entryNodeId).toBe("menu");
     expect(await readFile(path.join(project.workspacePath, "nodes/menu/index.html"), "utf8")).toContain("Ash Club");
   });
 
   it("rejects a duplicate Node and an unknown Preset", async () => {
     const app = await createPlayableApp("ohmygame-playable-node-errors-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    await addStartScene(app, project.id);
 
     const duplicate = await app.inject({
       method: "POST",
@@ -1764,6 +1777,7 @@ describe("Playable Nodes projects", () => {
       url: "/projects",
       payload: { name: "Story", type: "interactive-story" },
     })).json();
+    await addStartScene(app, project.id);
     const loaded = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
     const codebase = loaded.json();
     codebase.graph.title = "Revised Story";
@@ -1819,6 +1833,7 @@ describe("Playable Nodes projects", () => {
   it("exposes structured Playable validation for Playtest and agents", async () => {
     const app = await createPlayableApp("ohmygame-playable-validation-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    await addStartScene(app, project.id);
 
     const valid = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/validation` });
     const graph = JSON.parse(await readFile(path.join(project.workspacePath, "graph.json"), "utf8"));
@@ -1864,6 +1879,7 @@ describe("Playable Nodes projects", () => {
       url: "/projects",
       payload: { name: "Playable", type: "interactive-story" },
     })).json();
+    await addStartScene(app, project.id);
     const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
     codebase.graph.assets.portrait = {
       type: "image",

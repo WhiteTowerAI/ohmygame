@@ -70,7 +70,7 @@ import { setTechnicalDetails, useTechnicalDetails } from "./playable-details.js"
 import type { PlayableChatState } from "./playable-chat.js";
 import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
 import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
-import { PlayableAddControl, PlayableCanvasContextMenu, PlayableProjectMenu } from "./playable-canvas-menus.js";
+import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEmptyCanvas, PlayableProjectMenu } from "./playable-canvas-menus.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
@@ -859,7 +859,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const showCodeTab = technical || workspaceView === "code";
   const tabs: WorkspaceTabOption<"canvas" | "design" | "code">[] = [
-    { id: "canvas", label: "Canvas", icon: Clapperboard },
+    { id: "canvas", label: "Story", icon: Clapperboard },
     ...(onDesignOpenChange ? [{ id: "design" as const, label: "Design", icon: FileText }] : []),
     ...(showCodeTab ? [{ id: "code" as const, label: "Code", icon: Code2 }] : []),
   ];
@@ -967,7 +967,13 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                 onNodesDelete={(deleted) => removeNodes(new Set(deleted.map((node) => node.id)))}
                 isValidConnection={(connection) => Boolean(connection.source && connection.target && connection.sourceHandle)}
                 defaultViewport={editorLayout.viewport}
-              />
+              >
+                {nodes.length ? null : <PlayableEmptyCanvas
+                  presets={presets}
+                  busy={writing}
+                  onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
+                />}
+              </EditorCanvas>
             </PlayableCanvasContext.Provider>
           ) : null}
           {canvasContextMenu ? <PlayableCanvasContextMenu

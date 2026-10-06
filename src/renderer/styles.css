@@ -6843,6 +6843,57 @@ button {
   color: var(--danger);
 }
 
+/* An empty Story canvas: where to start. The card takes the pointer; the
+   canvas around it still pans and opens its menu. */
+.playable-canvas-empty {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.playable-canvas-empty > div {
+  display: grid;
+  max-width: 280px;
+  justify-items: center;
+  gap: 6px;
+  padding: 20px 24px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  text-align: center;
+  pointer-events: auto;
+}
+
+.playable-canvas-empty strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.playable-canvas-empty p {
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.playable-canvas-empty-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .story-save-notice {
   position: absolute;
   z-index: 5;

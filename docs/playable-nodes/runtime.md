@@ -36,10 +36,11 @@ AGENTS.md, README.md    rules and reference for the Agent and authors
 .ohmygame/              editor cache (thumbnails); never published
 ```
 
-A new project contains one ordinary `start` node, plus the default Project
-Style. A project may also have no nodes, for example after the author deletes
-them all: it is a valid draft, `entryNodeId` then names nothing, and the
-first node added becomes the Entry Node.
+A new project contains the default Project Style and no nodes; the author
+starts from a Template or the Agent from the author's description. A project
+with no nodes, new or after the author deletes them all, is a valid draft:
+`entryNodeId` then names nothing, and the first node added becomes the Entry
+Node.
 
 ## Graph document
 
