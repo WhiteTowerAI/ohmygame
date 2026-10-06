@@ -181,6 +181,23 @@ describe("pick protocol messages", () => {
       }),
     ).toBe(false);
     expect(
+      isPlayableHostMessage({ kind: "ohmygame:playable:pick-start", instanceId: "a", tool: "move" }),
+    ).toBe(true);
+    expect(
+      isPlayableFrameMessage({
+        kind: "ohmygame:playable:moved",
+        instanceId: "a",
+        move: { pick: { nodeId: "menu" }, translate: { x: 2.5, y: -1 }, inPlace: true },
+      }),
+    ).toBe(true);
+    expect(
+      isPlayableFrameMessage({
+        kind: "ohmygame:playable:moved",
+        instanceId: "a",
+        move: { pick: { nodeId: "menu" }, translate: { x: "2.5cqw", y: 0 }, inPlace: true },
+      }),
+    ).toBe(false);
+    expect(
       isPlayableFrameMessage({
         kind: "ohmygame:playable:pick-cancelled",
         instanceId: "a",

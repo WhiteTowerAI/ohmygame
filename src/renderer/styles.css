@@ -14544,7 +14544,7 @@ button {
   pointer-events: auto;
   touch-action: none;
 }
-.playable-workbench-stage:is(.is-tool-select, .is-tool-text, .is-tool-draw) {
+.playable-workbench-stage:is(.is-tool-select, .is-tool-text, .is-tool-move, .is-tool-draw) {
   border-color: var(--accent);
 }
 .story-node-editor-breadcrumb-title {

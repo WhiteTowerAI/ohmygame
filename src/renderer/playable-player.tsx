@@ -9,6 +9,7 @@ import {
 import type {
   PlayableAssetTransfer,
   PlayableFrameMessage,
+  PlayableMove,
   PlayablePreviewOptions,
   PlayablePreviewTool,
   PlayableTextEdit,
@@ -34,6 +35,7 @@ export interface NodePlayerProps {
   /** `additive` asks to add the element to the selection instead of replacing it. */
   onPick?: (pick: PlayablePickResult, additive: boolean) => void;
   onTextEdit?: (edit: PlayableTextEdit) => void;
+  onMove?: (move: PlayableMove) => void;
   /** Called when the author leaves the tool (Escape in the frame). */
   onPickCancel?: () => void;
   onSnapshot?: (snapshot: NodeRuntimeSnapshot) => void;
@@ -51,6 +53,7 @@ export function NodePlayer({
   tool,
   onPick,
   onTextEdit,
+  onMove,
   onPickCancel,
   onSnapshot,
   onDiagnostic = reportDiagnostic,
@@ -88,6 +91,8 @@ export function NodePlayer({
         onPick?.(message.pick, message.additive);
       } else if (message.kind === "ohmygame:playable:text-edited") {
         onTextEdit?.(message.edit);
+      } else if (message.kind === "ohmygame:playable:moved") {
+        onMove?.(message.move);
       } else if (message.kind === "ohmygame:playable:pick-cancelled") {
         onPickCancel?.();
       } else {
@@ -96,7 +101,7 @@ export function NodePlayer({
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [instanceId, onDiagnostic, onPick, onTextEdit, onPickCancel, onSnapshot, saveKey, storage]);
+  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, saveKey, storage]);
 
   const activeTool = preview !== undefined ? tool : undefined;
   useEffect(() => {

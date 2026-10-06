@@ -1,5 +1,6 @@
 import type { PromptContext, PromptReference } from "./contracts.js";
 import type { NodeGraph, NodeSource } from "./playable-nodes.js";
+import { playableTranslateValue, type PlayableTranslate } from "./playable-move.js";
 import type { PlayablePickResult } from "./playable-picker.js";
 
 /**
@@ -80,6 +81,17 @@ export function playableAssetContext(nodeId: string, assetId: string, asset: { n
  */
 export function playableTextEditRequest(before: string, after: string): string {
   return `In the preview I changed the text "${before}" to "${after}". Make that change in the source, wherever the text comes from.`;
+}
+
+/**
+ * The chat request for a move that cannot be written back to surface HTML,
+ * such as an element a script creates or one an animation places.
+ */
+export function playableMoveRequest(translate: PlayableTranslate): string {
+  const value = playableTranslateValue(translate);
+  return value
+    ? `In the preview I dragged this element to a new place: \`translate: ${value}\` from where its layout puts it (cqw and cqh are hundredths of the screen's width and height). Move it there in the source and keep its animations working.`
+    : "In the preview I dragged this element back to where its layout puts it. Remove its offset in the source.";
 }
 
 function sourceFiles(source: NodeSource): string[] {

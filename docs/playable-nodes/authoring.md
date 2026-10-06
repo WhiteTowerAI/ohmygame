@@ -132,9 +132,9 @@ points at, edits, or draws on the preview to say what to change.
 │                        Live preview                          │
 │                  (real Runtime, real assets)                 │
 │                                                              │
-│      ┌──────────────────────────────────┐ ┌──────────┐       │
-│      │ ▶ Play · ⌖ Select · T Text · ✎ Draw │ │ 2 issues │       │
-│      └──────────────────────────────────┘ └──────────┘       │
+│  ┌──────────────────────────────────────────┐ ┌──────────┐   │
+│  │ ▶ Play  ⌖ Select  T Text  ✥ Move  ✎ Draw │ │ 2 issues │   │
+│  └──────────────────────────────────────────┘ └──────────┘   │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -175,6 +175,13 @@ always returns to **Play**.
   is renamed too, and a short message confirms it. Otherwise (text set by a
   script, or mixed content) the change is sent to the Agent, and the chat
   shows it working.
+- **Move** drags an element to a new place; Esc during a drag puts it back.
+  A press on inline text moves the box that holds it, and the Scene's root
+  and background stay put. When the element was written in the Scene's HTML,
+  the offset is written straight to its `style` as `translate` in cqw and
+  cqh, so it holds at any screen size, and Undo takes it back. Otherwise (an
+  element a script creates, or one whose own animation sets `translate`)
+  the move is sent to the Agent.
 - **Draw** draws freehand over the preview. The drawing is sent with the next
   chat message, on a screenshot of the preview.
 
@@ -411,13 +418,13 @@ Thumbnails are screenshots of the real Scene, never a separate rendering.
 
 The same capture is attached to Agent requests about that Scene.
 
-### Element picking and text editing
+### Element picking, text editing, and moving
 
-Picking (**Select**) and in-place editing (**Text**) are editor tooling
+Picking (**Select**), in-place editing (**Text**), and moving (**Move**) are editor tooling
 implemented by the sandbox host, not by node code, and they are disabled in
 the Published Player.
 
-1. **Select** or **Text** puts the preview into pick mode. The sandbox host
+1. **Select**, **Text**, or **Move** puts the preview into pick mode. The sandbox host
    draws a hover outline inside the node's surface and blocks node input.
 2. With **Select**, clicking returns a **picked element** description: node
    ID, source location when known, CSS path within the node root, tag,
@@ -432,7 +439,16 @@ the Published Player.
    and came from the node's HTML. The editor then replaces that element's
    text in the source file, only if the file still reads the old text;
    anything else goes to the Agent.
-5. Picks and a drawing appear as chips in the chat composer and are sent with
+5. With **Move**, dragging moves the element with an inline `translate`
+   added to the one it had. On release the host reports the element and its
+   new offset in cqw and cqh, and whether it came from the node's HTML with
+   no animation of its own that overrides `translate`. The editor then sets
+   `translate` in that element's `style` attribute, only if the source still
+   has the same tag there; anything else goes to the Agent. The Project
+   Style's `.rise` entrance adds to the element's `translate`
+   (`animation-composition: add`), so a moved element rises into its new
+   place.
+6. Picks and a drawing appear as chips in the chat composer and are sent with
    the next message together with one screenshot of the preview. The chips
    clear once sent.
 
