@@ -49,6 +49,9 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - UI that appears on more than one Node, such as a top bar or a Home button, is a shared component under \`shared/components/\`. Each Node that shows it imports it, and declares and routes the Signals it emits like its own. There is no layer drawn over every Node; State carries whatever must continue across Nodes.
 - A Signal that is a way around the game rather than a step in the story, such as Home, Menu, or Settings, has \`"role": "navigation"\`. The editor names its target on the Exit instead of drawing a line; routing is the same.
 - Use \`replace\` for forward progression and \`push\` only when the player should be able to return with \`navigation.back()\`.
+- A Node that is not a step in the story, such as a menu or settings, has \`"story": { "hidden": true }\`, so the Story Map leaves it out and joins the Nodes before and after it. A Node counts as an ending when it has no Signals other than navigation ones; set \`story.ending\` only where that guess is wrong, and \`story.label\` when players should see another name than the title.
+- A Story Map Scene (the \`story-map\` Preset) shows the story with \`context.story.map()\`. Reach it with a \`push\` edge from a menu, a pause button, or an ending; it returns with \`navigation.back()\`. A Main menu's \`story-map\` navigation Exit is the usual way in; connect it to the Story Map Scene.
+- An entry, button, or link whose Signal may go nowhere checks \`context.navigation.connected(signalId)\` and shows disabled instead of emitting. Publishing requires every Signal other than navigation ones to be connected.
 - Keep IDs and source paths stable when editing existing objects. You do not need to edit \`editor/layout.json\`; the editor places new Nodes.
 - Read \`README.md\` and the schemas in \`schemas/\` before changing the contract. Do not copy or modify the OhMyGame Runtime inside this project.
 
@@ -65,6 +68,7 @@ The user sees the editor, not this contract. Talk to them in its words: say "the
 | Exit condition | Signal \`when\` |
 | Allow Back | edge \`mode: "push"\` |
 | Template | Preset |
+| On Story map, Ending | \`story.hidden\`, \`story.ending\` |
 `;
 
 const PROJECT_DOCUMENTATION = `# Playable Nodes Project
@@ -89,8 +93,9 @@ Each Node module exports \`mount(context)\`. The Runtime supplies:
 - \`context.root\`: the Node's isolated ShadowRoot.
 - \`context.assets.url(id)\`: a URL for an Asset declared by this Node.
 - \`context.state.get(key)\`, \`set(key, value)\`, \`patch(values)\`, and \`subscribe(listener)\`.
-- \`context.navigation.emit(signalId)\` and \`back()\`.
+- \`context.navigation.emit(signalId)\`, \`back()\`, and \`connected(signalId)\`, which is true when this Node declares the Signal and an edge routes it.
 - \`context.session.hasSave()\`, \`save()\`, \`continue()\`, \`restart()\`, and \`reset()\`.
+- \`context.story.map()\`: the story laid out from the graph in rows from the Start, with what the player has seen across every game. Nodes have \`id\`, \`label\`, \`row\`, \`column\` (from the left of its row of \`rowSize\`), \`ending\`, and \`seen\`; edges have \`from\`, \`to\`, and \`seen\`. It leaves out \`push\` side screens, navigation Signals, steps back up the story, and Nodes with \`story.hidden\`.
 - \`context.lifecycle.signal\`: aborted before cleanup when the Node exits.
 
 A shared component receives the Node's context from the Node that mounts it, so it emits that Node's Signals: every Node that shows it declares them in \`graph.json\`.

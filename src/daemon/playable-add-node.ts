@@ -75,6 +75,7 @@ export async function addPlayableNode(
         source,
         assets: [],
         signals: preset.signals.map((signal) => ({ ...signal })),
+        ...(preset.story ? { story: { ...preset.story } } : {}),
       },
     ],
   });

@@ -146,6 +146,15 @@ export const PLAYABLE_GRAPH_SCHEMA = {
           source,
           assets: assetIds,
           signals,
+          story: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              hidden: { type: "boolean" },
+              ending: { type: "boolean" },
+              label: { type: "string", minLength: 1, maxLength: 120 },
+            },
+          },
         },
       },
     },

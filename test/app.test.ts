@@ -1704,7 +1704,7 @@ describe("Playable Nodes projects", () => {
     const presets = await app.inject({ method: "GET", url: "/playable/presets" });
     expect(presets.statusCode).toBe(200);
     expect(presets.json().presets.map((preset: { id: string }) => preset.id)).toEqual([
-      "blank", "main-menu", "choice", "qte", "hotspot", "ending",
+      "blank", "main-menu", "choice", "qte", "hotspot", "ending", "story-map",
     ]);
 
     const created = await app.inject({
@@ -1714,7 +1714,7 @@ describe("Playable Nodes projects", () => {
     });
 
     expect(created.statusCode).toBe(200);
-    expect(created.json()).toMatchObject({ id: "menu", title: "Ash Club", signals: ["start"] });
+    expect(created.json()).toMatchObject({ id: "menu", title: "Ash Club", signals: ["start", "story-map"] });
     const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
     expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["start", "menu"]);
     expect(await readFile(path.join(project.workspacePath, "nodes/menu/index.html"), "utf8")).toContain("Ash Club");

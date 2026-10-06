@@ -31,13 +31,14 @@ export const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
 
 function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
   const canvas = useContext(PlayableCanvasContext);
-  const { node, entry, issues, connected, failed, thumbnail, coverAsset } = data;
+  const { node, entry, ending, issues, connected, failed, thumbnail, coverAsset } = data;
   return <div className={`story-node story-media-node story-presentation-node-card playable-node-card${selected ? " is-selected" : ""}`} style={CARD_STYLE}>
     <Handle className="story-media-input-handle" type="target" position={Position.Left} />
     <div className="story-media-node-label story-scene-node-label">
       <span><InlinePlayableTitle nodeId={id} value={node.title} onRename={canvas?.onRenameNode} /></span>
       <div className="playable-node-badges">
         {entry ? <span className="playable-node-badge is-entry" title="The player starts here"><Flag size={11} /><span>Start</span></span> : null}
+        {node.story?.hidden ? <span className="playable-node-badge" title="Not shown on the Story map, and the Scenes before and after it are joined there"><span>Off map</span></span> : ending ? <span className="playable-node-badge" title="Counted as an ending on the Story map"><span>Ending</span></span> : null}
       </div>
     </div>
     <div data-alignment-frame className={`story-media-stage playable-node-stage${failed ? " is-failed" : ""}`}>

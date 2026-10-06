@@ -15,6 +15,8 @@ export type GraphMeta = Omit<NodeGraph, "nodes" | "edges">;
 export type PlayableFlowData = {
   node: PlayableNode;
   entry: boolean;
+  /** The Story Map counts the Node as an ending, by its `story.ending` or by its Signals. */
+  ending: boolean;
   /** Compiler and graph issues that belong to this Node. */
   issues: string[];
   /** Where each connected Signal leads: its edge, the target Scene's title, and whether the edge is selected. */
@@ -64,7 +66,7 @@ export function createFlowNode(node: PlayableNode, position: { x: number; y: num
     type: "playable",
     position,
     deletable: true,
-    data: { node, entry: false, issues: [], connected: {}, failed: false },
+    data: { node, entry: false, ending: false, issues: [], connected: {}, failed: false },
   };
 }
 

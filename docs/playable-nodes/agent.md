@@ -48,6 +48,10 @@ Every project contains an `AGENTS.md` with the stable rules:
   routing is the same.
 - Use `replace` for forward progress and `push` only when the player should
   return with `back()`.
+- A node that is not a step in the story, such as a menu or settings, gets
+  `"story": { "hidden": true }` so the Story Map leaves it out. Set
+  `story.ending` only where the guess from Signals is wrong, and
+  `story.label` when players should see another name than the title.
 - Keep IDs and source paths stable. Do not rely on `window` globals.
 - Run the checks below before finishing.
 
@@ -124,6 +128,14 @@ per-node copies with the import.
 **Restyle the game.** Change `shared/style/` first; touch individual nodes
 only where they override the style.
 
+**Show the story map.** Create a node from the `story-map` Preset and
+connect to it with a `push` edge from where the player opens it, such as a
+Main menu's `story-map` Exit, a pause button, or an ending. Check that menus
+and other screens
+outside the story are `story.hidden`, and that the endings are right. Change
+how the map looks in that node's code; `context.story.map()` already gives
+the layout and what the player has seen.
+
 ## Tools
 
 The Agent has two Playable Nodes tools, and `game_use` when a Playtest
@@ -153,8 +165,8 @@ Validates the graph and compiles every node and the shared modules it imports.
 It returns the same issues as the validation endpoint, each with `phase`,
 `code`, `path`, `message`, and the surface when known, including compiler
 errors. The Agent fixes every issue before finishing. `publish` mode
-additionally requires every Signal to be connected and every source file to
-exist.
+additionally requires every Signal other than navigation ones to be
+connected and every source file to exist.
 
 ### `game_use` for Playable Nodes
 

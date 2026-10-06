@@ -71,6 +71,8 @@ Each Scene card shows:
   ([Variables](#variables));
 - a **Start** badge on the Scene the player starts in (**Set as Start**
   moves it);
+- an **Ending** badge on a Scene the [Story map](#story-map) counts as an
+  ending, or **Off map** on one it leaves out;
 - an issue marker when the Scene fails to build, emits an undeclared Signal,
   or has an Exit that goes nowhere.
 
@@ -78,16 +80,22 @@ The canvas shows only Scenes. A top bar shown on several Scenes adds its
 Exits to each of those Scene cards; there is no separate card for it.
 
 A connection links an Exit port to a target Scene. Exits with **Allow Back**
-(`push` edges) are drawn differently from ordinary ones (`replace`).
+(`push` edges) are drawn differently from ordinary ones (`replace`), with a
+**↩ Back** label.
 
 Connections always leave an Exit on the right of its Scene and enter the
 target on the left. An Exit marked **Navigation** is a way around the game
 rather than a step in the story, such as a **Home** Exit on many Scenes. It
 has no line; its Exit row names the target instead, such as `→ Platform`.
-Clicking that label selects the connection and opens the connection panel.
-The author turns **Navigation** on or off there or in the Workbench's Exits;
-the agent sets it for Exits that come from a shared component. It only
-changes how the canvas draws the connection, never where the Exit goes.
+It only changes how the canvas draws the connection, never where the Exit
+goes.
+
+Clicking a line, or the target an Exit row names, selects the connection;
+Delete removes it, and dragging from the Exit again points it elsewhere.
+There is no connection panel. **Allow Back** and **Navigation** are the
+Agent's to set: the author asks for them in their own words ("let Archive
+open the case archive with Back allowed"), and the Agent marks Exits that
+come from a shared component, such as Home, as Navigation.
 
 The canvas keeps the current editor's mature interactions: Add Scene menu,
 context menu, selection, alignment guides, copy and paste, zoom controls,
@@ -102,8 +110,8 @@ Connecting can happen two ways, and both produce the same edges:
 ## Creating a Scene
 
 1. The author chooses **Add Scene** on the canvas.
-2. The **Add a Scene** window shows each Template (Blank, Main menu, Scene,
-   Choice, QTE, Hotspot, Ending) as a
+2. The **Add a Scene** window shows each Template (Blank, Main menu,
+   Choice, QTE, Hotspot, Ending, Story map) as a
    picture with one line of summary, and they pick one. The right-click
    menu offers the same Templates as a list.
 3. The Scene appears on the canvas with working starter content, and the
@@ -321,9 +329,52 @@ breaks, a short note says so and offers **Ask AI to fix**, which brings the
 editor forward on that Scene and fills the chat with where the player was,
 the Exits they took, and the errors, ready to send.
 
+Playtest also remembers which Scenes the author has seen and which Exits
+they took, across replays, as players' games do; a [Story map](#story-map)
+shows it. **Forget seen Scenes**, beside Replay, starts that record over.
+
 The Agent reads the full record (current Scene, back stack, Exits taken,
 State, errors, save) in serializable form, so it can verify a flow it just
 built.
+
+## Story map
+
+Interactive films and visual novels often show players a map of the story:
+the branches they have found, the ones still locked, and the endings
+collected. The **Story map** Template is that screen. It is an ordinary
+Scene; the author reaches it from a menu, a pause button, or an ending
+through an Exit with **Allow Back**, and its **Back** returns there.
+
+A Main menu always has a **Story map** entry and Exit. Dragging that Exit
+to a Story map Scene makes the entry work; until then it shows disabled,
+the way Continue does before there is a save. It is a Navigation Exit, so a
+game can be published while it goes nowhere; an author who does not want it
+asks the Agent to remove it.
+
+The map is drawn from the canvas's connections, not from where cards sit on
+the canvas, so arranging the canvas never changes what players see. It
+reads from the Start down: each Scene sits one row below the Scenes that
+lead to it, and branches spread side by side. What it leaves out:
+
+- Exits with **Allow Back** lead to side screens, such as an archive, and
+  Navigation Exits lead around the game, so neither is a step in the story;
+- connections back up the story, such as retrying after a failed QTE;
+- Scenes marked off the map. Main menu and Story map Scenes start off it.
+  The Scenes before and after one are joined, so a menu between two Scenes
+  links them directly.
+
+Players see the Scenes they have reached, by name, and the Scenes one step
+past them as locked **???**, with a line for each way they went and a count
+of Scenes and endings found. What they have seen lasts across new games.
+
+The author decides only what the map cannot guess, from a Scene's context
+menu: **On Story map**, and **Ending**. A Scene with no Exits other than
+Navigation ones is guessed to be an ending. The Agent can set both, and the
+name players see when it should differ from the Scene's title. Asking the
+Agent changes how the map looks, since it is the Scene's own code.
+
+The Workbench previews a Story map Scene with everything seen, so the author
+sees the whole map while editing; Playtest shows what they have played.
 
 ## Relationship with Asset Canvas
 
@@ -364,21 +415,23 @@ an asset side panel on the Flow canvas can be reconsidered then.
 
 ### Templates
 
-v1 ships six Templates (Presets). Each contains starter source that
+v1 ships seven Templates (Presets). Each contains starter source that
 already uses the Project Style, its expected Signals, a one-line summary
 for the author, and a brief that tells the Agent what the author usually
 wants next. The brief is not shown to the author. Each Template's picture in
 **Add a Scene** is a capture of the Scene it creates: the starter source
-with the default Project Style and no background.
+with the default Project Style and no background. The Story map's shows a
+sample story partly played, since a new one has nothing seen to show.
 
 | Template  | Starter content                                        | Starter Signals        |
 | --------- | ------------------------------------------------------ | ---------------------- |
 | Blank     | The background; a click or the video's end continues   | `next`                 |
-| Main menu | Title, tagline, a list of entries, over the background | `start`                |
+| Main menu | Title, tagline, a list of entries, over the background | `start`, `story-map`   |
 | Choice    | A subtitle line and answer bars that can read State    | `option-a`, `option-b` |
 | QTE       | A key to press before a ring runs out                  | `success`, `fail`      |
 | Hotspot   | A picture with pulsing spots, one Signal per spot      | `door`, `window`       |
 | Ending    | Stamped ending title, closing lines, and Play again    | none                   |
+| Story map | The branches seen so far, locked ones, endings found   | none (Back)            |
 
 Starter Signals are ordinary declared Signals; the author or Agent renames
 and adds them freely. The set follows the old editor's story nodes: Open UI

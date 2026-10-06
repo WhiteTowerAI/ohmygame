@@ -14168,97 +14168,17 @@ button {
   color: var(--text);
 }
 
-.playable-edge-inspector {
-  position: absolute;
-  z-index: 6;
-  top: 16px;
-  right: 16px;
-  display: flex;
-  width: 264px;
-  flex-direction: column;
-  padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 10px;
-  background: var(--surface-raised);
-  box-shadow: var(--menu-shadow);
-  gap: 10px;
-}
 
-.playable-edge-inspector > header {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
 
-.playable-edge-inspector > header div {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-}
 
-.playable-edge-inspector > header strong {
-  font-size: 12px;
-}
 
-.playable-edge-inspector > header small {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.playable-edge-back {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-  padding: 7px 9px;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 8px;
-  color: var(--text);
-  cursor: pointer;
-}
 
-.playable-edge-back input {
-  margin: 1px 0 0;
-  accent-color: var(--accent);
-}
 
-.playable-edge-back span {
-  display: grid;
-  gap: 2px;
-}
 
-.playable-edge-back strong {
-  font-size: 11px;
-}
 
-.playable-edge-back small {
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.35;
-}
 
-.playable-edge-delete {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--danger);
-  cursor: pointer;
-  font-size: 11px;
-  gap: 6px;
-}
 
-.playable-edge-delete:hover {
-  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-}
 
 /* Playable Node Workbench: the shared preview with tools, toasts, and
    popovers floating over it. */
@@ -14645,7 +14565,7 @@ button {
 }
 
 /* Over the Playtest game: Replay on hover, and a note when something breaks. Always dark. */
-.playable-playtest-replay,
+.playable-playtest-corner button,
 .playable-playtest-problem {
   position: fixed;
   z-index: 10;
@@ -14657,9 +14577,28 @@ button {
   backdrop-filter: blur(12px);
   app-region: no-drag;
 }
-.playable-playtest-replay {
+.playable-playtest-corner {
+  position: fixed;
+  z-index: 10;
   top: 12px;
   right: 12px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  app-region: no-drag;
+}
+/* Shown only while the pointer is near the top corner; the ::before widens that area. */
+.playable-playtest-corner:is(:hover, :focus-within) {
+  opacity: 1;
+}
+.playable-playtest-corner::before {
+  position: absolute;
+  inset: -24px -12px -24px -60px;
+  content: "";
+}
+.playable-playtest-corner button {
+  position: relative;
   display: grid;
   width: 30px;
   height: 30px;
@@ -14667,17 +14606,6 @@ button {
   padding: 0;
   border-radius: 8px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-/* Shown only while the pointer is near the top corner; the ::before widens that area. */
-.playable-playtest-replay:is(:hover, :focus-visible) {
-  opacity: 1;
-}
-.playable-playtest-replay::before {
-  position: absolute;
-  inset: -24px -12px -24px -60px;
-  content: "";
 }
 .playable-playtest-problem {
   bottom: 16px;

@@ -1,9 +1,12 @@
 import {
+  Check,
+  CircleStop,
   Clapperboard,
   Clipboard,
   Code2,
   Copy,
   Download,
+  Eye,
   Flag,
   LoaderCircle,
   Maximize,
@@ -14,7 +17,6 @@ import {
   Settings,
   Trash2,
   Undo2,
-  X,
 } from "./icons.js";
 import {
   useCallback,
@@ -24,48 +26,9 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { type Edge } from "@xyflow/react";
 import { CanvasContextMenu, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
-import { type NodeGraph, type PlayableNavigationMode } from "../shared/playable-nodes.js";
-import { playableNodeById } from "../shared/playable-graph.js";
 import { type PlayablePresetSummary } from "../shared/playable-editor.js";
 import { PlayableTemplateDialog } from "./playable-template-dialog.js";
-
-/**
- * An Exit's connection carries one decision: whether the player can come back
- * (the engine's `push`) or the next Scene takes over (`replace`). It also
- * shows whether the Exit is navigation, whose line the canvas does not draw.
- */
-export function PlayableEdgeInspector({ edge, graph, onChangeMode, onChangeNavigation, onDelete, onClose }: {
-  edge: Edge;
-  graph: NodeGraph;
-  onChangeMode: (mode: PlayableNavigationMode) => void;
-  onChangeNavigation: (navigation: boolean) => void;
-  onDelete: () => void;
-  onClose: () => void;
-}) {
-  const titleOf = (nodeId: string) => graph.nodes.find((node) => node.id === nodeId)?.title ?? nodeId;
-  const signal = playableNodeById(graph, edge.source)?.signals.find((candidate) => candidate.id === edge.sourceHandle);
-  const mode: PlayableNavigationMode = edge.data?.mode === "push" ? "push" : "replace";
-  return <aside className="playable-edge-inspector" aria-label="Exit">
-    <header>
-      <div>
-        <strong>{signal?.label || edge.sourceHandle}</strong>
-        <small>{titleOf(edge.source)} → {titleOf(edge.target)}</small>
-      </div>
-      <button type="button" aria-label="Close" onClick={onClose}><X size={14} /></button>
-    </header>
-    <label className="playable-edge-back">
-      <input type="checkbox" checked={mode === "push"} onChange={(event) => onChangeMode(event.target.checked ? "push" : "replace")} />
-      <span><strong>Allow Back</strong><small>The player can return to {titleOf(edge.source)} from {titleOf(edge.target)}.</small></span>
-    </label>
-    <label className="playable-edge-back">
-      <input type="checkbox" checked={signal?.role === "navigation"} onChange={(event) => onChangeNavigation(event.target.checked)} />
-      <span><strong>Navigation</strong><small>A way around the game, like Home. The canvas names {titleOf(edge.target)} on the Exit instead of drawing a line.</small></span>
-    </label>
-    <button className="playable-edge-delete" type="button" onClick={onDelete}><Trash2 size={13} /><span>Remove connection</span></button>
-  </aside>;
-}
 
 /**
  * Project-wide things that are not on the canvas: screen size, the Variables, Export, and whether engine details show.
@@ -181,7 +144,7 @@ export function PlayableAddControl({ presets, busy, onAdd }: {
   </>;
 }
 
-export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onDelete }: {
+export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, story, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onStoryOption, onDelete }: {
   menu: CanvasContextMenuState;
   presets: readonly PlayablePresetSummary[];
   canUndo: boolean;
@@ -189,6 +152,8 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
   canPaste: boolean;
   busy: boolean;
   isEntry: boolean;
+  /** How the Scene shows on the Story map. */
+  story: { onMap: boolean; ending: boolean };
   onClose: () => void;
   onUndo: () => unknown;
   onRedo: () => unknown;
@@ -198,6 +163,7 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
   onCopy: () => void;
   onDuplicate: () => void;
   onSetEntry: () => void;
+  onStoryOption: (option: "hidden" | "ending", value: boolean) => void;
   onDelete: () => void;
 }) {
   const [addOpen, setAddOpen] = useState(false);
@@ -229,6 +195,10 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy Scene</span></button>
         <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
         <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? "Start Scene" : "Set as Start"}</span></button>
+        <div className="playable-project-menu-separator" role="separator" />
+        <button type="button" role="menuitemcheckbox" aria-checked={story.onMap} title="Players see this Scene on the Story map. Turn it off for menus and other Scenes that are not steps in the story." onClick={() => run(() => onStoryOption("hidden", story.onMap))}><Eye size={15} /><span>On Story map</span>{story.onMap ? <Check size={13} /> : null}</button>
+        <button type="button" role="menuitemcheckbox" aria-checked={story.ending} title="The Story map counts this Scene as an ending" onClick={() => run(() => onStoryOption("ending", !story.ending))}><CircleStop size={15} /><span>Ending</span>{story.ending ? <Check size={13} /> : null}</button>
+        <div className="playable-project-menu-separator" role="separator" />
         <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
       </>}
     </CanvasContextMenu>
