@@ -632,6 +632,7 @@ export interface LibraryAsset {
 export type LibraryUploadMediaType =
   | "image/png"
   | "image/jpeg"
+  | "image/svg+xml"
   | "image/webp"
   | "video/mp4"
   | "video/quicktime"

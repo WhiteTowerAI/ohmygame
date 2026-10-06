@@ -24,6 +24,7 @@ export async function downloadLibraryAsset(assetId: string, name: string): Promi
 const DOWNLOAD_EXTENSIONS: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
+  "image/svg+xml": "svg",
   "image/webp": "webp",
   "video/mp4": "mp4",
   "video/quicktime": "mov",
