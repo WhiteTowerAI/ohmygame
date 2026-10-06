@@ -70,6 +70,7 @@ import {
   TabletIcon,
   TextSquareIcon,
   TrashBinTrashIcon,
+  Tuning2Icon,
   UploadIcon,
   UndoLeftIcon,
   UndoRightIcon,
@@ -211,5 +212,6 @@ export {
   WiFiOffIcon as WifiOff,
   SettingsIcon as Wrench,
   SettingsIcon as Settings,
+  Tuning2Icon as SlidersHorizontal,
   ServerIcon as Server,
 };

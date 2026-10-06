@@ -155,6 +155,24 @@ export async function canvasReferencesAsset(workspace: string, id: string): Prom
   return false;
 }
 
+export async function canvasLibraryAssetUsage(workspace: string): Promise<Map<string, boolean>> {
+  const index = await readCanvasIndex(workspace);
+  const manifest = await readCanvasAssets(workspace);
+  const usage = new Map<string, boolean>();
+  const libraryId = (id: string) => manifest.assets[id]?.libraryAssetId ?? id;
+  for (const id of Object.keys(manifest.assets)) usage.set(libraryId(id), false);
+  for (const entry of index?.boards ?? []) {
+    const detail = await readCanvasBoard(workspace, entry.id);
+    if (!detail) throw new CanvasError("Canvas board data is missing", 409);
+    for (const id of canvasNodeAssetIds(detail.board.nodes)) {
+      if (!usage.has(libraryId(id))) usage.set(libraryId(id), false);
+    }
+    for (const node of detail.board.nodes) {
+      if ("assetId" in node.data && node.data.assetId) usage.set(libraryId(node.data.assetId), true);
+    }
+  }
+  return usage;
+}
 export async function removeCanvasAssetReferences(workspace: string, id: string): Promise<void> {
   await withCanvasLock(workspace, async () => {
     const index = await readCanvasIndex(workspace);
@@ -284,6 +302,7 @@ export class CanvasStore {
       const label = asset.name.replace(/[\[\]\n]/g, "");
       const link = asset.path.split("/").map(encodeURIComponent).join("/");
       const saved = await writeCanvasDocument(workspace, { ...detail.document, markdown: `${detail.document.markdown.trimEnd()}\n\n![${label}](../../${link})\n` }, this.#project(id).type !== "asset-canvas");
+      if (asset.libraryAssetId && this.library.get(asset.libraryAssetId)) await this.library.save(asset.libraryAssetId);
       return saved;
     });
   }

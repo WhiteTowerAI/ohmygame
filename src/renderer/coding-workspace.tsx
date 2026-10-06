@@ -31,7 +31,7 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { deleteAsset, getWorkspaceFile, listWorkspaceFiles, renameAsset, setProjectCover } from "./api.js";
+import { deleteAsset, getWorkspaceFile, listWorkspaceFiles, renameAsset, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileExtension, fileName, fileStem, filterAssets, hasMediaType, type BrowsableAsset, type MediaFilter } from "./asset-browser.js";
 import { HighlightedCode } from "./highlighted-code.js";
@@ -229,7 +229,7 @@ export function CodingWorkspace({
     ...(supportsPreview ? [{ id: "preview" as const, label: "Preview", icon: Globe2 }] : []),
     ...(onDesignOpenChange ? [{ id: "design" as const, label: "Design", icon: FileText }] : []),
     { id: "code", label: "Code", icon: Code2 },
-    { id: "assets", label: "Library", icon: Layers3 },
+    { id: "assets", label: "Assets", icon: Layers3 },
   ];
   const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
     {chatOnRight && onHome ? (
@@ -1169,13 +1169,14 @@ function AssetsView({
       </div>
       {actionError ? <p className="library-action-error" role="alert">{actionError}</p> : null}
       {visibleAssets.length ? <div className="library-grid assets-grid">{visibleAssets.map((asset) => (
-        <WorkspaceAssetCard key={asset.path} asset={asset} onOpen={() => setSelectedPath(asset.path)} onRename={() => rename(asset)} onDelete={() => remove(asset)} />
+        <WorkspaceAssetCard key={asset.path} asset={asset} onOpen={() => setSelectedPath(asset.path)} onRename={() => rename(asset)} onDelete={() => remove(asset)} onSaveToLibrary={() => void runAssetAction(() => saveProjectAssetToLibrary(projectId, asset.path))} />
       ))}</div> : <WorkspaceState icon={<ImageIcon size={20} />} label="No assets match these filters" />}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedPath(undefined)}
         onRename={() => { if (rename(selectedAsset)) setSelectedPath(undefined); }}
         onDelete={() => { if (remove(selectedAsset)) setSelectedPath(undefined); }}
+        onSaveToLibrary={() => void runAssetAction(() => saveProjectAssetToLibrary(projectId, selectedAsset.path))}
       /> : null}
     </div>
   );

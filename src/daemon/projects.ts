@@ -1,16 +1,17 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
+import type { LibraryAssetProject, PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
-import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
+import { getWorkspaceMedia, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
 import { validateNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import { readNodeCodebase, writeNodeCodebase } from "./playable-codebase.js";
-import { canvasReferencesAsset, removeCanvasAssetReferences } from "./canvas-workspace.js";
+import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetReferences } from "./canvas-workspace.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -58,6 +59,13 @@ export interface ProjectRunSettings {
 
 const PROJECT_COVER_FILE = "cover.webp";
 const PLAYABLE_GRAPH_FILE = "graph.json";
+
+async function assetDigest(file: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(file)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
   readonly #assetMetadataWrites = new Map<string, Promise<unknown>>();
@@ -122,37 +130,24 @@ export class ProjectManager {
 
   get(id: string): ProjectState | undefined { return this.#projects.get(id); }
 
-  async syncLibraryAssets(): Promise<void> {
-    if (!this.assetLibrary) return;
-    for (const project of this.#projects.values()) {
-      if (project.workspaceAvailable === false) continue;
-      const files = (await listWorkspaceFiles(project.workspacePath)).filter((file) => (
-        file.mediaType && (!file.libraryAssetId || !this.assetLibrary!.get(file.libraryAssetId))
-      ));
-      for (const file of files) {
-        const media = await getWorkspaceMedia(project.workspacePath, file.path);
-        const asset = await this.assetLibrary.addFile(path.basename(file.path), media.absolutePath, {
-          ...(file.prompt ? { prompt: file.prompt } : {}),
-          sourceKey: `project:${project.id}:${file.path}`,
-        });
-        await this.#writeAssetMetadata(project.id, () => writeAssetMetadata(project.workspacePath, file.path, { libraryAssetId: asset.id }));
-      }
-    }
-  }
-
   async ensureLibraryAsset(id: string, assetPath: string): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!this.assetLibrary) throw new ProjectAssetError("Asset Library is not configured", 503);
     const metadata = await readAssetMetadata(project.workspacePath);
-    const existing = metadata.libraryAssets[assetPath];
-    if (existing && this.assetLibrary.get(existing)) return existing;
     const media = await getWorkspaceMedia(project.workspacePath, assetPath);
+    const digest = await assetDigest(media.absolutePath);
+    const existing = metadata.libraryAssets[media.relativePath];
+    if (existing && this.assetLibrary.get(existing)) {
+      const original = await this.assetLibrary.content(existing);
+      if (await assetDigest(original.absolutePath) === digest) return existing;
+    }
     const asset = await this.assetLibrary.addFile(path.basename(assetPath), media.absolutePath, {
+      origin: "workspace",
       ...(metadata.prompts[assetPath] ? { prompt: metadata.prompts[assetPath] } : {}),
-      sourceKey: `project:${id}:${assetPath}`,
+      sourceKey: `project:${id}:${media.relativePath}:${digest}`,
     });
-    await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: asset.id }));
+    await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, media.relativePath, { libraryAssetId: asset.id }));
     return asset.id;
   }
 
@@ -338,6 +333,7 @@ export class ProjectManager {
     const libraryAssetId = metadata.libraryAssetId && this.assetLibrary?.get(metadata.libraryAssetId)
       ? metadata.libraryAssetId
       : (await this.assetLibrary?.add(fileName, contents, {
+      origin: "generated",
       ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
       sourceKey: `project:${id}:${assetPath}`,
       }))?.id;
@@ -470,6 +466,33 @@ export class ProjectManager {
     } finally {
       if (this.#assetMetadataWrites.get(id) === write) this.#assetMetadataWrites.delete(id);
     }
+  }
+
+  async libraryAssetAssociations(onError: (project: ProjectState, cause: unknown) => void): Promise<Map<string, { projects: LibraryAssetProject[]; hasAssetUsage: boolean }>> {
+    const associations = new Map<string, { projects: LibraryAssetProject[]; hasAssetUsage: boolean }>();
+    for (const project of this.#projects.values()) {
+      if (project.workspaceAvailable === false) continue;
+      const metadata = await readAssetMetadata(project.workspacePath);
+      const usage = new Map<string, boolean>(Object.values(metadata.libraryAssets).map((id) => [id, false]));
+      try {
+        for (const [id, asAsset] of await canvasLibraryAssetUsage(project.workspacePath)) usage.set(id, asAsset);
+      } catch (cause) { onError(project, cause); }
+      if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
+        try {
+          const graph = await readNodeGraphForReferences(project.workspacePath);
+          for (const asset of Object.values(graph.assets)) {
+            if (asset.source.kind === "library") usage.set(asset.source.assetId, true);
+          }
+        } catch (cause) { onError(project, cause); }
+      }
+      for (const [id, asAsset] of usage) {
+        const association = associations.get(id) ?? { projects: [], hasAssetUsage: false };
+        association.projects.push({ id: project.id, name: project.name, type: project.type });
+        association.hasAssetUsage ||= asAsset;
+        associations.set(id, association);
+      }
+    }
+    return associations;
   }
 
   async referencesLibraryAsset(assetId: string): Promise<ProjectState[]> {

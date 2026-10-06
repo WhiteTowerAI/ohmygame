@@ -618,6 +618,9 @@ export interface WorkspaceFile {
   libraryAssetId?: string;
 }
 
+export type LibraryAssetOrigin = "generated" | "uploaded" | "workspace" | "builtin" | "unknown";
+export type LibraryAssetPurpose = "asset" | "reference";
+
 export interface LibraryAsset {
   id: string;
   name: string;
@@ -627,6 +630,21 @@ export interface LibraryAsset {
   createdAt: string;
   duration?: number;
   prompt?: string;
+  origin?: LibraryAssetOrigin;
+  purpose?: LibraryAssetPurpose;
+  /** Project copies remain available by ID without appearing in the saved collection. */
+  saved?: boolean;
+}
+
+export interface LibraryAssetProject {
+  id: string;
+  name: string;
+  type: ProjectType;
+}
+
+export interface LibraryAssetSummary extends LibraryAsset {
+  projects: LibraryAssetProject[];
+  referenceOnly: boolean;
 }
 
 export type LibraryUploadMediaType =
@@ -642,6 +660,7 @@ export type LibraryUploadMediaType =
 
 export interface CreateLibraryImageRequest {
   name: string;
+  purpose?: LibraryAssetPurpose;
   image: PromptImage & { mediaType: Extract<LibraryUploadMediaType, `image/${string}`> };
 }
 

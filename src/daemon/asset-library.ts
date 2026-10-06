@@ -1,13 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { copyFile, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { LibraryAsset } from "../shared/contracts.js";
+import type { LibraryAsset, LibraryAssetOrigin, LibraryAssetPurpose } from "../shared/contracts.js";
 import { workspaceMediaInfo } from "./workspace.js";
 
 interface StoredLibrary {
   version: 1;
   assets: LibraryAsset[];
   sources: Record<string, string>;
+}
+
+interface AddAssetOptions {
+  prompt?: string;
+  sourceKey?: string;
+  duration?: number;
+  origin?: LibraryAssetOrigin;
+  purpose?: LibraryAssetPurpose;
 }
 
 export class AssetLibraryError extends Error {
@@ -34,6 +42,7 @@ export class AssetLibrary {
       const parsed: unknown = JSON.parse(await readFile(this.#metadataFile, "utf8"));
       const stored = parseLibrary(parsed);
       if (!stored) throw new Error("Invalid Library metadata");
+      if (JSON.stringify(stored) !== JSON.stringify(parsed)) await this.#write(stored);
       this.#state = stored;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -51,7 +60,7 @@ export class AssetLibrary {
   async add(
     fileName: string,
     contents: Uint8Array,
-    options: { prompt?: string; sourceKey?: string; duration?: number } = {},
+    options: AddAssetOptions = {},
   ): Promise<LibraryAsset> {
     return this.#mutate(async () => {
       const existing = this.#existing(options.sourceKey);
@@ -77,7 +86,7 @@ export class AssetLibrary {
   async addFile(
     fileName: string,
     sourcePath: string,
-    options: { prompt?: string; sourceKey?: string; duration?: number } = {},
+    options: AddAssetOptions = {},
   ): Promise<LibraryAsset> {
     return this.#mutate(async () => {
       const existing = this.#existing(options.sourceKey);
@@ -128,6 +137,19 @@ export class AssetLibrary {
     });
   }
 
+  async save(id: string): Promise<LibraryAsset> {
+    return this.#mutate(async () => {
+      const asset = this.get(id);
+      if (!asset) throw new AssetLibraryError("Library asset not found", 404);
+      if (asset.purpose === "asset" && asset.saved) return asset;
+      const updated = { ...asset, purpose: "asset" as const, saved: true };
+      const state = { ...this.#state, assets: this.#state.assets.map((candidate) => candidate.id === id ? updated : candidate) };
+      await this.#write(state);
+      this.#state = state;
+      return updated;
+    });
+  }
+
   async delete(id: string): Promise<void> {
     await this.#mutate(async () => {
       const asset = this.get(id);
@@ -150,14 +172,18 @@ export class AssetLibrary {
     fileName: string,
     size: number,
     media: { mediaType: LibraryAsset["mediaType"]; contentType: string },
-    options: { prompt?: string; sourceKey?: string; duration?: number },
+    options: AddAssetOptions,
   ): Promise<LibraryAsset> {
+    const origin = options.origin ?? originFromSource(options.sourceKey);
     const asset: LibraryAsset = {
       id,
       name: path.basename(fileName),
       size,
       ...media,
       createdAt: new Date().toISOString(),
+      origin,
+      purpose: options.purpose ?? "asset",
+      saved: origin !== "workspace",
       ...(options.duration !== undefined ? { duration: options.duration } : {}),
       ...(options.prompt?.trim() ? { prompt: options.prompt.trim() } : {}),
     };
@@ -203,7 +229,36 @@ function parseLibrary(value: unknown): StoredLibrary | undefined {
   const ids = new Set<string>();
   if (!stored.assets.every((asset) => isLibraryAsset(asset) && !ids.has(asset.id) && Boolean(ids.add(asset.id)))) return undefined;
   if (!Object.entries(stored.sources).every(([source, id]) => Boolean(source) && typeof id === "string" && ids.has(id))) return undefined;
-  return stored as StoredLibrary;
+  const sources = new Map<string, string[]>();
+  for (const [source, id] of Object.entries(stored.sources)) {
+    const keys = sources.get(id) ?? [];
+    keys.push(source);
+    sources.set(id, keys);
+  }
+  return {
+    ...(stored as StoredLibrary),
+    assets: stored.assets.map((asset) => {
+      const keys = sources.get(asset.id) ?? [];
+      const inferred = keys.map(originFromSource);
+      const known = inferred.find((origin) => origin === "generated") ?? inferred.find((origin) => origin !== "unknown");
+      // Legacy source-less records were created by the upload endpoints.
+      const origin = asset.origin && asset.origin !== "unknown" ? asset.origin : known ?? asset.origin ?? (keys.length ? "unknown" : "uploaded");
+      return {
+        ...asset,
+        origin,
+        purpose: asset.purpose ?? (keys.some((key) => key.startsWith("conversation-image:")) ? "reference" : "asset"),
+        saved: asset.saved ?? origin !== "workspace",
+      };
+    }),
+  };
+}
+
+function originFromSource(source?: string): LibraryAssetOrigin {
+  if (source?.startsWith("tool:")) return "generated";
+  if (source?.startsWith("conversation-image:")) return "uploaded";
+  if (source?.startsWith("builtin:")) return "builtin";
+  if (source?.startsWith("project:") || source?.startsWith("canvas:")) return "workspace";
+  return "unknown";
 }
 
 function isLibraryAsset(value: unknown): value is LibraryAsset {
@@ -214,5 +269,8 @@ function isLibraryAsset(value: unknown): value is LibraryAsset {
     (asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model") &&
     typeof asset.contentType === "string" && typeof asset.createdAt === "string" && Number.isFinite(Date.parse(asset.createdAt)) &&
     (asset.duration === undefined || typeof asset.duration === "number" && Number.isFinite(asset.duration) && asset.duration >= 0) &&
-    (asset.prompt === undefined || typeof asset.prompt === "string");
+    (asset.prompt === undefined || typeof asset.prompt === "string") &&
+    (asset.origin === undefined || ["generated", "uploaded", "workspace", "builtin", "unknown"].includes(asset.origin)) &&
+    (asset.purpose === undefined || asset.purpose === "asset" || asset.purpose === "reference") &&
+    (asset.saved === undefined || typeof asset.saved === "boolean");
 }

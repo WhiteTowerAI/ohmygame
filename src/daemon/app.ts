@@ -1376,9 +1376,22 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.get("/library/assets", async () => {
-    await projects.syncLibraryAssets();
-    return library.list();
+  app.get("/library/assets", async (request) => {
+    const associations = await projects.libraryAssetAssociations((project, cause) => request.log.warn({ projectId: project.id, err: cause }, "Could not read Library asset usage"));
+    return library.list().map((asset) => ({
+      ...asset,
+      projects: associations.get(asset.id)?.projects ?? [],
+      referenceOnly: asset.purpose === "reference" && !associations.get(asset.id)?.hasAssetUsage,
+    }));
+  });
+
+  app.post<{ Params: { assetId: string } }>("/library/assets/:assetId/save", async (request, reply) => {
+    try {
+      return await library.save(request.params.assetId);
+    } catch (cause) {
+      if (cause instanceof AssetLibraryError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
   });
 
   app.post<{ Body: CreateLibraryImageRequest }>("/library/assets", {
@@ -1390,6 +1403,7 @@ export function createApp(options: AppOptions = {}) {
         required: ["name", "image"],
         properties: {
           name: { type: "string", minLength: 1, maxLength: 200 },
+          purpose: { enum: ["asset", "reference"] },
           image: {
             type: "object",
             additionalProperties: false,
@@ -1416,14 +1430,14 @@ export function createApp(options: AppOptions = {}) {
         : request.body.image.mediaType === "image/jpeg" ? ".jpg"
           : ".webp";
       const name = `${path.parse(path.basename(request.body.name)).name || "image"}${extension}`;
-      return reply.code(201).send(await library.add(name, contents));
+      return reply.code(201).send(await library.add(name, contents, { origin: "uploaded", purpose: request.body.purpose }));
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
     }
   });
 
-  app.post<{ Querystring: { name: string; mediaType: string; duration?: string }; Body: Buffer }>("/library/assets/upload", {
+  app.post<{ Querystring: { name: string; mediaType: string; duration?: string; purpose?: "asset" | "reference" }; Body: Buffer }>("/library/assets/upload", {
     schema: {
       querystring: {
         type: "object",
@@ -1433,6 +1447,7 @@ export function createApp(options: AppOptions = {}) {
           name: { type: "string", minLength: 1, maxLength: 200 },
           mediaType: { type: "string", enum: [...LIBRARY_UPLOAD_MEDIA_TYPES] },
           duration: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
+          purpose: { enum: ["asset", "reference"] },
         },
       },
     },
@@ -1452,7 +1467,7 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(400).send({ error: "Invalid media duration" });
     }
     try {
-      return reply.code(201).send(await library.add(name, contents, { ...(duration !== undefined ? { duration } : {}) }));
+      return reply.code(201).send(await library.add(name, contents, { origin: "uploaded", purpose: request.query.purpose, ...(duration !== undefined ? { duration } : {}) }));
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
@@ -1578,6 +1593,22 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.post<{ Params: { projectId: string }; Querystring: { path: string } }>(
+    "/projects/:projectId/assets/library",
+    { schema: { querystring: assetPathQuerySchema } },
+    async (request, reply) => {
+      if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+      try {
+        const assetId = await projects.ensureLibraryAsset(request.params.projectId, request.query.path);
+        return reply.code(201).send(await library.save(assetId));
+      } catch (cause) {
+        if (cause instanceof ProjectAssetError || cause instanceof AssetLibraryError) return reply.code(cause.statusCode).send({ error: cause.message });
+        if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+
   app.delete<{ Params: { projectId: string }; Querystring: { path: string } }>(
     "/projects/:projectId/assets",
     { schema: { querystring: assetPathQuerySchema } },
@@ -1599,7 +1630,9 @@ export function createApp(options: AppOptions = {}) {
       const project = projects.get(request.params.projectId);
       if (!project) return reply.code(404).send({ error: "Project not found" });
       try {
-        return reply.code(201).send(await projects.materializeLibraryAsset(project.id, request.params.assetId));
+        const asset = await projects.materializeLibraryAsset(project.id, request.params.assetId);
+        await library.save(request.params.assetId);
+        return reply.code(201).send(asset);
       } catch (cause) {
         const error = cause instanceof Error ? cause.message : String(cause);
         const statusCode = cause instanceof ProjectAssetError || cause instanceof AssetLibraryError ? cause.statusCode : 500;
@@ -2589,7 +2622,7 @@ async function addConversationImageToProject(
   const originalName = path.basename(image.name ?? `Image ${index + 1}`);
   const stem = path.basename(originalName, path.extname(originalName)).trim() || `Image ${index + 1}`;
   const digest = createHash("sha256").update(contents).digest("hex");
-  const asset = await library.add(`${stem}${extension}`, contents, { sourceKey: `conversation-image:${image.mediaType}:${digest}` });
+  const asset = await library.add(`${stem}${extension}`, contents, { origin: "uploaded", purpose: "reference", sourceKey: `conversation-image:${image.mediaType}:${digest}` });
   await projects.materializeLibraryAsset(projectId, asset.id);
 }
 

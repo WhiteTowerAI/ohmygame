@@ -1033,7 +1033,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setGenerationError(undefined);
     try {
       const images = await Promise.all(files.map(readUploadImage));
-      const assets = await Promise.all(images.map(({ name, image }) => createLibraryImage({ name, image })));
+      const assets = await Promise.all(images.map(({ name, image }) => createLibraryImage({ name, image, purpose: "reference" })));
       setNodes((current) => current.map((candidate) => candidate.id === node.id && (candidate.type === "image" || candidate.type === "model-3d")
         ? {
             ...candidate,
@@ -1069,7 +1069,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     try {
       const uploads = await Promise.all(files.map(prepareVideoReferenceFile));
       for (const upload of uploads) {
-        const asset = await uploadLibraryAsset(upload.file, upload.mediaType);
+        const asset = await uploadLibraryAsset(upload.file, upload.mediaType, undefined, "reference");
         setLibraryAssets((current) => [{ ...asset, assetId: asset.id, path: asset.name }, ...current.filter((candidate) => candidate.id !== asset.id)]);
         setNodes((current) => current.map((candidate) => candidate.id === node.id && candidate.type === "video"
           ? { ...candidate, data: { ...candidate.data, references: [...(candidate.data.references ?? []), { type: "library", assetId: asset.id }] } }
@@ -1854,6 +1854,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
           />
           {libraryOpen && runtime.onAddLibraryReference ? <LibraryAssetPicker
             title={addLabel}
+            includeReferences
             assets={runtime.libraryImages ?? []}
             uploading={runtime.uploading}
             onUpload={() => input.current?.click()}

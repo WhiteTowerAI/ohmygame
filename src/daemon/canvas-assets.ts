@@ -48,7 +48,7 @@ export async function canvasLibraryAsset(project: ProjectState, library: AssetLi
     const original = await library.content(asset.libraryAssetId);
     if (await fileDigest(original.absolutePath) === digest) return asset.libraryAssetId;
   }
-  return (await library.addFile(path.basename(asset.path), file.absolutePath, { prompt: asset.prompt, sourceKey: `canvas:${project.id}:${file.contentType}:${digest}` })).id;
+  return (await library.addFile(path.basename(asset.path), file.absolutePath, { origin: "workspace", prompt: asset.prompt, sourceKey: `canvas:${project.id}:${file.contentType}:${digest}` })).id;
 }
 
 async function fileDigest(file: string): Promise<string> {
