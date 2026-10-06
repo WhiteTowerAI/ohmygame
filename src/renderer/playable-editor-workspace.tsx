@@ -74,7 +74,7 @@ import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEdgeInspector, P
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
-const GameDesignWorkspace = lazy(() => import("./game-design-workspace.js").then((module) => ({ default: module.GameDesignWorkspace })));
+const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 
 const HISTORY_LIMIT = 50;
 
@@ -96,7 +96,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange }: {
   project: ProjectState;
   agentBusy: boolean;
   publishing: boolean;
@@ -117,6 +117,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   /** Puts a request in the chat prompt. */
   onAskAgent?: (text: string) => void;
   onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
+  onDesignContextChange?: (context: PromptContext | undefined) => void;
   /** Sends a request to the AI now, with the open Node as context. */
   onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
 }) {
@@ -897,8 +898,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           </> : null}
         </div>
       </header>
-      {designOpen ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><GameDesignWorkspace
-        project={project} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady}
+      {designOpen ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+        project={project} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : workspaceView !== "code" ? <div className="interactive-story-body">
         <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}

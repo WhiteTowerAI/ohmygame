@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AssetCanvasDocument, PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
+import type { PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { getWorkspaceMedia, listWorkspaceFiles, WorkspaceError } from "./workspace.js";
@@ -10,8 +10,7 @@ import { isProjectPackageManager } from "./package-manager.js";
 import { validateNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import { readNodeCodebase, writeNodeCodebase } from "./playable-codebase.js";
-import { ASSET_CANVAS_FILE, createAssetCanvasCodebase, readAssetCanvasCodebase, writeAssetCanvasCodebase } from "./asset-canvas-codebase.js";
-import { designReferencesAsset, removeDesignAssetReferences } from "./game-design.js";
+import { canvasReferencesAsset, removeCanvasAssetReferences } from "./canvas-workspace.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -473,36 +472,6 @@ export class ProjectManager {
     }
   }
 
-  async assetCanvas(id: string): Promise<AssetCanvasDocument> {
-    const project = this.#projects.get(id);
-    if (!project) throw new Error(`Project not found: ${id}`);
-    if (project.type !== "asset-canvas") throw new Error("Canvas documents require an Asset Canvas project");
-    const destination = path.join(project.workspacePath, ASSET_CANVAS_FILE);
-    try {
-      return await readAssetCanvasCodebase(project.workspacePath);
-    } catch (error) {
-      const fileError = error as NodeJS.ErrnoException;
-      const layoutDestination = path.join(project.workspacePath, "editor", "layout.json");
-      const missingCanvas = fileError.code === "ENOENT" && path.resolve(String(fileError.path)) === path.resolve(destination);
-      const missingLayout = fileError.code === "ENOENT" && path.resolve(String(fileError.path)) === path.resolve(layoutDestination);
-      if (fileError.code !== "ENOENT" || (!missingCanvas && !missingLayout)) {
-        throw error;
-      }
-      // A new project has neither file. A single missing file indicates a corrupt or
-      // partially written codebase and must not silently overwrite the other file.
-      if (await exists(destination) || await exists(layoutDestination)) throw error;
-      return createAssetCanvasCodebase(project.workspacePath);
-    }
-  }
-
-  async setAssetCanvas(id: string, document: AssetCanvasDocument): Promise<void> {
-    const project = this.#projects.get(id);
-    if (!project) throw new Error(`Project not found: ${id}`);
-    if (project.type !== "asset-canvas") throw new Error("Canvas documents require an Asset Canvas project");
-    await writeAssetCanvasCodebase(project.workspacePath, document);
-    await this.touch(id);
-  }
-
   async referencesLibraryAsset(assetId: string): Promise<ProjectState[]> {
     const references: ProjectState[] = [];
     for (const project of this.#projects.values()) {
@@ -510,9 +479,9 @@ export class ProjectManager {
       const metadata = await readAssetMetadata(project.workspacePath);
       let referenced = Object.values(metadata.libraryAssets).includes(assetId);
       try {
-        referenced ||= await designReferencesAsset(project.workspacePath, assetId);
+        referenced ||= await canvasReferencesAsset(project.workspacePath, assetId);
       } catch (cause) {
-        throw new ProjectLibraryReferenceError(`Cannot verify design references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
+        throw new ProjectLibraryReferenceError(`Cannot verify canvas references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
       }
       if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
         try {
@@ -528,29 +497,13 @@ export class ProjectManager {
         references.push(project);
         continue;
       }
-      if (project.type === "asset-canvas") {
-        if (!await exists(path.join(project.workspacePath, ASSET_CANVAS_FILE))) continue;
-        let document: AssetCanvasDocument;
-        try {
-          document = await readAssetCanvasCodebase(project.workspacePath);
-        } catch (cause) {
-          throw new ProjectLibraryReferenceError(`Cannot verify Library references in ${project.name}: ${cause instanceof Error ? cause.message : String(cause)}`);
-        }
-        if (document.nodes.some((node) => (
-          (node.type === "image" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
-          (node.type === "video" && node.data.references.some((reference) => reference.type === "library" && reference.assetId === assetId)) ||
-          (node.type === "model-3d" && node.data.images.some((image) => image.type === "library" && image.assetId === assetId)) ||
-          (node.type === "animate-3d" && node.data.source?.type === "library" && node.data.source.assetId === assetId) ||
-          (node.type !== "text" && node.type !== "document" && node.data.assetId === assetId)
-        ))) references.push(project);
-      }
     }
     return references;
   }
 
   async removeLibraryAssetReferences(assetId: string): Promise<void> {
     for (const project of await this.referencesLibraryAsset(assetId)) {
-      await removeDesignAssetReferences(project.workspacePath, assetId);
+      await removeCanvasAssetReferences(project.workspacePath, assetId);
       const metadata = await readAssetMetadata(project.workspacePath);
       for (const [assetPath, linkedId] of Object.entries(metadata.libraryAssets)) {
         if (linkedId !== assetId) continue;
@@ -560,12 +513,6 @@ export class ProjectManager {
           if (!(error instanceof WorkspaceError)) throw error;
           await this.#writeAssetMetadata(project.id, () => deleteAssetMetadata(project.workspacePath, assetPath));
         }
-      }
-      if (project.type === "asset-canvas") {
-        if (!await exists(path.join(project.workspacePath, ASSET_CANVAS_FILE))) continue;
-        await writeAssetCanvasCodebase(project.workspacePath, removeAssetCanvasReferences(await readAssetCanvasCodebase(project.workspacePath), assetId));
-        await this.touch(project.id);
-        continue;
       }
       if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
         const graph = await readNodeGraphForReferences(project.workspacePath);
@@ -646,46 +593,6 @@ export class ProjectManager {
     return path.join(this.#projectsDirectory, id);
   }
 
-}
-
-function removeAssetCanvasReferences(current: AssetCanvasDocument, assetId: string): AssetCanvasDocument {
-  const removedNodeIds = new Set(current.nodes.flatMap((node) => node.type === "asset" && node.data.assetId === assetId ? [node.id] : []));
-  const keepReference = (reference: { type: "library"; assetId: string } | { type: "node"; nodeId: string }) =>
-    (reference.type !== "library" || reference.assetId !== assetId) &&
-    (reference.type !== "node" || !removedNodeIds.has(reference.nodeId));
-  return {
-    ...current,
-    editorLayout: {
-      ...current.editorLayout,
-      nodes: Object.fromEntries(Object.entries(current.editorLayout.nodes).filter(([id]) => !removedNodeIds.has(id))),
-    },
-    edges: current.edges.filter((edge) => !removedNodeIds.has(edge.source) && !removedNodeIds.has(edge.target)),
-    nodes: current.nodes.filter((node) => !removedNodeIds.has(node.id)).map((node) => {
-      if (node.type === "image" || node.type === "model-3d") {
-        const images = node.data.images.filter(keepReference);
-        if (node.data.assetId === assetId) {
-          const { assetId: _, ...data } = node.data;
-          return { ...node, data: { ...data, images } };
-        }
-        return images.length === node.data.images.length ? node : { ...node, data: { ...node.data, images } };
-      }
-      if (node.type === "video") {
-        const references = node.data.references.filter(keepReference);
-        if (node.data.assetId === assetId) {
-          const { assetId: _, ...data } = node.data;
-          return { ...node, data: { ...data, references } };
-        }
-        return references.length === node.data.references.length ? node : { ...node, data: { ...node.data, references } };
-      }
-      if (node.type === "animate-3d") {
-        const { assetId: output, source, ...data } = node.data;
-        const keepSource = source && keepReference(source);
-        if (output !== assetId && (!source || keepSource)) return node;
-        return { ...node, data: { ...data, ...(keepSource ? { source } : {}), ...(output !== assetId && output ? { assetId: output } : {}) } };
-      }
-      return node;
-    }),
-  } as AssetCanvasDocument;
 }
 
 function projectCoverPath(projectDirectory: string): string {

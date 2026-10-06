@@ -104,7 +104,8 @@ conversation, and context are still there. You describe, review, and steer;
 editing by hand is always possible, but it is not the main path.
 
 **2 · Every workspace is files.** A web game is a normal web project. An Asset
-Canvas is a `canvas.json`. An interactive story is a node graph on disk. Each
+Canvas and Design share JSON boards, Markdown documents and local media under
+`canvas/`. An interactive story is a node graph on disk. Each
 comes with an `AGENTS.md` and JSON schemas, so the agent edits them the same
 way it edits code, and the visual editors read and write the same files.
 

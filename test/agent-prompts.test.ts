@@ -14,7 +14,8 @@ describe("OhMyGame system prompt", () => {
       expect(text).toContain("update_plan");
       expect(text).toContain("Do not create or change files for casual conversation");
       expect(text).toContain("do not revert changes you did not make");
-      expect(text).toContain("its main document before implementing game changes");
+      expect(text).toContain("relevant boards/documents before canvas, design or asset work");
+      expect(text).toContain("For game implementation, also read the main document if one is selected");
       expect(text).not.toContain("may be empty");
     }
   });
@@ -39,9 +40,12 @@ describe("OhMyGame system prompt", () => {
   it("explains how an explicitly referenced design revision should be used", () => {
     const text = prompt({ type: "web-game" });
 
-    expect(text).toContain("explicitly referenced snapshot and revision");
-    expect(text).toContain("as the design context for that turn");
-    expect(text).toContain("design/documents/<id>.md and are editable Markdown sources");
+    expect(text).toContain("explicitly referenced document snapshots");
+    expect(text).toContain("canvas/AGENTS.md");
+    expect(text).toContain("read/edit/write");
+    expect(text).toContain("canvas_check");
+    expect(text).toContain("Read actual image files");
+    expect(text).toContain("Editing a prompt or reference does not request generation");
   });
 
   it("describes the configured run settings and external workspaces", () => {

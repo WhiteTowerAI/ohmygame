@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import type { PromptContext } from "../shared/contracts.js";
-import { Box, Brush, FileText, Image, MousePointer2, type IconComponent } from "./icons.js";
+import { Box, Brush, FileText, Image, Layers3, MousePointer2, type IconComponent } from "./icons.js";
 
 export interface ChatReference {
   text: string;
@@ -25,6 +25,7 @@ const CONTEXT_ICONS: Record<PromptContext["kind"], IconComponent> = {
   "playable-drawing": Brush,
   "playable-asset": Image,
   "design-document": FileText,
+  "canvas-board": Layers3,
 };
 
 export function PromptContextIcon({ kind }: { kind: PromptContext["kind"] }) {

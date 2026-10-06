@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasDocument, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelCatalog, type Model3DModel, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelCatalog, type Model3DModel, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -17,9 +17,9 @@ import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, lo
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { generateCreativeText, generateDesignDocumentMarkdown } from "./text-generation.js";
-import type { DesignDocumentGenerationRequest, GameDesignDetail } from "../shared/game-design.js";
-import { registerGameDesignRoutes } from "./game-design-routes.js";
-import { GameDesignError } from "./game-design.js";
+import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
+import { registerCanvasRoutes } from "./canvas-routes.js";
+import { CanvasError } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { PlayableDraftServer } from "./playable-draft-server.js";
@@ -291,7 +291,7 @@ const promptSchema = {
           additionalProperties: false,
           required: ["kind", "label", "text"],
           properties: {
-            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset", "design-document"] },
+            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset", "design-document", "canvas-board"] },
             label: { type: "string", minLength: 1, maxLength: 200 },
             text: { type: "string", minLength: 1, maxLength: 16_000 },
           },
@@ -658,6 +658,7 @@ export function createApp(options: AppOptions = {}) {
             }),
           } : undefined,
           webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
+          canvasStore,
         ),
         modelRuntime,
         model,
@@ -686,7 +687,7 @@ export function createApp(options: AppOptions = {}) {
     logger: options.logger ?? false,
     ajv: { customOptions: { coerceTypes: false } },
   });
-  const designs = registerGameDesignRoutes(app, { projects, library, tools, toolInputSchema: { ...toolRunSchema.body, properties: { ...toolRunSchema.body.properties, model: modelRefSchema } } });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
     done(null, body);
@@ -1051,28 +1052,6 @@ export function createApp(options: AppOptions = {}) {
     return reply.send(cover);
   });
 
-  app.get<{ Params: { projectId: string } }>("/projects/:projectId/asset-canvas", async (request, reply) => {
-    try {
-      return await projects.assetCanvas(request.params.projectId);
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
-    }
-  });
-
-  app.put<{ Params: { projectId: string }; Body: AssetCanvasDocument }>("/projects/:projectId/asset-canvas", {
-    schema: { body: { type: "object" } },
-    bodyLimit: 1_000_000,
-  }, async (request, reply) => {
-    try {
-      await projects.setAssetCanvas(request.params.projectId, request.body);
-      return reply.code(204).send();
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(message.startsWith("Project not found") ? 404 : 400).send({ error: message });
-    }
-  });
-
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
@@ -1249,15 +1228,12 @@ export function createApp(options: AppOptions = {}) {
     bodyLimit: 32_000,
   };
 
-  const generateText = (projectType: ProjectType | "design", error: string) => async (request: FastifyRequest<{ Params: { projectId: string; documentId?: string }; Body: AssetCanvasTextGenerationRequest & { revision?: string } }>, reply: FastifyReply) => {
+  const generateText = async (request: FastifyRequest<{ Params: { projectId: string; documentId?: string }; Body: AssetCanvasTextGenerationRequest & { revision?: string } }>, reply: FastifyReply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (projectType === "design" ? project.type === "asset-canvas" : project.type !== projectType) {
-      return reply.code(400).send({ error });
-    }
-    let document: GameDesignDetail | undefined;
+    let document: CanvasDocumentDetail | undefined;
     if (request.params.documentId) {
-      try { document = await designs.read(project.id, request.params.documentId); }
+      try { document = await canvasStore.read(project.id, request.params.documentId); }
       catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
       if (!document) return reply.code(404).send({ error: "Document not found" });
       if (document.revision !== request.body.revision) return reply.code(409).send({ error: "The document changed. Retry with the latest version." });
@@ -1281,20 +1257,14 @@ export function createApp(options: AppOptions = {}) {
   };
 
   app.post<{ Params: { projectId: string }; Body: AssetCanvasTextGenerationRequest }>(
-    "/projects/:projectId/asset-canvas/text/generate",
-    textGenerationOptions,
-    generateText("asset-canvas", "Text generation requires an Asset Canvas project"),
+    "/projects/:projectId/canvas/text/generate", textGenerationOptions,
+    generateText,
   );
 
-  app.post<{ Params: { projectId: string }; Body: AssetCanvasTextGenerationRequest }>(
-    "/projects/:projectId/design/text/generate", textGenerationOptions,
-    generateText("design", "Design text generation requires a game project"),
-  );
-
-  app.post<{ Params: { projectId: string; documentId: string }; Body: DesignDocumentGenerationRequest }>(
-    "/projects/:projectId/design/documents/:documentId/generate",
+  app.post<{ Params: { projectId: string; documentId: string }; Body: CanvasDocumentGenerationRequest }>(
+    "/projects/:projectId/canvas/documents/:documentId/generate",
     { ...textGenerationOptions, schema: { body: { ...textGenerationOptions.schema.body, required: ["instruction", "revision"], properties: { ...textGenerationOptions.schema.body.properties, revision: { type: "string", minLength: 1, maxLength: 100 } } } } },
-    generateText("design", "Document generation requires a game project"),
+    generateText,
   );
 
   app.patch<{ Params: { projectId: string }; Body: { name: string } }>(
@@ -1366,7 +1336,7 @@ export function createApp(options: AppOptions = {}) {
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
     await previews.stop(project);
     agents.forgetProject(project.id);
-    await designs.cancelProject(project.id);
+    await canvasStore.cancelProject(project.id);
     await projects.delete(project.id);
     return reply.code(204).send();
   });
@@ -2158,14 +2128,14 @@ export function createApp(options: AppOptions = {}) {
       const contexts = (request.body.contexts ?? []).filter((context) => context.kind !== "design-document");
       if (request.body.contexts?.some((context) => context.kind === "design-document")) {
         try {
-          const documentPath = references.find((reference) => /^design\/documents\/[a-zA-Z0-9_-]{1,100}\.md$/.test(reference.path))?.path;
-          const detail = await designs.read(project.id, documentPath?.split("/").at(-1)?.slice(0, -3));
-          if (!detail) throw new GameDesignError("This project does not have a game design document yet", 404);
+          const documentPath = references.find((reference) => /^canvas\/documents\/[a-zA-Z0-9_-]{1,100}\.md$/.test(reference.path))?.path;
+          const detail = await canvasStore.read(project.id, documentPath?.split("/").at(-1)?.slice(0, -3));
+          if (!detail) throw new CanvasError("This project does not have a game design document yet", 404);
           contexts.push(gameDesignReference(detail));
-          const source = `design/documents/${detail.document.id}.md`;
+          const source = `canvas/documents/${detail.document.id}.md`;
           if (!references.some((reference) => reference.path === source)) references.push({ type: "workspace-file", path: source });
         } catch (cause) {
-          return reply.code(cause instanceof GameDesignError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
+          return reply.code(cause instanceof CanvasError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
         }
       }
       let resolvedAttachments;
@@ -2538,6 +2508,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.addHook("onClose", async () => {
     options.playtestDriver?.close();
+    await canvasStore.close();
     tools.close();
     modelAuth.close();
     await agents.close();

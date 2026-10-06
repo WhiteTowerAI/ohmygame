@@ -88,7 +88,7 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
   }
   const layoutIds = Object.keys(document.editorLayout.nodes);
   if (layoutIds.length !== nodeIds.size || layoutIds.some((id) => !nodeIds.has(id))) {
-    throw new Error("editor/layout.json Node IDs must exactly match canvas.json Nodes");
+    throw new Error("Editor layout Node IDs must exactly match board Nodes");
   }
   const edgeIds = new Set<string>();
   for (const edge of document.edges) {
@@ -152,7 +152,7 @@ export function resolveAssetCanvasImageAssetId(nodes: readonly AssetCanvasNode[]
 export function resolveAssetCanvasAssetId(nodes: readonly AssetCanvasNode[], reference: AssetCanvasReference): string | undefined {
   if (reference.type === "library") return reference.assetId;
   const node = nodes.find((candidate) => candidate.id === reference.nodeId);
-  return node?.type === "image" || node?.type === "video" || node?.type === "asset" ? node.data.assetId : undefined;
+  return node && "assetId" in node.data ? node.data.assetId : undefined;
 }
 
 export function combineAssetCanvasPrompt(linkedText: string | undefined, localPrompt: string): string {

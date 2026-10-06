@@ -273,7 +273,7 @@ export type AssetCanvasNode = (
     actionIds: number[];
     assetId?: string;
   } }
-);
+) & { title?: string; description?: string };
 
 export interface AssetCanvasEdge {
   id: string;
@@ -284,7 +284,7 @@ export interface AssetCanvasEdge {
 
 export interface AssetCanvasDocument {
   version: 1;
-  /** Hydrated editor-only state. Persisted in editor/layout.json, not canvas.json. */
+  /** Hydrated editor state, persisted separately in canvas/editor/<board-id>.json. */
   editorLayout: AssetCanvasEditorLayout;
   viewport: { width: number; height: number };
   nodes: AssetCanvasNode[];
@@ -332,7 +332,7 @@ export interface PromptReference {
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "design-document";
+  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "design-document" | "canvas-board";
   label: string;
   text: string;
 }

@@ -34,7 +34,7 @@ const node = (type: string, data: object) => ({
   type: "object",
   additionalProperties: false,
   required: ["id", "type", "data"],
-  properties: { id, type: { const: type }, data },
+  properties: { id, type: { const: type }, title: { type: "string", maxLength: 200 }, description: { type: "string", maxLength: 2000 }, data },
 });
 const nodes = [
   node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id } }),

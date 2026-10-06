@@ -11,7 +11,10 @@ export async function loadLibraryAssets(): Promise<LibraryAsset[]> {
 
 /** Saves a Library asset under its name, adding the extension its content implies when a rename dropped it. */
 export async function downloadLibraryAsset(assetId: string, name: string): Promise<void> {
-  const blob = await getLibraryAsset(assetId);
+  downloadAssetBlob(await getLibraryAsset(assetId), name);
+}
+
+export function downloadAssetBlob(blob: Blob, name: string): void {
   const extension = DOWNLOAD_EXTENSIONS[blob.type];
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

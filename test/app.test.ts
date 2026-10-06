@@ -1848,23 +1848,34 @@ describe("Asset Canvas projects", () => {
     apps.push(app);
     return app;
   }
+  async function getCanvas(app: Awaited<ReturnType<typeof createApp>>, projectId: string) {
+    const workspace = (await app.inject(`/projects/${projectId}/canvas/workspace`)).json();
+    return (await app.inject(`/projects/${projectId}/canvas/boards/${workspace.boards[0].id}`)).json();
+  }
+  async function saveCanvas(app: Awaited<ReturnType<typeof createApp>>, projectId: string, board: { id: string }) {
+    const current = await getCanvas(app, projectId);
+    return app.inject({ method: "PUT", url: `/projects/${projectId}/canvas/boards/${board.id}`, payload: { board, revision: current.revision } });
+  }
 
-  it("stores Asset Canvas documents in canvas.json", async () => {
+  it("stores Asset Canvas boards in the shared canvas directory", async () => {
     const app = await createCanvasApp("ohmygame-asset-canvas-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
 
-    const created = await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` });
-    expect(created.statusCode).toBe(200);
-    expect(created.json()).toMatchObject({ version: 1, nodes: [], edges: [] });
+    const created = await getCanvas(app, project.id);
+    expect(created.board).toMatchObject({ version: 1, nodes: [], edges: [] });
 
-    const document = created.json();
+    const document = created.board;
     document.nodes = [{ id: "image", type: "image", position: { x: 96, y: 96 }, data: { prompt: "A lantern", resolution: "1K", aspectRatio: "1:1", images: [] } }];
     document.editorLayout.nodes = { image: { x: 96, y: 96 } };
-    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: document })).statusCode).toBe(204);
+    expect((await saveCanvas(app, project.id, document)).statusCode).toBe(200);
 
     const files = await readdir(project.workspacePath);
-    expect(files).toContain("canvas.json");
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json().nodes).toEqual([
+    expect(files).toContain("canvas");
+    expect(files).not.toContain("canvas.json");
+    const workspace = (await app.inject({ method: "GET", url: `/projects/${project.id}/canvas/workspace` })).json();
+    expect(workspace.boards).toHaveLength(1);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/canvas/boards/${workspace.boards[0].id}` })).json().board.nodes).toEqual(document.nodes);
+    expect((await getCanvas(app, project.id)).board.nodes).toEqual([
       expect.objectContaining({ id: "image", type: "image", data: expect.objectContaining({ prompt: "A lantern" }) }),
     ]);
   });
@@ -1872,19 +1883,19 @@ describe("Asset Canvas projects", () => {
   it("rejects canvas documents with unknown node types", async () => {
     const app = await createCanvasApp("ohmygame-asset-canvas-invalid-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
-    const document = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    const document = (await getCanvas(app, project.id)).board;
     document.nodes = [{ id: "start", type: "start", position: { x: 0, y: 0 }, data: {} }];
     document.editorLayout.nodes = { start: { x: 0, y: 0 } };
 
-    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: document })).statusCode).toBe(400);
+    expect((await saveCanvas(app, project.id, document)).statusCode).toBe(400);
   });
 
-  it("keeps Interactive Story projects off the canvas endpoints", async () => {
+  it("shares canvas endpoints with Interactive Story projects", async () => {
     const app = await createCanvasApp("ohmygame-asset-canvas-story-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
 
-    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).statusCode).toBe(400);
-    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/asset-canvas/text/generate`, payload: { instruction: "Write" } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/canvas/workspace` })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/text/generate`, payload: { instruction: "Write" } })).statusCode).toBe(409);
   });
 
   it("protects and removes Library assets used by a canvas", async () => {
@@ -1894,19 +1905,19 @@ describe("Asset Canvas projects", () => {
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=portrait.png` });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
-    const document = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    const document = (await getCanvas(app, project.id)).board;
     document.nodes = [
       { id: "asset", type: "asset", position: { x: 0, y: 0 }, data: { assetId: asset.id, mediaType: "image" } },
       { id: "image", type: "image", position: { x: 320, y: 0 }, data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [{ type: "node", nodeId: "asset" }, { type: "library", assetId: asset.id }] } },
     ];
     document.edges = [{ id: "asset-image", source: "asset", target: "image" }];
     document.editorLayout.nodes = { asset: { x: 0, y: 0 }, image: { x: 320, y: 0 } };
-    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: document })).statusCode).toBe(204);
+    expect((await saveCanvas(app, project.id, document)).statusCode).toBe(200);
 
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` })).statusCode).toBe(409);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}?force=true` })).statusCode).toBe(204);
 
-    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    const updated = (await getCanvas(app, project.id)).board;
     expect(updated.nodes).toEqual([expect.objectContaining({ id: "image", data: expect.objectContaining({ images: [] }) })]);
     expect(updated.edges).toEqual([]);
     expect(Object.keys(updated.editorLayout.nodes)).toEqual(["image"]);
@@ -1919,15 +1930,15 @@ describe("Asset Canvas projects", () => {
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=hero.glb` });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
-    const document = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    const document = (await getCanvas(app, project.id)).board;
     document.nodes = [{ id: "animate", type: "animate-3d", position: { x: 0, y: 0 }, data: { source: { type: "library", assetId: asset.id }, heightMeters: 1.7, actionIds: [0] } }];
     document.editorLayout.nodes = { animate: { x: 0, y: 0 } };
-    expect((await app.inject({ method: "PUT", url: `/projects/${project.id}/asset-canvas`, payload: document })).statusCode).toBe(204);
+    expect((await saveCanvas(app, project.id, document)).statusCode).toBe(200);
 
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` })).statusCode).toBe(409);
     expect((await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}?force=true` })).statusCode).toBe(204);
 
-    const updated = (await app.inject({ method: "GET", url: `/projects/${project.id}/asset-canvas` })).json();
+    const updated = (await getCanvas(app, project.id)).board;
     expect(updated.nodes).toEqual([expect.objectContaining({ id: "animate", data: { heightMeters: 1.7, actionIds: [0] } })]);
   });
 });
