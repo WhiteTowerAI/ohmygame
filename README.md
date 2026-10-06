@@ -9,13 +9,11 @@
 
 **The open-source studio for making games with AI.**
 
-Everything you need to make games with AI, in one open-source app. Bring any
-model.
+Everything you need to make games with AI, in one open-source app. Support BYOK.
 
-<!-- Update the download links on each release -->
 <p>
-  <a href="https://github.com/WhiteTowerAI/ohmygame/releases/download/v0.0.0-beta.1/OhMyGame-0.0.0-beta.1-arm64.dmg"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
-  <a href="https://github.com/WhiteTowerAI/ohmygame/releases/download/v0.0.0-beta.1/OhMyGame-0.0.0-beta.1-x64.exe"><img src="https://img.shields.io/badge/Download-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" /></a>
+  <a href="https://ohmygame.ai/download/mac"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
+  <a href="https://ohmygame.ai/download/windows"><img src="https://img.shields.io/badge/Download-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows" /></a>
 </p>
 
 <p>
@@ -37,16 +35,24 @@ model.
 
 ## What it is
 
-Making a game takes 2D art, 3D models, video, code, and somewhere
-to put it when it is done. Today those live in five or six different tools.
-We're building one app for all of it: describe what you want, and the agent makes the assets, builds the game, plays it to check it works, and publishes it to a link you can share.
+Making a game takes design docs, 2D art, 3D models, video, code, and somewhere
+to put it when it's done. Today those live in five or six different tools.
+OhMyGame puts them in one app: describe your game, and the agent designs it,
+makes the assets, builds it, plays it to check it works, and publishes it to a
+link you can share.
 
-At its heart, OhMyGame is a GUI coding agent for game dev, built on
-[Pi](https://www.npmjs.com/package/@earendil-works/pi-coding-agent). It keeps
-Pi's full toolset and sessions, and extends it for games: Equip general agent the ability to make game assets, and provide studios to build specifc games much easier.
+Two core design ideas shape it:
 
-Bring your own model. OhMyGame works with 40+ providers through Pi, from
-Anthropic and OpenAI to DeepSeek and Qwen, and can sign in with a subscription you already have. Your keys stay on your machine, there are no per-run credits, and what it makes is yours.
+1. **Everything lives on a canvas.** Design docs, concept art, 3D models, and
+   video sit side by side and reference each other, so you and the agent always
+   see the same picture of the game.
+2. **The agent does the work.** It drives the canvas the way you would:
+   drafting the design doc, turning a character sketch into a rigged 3D model,
+   writing the code, and playtesting the result.
+
+It's open source and works with 40+ model providers through Pi, from Anthropic
+and OpenAI to DeepSeek and Qwen. Your keys stay on your machine, there are no
+per-run credits, and what you make is yours.
 
 ## Features
 
