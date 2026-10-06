@@ -3841,10 +3841,6 @@ button.home-nav-item-active:hover {
   font: inherit;
   font-size: 12px;
 }
-.project-create-name input:focus {
-  outline: 1px solid color-mix(in srgb, var(--focus-ring) 45%, transparent);
-  outline-offset: 1px;
-}
 .project-create-name input::placeholder {
   color: var(--text-faint);
   opacity: 1;
@@ -4295,11 +4291,6 @@ button.home-nav-item-active:hover {
   padding-bottom: 9px;
   line-height: 18px;
   resize: vertical;
-}
-.publish-dialog input:focus,
-.publish-dialog textarea:focus {
-  outline: 1px solid color-mix(in srgb, var(--focus-ring) 45%, transparent);
-  outline-offset: 1px;
 }
 .publish-cover-preview {
   position: relative;
@@ -5377,10 +5368,6 @@ button.home-nav-item-active:hover {
   font: inherit;
   font-size: 11px;
 }
-.plugin-install-dialog input:focus {
-  outline: 1px solid color-mix(in srgb, var(--focus-ring) 45%, transparent);
-  outline-offset: 1px;
-}
 .plugin-install-candidates {
   display: grid;
   max-height: min(420px, 55dvh);
@@ -6290,13 +6277,22 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
+:where(input, textarea, select, [contenteditable]:not([contenteditable="false"])) {
+  outline: 0;
+}
+
+:is(input, textarea, select):not(:disabled):focus-visible {
+  border-color: var(--focus-ring);
+}
+
+:is([contenteditable]:not([contenteditable="false"])):focus-visible {
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
 :where(
   button,
   a[href],
-  input,
-  textarea,
-  select,
-  [tabindex]:not([tabindex="-1"])
+  [tabindex]:not([tabindex="-1"]):not(input, textarea, select, [contenteditable])
 ):focus-visible {
   outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
@@ -6959,10 +6955,6 @@ button {
   border: 0;
   border-radius: 50%;
   background: #fff;
-}
-.story-inline-video-scrubber input:focus-visible {
-  outline: 1px solid rgb(255 255 255 / 55%);
-  outline-offset: 2px;
 }
 .story-inline-video-scrubber input:disabled {
   cursor: default;
@@ -8929,11 +8921,6 @@ button {
   color: var(--text);
   font: inherit;
   font-size: 12px;
-}
-
-.conversation-rename input:focus {
-  outline: 1px solid color-mix(in srgb, var(--focus-ring) 45%, transparent);
-  outline-offset: 1px;
 }
 
 .conversation-menu-error {
@@ -13807,7 +13794,6 @@ button {
 
 :root[data-appearance="light"] .project-switcher-search:focus-within {
   border-color: #aeb3af;
-  box-shadow: 0 0 0 2px rgb(32 37 35 / 6%);
 }
 
 :root[data-appearance="light"] .user-message {
@@ -13823,7 +13809,6 @@ button {
 
 :root[data-appearance="light"] .user-message-editor:focus-within {
   border-color: #aeb3af;
-  box-shadow: 0 0 0 2px rgb(32 37 35 / 5%);
 }
 
 :root[data-appearance="light"] .user-message-editor textarea,
