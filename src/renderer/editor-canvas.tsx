@@ -23,6 +23,9 @@ import {
   type CanvasAlignmentNode,
 } from "./canvas-alignment.js";
 import { Hand, Maximize, Minus, MousePointer2, Plus } from "./icons.js";
+// React Flow's own layout rules, loaded with the one canvas both editors use,
+// since either editor may be the first to load.
+import "@xyflow/react/dist/style.css";
 
 type CanvasPosition = { x: number; y: number };
 type InteractionMode = "pointer" | "pan";

@@ -13,12 +13,16 @@ import { validatePlayableProject } from "../src/daemon/playable-project.js";
 import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, playablePreset } from "../src/daemon/playable-presets.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
 import { playableBackdrop } from "../src/shared/playable-backdrop.js";
+import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
-async function createWorkspace(name: string): Promise<string> {
+/** A project with one Blank Scene, `start`, unless it should be new and empty. */
+async function createWorkspace(name: string, empty = false): Promise<string> {
   const workspacePath = await mkdtemp(path.join(tmpdir(), `ohmygame-${name}-`));
   await createNodeCodebase(
     workspacePath,
-    createPlayableStarterCodebase("Presets", { width: 1280, height: 720 }),
+    empty
+      ? createPlayableStarterCodebase("Presets", { width: 1280, height: 720 })
+      : createStarterCodebaseWithScene("Presets", { width: 1280, height: 720 }),
   );
   return workspacePath;
 }
@@ -210,13 +214,7 @@ describe("addPlayableNode", () => {
   });
 
   it("makes the first Node of an empty project its Start", async () => {
-    const workspacePath = await createWorkspace("add-node-empty");
-    const codebase = await readNodeCodebase(workspacePath);
-    await writeNodeCodebase(workspacePath, {
-      graph: { ...codebase.graph, nodes: [], edges: [] },
-      editorLayout: { ...codebase.editorLayout, nodes: {} },
-      sourceDeletions: ["nodes/start/index.html", "nodes/start/style.css", "nodes/start/node.js"],
-    });
+    const workspacePath = await createWorkspace("add-node-empty", true);
     expect((await validatePlayableProject(workspacePath, "draft")).issues).toEqual([]);
 
     await addPlayableNode(workspacePath, { preset: "main-menu", id: "menu" });

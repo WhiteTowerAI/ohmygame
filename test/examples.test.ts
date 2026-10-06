@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
-import { createNodeCodebase, createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
+import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
+import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 import type { PreparedExampleCatalog } from "../src/shared/examples.js";
 import { isPreparedExampleCatalog } from "../src/shared/examples.js";
 
@@ -40,7 +41,7 @@ async function writeExamples(): Promise<string> {
   // AGENTS.md, README.md and schemas when it copies the example.
   const story = path.join(directory, "train", "files");
   await mkdir(story, { recursive: true });
-  await createNodeCodebase(story, createPlayableStarterCodebase("Night Train", { width: 1280, height: 720 }));
+  await createNodeCodebase(story, createStarterCodebaseWithScene("Night Train", { width: 1280, height: 720 }));
   for (const owned of ["AGENTS.md", "README.md", "schemas"]) await rm(path.join(story, owned), { recursive: true });
   await writeFile(path.join(directory, "train", "cover.webp"), "RIFF-train");
   catalog.examples.push({

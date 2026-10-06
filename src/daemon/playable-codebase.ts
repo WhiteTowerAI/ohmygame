@@ -12,7 +12,7 @@ import {
   type NodeCodebaseUpdate,
   type NodeEditorLayout,
 } from "../shared/playable-codebase.js";
-import type { NodeGraph, PlayableSignal } from "../shared/playable-nodes.js";
+import type { NodeGraph } from "../shared/playable-nodes.js";
 import { blankSource } from "./playable-presets.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "./playable-style.js";
 import { listWorkspaceFiles } from "./workspace.js";
@@ -52,6 +52,7 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - A Node that is not a step in the story, such as a menu or settings, has \`"story": { "hidden": true }\`, so the Story Map leaves it out and joins the Nodes before and after it. A Node counts as an ending when it has no Signals other than navigation ones; set \`story.ending\` only where that guess is wrong, and \`story.label\` when players should see another name than the title.
 - A Story Map Scene (the \`story-map\` Preset) shows the story with \`context.story.map()\`. Reach it with a \`push\` edge from a menu, a pause button, or an ending; it returns with \`navigation.back()\`. A Main menu's \`story-map\` navigation Exit is the usual way in; connect it to the Story Map Scene.
 - An entry, button, or link whose Signal may go nowhere checks \`context.navigation.connected(signalId)\` and shows disabled instead of emitting. Publishing requires every Signal other than navigation ones to be connected.
+- A new project has no Nodes. \`playable_add_node\` makes the first Node the Entry Node; when you add the first Node to graph.json yourself, set \`entryNodeId\` to it.
 - Keep IDs and source paths stable when editing existing objects. You do not need to edit \`editor/layout.json\`; the editor places new Nodes.
 - Read \`README.md\` and the schemas in \`schemas/\` before changing the contract. Do not copy or modify the OhMyGame Runtime inside this project.
 
@@ -268,6 +269,11 @@ async function validateCodebase(
   }
 }
 
+/**
+ * A new project has no Scenes: the author starts from a Template or the
+ * Agent from the author's description, and the first Scene added becomes the
+ * Start, which `entryNodeId` names until then.
+ */
 function blankCodebase(
   title: string,
   viewport: { width: number; height: number },
@@ -280,28 +286,10 @@ function blankCodebase(
       entryNodeId: "start",
       initialState: {},
       assets: {},
-      nodes: [node("start", "Node 1", [{ id: "next", label: "Next" }])],
+      nodes: [],
       edges: [],
     },
-    editorLayout: layout({ start: { x: 120, y: 180 } }),
-  };
-}
-
-function node(
-  id: string,
-  title: string,
-  signals: PlayableSignal[],
-) {
-  return {
-    id,
-    title,
-    source: {
-      html: `nodes/${id}/index.html`,
-      css: `nodes/${id}/style.css`,
-      javascript: `nodes/${id}/node.js`,
-    },
-    assets: [],
-    signals,
+    editorLayout: layout({}),
   };
 }
 
@@ -316,8 +304,9 @@ function layout(
   };
 }
 
-// A new project's only Node starts from the Blank Template. Examples, which
-// ship their own sources, live in the ohmygame-examples repository.
+// A new project brings the Project Style; any Node it starts with comes from
+// the Blank Template. Examples, which ship their own sources, live in the
+// ohmygame-examples repository.
 function starterSources(graph: NodeGraph): Record<string, string> {
   const sources: Record<string, string> = { ...PLAYABLE_PROJECT_STYLE_FILES };
   const blank = blankSource();

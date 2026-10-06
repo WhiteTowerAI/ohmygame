@@ -10,7 +10,7 @@ import { AssetThumbnail, assetTypeBadge } from "./asset-browser.js";
 
 /**
  * Workbench pieces for the Playable Nodes editor: a breadcrumb back to the
- * canvas, a scaled preview frame, and the Library picker.
+ * Story canvas, a scaled preview frame, and the Library picker.
  */
 export function WorkbenchBreadcrumb({ label, onClose, onRename }: {
   label: string;
@@ -19,7 +19,7 @@ export function WorkbenchBreadcrumb({ label, onClose, onRename }: {
   onRename?: (label: string) => void;
 }) {
   return <nav className="story-node-editor-breadcrumb" aria-label="Breadcrumb">
-    <button type="button" onClick={onClose}>Canvas</button>
+    <button type="button" onClick={onClose}>Story</button>
     <ChevronRight size={12} aria-hidden="true" />
     {onRename ? <BreadcrumbTitle value={label} onCommit={onRename} /> : <strong>{label}</strong>}
   </nav>;

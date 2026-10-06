@@ -31,7 +31,7 @@ The workspace keeps the current Interactive Story layout:
 │ Header: Project ▾ · Home           Playtest · chat · Publish │
 ├───────────────┬──────────────────────────────────────────────┤
 │               │                                              │
-│  Chat with    │   Flow canvas                                │
+│  Chat with    │   Story (the flow canvas)                    │
 │  the Agent    │     or                                       │
 │  (left/right, │   Scene Workbench (opened from a Scene)      │
 │  collapsible) │                                              │
@@ -41,9 +41,9 @@ The workspace keeps the current Interactive Story layout:
 
 - The chat panel keeps its existing placement preference and collapse
   behavior.
-- The main area shows either the Flow canvas or the Workbench of one Scene,
-  with a breadcrumb (`Canvas › Case archive`) to return, as the current
-  editor does.
+- The main area shows either the **Story** tab, the flow canvas, or the
+  Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to
+  return. The tab is named for the whole story it shows, not for one Scene.
 - The **Project ▾** menu holds **Screen size**, **Variables**, **Export**,
   and **Show technical details**. **Home** returns
   to the project list. **Playtest** opens the real Runtime; the chat toggle
@@ -108,6 +108,10 @@ Connecting can happen two ways, and both produce the same edges:
   open the case archive with Back allowed".
 
 ## Creating a Scene
+
+A new project has no Scenes. Its empty canvas says so and offers **Add a
+Scene**, or describing the story in the chat; the first Scene added becomes
+the Start.
 
 1. The author chooses **Add Scene** on the canvas.
 2. The **Add a Scene** window shows each Template (Blank, Main menu,
@@ -510,7 +514,7 @@ the Published Player.
 "Advance when the video ends" is Scene content, not a Runtime feature. The
 Project Style includes a small `playScene()` component that shows the
 Scene's background and emits a given Signal when the video ends or the
-player clicks. Blank uses it, and a new project starts from Blank. Authors who want something
+player clicks. Blank uses it. Authors who want something
 else (a choice over the last frame, a loop until input) change the Scene like
 any other.
 
