@@ -56,47 +56,57 @@ per-run credits, and what you make is yours.
 
 ## Features
 
-### 🎮 Web games: from one sentence to something you can play
+### 🎨 Canvas: design docs, art, video, and 3D on one board
 
-The agent builds it with Three.js, React Three Fiber, or Phaser and runs it in
-a live preview. Once it runs, the agent opens the game in a
-window you can watch and plays it, including real-time canvas and WebGL games.
-When it finds a problem, it tries a fix and plays again.
+Every game project has a design space: a main design doc plus boards where
+the doc, images, video, and 3D models sit side by side. Nodes can use each other as references, so one
+character design can lead to more images, a video, or a rigged and animated 3D
+model. Results go into a shared Asset Library that your
+games can use. 
 
-Playtesting is open loop for now: the agent plans a batch of inputs, runs
-them, then looks at the result. It has no real-time reflexes yet.
+<!-- TODO(asset): GIF, Asset Canvas: text → image → 3D model chain -->
+<!-- <img src="docs/assets/asset-canvas.gif" alt="Generating linked image, video, and 3D assets on the Asset Canvas" width="860" /> -->
+
+### 🤖 Agent: control the canvas, builds the game
+
+The agent reads the design doc, writes the code, and runs the game in a live
+preview. Then it opens the game in a window you can watch and plays it, including
+real-time canvas and WebGL games. When it finds a problem, it tries a fix and
+plays again. Along the way it can generate images, video, and 3D models, search
+the web, and use MCP servers or the Codex and Claude Code plugins you already
+have.
+
+<!-- Playtesting is open loop for now: the agent plans a batch of inputs, runs
+them, then looks at the result. It has no real-time reflexes yet. -->
 
 <!-- TODO(asset): GIF, Project Shell: conversation left, live preview right,
 then the agent playing in the watch window with the key overlay -->
 <!-- <img src="docs/assets/web-game.gif" alt="Building a web game and watching the agent play it" width="860" /> -->
 
-### 🎨 Asset Canvas: art, video, and 3D on one board
+### 🔗 Publish: one link, playable anywhere
 
-Generate images, video, and 3D models side by side. Nodes can use each other
-as references, so one character design can lead to more
-images, a video, or a textured 3D model. Results go into a shared Asset
-Library that your games can use. Generation uses your own provider keys.
+Sign in and publish: OhMyGame builds your game and gives it a link anyone can
+play in the browser. Republishing updates the same link. Published games are
+listed in the in-app Community, where you can play what others have made. 
+Remixing is currently in development.
 
-<!-- TODO(asset): GIF, Asset Canvas: text → image → 3D model chain -->
-<!-- <img src="docs/assets/asset-canvas.gif" alt="Generating linked image, video, and 3D assets on the Asset Canvas" width="860" /> -->
+## What you can make
 
-### 🎬 Interactive stories: one screen at a time
+### 🎮 Web games
 
-Create interactive films, visual novels, and story games. Each screen is a
-free web page with its own
-images, video, and code: a main menu, a case archive, a dialogue, a puzzle.
-You connect them on a graph, and the runtime handles state, saves, and
-navigation. The architecture and authoring model are documented in
+2D and 3D games for the browser, built with Three.js, React Three Fiber, or
+Phaser. The project is a normal web project you can open in any editor.
+
+### 🎬 Interactive stories
+
+Interactive films, visual novels, and story games. Each screen is a free web
+page with its own images, video, and code: a main menu, a case archive, a
+dialogue, a puzzle. You connect them on a graph, and the runtime handles state,
+saves, and navigation. The architecture and authoring model are documented in
 [Playable Nodes](docs/playable-nodes/README.md).
 
 <!-- TODO(asset): screenshot or GIF, Node Graph with two finished screens,
 made with OhMyGame. Leave out until there is a real one. -->
-
-### 🔗 Publish: one click, one link
-
-OhMyGame builds the game and uploads only the static output. Each publish is a
-new immutable deployment under the same link, and the game shows up in the
-[Community](https://ohmygame.ai/) where others can play it.
 
 ## How it's built
 
@@ -109,16 +119,16 @@ rather than reading diffs. Close the app, come back, and the project,
 conversation, and context are still there. You describe, review, and steer;
 editing by hand is always possible, but it is not the main path.
 
-**2 · Every workspace is files.** A web game is a normal web project. An Asset
-Canvas is a `canvas.json`. An interactive story is a node graph on disk. Each
-comes with an `AGENTS.md` and JSON schemas, so the agent edits them the same
-way it edits code, and the visual editors read and write the same files.
+**2 · Every workspace is files.** A web game is a normal web project. A design
+doc is Markdown, and boards and the Asset Canvas share one JSON node model. An
+interactive story is a node graph on disk. Each comes with an `AGENTS.md` and
+JSON schemas, so the agent edits them the same way it edits code, and the
+visual editors read and write the same files.
 
-**3 · Game-specific tools.** On top of Pi's coding tools, the agent can play
-the game it built (`game_use`), generate images, video, and 3D models, add and
-check story nodes, search the web, and install plugins, all as ordinary tool
-calls. Connect MCP servers for more tools, or reuse the Codex and Claude Code
-plugins you already have.
+**3 · Games are tool calls.** Playing the game (`game_use`), generating media,
+and checking story nodes are ordinary Pi tools, next to its coding tools. That
+is why the agent can chain them: draft a design, make the art, write the code,
+and play the result in one conversation.
 
 ## Any model, your keys
 
@@ -179,8 +189,8 @@ setting for it -->
 
 <!-- TODO(links): link "roadmap" to the pinned Roadmap issue once the repo is public -->
 
-We're working on first-run setup, plain-language playtest reports, and
-Intel Mac / Linux builds. See the [roadmap](https://TODO) for what's next,
+We're working on first-run setup, plain-language playtest reports, remixing
+games from the Community, and Intel Mac / Linux builds. See the [roadmap](https://TODO) for what's next,
 and vote with 👍 on what matters to you. Want to help? Look for
 [`help wanted`](https://github.com/WhiteTowerAI/ohmygame/labels/help%20wanted)
 issues.
