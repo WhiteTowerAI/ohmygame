@@ -12,6 +12,8 @@ interface PromptBoxProps {
   onHistoryPrevious?: () => void;
   onHistoryNext?: () => void;
   disabled?: boolean;
+  /** Keeps focus in the field while it cannot be edited, unlike `disabled`. */
+  readOnly?: boolean;
   placeholder: string;
   variant: "home" | "project";
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
@@ -33,6 +35,7 @@ export function PromptBox({
   onHistoryPrevious,
   onHistoryNext,
   disabled,
+  readOnly,
   placeholder,
   variant,
   textareaRef,
@@ -143,6 +146,7 @@ export function PromptBox({
           ref={inputRef}
           aria-label="Prompt"
           disabled={disabled}
+          readOnly={readOnly}
           onChange={(event) => {
             onChange(event.target.value);
             onSelectionChange?.(event.currentTarget.selectionStart);
@@ -151,7 +155,7 @@ export function PromptBox({
           onInput={(event) => resizeTextarea(event.currentTarget)}
           onScroll={syncListMirror}
           onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
-            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (readOnly || event.nativeEvent.isComposing || event.keyCode === 229) return;
             if (onCommandKeyDown?.(event)) return;
             if (variant === "project" && !event.metaKey && !event.ctrlKey && !event.altKey) {
               const edit = editPromptList(value, event.currentTarget.selectionStart, event.currentTarget.selectionEnd, event.key, event.shiftKey);

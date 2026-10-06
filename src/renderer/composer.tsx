@@ -317,7 +317,11 @@ export function Composer({
   const showPlanCommand = !selectedSkill && !selectedPlugin && canTogglePlanning && matchesPlanCommand(prompt);
   const showCompactCommand = !selectedSkill && !selectedPlugin && conversationReady && !running && !stopping && matchesCompactCommand(prompt);
   const planInputLocked = awaitingApproval || planMode === "executing" || (planMode === "planning" && running);
-  const inputDisabled = !conversationReady || planInputLocked || submitting || referencingDesign;
+  const textareaDisabled = !conversationReady || planInputLocked;
+  // A disabled field drops focus to the page, where canvas shortcuts such as
+  // Backspace (delete the selected Node) would take the next keystrokes.
+  const textareaReadOnly = submitting || referencingDesign;
+  const inputDisabled = textareaDisabled || textareaReadOnly;
 
   useEffect(() => {
     if (showPlanCommand) setSelectedCommand("plan");
@@ -516,7 +520,8 @@ export function Composer({
           </div> : null}
           <AttachmentStrip items={attachments} onRemove={(id) => setAttachments((items) => items.filter((attachment) => attachment.id !== id))} />
         </>}
-        disabled={inputDisabled}
+        disabled={textareaDisabled}
+        readOnly={textareaReadOnly}
         prefix={<ComposerCapabilityReferences
           skill={selectedSkill}
           plugin={selectedPlugin}
