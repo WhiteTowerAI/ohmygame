@@ -151,6 +151,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [playtesting, setPlaytesting] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
   const queuedCodebase = useRef<string | undefined>(undefined);
@@ -733,7 +734,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   /** Opens the Playtest window; `start` plays from a Scene instead of the saved game. */
   async function startPlaytest(start?: PlaytestStart): Promise<void> {
-    if (!codebase) return;
+    if (!codebase || building || playtesting) return;
+    setPlaytesting(true);
     if (!start) clearSelection();
     try {
       await save(codebase);
@@ -745,6 +747,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       }
     } catch (cause) {
       setNotice(errorMessage(cause));
+    } finally {
+      setPlaytesting(false);
     }
   }
 
@@ -878,8 +882,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           /> : null}
         </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {!designOpen ? <><button className="icon-button pane-header-action" type="button" title="Playtest" aria-label="Playtest" onClick={() => void startPlaytest()}>
-            <Play size={14} fill="currentColor" />
+          {!designOpen ? <><button className="icon-button pane-header-action" type="button" data-tooltip={playtesting ? "Opening playtest..." : "Playtest in a new window"} aria-label="Playtest" disabled={phase !== "ready" || building || playtesting} onClick={() => void startPlaytest()}>
+            {playtesting ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
           </button>
           <button className="publish-button workspace-publish-button" type="button" title="Publish" aria-label="Publish" disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
