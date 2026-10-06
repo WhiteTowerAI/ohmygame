@@ -14,9 +14,11 @@ import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
-import { AgentManager, createPiSession, loadConversation, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
+import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
+import { ConversationImageStore } from "./conversation-images.js";
+import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { generateCreativeText, generateDesignDocumentMarkdown } from "./text-generation.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import { registerCanvasRoutes } from "./canvas-routes.js";
@@ -512,11 +514,13 @@ export function createApp(options: AppOptions = {}) {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
   const dataDirectory = options.dataDirectory ?? path.join(repositoryRoot, ".data");
   const piAgentDirectory = options.piAgentDirectory ?? process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
-  const events = new RuntimeEventBus();
+  const conversationImages = new ConversationImageStore(path.join(dataDirectory, "cache", "conversation-images"));
+  const events = new RuntimeEventBus(1_000, (event) => conversationImages.event(event));
   const library = new AssetLibrary(dataDirectory);
   const projects = new ProjectManager(dataDirectory, library);
   const attachments = new AgentAttachmentStore();
-  const conversations = new ConversationManager();
+  const conversations = new ConversationManager(conversationImages);
+  const agentPlaytests = new Map<string, OwnedPlaytestDriver>();
   const publishing = new Set<string>();
   const playerDirectory = options.interactiveStoryPlayerDirectory ?? path.join(repositoryRoot, "dist", "player");
   const artifacts = new ArtifactBuilder(library, playerDirectory);
@@ -629,10 +633,16 @@ export function createApp(options: AppOptions = {}) {
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
       const modelRuntime = await getModelRuntime();
-      const selected = conversations.model(project, conversation);
+      const selected = await conversations.model(project, conversation);
       const model = selected ? modelRuntime.getModel(selected.provider, selected.id) : undefined;
       if (selected && (!model || !modelRuntime.hasConfiguredAuth(selected.provider))) {
         throw new Error(`The selected model ${selected.provider}/${selected.id} is not available`);
+      }
+      const playtestKey = `${project.id}:${conversation.summary.id}`;
+      let playtest = agentPlaytests.get(playtestKey);
+      if (!playtest && options.playtestDriver) {
+        playtest = new OwnedPlaytestDriver(options.playtestDriver);
+        agentPlaytests.set(playtestKey, playtest);
       }
       return createPiSession(
         project,
@@ -647,8 +657,8 @@ export function createApp(options: AppOptions = {}) {
             invalidatePluginSessions();
             return await plugins.read(installed.id) ?? installed;
           },
-          options.playtestDriver ? {
-            driver: options.playtestDriver,
+          playtest ? {
+            driver: playtest,
             resolveOpenTarget: async () => ({
               runtime: "web",
               url: project.type === "interactive-story"
@@ -670,6 +680,9 @@ export function createApp(options: AppOptions = {}) {
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
       return projectPiToolNames(mode, TOOL_IDS, registered, webSearch.enabled());
+    },
+    onRunFinished: async (project, conversationId) => {
+      await agentPlaytests.get(`${project.id}:${conversationId}`)?.cleanup();
     },
     onRunCompleted: (project) => {
       if (project.preview.status === "ready" || project.preview.status === "starting") return;
@@ -1337,6 +1350,13 @@ export function createApp(options: AppOptions = {}) {
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
     await previews.stop(project);
     agents.forgetProject(project.id);
+    conversations.forget(project);
+    for (const [key, driver] of agentPlaytests) {
+      if (!key.startsWith(`${project.id}:`)) continue;
+      await driver.cleanup();
+      agentPlaytests.delete(key);
+    }
+    await conversationImages.removeProject(project.id);
     await canvasStore.cancelProject(project.id);
     await projects.delete(project.id);
     return reply.code(204).send();
@@ -1897,6 +1917,14 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.get<{ Params: { projectId: string; imageId: string } }>("/projects/:projectId/conversation-images/:imageId", async (request, reply) => {
+    if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+    const image = await conversationImages.read(request.params.projectId, request.params.imageId);
+    if (!image) return reply.code(404).send({ error: "Image not found" });
+    return reply.header("content-type", image.mediaType)
+      .header("cache-control", "private, max-age=86400, immutable").send(image.data);
+  });
+
   app.get<{ Params: { projectId: string; conversationId: string }; Querystring: { reset?: string } }>(
     "/projects/:projectId/conversations/:conversationId",
     async (request, reply) => {
@@ -1904,34 +1932,31 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const modelRef = conversations.model(project, conversation);
-      const planState = conversations.planState(project, conversation);
+      const modelRef = await conversations.model(project, conversation);
+      const planState = await conversations.planState(project, conversation);
       agents.restorePlanState(conversation, planState);
-      const activePlanState = agents.planState(conversation);
       const model = modelRef ? (await getModelRuntime()).getModel(modelRef.provider, modelRef.id) : undefined;
       const settings = {
         ...(modelRef ? { model: modelRef } : {}),
         ...(model ? {
           reasoningLevel: effectiveReasoningLevel(
             model,
-            conversations.reasoningLevel(project, conversation),
+            await conversations.reasoningLevel(project, conversation),
             defaultReasoningLevel(project.workspacePath, piAgentDirectory),
           ),
         } : {}),
       };
+      const branch = (await conversations.view(project, conversation)).getBranch();
+      // Capture live state and its cursor together after all asynchronous reads.
       const currentRun = agents.activeStart(project.id, conversation.summary.id);
       const activeItems = agents.activeItems(project.id, conversation.summary.id);
+      const activePlanState = agents.planState(conversation);
       const loadedItems = [
-        ...loadConversation(
-          project,
-          conversation.sessionPath,
-          currentRun?.timestamp,
-          !currentRun,
-        ),
+        ...conversationItems(currentRun ? branch.filter((entry) => entry.timestamp < currentRun.timestamp) : branch, !currentRun),
         // A reset must be a complete snapshot. Replaying from the active turn's
         // start is unsafe once a chat produces more events than the replay buffer.
         ...(currentRun ? activeItems : []),
-      ];
+      ].map((item) => conversationImages.item(project.id, item));
       return {
         conversation: conversation.summary,
         agent: agents.agentState(conversation),
@@ -1943,7 +1968,9 @@ export function createApp(options: AppOptions = {}) {
           agents.activeTurnId(project.id, conversation.summary.id),
         ),
         cursor: events.cursor(),
-        pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id),
+        pendingPrompts: agents.pendingPrompts(project.id, conversation.summary.id).map((prompt) => ({
+          ...prompt, images: prompt.images.map((image) => conversationImages.project(project.id, image)),
+        })),
       } satisfies ConversationDetail;
     },
   );
@@ -2012,7 +2039,7 @@ export function createApp(options: AppOptions = {}) {
           model: request.body,
           reasoningLevel: effectiveReasoningLevel(
             model,
-            conversations.reasoningLevel(project, conversation),
+            await conversations.reasoningLevel(project, conversation),
             defaultReasoningLevel(project.workspacePath, piAgentDirectory),
           ),
         } satisfies ConversationAgentSettings;
@@ -2030,7 +2057,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const modelRef = conversations.model(project, conversation);
+      const modelRef = await conversations.model(project, conversation);
       if (!modelRef) return reply.code(409).send({ error: "Select a model before changing reasoning" });
       const model = await availableModel(getModelRuntime, modelRef.provider, modelRef.id);
       if (!model) return reply.code(400).send({ error: "Model is not available" });
@@ -2245,7 +2272,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      agents.restorePlanState(conversation, conversations.planState(project, conversation));
+      agents.restorePlanState(conversation, await conversations.planState(project, conversation));
       try {
         const turn = await agents.approvePlan(project, conversation);
         return reply.code(202).send({ turnId: turn.turnId, queued: false });
@@ -2262,7 +2289,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      agents.restorePlanState(conversation, conversations.planState(project, conversation));
+      agents.restorePlanState(conversation, await conversations.planState(project, conversation));
       try {
         await agents.cancelPlan(project, conversation);
         return reply.code(204).send();
@@ -2279,7 +2306,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      agents.restorePlanState(conversation, conversations.planState(project, conversation));
+      agents.restorePlanState(conversation, await conversations.planState(project, conversation));
       try {
         await agents.refinePlan(project, conversation);
         return reply.code(204).send();
@@ -2463,11 +2490,7 @@ export function createApp(options: AppOptions = {}) {
     });
     reply.raw.write(": connected\n\n");
     const send = (event: RuntimeEvent) => {
-      const images = agents.eventImages(event.projectId, event.conversationId, event.turnId);
-      const hydrated = images?.length && (event.type === "agent.started" || event.type === "prompt.queued" || event.type === "prompt.steered")
-        ? { ...event, data: { ...event.data, images } }
-        : event;
-      reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(hydrated)}\n\n`);
+      reply.raw.write(`id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
     };
     for (const event of events.since(project.id, cursor)) send(event);
     const unsubscribe = events.subscribe(project.id, send);
@@ -2508,11 +2531,13 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
-    options.playtestDriver?.close();
     await canvasStore.close();
     tools.close();
     modelAuth.close();
     await agents.close();
+    await Promise.allSettled([...agentPlaytests.values()].map((driver) => driver.cleanup()));
+    options.playtestDriver?.close();
+    await conversationImages.flush();
     await previews.stopAll();
     await artifacts.close();
     await playableDrafts.close();

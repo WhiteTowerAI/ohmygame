@@ -87,11 +87,6 @@ export type AgentRunResult = "completed" | "cancelled";
 type CompactRunOutcome = { status: AgentRunResult } | { status: "failed"; cause: unknown };
 export type SessionFactory = (project: ProjectState, conversation: StoredConversation) => Promise<CodingSession>;
 
-export function loadConversation(project: ProjectState, sessionPath: string, before?: string, markInterrupted = true): ThreadItem[] {
-  const entries = SessionManager.open(sessionPath, sessionDirectory(project), project.workspacePath).getBranch();
-  return conversationItems(before ? entries.filter((entry) => entry.timestamp < before) : entries, markInterrupted);
-}
-
 export function conversationItems(entries: readonly SessionEntry[], markInterrupted = true): ThreadItem[] {
   const items: ThreadItem[] = [];
   const tools = new Map<string, Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>>();
@@ -301,6 +296,7 @@ interface AgentManagerOptions {
   loadSkills?: (project: ProjectState) => Promise<Array<{ name: string; description: string }>>;
   activeToolNames?: (project: ProjectState, mode: PlanMode, session: CodingSession) => string[];
   onRunCompleted?: (project: ProjectState) => void;
+  onRunFinished?: (project: ProjectState, conversationId: string) => Promise<void>;
 }
 
 interface ManagedSession {
@@ -1026,15 +1022,6 @@ export class AgentManager {
     return { id: active.startedEventId, timestamp: new Date(active.startedAt).toISOString() };
   }
 
-  eventImages(projectId: string, conversationId: string | undefined, turnId: string | undefined): PromptImage[] | undefined {
-    if (!conversationId || !turnId) return undefined;
-    const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
-    if (active?.turnId === turnId) return active.images;
-    const pending = this.#pendingPrompts.get(conversationKey(projectId, conversationId));
-    const steering = this.#steeringPrompts.get(conversationKey(projectId, conversationId));
-    return [...(pending ?? []), ...(steering ?? [])].find((item) => item.turnId === turnId)?.images;
-  }
-
   async close(): Promise<void> {
     this.#closing = true;
     for (const active of this.#activeTurns.values()) {
@@ -1064,6 +1051,7 @@ export class AgentManager {
     const key = conversationKey(projectId, active.conversationId);
     await this.#withQueueMutation(key, async () => {
       if (this.#activeTurns.get(key) !== active) return;
+      await this.options.onRunFinished?.(project, active.conversationId);
       this.#activeTurns.delete(key);
       const questionnaire = this.#questionnaires.get(key);
       if (questionnaire) {
@@ -1792,7 +1780,8 @@ function imageContent(content: unknown): PromptImage[] {
     const mediaType = (item as { mimeType?: unknown }).mimeType;
     const data = (item as { data?: unknown }).data;
     if (!isPromptImageMediaType(mediaType) || typeof data !== "string") return [];
-    return [{ mediaType, data }];
+    const url = (item as { url?: unknown }).url;
+    return [{ mediaType, data, ...(typeof url === "string" ? { url } : {}) }];
   });
 }
 

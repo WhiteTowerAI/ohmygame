@@ -254,11 +254,17 @@ function upsertTurnItem(state: RendererState, conversationId: string, turnId: st
 }
 
 function updateTurnItem(state: RendererState, id: string, update: (item: ThreadItem) => ThreadItem): RendererState {
-  return { ...state, turns: state.turns.map((turn) => ({ ...turn, items: turn.items.map((item) => item.id === id ? update(item) : item) })) };
+  const turns = state.turns.map((turn) => turn.items.some((item) => item.id === id)
+    ? { ...turn, items: turn.items.map((item) => item.id === id ? update(item) : item) }
+    : turn);
+  return turns.every((turn, index) => turn === state.turns[index]) ? state : { ...state, turns };
 }
 
 function removeTurnItem(state: RendererState, id: string): RendererState {
-  return { ...state, turns: state.turns.map((turn) => ({ ...turn, items: turn.items.filter((item) => item.id !== id) })) };
+  const turns = state.turns.map((turn) => turn.items.some((item) => item.id === id)
+    ? { ...turn, items: turn.items.filter((item) => item.id !== id) }
+    : turn);
+  return turns.every((turn, index) => turn === state.turns[index]) ? state : { ...state, turns };
 }
 
 function shouldRemoveCompletedItem(item: ThreadItem): boolean {

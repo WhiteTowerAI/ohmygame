@@ -26,8 +26,8 @@ describe("RuntimeEventBus", () => {
     expect(bus.canReplay("a", second.id - 1)).toBe(true);
   });
 
-  it("streams full data while retaining lightweight replay data", () => {
-    const bus = new RuntimeEventBus();
+  it.each([false, true])("streams full data while retaining lightweight replay data with a pass-through projector: %s", (projected) => {
+    const bus = new RuntimeEventBus(1_000, projected ? (event) => event : undefined);
     const listener = vi.fn();
     bus.subscribe("a", listener);
     const event = bus.publish("a", "agent.started", {

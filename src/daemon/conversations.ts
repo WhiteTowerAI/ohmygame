@@ -1,7 +1,10 @@
 import path from "node:path";
-import { SessionManager, type SessionInfo } from "@earendil-works/pi-coding-agent";
+import { readdir } from "node:fs/promises";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { AgentModelRef, AgentReasoningLevel, ConversationSummary, PlanSessionState, ProjectState } from "../shared/contracts.js";
 import { parseReasoningLevel } from "../shared/reasoning.js";
+import { ConversationCache, type ConversationInfo } from "./conversation-cache.js";
+import type { ConversationImageStore } from "./conversation-images.js";
 
 const UNTITLED_CONVERSATION = "New conversation";
 const TITLE_MAX_LENGTH = 80;
@@ -14,6 +17,20 @@ export interface StoredConversation {
 
 export class ConversationManager {
   readonly #pending = new Map<string, { stored: StoredConversation; manager: SessionManager; titled: boolean }>();
+  readonly #cache: ConversationCache;
+
+  constructor(images?: ConversationImageStore) { this.#cache = new ConversationCache(images); }
+
+  forget(project: ProjectState): void {
+    for (const [id, pending] of this.#pending) if (pending.stored.summary.projectId === project.id) this.#pending.delete(id);
+    this.#cache.forgetDirectory(sessionDirectory(project));
+  }
+
+  async view(project: ProjectState, stored: StoredConversation): Promise<SessionManager> {
+    return await this.#cache.read(project, stored.sessionPath)
+      ?? this.#pending.get(key(project.id, stored.summary.id))?.manager
+      ?? SessionManager.inMemory(project.workspacePath);
+  }
 
   async list(project: ProjectState): Promise<ConversationSummary[]> {
     const persisted = (await this.#sessions(project)).map((session) => summary(project.id, session));
@@ -107,8 +124,8 @@ export class ConversationManager {
     return SessionManager.open(stored.sessionPath, sessionDirectory(project), project.workspacePath);
   }
 
-  model(project: ProjectState, stored: StoredConversation): AgentModelRef | undefined {
-    const model = this.open(project, stored).buildSessionContext().model;
+  async model(project: ProjectState, stored: StoredConversation): Promise<AgentModelRef | undefined> {
+    const model = (await this.view(project, stored)).buildSessionContext().model;
     return model?.provider && model.modelId ? { provider: model.provider, id: model.modelId } : undefined;
   }
 
@@ -116,8 +133,8 @@ export class ConversationManager {
     this.open(project, stored).appendModelChange(model.provider, model.id);
   }
 
-  reasoningLevel(project: ProjectState, stored: StoredConversation): AgentReasoningLevel | undefined {
-    const entry = this.open(project, stored).getBranch().findLast((candidate) => candidate.type === "thinking_level_change");
+  async reasoningLevel(project: ProjectState, stored: StoredConversation): Promise<AgentReasoningLevel | undefined> {
+    const entry = (await this.view(project, stored)).getBranch().findLast((candidate) => candidate.type === "thinking_level_change");
     return entry?.type === "thinking_level_change" ? parseReasoningLevel(entry.thinkingLevel) : undefined;
   }
 
@@ -125,8 +142,8 @@ export class ConversationManager {
     this.open(project, stored).appendThinkingLevelChange(level);
   }
 
-  planState(project: ProjectState, stored: StoredConversation): PlanSessionState {
-    const entry = this.open(project, stored).getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === PLAN_STATE_ENTRY);
+  async planState(project: ProjectState, stored: StoredConversation): Promise<PlanSessionState> {
+    const entry = (await this.view(project, stored)).getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === PLAN_STATE_ENTRY);
     if (entry?.type !== "custom" || !entry.data || typeof entry.data !== "object") return { mode: "normal" };
     const state = entry.data as Partial<PlanSessionState>;
     if (state.mode !== "normal" && state.mode !== "planning" && state.mode !== "awaiting_approval" && state.mode !== "executing") {
@@ -138,8 +155,20 @@ export class ConversationManager {
     return { mode: state.mode, ...(state.plan ? { plan: state.plan } : {}) };
   }
 
-  async #sessions(project: ProjectState): Promise<SessionInfo[]> {
-    return SessionManager.list(project.workspacePath, sessionDirectory(project));
+  async #sessions(project: ProjectState): Promise<ConversationInfo[]> {
+    const directory = sessionDirectory(project);
+    const files = await readdir(directory).catch((cause: NodeJS.ErrnoException) => {
+      if (cause.code === "ENOENT") return [];
+      throw cause;
+    });
+    const sessions: ConversationInfo[] = [];
+    for (const name of files) {
+      if (!name.endsWith(".jsonl")) continue;
+      const file = path.join(directory, name);
+      const info = await this.#cache.info(project, file);
+      if (info) sessions.push(info);
+    }
+    return sessions;
   }
 }
 
@@ -152,7 +181,7 @@ export function defaultConversationTitle(firstMessage: string): string {
   return normalized && normalized !== "(no messages)" ? normalized : UNTITLED_CONVERSATION;
 }
 
-function summary(projectId: string, session: SessionInfo): ConversationSummary {
+function summary(projectId: string, session: ConversationInfo): ConversationSummary {
   return {
     id: session.id,
     projectId,

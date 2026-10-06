@@ -5,6 +5,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
+import { ConversationManager } from "../src/daemon/conversations.js";
 import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
 
@@ -1000,12 +1001,18 @@ describe("daemon", () => {
         conversationId: conversation.id,
         status: "inProgress",
         items: [
-          { type: "userMessage", text: "Describe", images: [image], turnId: turn.json().turnId },
+          { type: "userMessage", text: "Describe", images: [{ mediaType: image.mediaType, data: "", url: expect.any(String) }], turnId: turn.json().turnId },
           { type: "imageRead", count: 1, status: "completed", turnId: turn.json().turnId },
         ],
       }],
       cursor: 2,
     });
+    expect(detail.body).not.toContain(image.data);
+    const imageUrl = detail.json().turns[0].items[0].images[0].url;
+    const content = await app.inject({ method: "GET", url: imageUrl });
+    expect(content.statusCode).toBe(200);
+    expect(content.headers["content-type"]).toContain("image/png");
+    expect(content.rawPayload).toEqual(Buffer.from(image.data, "base64"));
     await expect.poll(() => typeof finishPrompt).toBe("function");
     finishPrompt();
   });
@@ -1638,6 +1645,51 @@ describe("daemon", () => {
       cursor: 1,
     });
     finishPrompt();
+  });
+
+  it("includes agent output produced during the final asynchronous history read", async () => {
+    let finishPrompt!: () => void;
+    let emit!: Parameters<CodingSession["subscribe"]>[0];
+    const session: CodingSession = {
+      messages: [],
+      prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
+      abort: async () => { finishPrompt(); },
+      dispose: () => {},
+      subscribe: (listener) => { emit = listener; return () => {}; },
+    };
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-snapshot-race-")), createSession: async () => session });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations`, payload: {} })).json();
+    await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Inspect" } });
+    await expect.poll(() => typeof emit).toBe("function");
+    const originalView = ConversationManager.prototype.view;
+    let reads = 0;
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => { release = resolve; });
+    const spy = vi.spyOn(ConversationManager.prototype, "view").mockImplementation(async function (this: ConversationManager, project, stored) {
+      const view = await originalView.call(this, project, stored);
+      if (++reads === 3) await paused;
+      return view;
+    });
+    try {
+      const loading = app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}` });
+      await expect.poll(() => reads).toBe(3);
+      emit({ type: "message_update", message: {} as never,
+        assistantMessageEvent: { type: "text_start", contentIndex: 0, partial: {} as never } });
+      emit({ type: "message_update", message: {} as never,
+        assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "During read", partial: {} as never } });
+      release();
+      const detail = (await loading).json();
+      expect(detail.turns.flatMap((turn: { items: unknown[] }) => turn.items)).toContainEqual(expect.objectContaining({
+        type: "agentMessage", text: "During read",
+      }));
+      expect(detail.cursor).toBeGreaterThan(1);
+    } finally {
+      release();
+      spy.mockRestore();
+      finishPrompt();
+    }
   });
 });
 

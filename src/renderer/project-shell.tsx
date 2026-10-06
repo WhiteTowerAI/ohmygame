@@ -8,6 +8,7 @@ import {
   X,
 } from "./icons.js";
 import {
+  Activity,
   useEffect,
   useCallback,
   useReducer,
@@ -108,10 +109,10 @@ export function ProjectShell({
   const [agentCollapsed, setAgentCollapsed] = useState(view === "design");
   const [designOpen, setDesignOpen] = useState(view === "design");
   useEffect(() => { setDesignOpen(view === "design"); }, [view]);
-  function changeWorkspaceView(open: boolean): void {
+  const changeWorkspaceView = useCallback((open: boolean): void => {
     setDesignOpen(open);
     onViewChange?.(open ? "design" : "workspace");
-  }
+  }, [onViewChange]);
   const [godotWorkspaceOpen, setGodotWorkspaceOpen] = useState(readGodotWorkspaceOpen);
   const [agentWidth, setAgentWidth] = useState(readAgentWidth);
   const [chatLayout] = useState<ChatLayout>(readChatLayout);
@@ -352,8 +353,11 @@ export function ProjectShell({
 
   useEffect(() => {
     const element = timeline.current;
-    if (element && followTimeline.current) element.scrollTop = element.scrollHeight;
-  }, [state.turns]);
+    if (element && followTimeline.current && (state.project?.type === "godot-game" || !agentCollapsed)) {
+      const frame = requestAnimationFrame(() => { element.scrollTop = element.scrollHeight; });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [state.turns, agentCollapsed, state.project?.type]);
 
   useEffect(() => {
     const element = timeline.current;
@@ -530,7 +534,7 @@ export function ProjectShell({
     }
   }
 
-  async function revisePrompt(nextPrompt: string): Promise<boolean> {
+  const revisePrompt = useCallback(async (nextPrompt: string): Promise<boolean> => {
     if (!project || !conversation || agentBusy || state.pendingPrompts.length > 0 || state.connection !== "open") return false;
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
@@ -541,7 +545,7 @@ export function ProjectShell({
       dispatch({ type: "notice", message: errorMessage(error) });
       return false;
     }
-  }
+  }, [project, conversation, agentBusy, state.pendingPrompts.length, state.connection]);
 
   async function stopAgent() {
     const turnId = activeTurn?.id;
@@ -684,18 +688,19 @@ export function ProjectShell({
     });
   }
 
-  function setGodotWorkspaceVisibility(open: boolean): void {
+  const setGodotWorkspaceVisibility = useCallback((open: boolean): void => {
     setGodotWorkspaceOpen(open);
     localStorage.setItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY, String(open));
-  }
+  }, []);
 
   const isGodotProject = project?.type === "godot-game";
 
-  function openWorkspaceFile(path: string): void {
+  const openWorkspaceFile = useCallback((path: string): void => {
     changeWorkspaceView(false);
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
     if (isGodotProject) setGodotWorkspaceVisibility(true);
-  }
+  }, [changeWorkspaceView, isGodotProject, setGodotWorkspaceVisibility]);
+  const addToChat = useCallback((text: string) => setChatReference({ text }), []);
 
   const agentIsCollapsed = !isGodotProject && agentCollapsed;
   const viewerCollapsed = isGodotProject && !godotWorkspaceOpen && !designOpen;
@@ -774,16 +779,18 @@ export function ProjectShell({
         >
           <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
-            <AgentTimeline
-              turns={state.turns}
-              projectId={projectId}
-              workspacePath={project?.workspacePath}
-              onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
-              revisionDisabled={agentBusy || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
-              waitingForInput={Boolean(questionnaire)}
-              onRevise={revisePrompt}
-              onAddToChat={(text) => setChatReference({ text })}
-            />
+            <Activity mode={agentIsCollapsed ? "hidden" : "visible"}>
+              <AgentTimeline
+                turns={state.turns}
+                projectId={projectId}
+                workspacePath={project?.workspacePath}
+                onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
+                revisionDisabled={agentBusy || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
+                waitingForInput={Boolean(questionnaire)}
+                onRevise={revisePrompt}
+                onAddToChat={addToChat}
+              />
+            </Activity>
           </div>
 
           {questionnaire ? (

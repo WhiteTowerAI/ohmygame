@@ -567,6 +567,15 @@ export async function getWorkspaceFile(projectId: string, filePath: string): Pro
   return request(`/projects/${projectId}/files/content?path=${encodeURIComponent(filePath)}`);
 }
 
+export async function getConversationImage(url: string, signal?: AbortSignal): Promise<Blob> {
+  if (!/^\/projects\/[^/]+\/conversation-images\/[a-f0-9]{64}\.(png|jpg|webp|gif)$/.test(url)) {
+    throw new Error("Invalid conversation image reference");
+  }
+  const response = await fetch(apiUrl(url), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
 export async function getWorkspaceAsset(projectId: string, filePath: string): Promise<Blob> {
   const response = await fetch(apiUrl(`/projects/${projectId}/files/raw?path=${encodeURIComponent(filePath)}`), {
     headers: runtimeHeaders(),
@@ -797,7 +806,11 @@ async function streamProjectEvents(
         throw new ApiError(`Event stream failed with ${response.status}`, response.status);
       }
       handlers.onOpen();
-      cursor = await consumeEventStream(response.body, cursor, handlers.onEvent, signal);
+      await consumeEventStream(response.body, (event) => {
+        if (event.id <= cursor) return;
+        cursor = Math.max(cursor, event.id);
+        handlers.onEvent(event);
+      }, signal);
       if (!signal.aborted) handlers.onError();
     } catch {
       if (signal.aborted) return;
@@ -820,9 +833,12 @@ async function streamModelAuthEvents(
         signal,
       });
       if (!response.ok || !response.body) throw new ApiError(`Authentication stream failed with ${response.status}`, response.status);
-      const result = await consumeModelAuthStream(response.body, cursor, handlers.onEvent, signal);
-      cursor = result.cursor;
-      if (result.finished || signal.aborted) return;
+      const finished = await consumeModelAuthStream(response.body, (event) => {
+        if (event.id <= cursor) return;
+        cursor = Math.max(cursor, event.id);
+        handlers.onEvent(event);
+      }, signal);
+      if (finished || signal.aborted) return;
     } catch {
       if (signal.aborted) return;
       handlers.onError();
@@ -833,13 +849,11 @@ async function streamModelAuthEvents(
 
 async function consumeModelAuthStream(
   body: ReadableStream<Uint8Array>,
-  initialCursor: number,
   onEvent: (event: ModelAuthEvent) => void,
   signal: AbortSignal,
-): Promise<{ cursor: number; finished: boolean }> {
+): Promise<boolean> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let cursor = initialCursor;
   let buffer = "";
   let finished = false;
   try {
@@ -852,7 +866,6 @@ async function consumeModelAuthStream(
       for (const block of blocks) {
         const event = parseModelAuthEvent(block);
         if (!event) continue;
-        cursor = Math.max(cursor, event.id);
         onEvent(event);
         if (event.type === "completed" || event.type === "cancelled" || event.type === "error") finished = true;
       }
@@ -860,18 +873,16 @@ async function consumeModelAuthStream(
   } finally {
     reader.releaseLock();
   }
-  return { cursor, finished };
+  return finished;
 }
 
 async function consumeEventStream(
   body: ReadableStream<Uint8Array>,
-  initialCursor: number,
   onEvent: (event: RuntimeEvent) => void,
   signal: AbortSignal,
-): Promise<number> {
+): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let cursor = initialCursor;
   let buffer = "";
   try {
     while (!signal.aborted) {
@@ -883,14 +894,12 @@ async function consumeEventStream(
       for (const block of blocks) {
         const event = parseRuntimeEvent(block);
         if (!event) continue;
-        cursor = Math.max(cursor, event.id);
         onEvent(event);
       }
     }
   } finally {
     reader.releaseLock();
   }
-  return cursor;
 }
 
 function parseRuntimeEvent(block: string): RuntimeEvent | undefined {
