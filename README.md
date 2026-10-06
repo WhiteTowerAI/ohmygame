@@ -62,6 +62,9 @@ have.
 <!-- Playtesting is open loop for now: the agent plans a batch of inputs, runs
 them, then looks at the result. It has no real-time reflexes yet. -->
 
+**▶ The agent playtesting a new item feature on desktop and mobile, then reporting
+what it found (sped up 4×).**
+
 https://github.com/user-attachments/assets/3cb982e8-a4a8-4715-bf3c-df4e41e7855b
 
 ### 🎨 Canvas: design docs, art, video, and 3D on one board
