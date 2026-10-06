@@ -35,8 +35,10 @@ export function resolveModel3D(model: unknown): Model3DModel | undefined {
   return MODEL_3D_MODELS.find((candidate) => candidate.provider === provider && candidate.id === id);
 }
 
-/** Meshy merges at most this many library actions into one animated file. */
-export const MAX_ANIMATION_ACTIONS = 10;
+/** Meshy rejects animation requests with more library actions than this; larger sets are split across requests. */
+export const ANIMATION_ACTIONS_PER_REQUEST = 10;
+/** Every request reuses one rig and the results are merged into a single GLB, so this only bounds spend per run. */
+export const MAX_ANIMATION_ACTIONS = 30;
 export const DEFAULT_CHARACTER_HEIGHT_METERS = 1.7;
 /** A game-ready starter set from Meshy's library: Idle, Casual Walk, Run Fast, Regular Jump, Attack, Hit Reaction, Dead. */
 export const DEFAULT_ANIMATION_ACTION_IDS: readonly number[] = [0, 30, 16, 466, 4, 178, 8];

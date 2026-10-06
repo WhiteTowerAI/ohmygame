@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AssetCanvasNode } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
+import { MAX_ANIMATION_ACTIONS } from "../src/shared/generation-config.js";
 
 describe("Asset Canvas document", () => {
   it("creates an empty valid canvas", () => {
@@ -36,7 +37,7 @@ describe("Asset Canvas document", () => {
 
     canvas.nodes[0] = { id: "model-generator", type: "text", position: { x: 80, y: 120 }, data: { text: "", instruction: "" } };
     expect(isAssetCanvasDocument(canvas)).toBe(false);
-    canvas.nodes = [{ ...animate, data: { heightMeters: 1.7, actionIds: Array.from({ length: 11 }, (_, index) => index) } }];
+    canvas.nodes = [{ ...animate, data: { heightMeters: 1.7, actionIds: Array.from({ length: MAX_ANIMATION_ACTIONS + 1 }, (_, index) => index) } }];
     canvas.editorLayout.nodes = { animate: { x: 560, y: 120 } };
     expect(isAssetCanvasDocument(canvas)).toBe(false);
   });

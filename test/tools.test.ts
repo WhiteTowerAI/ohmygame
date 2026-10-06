@@ -6,6 +6,7 @@ import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import { ToolRunner } from "../src/daemon/tools.js";
+import { MAX_ANIMATION_ACTIONS } from "../src/shared/generation-config.js";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
@@ -105,7 +106,7 @@ describe("tool runner", () => {
 
     await expect(runner.run("animate-3d", { assetId: model.id, actionIds: [] })).rejects.toMatchObject({ statusCode: 400 });
     await expect(runner.run("animate-3d", { assetId: model.id, actionIds: [1, 1] })).rejects.toMatchObject({ statusCode: 400 });
-    await expect(runner.run("animate-3d", { assetId: model.id, actionIds: Array.from({ length: 11 }, (_, index) => index) })).rejects.toMatchObject({ statusCode: 400 });
+    await expect(runner.run("animate-3d", { assetId: model.id, actionIds: Array.from({ length: MAX_ANIMATION_ACTIONS + 1 }, (_, index) => index) })).rejects.toMatchObject({ statusCode: 400 });
     await expect(runner.run("animate-3d", { assetId: image.id, actionIds: [0] })).rejects.toMatchObject({ statusCode: 400, message: "Only GLB models can be animated" });
     await expect(runner.run("animate-3d", { assetId: "missing", actionIds: [0] })).rejects.toMatchObject({ statusCode: 404 });
     const withoutAnimation = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn() }, undefined, library);
