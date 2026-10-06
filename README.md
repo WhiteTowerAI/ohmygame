@@ -103,11 +103,11 @@ rather than reading diffs. Close the app, come back, and the project,
 conversation, and context are still there. You describe, review, and steer;
 editing by hand is always possible, but it is not the main path.
 
-**2 · Every workspace is files.** A web game is a normal web project. An Asset
-Canvas and Design share JSON boards, Markdown documents and local media under
-`canvas/`. An interactive story is a node graph on disk. Each
-comes with an `AGENTS.md` and JSON schemas, so the agent edits them the same
-way it edits code, and the visual editors read and write the same files.
+**2 · Every workspace is files.** A web game is a normal web project. A design
+doc is Markdown, and boards and the Asset Canvas share one JSON node model. An
+interactive story is a node graph on disk. Each comes with an `AGENTS.md` and
+JSON schemas, so the agent edits them the same way it edits code, and the
+visual editors read and write the same files.
 
 **3 · Game-specific tools.** On top of Pi's coding tools, the agent can play
 the game it built (`game_use`), generate images, video, and 3D models, add and
@@ -159,6 +159,10 @@ npm run dev:desktop    # Electron app
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md#configuration) for configuration.
+
+Design and Asset Canvas share boards, Markdown documents, and local media
+under `canvas/`. See [Canvas workspace](docs/canvas-agent.md) for the file
+contract and offline migration instructions.
 
 ## Privacy
 
