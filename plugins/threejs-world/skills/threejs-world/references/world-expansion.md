@@ -10,10 +10,11 @@ List the major regions, main routes, and hero subjects first. Identify which reg
 
 ## 2. Develop every major region and hero subject
 
-Organize the expansion into chapters suited to the inventory and develop each item individually. Resolve all of these dimensions for each major region or hero subject:
+Organize the expansion into chapters suited to the inventory. Develop every major region and its core subjects individually; a region overview does not replace the design of its buildings, structures, or other defining subjects. Let depth follow complexity and expected viewing distance, preserving intentional negative space and simpler distant areas. Resolve the dimensions below for these major items, applying support requirements where relevant; minor props do not need separate specifications:
 
 - **Placement:** location, orientation, approximate scale, and spatial relationships to neighboring regions, routes, and subjects.
 - **Form and structure:** distinctive silhouette, proportions, construction or anatomy, component parts, and how those parts connect or support one another.
+- **Foundations and support:** where applicable, how the subject meets sloping terrain or another bearing surface, what carries raised parts, and where suspended parts attach. Decide these relationships for the particular subject rather than applying every support type to every object.
 - **Surroundings and activity:** nearby objects, vegetation, activities, and traces of use. Explain why they occur here and how their distribution follows the activity or environment.
 - **Materials and surfaces:** material transitions, color, roughness, texture scale, local variation, wear, stains, repairs, and cleaner or protected areas where the setting calls for them.
 - **Close-range detail:** visible parts, textures, edges, seams, fittings, or small objects that reward inspection, and where they sit on or around the subject.
@@ -21,7 +22,13 @@ Organize the expansion into chapters suited to the inventory and develop each it
 - **Viewing experience:** the routes and camera angles from which its important features become visible, including near views and the relationship to the arrival view.
 - **Realization and acceptance:** a suitable Three.js direction for geometry, assets, materials, and motion, plus the review views that must show it. Keep implementation techniques flexible while resolving the intended appearance.
 
-Details must become visible experience. Explain how elements meet, overlap, weather, or support an activity; do not substitute generic adjectives or unrelated props for these decisions. High detail can be stylized and does not require identical weathering or clutter everywhere.
+Details must become visible experience. Write appearance decisions as a part, its specific form or material, its connection to neighboring parts, and a position from which it can be seen. Locate wear at a wall foot or water-facing surface; describe where fabric sags, how its edge hangs, and where it is fastened. Generic adjectives such as "weathered," "fabric," or "detailed" do not resolve those decisions. High detail can be stylized and does not require identical weathering or clutter everywhere.
+
+For example, "a detailed hillside tavern with a thatched roof and supplies outside" leaves the main decisions open. A resolved version could read:
+
+> The tavern faces the walking path. Its porch roof extends farther toward the path, giving the eaves an asymmetric outline. Overlapping thatch layers expose bundled edges and lashings along the eaves; purlins connect the roof to the porch posts. A stepped foundation follows the slope, exposing a stone base on the low side. Post feet sit on this base, and entrance steps meet the path. Supplies cluster beside the posts while leaving the passage clear. The approach reveals the uneven roofline; a close side view shows thatch layers, beam-to-post joints, and the continuous wall foundation.
+
+This demonstrates resolved relationships, not a required theme, building, or material palette.
 
 ## 3. Connect the scales and the journey
 
@@ -40,9 +47,11 @@ Read [the presentation guide](presentation.md) and resolve the presentation alon
 
 ## 5. Check completeness before coding
 
-Review the inventory against the expanded chapters and acceptance views. If implementation would still require inventing the spatial layout, hero structure, material relationships, key routes, or presentation hierarchy, the expansion has not passed. Return to the relevant chapter and resolve those decisions first. Choosing implementation techniques while coding is expected; inventing missing scene design is not.
+Include a concise **key visible features** table in `.world/expanded-prompt.md`, organized by major region and core subject. Use object and feature names, the specific design feature, a likely implementation direction, the near-view observation position, and applicable grounding or support points. Cover every major region, explicit user requirement, and defining feature; do not select only easy features. The table indexes the prose and does not cancel other commitments in it. Keep it in the existing design document without a new ID scheme or separate specification.
 
-Judge completeness by resolved decisions and their observable consequences, never by word count, chapter count, or prop count. This check is your own responsibility and does not add a user approval step.
+Review the inventory against the expanded chapters, feature table, and acceptance views. Each core subject should answer: what form does it have, how do its parts connect, where are its details, and from where can they be seen? If implementation would still require inventing the spatial layout, key appearance, support relationships, materials, key routes, or presentation hierarchy, return to the relevant chapter and resolve those decisions first. Ordinary modeling parameters and implementation techniques can be chosen while coding.
+
+Judge completeness by resolved decisions and their observable consequences, never by word count, line count, chapter count, or prop count. This check is your own responsibility and does not add a user approval step.
 
 ## Two examples of transferable depth
 
@@ -55,7 +64,7 @@ Judge completeness by resolved decisions and their observable consequences, neve
 Save the design in a `.world/` directory at the workspace root. Hidden directories stay out of OhMyGame publish archives, so the design never ships with the world.
 
 - `.world/request.md`: the user's original request, verbatim, with later revision requests appended.
-- `.world/expanded-prompt.md`: the self-contained design and the source of truth for the scene. Open with a short note separating what came from the user and what you inferred. If implementation forces a substantive design change, record the change and the reason rather than silently dropping it.
+- `.world/expanded-prompt.md`: the self-contained design, including the key visible features table, and the source of truth for the scene. Open with a short note separating what came from the user and what you inferred. If implementation forces a substantive design change, retain the original requirement and record the replacement, reason, and impact rather than silently dropping it. Follow [the world contract](world-contract.md) when carrying these decisions into implementation.
 - `.world/scene-summary.json`: a short index of the design.
 
 ```json
