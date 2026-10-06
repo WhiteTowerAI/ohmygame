@@ -107,7 +107,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       const compactedAt = Date.parse(entry.timestamp);
       items.push({
         id: entry.id,
-        turnId: entry.id,
+        turnId: turnId ?? entry.id,
         type: "contextCompaction",
         status: "completed",
         summary: entry.summary,

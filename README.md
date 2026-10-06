@@ -168,6 +168,10 @@ npm run dev:desktop    # Electron app
 
 See [CONTRIBUTING.md](CONTRIBUTING.md#configuration) for configuration.
 
+Design and Asset Canvas share boards, Markdown documents, and local media
+under `canvas/`. See [Canvas workspace](docs/canvas-agent.md) for the file
+contract and offline migration instructions.
+
 ## Privacy
 
 Your projects and keys stay on your machine. Prompts and generation requests go

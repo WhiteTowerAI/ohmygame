@@ -1,0 +1,196 @@
+.home-nav-icon-godot {
+  mask-image: url("./assets/godot-outline.svg");
+  -webkit-mask-image: url("./assets/godot-outline.svg");
+}
+
+.home-nav-symbol {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  place-items: center;
+}
+
+.home-nav-item-active .home-nav-symbol {
+  color: var(--home-accent);
+}
+
+.game-studio-home {
+  min-width: 0;
+}
+
+.studio-section-heading {
+  display: flex;
+  min-height: 28px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.studio-section-heading h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.studio-text-link {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.studio-text-link:hover {
+  color: var(--text);
+}
+.studio-projects {
+  width: 100%;
+  max-width: 1096px;
+  margin: 48px auto 0;
+}
+.studio-project-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.studio-project-grid .project-card {
+  min-height: 0;
+}
+.studio-project-grid .project-card-actions {
+  top: auto;
+  right: 0;
+  bottom: 0;
+}
+.studio-project-grid .project-card-meta {
+  padding-right: 38px;
+}
+.studio-project-skeleton {
+  min-height: 170px;
+  background: var(--surface-hover);
+  border-radius: 6px;
+}
+.studio-examples .home-whats-new-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.studio-examples .home-whats-new-item {
+  height: auto;
+  min-height: 162px;
+  border-radius: 6px;
+}
+.studio-examples .home-whats-new-copy {
+  width: 100%;
+}
+.home-recent .home-section-heading,
+.home-explore .home-section-heading {
+  margin-bottom: 12px;
+}
+.home-content-fitted .home-explore {
+  margin-top: 28px;
+}
+.projects-type-filter {
+  min-width: 0;
+  max-width: 160px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--search-border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+}
+.projects-controls,
+.projects-controls .projects-search {
+  min-width: 0;
+}
+.game-studio-home :is(a, button):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+@media (max-width: 1050px) {
+  .studio-project-grid,
+  .studio-examples .home-whats-new-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .home-shell:has(> .home-sidebar > nav[aria-label="Main navigation"]) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 52px minmax(0, 1fr);
+  }
+  .home-sidebar:has(> nav[aria-label="Main navigation"]) {
+    min-width: 0;
+    flex-direction: row;
+  }
+  .home-sidebar > nav[aria-label="Main navigation"] {
+    min-width: 0;
+    flex: 1;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .home-sidebar:has(> nav[aria-label="Main navigation"])
+    .home-sidebar-header-spacer {
+    display: none;
+  }
+  .home-nav-item {
+    flex: 0 0 auto;
+  }
+  .studio-project-grid {
+    gap: 12px;
+  }
+  .studio-examples .home-whats-new-grid {
+    gap: 12px;
+  }
+  .studio-examples .home-whats-new-item {
+    min-height: 0;
+    max-width: none;
+  }
+  .studio-examples .home-whats-new-copy {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+  .projects-controls {
+    flex-wrap: wrap;
+  }
+  .projects-controls .projects-search {
+    width: auto;
+    flex: 1 1 140px;
+  }
+  .projects-type-filter {
+    flex: 0 1 150px;
+  }
+}
+
+@media (max-width: 460px) {
+  .home-sidebar .home-nav-item {
+    position: relative;
+    min-width: 36px;
+    min-height: 36px;
+    justify-content: center;
+  }
+  .home-sidebar .home-nav-item :is(.home-nav-icon, .home-nav-symbol) {
+    position: static;
+    width: 16px;
+    height: 16px;
+    overflow: visible;
+    clip: auto;
+  }
+}
+
+@media (max-width: 400px) {
+  .studio-project-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -51,7 +51,7 @@
 .design-ai-result-preview { max-height: 260px; overflow: auto; padding: 8px 0; }
 .design-ai-result footer { display: flex; justify-content: flex-end; gap: 4px; }
 .design-modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; z-index: 1300; padding: 16px; background: rgb(0 0 0 / 35%); }
-.design-modal { width: 400px; max-width: 100%; max-height: calc(100dvh - 32px); overflow: auto; border-radius: 8px; background: var(--menu-surface); padding: 14px; color: var(--text); box-shadow: var(--menu-shadow), 0 0 0 0.5px var(--border); }
+.design-modal { width: min(400px, calc(100vw - 32px)); min-width: 0; max-height: calc(100dvh - 32px); overflow: auto; border-radius: 8px; background: var(--menu-surface); padding: 14px; color: var(--text); box-shadow: var(--menu-shadow), 0 0 0 0.5px var(--border); }
 .design-modal > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .design-modal h2 { margin: 0; font-size: 13px; font-weight: 500; }
 .design-modal label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; font-size: 11px; color: var(--text-muted); }
@@ -70,4 +70,49 @@
   .design-expanded-toolbar > svg { display: none; }
   .design-expanded-body.is-split { grid-template-columns: minmax(0, 1fr); grid-template-rows: repeat(2, minmax(0, 1fr)); }
   .design-expanded-body > textarea, .design-expanded-preview { padding: 16px; }
+}
+.canvas-node-label > svg {
+  flex-shrink: 0;
+}
+.canvas-node-label > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-node-details {
+  display: grid;
+  place-items: center;
+  flex: 0 0 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  opacity: 0;
+  cursor: pointer;
+}
+.story-node:hover .canvas-node-details,
+.canvas-node-details:focus-visible {
+  opacity: 1;
+}
+.canvas-node-details:hover {
+  background: var(--surface-hover);
+}
+.canvas-node-id {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.design-modal label textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
 }

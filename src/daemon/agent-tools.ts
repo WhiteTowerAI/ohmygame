@@ -14,6 +14,9 @@ import { createGameUseTool } from "./playtest-tools.js";
 import { addPlayableNode } from "./playable-add-node.js";
 import { validatePlayableProject } from "./playable-project.js";
 import { PLAYABLE_PRESET_IDS, PLAYABLE_PRESETS } from "./playable-presets.js";
+import { checkCanvasWorkspace } from "./canvas-check.js";
+import type { CanvasStore } from "./canvas-workspace.js";
+import { readCanvasAssets } from "./canvas-assets.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -21,12 +24,12 @@ const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-video": "generate_video",
   "animate-3d": "animate_3d_asset",
 };
-const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin"]);
+const PI_BUILTIN_TOOL_NAMES = new Set(["read", "write", "edit", "bash", "grep", "find", "ls", "web_search", "update_plan", "questionnaire", "install_plugin", "generate_canvas_media"]);
 
 export function activePiToolNames(enabledTools: readonly ToolId[], registeredToolNames: readonly string[] = [], webSearchEnabled = true): string[] {
   const ohMyGameToolNames = new Set(Object.values(PI_TOOL_NAMES));
   const extensionTools = registeredToolNames.filter((name) => !ohMyGameToolNames.has(name) && !PI_BUILTIN_TOOL_NAMES.has(name));
-  return [...new Set([...extensionTools, "read", "write", "edit", "bash", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id])])];
+  return [...new Set([...extensionTools, "read", "write", "edit", "bash", ...(webSearchEnabled ? ["web_search"] : []), "update_plan", "install_plugin", ...enabledTools.map((id) => PI_TOOL_NAMES[id]), ...(enabledTools.length && registeredToolNames.includes("generate_canvas_media") ? ["generate_canvas_media"] : [])])];
 }
 
 export function planningPiToolNames(webSearchEnabled = true): string[] {
@@ -40,7 +43,7 @@ export function projectPiToolNames(
   webSearchEnabled = true,
 ): string[] {
   return mode === "planning"
-    ? planningPiToolNames(webSearchEnabled)
+    ? [...planningPiToolNames(webSearchEnabled), ...(registeredToolNames.includes("canvas_check") ? ["canvas_check"] : [])]
     : activePiToolNames(enabledTools, registeredToolNames, webSearchEnabled);
 }
 
@@ -68,6 +71,7 @@ export function createAgentTools(
   installPlugin?: InstallPlugin,
   playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: () => Promise<GameUseOpenTarget> },
   searchWeb?: SearchWeb,
+  canvasStore?: CanvasStore,
 ): PiToolDefinition[] {
   return [defineTool({
     name: "questionnaire",
@@ -399,6 +403,43 @@ export function createAgentTools(
           ...issues.map((issue) => `- [${issue.phase}] ${issue.surfaceId ? `${issue.surfaceId} ` : ""}${issue.path}: ${issue.message} (${issue.code})`),
         ].join("\n");
       return { content: [{ type: "text", text }], details: { playableCheck: { mode, ok: result.ok, issues } } };
+    },
+  })] : []), defineTool({
+    name: "canvas_check",
+    label: "Check Canvas",
+    description: "Validate the canvas workspace files, node/document references and local media paths. Run after editing canvas files and fix every reported issue. This tool only reads files.",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, _input, signal) => {
+      signal?.throwIfAborted();
+      const result = await checkCanvasWorkspace(project.workspacePath);
+      return { content: [{ type: "text", text: result.ok ? "Canvas files and references are valid." : result.issues.map((issue) => `${issue.file}: ${issue.message}`).join("\n") }], details: { canvasCheck: result } };
+    },
+  }), ...(canvasStore ? [defineTool({
+    name: "generate_canvas_media",
+    label: "Generate Canvas Media",
+    description: "Generate the saved image, video, 3D or animation node using its current prompt, model and references. Use only when the user requests generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
+    parameters: Type.Object({ boardId: Type.String({ minLength: 1, maxLength: 100 }), nodeId: Type.String({ minLength: 1, maxLength: 120 }) }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const job = await canvasStore.generateNode(project.id, input.boardId, input.nodeId);
+      const cancel = () => { void canvasStore.cancel(project.id, job.id).catch(() => {}); };
+      signal?.addEventListener("abort", cancel, { once: true });
+      if (signal?.aborted) cancel();
+      try {
+        let current = job;
+        while (current.status === "running") {
+          signal?.throwIfAborted();
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          const next = (await canvasStore.jobs(project.id)).find((candidate) => candidate.id === job.id);
+          if (!next) throw new Error("Generation job is no longer available");
+          current = next;
+        }
+        signal?.throwIfAborted();
+        if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
+        const manifest = await readCanvasAssets(project.workspacePath);
+        const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
+        return { content: [{ type: "text", text: `Generated media for node ${input.nodeId}. Saved: ${paths.join(", ")}. Read relevant image files to inspect the actual result.` }], details: { canvasGeneration: current } };
+      } finally { signal?.removeEventListener("abort", cancel); }
     },
   })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type)
     ? [createGameUseTool(playtest.driver, playtest.resolveOpenTarget, { bridge: project.type === "interactive-story" ? "reset" : "full" })]

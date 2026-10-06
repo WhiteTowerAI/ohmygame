@@ -43,5 +43,5 @@ export function promptContextLabels(privateContext: string): PromptContextLabel[
 function isPromptContextLabel(value: unknown): value is PromptContextLabel {
   if (!value || typeof value !== "object") return false;
   const item = value as Partial<PromptContextLabel>;
-  return (item.kind === "playable-node" || item.kind === "playable-element" || item.kind === "playable-drawing" || item.kind === "playable-asset" || item.kind === "design-document") && typeof item.label === "string";
+  return (item.kind === "playable-node" || item.kind === "playable-element" || item.kind === "playable-drawing" || item.kind === "playable-asset" || item.kind === "design-document" || item.kind === "canvas-board") && typeof item.label === "string";
 }

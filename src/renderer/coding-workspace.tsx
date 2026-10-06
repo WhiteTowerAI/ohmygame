@@ -42,7 +42,7 @@ import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
-const GameDesignWorkspace = lazy(() => import("./game-design-workspace.js").then((module) => ({ default: module.GameDesignWorkspace })));
+const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 type WorkspaceContextMenu = { path: string; directory: boolean; x: number; y: number };
 interface CodingWorkspaceProps {
   project?: ProjectState;
@@ -57,6 +57,7 @@ interface CodingWorkspaceProps {
   designOpen?: boolean;
   onDesignOpenChange?: (open: boolean) => void;
   onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
+  onDesignContextChange?: (context: import("../shared/contracts.js").PromptContext | undefined) => void;
   onProjectUpdated?: (project: ProjectState) => void;
   onClose?: () => void;
   openFileRequest?: { path: string; id: number };
@@ -79,6 +80,7 @@ export function CodingWorkspace({
   designOpen = false,
   onDesignOpenChange,
   onDesignSaveReady,
+  onDesignContextChange,
   onProjectUpdated,
   onClose,
   openFileRequest,
@@ -306,8 +308,8 @@ export function CodingWorkspace({
         </div>
       </header>
 
-      {designOpen && project ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><GameDesignWorkspace
-        project={project} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady}
+      {designOpen && project ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+        project={project} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : null}
 
       {supportsPreview ? (
@@ -396,7 +398,7 @@ function PreviewControls({
         onRefresh={onRefresh}
       />
       {agentPlaytestWatch ? (
-        <button className="icon-button quiet-button preview-agent-watch-button" type="button" aria-label={agentPlaytestWatch.visible ? "Hide Agent playtest window" : "Show Agent playtests when they run"} aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending} title={agentPlaytestWatch.visible ? "Hide Agent playtest window" : "Show Agent playtests when they run"} onClick={onToggleAgentPlaytestWatch}>
+        <button className={`icon-button pane-header-action preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`} type="button" aria-label={agentPlaytestWatch.visible ? "Hide Agent playtest window" : "Show Agent playtests when they run"} aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending} data-tooltip={agentPlaytestWatch.visible ? "Hide Agent playtest window" : "Show Agent playtests when they run"} onClick={onToggleAgentPlaytestWatch}>
           <Video size={15} />
         </button>
       ) : null}

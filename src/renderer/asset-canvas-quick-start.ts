@@ -1,6 +1,7 @@
 import type { ImageModel, ProjectState, VideoModel } from "../shared/contracts.js";
 import { createAssetCanvasStarterDocument, preferredImageOption, type AssetCanvasStarter } from "../shared/asset-canvas.js";
-import { createProject, deleteProject, listImageModels, listVideoModels, updateAssetCanvas, waitForRuntime } from "./api.js";
+import { createProject, deleteProject, listImageModels, listVideoModels, waitForRuntime } from "./api.js";
+import { getCanvasWorkspace, getCanvasBoard, saveCanvasBoard } from "./canvas-api.js";
 
 export interface AssetCanvasQuickStart {
   key: string;
@@ -51,7 +52,9 @@ export async function createAssetCanvasQuickStart(item: AssetCanvasQuickStart): 
   const { document, nodeId } = createAssetCanvasStarterDocument(item.type, starterOptions(item, await modelsFor(item)));
   const project = await createProject({ type: "asset-canvas" });
   try {
-    await updateAssetCanvas(project.id, document);
+    const workspace = await getCanvasWorkspace(project.id);
+    const current = await getCanvasBoard(project.id, workspace.boards[0]!.id);
+    await saveCanvasBoard(project.id, { board: { ...document, id: current.board.id }, revision: current.revision });
   } catch (cause) {
     try {
       await deleteProject(project.id);

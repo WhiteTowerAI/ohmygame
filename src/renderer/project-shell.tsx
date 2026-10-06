@@ -13,6 +13,8 @@ import {
   useReducer,
   useRef,
   useState,
+  lazy,
+  Suspense,
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
@@ -49,7 +51,6 @@ import { AgentTimeline } from "./agent-timeline.js";
 import type { ChatReference } from "./chat-reference.js";
 import { formatChatPrompt } from "./chat-reference.js";
 import { CodingWorkspace } from "./coding-workspace.js";
-import { AssetCanvasWorkspace } from "./asset-canvas-workspace.js";
 import { PlayableEditorWorkspace } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
@@ -79,6 +80,7 @@ interface ProjectShellProps {
 }
 
 const DEFAULT_AGENT_WIDTH = 430;
+const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 const MIN_AGENT_WIDTH = 320;
 const AGENT_WIDTH_STORAGE_KEY = "ohmygame-agent-width";
 const GODOT_WORKSPACE_OPEN_STORAGE_KEY = "ohmygame-godot-workspace-open";
@@ -129,6 +131,8 @@ export function ProjectShell({
   const [promptRequest, setPromptRequest] = useState<{ text: string; id: number }>();
   const saveDesign = useRef<(() => Promise<void>) | undefined>(undefined);
   const registerDesignSave = useCallback((save: (() => Promise<void>) | undefined) => { saveDesign.current = save; }, []);
+  const [designContext, setDesignContext] = useState<PromptContext>();
+  const [dismissedDesign, setDismissedDesign] = useState<string>();
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   usePlaytestAskRequests(state.project?.id, (text) => {
     setAgentCollapsed(false);
@@ -412,8 +416,11 @@ export function ProjectShell({
     ? activePlanItem.plan
     : state.plan.mode !== "normal" ? state.plan.plan : undefined;
 
-  const playableSurface = playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
-  const chatContexts = [playableSurface?.chip, ...(playableChat?.attachments ?? []).map((attachment) => attachment.chip)].filter((chip) => chip !== undefined);
+  const canvasOpen = designOpen || project?.type === "asset-canvas";
+  const playableSurface = !canvasOpen && playableChat?.surface && playableChat.surface.key !== dismissedSurface ? playableChat.surface : undefined;
+  const designChipKey = designContext ? `design:${designContext.text}` : undefined;
+  const currentDesignContext = canvasOpen && designChipKey !== dismissedDesign ? designContext : undefined;
+  const chatContexts = [playableSurface?.chip, ...(!canvasOpen ? playableChat?.attachments ?? [] : []).map((attachment) => attachment.chip), ...(currentDesignContext ? [{ key: designChipKey!, kind: currentDesignContext.kind, label: currentDesignContext.label }] : [])].filter((chip) => chip !== undefined);
 
   async function submitPrompt(nextPrompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[] = [], references: PromptReference[] = [], designContexts: PromptContext[] = []): Promise<boolean> {
     if (!project || !conversation) return false;
@@ -422,12 +429,12 @@ export function ProjectShell({
     try {
       await saveDesign.current?.();
       const surface = playableSurface;
-      const previewContexts = playableChat?.attachments ?? [];
+      const previewContexts = !canvasOpen ? playableChat?.attachments ?? [] : [];
       const previewImage = previewContexts.length ? await playableChat?.capture().catch(() => undefined) : undefined;
       const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
       const sentImages = previewImage ? [...images, previewImage] : images;
       const allReferences = [...(surface?.references ?? []), ...references.filter((reference) => !(surface?.references ?? []).some((current) => current.path === reference.path))];
-      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts]);
+      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : [])]);
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
       setChatReference(undefined);
       if (previewContexts.length) playableChat?.clearAttachments();
@@ -669,7 +676,12 @@ export function ProjectShell({
   }
 
   function requestHome(): void {
-    if (confirmNavigation()) onHome();
+    if (!confirmNavigation()) return;
+    const save = saveDesign.current;
+    if (!save) { onHome(); return; }
+    void save().then(onHome).catch((cause) => {
+      dispatch({ type: "notice", message: errorMessage(cause) });
+    });
   }
 
   function setGodotWorkspaceVisibility(open: boolean): void {
@@ -825,7 +837,8 @@ export function ProjectShell({
             onClearReference={() => setChatReference(undefined)}
             contexts={chatContexts}
             onRemoveContext={(key) => {
-              if (key === playableChat?.surface?.key) setDismissedSurface(key);
+              if (key === designChipKey) setDismissedDesign(key);
+              else if (key === playableChat?.surface?.key) setDismissedSurface(key);
               else playableChat?.removeAttachment(key);
             }}
             onDirtyChange={setComposerDirty}
@@ -888,6 +901,7 @@ export function ProjectShell({
           designOpen={designOpen}
           onDesignOpenChange={changeWorkspaceView}
           onDesignSaveReady={registerDesignSave}
+          onDesignContextChange={setDesignContext}
           onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
           onClose={isGodotProject ? () => setGodotWorkspaceVisibility(false) : undefined}
           chatOnRight={chatLayout === "right"}
@@ -895,20 +909,22 @@ export function ProjectShell({
           onHome={requestHome}
           onToggleChat={isGodotProject ? undefined : () => setAgentCollapsed((collapsed) => !collapsed)}
         />
-      ) : project.type === "asset-canvas" ? <AssetCanvasWorkspace
+      ) : project.type === "asset-canvas" ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
         initialNodeId={initialCanvasNodeId}
         onInitialNodeHandled={onInitialCanvasNodeHandled}
-        workspaceRevision={workspaceRevision}
+        onSaveReady={registerDesignSave}
+        onContextChange={setDesignContext}
         chatOnRight={chatLayout === "right"}
         chatCollapsed={agentIsCollapsed}
         onHome={requestHome}
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
-      /> : <PlayableEditorWorkspace
+      /></Suspense> : <PlayableEditorWorkspace
         project={project}
         designOpen={designOpen}
         onDesignOpenChange={changeWorkspaceView}
         onDesignSaveReady={registerDesignSave}
+        onDesignContextChange={setDesignContext}
         agentBusy={agentBusy}
         publishing={publishing}
         workspaceRevision={workspaceRevision}

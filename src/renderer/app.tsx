@@ -2,13 +2,12 @@ import { useEffect, useState } from "react";
 import { GamePlayer, GamesPage } from "./games.js";
 import { Home } from "./home.js";
 import { LibraryPage } from "./library.js";
-import { PluginsPage } from "./plugins.js";
 import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
-import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { loadQuickStartModels } from "./asset-canvas-quick-start.js";
-import { InteractiveStoryHome } from "./interactive-story-home.js";
+import { GameStudioHome } from "./game-studio-home.js";
 import { SettingsPage } from "./settings-page.js";
 import type { PluginMention, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
@@ -26,7 +25,14 @@ export function App() {
   useEffect(() => { void loadQuickStartModels(); }, []);
 
   useEffect(() => {
-    const updateRoute = () => setRoute(parseAppRoute(window.location.hash));
+    const updateRoute = () => {
+      const next = parseAppRoute(window.location.hash);
+      if (next.page === "settings" && next.section === "plugins" && window.location.hash.startsWith("#/plugins")) {
+        window.history.replaceState(window.history.state, "", next.pluginId ? pluginHash(next.pluginId) : settingsHash("plugins"));
+      }
+      setRoute(next);
+    };
+    updateRoute();
     window.addEventListener("hashchange", updateRoute);
     window.addEventListener("popstate", updateRoute);
     return () => {
@@ -36,7 +42,7 @@ export function App() {
   }, []);
 
   if (route.page === "settings") {
-    return <SettingsPage section={route.section} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} />;
+    return <SettingsPage section={route.section} pluginId={route.pluginId} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onPluginChange={navigateToPlugin} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
   }
   if (route.page === "home") {
     return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
@@ -45,9 +51,8 @@ export function App() {
     return <GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
   }
   if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
-  if (route.page === "plugins") return <PluginsPage onNavigate={navigateToSidebarPage} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
-  if (route.page === "projects") return <ProjectsPage onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
-  if (route.page === "interactive-story") return <InteractiveStoryHome onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
+  if (route.page === "projects") return <ProjectsPage projectType={route.projectType} onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
+  if (route.page === "web-game" || route.page === "interactive-story" || route.page === "godot") return <GameStudioHome key={route.page} projectType={route.page === "godot" ? "godot-game" : route.page} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
   if (route.page === "asset-canvas") return <AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openAssetCanvasProject} />;
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} />;
   if (route.page === "playtest") return null;
@@ -171,6 +176,11 @@ export function App() {
   function navigateToSettingsSection(section: SettingsSection): void {
     window.history.replaceState(historyState(), "", settingsHash(section));
     setRoute({ page: "settings", section });
+  }
+
+  function navigateToPlugin(pluginId?: string): void {
+    window.history.replaceState(historyState(), "", pluginId ? pluginHash(pluginId) : settingsHash("plugins"));
+    setRoute({ page: "settings", section: "plugins", ...(pluginId ? { pluginId } : {}) });
   }
 
   function leaveSettings(): void {

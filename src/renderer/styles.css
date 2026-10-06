@@ -561,6 +561,11 @@ body {
   padding-top: 44px;
 }
 
+.settings-page-inner-plugins {
+  width: min(1100px, 100%);
+  padding-top: 0;
+}
+
 .settings-panel {
   width: 100%;
   padding: 0;
@@ -2469,10 +2474,6 @@ select.settings-search-input {
   mask-image: url("./assets/sidebar/library.svg");
   -webkit-mask-image: url("./assets/sidebar/library.svg");
 }
-.home-nav-icon-plugins {
-  mask-image: url("./assets/sidebar/plugins.svg");
-  -webkit-mask-image: url("./assets/sidebar/plugins.svg");
-}
 .home-nav-icon-interactive-story {
   mask-image: url("./assets/sidebar/interactive-story.svg");
   -webkit-mask-image: url("./assets/sidebar/interactive-story.svg");
@@ -2836,59 +2837,6 @@ button.home-nav-item-active:hover {
   border-color: var(--border-strong);
   background: var(--surface-hover);
   color: var(--text);
-}
-
-.interactive-story-recent .home-section-heading {
-  margin-bottom: 15px;
-}
-
-.home-category-control {
-  display: inline-flex;
-  height: 32px;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding: 0;
-  border: 0;
-}
-
-.home-category-control button {
-  display: inline-flex;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 16px;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.home-category-control button:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-.home-category-control button:focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-.home-category-control button.is-active {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-.home-category-control button:nth-of-type(1) {
-  width: 108px;
-}
-.home-category-control button:nth-of-type(2) {
-  width: 142px;
-}
-.home-category-control button:nth-of-type(3) {
-  width: 90px;
 }
 
 .project-type-godot-icon {
@@ -3349,17 +3297,14 @@ button.home-nav-item-active:hover {
   line-height: 16px;
 }
 
-.home-project-heading {
-  margin-top: 44px;
-  margin-bottom: 15px;
-}
-
 .home-show-all {
   padding: 5px 7px;
   border: 0;
   background: transparent;
   color: var(--text-muted);
+  font: inherit;
   font-size: 11px;
+  text-decoration: none;
   cursor: pointer;
 }
 
@@ -3896,10 +3841,6 @@ button.home-nav-item-active:hover {
   font: inherit;
   font-size: 12px;
 }
-.project-create-name input:focus {
-  outline: 1px solid color-mix(in srgb, var(--focus-ring) 45%, transparent);
-  outline-offset: 1px;
-}
 .project-create-name input::placeholder {
   color: var(--text-faint);
   opacity: 1;
@@ -4350,11 +4291,6 @@ button.home-nav-item-active:hover {
   padding-bottom: 9px;
   line-height: 18px;
   resize: vertical;
-}
-.publish-dialog input:focus,
-.publish-dialog textarea:focus {
-  outline: 1px solid color-mix(in srgb, var(--focus-ring) 45%, transparent);
-  outline-offset: 1px;
 }
 .publish-cover-preview {
   position: relative;
@@ -5432,10 +5368,6 @@ button.home-nav-item-active:hover {
   font: inherit;
   font-size: 11px;
 }
-.plugin-install-dialog input:focus {
-  outline: 1px solid color-mix(in srgb, var(--focus-ring) 45%, transparent);
-  outline-offset: 1px;
-}
 .plugin-install-candidates {
   display: grid;
   max-height: min(420px, 55dvh);
@@ -6345,13 +6277,22 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
+:where(input, textarea, select, [contenteditable]:not([contenteditable="false"])) {
+  outline: 0;
+}
+
+:is(input, textarea, select):not(:disabled):focus-visible {
+  border-color: var(--focus-ring);
+}
+
+:is([contenteditable]:not([contenteditable="false"])):focus-visible {
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
 :where(
   button,
   a[href],
-  input,
-  textarea,
-  select,
-  [tabindex]:not([tabindex="-1"])
+  [tabindex]:not([tabindex="-1"]):not(input, textarea, select, [contenteditable])
 ):focus-visible {
   outline: 1px solid var(--focus-ring);
   outline-offset: 2px;
@@ -7014,10 +6955,6 @@ button {
   border: 0;
   border-radius: 50%;
   background: #fff;
-}
-.story-inline-video-scrubber input:focus-visible {
-  outline: 1px solid rgb(255 255 255 / 55%);
-  outline-offset: 2px;
 }
 .story-inline-video-scrubber input:disabled {
   cursor: default;
@@ -8986,11 +8923,6 @@ button {
   font-size: 12px;
 }
 
-.conversation-rename input:focus {
-  outline: 1px solid color-mix(in srgb, var(--focus-ring) 45%, transparent);
-  outline-offset: 1px;
-}
-
 .conversation-menu-error {
   margin: 0;
   padding: 8px 12px;
@@ -10859,6 +10791,10 @@ button {
   backdrop-filter: blur(20px);
 }
 
+.prompt-box-home {
+  z-index: 9;
+}
+
 .prompt-box-project {
   z-index: 9;
   min-height: 88px;
@@ -11219,6 +11155,37 @@ button {
 .icon-button:disabled {
   cursor: default;
   opacity: 0.42;
+}
+
+.icon-button[data-tooltip] {
+  position: relative;
+}
+
+.icon-button[data-tooltip]::after {
+  position: absolute;
+  z-index: 100;
+  top: calc(100% + 8px);
+  right: 0;
+  width: max-content;
+  max-width: min(240px, calc(100vw - 24px));
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 3px 12px rgb(0 0 0 / 12%);
+  font: 11px/1.4 Inter, sans-serif;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  content: attr(data-tooltip);
+}
+
+.icon-button[data-tooltip]:is(:hover, :focus-visible)::after {
+  visibility: visible;
+  opacity: 1;
 }
 
 .send-button {
@@ -13653,27 +13620,6 @@ button {
   background: #333333;
 }
 
-:root[data-appearance="light"] .home-category-control button {
-  background: var(--surface);
-  color: var(--text-secondary);
-}
-
-:root[data-appearance="light"]
-  .home-category-control
-  button:hover:not(.is-active) {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-:root[data-appearance="light"] .home-category-control button.is-active {
-  background: var(--control-selected);
-  color: var(--text);
-}
-
-:root[data-appearance="light"] .home-category-control button.is-active:hover {
-  background: var(--control-selected);
-}
-
 :root[data-appearance="light"] .home-whats-new-icon {
   background: #ececec;
   color: var(--accent);
@@ -13848,7 +13794,6 @@ button {
 
 :root[data-appearance="light"] .project-switcher-search:focus-within {
   border-color: #aeb3af;
-  box-shadow: 0 0 0 2px rgb(32 37 35 / 6%);
 }
 
 :root[data-appearance="light"] .user-message {
@@ -13864,7 +13809,6 @@ button {
 
 :root[data-appearance="light"] .user-message-editor:focus-within {
   border-color: #aeb3af;
-  box-shadow: 0 0 0 2px rgb(32 37 35 / 5%);
 }
 
 :root[data-appearance="light"] .user-message-editor textarea,

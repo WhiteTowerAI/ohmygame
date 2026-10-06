@@ -75,7 +75,7 @@ import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEdgeInspector, P
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
-const GameDesignWorkspace = lazy(() => import("./game-design-workspace.js").then((module) => ({ default: module.GameDesignWorkspace })));
+const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 
 const HISTORY_LIMIT = 50;
 
@@ -97,7 +97,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange }: {
   project: ProjectState;
   agentBusy: boolean;
   publishing: boolean;
@@ -118,6 +118,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   /** Puts a request in the chat prompt. */
   onAskAgent?: (text: string) => void;
   onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
+  onDesignContextChange?: (context: PromptContext | undefined) => void;
   /** Sends a request to the AI now, with the open Node as context. */
   onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
 }) {
@@ -152,6 +153,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [playtesting, setPlaytesting] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
   const queuedCodebase = useRef<string | undefined>(undefined);
@@ -751,7 +753,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
 
   /** Opens the Playtest window; `start` plays from a Scene instead of the saved game. */
   async function startPlaytest(start?: PlaytestStart): Promise<void> {
-    if (!codebase) return;
+    if (!codebase || building || playtesting) return;
+    setPlaytesting(true);
     if (!start) clearSelection();
     try {
       await save(codebase);
@@ -763,6 +766,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       }
     } catch (cause) {
       setNotice(errorMessage(cause));
+    } finally {
+      setPlaytesting(false);
     }
   }
 
@@ -896,8 +901,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           /> : null}
         </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {!designOpen ? <><button className="icon-button pane-header-action" type="button" title="Playtest" aria-label="Playtest" onClick={() => void startPlaytest()}>
-            <Play size={14} fill="currentColor" />
+          {!designOpen ? <><button className="icon-button pane-header-action" type="button" data-tooltip={playtesting ? "Opening playtest..." : "Playtest in a new window"} aria-label="Playtest" disabled={phase !== "ready" || building || playtesting} onClick={() => void startPlaytest()}>
+            {playtesting ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
           </button>
           <button className="publish-button workspace-publish-button" type="button" title="Publish" aria-label="Publish" disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
@@ -911,8 +916,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           </> : null}
         </div>
       </header>
-      {designOpen ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><GameDesignWorkspace
-        project={project} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady}
+      {designOpen ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
+        project={project} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : workspaceView !== "code" ? <div className="interactive-story-body">
         <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}

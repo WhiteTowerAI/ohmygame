@@ -34,6 +34,10 @@ describe("agent tools", () => {
       [],
       ["read", "generate_image", "web_search"],
     )).toEqual(["read", "write", "edit", "bash", "web_search", "update_plan", "install_plugin"]);
+    expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("canvas_check");
+    expect(projectPiToolNames("planning", ["generate-image"], ["canvas_check", "generate_canvas_media"])).not.toContain("generate_canvas_media");
+    expect(activePiToolNames(["generate-image"], ["canvas_check", "generate_canvas_media"])).toContain("generate_canvas_media");
+    expect(activePiToolNames([], ["canvas_check", "generate_canvas_media"])).not.toContain("generate_canvas_media");
   });
 
   it("uses the shared Pi tools for every project type", () => {
@@ -316,4 +320,3 @@ describe("agent tools", () => {
     expect(text).toContain("missing");
   });
 });
-

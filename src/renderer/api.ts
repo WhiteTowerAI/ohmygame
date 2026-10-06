@@ -26,9 +26,6 @@ import {
   type ProjectFileOpenMode,
   type ProjectAgentActivity,
   type ProjectState,
-  type AssetCanvasDocument,
-  type AssetCanvasTextGenerationRequest,
-  type AssetCanvasTextGenerationResponse,
   type UpdateAgentDefaultsRequest,
   type PublishProjectRequest,
   type PublishResult,
@@ -482,18 +479,6 @@ export async function updateNodeCodebase(
     method: "PUT",
     body: JSON.stringify(codebase),
   });
-}
-
-export async function getAssetCanvas(projectId: string): Promise<AssetCanvasDocument> {
-  return request(`/projects/${projectId}/asset-canvas`);
-}
-
-export async function updateAssetCanvas(projectId: string, document: AssetCanvasDocument): Promise<void> {
-  await request(`/projects/${projectId}/asset-canvas`, { method: "PUT", body: JSON.stringify(document) });
-}
-
-export async function generateAssetCanvasText(projectId: string, input: AssetCanvasTextGenerationRequest): Promise<AssetCanvasTextGenerationResponse> {
-  return request(`/projects/${projectId}/asset-canvas/text/generate`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function getProjectCover(projectId: string): Promise<Blob | undefined> {

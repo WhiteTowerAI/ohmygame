@@ -1,5 +1,5 @@
-import { useEffect, useState, type CSSProperties } from "react";
-import { ArrowLeft, Check, ExternalLink, Globe2, InfoCircle, Palette, Plug, Server, UserRound } from "./icons.js";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { ArrowLeft, Check, ExternalLink, Globe2, InfoCircle, Package, Palette, Plug, Server, UserRound } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
@@ -12,6 +12,8 @@ import { readAppearance, setAppearance as persistAppearance, type Appearance } f
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
 import { SegmentedControl } from "./segmented-control.js";
+import { PluginsSettings } from "./plugins.js";
+import type { PluginDetail } from "../shared/plugins.js";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
 const CHAT_LAYOUT_OPTIONS: readonly { value: ChatLayout; label: string }[] = [
@@ -24,17 +26,29 @@ const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: 
   { section: "account", label: "Account", icon: UserRound },
   { section: "appearance", label: "Appearance", icon: Palette },
   { section: "web-search", label: "Web Search", icon: Globe2 },
+  { section: "plugins", label: "Plugins", icon: Package },
   { section: "connections", label: "Connections", icon: Plug },
   { section: "about", label: "About", icon: InfoCircle },
 ];
 
-export function SettingsPage({ section, onBack, onSectionChange }: {
+export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPluginChange, onAddPlugin, onTryPlugin }: {
   section: SettingsSection;
+  pluginId?: string;
   onBack: () => void;
   onSectionChange: (section: SettingsSection) => void;
+  onPluginChange: (pluginId?: string) => void;
+  onAddPlugin: () => Promise<void>;
+  onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }) {
   const [modelsView, setModelsView] = useState<ModelsView>({ page: "providers" });
+  const navigation = useRef<HTMLElement>(null);
   const sidebarStyle = { "--sidebar-width": `${readSidebarWidth()}px` } as CSSProperties;
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 720px)").matches) {
+      navigation.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [section]);
 
   function chooseSection(next: SettingsSection): void {
     if (next === "providers") setModelsView({ page: "providers" });
@@ -49,7 +63,7 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
           <ArrowLeft size={17} />
           <span>Back to app</span>
         </button>
-        <nav className="settings-page-nav" aria-label="Settings sections">
+        <nav className="settings-page-nav" aria-label="Settings sections" ref={navigation}>
           <div className="home-nav-label">SETTINGS</div>
           {SETTINGS_SECTIONS.map((item) => {
             const Icon = item.icon;
@@ -65,12 +79,13 @@ export function SettingsPage({ section, onBack, onSectionChange }: {
       </aside>
       <section className="settings-page-content">
         <WindowDragRegion />
-        <div className="settings-page-inner">
+        <div className={`settings-page-inner${section === "plugins" ? " settings-page-inner-plugins" : ""}`}>
           {section === "account" ? <AccountSettings /> : null}
           {section === "billing" ? <BillingSettings /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
+          {section === "plugins" ? <PluginsSettings pluginId={pluginId} onPluginChange={onPluginChange} onAddPlugin={onAddPlugin} onTryPlugin={onTryPlugin} /> : null}
           {section === "connections" ? <ConnectionsSettings /> : null}
           {section === "about" ? <AboutSettings /> : null}
         </div>

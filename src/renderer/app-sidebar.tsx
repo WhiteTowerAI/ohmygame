@@ -1,4 +1,4 @@
-import { ArrowDownToLine, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
+import { ArrowDownToLine, Globe2, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
@@ -30,6 +30,12 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
   useLayoutEffect(() => {
     sidebar.current?.parentElement?.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 720px)").matches) {
+      sidebar.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [active]);
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -111,10 +117,11 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <NavigationItem active={active === "home"} icon="home" label="Home" onClick={() => onNavigate("home")} />
         <NavigationItem active={active === "projects"} icon="project" label="Projects" onClick={() => onNavigate("projects")} />
         <NavigationItem active={active === "library"} icon="library" label="Library" onClick={() => onNavigate("library")} />
-        <NavigationItem active={active === "plugins"} icon="plugins" label="Plugins" onClick={() => onNavigate("plugins")} />
         <NavigationItem active={active === "community"} icon="community" label="Community" onClick={() => onNavigate("community")} />
         <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
+        <NavigationItem active={active === "web-game"} icon="web-game" label="Web Game" onClick={() => onNavigate("web-game")} />
         <NavigationItem active={active === "interactive-story"} icon="interactive-story" label="Interactive Story" onClick={() => onNavigate("interactive-story")} />
+        <NavigationItem active={active === "godot"} icon="godot" label="Godot" onClick={() => onNavigate("godot")} />
         <NavigationItem active={active === "asset-canvas"} icon="asset-canvas" label="Asset Canvas" onClick={() => onNavigate("asset-canvas")} />
       </nav>
       {auth.state.status === "signed-in" ? (
@@ -206,16 +213,18 @@ function NavigationItem({
   onClick,
 }: {
   active: boolean;
-  icon: "home" | "project" | "library" | "plugins" | "interactive-story" | "asset-canvas" | "community";
+  icon: "home" | "project" | "library" | "web-game" | "interactive-story" | "godot" | "asset-canvas" | "community";
   label: string;
   onClick: () => void;
 }) {
-  const content = <><span className={`home-nav-icon home-nav-icon-${icon}`} aria-hidden="true" /><span>{label}</span></>;
+  const content = <>{icon === "web-game" ? <span className="home-nav-symbol" aria-hidden="true"><Globe2 size={16} /></span> : <span className={`home-nav-icon home-nav-icon-${icon}`} aria-hidden="true" />}<span>{label}</span></>;
   return (
     <button
       className={`home-nav-item${active ? " home-nav-item-active" : ""}`}
       type="button"
       onClick={onClick}
+      title={label}
+      aria-label={label}
       aria-current={active ? "page" : undefined}
     >
       {content}

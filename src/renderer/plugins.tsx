@@ -25,24 +25,21 @@ import {
 } from "../shared/plugins.js";
 import type { ProjectState } from "../shared/contracts.js";
 import { inspectPluginSource, installPlugin, listPlugins, listProjects, readPlugin, readPluginSkill, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
-import type { AppNavigationTarget, SidebarPage } from "./routes.js";
-import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
+import { SidebarPageHeader } from "./sidebar-page.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { GodotIcon } from "./godot-icon.js";
 import { MarkdownContent } from "./markdown-content.js";
 
-type PluginsView = { type: "catalog" } | { type: "detail"; pluginId: string };
-
-export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
-  onNavigate: (page: AppNavigationTarget) => void;
+export function PluginsSettings({ pluginId, onPluginChange, onAddPlugin, onTryPlugin }: {
+  pluginId?: string;
+  onPluginChange: (pluginId?: string) => void;
   onAddPlugin: () => Promise<void>;
   onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }) {
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
-  const [view, setView] = useState<PluginsView>({ type: "catalog" });
-  const [detail, setDetail] = useState<PluginDetail>();
-  const [detailPhase, setDetailPhase] = useState<"loading" | "ready" | "error">("loading");
+  const [detailResult, setDetailResult] = useState<{ pluginId: string; plugin?: PluginDetail; error?: string }>();
+  const [detailRetry, setDetailRetry] = useState(0);
   const [query, setQuery] = useState("");
   const [updating, setUpdating] = useState<string>();
   const [adding, setAdding] = useState<"create" | "install">();
@@ -73,6 +70,23 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   }
 
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    setDetailResult(undefined);
+    setError(undefined);
+    if (!pluginId) return;
+    let disposed = false;
+    void (async () => {
+      try {
+        await waitForRuntime();
+        if (disposed) return;
+        const plugin = await readPlugin(pluginId);
+        if (!disposed) setDetailResult({ pluginId, plugin });
+      } catch (cause) {
+        if (!disposed) setDetailResult({ pluginId, error: errorMessage(cause) });
+      }
+    })();
+    return () => { disposed = true; };
+  }, [pluginId, detailRetry]);
 
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -90,28 +104,13 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     };
   }, [addMenuOpen]);
 
-  async function openPlugin(pluginId: string): Promise<void> {
-    setView({ type: "detail", pluginId });
-    setDetail(undefined);
-    setDetailPhase("loading");
-    setError(undefined);
-    try {
-      const loaded = await readPlugin(pluginId);
-      setDetail(loaded);
-      setDetailPhase("ready");
-    } catch (cause) {
-      setError(errorMessage(cause));
-      setDetailPhase("error");
-    }
-  }
-
   async function updatePlugin(plugin: PluginDetail, settings: PluginSettings): Promise<void> {
     if (updating) return;
     setUpdating(plugin.id);
     setError(undefined);
     try {
       const updated = await updatePluginSettings(plugin.id, settings);
-      setDetail((current) => current?.id === updated.id ? updated : current);
+      setDetailResult((current) => current?.pluginId === updated.id ? { pluginId: updated.id, plugin: updated } : current);
       setPlugins((items) => items.map((item) => item.id === updated.id ? pluginSummary(updated) : item));
     } catch (cause) {
       setError(errorMessage(cause));
@@ -127,8 +126,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
     try {
       await uninstallPlugin(plugin.id);
       await load();
-      setDetail(undefined);
-      setView({ type: "catalog" });
+      showCatalog();
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -216,9 +214,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
       const installedPlugin = await installPlugin(input);
       setPlugins((items) => [...items.filter((item) => item.id !== installedPlugin.id), pluginSummary(installedPlugin)]);
       closeInstallDialog();
-      setDetail(installedPlugin);
-      setDetailPhase("ready");
-      setView({ type: "detail", pluginId: installedPlugin.id });
+      onPluginChange(installedPlugin.id);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -229,16 +225,18 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
   const normalizedQuery = query.trim().toLowerCase();
   const visible = plugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
   const installed = visible.filter((plugin) => plugin.installed);
-  const detailTitle = view.type === "detail"
-    ? detail?.displayName ?? plugins.find((plugin) => plugin.id === view.pluginId)?.displayName ?? "Plugin"
+  const currentDetail = detailResult?.pluginId === pluginId ? detailResult : undefined;
+  const detail = currentDetail?.plugin;
+  const detailTitle = pluginId
+    ? detail?.displayName ?? plugins.find((plugin) => plugin.id === pluginId)?.displayName ?? "Plugin"
     : undefined;
 
-  return <SidebarPageLayout active="plugins" onNavigate={onNavigate}>
+  return <section className="plugins-settings">
     <SidebarPageHeader
       title={detailTitle ?? "Plugins"}
-      breadcrumb={view.type === "detail" ? { label: "Plugins", onClick: showCatalog } : undefined}
+      breadcrumb={pluginId ? { label: "Plugins", onClick: showCatalog } : undefined}
     >
-      {view.type === "catalog" ? (
+      {!pluginId ? (
         <div className="plugins-toolbar">
           <label className="plugins-search">
             <Search size={15} />
@@ -255,12 +253,13 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
         </div>
       ) : null}
     </SidebarPageHeader>
-    {view.type === "detail" ? <PluginDetailView
-      phase={detailPhase}
+    {pluginId ? <PluginDetailView
+      key={pluginId}
+      phase={!currentDetail ? "loading" : currentDetail.error ? "error" : "ready"}
       plugin={detail}
       updating={updating === detail?.id}
-      error={error}
-      onRetry={() => void openPlugin(view.pluginId)}
+      error={currentDetail?.error ?? error}
+      onRetry={() => setDetailRetry((current) => current + 1)}
       onTogglePlugin={(enabled) => detail && void updatePlugin(detail, { ...componentSettings(detail), enabled })}
       onToggleComponent={(component, enabled) => detail && void updatePlugin(detail, {
         enabled: detail.enabled,
@@ -278,7 +277,7 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
         <InstalledPlugins
           plugins={installed}
           collapsible={!normalizedQuery}
-          onOpenPlugin={(id) => void openPlugin(id)}
+          onOpenPlugin={onPluginChange}
         />
       </> : null}
     </>}
@@ -299,10 +298,10 @@ export function PluginsPage({ onNavigate, onAddPlugin, onTryPlugin }: {
         <footer><button type="button" disabled={Boolean(adding)} onClick={closeInstallDialog}>Cancel</button><button className="plugin-install-submit" type="submit" disabled={Boolean(adding) || (installCandidates.length ? !selectedCandidate : !gitUrl.trim())}>{adding === "install" ? <LoaderCircle className="spin" size={13} /> : null}{adding === "install" ? "Installing..." : "Install"}</button></footer>
       </form>
     </div> : null}
-  </SidebarPageLayout>;
+  </section>;
 
   function showCatalog(): void {
-    setView({ type: "catalog" });
+    onPluginChange();
   }
 
   async function browsePlugin(plugin: Pick<PluginSummary, "id">): Promise<void> {

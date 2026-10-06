@@ -12,8 +12,8 @@ import { PromptContextIcon, type ChatContextChip, type ChatReference } from "./c
 import { ComposerMentionMenu } from "./composer-mention-menu.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
-import { getGameDesign } from "./game-design-api.js";
-import { designDocumentPath } from "../shared/game-design.js";
+import { getCanvasDocument } from "./canvas-api.js";
+import { canvasDocumentPath } from "../shared/canvas-document.js";
 
 interface ComposerProps {
   projectId?: string;
@@ -204,13 +204,13 @@ export function Composer({
     setAttachmentError(undefined);
     setReferencingDesign(true);
     try {
-      const result = await getGameDesign(projectId);
-      if (!result.design) throw new Error("This project does not have a game design document yet");
+      const result = await getCanvasDocument(projectId);
+      if (!result) throw new Error("This project does not have a game design document yet");
       setDesignReference({
-        references: [{ type: "workspace-file", path: designDocumentPath(result.design.document.id) }],
+        references: [{ type: "workspace-file", path: canvasDocumentPath(result.document.id) }],
         context: {
           kind: "design-document",
-          label: result.design.document.title || "Game design",
+          label: result.document.title || "Game design",
           text: "Reference the saved game design document for this message.",
         },
       });
@@ -389,7 +389,7 @@ export function Composer({
     setSelectedPlugin(plugin.mention);
     setPluginMentions(item.mentions);
     setAttachments([]);
-    const referencedDesign = item.references.find((reference) => reference.type === "workspace-file" && /^design\/documents\/[a-zA-Z0-9_-]+\.md$/.test(reference.path));
+    const referencedDesign = item.references.find((reference) => reference.type === "workspace-file" && /^canvas\/documents\/[a-zA-Z0-9_-]+\.md$/.test(reference.path));
     setDesignReference(referencedDesign ? {
       references: [referencedDesign],
       context: {
