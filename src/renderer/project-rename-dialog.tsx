@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 
-export function ProjectRenameDialog({ name, returnFocus, onClose, onConfirm }: {
+export function ProjectRenameDialog({ name, title = "Rename project", returnFocus, onClose, onConfirm }: {
   name: string;
+  title?: string;
   returnFocus: HTMLElement | null;
   onClose: () => void;
   onConfirm: (name: string) => void;
@@ -49,7 +50,7 @@ export function ProjectRenameDialog({ name, returnFocus, onClose, onConfirm }: {
       if (event.target === event.currentTarget) onClose();
     }}>
       <section ref={dialog} className="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
-        <header><h2 id={titleId}>Rename project</h2></header>
+        <header><h2 id={titleId}>{title}</h2></header>
         <form onSubmit={(event) => {
           event.preventDefault();
           if (composing.current || submitted.current) return;

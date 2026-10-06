@@ -47,8 +47,9 @@ export function AssetToolbar({ mediaFilter, query, onMediaFilterChange, onQueryC
   );
 }
 
-export function WorkspaceAssetCard({ asset, onOpen, onRename, onDelete }: {
+export function WorkspaceAssetCard({ asset, title, onOpen, onRename, onDelete }: {
   asset: BrowsableAsset;
+  title?: string;
   onOpen: () => void;
   onRename: () => void;
   onDelete: () => void;
@@ -73,7 +74,7 @@ export function WorkspaceAssetCard({ asset, onOpen, onRename, onDelete }: {
   }, [menuOpen]);
 
   return <AssetCardShell
-    title={asset.prompt ?? fileName(asset.path)}
+    title={title ?? asset.prompt ?? fileName(asset.path)}
     subtitle={<>{mediaTypeLabel(asset.mediaType)}{asset.projectName ? ` · ${asset.projectName}` : ""}</>}
     preview={<AssetThumbnail asset={asset} visible={visible} />}
     badge={assetTypeBadge(asset.mediaType)}
