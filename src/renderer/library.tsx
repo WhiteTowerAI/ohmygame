@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AssetToolbar,
-  fileExtension,
   fileName,
   fileStem,
   filterAssets,
@@ -13,6 +12,7 @@ import { deleteLibraryAsset, forceDeleteLibraryAsset, listLibraryAssetReferences
 import { Image as ImageIcon, LoaderCircle, RefreshCw, X } from "./icons.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import type { AppNavigationTarget } from "./routes.js";
+import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 
 interface LibraryPageProps {
@@ -29,6 +29,7 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
   const [selectedAsset, setSelectedAsset] = useState<LibraryAsset>();
   const [deleteTarget, setDeleteTarget] = useState<{ asset: LibraryAsset; references: LibraryAssetReference[] }>();
   const [deleting, setDeleting] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<LibraryAsset>();
 
   async function load(): Promise<void> {
     setPhase("loading");
@@ -56,11 +57,10 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
     }
   }
 
-  async function rename(asset: LibraryAsset): Promise<void> {
-    const extension = fileExtension(asset.path);
-    const name = window.prompt(`Rename asset (${extension} is preserved)`, fileStem(asset.path))?.trim();
-    if (!name || name === fileStem(asset.path)) return;
-    if (await runAssetAction(() => renameLibraryAsset(asset.id, name))) setSelectedAsset(undefined);
+  function beginRename(asset: LibraryAsset): void {
+    setActionError(undefined);
+    setSelectedAsset(undefined);
+    setRenameTarget(asset);
   }
 
   async function remove(asset: LibraryAsset): Promise<void> {
@@ -101,11 +101,18 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
       {phase === "loading" && assets.length === 0 ? <LibraryState><LoaderCircle className="spin" size={18} />Loading assets</LibraryState> : null}
       {phase === "error" ? <LibraryState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></LibraryState> : null}
       {phase === "ready" && visibleAssets.length === 0 ? <LibraryState><ImageIcon size={18} />{assets.length ? "No assets match these filters" : "No media assets yet"}</LibraryState> : null}
-      {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <WorkspaceAssetCard asset={asset} key={asset.id} onOpen={() => setSelectedAsset(asset)} onRename={() => void rename(asset)} onDelete={() => void remove(asset)} />)}</div> : null}
+      {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <WorkspaceAssetCard
+        asset={asset}
+        key={asset.id}
+        title={fileName(asset.path)}
+        onOpen={() => setSelectedAsset(asset)}
+        onRename={() => beginRename(asset)}
+        onDelete={() => void remove(asset)}
+      />)}</div> : null}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedAsset(undefined)}
-        onRename={() => void rename(selectedAsset)}
+        onRename={() => beginRename(selectedAsset)}
         onDelete={() => void remove(selectedAsset)}
       /> : null}
       {deleteTarget ? <div className="library-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteTarget(undefined); }}>
@@ -118,6 +125,12 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
           <footer><button type="button" autoFocus disabled={deleting} onClick={() => setDeleteTarget(undefined)}>Cancel</button><button className="library-action-delete" type="button" disabled={deleting} onClick={() => void confirmForceDelete()}>{deleting ? "Deleting..." : "Delete everywhere"}</button></footer>
         </section>
       </div> : null}
+      {renameTarget ? <ProjectRenameDialog title="Rename asset" name={fileStem(renameTarget.path)} returnFocus={null} onClose={() => setRenameTarget(undefined)} onConfirm={(input) => {
+        const asset = renameTarget;
+        setRenameTarget(undefined);
+        const name = input.trim();
+        if (name && name !== fileStem(asset.path)) void runAssetAction(() => renameLibraryAsset(asset.id, name));
+      }} /> : null}
     </SidebarPageLayout>
   );
 }
