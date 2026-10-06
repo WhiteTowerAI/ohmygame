@@ -1,13 +1,6 @@
 <div align="center">
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="src/shared/assets/ohmygame-mark-v2.svg">
-  <img src="src/shared/assets/ohmygame-mark-dark-v2.svg" alt="OhMyGame" width="120">
-</picture>
-
-# OhMyGame
-
-**The open-source studio for making games with AI.**
+<img src="docs/assets/banner.webp" alt="OhMyGame — the open-source studio for making games with AI" width="100%" />
 
 Everything you need to make games with AI, in one app. Bring your own key.
 
