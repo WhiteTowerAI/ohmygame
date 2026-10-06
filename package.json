@@ -40,6 +40,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.99.2",
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
     "@sentry/electron": "^7.20.0",
     "@supabase/supabase-js": "2.57.4",
     "electron-updater": "6.8.9",

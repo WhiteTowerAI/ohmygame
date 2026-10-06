@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import type { Generated3DModel, Model3DAnimationAction, Model3DAnimationInput, Model3DGenerationInput, Model3DGenerator } from "./model3d.js";
 import { Model3DGenerationError } from "./model3d.js";
-import { MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
+import { mergeAnimationClips } from "./merge-animations.js";
+import { ANIMATION_ACTIONS_PER_REQUEST, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 
 // Image to 3D lives under v1; v2 only serves text-to-3D and answers this path with 404 "Not found".
 const BASE_URL = "https://api.meshy.ai/openapi/v1";
@@ -11,6 +13,9 @@ const MAX_GLB_BYTES = 100 * 1024 * 1024;
 const MAX_POLL_NETWORK_FAILURES = 3;
 
 export class MeshyProvider implements Model3DGenerator {
+  /** Rig task IDs by model content and height. Kept in memory only; a restart simply rigs again. */
+  readonly #rigs = new Map<string, string>();
+
   constructor(
     private readonly apiKey: () => string | undefined,
     private readonly request: typeof fetch = fetch,
@@ -25,22 +30,56 @@ export class MeshyProvider implements Model3DGenerator {
     });
   }
 
-  /** Rigs a humanoid GLB, then bakes the chosen library actions into one file with a clip per action. */
+  /**
+   * Rigs a humanoid GLB, then bakes the chosen library actions into one file with a clip per action. Meshy caps each
+   * animation request, so larger sets run as parallel requests on the same rig and their clips are merged.
+   */
   async animate(input: Model3DAnimationInput, signal?: AbortSignal): Promise<Generated3DModel> {
     if (input.actionIds.length < 1 || input.actionIds.length > MAX_ANIMATION_ACTIONS) {
       throw new Model3DGenerationError(`Choose 1 to ${MAX_ANIMATION_ACTIONS} animations`, 400);
     }
     return this.#session(signal, "Meshy animation timed out", async (apiKey, requestSignal) => {
-      const rig = await this.#runTask(apiKey, "rigging", {
-        model_url: `data:model/gltf-binary;base64,${input.model.toString("base64")}`,
-        height_meters: input.heightMeters,
-      }, requestSignal, "Meshy rigging request failed");
-      const { taskId, task } = await this.#runTask(apiKey, "animations", {
-        rig_task_id: rig.taskId,
-        action_ids: input.actionIds,
-      }, requestSignal, "Meshy animation request failed");
-      return { bytes: await this.#downloadGlb(record(task.result).animation_glb_url, requestSignal), mediaType: "model/gltf-binary", requestId: taskId };
+      const rigTaskId = await this.#rig(apiKey, input, requestSignal);
+      const batches = await Promise.all(chunks(input.actionIds, ANIMATION_ACTIONS_PER_REQUEST).map(async (actionIds) => {
+        const { taskId, task } = await this.#runTask(apiKey, "animations", {
+          rig_task_id: rigTaskId,
+          action_ids: actionIds,
+        }, requestSignal, "Meshy animation request failed");
+        return { taskId, bytes: await this.#downloadGlb(record(task.result).animation_glb_url, requestSignal) };
+      }));
+      const bytes = await mergeAnimationClips(batches.map((batch) => batch.bytes));
+      return { bytes, mediaType: "model/gltf-binary", requestId: batches.map((batch) => batch.taskId).join(",") };
     });
+  }
+
+  /** Reuses a recent rig of the same model and height, since re-animating a character is common and rigging is billed. */
+  async #rig(apiKey: string, input: Model3DAnimationInput, signal: AbortSignal): Promise<string> {
+    const key = createHash("sha256").update(input.model).update(`\0${input.heightMeters ?? ""}`).digest("hex");
+    const cached = this.#rigs.get(key);
+    if (cached && await this.#rigAvailable(apiKey, cached, signal)) return cached;
+    this.#rigs.delete(key);
+    const { taskId } = await this.#runTask(apiKey, "rigging", {
+      model_url: `data:model/gltf-binary;base64,${input.model.toString("base64")}`,
+      height_meters: input.heightMeters,
+    }, signal, "Meshy rigging request failed");
+    this.#rigs.set(key, taskId);
+    return taskId;
+  }
+
+  /**
+   * Status checks are free, so a cached rig is confirmed before animation requests are spent on it. Meshy answers an
+   * unknown task ID with some other task of the account rather than a 404, hence the ID check. Any failure just rigs again.
+   */
+  async #rigAvailable(apiKey: string, taskId: string, signal: AbortSignal): Promise<boolean> {
+    try {
+      const task = await this.json(`${BASE_URL}/rigging/${encodeURIComponent(taskId)}`, { signal }, apiKey, "Meshy status request failed");
+      const expiresAt = task.expires_at;
+      return task.id === taskId && string(task.status)?.toUpperCase() === "SUCCEEDED"
+        && typeof expiresAt === "number" && expiresAt > Date.now() + MAX_WAIT_MS;
+    } catch {
+      signal.throwIfAborted();
+      return false;
+    }
   }
 
   /** Lists Meshy's preset animations; the call is free, so the daemon can show them before anything is spent. */
@@ -172,6 +211,10 @@ function meshyTask(input: Model3DGenerationInput): { endpoint: string; body: Rec
     };
   }
   throw new Model3DGenerationError(`Meshy does not offer ${input.model.provider}/${input.model.id}`, 400);
+}
+
+function chunks<T>(values: T[], size: number): T[][] {
+  return Array.from({ length: Math.ceil(values.length / size) }, (_, index) => values.slice(index * size, (index + 1) * size));
 }
 
 function record(value: unknown): Record<string, unknown> {
