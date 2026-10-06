@@ -9,8 +9,8 @@ import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
-import { GAME_PROJECT_TYPES, ProjectTypeIcon } from "./project-types.js";
-import type { AppNavigationTarget, SidebarPage } from "./routes.js";
+import { GAME_PROJECT_TYPES } from "./project-types.js";
+import { projectsHash, type AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 
 interface HomeProps {
@@ -20,16 +20,11 @@ interface HomeProps {
 }
 
 const RECENT_PROJECT_MAX_COLUMNS = 4;
-const WHATS_NEW_ITEM = {
-  title: "Interactive Story is here",
-  page: "interactive-story" as SidebarPage,
-};
 
 export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState<string>();
-  const [showAllProjects, setShowAllProjects] = useState(false);
   const [recentProjectLimit, setRecentProjectLimit] = useState(RECENT_PROJECT_MAX_COLUMNS);
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
@@ -95,11 +90,8 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     }
   }
 
-  const visibleProjects = showAllProjects ? projects : projects.slice(0, recentProjectLimit);
-  // Explore shows every example, whatever type the prompt above is set to.
-  // Examples take the row first; the What's New card fills a spare column.
+  const visibleProjects = projects.slice(0, recentProjectLimit);
   const visibleExamples = examples.slice(0, recentProjectLimit);
-  const showWhatsNew = visibleExamples.length < recentProjectLimit;
 
   return (
     <main className="home-shell">
@@ -109,20 +101,6 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
         <WindowDragRegion />
         <div className="home-start">
           <h1>What are we making today?</h1>
-          <div className="home-category-control" role="group" aria-label="Project examples">
-            {GAME_PROJECT_TYPES.map(({ label, value }) => (
-              <button
-                className={value === projectType ? "is-active" : ""}
-                type="button"
-                aria-pressed={value === projectType}
-                key={value}
-                onClick={() => setProjectType(value)}
-              >
-                <ProjectTypeIcon type={value} />
-                {label}
-              </button>
-            ))}
-          </div>
           <ProjectPromptCreator
             projectType={projectType}
             projectTypes={GAME_PROJECT_TYPES}
@@ -136,30 +114,15 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           </button>
         </div>
 
-        <section ref={recentProjectsSection} className="home-discover" aria-labelledby="whats-new-heading">
+        <section ref={recentProjectsSection} className="home-discover home-recent" aria-labelledby="projects-heading">
           <div className="home-section-heading">
-            <h2 id="whats-new-heading">Explore</h2>
-          </div>
-          <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen}>
-            {showWhatsNew ? <button className="home-whats-new-item" type="button" onClick={() => onNavigate(WHATS_NEW_ITEM.page)}>
-              <span className="home-whats-new-icon" aria-hidden="true" />
-              <span className="home-whats-new-copy">
-                <strong>{WHATS_NEW_ITEM.title}</strong>
-                <small>New</small>
-              </span>
-            </button> : null}
-          </ExampleShelf>
-
-          <div className="home-section-heading home-project-heading">
             <h2 id="projects-heading">Recent projects</h2>
             {phase === "error" ? (
               <button type="button" onClick={() => void loadProjects()}>
                 <RefreshCw size={14} />Retry
               </button>
             ) : projects.length > recentProjectLimit ? (
-              <button className="home-show-all" type="button" onClick={() => setShowAllProjects((current) => !current)}>
-                {showAllProjects ? "Show less" : "Show all"}
-              </button>
+              <a className="home-show-all" href={projectsHash()}>Show all</a>
             ) : null}
           </div>
 
@@ -167,7 +130,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
           {phase === "ready" && projects.length === 0 ? (
             <p className="home-project-state">
-              {visibleExamples.length ? "No projects yet. Play an example above, or describe a game to start." : "No projects yet"}
+              No projects yet
             </p>
           ) : null}
           {phase === "ready" && projects.length > 0 ? (
@@ -188,6 +151,10 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           ) : null}
           {projectActionError ? <p className="home-notice" role="alert">{projectActionError}</p> : null}
         </section>
+        {visibleExamples.length > 0 ? <section className="home-discover home-explore" aria-labelledby="home-examples-heading">
+          <div className="home-section-heading"><h2 id="home-examples-heading">Explore</h2></div>
+          <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
+        </section> : null}
       </section>
       {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(name) => {
         const project = renameTarget;

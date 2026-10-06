@@ -1,22 +1,24 @@
 import { ArrowDownUp, FolderPlus, LoaderCircle, RefreshCw, Search, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
+import type { ProjectAgentActivity, ProjectState, ProjectType } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjectActivity, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
-import type { AppNavigationTarget, SidebarPage } from "./routes.js";
+import { projectsHash, type AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
+import { PROJECT_TYPES } from "./project-types.js";
 
 interface ProjectsPageProps {
+  projectType?: ProjectType | "all";
   onNavigate: (page: AppNavigationTarget) => void;
   onOpenProject: (projectId: string, view?: "design") => void;
 }
 
 type ProjectSort = "updated" | "name";
 
-export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
+export function ProjectsPage({ projectType = "all", onNavigate, onOpenProject }: ProjectsPageProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [activity, setActivity] = useState<ProjectAgentActivity[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -85,7 +87,7 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
     return () => document.removeEventListener("mousedown", close);
   }, [sortOpen]);
 
-  const visibleProjects = useMemo(() => filterAndSortProjects(projects, query, sort), [projects, query, sort]);
+  const visibleProjects = useMemo(() => filterAndSortProjects(projects, query, sort, projectType), [projects, query, sort, projectType]);
 
   async function runAction(action: () => Promise<unknown>): Promise<void> {
     setActionError(undefined);
@@ -118,6 +120,13 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
         title="Projects"
         actions={(
           <div className="projects-controls">
+            <select className="projects-type-filter" aria-label="Project type" value={projectType} onChange={(event) => {
+              const type = event.target.value as ProjectType | "all";
+              window.location.hash = projectsHash(type === "all" ? undefined : type);
+            }}>
+              <option value="all">All types</option>
+              {PROJECT_TYPES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+            </select>
             <label className="projects-search" htmlFor="projects-search-input">
               <Search size={14} aria-hidden="true" />
               <input id="projects-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" />
@@ -167,7 +176,7 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
         setRenameTarget(undefined);
         rename(project, name);
       }} /> : null}
-      {createOpen ? <ProjectCreateDialog onClose={() => setCreateOpen(false)} onCreated={(project) => {
+      {createOpen ? <ProjectCreateDialog initialType={projectType === "all" ? "web-game" : projectType} onClose={() => setCreateOpen(false)} onCreated={(project) => {
         setCreateOpen(false);
         onOpenProject(project.id);
       }} /> : null}
@@ -175,9 +184,10 @@ export function ProjectsPage({ onNavigate, onOpenProject }: ProjectsPageProps) {
   );
 }
 
-export function filterAndSortProjects(projects: ProjectState[], query: string, sort: ProjectSort): ProjectState[] {
+export function filterAndSortProjects(projects: ProjectState[], query: string, sort: ProjectSort, type: ProjectType | "all" = "all"): ProjectState[] {
   const normalized = query.trim().toLowerCase();
   return projects
+    .filter((project) => type === "all" || project.type === type)
     .filter((project) => !normalized || project.name.toLowerCase().includes(normalized))
     .sort((left, right) => sort === "name"
       ? left.name.localeCompare(right.name)
