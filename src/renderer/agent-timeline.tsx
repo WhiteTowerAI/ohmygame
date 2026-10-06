@@ -27,7 +27,7 @@ import { mcpToolBrand, mcpToolLabel } from "./mcp-tool-presentation.js";
 import { ModelPreview } from "./model-preview.js";
 import { formatBytes } from "./format-bytes.js";
 import { toolGroupSummary, type ToolItem } from "./work-items.js";
-import { projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
+import { mergeCompletedCompactionTurns, projectTurnDisplay, type TurnDisplay } from "./turn-display.js";
 import { SelectedTextMenu } from "./selected-text-menu.js";
 import { PromptContextIcon } from "./chat-reference.js";
 import { GodotIcon } from "./godot-icon.js";
@@ -48,7 +48,7 @@ interface AgentTimelineProps {
 
 const WorkspaceLinkContext = createContext<{ workspacePath?: string; onOpenWorkspaceFile?: (path: string) => void }>({});
 
-export function AgentTimeline({ turns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
+export function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [now, setNow] = useState(Date.now());
   const [editingItemId, setEditingItemId] = useState<string>();
@@ -56,6 +56,7 @@ export function AgentTimeline({ turns, projectId = "", workspacePath, onOpenWork
   const [copiedItemId, setCopiedItemId] = useState<string>();
   const [copiedAssistantId, setCopiedAssistantId] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
+  const turns = mergeCompletedCompactionTurns(sourceTurns);
   const active = turns.some((turn) => turn.status === "inProgress");
   useEffect(() => {
     if (!active) return;
@@ -341,6 +342,10 @@ function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
 }
 
 function CompletedWork({ display }: { display: TurnDisplay }) {
+  if (display.status === "completed" && !display.user && display.finalMessages.length === 0 && display.messages.length === 0 && display.work.length > 0 &&
+    display.work.every((item) => item.kind === "item" && item.item.type === "contextCompaction")) {
+    return <WorkItems items={display.work} />;
+  }
   const content = <div className="work-items">
     <WorkItems items={display.work} images={display.user?.images} failed={display.status === "failed"} />
     {display.status === "cancelled" && display.work.length === 0 ? (

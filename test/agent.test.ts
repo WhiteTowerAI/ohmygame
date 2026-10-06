@@ -178,6 +178,21 @@ describe("conversationItems", () => {
     })]);
   });
 
+  it("restores trailing compaction within its original turn", () => {
+    const items = conversationItems([
+      sessionMessage("user-1", { role: "user", content: "Make a game", timestamp: 1 }),
+      sessionMessage("assistant-1", { role: "assistant", content: [{ type: "text", text: "Done." }], stopReason: "stop", timestamp: 2 }),
+      {
+        type: "compaction", id: "compaction-1", parentId: "assistant-1",
+        timestamp: new Date(3).toISOString(), summary: "Previous work", firstKeptEntryId: "user-1", tokensBefore: 42_000,
+      },
+      sessionMessage("user-2", { role: "user", content: "Add a menu", timestamp: 4 }),
+    ] as never, false);
+
+    expect(items.find((item) => item.type === "contextCompaction")).toMatchObject({ turnId: "user-1", summary: "Previous work" });
+    expect(items.at(-1)).toMatchObject({ turnId: "user-2", type: "userMessage" });
+  });
+
   it("projects model switches after the conversation starts", () => {
     const items = conversationItems([
       {

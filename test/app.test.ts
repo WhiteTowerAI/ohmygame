@@ -1545,12 +1545,8 @@ describe("daemon", () => {
         items: [
           { id: "user-1", turnId: "user-1", type: "userMessage", text: "Hello", timestamp: 0 },
           { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
+          { id: "compaction-1", turnId: "user-1", type: "contextCompaction", status: "completed", summary: "Earlier context", tokensBefore: 42_000, timestamp: 2 },
         ],
-      }, {
-        id: "compaction-1",
-        conversationId: "session-1",
-        status: "completed",
-        items: [{ id: "compaction-1", turnId: "compaction-1", type: "contextCompaction", status: "completed", summary: "Earlier context", tokensBefore: 42_000, timestamp: 2 }],
       }],
       cursor: 0,
       pendingPrompts: [],

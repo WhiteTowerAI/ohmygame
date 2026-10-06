@@ -916,6 +916,21 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Context compacted");
   });
 
+  it("folds standalone completed compaction into the original work before its final response", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[
+      { ...user(), timestamp: 1_000 },
+      { ...tool(), timestamp: 2_000 },
+      { ...assistant("final", "Done.", "final_answer"), timestamp: 6_000 },
+      { id: "compaction", turnId: "compaction", type: "contextCompaction", status: "completed", timestamp: 60_000, summary: "Previous work" },
+    ]} />);
+
+    expect(html.match(/<article class="agent-turn">/g)).toHaveLength(1);
+    expect(html.match(/<details class="work-activity">/g)).toHaveLength(1);
+    expect(html).toContain("Worked for 5s");
+    expect(html).not.toContain("Worked for 0s");
+    expect(html.indexOf("Context compacted")).toBeLessThan(html.indexOf("Done."));
+  });
+
   it("expands completed compaction records with their summary and token counts", () => {
     const html = renderToStaticMarkup(<AgentTimeline items={[
       {
@@ -932,6 +947,7 @@ describe("AgentTimeline", () => {
     expect(html).toContain('class="compaction-details"');
     expect(html).toContain(`Compacted from ${new Intl.NumberFormat().format(42_000)} to approximately ${new Intl.NumberFormat().format(12_000)} tokens`);
     expect(html).toContain("Keep building the editor.");
+    expect(html).not.toContain("Worked for");
   });
 
   it("renders failed and cancelled compaction states distinctly", () => {

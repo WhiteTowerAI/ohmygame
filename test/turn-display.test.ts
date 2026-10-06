@@ -1,6 +1,65 @@
 import { describe, expect, it } from "vitest";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
-import { projectTurnDisplay } from "../src/renderer/turn-display.js";
+import { mergeCompletedCompactionTurns, projectTurnDisplay } from "../src/renderer/turn-display.js";
+
+describe("mergeCompletedCompactionTurns", () => {
+  const compaction: Turn = {
+    id: "compact-1", conversationId: "conversation-1", status: "completed",
+    items: [{ id: "compact-item", turnId: "compact-1", type: "contextCompaction", status: "completed", timestamp: 10_000 }],
+  };
+
+  it("merges independent completed compaction into preceding work without changing runtime turns", () => {
+    const original = turn([tool("completed"), answer("Done.")], false);
+    const turns = [original, compaction, { ...compaction, id: "compact-2", items: [{ ...compaction.items[0], id: "compact-item-2", turnId: "compact-2" }] }];
+    const merged = mergeCompletedCompactionTurns(turns);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe(original.id);
+    expect(merged[0].items.slice(-2).map((item) => item.turnId)).toEqual([original.id, original.id]);
+    expect(projectTurnDisplay(merged[0]).durationMs).toBe(3);
+    expect(original.items).toHaveLength(3);
+    expect(compaction.items[0].turnId).toBe("compact-1");
+  });
+
+  it("retains model changes while folding compaction into the latest conversation work", () => {
+    const first = { ...turn([], false), id: "earlier" };
+    const latest = turn([answer("Done.")], false);
+    const modelChange: Turn = {
+      id: "model-change", conversationId: "conversation-1", status: "completed",
+      items: [{ id: "model-change", turnId: "model-change", type: "modelChange", model: { provider: "openai", id: "next" } }],
+    };
+    const merged = mergeCompletedCompactionTurns([first, latest, modelChange, compaction]);
+
+    expect(merged.map((item) => item.id)).toEqual([first.id, latest.id, modelChange.id]);
+    expect(merged[0]).toBe(first);
+    expect(merged[1].items.at(-1)).toMatchObject({ type: "contextCompaction", turnId: latest.id });
+    expect(merged[2]).toBe(modelChange);
+  });
+
+  it("preserves running and failed compaction as independent activity", () => {
+    for (const status of ["inProgress", "failed", "cancelled"] as const) {
+      const separate = { ...compaction, status, items: [{ ...compaction.items[0], status }] } as Turn;
+      const turns = [turn([answer("Done.")], false), separate];
+      expect(mergeCompletedCompactionTurns(turns)).toEqual(turns);
+    }
+  });
+
+  it("does not attach orphan compaction to another conversation or pending steering", () => {
+    const unrelated = { ...turn([], false), conversationId: "other-conversation" };
+    const steering = { ...turn([], false), steering: true };
+    expect(mergeCompletedCompactionTurns([unrelated, steering, compaction])).toEqual([unrelated, steering, compaction]);
+  });
+
+  it("keeps stopped work duration when compaction completes afterward", () => {
+    const stopped: Turn = {
+      ...turn([tool("completed"), { ...answer(""), status: "cancelled", phase: undefined, timestamp: 5 }], false),
+      status: "cancelled",
+    };
+    const [merged] = mergeCompletedCompactionTurns([stopped, compaction]);
+    expect(merged.status).toBe("cancelled");
+    expect(projectTurnDisplay(merged).durationMs).toBe(4);
+  });
+});
 
 describe("projectTurnDisplay", () => {
   it("keeps Pi facts separate from the initial activity display", () => {
@@ -153,14 +212,32 @@ describe("projectTurnDisplay", () => {
     expect(display.messages).toEqual([]);
   });
 
-  it("keeps completed context compaction as a visible timeline event", () => {
+  it("folds completed context compaction into work before the final answer", () => {
     const compaction: ThreadItem = {
       id: "compaction",
       turnId: "turn-1",
       type: "contextCompaction",
       status: "completed",
     };
-    const display = projectTurnDisplay(turn([compaction], false));
+    const display = projectTurnDisplay(turn([answer("Done."), compaction], false));
+
+    expect(display.work).toEqual([{ kind: "item", item: compaction }]);
+    expect(display.messages).toEqual([]);
+    expect(display.finalMessages).toEqual([answer("Done.")]);
+  });
+
+  it("does not extend work duration for compaction after the final answer", () => {
+    const display = projectTurnDisplay(turn([
+      { ...answer("Done."), timestamp: 5 },
+      { id: "compaction", turnId: "turn-1", type: "contextCompaction", status: "completed", timestamp: 10_000 },
+    ], false));
+
+    expect(display.durationMs).toBe(4);
+  });
+
+  it("keeps failed compaction visible outside the completed work fold", () => {
+    const compaction: ThreadItem = { id: "failed", turnId: "turn-1", type: "contextCompaction", status: "failed" };
+    const display = projectTurnDisplay(turn([answer("Done."), compaction], false));
 
     expect(display.work).toEqual([]);
     expect(display.messages).toEqual([compaction]);
@@ -210,7 +287,7 @@ function commentary(text: string): ThreadItem {
   return { id: `commentary:${text}`, turnId: "turn-1", type: "agentMessage", text, status: "completed", phase: "commentary", timestamp: 2 };
 }
 
-function answer(text: string): ThreadItem {
+function answer(text: string): Extract<ThreadItem, { type: "agentMessage" }> {
   return { id: "answer", turnId: "turn-1", type: "agentMessage", text, status: "completed", phase: "final_answer", timestamp: 4 };
 }
 

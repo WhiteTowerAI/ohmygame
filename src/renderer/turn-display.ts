@@ -15,6 +15,28 @@ export interface TurnDisplay {
   durationMs: number;
 }
 
+export function mergeCompletedCompactionTurns(turns: readonly Turn[]): Turn[] {
+  const result: Turn[] = [];
+  for (const turn of turns) {
+    const compactionOnly = turn.status === "completed" && turn.items.length > 0 &&
+      turn.items.every((item) => item.type === "contextCompaction" && item.status === "completed");
+    const previousIndex = compactionOnly ? result.findLastIndex((candidate) =>
+      candidate.conversationId === turn.conversationId && !candidate.steering &&
+      candidate.items.some((item) => item.type !== "contextCompaction" && item.type !== "modelChange")) : -1;
+    if (previousIndex < 0) {
+      result.push(turn);
+      continue;
+    }
+    // Compaction has its own runtime turn for cancellation, but belongs to the preceding work in history.
+    const previous = result[previousIndex];
+    result[previousIndex] = {
+      ...previous,
+      items: [...previous.items, ...turn.items.map((item) => ({ ...item, turnId: previous.id }))],
+    };
+  }
+  return result;
+}
+
 export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput = false): TurnDisplay {
   const active = turn.status === "inProgress";
   const user = turn.items.find((item): item is Extract<ThreadItem, { type: "userMessage" }> => item.type === "userMessage");
@@ -62,7 +84,9 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
 }
 
 function turnDurationMs(items: ThreadItem[]): number {
-  const timestamps = items.map((item) => item.timestamp)
+  const finishedAt = items.findLast(isFinalAnswer)?.timestamp ?? items.findLast((item) => item.type !== "contextCompaction")?.timestamp;
+  const timestamps = items.filter((item) => item.type !== "contextCompaction" || finishedAt === undefined || item.timestamp === undefined || item.timestamp <= finishedAt)
+    .map((item) => item.timestamp)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   return timestamps.length >= 2 ? Math.max(...timestamps) - Math.min(...timestamps) : 0;
 }
@@ -82,7 +106,7 @@ function hasVisibleAssistantText(items: ThreadItem[]): boolean {
 
 function isWorkItem(item: ThreadItem): boolean {
   return item.type === "reasoning" || item.type === "dynamicToolCall" || item.type === "mcpToolCall" || item.type === "retry" || item.type === "imageRead" ||
-    (item.type === "contextCompaction" && item.status === "inProgress") ||
+    (item.type === "contextCompaction" && (item.status === "inProgress" || item.status === "completed")) ||
     (item.type === "agentMessage" && item.phase !== "final_answer");
 }
 
