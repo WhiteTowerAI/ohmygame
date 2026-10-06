@@ -23,10 +23,8 @@ In scope:
 - The desktop app, the local daemon, and the web renderer in this repository
 - How provider keys, sign-in tokens, and project files are handled
 - The publish client and what it uploads
-
-The hosted Publish and Community services live in
-[`ohmygame-cloud`](https://github.com/WhiteTowerAI/ohmygame-cloud); report
-issues there the same way.
+- The hosted Publish and Community services. Their code is not public yet,
+  so report issues with them through the same advisory link above.
 
 The local daemon is designed for a single trusted user on their own machine.
 See the trusted-local security boundary in [docs/runtime.md](docs/runtime.md).
