@@ -89,7 +89,7 @@ export function WorkspaceAssetCard({ asset, onOpen, onRename, onDelete }: {
   />;
 }
 
-/** An asset's thumbnail: an image, a video's first frame, or a still 3D model, loaded once `visible`. */
+/** An asset's thumbnail: an image, a video's first frame, or a still 3D model, loaded once `visible`. Thumbnails sit inside open buttons, so they carry no clip picker. */
 export function AssetThumbnail({ asset, visible }: { asset: BrowsableAsset; visible: boolean }) {
   const [previewFailed, setPreviewFailed] = useState(false);
   const preview = useWorkspaceAssetUrl(visible && asset.mediaType !== "audio" ? asset.projectId : undefined, asset.path, asset.revision, visible ? asset.assetId : undefined);
@@ -98,7 +98,7 @@ export function AssetThumbnail({ asset, visible }: { asset: BrowsableAsset; visi
   return <>
     {showPreview && asset.mediaType === "video" ? <video src={preview.url} muted playsInline preload="metadata" onError={() => setPreviewFailed(true)} onLoadedMetadata={(event) => { event.currentTarget.currentTime = 0.01; }} /> : null}
     {showPreview && asset.mediaType === "image" ? <img src={preview.url} alt="" onError={() => setPreviewFailed(true)} /> : null}
-    {preview.url && !previewFailed && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={fileName(asset.path)} interactive={false} /> : null}
+    {preview.url && !previewFailed && asset.mediaType === "model" ? <ModelPreview source={preview.url} label={fileName(asset.path)} interactive={false} clipPicker={false} /> : null}
     {!showPreview && visible && asset.mediaType === "model" && !preview.error ? <LoaderCircle className="spin" size={18} /> : null}
     {!showPreview && (!visible || asset.mediaType !== "model" || preview.error) ? <FallbackIcon size={FallbackIcon === X ? 22 : 28} /> : null}
   </>;
