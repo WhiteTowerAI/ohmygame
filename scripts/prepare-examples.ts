@@ -57,7 +57,10 @@ async function prepareExamples(destination: string, expectedLockSha256: string):
     const listed = JSON.parse(await readFile(path.join(source, "catalog.json"), "utf8")) as { version?: unknown; examples?: unknown };
     if (listed.version !== 1 || !Array.isArray(listed.examples)) throw new Error("The examples repository has an invalid catalog.json");
     const examples: PreparedExample[] = [];
-    for (const entry of listed.examples as Array<Record<string, unknown>>) {
+    for (const sourceEntry of listed.examples as Array<Record<string, unknown>>) {
+      const entry = { ...sourceEntry };
+      // The examples repository still uses the former interactive story type.
+      if (entry.type === "interactive-drama") entry.type = "interactive-story";
       if (!isExampleSummary(entry) || typeof entry.path !== "string" || typeof entry.cover !== "string") {
         throw new Error(`Invalid catalog entry: ${JSON.stringify(entry)}`);
       }
