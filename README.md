@@ -9,7 +9,7 @@
 
 **The open-source studio for making games with AI.**
 
-Everything you need to make games with AI, in one open-source app. Support BYOK.
+Everything you need to make games with AI, in one app. Bring your own key.
 
 <p>
   <a href="https://ohmygame.ai/download/mac"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
@@ -31,7 +31,7 @@ Everything you need to make games with AI, in one open-source app. Support BYOK.
 </div>
 
 > [!NOTE]
-> OhMyGame is in beta (`0.0.0-beta.1`). Expect rough edges, join us and let's build it together!
+> OhMyGame is in beta. Expect rough edges. Join us and let's build it together!
 
 ## What it is
 
@@ -59,18 +59,19 @@ per-run credits, and what you make is yours.
 ### 🎨 Canvas: design docs, art, video, and 3D on one board
 
 Every game project has a design space: a main design doc plus boards where
-the doc, images, video, and 3D models sit side by side. Nodes can use each other as references, so one
-character design can lead to more images, a video, or a rigged and animated 3D
-model. Results go into a shared Asset Library that your
-games can use. 
+the doc, images, video, and 3D models sit side by side. Nodes can use each
+other as references, so one character design can lead to more images, a video,
+or a rigged and animated 3D model. Results go into a shared Asset Library that
+your games can use.
 
 <!-- TODO(asset): GIF, Asset Canvas: text → image → 3D model chain -->
 <!-- <img src="docs/assets/asset-canvas.gif" alt="Generating linked image, video, and 3D assets on the Asset Canvas" width="860" /> -->
 
-### 🤖 Agent: control the canvas, builds the game
+### 🤖 Agent: drives the canvas, builds and plays the game
 
-The agent reads the design doc, writes the code, and runs the game in a live
-preview. Then it opens the game in a window you can watch and plays it, including
+The agent works the canvas the way you would: it drafts the design doc, lays
+out boards, and generates assets on them. Then it reads the design doc, writes
+the code, and runs the game in a live preview. Then it opens the game in a window you can watch and plays it, including
 real-time canvas and WebGL games. When it finds a problem, it tries a fix and
 plays again. Along the way it can generate images, video, and 3D models, search
 the web, and use MCP servers or the Codex and Claude Code plugins you already
@@ -87,8 +88,7 @@ then the agent playing in the watch window with the key overlay -->
 
 Sign in and publish: OhMyGame builds your game and gives it a link anyone can
 play in the browser. Republishing updates the same link. Published games are
-listed in the in-app Community, where you can play what others have made. 
-Remixing is currently in development.
+listed in the in-app Community, where you can play what others have made.
 
 ## What you can make
 
@@ -177,21 +177,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md#configuration) for configuration.
 
 ## Privacy
 
-Everything runs on your machine except publishing, which uploads only your
-game's static build. Release builds send anonymous usage events (PostHog,
-no session recording) and crash reports (Sentry, no personal data). Builds
-from source send nothing.
-
-<!-- TODO(copy): how to turn telemetry off in the desktop app, once there is a
-setting for it -->
+Your projects and keys stay on your machine. Prompts and generation requests go
+directly to the model providers you choose. Publishing requires an OhMyGame
+account and uploads only your game's static build. Release builds check for
+updates and send anonymous usage events (PostHog, no session recording) and
+crash reports (Sentry, no personal data). Builds from source send no telemetry.
 
 ## Roadmap
 
-<!-- TODO(links): link "roadmap" to the pinned Roadmap issue once the repo is public -->
-
 We're working on first-run setup, plain-language playtest reports, remixing
-games from the Community, and Intel Mac / Linux builds. See the [roadmap](https://TODO) for what's next,
-and vote with 👍 on what matters to you. Want to help? Look for
+games from the Community, and Intel Mac / Linux builds. See
+[Issues](https://github.com/WhiteTowerAI/ohmygame/issues) for what's next, and
+vote with 👍 on what matters to you. Want to help? Look for
 [`help wanted`](https://github.com/WhiteTowerAI/ohmygame/labels/help%20wanted)
 issues.
 
@@ -204,4 +201,4 @@ security issues.
 ## License
 
 [Apache-2.0](LICENSE). The OhMyGame name and logo are not covered by the
-license. <!-- TODO(legal): confirm trademark wording -->
+license. 
