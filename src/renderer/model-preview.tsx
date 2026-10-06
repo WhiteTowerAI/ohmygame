@@ -12,7 +12,7 @@ type ModelViewerProgress = CustomEvent<{
   totalProgress?: number;
 }>;
 
-export function ModelPreview({ source, label, minHeight = 320, interactive = true }: { source: string; label: string; minHeight?: number; interactive?: boolean }) {
+export function ModelPreview({ source, label, minHeight = 320, interactive = true, clipPicker = true }: { source: string; label: string; minHeight?: number; interactive?: boolean; clipPicker?: boolean }) {
   const viewerRef = useRef<ModelViewerElement | null>(null);
   const [componentReady, setComponentReady] = useState(Boolean(customElements.get("model-viewer")));
   const [componentError, setComponentError] = useState(false);
@@ -107,7 +107,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         </span>
       ) : null}
       {modelError ? <span className="model-preview-state model-preview-error" role="alert">{modelError}</span> : null}
-      {clips.length > 1 ? (
+      {clipPicker && clips.length > 1 ? (
         // nodrag/nowheel keep canvas nodes from treating the picker as a drag or zoom.
         <select
           className="model-preview-clips nodrag nowheel"
