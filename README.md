@@ -64,8 +64,7 @@ other as references, so one character design can lead to more images, a video,
 or a rigged and animated 3D model. Results go into a shared Asset Library that
 your games can use.
 
-<!-- TODO(asset): GIF, Asset Canvas: text → image → 3D model chain -->
-<!-- <img src="docs/assets/asset-canvas.gif" alt="Generating linked image, video, and 3D assets on the Asset Canvas" width="860" /> -->
+https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 
 ### 🤖 Agent: drives the canvas, builds and plays the game
 
