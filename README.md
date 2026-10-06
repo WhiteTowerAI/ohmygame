@@ -49,16 +49,6 @@ per-run credits, and what you make is yours.
 
 ## Features
 
-### 🎨 Canvas: design docs, art, video, and 3D on one board
-
-Every game project has a design space: a main design doc plus boards where
-the doc, images, video, and 3D models sit side by side. Nodes can use each
-other as references, so one character design can lead to more images, a video,
-or a rigged and animated 3D model. Results go into a shared Asset Library that
-your games can use.
-
-https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
-
 ### 🤖 Agent: drives the canvas, builds and plays the game
 
 The agent works the canvas the way you would: it drafts the design doc, lays
@@ -72,9 +62,17 @@ have.
 <!-- Playtesting is open loop for now: the agent plans a batch of inputs, runs
 them, then looks at the result. It has no real-time reflexes yet. -->
 
-<!-- TODO(asset): GIF, Project Shell: conversation left, live preview right,
-then the agent playing in the watch window with the key overlay -->
-<!-- <img src="docs/assets/web-game.gif" alt="Building a web game and watching the agent play it" width="860" /> -->
+https://github.com/user-attachments/assets/3cb982e8-a4a8-4715-bf3c-df4e41e7855b
+
+### 🎨 Canvas: design docs, art, video, and 3D on one board
+
+Every game project has a design space: a main design doc plus boards where
+the doc, images, video, and 3D models sit side by side. Nodes can use each
+other as references, so one character design can lead to more images, a video,
+or a rigged and animated 3D model. Results go into a shared Asset Library that
+your games can use.
+
+https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 
 ### 🔗 Publish: one link, playable anywhere
 
