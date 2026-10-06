@@ -198,6 +198,13 @@ describe("Node Graph contract", () => {
     );
   });
 
+  it("publishes with a navigation Signal that goes nowhere, which a Node can show disabled", () => {
+    const graph = createNodeGraphFixture();
+    graph.edges = graph.edges.filter((edge) => edge.source.signal !== "home");
+
+    expect(validateNodeGraph(graph, { mode: "publish", availableFiles: PLAYABLE_FIXTURE_FILES }).issues).toEqual([]);
+  });
+
   it("accepts a project with no Nodes as a draft but not for publish", () => {
     const graph = { ...createNodeGraphFixture(), nodes: [], edges: [], entryNodeId: "start" };
 

@@ -1,3 +1,5 @@
+import type { PlayableStoryMap } from "./playable-story-map.js";
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | JsonObject;
 export interface JsonObject {
@@ -38,12 +40,28 @@ export interface PlayableSignal {
   when?: string;
 }
 
+/**
+ * How a Node shows on the Story Map, the map of the story a Node can show the
+ * player with `context.story.map()`. Every field is optional; without them
+ * the Node is on the map under its title, and it is an ending when it has no
+ * Signals other than navigation ones.
+ */
+export interface PlayableStoryOptions {
+  /** Keeps a Node that is not a step in the story, such as a menu, off the map. */
+  hidden?: boolean;
+  /** Overrides the guess of whether the Node is an ending. */
+  ending?: boolean;
+  /** The name players see on the map, when it should differ from the title. */
+  label?: string;
+}
+
 export interface PlayableNode {
   id: string;
   title: string;
   source: NodeSource;
   assets: string[];
   signals: PlayableSignal[];
+  story?: PlayableStoryOptions;
 }
 
 export interface PlayableEdge {
@@ -94,6 +112,8 @@ export interface NodeRuntimeContext {
     save(): Promise<void>;
     restart(): Promise<void>;
   };
+  /** The story the player has seen so far, across every game they started. */
+  story: { map(): PlayableStoryMap };
   lifecycle: { signal: AbortSignal };
 }
 
@@ -101,6 +121,8 @@ export interface PlayableNodeContext extends NodeRuntimeContext {
   navigation: {
     emit(signal: string): Promise<void>;
     back(): Promise<void>;
+    /** The Node declares the Signal and an edge routes it, so emitting it goes somewhere. */
+    connected(signal: string): boolean;
   };
 }
 

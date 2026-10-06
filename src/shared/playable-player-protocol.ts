@@ -2,6 +2,7 @@ import type { CompiledNodeGraph } from "./playable-compiled.js";
 import type { JsonObject, NodeGraph } from "./playable-nodes.js";
 import type { PlayableTranslate } from "./playable-move.js";
 import type { PlayablePickResult } from "./playable-picker.js";
+import type { PlayableSeen } from "./playable-story-map.js";
 import type {
   NodeRuntimePolicy,
   NodeRuntimeSnapshot,
@@ -75,6 +76,8 @@ export type PlayableHostMessage =
       definition: NodePlayerDefinition;
       assets: Record<string, PlayableAssetTransfer>;
       save?: unknown;
+      /** What the player has seen in earlier sessions, for the Story Map. */
+      seen?: unknown;
       preview?: PlayablePreviewOptions;
     }
   | {
@@ -92,6 +95,12 @@ export type PlayableFrameMessage =
       instanceId: string;
       requestId: string;
       save: PlayableSave;
+    }
+  | {
+      /** Keep this record; there is no reply, since losing it never stops the game. */
+      kind: "ohmygame:playable:seen";
+      instanceId: string;
+      seen: PlayableSeen;
     }
   | {
       kind: "ohmygame:playable:snapshot";
@@ -164,6 +173,8 @@ export function isPlayableFrameMessage(
     return false;
   if (value.kind === "ohmygame:playable:save")
     return typeof value.requestId === "string" && isRecord(value.save);
+  if (value.kind === "ohmygame:playable:seen")
+    return isRecord(value.seen);
   if (value.kind === "ohmygame:playable:snapshot")
     return isRecord(value.snapshot);
   if (value.kind === "ohmygame:playable:picked")

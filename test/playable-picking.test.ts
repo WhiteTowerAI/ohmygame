@@ -184,6 +184,12 @@ describe("pick protocol messages", () => {
       isPlayableHostMessage({ kind: "ohmygame:playable:pick-start", instanceId: "a", tool: "move" }),
     ).toBe(true);
     expect(
+      isPlayableFrameMessage({ kind: "ohmygame:playable:seen", instanceId: "a", seen: { version: 1, nodes: {}, edges: {} } }),
+    ).toBe(true);
+    expect(
+      isPlayableFrameMessage({ kind: "ohmygame:playable:seen", instanceId: "a", seen: [] }),
+    ).toBe(false);
+    expect(
       isPlayableFrameMessage({
         kind: "ohmygame:playable:moved",
         instanceId: "a",

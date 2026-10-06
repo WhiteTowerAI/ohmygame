@@ -172,6 +172,29 @@ describe("addPlayableNode", () => {
     expect(validation.issues).toEqual([]);
   });
 
+  it("keeps a menu and a Story map off the Story map, and compiles the Story map", async () => {
+    const workspacePath = await createWorkspace("add-story-map");
+
+    await addPlayableNode(workspacePath, { preset: "main-menu", id: "menu" });
+    await addPlayableNode(workspacePath, { preset: "story-map", id: "map" });
+
+    const nodes = (await readNodeCodebase(workspacePath)).graph.nodes;
+    expect(nodes.find((node) => node.id === "start")?.story).toBeUndefined();
+    expect(nodes.find((node) => node.id === "menu")?.story).toEqual({ hidden: true });
+    expect(nodes.find((node) => node.id === "map")?.story).toEqual({ hidden: true });
+    expect((await validatePlayableProject(workspacePath, "draft")).issues).toEqual([]);
+  });
+
+  it("gives a Main menu a Story map Exit that waits to be connected", async () => {
+    const workspacePath = await createWorkspace("menu-story-map");
+
+    await addPlayableNode(workspacePath, { preset: "main-menu", id: "menu" });
+
+    const { graph } = await readNodeCodebase(workspacePath);
+    expect(graph.nodes.find((node) => node.id === "menu")?.signals).toContainEqual({ id: "story-map", label: "Story map", role: "navigation" });
+    expect(graph.edges.some((edge) => edge.source.nodeId === "menu")).toBe(false);
+  });
+
   it("names the Node in order and honours an explicit position", async () => {
     const workspacePath = await createWorkspace("add-node-defaults");
 

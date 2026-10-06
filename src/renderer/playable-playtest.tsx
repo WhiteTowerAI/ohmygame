@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { InfoCircle, RotateCcw, Sparkles, X } from "./icons.js";
+import { History, InfoCircle, RotateCcw, Sparkles, X } from "./icons.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
@@ -8,6 +8,12 @@ import type { PlaytestStart } from "./playable-node-workbench.js";
 export type { PlaytestStart };
 
 const RECENT_LIMIT = 8;
+
+/** Where Playtest keeps the project's saved game. */
+export const playtestSaveKey = (projectId: string) => `ohmygame:playable:project:${projectId}`;
+
+/** What the author has seen while playtesting, which the Story Map shows. */
+export const playtestSeenKey = (projectId: string) => `${playtestSaveKey(projectId)}:seen`;
 
 const startKey = (projectId: string) => `ohmygame:playtest:start:${projectId}`;
 
@@ -79,13 +85,15 @@ export function usePlaytestAskRequests(projectId: string | undefined, onAsk: (te
 /**
  * What the Playtest window shows over the game: nothing while it works. When
  * something breaks, a short note offers to hand the problem to the AI, with
- * what the player was doing. Replay appears on hover in the corner.
+ * what the player was doing. Replay, and forgetting which Scenes were seen,
+ * appear on hover in the corner.
  */
-export function PlaytestOverlay({ graph, record, diagnostics, onRestart, onAskAgent }: {
+export function PlaytestOverlay({ graph, record, diagnostics, onRestart, onForgetSeen, onAskAgent }: {
   graph: NodeGraph;
   record?: PlayableDebugRecord;
   diagnostics: readonly string[];
   onRestart: () => void;
+  onForgetSeen: () => void;
   onAskAgent?: (text: string) => void;
 }) {
   const errors = [...(record?.errors ?? []).map((error) => error.message), ...diagnostics];
@@ -95,7 +103,10 @@ export function PlaytestOverlay({ graph, record, diagnostics, onRestart, onAskAg
   useEffect(() => setSent(false), [errors.length]);
 
   return <>
-    <button type="button" className="playable-playtest-replay" title="Replay from the start with a new game" aria-label="Replay" onClick={onRestart}><RotateCcw size={13} /></button>
+    <div className="playable-playtest-corner">
+      <button type="button" title="Forget which Scenes were seen, so the Story map starts over" aria-label="Forget seen Scenes" onClick={onForgetSeen}><History size={13} /></button>
+      <button type="button" title="Replay from the start with a new game" aria-label="Replay" onClick={onRestart}><RotateCcw size={13} /></button>
+    </div>
     {shown ? <aside className="playable-playtest-problem" role="alert">
       <InfoCircle size={13} />
       <span>{sent ? "Added to the chat in the editor" : "Something broke"}</span>

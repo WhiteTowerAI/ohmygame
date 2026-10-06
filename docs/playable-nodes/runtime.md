@@ -10,6 +10,7 @@ The Runtime owns everything that must survive a node:
 - navigation and the back stack;
 - asset resolution;
 - the save slot;
+- what the player has seen, for the Story Map;
 - node lifecycle;
 - the sandbox that hosts node code.
 
@@ -129,6 +130,11 @@ such as `"if trust is 3 or more"`, and the graph may have `variables`, a map
 from `initialState` keys to one-line descriptions. The Agent writes both and
 the editor displays them. They are never executed: the node's code decides.
 
+A node may have `story`, which says how it shows on the
+[Story Map](#story-map): `hidden` keeps it off the map, `ending` overrides
+the guess of whether it is an ending, and `label` is the name players see
+instead of its title. The Runtime reads it only to build the map.
+
 `viewport` is the fixed stage every node is laid out in, in
 CSS pixels. Players scale the whole stage to fit, keeping its ratio, so a node
 looks the same in the Workbench preview, its thumbnail, a Playtest window of
@@ -174,11 +180,16 @@ interface RuntimeContext {
     reset(): Promise<void>;
     restart(): Promise<void>;
   };
+  story: { map(): StoryMap };
   lifecycle: { signal: AbortSignal };
 }
 
 interface NodeContext extends RuntimeContext {
-  navigation: { emit(signal: string): Promise<void>; back(): Promise<void> };
+  navigation: {
+    emit(signal: string): Promise<void>;
+    back(): Promise<void>;
+    connected(signal: string): boolean;
+  };
 }
 ```
 
@@ -209,8 +220,13 @@ A Signal says what happened; an edge says where it leads.
 - Edges carry no conditions or state effects in v1. A node reads State and
   emits the Signal that fits.
 - A declared Signal may be unconnected while editing. Emitting it during
-  Playtest reports an error; publishing requires every Signal to be
-  connected.
+  Playtest reports an error. `navigation.connected(signal)` tells a node
+  whether a Signal of its own goes anywhere, so it can show the control
+  disabled instead.
+- Publishing requires every story Signal to be connected. A navigation
+  Signal may stay unconnected, such as a Main menu's Story map entry in a
+  game without a Story map, since it is a way around the game and its node
+  can show it disabled.
 
 ## Navigation
 
@@ -323,6 +339,46 @@ One save slot:
   code-only edit keeps the save. A save whose signature no longer matches is
   reported as incompatible (`save.incompatible`) rather than loaded partially.
 
+## Story Map
+
+Besides the save slot, the Runtime keeps what the player has **seen**: when
+each node was first entered and each edge first taken. It lasts across new
+games, `reset()`, `restart()`, and graph edits, since it is kept by ID, apart
+from the save; IDs no longer in the graph are ignored. Only play adds to it,
+not the `report` preview policy. Losing it never stops the game: a record
+that cannot be read starts over, and a failed write is reported once.
+
+`context.story.map()` returns the story laid out for a player to see, with
+what they have seen:
+
+```ts
+interface StoryMap {
+  nodes: { id: string; label: string; row: number; column: number; rowSize: number; ending: boolean; seen: boolean }[];
+  edges: { from: string; to: string; seen: boolean }[];
+}
+```
+
+The layout comes from the graph alone, never from editor positions, so it
+holds at any screen size and arranging the canvas does not change it:
+
+- A step in the story is a `replace` edge from a Signal that is not
+  navigation. A `push` target is on the map only when the story reaches it
+  some other way.
+- Nodes with `story.hidden` are left out, and the steps through them joined.
+  When the Entry Node is hidden, the map starts at the nodes it leads to.
+- Steps back to a node already above, such as a retry, are left out, so the
+  map reads downwards.
+- Each node sits one row below the lowest node that leads to it, and each
+  row is ordered by where those nodes sit. `column` counts from the left of
+  its row of `rowSize` nodes.
+- A node is an ending when `story.ending` says so, or else when every Signal
+  it declares is navigation.
+- An edge is seen when the first graph edge of its step was taken and its
+  target was seen.
+
+The Story map Template draws the map. Which Scenes it shows, locked or not,
+is its own code.
+
 ## Host tooling
 
 These capabilities exist for the editor and the Agent. Node code cannot see
@@ -337,7 +393,9 @@ The Runtime accepts a navigation policy:
 - `report` (Workbench preview): a Signal is validated and reported to the host
   with the edge it would follow, and the node stays mounted. `back()`,
   `restart()`, and `continue()` are reported the same way. Report kinds are
-  `signal`, `back`, `restart`, and `continue`.
+  `signal`, `back`, `restart`, and `continue`. Nothing it previews adds to
+  what the player has seen, and `story.map()` shows every node and edge as
+  seen, so the author previews the whole map.
 
 The Workbench preview may also start with a **preview state**: `initialState`
 with author-chosen overrides, validated against the declared keys.

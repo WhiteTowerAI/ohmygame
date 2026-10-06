@@ -96,24 +96,6 @@ export function setPlayableSignalLabel(
   return next;
 }
 
-/** Marks an Exit as a way around the game (`navigation`) or part of the story. */
-export function setPlayableSignalRole(
-  graph: NodeGraph,
-  nodeId: string,
-  signalId: string,
-  navigation: boolean,
-): NodeGraph {
-  const next = structuredClone(graph);
-  const node = next.nodes.find((candidate) => candidate.id === nodeId);
-  if (!node) return graph;
-  node.signals = node.signals.map((signal) => {
-    if (signal.id !== signalId) return signal;
-    const { role: _role, ...story } = signal;
-    return navigation ? { ...story, role: "navigation" as const } : story;
-  });
-  return next;
-}
-
 /**
  * A new edge's ID: `<source>-<signal>`, which graph.json's ID pattern allows,
  * numbered when another edge already has it.

@@ -32,10 +32,10 @@ import type { ProjectState, PromptContext } from "../shared/contracts.js";
 import type { NodeCodebase, NodeCodebaseUpdate, NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
   type NodeGraph,
-  type PlayableNavigationMode,
   type PlayableNode,
 } from "../shared/playable-nodes.js";
 import { setPlayableElementTranslate } from "../shared/playable-move.js";
+import { isPlayableStoryEnding, withPlayableStoryOption } from "../shared/playable-story-map.js";
 import type { NodePlayerDefinition, PlayableMove, PlayableTextEdit } from "../shared/playable-player-protocol.js";
 import { parsePlayableSourceLocation, replacePlayableElementText } from "../shared/playable-text-edit.js";
 import { clearPlayableBackdrop, playableBackdrop, setPlayableBackdrop } from "../shared/playable-backdrop.js";
@@ -43,7 +43,6 @@ import {
   addPlayableNodeAsset,
   playableEdgeId,
   setPlayableSignalLabel,
-  setPlayableSignalRole,
   playableThumbnailHash,
   type PlayablePresetSummary,
   type PlayableProjectValidationIssue,
@@ -69,9 +68,9 @@ import { PlayableVariablesPanel } from "./playable-project-panels.js";
 import { requestPlaytestStart } from "./playable-playtest.js";
 import { setTechnicalDetails, useTechnicalDetails } from "./playable-details.js";
 import type { PlayableChatState } from "./playable-chat.js";
-import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, toPlayableEdge, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
+import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
 import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
-import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEdgeInspector, PlayableProjectMenu } from "./playable-canvas-menus.js";
+import { PlayableAddControl, PlayableCanvasContextMenu, PlayableProjectMenu } from "./playable-canvas-menus.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
@@ -180,7 +179,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
   const canUndo = Boolean(historyPendingBase.current || undoHistory.current.length);
   const canRedo = !historyPendingBase.current && redoHistory.current.length > 0;
-  const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
   const openedNode = !designOpen && workspaceView === "canvas" && phase === "ready"
     ? nodes.find((node) => node.id === openedNodeId)?.data.node
     : undefined;
@@ -437,6 +435,21 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [codebase, workspaceView]);
 
+  // A navigation Exit has no line for the canvas to delete, so a connection
+  // selected from its Exit row is deleted here, as a drawn one is.
+  const selectedNavigation = Boolean(selectedEdgeId && edges.some((edge) => edge.id === selectedEdgeId
+    && nodes.find((node) => node.id === edge.source)?.data.node.signals.some((signal) => signal.id === edge.sourceHandle && signal.role === "navigation")));
+  useEffect(() => {
+    if (!selectedNavigation || openedNodeId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.key !== "Delete" && event.key !== "Backspace") || isTextEntry(event.target)) return;
+      setEdges((current) => current.filter((edge) => edge.id !== selectedEdgeId));
+      setSelectedEdgeId(undefined);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedNavigation, selectedEdgeId, openedNodeId]);
+
   const save = useCallback((next: NodeCodebaseUpdate): Promise<void> => {
     const serialized = JSON.stringify(next);
     if (serialized === queuedCodebase.current) return saveChain.current;
@@ -489,12 +502,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     });
   }
 
-  function setEdgeMode(edgeId: string, mode: PlayableNavigationMode): void {
-    setEdges((current) => current.map((edge) => edge.id === edgeId
-      ? { ...toFlowEdge({ ...toPlayableEdge(edge)!, mode }), selected: edge.selected }
-      : edge));
-  }
-
   /** Selects a connection, as clicking its line does. */
   function selectEdge(edgeId: string): void {
     setCanvasContextMenu(undefined);
@@ -505,6 +512,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   function renameNode(nodeId: string, title: string): void {
     setNodes((current) => current.map((node) => node.id === nodeId
       ? { ...node, data: { ...node.data, node: { ...node.data.node, title } } }
+      : node));
+  }
+
+  function setStoryOption(nodeId: string, option: "hidden" | "ending", value: boolean): void {
+    setNodes((current) => current.map((node) => node.id === nodeId
+      ? { ...node, data: { ...node.data, node: withPlayableStoryOption(node.data.node, option, value) } }
       : node));
   }
 
@@ -827,6 +840,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         data: {
           node: node.data.node,
           entry: codebase?.graph.entryNodeId === node.id,
+          ending: isPlayableStoryEnding(node.data.node),
           issues: nodeIssues.get(node.id) ?? [],
           connected: connected.get(node.id) ?? {},
           failed: failed.has(node.id),
@@ -951,14 +965,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
               />
             </PlayableCanvasContext.Provider>
           ) : null}
-          {selectedEdge && phase === "ready" && codebase ? <PlayableEdgeInspector
-            edge={selectedEdge}
-            graph={codebase.graph}
-            onChangeMode={(mode) => setEdgeMode(selectedEdge.id, mode)}
-            onChangeNavigation={(navigation) => { if (selectedEdge.sourceHandle) if (codebase) applyGraph(setPlayableSignalRole(codebase.graph, selectedEdge.source, selectedEdge.sourceHandle, navigation)); }}
-            onDelete={() => { setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id)); setSelectedEdgeId(undefined); }}
-            onClose={() => setSelectedEdgeId(undefined)}
-          /> : null}
           {canvasContextMenu ? <PlayableCanvasContextMenu
             menu={canvasContextMenu}
             presets={presets}
@@ -967,6 +973,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             canPaste={Boolean(copiedNode) && !writing}
             busy={writing}
             isEntry={canvasContextMenu.nodeId === codebase?.graph.entryNodeId}
+            story={storyOptions(nodes.find((node) => node.id === canvasContextMenu.nodeId)?.data.node)}
             onClose={() => setCanvasContextMenu(undefined)}
             onUndo={() => void undoEditorChange()?.catch(() => {})}
             onRedo={() => void redoEditorChange()?.catch(() => {})}
@@ -976,6 +983,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             onCopy={() => { if (canvasContextMenu.nodeId) void copyNode(canvasContextMenu.nodeId); }}
             onDuplicate={() => { if (canvasContextMenu.nodeId) void duplicateNode(canvasContextMenu.nodeId); }}
             onSetEntry={() => { if (canvasContextMenu.nodeId) setEntryNode(canvasContextMenu.nodeId); }}
+            onStoryOption={(option, value) => { if (canvasContextMenu.nodeId) setStoryOption(canvasContextMenu.nodeId, option, value); }}
             onDelete={() => { if (canvasContextMenu.nodeId) removeNodes(new Set([canvasContextMenu.nodeId])); }}
           /> : null}
           {notice && phase === "ready" ? <div className="story-save-notice" role="alert">{notice}</div> : null}
@@ -1033,6 +1041,11 @@ async function readNodeSources(projectId: string, node: PlayableNode): Promise<R
   const paths = [node.source.html, node.source.css, node.source.javascript];
   const files = await Promise.all(paths.map((path) => getWorkspaceFile(projectId, path)));
   return Object.fromEntries(paths.map((path, index) => [path, files[index]?.content ?? ""]));
+}
+
+/** How a Scene shows on the Story map, for its context menu. */
+function storyOptions(node: PlayableNode | undefined): { onMap: boolean; ending: boolean } {
+  return { onMap: !node?.story?.hidden, ending: node ? isPlayableStoryEnding(node) : false };
 }
 
 function errorMessage(error: unknown): string {

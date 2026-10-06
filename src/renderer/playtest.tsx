@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getNodeRuntime, playableSandboxUrl } from "./api.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
-import { PlaytestOverlay, requestAskAgent, takePlaytestStart, usePlaytestStartRequests, type PlaytestStart } from "./playable-playtest.js";
+import { PlaytestOverlay, playtestSaveKey, playtestSeenKey, requestAskAgent, takePlaytestStart, usePlaytestStartRequests, type PlaytestStart } from "./playable-playtest.js";
 import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
 import { loadPlayableAssets } from "./playable-assets.js";
 import { WindowDragRegion } from "./window-drag-region.js";
@@ -20,7 +20,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob> }
     | { status: "error"; error: string }
   >({ status: "loading" });
-  const saveKey = `ohmygame:playable:project:${projectId}`;
+  const saveKey = playtestSaveKey(projectId);
 
   useEffect(() => {
     let disposed = false;
@@ -85,6 +85,10 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
           record={record}
           diagnostics={diagnostics}
           onRestart={() => restart(undefined, !start)}
+          onForgetSeen={() => {
+            window.localStorage.removeItem(playtestSeenKey(projectId));
+            restart(start, false);
+          }}
           onAskAgent={(text) => {
             requestAskAgent(projectId, text);
             // Bring the editor forward on the Scene the player was in.

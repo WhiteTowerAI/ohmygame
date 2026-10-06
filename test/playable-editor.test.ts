@@ -11,26 +11,11 @@ import {
   renamePlayableSignal,
   playableEdgeId,
   setPlayableSignalLabel,
-  setPlayableSignalRole,
 } from "../src/shared/playable-editor.js";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
 describe("Playable editor graph changes", () => {
-  it("marks an Exit as navigation and back as part of the story", () => {
-    const graph = createNodeGraphFixture();
-    const marked = setPlayableSignalRole(graph, "menu", "start", true);
-    expect(marked.nodes.find((node) => node.id === "menu")?.signals)
-      .toContainEqual({ id: "start", label: "Start", role: "navigation" });
-    expect(marked.edges).toEqual(graph.edges);
-
-    const story = setPlayableSignalRole(marked, "menu", "start", false);
-    expect(story.nodes.find((node) => node.id === "menu")?.signals)
-      .toContainEqual({ id: "start", label: "Start" });
-    expect(graph.nodes.find((node) => node.id === "menu")?.signals)
-      .toContainEqual({ id: "start", label: "Start" });
-  });
-
   it("renames a Signal and preserves its connected Edge", () => {
     const graph = createNodeGraphFixture();
     const renamed = renamePlayableSignal(graph, "menu", "start", "begin");

@@ -28,6 +28,13 @@ export interface NodePlayerProps {
   title?: string;
   frameUrl?: string;
   storage?: Storage;
+  /**
+   * Where what the player has seen is kept, for the Story Map. It outlasts
+   * the save: by default `${saveKey}:seen` in localStorage, even when saves
+   * use other storage.
+   */
+  seenKey?: string;
+  seenStorage?: Storage;
   /** Authoring preview options; omit in the Published Player. */
   preview?: PlayablePreviewOptions;
   /** Hands the preview's input to an authoring tool; requires `preview`. */
@@ -49,6 +56,8 @@ export function NodePlayer({
   title = definition.graph.title,
   frameUrl = "./playable-sandbox.html",
   storage = window.localStorage,
+  seenKey = `${saveKey}:seen`,
+  seenStorage = window.localStorage,
   preview,
   tool,
   onPick,
@@ -82,6 +91,12 @@ export function NodePlayer({
       if (message.instanceId !== instanceId) return;
       if (message.kind === "ohmygame:playable:save") {
         respondToSave(iframe.current, storage, saveKey, message);
+      } else if (message.kind === "ohmygame:playable:seen") {
+        try {
+          seenStorage.setItem(seenKey, JSON.stringify(message.seen));
+        } catch (cause) {
+          onDiagnostic(`Could not keep which Scenes were seen: ${errorMessage(cause)}`);
+        }
       } else if (message.kind === "ohmygame:playable:snapshot") {
         setReady(true);
         onSnapshot?.(message.snapshot);
@@ -101,7 +116,7 @@ export function NodePlayer({
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, saveKey, storage]);
+  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, saveKey, storage, seenKey, seenStorage]);
 
   const activeTool = preview !== undefined ? tool : undefined;
   useEffect(() => {
@@ -146,6 +161,7 @@ export function NodePlayer({
           definition,
           assets: transferredAssets,
           save,
+          seen: readSeen(seenStorage, seenKey),
           ...(preview ? { preview } : {}),
         },
         "*",
@@ -229,6 +245,16 @@ function respondToSave(
     },
     "*",
   );
+}
+
+/** What the player has seen; a record that cannot be read starts over. */
+function readSeen(storage: Storage, key: string): unknown {
+  try {
+    const stored = storage.getItem(key);
+    return stored === null ? undefined : JSON.parse(stored) as unknown;
+  } catch {
+    return undefined;
+  }
 }
 
 function errorMessage(value: unknown): string {

@@ -188,10 +188,13 @@ export function validateNodeGraph(
     routedSignals.add(key);
   }
 
+  // A navigation Exit that goes nowhere can show disabled, as a Main menu's
+  // Story map entry does without a Story map; a story Exit cannot.
   if (options.mode === "publish") {
     for (const key of signalKeys) {
+      const [nodeId, signal] = splitRouteKey(key);
+      if (sources.get(nodeId)?.get(signal)?.role === "navigation") continue;
       if (!routedSignals.has(key)) {
-        const [nodeId, signal] = splitRouteKey(key);
         issue(
           issues,
           "unconnected-signal",
