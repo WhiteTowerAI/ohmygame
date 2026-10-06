@@ -12,12 +12,14 @@ describe("workspace inspection", () => {
     await mkdir(path.join(workspace, "dist"));
     await writeFile(path.join(workspace, "src", "main.ts"), "export const game = true;\n");
     await writeFile(path.join(workspace, "src", "cover.PNG"), "image");
+    await writeFile(path.join(workspace, "src", "logo.svg"), "<svg/>");
     await writeFile(path.join(workspace, "src", "model.glb"), "model");
     await writeFile(path.join(workspace, "node_modules", "dependency.js"), "ignored");
     await writeFile(path.join(workspace, "dist", "bundle.js"), "ignored");
 
     await expect(listWorkspaceFiles(workspace)).resolves.toEqual([
       { path: "src/cover.PNG", size: 5, mediaType: "image" },
+      { path: "src/logo.svg", size: 6, mediaType: "image" },
       { path: "src/main.ts", size: 26 },
       { path: "src/model.glb", size: 5, mediaType: "model" },
     ]);
@@ -67,6 +69,7 @@ describe("workspace inspection", () => {
   it("resolves supported media and rejects other raw files", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     await writeFile(path.join(workspace, "sound.mp3"), "audio");
+    await writeFile(path.join(workspace, "logo.svg"), "<svg/>");
     await writeFile(path.join(workspace, "model.glb"), "model");
     await writeFile(path.join(workspace, "notes.txt"), "text");
 
@@ -76,6 +79,7 @@ describe("workspace inspection", () => {
       size: 5,
     });
     await expect(getWorkspaceMedia(workspace, "notes.txt")).rejects.toThrow("not a supported media asset");
+    await expect(getWorkspaceMedia(workspace, "logo.svg")).resolves.toMatchObject({ contentType: "image/svg+xml", mediaType: "image" });
     await expect(getWorkspaceMedia(workspace, "model.glb")).resolves.toMatchObject({ contentType: "model/gltf-binary" });
   });
 });

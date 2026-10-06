@@ -541,6 +541,40 @@ describe("daemon", () => {
     expect(updated.graph.nodes[0].assets).not.toContain("clip");
   });
 
+  it("uploads and serves an SVG image from the global Library", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
+    apps.push(app);
+    const svg = Buffer.from('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0h10v10H0z"/></svg>');
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=logo.svg&mediaType=image%2Fsvg%2Bxml",
+      headers: { "content-type": "application/octet-stream" },
+      payload: svg,
+    });
+
+    expect(response.statusCode, response.body).toBe(201);
+    expect(response.json()).toMatchObject({ name: "logo.svg", mediaType: "image", contentType: "image/svg+xml" });
+    const content = await app.inject({ method: "GET", url: `/library/assets/${response.json().id}/content` });
+    expect(content.headers["content-type"]).toMatch(/^image\/svg\+xml/);
+    expect(content.rawPayload).toEqual(svg);
+  });
+
+  it("rejects non-SVG data uploaded as SVG", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=logo.svg&mediaType=image%2Fsvg%2Bxml",
+      headers: { "content-type": "application/octet-stream" },
+      payload: Buffer.from("not an svg"),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "File data does not match its media type" });
+  });
+
   it("rejects unsafe workspace file paths", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-api-")) });
     apps.push(app);

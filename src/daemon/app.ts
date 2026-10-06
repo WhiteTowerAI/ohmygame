@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -393,7 +394,7 @@ const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 const MAX_LIBRARY_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_LIBRARY_UPLOAD_BYTES = 200 * 1024 * 1024;
 const LIBRARY_UPLOAD_MEDIA_TYPES = new Set<LibraryUploadMediaType>([
-  "image/png", "image/jpeg", "image/webp",
+  "image/png", "image/jpeg", "image/svg+xml", "image/webp",
   "video/mp4", "video/quicktime", "video/webm",
   "audio/mpeg", "audio/wav",
 ]);
@@ -2579,6 +2580,11 @@ function isImageOfType(value: Buffer, mediaType: CreateLibraryImageRequest["imag
 
 function isLibraryMediaOfType(value: Buffer, mediaType: LibraryUploadMediaType): boolean {
   if (mediaType === "image/png" || mediaType === "image/jpeg" || mediaType === "image/webp") return isImageOfType(value, mediaType);
+  if (mediaType === "image/svg+xml") {
+    if (!isUtf8(value)) return false;
+    const start = value.subarray(0, 64 * 1024).toString("utf8").replace(/^\uFEFF/, "");
+    return /^(?:\s|<\?xml[\s\S]*?\?>|<!--[\s\S]*?-->|<!doctype\s+svg(?:\s[^>]*)?>)*<svg(?:\s|\/?>)/i.test(start);
+  }
   if (mediaType === "audio/wav") {
     return value.length >= 12 && value.subarray(0, 4).toString("ascii") === "RIFF" && value.subarray(8, 12).toString("ascii") === "WAVE";
   }

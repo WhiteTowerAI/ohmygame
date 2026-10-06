@@ -12,6 +12,7 @@ const MEDIA_TYPES: Record<string, { mediaType: NonNullable<WorkspaceFile["mediaT
   ".jpeg": { mediaType: "image", contentType: "image/jpeg" },
   ".jpg": { mediaType: "image", contentType: "image/jpeg" },
   ".png": { mediaType: "image", contentType: "image/png" },
+  ".svg": { mediaType: "image", contentType: "image/svg+xml" },
   ".webp": { mediaType: "image", contentType: "image/webp" },
   ".m4a": { mediaType: "audio", contentType: "audio/mp4" },
   ".mp3": { mediaType: "audio", contentType: "audio/mpeg" },
