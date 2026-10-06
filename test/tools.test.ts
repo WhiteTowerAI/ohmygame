@@ -16,12 +16,14 @@ afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close(
 describe("tool runner", () => {
   it("runs Image to 3D and persists its GLB output", async () => {
     const dataDirectory = await temporaryData();
+    const library = new AssetLibrary(dataDirectory);
+    await library.load();
     const generate = vi.fn().mockResolvedValue({
       bytes: Buffer.from("glb"),
       mediaType: "model/gltf-binary" as const,
       requestId: "meshy-task-1",
     });
-    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate });
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate }, undefined, library);
     await runner.load();
     const run = await runner.run("image-to-3d", {
       images: [{ mediaType: "image/png", data: "ZnJvbnQ=" }],
@@ -44,6 +46,8 @@ describe("tool runner", () => {
       files: [{ name: "model.glb", mediaType: "model/gltf-binary" }],
     });
     expect(await readFile(path.join(dataDirectory, "tools", "runs", run.id, "model.glb"))).toEqual(Buffer.from("glb"));
+    expect(library.get(run.files[0]!.assetId!)).toMatchObject({ origin: "generated", purpose: "asset", mediaType: "model" });
+    expect(library.get(run.files[0]!.assetId!)?.prompt).toBeUndefined();
   });
 
   it("runs 3D generation with a target poly count", async () => {

@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { createPortal } from "react-dom";
 import { ChevronRight, LoaderCircle, Search, Upload, X } from "./icons.js";
 import type { LibraryUploadMediaType } from "../shared/contracts.js";
-import type { LibraryAsset } from "./library-assets.js";
+import { filterLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
+import { LibraryCollectionFilters } from "./library-filters.js";
 import { uploadLibraryAsset } from "./api.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
 import { useNearViewport } from "./asset-gallery.js";
@@ -91,16 +92,18 @@ export function WorkbenchPreview({ ariaLabel, viewport, stageClassName, overlay,
   </section>;
 }
 
-export function LibraryAssetPicker({ title, assets, uploading, onUpload, onClose, onSelect }: {
+export function LibraryAssetPicker({ title, assets, uploading, includeReferences = false, onUpload, onClose, onSelect }: {
   title: string;
   assets: readonly LibraryAsset[];
   /** Offers Upload next to the Library, for a new file instead. */
   onUpload?: () => void;
   uploading?: boolean;
+  includeReferences?: boolean;
   onClose: () => void;
   onSelect: (asset: LibraryAsset) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<LibraryAssetFilters>({ includeReferences });
   const dialog = useRef<HTMLElement>(null);
   // Parents may pass a fresh onClose each render; depending on it would re-run this effect and steal focus from search.
   const onCloseRef = useRef(onClose);
@@ -113,12 +116,7 @@ export function LibraryAssetPicker({ title, assets, uploading, onUpload, onClose
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, []);
 
-  const visibleAssets = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return normalized
-      ? assets.filter((asset) => `${asset.name} ${asset.prompt ?? ""}`.toLowerCase().includes(normalized))
-      : assets;
-  }, [query, assets]);
+  const visibleAssets = useMemo(() => filterLibraryAssets(assets, "all", query, filters), [query, assets, filters]);
 
   return createPortal(
     <div className="story-video-picker-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -128,7 +126,9 @@ export function LibraryAssetPicker({ title, assets, uploading, onUpload, onClose
           {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>Upload</span></button> : null}
           <button type="button" aria-label="Close Library picker" onClick={onClose}><X size={16} /></button>
         </header>
-        <label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" /></label>
+        <div className="library-picker-toolbar"><label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" /></label>
+          <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} />
+        </div>
         <div className="story-video-picker-list">
           {visibleAssets.length === 0 ? <p>{assets.length ? "No assets match your search" : "No assets in Library"}</p> : null}
           {visibleAssets.map((asset) => <LibraryPickerItem key={asset.id} asset={asset} onSelect={() => onSelect(asset)} />)}
@@ -149,7 +149,7 @@ function LibraryPickerItem({ asset, onSelect }: { asset: LibraryAsset; onSelect:
       <AssetThumbnail asset={asset} visible={visible} />
       {badge ? <span className="story-video-picker-badge">{badge}</span> : null}
     </span>
-    <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}</span>
+    <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}{asset.referenceOnly || asset.projects?.length ? <small>{asset.referenceOnly ? "Reference" : ""}{asset.projects?.length === 1 ? `${asset.referenceOnly ? " · " : ""}${asset.projects[0]!.name}` : asset.projects?.length ? `${asset.referenceOnly ? " · " : ""}${asset.projects.length} projects` : ""}</small> : null}</span>
   </button>;
 }
 

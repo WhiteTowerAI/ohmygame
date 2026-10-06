@@ -225,6 +225,7 @@ export class ToolRunner {
       if (this.assetLibrary) {
         for (const [index, file] of files.entries()) {
           file.assetId = (await this.assetLibrary!.add(file.name, generated[index]!.bytes, {
+            origin: "generated",
             prompt,
             sourceKey: `tool:${id}:${file.name}`,
           })).id;
@@ -319,6 +320,7 @@ export class ToolRunner {
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("model.glb", generated.bytes, {
+          origin: "generated",
           sourceKey: `tool:${id}:model.glb`,
         })).id;
       }
@@ -374,6 +376,7 @@ export class ToolRunner {
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {
+          origin: "generated",
           prompt,
           sourceKey: `tool:${id}:output.mp4`,
           duration,

@@ -12,6 +12,12 @@ const apps: ReturnType<typeof createApp>[] = [];
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
+async function saveProjectAsset(app: Awaited<ReturnType<typeof createApp>>, projectId: string, filePath: string) {
+  const saved = await app.inject({ method: "POST", url: `/projects/${projectId}/assets/library?path=${encodeURIComponent(filePath)}` });
+  expect(saved.statusCode, saved.body).toBe(201);
+  return saved.json();
+}
+
 describe("daemon", () => {
   it("exposes project activity without requiring a conversation event subscription", async () => {
     let finish!: () => void;
@@ -378,7 +384,7 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/files` })).json()).not.toContainEqual(expect.objectContaining({ path: "opening.mp4" }));
   });
 
-  it("registers project media once in the global Library and protects references", async () => {
+  it("saves project media once in the global Library and protects references", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-api-")) });
     apps.push(app);
     const project = (await app.inject({
@@ -387,6 +393,8 @@ describe("daemon", () => {
       payload: { name: "Story", type: "interactive-story" },
     })).json();
     await writeFile(path.join(project.workspacePath, "opening.mp4"), "video bytes");
+    expect((await app.inject({ method: "GET", url: "/library/assets" })).json()).toEqual([]);
+    await saveProjectAsset(app, project.id, "opening.mp4");
 
     const first = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     const second = (await app.inject({ method: "GET", url: "/library/assets" })).json();
@@ -417,6 +425,7 @@ describe("daemon", () => {
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
     const target = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Target" } })).json();
     await writeFile(path.join(source.workspacePath, "sprite.png"), "image bytes");
+    await saveProjectAsset(app, source.id, "sprite.png");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
 
     const [first, second] = await Promise.all([
@@ -440,6 +449,7 @@ describe("daemon", () => {
     await writeFile(path.join(storyProject.workspacePath, "graph.json"), JSON.stringify({ version: 1, nodes: "broken" }));
     const source = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(source.workspacePath, "image.png"), "image bytes");
+    await saveProjectAsset(app, source.id, "image.png");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=image.png` });
 
@@ -454,6 +464,7 @@ describe("daemon", () => {
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     await writeFile(path.join(project.workspacePath, "sprite.png"), "image bytes");
+    await saveProjectAsset(app, project.id, "sprite.png");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     await app.inject({ method: "DELETE", url: `/projects/${project.id}/assets?path=sprite.png` });
 
@@ -1845,6 +1856,7 @@ describe("Playable Nodes projects", () => {
     const app = await createPlayableApp("ohmygame-playable-library-api-");
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
     await writeFile(path.join(source.workspacePath, "portrait.png"), "image bytes");
+    await saveProjectAsset(app, source.id, "portrait.png");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=portrait.png` });
     const project = (await app.inject({
@@ -1936,6 +1948,7 @@ describe("Asset Canvas projects", () => {
     const app = await createCanvasApp("ohmygame-asset-canvas-library-");
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
     await writeFile(path.join(source.workspacePath, "portrait.png"), "image bytes");
+    await saveProjectAsset(app, source.id, "portrait.png");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=portrait.png` });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
@@ -1961,6 +1974,7 @@ describe("Asset Canvas projects", () => {
     const app = await createCanvasApp("ohmygame-asset-canvas-animate-library-");
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();
     await writeFile(path.join(source.workspacePath, "hero.glb"), "glb bytes");
+    await saveProjectAsset(app, source.id, "hero.glb");
     const [asset] = (await app.inject({ method: "GET", url: "/library/assets" })).json();
     await app.inject({ method: "DELETE", url: `/projects/${source.id}/assets?path=hero.glb` });
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();

@@ -9,6 +9,8 @@ import {
   type ConversationCapabilities,
   type CreateLibraryImageRequest,
   type LibraryAsset,
+  type LibraryAssetPurpose,
+  type LibraryAssetSummary,
   type LibraryUploadMediaType,
   type ImageModel,
   type ModelAuthEvent,
@@ -512,7 +514,15 @@ export async function deleteAsset(projectId: string, filePath: string): Promise<
   await request(`/projects/${projectId}/assets?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
 }
 
-export async function listLibraryAssets(): Promise<LibraryAsset[]> {
+export async function saveProjectAssetToLibrary(projectId: string, filePath: string): Promise<LibraryAsset> {
+  return request(`/projects/${encodeURIComponent(projectId)}/assets/library?path=${encodeURIComponent(filePath)}`, { method: "POST" });
+}
+
+export async function saveLibraryAsset(assetId: string): Promise<LibraryAsset> {
+  return request(`/library/assets/${encodeURIComponent(assetId)}/save`, { method: "POST" });
+}
+
+export async function listLibraryAssets(): Promise<LibraryAssetSummary[]> {
   return request("/library/assets");
 }
 
@@ -520,9 +530,10 @@ export async function createLibraryImage(input: CreateLibraryImageRequest): Prom
   return request("/library/assets", { method: "POST", body: JSON.stringify(input) });
 }
 
-export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number): Promise<LibraryAsset> {
+export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number, purpose?: LibraryAssetPurpose): Promise<LibraryAsset> {
   const query = new URLSearchParams({ name: file.name, mediaType });
   if (duration !== undefined) query.set("duration", String(duration));
+  if (purpose !== undefined) query.set("purpose", purpose);
   return request(`/library/assets/upload?${query}`, {
     method: "POST",
     headers: { "content-type": "application/octet-stream" },

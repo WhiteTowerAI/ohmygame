@@ -3,14 +3,14 @@ import {
   AssetToolbar,
   fileName,
   fileStem,
-  filterAssets,
   WorkspaceAssetCard,
   WorkspaceAssetDialog,
   type MediaFilter,
 } from "./asset-browser.js";
-import { deleteLibraryAsset, forceDeleteLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, type LibraryAssetReference } from "./api.js";
+import { deleteLibraryAsset, forceDeleteLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, saveLibraryAsset, type LibraryAssetReference } from "./api.js";
 import { Image as ImageIcon, LoaderCircle, RefreshCw, X } from "./icons.js";
-import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
+import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
+import { LibraryCollectionFilters } from "./library-filters.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
@@ -26,6 +26,7 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
   const [actionError, setActionError] = useState<string>();
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<LibraryAssetFilters>({});
   const [selectedAsset, setSelectedAsset] = useState<LibraryAsset>();
   const [deleteTarget, setDeleteTarget] = useState<{ asset: LibraryAsset; references: LibraryAssetReference[] }>();
   const [deleting, setDeleting] = useState(false);
@@ -63,6 +64,10 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
     setRenameTarget(asset);
   }
 
+  async function save(asset: LibraryAsset): Promise<void> {
+    if (await runAssetAction(() => saveLibraryAsset(asset.id))) setSelectedAsset(undefined);
+  }
+
   async function remove(asset: LibraryAsset): Promise<void> {
     setActionError(undefined);
     try {
@@ -90,12 +95,14 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
     }
   }
 
-  const visibleAssets = useMemo(() => filterAssets(assets, mediaFilter, query), [assets, mediaFilter, query]);
+  const visibleAssets = useMemo(() => filterLibraryAssets(assets, mediaFilter, query, filters), [assets, mediaFilter, query, filters]);
 
   return (
     <SidebarPageLayout active="library" onNavigate={onNavigate}>
       <SidebarPageHeader title="Library">
-        <AssetToolbar mediaFilter={mediaFilter} query={query} onMediaFilterChange={setMediaFilter} onQueryChange={setQuery} />
+        <AssetToolbar mediaFilter={mediaFilter} query={query} onMediaFilterChange={setMediaFilter} onQueryChange={setQuery}>
+          <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} />
+        </AssetToolbar>
       </SidebarPageHeader>
       {actionError ? <p className="library-action-error" role="alert">{actionError}</p> : null}
       {phase === "loading" && assets.length === 0 ? <LibraryState><LoaderCircle className="spin" size={18} />Loading assets</LibraryState> : null}
@@ -108,12 +115,14 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
         onOpen={() => setSelectedAsset(asset)}
         onRename={() => beginRename(asset)}
         onDelete={() => void remove(asset)}
+        onSaveToLibrary={asset.saved === false || asset.referenceOnly ? () => void save(asset) : undefined}
       />)}</div> : null}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedAsset(undefined)}
         onRename={() => beginRename(selectedAsset)}
         onDelete={() => void remove(selectedAsset)}
+        onSaveToLibrary={selectedAsset.saved === false || selectedAsset.referenceOnly ? () => void save(selectedAsset) : undefined}
       /> : null}
       {deleteTarget ? <div className="library-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteTarget(undefined); }}>
         <section className="library-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="library-delete-title" onKeyDown={(event) => { if (event.key === "Escape" && !deleting) setDeleteTarget(undefined); }}>
@@ -135,9 +144,7 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
   );
 }
 
-export function filterLibraryAssets(assets: LibraryAsset[], media: MediaFilter, query: string): LibraryAsset[] {
-  return filterAssets(assets, media, query);
-}
+export { filterLibraryAssets } from "./library-assets.js";
 
 function LibraryState({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
   return <div className={`library-state${error ? " library-state-error" : ""}`} role={error ? "alert" : undefined}>{children}</div>;
