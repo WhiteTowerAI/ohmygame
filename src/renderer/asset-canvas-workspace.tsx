@@ -103,6 +103,8 @@ import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js"
 import { exportCanvasAsset, generateCanvasText } from "./canvas-api.js";
 import type { CanvasBoardStorage } from "./canvas-board-storage.js";
 import { CanvasTextarea, CanvasTextComposer } from "./canvas-text-composer.js";
+import { VideoReferencePrompt } from "./video-reference-prompt.js";
+import { resolveVideoMentions, sameVideoReference, videoReferenceAliases, videoReferenceAspectRatios, videoReferenceLimit, videoReferenceMode } from "../shared/video-references.js";
 
 const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
@@ -176,6 +178,8 @@ type AssetCanvasFlowData = {
   duration?: number;
   images?: AssetCanvasReference[];
   references?: AssetCanvasReference[];
+  referenceMode?: "frame" | "reference";
+  referenceMentions?: Record<string, AssetCanvasReference>;
   assetId?: string;
   mediaType?: "image" | "video" | "audio" | "model";
   model3DConfig?: Model3DGenerationConfig;
@@ -1063,6 +1067,11 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   async function uploadVideoReferences(node: AssetCanvasFlowNode, files: File[]): Promise<void> {
     if (node.type !== "video" || files.length === 0 || uploadingNodeId) return;
+    const remaining = videoReferenceLimit(selectedVideoModel(node, videoModels), node.data.referenceMode) - (node.data.references?.length ?? 0);
+    if (files.length > remaining) {
+      setGenerationError({ nodeId: node.id, message: `This mode can accept ${Math.max(0, remaining)} more reference images.` });
+      return;
+    }
     setUploadingNodeId(node.id);
     setGenerationError(undefined);
     try {
@@ -1252,7 +1261,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const referenceRuntime: ReferenceMediaNodeRuntime = {
       ...runtime,
       references: node.type === "image" ? imageReferenceViews(node, nodes, libraryAssets) : videoReferenceViews(node, nodes, libraryAssets),
-      maxReferences: node.type === "image" ? imageReferenceLimit(node, imageModels) : selectedVideoModel(node, videoModels)?.maxImageReferences ?? 0,
+      maxReferences: node.type === "image" ? imageReferenceLimit(node, imageModels) : videoReferenceLimit(selectedVideoModel(node, videoModels), node.data.referenceMode),
       uploading: uploadingNodeId === node.id,
       accept: "image/png,image/jpeg,image/webp",
       addLabel: "Add reference images",
@@ -1526,7 +1535,20 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
 function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;
   const selectedModel = runtime?.models.find((model) => sameModel(model, data.videoModel));
-  const aspectRatios = videoAspectRatios(selectedModel, data.references?.length ?? 0);
+  const aspectRatios = videoAspectRatios(selectedModel, data.references?.length ?? 0, data.referenceMode);
+  const mode = videoReferenceMode(selectedModel, data.referenceMode);
+  const references = data.references ?? [];
+  const aliases = videoReferenceAliases(references, data.referenceMentions);
+  const mentionOptions = references.map((reference, index) => ({
+    alias: Object.keys(aliases).find((alias) => sameVideoReference(aliases[alias]!, reference))!,
+    name: runtime?.references[index]?.name ?? `Image ${index + 1}`,
+    assetId: runtime?.references[index]?.assetId,
+  }));
+  let referenceError: string | undefined;
+  try { resolveVideoMentions(effectivePrompt(data, runtime), references, aliases); }
+  catch (cause) { referenceError = errorMessage(cause); }
+  const limit = videoReferenceLimit(selectedModel, data.referenceMode);
+  if (selectedModel && references.length > limit) referenceError = `This mode supports up to ${limit} images. Remove extra images or switch reference mode.`;
 
   useEffect(() => {
     if (!runtime || !selectedModel || !aspectRatios.length || aspectRatios.includes(data.videoAspectRatio as VideoAspectRatio)) return;
@@ -1536,28 +1558,31 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelKey(candidate) === key);
     if (!model || !runtime) return;
+    const referenceMode = model.referenceModes?.includes(data.referenceMode!) ? data.referenceMode : model.imageReferenceMode;
     runtime.onChange({
       ...data,
       videoRuntime: undefined,
       videoModel: { provider: model.provider, id: model.id },
       videoResolution: model.resolutions.includes(data.videoResolution as VideoResolution) ? data.videoResolution : model.resolutions[0],
-      videoAspectRatio: videoAspectRatios(model, data.references?.length ?? 0).includes(data.videoAspectRatio as VideoAspectRatio)
+      videoAspectRatio: videoAspectRatios(model, data.references?.length ?? 0, referenceMode).includes(data.videoAspectRatio as VideoAspectRatio)
         ? data.videoAspectRatio
-        : videoAspectRatios(model, data.references?.length ?? 0)[0],
+        : videoAspectRatios(model, data.references?.length ?? 0, referenceMode)[0],
       duration: model.durations.includes(data.duration ?? 0) ? data.duration : model.durations[0],
-      references: (data.references ?? []).slice(0, model.maxImageReferences),
+      referenceMode,
+      references: data.references ?? [],
     });
   }
 
   return (
     <MediaNodeShell kind="video" selected={selected} assetId={data.assetId} aspectRatio={data.videoAspectRatio} runtime={runtime} details={data.nodeDetails}>
-      <MediaReferenceStrip runtime={runtime} />
-      <MediaPrompt
-        kind="video"
+      <MediaReferenceStrip runtime={runtime ? { ...runtime, slotLabels: mode === "frame" ? ["First frame", "Last frame"] : mentionOptions.map((option) => `@${option.alias}`) } : undefined} />
+      <VideoReferencePrompt
         value={data.prompt ?? ""}
-        runtime={runtime}
-        onChange={(prompt) => runtime?.onChange({ ...data, videoRuntime: undefined, prompt })}
+        disabled={runtime?.busy}
+        options={mentionOptions}
+        onChange={(prompt) => runtime?.onChange({ ...data, videoRuntime: undefined, prompt, referenceMentions: aliases })}
       />
+      {referenceError ? <p role="alert">{referenceError}</p> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
         <CanvasChipSelect
@@ -1571,6 +1596,12 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
           disabled={runtime?.busy}
           onChange={selectModel}
         />
+        {selectedModel?.referenceModes?.length ? <CanvasChipSelect
+          label="Video reference mode" value={mode}
+          options={selectedModel.referenceModes.map((value) => ({ value, label: value === "reference" ? "Image references" : "First / last frame" }))}
+          disabled={runtime?.busy}
+          onChange={(referenceMode) => runtime?.onChange({ ...data, videoRuntime: undefined, referenceMode: referenceMode as "frame" | "reference" })}
+        /> : null}
         <CanvasChipSelect
           label="Video aspect ratio"
           value={data.videoAspectRatio}
@@ -1592,14 +1623,14 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
           disabled={!selectedModel || runtime?.busy}
           onChange={(duration) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(duration) })}
         />
-        <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel} />
+        <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel || Boolean(referenceError)} />
       </div>
     </MediaNodeShell>
   );
 }
 
-function videoAspectRatios(model: VideoModel | undefined, referenceCount: number): readonly VideoAspectRatio[] {
-  return referenceCount > 0 && model?.imageAspectRatios?.length ? model.imageAspectRatios : model?.aspectRatios ?? [];
+function videoAspectRatios(model: VideoModel | undefined, referenceCount: number, mode?: "frame" | "reference"): readonly VideoAspectRatio[] {
+  return videoReferenceAspectRatios(model, referenceCount, mode);
 }
 
 function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
@@ -2447,7 +2478,9 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
         videoResolution: model?.resolutions.includes(node.data.resolution) ? node.data.resolution : model?.resolutions[0] ?? node.data.resolution,
         videoAspectRatio: model?.aspectRatios.includes(node.data.aspectRatio) ? node.data.aspectRatio : model?.aspectRatios[0] ?? node.data.aspectRatio,
         duration: model?.durations.includes(node.data.duration) ? node.data.duration : model?.durations[0] ?? node.data.duration,
-        references: node.data.references.slice(0, model?.maxImageReferences ?? node.data.references.length),
+        references: node.data.references,
+        referenceMode: node.data.referenceMode,
+        referenceMentions: node.data.referenceMentions,
         ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
       },
     };
@@ -2508,7 +2541,7 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
   if (type === "video") {
     const model = videoModels[0];
     const aspectRatio = model?.aspectRatios[0] ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio;
-    return toFlowNode(createAssetGenerationNode(type, position, { ...(model ? { videoModel: { provider: model.provider, id: model.id } } : {}), videoAspectRatio: aspectRatio }), imageModels, videoModels);
+    return toFlowNode(createAssetGenerationNode(type, position, { ...(model ? { videoModel: { provider: model.provider, id: model.id }, videoReferenceMode: model.imageReferenceMode } : {}), videoAspectRatio: aspectRatio }), imageModels, videoModels);
   }
   if (type === "model-3d") return toFlowNode(createAssetGenerationNode(type, position), imageModels, videoModels);
   if (type === "animate-3d") {
@@ -2640,6 +2673,8 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode): AssetCanvasNode {
       aspectRatio: node.data.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
       duration: node.data.duration ?? DEFAULT_VIDEO_NODE_CONFIG.duration,
       references: node.data.references ?? [],
+      ...(node.data.referenceMode ? { referenceMode: node.data.referenceMode } : {}),
+      ...(node.data.referenceMentions ? { referenceMentions: node.data.referenceMentions } : {}),
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };

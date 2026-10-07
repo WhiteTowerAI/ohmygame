@@ -1,7 +1,8 @@
-import type { VideoAspectRatio, VideoGenerationReference, VideoModelRef, VideoResolution } from "../shared/contracts.js";
+import type { VideoAspectRatio, VideoGenerationReference, VideoModelRef, VideoResolution, VideoReferenceMode } from "../shared/contracts.js";
 
 export interface VideoGenerationInput {
   prompt: string;
+  referenceMode?: VideoReferenceMode;
   model?: VideoModelRef;
   references?: VideoReferenceAsset[];
   duration?: number;

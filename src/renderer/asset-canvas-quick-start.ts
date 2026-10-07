@@ -93,7 +93,7 @@ function starterOptions(item: AssetCanvasQuickStart, models: MediaModels): Param
   }
   if (item.type === "video") {
     const model = pickModel(item, models.video);
-    return model ? { videoModel: { provider: model.provider, id: model.id }, videoAspectRatio: model.aspectRatios[0] } : {};
+    return model ? { videoModel: { provider: model.provider, id: model.id }, videoAspectRatio: model.aspectRatios[0], videoReferenceMode: model.imageReferenceMode } : {};
   }
   return {};
 }

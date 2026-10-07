@@ -34,7 +34,7 @@ import { SegmentedControl } from "./segmented-control.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
-const POPULAR_PROVIDER_IDS = ["openrouter", "openai", "anthropic", "volcengine-ark", "byteplus-modelark"];
+const POPULAR_PROVIDER_IDS = ["openrouter", "openai", "anthropic"];
 const SEEDANCE_PROVIDER_IDS = new Set(["volcengine-ark", "byteplus-modelark"]);
 const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; label: string }> = [
   { value: "all", label: "All" },

@@ -29,6 +29,7 @@ export function createAssetCanvasDocument(): AssetCanvasDocument {
 export function createAssetGenerationNode(type: AssetCanvasStarter, position: { x: number; y: number }, options: {
   imageModel?: ImageModelRef;
   videoModel?: VideoModelRef;
+  videoReferenceMode?: "frame" | "reference";
   imageResolution?: Extract<AssetCanvasNode, { type: "image" }>["data"]["resolution"];
   imageAspectRatio?: Extract<AssetCanvasNode, { type: "image" }>["data"]["aspectRatio"];
   videoAspectRatio?: Extract<AssetCanvasNode, { type: "video" }>["data"]["aspectRatio"];
@@ -57,6 +58,7 @@ export function createAssetGenerationNode(type: AssetCanvasStarter, position: { 
       aspectRatio: options.videoAspectRatio ?? DEFAULT_VIDEO_NODE_CONFIG.aspectRatio,
       duration: DEFAULT_VIDEO_NODE_CONFIG.duration,
       references: [],
+      ...(options.videoReferenceMode ? { referenceMode: options.videoReferenceMode } : {}),
     },
   };
   return { id, type, position, data: { ...DEFAULT_MODEL_3D_CONFIG, images: [] } };
