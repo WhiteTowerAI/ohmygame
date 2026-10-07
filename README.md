@@ -2,7 +2,7 @@
 
 <img src="docs/assets/banner.webp" alt="OhMyGame — the open-source studio for making games with AI" width="100%" />
 
-Everything you need to make games with AI, in one app. Bring your own key.
+**Your own one-person game studio.** Everything you need to make games with AI, in one app. Bring your own key.
 
 <p>
   <a href="https://ohmygame.ai/download/mac"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
@@ -12,19 +12,16 @@ Everything you need to make games with AI, in one app. Bring your own key.
 <p>
   <a href="#how-its-built"><img src="https://img.shields.io/badge/built%20on-Pi-7c3aed?style=flat-square" alt="Built on Pi" /></a>
   <a href="#any-model-your-keys"><img src="https://img.shields.io/badge/models-40%2B%20providers%20%C2%B7%20BYOK-black?style=flat-square" alt="40+ model providers, BYOK" /></a>
-  <img src="https://img.shields.io/badge/local--first-yes-2ea44f?style=flat-square" alt="Local-first" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License Apache 2.0" /></a>
-  <img src="https://img.shields.io/badge/status-beta-orange?style=flat-square" alt="Status beta" />
+  <a href="https://discord.gg/TkrgvGQ2Zc"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Join Discord" /></a>
 </p>
 
-<p>
-  <a href="https://discord.gg/TkrgvGQ2Zc">Join Discord</a>
-</p>
+https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
 
 </div>
 
 > [!NOTE]
-> OhMyGame is in beta. Expect rough edges. Join us and let's build it together!
+> 🚧 OhMyGame is in beta. Expect rough edges. Join us and let's build it together!
 
 ## What it is
 
