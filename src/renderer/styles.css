@@ -12359,20 +12359,40 @@ button {
 
 @container (max-width: 840px) {
   .explore-game-mosaic {
-    grid-auto-rows: calc((100cqw - 48px) / 4);
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-rows: auto;
+    grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr));
+  }
+
+  .explore-game-mosaic .explore-game-tile {
+    width: 100%;
+    max-width: 240px;
+    grid-column: auto;
+    grid-row: auto;
+    aspect-ratio: 1;
+  }
+
+  .explore-game-mosaic .explore-game-overlay {
+    padding: 10px;
+    color: #fff;
+    opacity: 1;
+  }
+
+  .explore-game-mosaic .explore-game-overlay strong {
+    max-width: 100%;
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .explore-game-mosaic .explore-game-creator {
+    display: flex;
+    max-width: 100%;
   }
 }
 
 @container (max-width: 480px) {
   .explore-game-mosaic {
-    grid-auto-rows: calc((100cqw - 16px) / 2);
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .explore-game-tile-size-3 {
-    grid-column: span 2;
-    grid-row: span 2;
+    gap: 12px;
   }
 }
 
