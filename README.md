@@ -37,8 +37,9 @@ link you can share.
 Two core design ideas shape it:
 
 1. **Everything lives on a canvas.** Design docs, concept art, 3D models, and
-   video sit side by side and reference each other, so you and the agent always
-   see the same picture of the game.
+   video sit side by side on one board. One character sketch can grow into more
+   art, a video, or a rigged 3D model, and everything is ready to use in your
+   game.
 2. **The agent does the work.** It drives the canvas the way you would:
    drafting the design doc, turning a character sketch into a rigged 3D model,
    writing the code, and playtesting the result.
