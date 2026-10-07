@@ -3,6 +3,34 @@ import { describe, expect, it, vi } from "vitest";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 
 describe("ProviderImages", () => {
+  it("lists and generates with the configured Volcengine Ark Seedream models", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({
+      data: [{ b64_json: Buffer.from("seedream").toString("base64"), output_format: "png" }],
+    }));
+    const images = new ProviderImages(async () => { throw new Error("Runtime unavailable"); }, request, () => "volc-key");
+
+    const catalog = await images.catalog();
+    expect(catalog.providers).toEqual([
+      { provider: "volcengine-ark", providerName: "Volcengine Ark", state: "ready" },
+    ]);
+    expect(catalog.models.map((model) => model.id)).toEqual([
+      "doubao-seedream-5-0-pro-260628",
+      "doubao-seedream-5-0-flash-260915",
+      "doubao-seedream-5-0-260128",
+    ]);
+    expect(catalog.models).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "doubao-seedream-5-0-lite-260128" }),
+    ]));
+
+    await expect(images.generate({
+      prompt: "A game icon",
+      imageModel: { provider: "volcengine-ark", id: "doubao-seedream-5-0-flash-260915" },
+      resolution: "1K",
+      aspectRatio: "1:1",
+    })).resolves.toMatchObject({ bytes: Buffer.from("seedream"), mediaType: "image/png" });
+    expect(request.mock.calls[0]?.[0]).toBe("https://ark.cn-beijing.volces.com/api/v3/images/generations");
+  });
+
   it("lists and generates with a configured OpenRouter image model", async () => {
     const request = vi.fn<typeof fetch>(async (input) => String(input).endsWith("/images/models")
       ? Response.json({ data: [{

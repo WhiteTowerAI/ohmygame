@@ -5,15 +5,18 @@ import type {
   ModelAuthMethod,
   ModelAuthNotification,
   ModelAuthPrompt,
+  ImageModel,
   ModelProviderSummary,
   ProviderCapability,
   ProviderSummary,
+  VideoModel,
 } from "../shared/contracts.js";
 import {
   cancelModelAuth,
   disconnectModelProvider,
   getOpenAIEndpointSettings,
   listProviders,
+  listImageModelCatalog,
   notifyAgentModelsChanged,
   respondToModelAuth,
   startModelProviderLogin,
@@ -21,6 +24,9 @@ import {
   updateOpenAIEndpointSettings,
   updateMeshyApiKey,
   clearMeshyApiKey,
+  updateSeedanceApiKey,
+  clearSeedanceApiKey,
+  listVideoModelCatalog,
 } from "./api.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { ProviderModels } from "./provider-models.js";
@@ -28,7 +34,8 @@ import { SegmentedControl } from "./segmented-control.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
-const POPULAR_PROVIDER_IDS = ["openrouter", "openai", "anthropic"];
+const POPULAR_PROVIDER_IDS = ["openrouter", "openai", "anthropic", "volcengine-ark", "byteplus-modelark"];
+const SEEDANCE_PROVIDER_IDS = new Set(["volcengine-ark", "byteplus-modelark"]);
 const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; label: string }> = [
   { value: "all", label: "All" },
   { value: "language", label: "Language" },
@@ -154,10 +161,151 @@ function ProviderMark({ provider }: { provider: Pick<ModelProviderSummary, "id">
 
 function ProviderAuthView({ provider, onBack, onCompleted }: { provider: ModelProviderSummary; onBack: () => void; onCompleted: () => void }) {
   if (provider.id === "meshy") return <MeshyAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured) return <ConnectedProvider provider={provider} onBack={onBack} onDisconnected={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
   return <ActiveProviderAuth provider={provider} method={method} onBack={onBack} onCompleted={onCompleted} />;
+}
+
+function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: ModelProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  async function save(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      await updateSeedanceApiKey(provider.id, apiKey);
+      onCompleted();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clear(): Promise<void> {
+    setSaving(true);
+    setError(undefined);
+    try {
+      await clearSeedanceApiKey(provider.id);
+      onCompleted();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputId = `${provider.id}-api-key`;
+  return (
+    <section className="settings-panel settings-provider-detail">
+      <ProviderDetailHeader provider={provider} onBack={onBack} />
+      {provider.configured ? (
+        <ProviderStatusRow source={provider.source}>
+          <button className="settings-danger-button" type="button" disabled={saving} onClick={() => void clear()}>Disconnect</button>
+        </ProviderStatusRow>
+      ) : null}
+      <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
+        <label className="settings-search-field-label" htmlFor={inputId}>API key</label>
+        <div className="settings-detail-inline">
+          <input
+            id={inputId}
+            className="settings-search-input"
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={provider.configured ? "Paste a new key to replace the current one" : `Paste your ${provider.name} API key`}
+            disabled={saving}
+          />
+          <button className="settings-primary-button" type="submit" disabled={saving || !apiKey.trim()}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </form>
+      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {provider.configured && provider.id === "volcengine-ark" ? <SeedreamModels providerId={provider.id} /> : null}
+      {provider.configured ? <SeedanceModels providerId={provider.id} /> : null}
+    </section>
+  );
+}
+
+function SeedreamModels({ providerId }: { providerId: string }) {
+  const [models, setModels] = useState<ImageModel[]>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    void listImageModelCatalog().then((catalog) => {
+      if (active) setModels(catalog.models.filter((model) => model.provider === providerId));
+    }).catch((cause) => {
+      if (active) setError(errorMessage(cause));
+    });
+    return () => { active = false; };
+  }, [providerId]);
+
+  return (
+    <section className="settings-detail-section provider-models" aria-label="Image models">
+      <div className="provider-models-heading">
+        <h4>Image models <small>{models?.length ?? ""}</small></h4>
+      </div>
+      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {models ? (
+        <div className="provider-models-list" role="list" aria-label="Image models">
+          {models.map((model) => (
+            <div className="provider-model-row" key={model.id} role="listitem">
+              <div className="provider-model-readonly">
+                <span className="provider-model-copy">
+                  <strong title={model.name}>{model.name}</strong>
+                  <small title={model.id}>{model.id}</small>
+                </span>
+              </div>
+            </div>
+          ))}
+          {!models.length ? <p className="settings-empty">No image models are available.</p> : null}
+        </div>
+      ) : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading models</div> : null}
+    </section>
+  );
+}
+
+function SeedanceModels({ providerId }: { providerId: string }) {
+  const [models, setModels] = useState<VideoModel[]>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    void listVideoModelCatalog().then((catalog) => {
+      if (active) setModels(catalog.models.filter((model) => model.provider === providerId));
+    }).catch((cause) => {
+      if (active) setError(errorMessage(cause));
+    });
+    return () => { active = false; };
+  }, [providerId]);
+
+  return (
+    <section className="settings-detail-section provider-models" aria-label="Video models">
+      <div className="provider-models-heading">
+        <h4>Video models <small>{models?.length ?? ""}</small></h4>
+      </div>
+      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {models ? (
+        <div className="provider-models-list" role="list" aria-label="Video models">
+          {models.map((model) => (
+            <div className="provider-model-row" key={model.id} role="listitem">
+              <div className="provider-model-readonly">
+                <span className="provider-model-copy">
+                  <strong title={model.name}>{model.name}</strong>
+                  <small title={model.id}>{model.id}</small>
+                </span>
+              </div>
+            </div>
+          ))}
+          {!models.length ? <p className="settings-empty">No video models are available.</p> : null}
+        </div>
+      ) : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading models</div> : null}
+    </section>
+  );
 }
 
 function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ModelProviderSummary; onBack: () => void; onCompleted: () => void }) {

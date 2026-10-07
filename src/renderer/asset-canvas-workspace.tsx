@@ -1526,6 +1526,12 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
 function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.videoRuntime;
   const selectedModel = runtime?.models.find((model) => sameModel(model, data.videoModel));
+  const aspectRatios = videoAspectRatios(selectedModel, data.references?.length ?? 0);
+
+  useEffect(() => {
+    if (!runtime || !selectedModel || !aspectRatios.length || aspectRatios.includes(data.videoAspectRatio as VideoAspectRatio)) return;
+    runtime.onChange({ ...data, videoRuntime: undefined, videoAspectRatio: aspectRatios[0] });
+  }, [aspectRatios, data, runtime, selectedModel]);
 
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelKey(candidate) === key);
@@ -1535,7 +1541,9 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
       videoRuntime: undefined,
       videoModel: { provider: model.provider, id: model.id },
       videoResolution: model.resolutions.includes(data.videoResolution as VideoResolution) ? data.videoResolution : model.resolutions[0],
-      videoAspectRatio: model.aspectRatios.includes(data.videoAspectRatio as VideoAspectRatio) ? data.videoAspectRatio : model.aspectRatios[0],
+      videoAspectRatio: videoAspectRatios(model, data.references?.length ?? 0).includes(data.videoAspectRatio as VideoAspectRatio)
+        ? data.videoAspectRatio
+        : videoAspectRatios(model, data.references?.length ?? 0)[0],
       duration: model.durations.includes(data.duration ?? 0) ? data.duration : model.durations[0],
       references: (data.references ?? []).slice(0, model.maxImageReferences),
     });
@@ -1566,7 +1574,7 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
         <CanvasChipSelect
           label="Video aspect ratio"
           value={data.videoAspectRatio}
-          options={(selectedModel?.aspectRatios ?? []).map((ratio) => ({ value: ratio, label: ratio }))}
+          options={aspectRatios.map((ratio) => ({ value: ratio, label: ratio }))}
           disabled={!selectedModel || runtime?.busy}
           onChange={(videoAspectRatio) => runtime?.onChange({ ...data, videoRuntime: undefined, videoAspectRatio })}
         />
@@ -1588,6 +1596,10 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
       </div>
     </MediaNodeShell>
   );
+}
+
+function videoAspectRatios(model: VideoModel | undefined, referenceCount: number): readonly VideoAspectRatio[] {
+  return referenceCount > 0 && model?.imageAspectRatios?.length ? model.imageAspectRatios : model?.aspectRatios ?? [];
 }
 
 function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {

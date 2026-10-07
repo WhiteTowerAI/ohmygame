@@ -152,7 +152,7 @@ export interface ImageModel extends ImageModelRef {
   supportsAspectRatio?: boolean;
 }
 
-export type ImageProtocol = "openai-images" | "gemini-generate-content" | "openrouter-images";
+export type ImageProtocol = "openai-images" | "gemini-generate-content" | "openrouter-images" | "volcengine-images";
 
 export interface PublicationState {
   gameId: string;
@@ -698,6 +698,8 @@ export interface VideoModel extends VideoModelRef {
   durations: readonly number[];
   maxImageReferences: number;
   imageReferenceMode?: "frame" | "reference";
+  /** A narrower ratio set used when image references are present. */
+  imageAspectRatios?: readonly VideoAspectRatio[];
 }
 export const VIDEO_RESOLUTIONS = ["480p", "720p", "768p", "1080p", "1K", "2K", "4K"] as const;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];

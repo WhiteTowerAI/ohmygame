@@ -14,6 +14,8 @@ import {
   resolveOpenRouterMediaSource,
   type OpenRouterMediaSource,
 } from "./openrouter-media.js";
+import { SeedanceProvider } from "./seedance-provider.js";
+import { isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS, seedanceModel, seedanceModels, type SeedanceProviderId } from "./seedance-models.js";
 
 const MAX_WAIT_MS = 15 * 60_000;
 const POLL_INTERVAL_MS = 5_000;
@@ -22,6 +24,7 @@ export class ProviderVideos implements VideoGenerator {
   constructor(
     private readonly runtime: () => Promise<ModelRuntime>,
     private readonly request: typeof fetch = fetch,
+    private readonly seedanceApiKey: (providerId: SeedanceProviderId) => string | undefined = () => undefined,
   ) {}
 
   async models(signal?: AbortSignal): Promise<VideoModel[]> {
@@ -30,22 +33,46 @@ export class ProviderVideos implements VideoGenerator {
 
   /** Every connected video provider with its models, or the reason it has none. */
   async catalog(signal?: AbortSignal): Promise<MediaModelCatalog<VideoModel>> {
+    const entries = await Promise.all([
+      this.#openRouterCatalog(signal),
+      ...SEEDANCE_PROVIDER_IDS.map(async (providerId) => {
+        if (!this.seedanceApiKey(providerId)) return undefined;
+        const definition = SEEDANCE_PROVIDERS[providerId];
+        const models = seedanceModels(providerId);
+        return {
+          models,
+          provider: { provider: definition.id, providerName: definition.name, state: "ready" as const },
+        };
+      }),
+    ]);
+    const connected = entries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+    return { models: connected.flatMap((entry) => entry.models), providers: connected.map((entry) => entry.provider) };
+  }
+
+  async #openRouterCatalog(signal?: AbortSignal): Promise<{ models: VideoModel[]; provider: MediaModelCatalog<VideoModel>["providers"][number] } | undefined> {
     const source = await this.runtime().then((runtime) => resolveOpenRouterMediaSource(runtime, signal)).catch(() => undefined);
-    if (!source) return { models: [], providers: [] };
+    if (!source) return undefined;
     try {
       const models = await listOpenRouterVideoModels(source, this.request, signal);
       return {
         models,
-        providers: [models.length
+        provider: models.length
           ? { provider: "openrouter", providerName: "OpenRouter", state: "ready" }
-          : { provider: "openrouter", providerName: "OpenRouter", state: "empty", message: "OpenRouter lists no video models for this account." }],
+          : { provider: "openrouter", providerName: "OpenRouter", state: "empty", message: "OpenRouter lists no video models for this account." },
       };
     } catch (cause) {
-      return { models: [], providers: [{ provider: "openrouter", providerName: "OpenRouter", state: "error", message: cause instanceof Error ? cause.message : String(cause) }] };
+      return { models: [], provider: { provider: "openrouter", providerName: "OpenRouter", state: "error", message: cause instanceof Error ? cause.message : String(cause) } };
     }
   }
 
   async generate(input: VideoGenerationInput, signal?: AbortSignal): Promise<GeneratedVideo> {
+    if (input.model && isSeedanceProviderId(input.model.provider)) {
+      const providerId = input.model.provider;
+      const model = seedanceModel(providerId, input.model.id);
+      if (!model) throw new VideoGenerationError("The selected video model is not available", 503);
+      return new SeedanceProvider(providerId, () => this.seedanceApiKey(providerId), this.request)
+        .generate(model, input, signal);
+    }
     const runtime = await this.runtime();
     const source = await resolveOpenRouterMediaSource(runtime, signal);
     if (source) {

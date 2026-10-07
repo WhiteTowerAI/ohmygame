@@ -42,6 +42,37 @@ describe("ProviderVideos", () => {
     await expect(configured.models()).resolves.toEqual([expect.objectContaining({ id: "bytedance/seedance-2.0-mini" })]);
     await expect(unavailable.models()).resolves.toEqual([]);
   });
+
+  it("lists configured official providers even when OpenRouter is unavailable", async () => {
+    const keys = (providerId: string) => providerId === "volcengine-ark" ? "volc-key" : undefined;
+    const videos = new ProviderVideos(async () => { throw new Error("Pi unavailable"); }, vi.fn<typeof fetch>(), keys);
+
+    await expect(videos.catalog()).resolves.toEqual({
+      models: expect.arrayContaining([
+        expect.objectContaining({ provider: "volcengine-ark", id: "doubao-seedance-2-5-260628" }),
+        expect.objectContaining({ provider: "volcengine-ark", id: "doubao-seedance-2-0-260128" }),
+      ]),
+      providers: [{ provider: "volcengine-ark", providerName: "Volcengine Ark", state: "ready" }],
+    });
+  });
+
+  it("dispatches an official model without loading the OpenRouter runtime", async () => {
+    const runtimeFactory = vi.fn(async () => runtime());
+    const request = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ id: "official-job" }))
+      .mockResolvedValueOnce(Response.json({ status: "succeeded", content: { video_url: "https://files.example/official.mp4" } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([7]), { status: 200 }));
+    const videos = new ProviderVideos(runtimeFactory, request, () => "volc-key");
+
+    await expect(videos.generate({
+      prompt: "A clockwork garden",
+      model: { provider: "volcengine-ark", id: "doubao-seedance-2-0-260128" },
+      duration: 5,
+      resolution: "720p",
+      aspectRatio: "16:9",
+    })).resolves.toMatchObject({ requestId: "official-job", bytes: Buffer.from([7]) });
+    expect(runtimeFactory).not.toHaveBeenCalled();
+  });
 });
 
 function videoModel() {

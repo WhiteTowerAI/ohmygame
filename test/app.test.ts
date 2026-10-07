@@ -1443,6 +1443,46 @@ describe("daemon", () => {
     expect((await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: {} })).statusCode).toBe(400);
   });
 
+  it("stores official Seedance credentials independently without exposing their values", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-seedance-settings-")) });
+    apps.push(app);
+
+    const initial = await app.inject({ method: "GET", url: "/settings/providers" });
+    expect(initial.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "volcengine-ark", configured: false, status: "not_configured", capabilities: ["image", "video"] }),
+      expect.objectContaining({ id: "byteplus-modelark", configured: false, status: "not_configured", capabilities: ["video"] }),
+    ]));
+    expect(initial.body).not.toContain("volc-key");
+
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-ark/seedance-key",
+      payload: { apiKey: "volc-key" },
+    })).json()).toEqual({ configured: true });
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/byteplus-modelark/seedance-key",
+      payload: { apiKey: "byteplus-key" },
+    })).json()).toEqual({ configured: true });
+
+    const configured = await app.inject({ method: "GET", url: "/settings/providers" });
+    expect(configured.json()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "volcengine-ark", configured: true, status: "connected" }),
+      expect.objectContaining({ id: "byteplus-modelark", configured: true, status: "connected" }),
+    ]));
+    expect(configured.body).not.toContain("volc-key");
+    expect(configured.body).not.toContain("byteplus-key");
+
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/volcengine-ark/seedance-key" })).statusCode).toBe(204);
+    const afterDomesticClear = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
+    expect(afterDomesticClear).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "volcengine-ark", configured: false }),
+      expect.objectContaining({ id: "byteplus-modelark", configured: true }),
+    ]));
+    expect((await app.inject({ method: "PUT", url: "/settings/models/providers/openrouter/seedance-key", payload: { apiKey: "wrong" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/openrouter/seedance-key" })).statusCode).toBe(404);
+  });
+
   it("offers 3D models once Meshy is configured", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model3d-catalog-")) });
     apps.push(app);

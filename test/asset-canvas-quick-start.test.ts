@@ -25,6 +25,8 @@ const GPT_IMAGE = imageModel("openrouter", "openai/gpt-image-2.5-flare");
 const NANO_BANANA = imageModel("openrouter", "google/gemini-3.1-flash-image", [{ resolution: "2K", aspectRatio: "16:9" }]);
 const SEEDANCE_MINI = videoModel("bytedance/seedance-2.0-mini");
 const SEEDANCE_25 = videoModel("bytedance/seedance-2.5");
+const OFFICIAL_SEEDANCE_20 = videoModel("doubao-seedance-2-0-260128", "volcengine-ark");
+const OFFICIAL_SEEDANCE_25 = videoModel("dreamina-seedance-2-5-260628", "byteplus-modelark");
 
 const PROJECT: ProjectState = {
   id: "canvas-1",
@@ -83,6 +85,19 @@ describe("Asset Canvas quick start", () => {
     }) }));
   });
 
+  it.each([
+    ["seedance-2.0", OFFICIAL_SEEDANCE_20],
+    ["seedance-2.5", OFFICIAL_SEEDANCE_25],
+  ])("recognizes official models for the %s starter", async (starterKey, model) => {
+    api.listVideoModels.mockResolvedValue([model]);
+
+    await createAssetCanvasQuickStart(starter(starterKey));
+
+    expect(api.saveCanvasBoard).toHaveBeenCalledWith(PROJECT.id, expect.objectContaining({ board: expect.objectContaining({
+      nodes: [expect.objectContaining({ type: "video", data: expect.objectContaining({ model: { provider: model.provider, id: model.id } }) })],
+    }) }));
+  });
+
   it("creates a generic starter without a model when none is configured", async () => {
     await createAssetCanvasQuickStart(starter("image"));
 
@@ -134,6 +149,6 @@ function imageModel(provider: string, id: string, generationOptions: ImageModel[
   return { provider, providerName: provider, id, name: id, sizes: [], generationOptions, supportsReferenceImage: false, maxOutputs: 1, protocol: "openrouter-images" };
 }
 
-function videoModel(id: string): VideoModel {
-  return { provider: "openrouter", providerName: "OpenRouter", id, name: id, resolutions: ["720p"], aspectRatios: ["16:9"], durations: [5], maxImageReferences: 0 };
+function videoModel(id: string, provider = "openrouter"): VideoModel {
+  return { provider, providerName: provider, id, name: id, resolutions: ["720p"], aspectRatios: ["16:9"], durations: [5], maxImageReferences: 0 };
 }

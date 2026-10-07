@@ -25,6 +25,8 @@ import openRouter from "@lobehub/icons-static-svg/icons/openrouter.svg";
 import qwen from "@lobehub/icons-static-svg/icons/qwen-color.svg";
 import together from "@lobehub/icons-static-svg/icons/together-color.svg";
 import vercel from "@lobehub/icons-static-svg/icons/vercel.svg";
+import volcengine from "@lobehub/icons-static-svg/icons/volcengine-color.svg";
+import byteDance from "@lobehub/icons-static-svg/icons/bytedance-color.svg";
 import xAI from "@lobehub/icons-static-svg/icons/xai.svg";
 import xiaomi from "@lobehub/icons-static-svg/icons/xiaomimimo.svg";
 import zai from "@lobehub/icons-static-svg/icons/zai.svg";
@@ -71,6 +73,8 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "qwen-token-plan-individual": color(qwen),
   together: color(together),
   "vercel-ai-gateway": monochrome(vercel),
+  "volcengine-ark": color(volcengine),
+  "byteplus-modelark": color(byteDance),
   xai: monochrome(xAI),
   xiaomi: monochrome(xiaomi),
   "xiaomi-token-plan-ams": monochrome(xiaomi),
