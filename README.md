@@ -16,6 +16,8 @@
   <a href="https://discord.gg/TkrgvGQ2Zc"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Join Discord" /></a>
 </p>
 
+https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
+
 </div>
 
 > [!NOTE]
