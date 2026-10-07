@@ -417,6 +417,7 @@ const toolRunSchema = {
       aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
       outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
       duration: { type: "integer", minimum: 1, maximum: 30 },
+      referenceMode: { enum: ["frame", "reference"] },
       targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
@@ -450,7 +451,7 @@ const toolRunSchema = {
       },
       references: {
         type: "array",
-        maxItems: 15,
+        maxItems: 30,
         items: {
           type: "object",
           additionalProperties: false,

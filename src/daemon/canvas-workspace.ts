@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { resolveVideoMentions } from "../shared/video-references.js";
 import { lstat, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { convertToPng } from "@earendil-works/pi-coding-agent";
@@ -386,7 +387,10 @@ export class CanvasStore {
       if (asset.mediaType !== "image") throw new CanvasError("Video generation currently accepts image references only");
       return { type: "image" as const, assetId: id };
     });
-    return this.start(id, boardId, nodeId, "generate-video", { prompt, model: node.data.model, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, duration: node.data.duration, references }, revision);
+    let resolvedPrompt: string;
+    try { resolvedPrompt = resolveVideoMentions(prompt, node.data.references, node.data.referenceMentions); }
+    catch (cause) { throw new CanvasError(cause instanceof Error ? cause.message : String(cause)); }
+    return this.start(id, boardId, nodeId, "generate-video", { prompt: resolvedPrompt, model: node.data.model, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, duration: node.data.duration, references, ...(node.data.referenceMode ? { referenceMode: node.data.referenceMode } : {}) }, revision);
   }
   async #execute(id: string, job: StoredJob, prepared: RunToolRequest, controller: AbortController) {
     try {

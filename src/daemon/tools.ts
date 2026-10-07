@@ -179,7 +179,7 @@ export class ToolRunner {
       return this.#runAnimate3D(input as RunAnimate3DToolRequest, signal);
     }
     if (toolId === "generate-video") {
-      assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution"]);
+      assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution", "referenceMode"]);
       return this.#runVideo(input as RunVideoToolRequest, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
@@ -357,6 +357,7 @@ export class ToolRunner {
     if (!prompt) throw new ToolRunError("Prompt must not be empty", 400);
     const references = input.references ?? [];
     validateVideoReferences(references);
+    if (input.referenceMode !== undefined && input.referenceMode !== "frame" && input.referenceMode !== "reference") throw new ToolRunError("Unsupported video reference mode", 400);
     const duration = input.duration ?? VIDEO_DEFAULT_DURATION;
     if (!Number.isInteger(duration) || duration < 1 || duration > 30) throw new ToolRunError("Unsupported video duration", 400);
     const id = randomUUID();
@@ -372,7 +373,7 @@ export class ToolRunner {
       if (!VIDEO_ASPECT_RATIOS.includes(aspectRatio as VideoAspectRatio)) throw new ToolRunError("Unsupported video aspect ratio", 400);
       if (!VIDEO_RESOLUTIONS.includes(resolution as VideoResolution)) throw new ToolRunError("Unsupported video resolution", 400);
       const resolvedReferences = await this.#videoReferences(references);
-      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution }, signal);
+      const generated = await this.videoGenerator.generate({ prompt, model, references: resolvedReferences, duration, aspectRatio, resolution, ...(input.referenceMode ? { referenceMode: input.referenceMode } : {}) }, signal);
       signal?.throwIfAborted();
       if (this.assetLibrary) {
         registeredAssetId = (await this.assetLibrary.add("output.mp4", generated.bytes, {

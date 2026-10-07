@@ -255,6 +255,8 @@ export type AssetCanvasNode = (
     aspectRatio: VideoAspectRatio;
     duration: number;
     references: AssetCanvasReference[];
+    referenceMode?: VideoReferenceMode;
+    referenceMentions?: Record<string, AssetCanvasReference>;
     assetId?: string;
   } }
   | { id: string; type: "model-3d"; position: AssetCanvasPosition; data: {
@@ -691,6 +693,7 @@ export interface ImageGenerationOption {
 export const VIDEO_ASPECT_RATIOS = ["adaptive", "21:9", "16:9", "4:3", "3:2", "1:1", "2:3", "3:4", "9:16", "9:21"] as const;
 export type VideoAspectRatio = (typeof VIDEO_ASPECT_RATIOS)[number];
 export type VideoModelRef = ModelRef;
+export type VideoReferenceMode = "frame" | "reference";
 export interface VideoModel extends VideoModelRef {
   name: string;
   provider: string;
@@ -700,8 +703,10 @@ export interface VideoModel extends VideoModelRef {
   durations: readonly number[];
   maxImageReferences: number;
   imageReferenceMode?: "frame" | "reference";
+  referenceModes?: readonly VideoReferenceMode[];
   /** A narrower ratio set used when image references are present. */
   imageAspectRatios?: readonly VideoAspectRatio[];
+  frameAspectRatios?: readonly VideoAspectRatio[];
 }
 export const VIDEO_RESOLUTIONS = ["480p", "720p", "768p", "1080p", "1K", "2K", "4K"] as const;
 export type VideoResolution = (typeof VIDEO_RESOLUTIONS)[number];
@@ -748,6 +753,7 @@ export interface Run3DToolRequest {
 
 export interface RunVideoToolRequest {
   prompt: string;
+  referenceMode?: VideoReferenceMode;
   model?: VideoModelRef;
   references?: VideoGenerationReference[];
   duration?: number;

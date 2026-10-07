@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { videoReferenceAspectRatios } from "../shared/video-references.js";
 import type { VideoModel } from "../shared/contracts.js";
 import {
   VideoGenerationError,
@@ -26,13 +27,15 @@ export class SeedanceProvider {
     const duration = input.duration ?? model.durations[0]!;
     const resolution = input.resolution ?? model.resolutions[0]!;
     const references = input.references ?? [];
-    const availableRatios = references.length && model.imageAspectRatios?.length ? model.imageAspectRatios : model.aspectRatios;
+    const referenceMode = input.referenceMode ?? "frame";
+    if (referenceMode !== "frame" && referenceMode !== "reference") throw new VideoGenerationError("Unsupported video reference mode", 400);
+    const availableRatios = videoReferenceAspectRatios(model, references.length, referenceMode);
     const aspectRatio = input.aspectRatio ?? availableRatios[0]!;
-    validateInput(model, references, duration, resolution, aspectRatio);
+    validateInput(model, references, duration, resolution, aspectRatio, referenceMode === "frame" ? 2 : model.maxImageReferences, availableRatios);
 
     const content = await Promise.all([
       Promise.resolve({ type: "text" as const, text: input.prompt }),
-      ...references.map((reference, index) => imageContent(reference, references.length === 1 ? "first_frame" : index === 0 ? "first_frame" : "last_frame")),
+      ...references.map((reference, index) => imageContent(reference, referenceMode === "reference" ? "reference_image" : index === 0 ? "first_frame" : "last_frame")),
     ]);
     const created = await this.#json(`${this.definition.baseUrl}/contents/generations/tasks`, {
       method: "POST",
@@ -106,16 +109,17 @@ function validateInput(
   duration: number,
   resolution: VideoModel["resolutions"][number],
   aspectRatio: VideoModel["aspectRatios"][number],
+  maxReferences: number,
+  availableRatios: VideoModel["aspectRatios"],
 ): void {
   if (!model.durations.includes(duration)) throw new VideoGenerationError("Video duration is not supported by the selected model", 400);
   if (!model.resolutions.includes(resolution)) throw new VideoGenerationError("Video resolution is not supported by the selected model", 400);
-  const availableRatios = references.length && model.imageAspectRatios?.length ? model.imageAspectRatios : model.aspectRatios;
   if (!availableRatios.includes(aspectRatio)) throw new VideoGenerationError("Video aspect ratio is not supported by the selected model and reference mode", 400);
   if (references.some((reference) => reference.type !== "image")) throw new VideoGenerationError("Official Seedance providers currently support image references only", 400);
-  if (references.length > model.maxImageReferences) throw new VideoGenerationError(`The selected video model supports up to ${model.maxImageReferences} reference images`, 400);
+  if (references.length > maxReferences) throw new VideoGenerationError(`The selected video mode supports up to ${maxReferences} reference images`, 400);
 }
 
-async function imageContent(reference: VideoReferenceAsset, role: "first_frame" | "last_frame") {
+async function imageContent(reference: VideoReferenceAsset, role: "first_frame" | "last_frame" | "reference_image") {
   const data = await readFile(reference.absolutePath);
   const mediaType = reference.mediaType.toLowerCase();
   if (!mediaType.startsWith("image/")) throw new VideoGenerationError("Official Seedance providers require image references", 400);
