@@ -1,17 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fileURLToPath } from "node:url";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImageModel, ProjectState, VideoModel } from "../src/shared/contracts.js";
-import { installCanvasHttpFixture } from "./canvas-http-fixture.js";
 
 const api = {
   createProject: vi.fn(),
   deleteProject: vi.fn(),
   listImageModels: vi.fn(),
   listVideoModels: vi.fn(),
+  waitForRuntime: vi.fn(),
   getCanvasWorkspace: vi.fn(),
   getCanvasBoard: vi.fn(),
   saveCanvasBoard: vi.fn(),
 };
-afterEach(() => vi.unstubAllGlobals());
+vi.doMock(fileURLToPath(new URL("../src/renderer/api.ts", import.meta.url)), () => api);
+vi.doMock(fileURLToPath(new URL("../src/renderer/canvas-api.ts", import.meta.url)), () => api);
 
 type QuickStartModule = typeof import("../src/renderer/asset-canvas-quick-start.js");
 
@@ -40,7 +42,7 @@ describe("Asset Canvas quick start", () => {
     vi.resetAllMocks();
     vi.resetModules();
     quickStart = await import("../src/renderer/asset-canvas-quick-start.js");
-    installCanvasHttpFixture(api);
+    api.waitForRuntime.mockResolvedValue(undefined);
     api.createProject.mockResolvedValue(PROJECT);
     api.deleteProject.mockResolvedValue(undefined);
     api.getCanvasWorkspace.mockResolvedValue({ boards: [{ id: "board-1" }] });
@@ -69,7 +71,7 @@ describe("Asset Canvas quick start", () => {
         aspectRatio: "16:9",
       }) })],
     }) }));
-    expect(result.project).toEqual(PROJECT);
+    expect(result.project).toBe(PROJECT);
     expect(result.nodeId).toBeTruthy();
   });
 

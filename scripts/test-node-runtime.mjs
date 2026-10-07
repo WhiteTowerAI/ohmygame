@@ -19,8 +19,6 @@ try {
     piAgentDirectory: path.join(directory, "pi-agent"),
     token: "node-runtime-check",
     allowedOrigins: [],
-    // An absolute executable also verifies the manager's default Node launch path.
-    environment: { ...process.env, DAEMON_PORT: undefined },
   });
   const unauthorized = await fetch(`${daemon.runtime.url}/projects`);
   assert.equal(unauthorized.status, 401);

@@ -1,21 +1,21 @@
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetCanvasDocument } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import type { CanvasBoardDetail } from "../src/shared/canvas-workspace.js";
-import { createCanvasBoardStorage } from "../src/renderer/canvas-board-storage.js";
-import { installCanvasHttpFixture } from "./canvas-http-fixture.js";
 
 const api = {
   getCanvasBoard: vi.fn(), saveCanvasBoard: vi.fn(), generateCanvasMedia: vi.fn(),
   listCanvasJobs: vi.fn(), cancelCanvasJob: vi.fn(),
 };
+vi.doMock(fileURLToPath(new URL("../src/renderer/canvas-api.ts", import.meta.url)), () => api);
+const { createCanvasBoardStorage } = await import("../src/renderer/canvas-board-storage.js");
 
 const recoveryKey = "canvas-board:project:board";
 let entries: Map<string, string>;
 let browserStorage: { getItem: ReturnType<typeof vi.fn>; setItem: ReturnType<typeof vi.fn>; removeItem: ReturnType<typeof vi.fn> };
 beforeEach(() => {
   vi.resetAllMocks();
-  installCanvasHttpFixture(api);
   entries = new Map();
   browserStorage = {
     getItem: vi.fn((key: string) => entries.get(key) ?? null),

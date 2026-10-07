@@ -31,7 +31,8 @@ the daemon address plus a random process-scoped token through the isolated
 preload bridge. The renderer has no Node.js access.
 
 Bun 1.4.2 installs dependencies and executes builds, tests, and most preparation
-scripts. Pinned Plugin archives use Node to preserve their locked ZIP checksums.
+scripts. Pinned Plugin archives use Node to preserve their locked ZIP checksums;
+desktop runtime preparation uses Node and its built-in environment-file loader.
 Standalone daemon development and `bun run start` use Node.js 22.19+
 explicitly; desktop development and packaged apps run the daemon with
 Electron's embedded Node.js. Desktop packages retain the checksum-pinned
@@ -42,7 +43,7 @@ authoritative. Prepared examples retain their npm lockfiles.
 Build and test commands select Bun explicitly. `bunfig.toml` disables automatic
 dotenv loading, automatic peer installation, and global Node-to-Bun substitution,
 so a daemon's `node` command runs the real Node executable. Runtime preparation
-loads environment files with the same mode-specific precedence as the daemon.
+loads `.env.local` while preserving values supplied by the parent process.
 `bun run test:node-runtime` builds the daemon and checks startup and its
 authenticated API with Node. `PI_CODING_AGENT_DIR` can isolate the desktop
 agent's configuration during verification.
