@@ -3,12 +3,48 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   CodingWorkspace,
+  AssetsView,
   normalizePreviewPath,
   workspaceFileTree,
+  workspacePathAfterChange,
 } from "../src/renderer/coding-workspace.js";
 import { workspaceLanguage } from "../src/renderer/highlighted-code.js";
+import { filterAssets } from "../src/renderer/asset-browser.js";
 
 describe("coding workspace", () => {
+  it("browses project assets without file mutation menus and keeps a shared filter entry", () => {
+    const html = renderToStaticMarkup(createElement(AssetsView, {
+      projectId: "project", files: [{ path: "hero.png", size: 3, mediaType: "image", origin: "generated", purpose: "asset", prompt: "A long generation prompt" }],
+      loading: false, revision: 0, onShowInCode: () => undefined,
+    }));
+    expect(html).toContain('aria-label="Filter assets"');
+    expect(html).toContain("<strong>hero.png</strong>");
+    expect(html).not.toContain("Asset actions");
+    expect(html).not.toContain("Save to Library");
+    expect(html).not.toContain("Rename");
+    expect(html).not.toContain("Delete");
+  });
+
+  it("combines project source, use, media and search filters and includes references by default", () => {
+    const files = [
+      { path: "hero.png", size: 3, mediaType: "image" as const, origin: "generated" as const, purpose: "asset" as const },
+      { path: "reference.png", size: 4, mediaType: "image" as const, origin: "uploaded" as const, purpose: "reference" as const },
+      { path: "music.mp3", size: 5, mediaType: "audio" as const },
+    ];
+    expect(filterAssets(files, "all", "")).toEqual(files);
+    expect(filterAssets(files, "image", "REF", { origin: "uploaded", purpose: "reference" })).toEqual([files[1]]);
+    expect(filterAssets(files, "all", "", { origin: "workspace", purpose: "asset" })).toEqual([files[2]]);
+    expect(filterAssets(files, "audio", "", { origin: "generated" })).toEqual([]);
+  });
+
+  it("keeps selection attached to renamed files/folders and clears deleted paths", () => {
+    expect(workspacePathAfterChange("art/hero.png", { from: "art", to: "media" })).toBe("media/hero.png");
+    expect(workspacePathAfterChange("art/hero.png", { from: "art" })).toBeUndefined();
+    expect(workspacePathAfterChange("artwork/hero.png", { from: "art" })).toBe("artwork/hero.png");
+    expect(workspacePathAfterChange(undefined, { to: "src/new.ts" })).toBe("src/new.ts");
+    expect(workspacePathAfterChange("src/main.ts", {})).toBe("src/main.ts");
+  });
+
   it("shows the initial preview guidance while the workspace is empty", () => {
     const html = renderToStaticMarkup(
       createElement(CodingWorkspace, {

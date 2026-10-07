@@ -328,7 +328,7 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).statusCode).toBe(404);
   });
 
-  it("exposes read-only workspace code and media", async () => {
+  it("exposes workspace code and media with project provenance", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-api-")) });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
@@ -352,7 +352,7 @@ describe("daemon", () => {
     });
 
     expect(files.json()).toEqual([
-      { path: "cover.png", size: 3, mediaType: "image" },
+      { path: "cover.png", size: 3, mediaType: "image", origin: "workspace", purpose: "asset" },
       { path: "empty-folder", size: 0, directory: true },
       { path: "hello world.txt", size: 6 },
     ]);

@@ -514,15 +514,16 @@ export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFi
   return request(`/projects/${projectId}/files`);
 }
 
-export async function renameAsset(projectId: string, filePath: string, name: string): Promise<{ path: string }> {
-  return request(`/projects/${projectId}/assets?path=${encodeURIComponent(filePath)}`, {
-    method: "PATCH",
-    body: JSON.stringify({ name }),
-  });
+export async function createWorkspaceEntry(projectId: string, parent: string, name: string, kind: "file" | "folder"): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/files`, { method: "POST", body: JSON.stringify({ parent, name, kind }) });
 }
 
-export async function deleteAsset(projectId: string, filePath: string): Promise<void> {
-  await request(`/projects/${projectId}/assets?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
+export async function renameWorkspaceEntry(projectId: string, filePath: string, name: string): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/files?path=${encodeURIComponent(filePath)}`, { method: "PATCH", body: JSON.stringify({ name }) });
+}
+
+export async function deleteWorkspaceEntry(projectId: string, filePath: string): Promise<void> {
+  await request(`/projects/${encodeURIComponent(projectId)}/files?path=${encodeURIComponent(filePath)}`, { method: "DELETE" });
 }
 
 export async function saveProjectAssetToLibrary(projectId: string, filePath: string): Promise<LibraryAsset> {

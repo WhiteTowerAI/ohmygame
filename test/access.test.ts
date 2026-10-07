@@ -30,6 +30,23 @@ describe("desktop daemon access", () => {
     })).statusCode).toBe(201);
   });
 
+  it("rejects incorrect bearer tokens regardless of their length", async () => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-access-")),
+      accessToken: "desktop-secret",
+    });
+    apps.push(app);
+
+    for (const token of ["desktop-secrex", "short", "desktop-secret-extra"]) {
+      const response = await app.inject({
+        method: "GET",
+        url: "/health",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode).toBe(401);
+    }
+  });
+
   it("allows only the configured renderer origin", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-access-")),

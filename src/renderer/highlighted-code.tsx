@@ -50,8 +50,16 @@ function loadHighlighter() {
     engine: engine.createJavaScriptRegexEngine(),
     themes: [darkTheme.default, lightTheme.default],
     langs: languages.map((language) => language.default),
-  }));
+  })).catch((error: unknown) => {
+    highlighterPromise = undefined;
+    throw error;
+  });
   return highlighterPromise;
+}
+
+export async function highlightWorkspaceCode(content: string, language: string, theme: ShikiTheme): Promise<string> {
+  const highlighter = await loadHighlighter();
+  return highlighter.codeToHtml(content, { lang: language, theme });
 }
 
 export function HighlightedCode({ path, content }: { path: string; content: string }) {
@@ -72,13 +80,15 @@ export function HighlightedCode({ path, content }: { path: string; content: stri
     setHtml(undefined);
     if (!language) return;
     let disposed = false;
-    void loadHighlighter()
-      .then((highlighter) => highlighter.codeToHtml(content, { lang: language, theme }))
+    void highlightWorkspaceCode(content, language, theme)
       .then((result) => {
         if (!disposed) setHtml(result);
       })
-      .catch(() => {
-        if (!disposed) setHtml(undefined);
+      .catch((error: unknown) => {
+        if (!disposed) {
+          console.warn("Workspace code highlighting failed.", error);
+          setHtml(undefined);
+        }
       });
     return () => {
       disposed = true;

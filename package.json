@@ -35,6 +35,7 @@
     "package:mac": "npm run prepare:desktop-runtime -- darwin-arm64 && npm run build:desktop-app && electron-builder --mac --arm64",
     "package:win": "npm run prepare:desktop-runtime -- win32-x64 && npm run build:desktop-app && electron-builder --win nsis --x64",
     "test": "vitest run",
+    "test:ablation": "node scripts/test-ablation.mjs",
     "test:publish-contract": "vitest run test/publish.test.ts test/publish-client.test.ts",
     "typecheck": "tsc --noEmit"
   },

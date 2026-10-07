@@ -243,7 +243,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onAddPlugin, onTryPl
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins..." aria-label="Search plugins" />
           </label>
           <div className="plugins-add" ref={addMenu}>
-            <button className="plugins-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding === "create" ? "Opening..." : adding === "install" ? "Installing..." : "Add plugin"}</button>
+            <button className="settings-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding === "create" ? "Opening..." : adding === "install" ? "Installing..." : "Add plugin"}</button>
             {addMenuOpen ? <div className="plugins-add-menu" role="menu">
               <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); void addPlugin(); }}><Package size={14} /><span><strong>Create with AI</strong><small>Build a plugin with the agent</small></span></button>
               {window.ohMyGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>Install from folder...</strong><small>Choose a local plugin directory</small></span></button> : null}

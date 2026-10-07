@@ -22,7 +22,7 @@ import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { generateCreativeText, generateDesignDocumentMarkdown } from "./text-generation.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import { registerCanvasRoutes } from "./canvas-routes.js";
-import { CanvasError } from "./canvas-workspace.js";
+import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
 import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { PlayableDraftServer } from "./playable-draft-server.js";
@@ -1584,7 +1584,50 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/files", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    return listWorkspaceFiles(project.workspacePath);
+    const files = await listWorkspaceFiles(project.workspacePath);
+    let usage: Map<string, boolean> | undefined;
+    if (files.some((file) => (file.libraryAssetId ? library.get(file.libraryAssetId)?.purpose : file.purpose) === "reference")) {
+      try { usage = await canvasLibraryAssetUsage(project.workspacePath); }
+      catch (cause) { request.log.warn({ projectId: project.id, err: cause }, "Could not read project asset usage"); }
+    }
+    return files.map((file) => {
+      if (!file.mediaType) return file;
+      const asset = file.libraryAssetId ? library.get(file.libraryAssetId) : undefined;
+      const origin = file.origin ?? asset?.origin;
+      const purpose = asset?.purpose ?? file.purpose ?? "asset";
+      return { ...file, origin: !origin || origin === "unknown" ? "workspace" : origin, purpose: purpose === "reference" && usage?.get(file.libraryAssetId ?? "") ? "asset" : purpose };
+    });
+  });
+
+  app.post<{ Params: { projectId: string }; Body: { parent?: string; name: string; kind: "file" | "folder" } }>("/projects/:projectId/files", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["name", "kind"], properties: {
+      parent: { type: "string", maxLength: 1000 }, name: { type: "string", minLength: 1, maxLength: 200 }, kind: { enum: ["file", "folder"] },
+    } } },
+  }, async (request, reply) => {
+    try { return reply.code(201).send({ path: await projects.createWorkspaceEntry(request.params.projectId, request.body.parent ?? "", request.body.name, request.body.kind) }); }
+    catch (cause) {
+      if (cause instanceof ProjectAssetError || cause instanceof CanvasError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.patch<{ Params: { projectId: string }; Querystring: { path: string }; Body: { name: string } }>("/projects/:projectId/files", { schema: renameAssetSchema }, async (request, reply) => {
+    try { return { path: await projects.renameWorkspaceEntry(request.params.projectId, request.query.path, request.body.name) }; }
+    catch (cause) {
+      if (cause instanceof ProjectAssetError || cause instanceof CanvasError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.delete<{ Params: { projectId: string }; Querystring: { path: string } }>("/projects/:projectId/files", { schema: { querystring: assetPathQuerySchema } }, async (request, reply) => {
+    try { await projects.deleteWorkspaceEntry(request.params.projectId, request.query.path); return reply.code(204).send(); }
+    catch (cause) {
+      if (cause instanceof ProjectAssetError || cause instanceof CanvasError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof WorkspaceError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
   });
 
   app.get<{ Params: { projectId: string }; Querystring: { path: string } }>(

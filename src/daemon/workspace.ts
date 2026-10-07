@@ -38,12 +38,14 @@ export async function listWorkspaceFiles(workspacePath: string): Promise<Workspa
     if (previewPath) file.previewPath = previewPath;
     const libraryAssetId = metadata.libraryAssets[file.path];
     if (libraryAssetId) file.libraryAssetId = libraryAssetId;
+    if (metadata.origins[file.path]) file.origin = metadata.origins[file.path];
+    if (metadata.purposes[file.path]) file.purpose = metadata.purposes[file.path];
   }
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 export async function readWorkspaceFile(workspacePath: string, requestedPath: string): Promise<WorkspaceFileContent> {
-  const { absolutePath, relativePath } = await resolveFile(workspacePath, requestedPath);
+  const { absolutePath, relativePath } = await resolveWorkspaceEntry(workspacePath, requestedPath);
   const fileStat = await stat(absolutePath);
   if (!fileStat.isFile()) throw new WorkspaceError("Path is not a file");
 
@@ -74,7 +76,7 @@ export async function validateWorkspaceFile(workspacePath: string, requestedPath
 }
 
 export async function locateWorkspaceEntry(workspacePath: string, requestedPath: string): Promise<string> {
-  const { absolutePath } = await resolveFile(workspacePath, requestedPath);
+  const { absolutePath } = await resolveWorkspaceEntry(workspacePath, requestedPath);
   const entryStat = await stat(absolutePath);
   if (!entryStat.isFile() && !entryStat.isDirectory()) throw new WorkspaceError("Path is not a file or directory");
   return absolutePath;
@@ -84,7 +86,7 @@ export async function getWorkspaceMedia(
   workspacePath: string,
   requestedPath: string,
 ): Promise<{ absolutePath: string; relativePath: string; contentType: string; mediaType: NonNullable<WorkspaceFile["mediaType"]>; size: number }> {
-  const { absolutePath, relativePath } = await resolveFile(workspacePath, requestedPath);
+  const { absolutePath, relativePath } = await resolveWorkspaceEntry(workspacePath, requestedPath);
   const fileStat = await stat(absolutePath);
   if (!fileStat.isFile()) throw new WorkspaceError("Path is not a file");
   const media = workspaceMediaInfo(requestedPath);
@@ -121,7 +123,7 @@ export function workspaceMediaInfo(filePath: string): (typeof MEDIA_TYPES)[strin
   return MEDIA_TYPES[path.extname(filePath).toLowerCase()];
 }
 
-async function resolveFile(workspacePath: string, requestedPath: string): Promise<{ absolutePath: string; relativePath: string }> {
+export async function resolveWorkspaceEntry(workspacePath: string, requestedPath: string): Promise<{ absolutePath: string; relativePath: string }> {
   const normalized = requestedPath.replaceAll("\\", "/");
   if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").some((part) => part === ".." || !part)) {
     throw new WorkspaceError("Invalid workspace path");
@@ -143,8 +145,14 @@ async function resolveFile(workspacePath: string, requestedPath: string): Promis
   return { absolutePath: target, relativePath: relativePath.split(path.sep).join("/") };
 }
 
+export async function resolveWorkspaceDirectory(workspacePath: string, requestedPath = ""): Promise<string> {
+  const directory = requestedPath ? (await resolveWorkspaceEntry(workspacePath, requestedPath)).absolutePath : await realpath(workspacePath);
+  if (!(await stat(directory)).isDirectory()) throw new WorkspaceError("Path is not a directory");
+  return directory;
+}
+
 async function resolveWorkspaceFile(workspacePath: string, requestedPath: string): Promise<{ absolutePath: string; relativePath: string }> {
-  const resolved = await resolveFile(workspacePath, requestedPath);
+  const resolved = await resolveWorkspaceEntry(workspacePath, requestedPath);
   if (!(await stat(resolved.absolutePath)).isFile()) throw new WorkspaceError("Path is not a file");
   return resolved;
 }

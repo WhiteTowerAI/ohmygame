@@ -620,6 +620,8 @@ export interface WorkspaceFile {
   prompt?: string;
   previewPath?: string;
   libraryAssetId?: string;
+  origin?: LibraryAssetOrigin;
+  purpose?: LibraryAssetPurpose;
 }
 
 export type LibraryAssetOrigin = "generated" | "uploaded" | "workspace" | "builtin" | "unknown";

@@ -5,13 +5,14 @@ import path from "node:path";
 import type { LibraryAssetProject, PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
-import { getWorkspaceMedia, WorkspaceError } from "./workspace.js";
+import { getWorkspaceMedia, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
 import { validateNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import { readNodeCodebase, writeNodeCodebase } from "./playable-codebase.js";
-import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetReferences } from "./canvas-workspace.js";
+import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetReferences, renameCanvasAssetPaths } from "./canvas-workspace.js";
+import { readCanvasAssets } from "./canvas-assets.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -60,6 +61,18 @@ export interface ProjectRunSettings {
 const PROJECT_COVER_FILE = "cover.webp";
 const PLAYABLE_GRAPH_FILE = "graph.json";
 
+function workspaceEntryName(value: string): string {
+  const name = value.trim();
+  if (!name || name === "." || name === ".." || /[\\/<>:"|?*\x00-\x1f]/.test(name) || name.endsWith(".")) throw new ProjectAssetError("Invalid file or folder name", 400);
+  return name;
+}
+
+function assertEditableWorkspacePath(value: string): void {
+  const parts = value.replaceAll("\\", "/").split("/");
+  if (parts.some((part) => [".git", ".data", ".ohmygame"].includes(part))) throw new ProjectAssetError("Internal project files cannot be changed here", 400);
+  if (parts[0] === "canvas") throw new ProjectAssetError("Manage Canvas documents and boards in Design", 409);
+}
+
 async function assetDigest(file: string): Promise<string> {
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(file)) hash.update(chunk);
@@ -69,6 +82,7 @@ async function assetDigest(file: string): Promise<string> {
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
   readonly #assetMetadataWrites = new Map<string, Promise<unknown>>();
+  readonly #workspaceWrites = new Map<string, Promise<unknown>>();
   readonly #projectsDirectory: string;
 
   constructor(dataDirectory: string, private readonly assetLibrary?: AssetLibrary) {
@@ -143,7 +157,8 @@ export class ProjectManager {
       if (await assetDigest(original.absolutePath) === digest) return existing;
     }
     const asset = await this.assetLibrary.addFile(path.basename(assetPath), media.absolutePath, {
-      origin: "workspace",
+      origin: metadata.origins[media.relativePath] ?? "workspace",
+      purpose: metadata.purposes[media.relativePath],
       ...(metadata.prompts[assetPath] ? { prompt: metadata.prompts[assetPath] } : {}),
       sourceKey: `project:${id}:${media.relativePath}:${digest}`,
     });
@@ -337,13 +352,13 @@ export class ProjectManager {
       ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
       sourceKey: `project:${id}:${assetPath}`,
       }))?.id;
-    if (normalizedPrompt || previewPath || libraryAssetId) {
-      await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, {
-        ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
-        ...(previewPath ? { previewPath } : {}),
-        ...(libraryAssetId ? { libraryAssetId } : {}),
-      }));
-    }
+    await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, {
+      origin: "generated",
+      purpose: "asset",
+      ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
+      ...(previewPath ? { previewPath } : {}),
+      ...(libraryAssetId ? { libraryAssetId } : {}),
+    }));
     await this.touch(id);
     return relativePath.split(path.sep).join("/");
   }
@@ -374,7 +389,7 @@ export class ProjectManager {
       }
       const assetPath = await this.#storeImportedAsset(id, asset.name, (temporary) => copyFile(absolutePath, temporary));
       for (const stalePath of stalePaths) await deleteAssetMetadata(project.workspacePath, stalePath);
-      await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId });
+      await writeAssetMetadata(project.workspacePath, assetPath, { libraryAssetId: assetId, origin: asset.origin, purpose: asset.purpose });
       return { path: assetPath, assetId };
     });
   }
@@ -408,63 +423,113 @@ export class ProjectManager {
   async renameAsset(id: string, assetPath: string, name: string): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    const normalizedName = name.trim();
-    if (!validAssetName(normalizedName)) throw new ProjectAssetError("Invalid asset name", 400);
+    if (!validAssetName(name.trim())) throw new ProjectAssetError("Invalid asset name", 400);
     const source = await getWorkspaceMedia(project.workspacePath, assetPath);
-    const extension = path.extname(source.absolutePath);
-    const destination = path.join(path.dirname(source.absolutePath), `${normalizedName}${extension}`);
-    if (destination === source.absolutePath) return assetPath;
-    try {
-      await lstat(destination);
-      throw new ProjectAssetError("An asset with that name already exists", 409);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    const renamedPath = path.posix.join(path.posix.dirname(source.relativePath), `${normalizedName}${extension}`);
-    await rename(source.absolutePath, destination);
-    try {
-      await this.#writeAssetMetadata(id, () => renameAssetMetadata(project.workspacePath, source.relativePath, renamedPath));
-    } catch (error) {
-      await rename(destination, source.absolutePath);
-      throw error;
-    }
-    await this.touch(id);
-    return renamedPath;
+    return this.renameWorkspaceEntry(id, assetPath, `${name.trim()}${path.extname(source.absolutePath)}`);
   }
 
   async deleteAsset(id: string, assetPath: string): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    const asset = await getWorkspaceMedia(project.workspacePath, assetPath);
-    const removed = `${asset.absolutePath}.${randomUUID()}.removed`;
-    await rename(asset.absolutePath, removed);
-    let previewPath: string | undefined;
-    try {
-      await this.#writeAssetMetadata(id, async () => {
-        previewPath = await deleteAssetMetadata(project.workspacePath, asset.relativePath);
-      });
-    } catch (error) {
-      await rename(removed, asset.absolutePath);
-      throw error;
-    }
-    await rm(removed);
-    if (previewPath) {
-      const dataDirectory = path.join(project.workspacePath, ".data");
-      const previewDirectory = path.join(dataDirectory, "asset-previews");
-      await ensureDirectory(dataDirectory);
-      await ensureDirectory(previewDirectory);
-      await rm(path.join(project.workspacePath, ...previewPath.split("/")), { force: true });
-    }
-    await this.touch(id);
+    await getWorkspaceMedia(project.workspacePath, assetPath);
+    await this.deleteWorkspaceEntry(id, assetPath);
+  }
+
+  async createWorkspaceEntry(id: string, parent: string, name: string, kind: "file" | "folder"): Promise<string> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectAssetError("Project not found", 404);
+    const normalizedName = workspaceEntryName(name);
+    const entryPath = path.posix.join(parent, normalizedName);
+    assertEditableWorkspacePath(entryPath);
+    return this.#mutateWorkspace(id, async () => {
+      const directory = await resolveWorkspaceDirectory(project.workspacePath, parent);
+      const destination = path.join(directory, normalizedName);
+      try {
+        if (kind === "folder") await mkdir(destination);
+        else await writeFile(destination, "", { flag: "wx" });
+      } catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code === "EEXIST") throw new ProjectAssetError("A file or folder with that name already exists", 409);
+        throw cause;
+      }
+      await this.touch(id);
+      return entryPath;
+    });
+  }
+
+  async renameWorkspaceEntry(id: string, entryPath: string, name: string): Promise<string> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectAssetError("Project not found", 404);
+    const normalizedName = workspaceEntryName(name);
+    assertEditableWorkspacePath(entryPath);
+    return this.#mutateWorkspace(id, async () => {
+      const source = await resolveWorkspaceEntry(project.workspacePath, entryPath);
+      assertEditableWorkspacePath(source.relativePath);
+      const renamedPath = path.posix.join(path.posix.dirname(source.relativePath), normalizedName);
+      assertEditableWorkspacePath(renamedPath);
+      const destination = path.join(path.dirname(source.absolutePath), normalizedName);
+      if (source.absolutePath === destination) return source.relativePath;
+      try {
+        await lstat(destination);
+        throw new ProjectAssetError("A file or folder with that name already exists", 409);
+      } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
+      await rename(source.absolutePath, destination);
+      try {
+        await renameCanvasAssetPaths(project.workspacePath, source.relativePath, renamedPath);
+        await this.#writeAssetMetadata(id, () => renameAssetMetadata(project.workspacePath, source.relativePath, renamedPath));
+      } catch (cause) {
+        await rename(destination, source.absolutePath);
+        await renameCanvasAssetPaths(project.workspacePath, renamedPath, source.relativePath);
+        throw cause;
+      }
+      await this.touch(id);
+      return renamedPath;
+    });
+  }
+
+  async deleteWorkspaceEntry(id: string, entryPath: string): Promise<void> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectAssetError("Project not found", 404);
+    assertEditableWorkspacePath(entryPath);
+    await this.#mutateWorkspace(id, async () => {
+      const source = await resolveWorkspaceEntry(project.workspacePath, entryPath);
+      assertEditableWorkspacePath(source.relativePath);
+      const manifest = await readCanvasAssets(project.workspacePath);
+      const canvasIds = Object.entries(manifest.assets).filter(([, asset]) => asset.path === source.relativePath || asset.path.startsWith(`${source.relativePath}/`)).map(([assetId]) => assetId);
+      const removed = `${source.absolutePath}.${randomUUID()}.removed`;
+      await rename(source.absolutePath, removed);
+      let previewPaths: string[];
+      try {
+        await removeCanvasAssetReferences(project.workspacePath, canvasIds, { localOnly: true });
+        previewPaths = await this.#writeAssetMetadata(id, () => deleteAssetMetadata(project.workspacePath, source.relativePath));
+      } catch (cause) {
+        await rename(removed, source.absolutePath);
+        throw cause;
+      }
+      await rm(removed, { recursive: true, force: true });
+      if (previewPaths.length) {
+        await ensureDirectory(path.join(project.workspacePath, ".data"));
+        await ensureDirectory(path.join(project.workspacePath, ".data", "asset-previews"));
+        for (const preview of previewPaths) await rm(path.join(project.workspacePath, ...preview.split("/")), { force: true });
+      }
+      await this.touch(id);
+    });
   }
 
   async #writeAssetMetadata<T>(id: string, operation: () => Promise<T>): Promise<T> {
-    const write = (this.#assetMetadataWrites.get(id)?.catch(() => {}) ?? Promise.resolve()).then(operation);
-    this.#assetMetadataWrites.set(id, write);
+    return this.#serialize(id, this.#assetMetadataWrites, operation);
+  }
+
+  async #mutateWorkspace<T>(id: string, operation: () => Promise<T>): Promise<T> {
+    return this.#serialize(id, this.#workspaceWrites, operation);
+  }
+
+  async #serialize<T>(id: string, writes: Map<string, Promise<unknown>>, operation: () => Promise<T>): Promise<T> {
+    const write = (writes.get(id)?.catch(() => {}) ?? Promise.resolve()).then(operation);
+    writes.set(id, write);
     try {
       return await write;
     } finally {
-      if (this.#assetMetadataWrites.get(id) === write) this.#assetMetadataWrites.delete(id);
+      if (writes.get(id) === write) writes.delete(id);
     }
   }
 

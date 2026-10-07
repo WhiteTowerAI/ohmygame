@@ -1,5 +1,5 @@
 import { Plus, RefreshCw } from "./icons.js";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, ProjectType, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { ExampleShelf, useExamples } from "./examples.js";
@@ -12,6 +12,8 @@ import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { GAME_PROJECT_TYPES } from "./project-types.js";
 import { projectsHash, type AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
+import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
+import "./studios.css";
 
 interface HomeProps {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -19,20 +21,17 @@ interface HomeProps {
   onOpen: (projectId: string) => void;
 }
 
-const RECENT_PROJECT_MAX_COLUMNS = 4;
-
 export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [loadError, setLoadError] = useState<string>();
-  const [recentProjectLimit, setRecentProjectLimit] = useState(RECENT_PROJECT_MAX_COLUMNS);
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
   const [createOpen, setCreateOpen] = useState(false);
   const [renameTarget, setRenameTarget] = useState<ProjectState>();
   const renameTrigger = useRef<HTMLElement | null>(null);
   const { examples, covers: exampleCovers } = useExamples();
-  const recentProjectsSection = useRef<HTMLElement>(null);
+  const { sectionRef, columns, recentProjectLimit } = useProjectShelfLayout();
 
   async function loadProjects() {
     setPhase("loading");
@@ -48,23 +47,6 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   }
 
   useEffect(() => { void loadProjects(); }, []);
-  useLayoutEffect(() => {
-    const section = recentProjectsSection.current;
-    if (!section) return;
-    const updateLimit = () => {
-      const styles = getComputedStyle(section);
-      const minWidth = Number.parseFloat(styles.getPropertyValue("--recent-project-min-width"));
-      const gap = Number.parseFloat(styles.getPropertyValue("--recent-project-gap"));
-      if (!minWidth || Number.isNaN(gap)) return;
-      const columns = Math.floor((section.clientWidth + gap) / (minWidth + gap));
-      setRecentProjectLimit(Math.max(1, Math.min(RECENT_PROJECT_MAX_COLUMNS, columns)));
-    };
-    updateLimit();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateLimit);
-    observer.observe(section);
-    return () => observer.disconnect();
-  }, []);
   async function rename(project: ProjectState, input: string) {
     const name = input.trim();
     if (!name || name === project.name) return;
@@ -91,7 +73,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   }
 
   const visibleProjects = projects.slice(0, recentProjectLimit);
-  const visibleExamples = examples.slice(0, recentProjectLimit);
+  const visibleExamples = examples.slice(0, columns);
 
   return (
     <main className="home-shell">
@@ -114,15 +96,15 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           </button>
         </div>
 
-        <section ref={recentProjectsSection} className="home-discover home-recent" aria-labelledby="projects-heading">
-          <div className="home-section-heading">
+        <section ref={sectionRef} className="home-recent studio-projects" aria-labelledby="projects-heading">
+          <div className="studio-section-heading">
             <h2 id="projects-heading">Recent projects</h2>
             {phase === "error" ? (
-              <button type="button" onClick={() => void loadProjects()}>
+              <button className="studio-text-link" type="button" onClick={() => void loadProjects()}>
                 <RefreshCw size={14} />Retry
               </button>
             ) : projects.length > recentProjectLimit ? (
-              <a className="home-show-all" href={projectsHash()}>Show all</a>
+              <a className="studio-text-link" href={projectsHash()}>Show all</a>
             ) : null}
           </div>
 
@@ -134,7 +116,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
             </p>
           ) : null}
           {phase === "ready" && projects.length > 0 ? (
-            <div className="home-project-grid home-recent-projects-grid">
+            <div className="studio-project-grid">
               {visibleProjects.map((project, index) => (
                 <ProjectCard
                   key={project.id}
@@ -151,8 +133,8 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           ) : null}
           {projectActionError ? <p className="home-notice" role="alert">{projectActionError}</p> : null}
         </section>
-        {visibleExamples.length > 0 ? <section className="home-discover home-explore" aria-labelledby="home-examples-heading">
-          <div className="home-section-heading"><h2 id="home-examples-heading">Explore</h2></div>
+        {visibleExamples.length > 0 ? <section className="home-discover home-explore studio-examples" aria-labelledby="home-examples-heading">
+          <div className="studio-section-heading"><h2 id="home-examples-heading">Explore</h2></div>
           <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
         </section> : null}
       </section>
@@ -171,8 +153,8 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
 
 function ProjectGridSkeleton({ count }: { count: number }) {
   return (
-    <div className="home-project-grid home-recent-projects-grid" aria-label="Loading projects">
-      {Array.from({ length: count }, (_, item) => <div className="project-card home-project-skeleton" key={item} />)}
+    <div className="studio-project-grid" aria-label="Loading projects">
+      {Array.from({ length: count }, (_, item) => <div className="studio-project-skeleton" key={item} />)}
     </div>
   );
 }

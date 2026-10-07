@@ -78,7 +78,7 @@ export function ConnectionsSettings() {
   return <section className="settings-panel settings-overview-panel">
     <header className="settings-panel-header">
       <h3>Connections</h3>
-      <button className="settings-primary-button" type="button" onClick={() => setEditor({ mode: "create" })}><Plus size={14} />Add connection</button>
+      <button className="settings-add-button" type="button" onClick={() => setEditor({ mode: "create" })}><Plus size={13} />Add connection</button>
     </header>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
     {phase === "loading" ? <div className="settings-loading"><LoaderCircle className="spin" size={15} />Loading connections</div> : null}
