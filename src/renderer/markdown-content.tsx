@@ -1,4 +1,4 @@
-import { isValidElement, useState, type ReactNode } from "react";
+import { isValidElement, memo, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Box, Check, Copy, FileCode2, FileText, Film, Image, Music2, type IconComponent } from "./icons.js";
@@ -24,7 +24,7 @@ const FILE_ICON_EXTENSIONS: Record<Exclude<WorkspaceFileIconKind, "file">, Reado
   model: new Set(["blend", "dae", "fbx", "glb", "gltf", "obj", "stl"]),
 };
 
-export function MarkdownContent({ text, className = "", workspacePath, onOpenWorkspaceFile, renderImage }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "", workspacePath, onOpenWorkspaceFile, renderImage }: {
   text: string;
   className?: string;
   workspacePath?: string;
@@ -56,7 +56,7 @@ export function MarkdownContent({ text, className = "", workspacePath, onOpenWor
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 export function workspaceFileIconKind(filePath: string): WorkspaceFileIconKind {
   const name = filePath.split("/").at(-1)?.toLocaleLowerCase() ?? "";

@@ -7,7 +7,7 @@ export class RuntimeEventBus {
   readonly #droppedThrough = new Map<string, number>();
   #nextId = 1;
 
-  constructor(private readonly capacity = 1_000) {
+  constructor(private readonly capacity = 1_000, private readonly projectEvent?: (event: RuntimeEvent) => RuntimeEvent) {
     if (!Number.isInteger(capacity) || capacity < 1) {
       throw new Error("Event capacity must be a positive integer");
     }
@@ -20,7 +20,7 @@ export class RuntimeEventBus {
     scope: { conversationId: string; turnId?: string } | undefined = undefined,
     replayData?: RuntimeEventData[T],
   ): RuntimeEvent<T> {
-    const event = {
+    const rawEvent = {
       id: this.#nextId++,
       projectId,
       ...scope,
@@ -28,7 +28,9 @@ export class RuntimeEventBus {
       timestamp: new Date().toISOString(),
       data,
     } as RuntimeEvent<T>;
-    this.#events.push(replayData === undefined ? event : { ...event, data: replayData } as RuntimeEvent<T>);
+    const event = (this.projectEvent?.(rawEvent) ?? rawEvent) as RuntimeEvent<T>;
+    // A projected event already has a bounded payload and preserves image references on replay.
+    this.#events.push(event !== rawEvent || replayData === undefined ? event : { ...event, data: replayData } as RuntimeEvent<T>);
     if (this.#events.length > this.capacity) {
       const dropped = this.#events.splice(0, this.#events.length - this.capacity);
       for (const oldEvent of dropped) this.#markDropped(oldEvent.projectId, oldEvent.id);

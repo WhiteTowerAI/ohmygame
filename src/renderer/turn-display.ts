@@ -2,6 +2,7 @@ import type { ThreadItem, ToolArtifact, Turn } from "../shared/contracts.js";
 import { projectWorkItems, type WorkDisplayItem } from "./work-items.js";
 
 type AssistantItem = Extract<ThreadItem, { type: "agentMessage" }>;
+const compactionMerges = new WeakMap<Turn, WeakMap<Turn, Turn>>();
 
 export interface TurnDisplay {
   user?: Extract<ThreadItem, { type: "userMessage" }>;
@@ -29,10 +30,14 @@ export function mergeCompletedCompactionTurns(turns: readonly Turn[]): Turn[] {
     }
     // Compaction has its own runtime turn for cancellation, but belongs to the preceding work in history.
     const previous = result[previousIndex];
-    result[previousIndex] = {
-      ...previous,
-      items: [...previous.items, ...turn.items.map((item) => ({ ...item, turnId: previous.id }))],
-    };
+    const mergedForPrevious = compactionMerges.get(previous) ?? new WeakMap<Turn, Turn>();
+    let merged = mergedForPrevious.get(turn);
+    if (!merged) {
+      merged = { ...previous, items: [...previous.items, ...turn.items.map((item) => ({ ...item, turnId: previous.id }))] };
+      mergedForPrevious.set(turn, merged);
+      compactionMerges.set(previous, mergedForPrevious);
+    }
+    result[previousIndex] = merged;
   }
   return result;
 }

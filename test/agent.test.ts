@@ -589,6 +589,27 @@ describe("conversationItems", () => {
 });
 
 describe("AgentManager", () => {
+  it.each(["completed", "cancelled", "failed"] as const)("runs owned-resource cleanup after a %s prompt", async (outcome) => {
+    const session = new FakeSession();
+    const pending = deferred<void>();
+    session.prompt.mockImplementation(() => pending.promise);
+    const cleanup = vi.fn(async () => {});
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session, onRunFinished: cleanup });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const turn = manager.prompt(project, conversation, "Build");
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalled());
+    if (outcome === "cancelled") await manager.cancel(project.id, conversation.summary.id, turn.turnId);
+    if (outcome === "failed") {
+      pending.reject(new Error("Failed"));
+      await expect(turn.result).rejects.toThrow("Failed");
+    } else {
+      pending.resolve();
+      await expect(turn.result).resolves.toBe(outcome);
+    }
+    expect(cleanup).toHaveBeenCalledExactlyOnceWith(project, conversation.summary.id);
+    await manager.close();
+  });
   it("aggregates activity across conversations until all project work ends", async () => {
     const completions = [deferred<void>(), deferred<void>(), deferred<void>()];
     const sessions = completions.map((completion) => {

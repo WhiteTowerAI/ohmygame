@@ -6481,6 +6481,10 @@ button {
   grid-template-areas: "viewer resizer agent";
 }
 
+.tool-artifact-preview {
+  min-height: 120px;
+}
+
 .workspace-shell-agent-collapsed .agent-pane {
   overflow: hidden;
   visibility: hidden;

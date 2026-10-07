@@ -3,6 +3,18 @@ import type { ConversationDetail, ConversationSummary, ProjectState, RuntimeEven
 import { initialRendererState, rendererReducer } from "../src/renderer/state.js";
 
 describe("rendererReducer", () => {
+  it("preserves unrelated turn and item references when streaming text", () => {
+    const historical = turn("previous", "completed", [user("previous", "Earlier")]);
+    const prompt = user("turn-1", "Build");
+    const active = turn("turn-1", "inProgress", [prompt, assistant("turn-1", "assistant-1", "", "inProgress")]);
+    const state = { ...initialized(), turns: [historical, active] };
+    const next = event(state, runtimeEvent(1, "item.agentMessage.delta", { itemId: "assistant-1", delta: "Hello" }));
+    expect(next.turns[0]).toBe(historical);
+    expect(next.turns[0].items).toBe(historical.items);
+    expect(next.turns[1]).not.toBe(active);
+    expect(next.turns[1].items[0]).toBe(prompt);
+    expect(next.turns[1].items[1]).toMatchObject({ text: "Hello" });
+  });
   it("stores the publication from the HTTP response without overwriting newer project state", () => {
     const state = initialized();
     const publication = {

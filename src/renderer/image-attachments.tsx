@@ -1,6 +1,8 @@
 import { Plus, X } from "./icons.js";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PromptImage, PromptImageMediaType } from "../shared/contracts.js";
+import { getConversationImage } from "./api.js";
+import { useNearViewport } from "./asset-gallery.js";
 
 export interface ComposerImage extends PromptImage {
   id: string;
@@ -76,6 +78,27 @@ export function composerImages(images: PromptImage[]): ComposerImage[] {
 
 export function imageSource(image: PromptImage): string {
   return `data:${image.mediaType};base64,${image.data}`;
+}
+
+export function ConversationImage({ image, alt }: { image: PromptImage; alt: string }) {
+  const [target, visible] = useNearViewport<HTMLImageElement>();
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    if (!visible || !image.url) return;
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    setUrl(undefined);
+    void getConversationImage(image.url, controller.signal).then((blob) => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(blob);
+      setUrl(objectUrl);
+    }).catch(() => {});
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [image.url, visible]);
+  return <img ref={target} src={image.url ? url : imageSource(image)} alt={alt} loading="lazy" />;
 }
 
 export async function readImageFiles(files: File[]): Promise<ComposerImage[]> {

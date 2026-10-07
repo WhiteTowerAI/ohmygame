@@ -351,6 +351,8 @@ export interface PromptImage {
   mediaType: PromptImageMediaType;
   data: string;
   name?: string;
+  /** Display-only reference. UI projections leave data empty; model inputs retain it. */
+  url?: string;
 }
 
 export type PromptAttachmentKind = "image" | "text" | "document" | "audio" | "video" | "model" | "archive" | "binary";

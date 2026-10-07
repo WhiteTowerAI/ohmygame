@@ -8,6 +8,15 @@ describe("mergeCompletedCompactionTurns", () => {
     items: [{ id: "compact-item", turnId: "compact-1", type: "contextCompaction", status: "completed", timestamp: 10_000 }],
   };
 
+  it("preserves merged historical references when a later turn changes", () => {
+    const original = turn([tool("completed"), answer("Done")], false);
+    const active = { ...turn([], true), id: "active" };
+    const first = mergeCompletedCompactionTurns([original, compaction, active]);
+    const second = mergeCompletedCompactionTurns([original, compaction, { ...active, items: [...active.items, answer("Streaming")] }]);
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).not.toBe(first[1]);
+  });
+
   it("merges independent completed compaction into preceding work without changing runtime turns", () => {
     const original = turn([tool("completed"), answer("Done.")], false);
     const turns = [original, compaction, { ...compaction, id: "compact-2", items: [{ ...compaction.items[0], id: "compact-item-2", turnId: "compact-2" }] }];

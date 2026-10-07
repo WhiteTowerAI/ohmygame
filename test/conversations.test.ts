@@ -117,7 +117,7 @@ describe("ConversationManager", () => {
 
     conversations.open(project, created).appendCustomEntry("ohmygame-plan", { mode: "planning", plan });
 
-    expect(conversations.planState(project, created)).toEqual({ mode: "awaiting_approval", plan });
+    expect(await conversations.planState(project, created)).toEqual({ mode: "awaiting_approval", plan });
   });
 
   it("normalizes deterministic fallback titles", () => {

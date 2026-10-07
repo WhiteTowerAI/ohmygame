@@ -161,6 +161,29 @@ describe("renderer event stream", () => {
     expect(urls[1]).toContain("cursor=7");
   });
 
+  it("keeps the latest delivered cursor when the stream rejects", async () => {
+    installWindow();
+    const urls: string[] = [];
+    let unsubscribe = () => {};
+    let failStream!: ReadableStreamDefaultController<Uint8Array>;
+    let finish!: () => void;
+    const reconnected = new Promise<void>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      urls.push(String(input));
+      if (urls.length === 1) return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        failStream = controller;
+        controller.enqueue(new TextEncoder().encode(sse(7, "preview.starting", {})));
+      } }));
+      queueMicrotask(() => { unsubscribe(); finish(); });
+      return new Response(streamFrom(""));
+    }));
+    unsubscribe = subscribeToProject("project", 5, {
+      onEvent: () => failStream.error(new Error("Disconnected")), onOpen: () => {}, onError: () => {},
+    });
+    await reconnected;
+    expect(urls[1]).toContain("cursor=7");
+  });
+
   it("reloads a snapshot after the event cursor expires", async () => {
     installWindow();
     const urls: string[] = [];
