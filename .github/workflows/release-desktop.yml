@@ -23,13 +23,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
-          cache: npm
-      - run: npm ci --legacy-peer-deps
-      - run: npm run prepare:desktop-runtime -- win32-x64
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run prepare:desktop-runtime win32-x64
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
           SENTRY_DSN: ${{ vars.SENTRY_DSN }}
-      - run: npm run build:desktop-app
+      - run: bun run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
@@ -40,7 +42,7 @@ jobs:
         run: |
           if (-not $env:DESKTOP_UPDATE_URL) { throw "DESKTOP_UPDATE_URL repository variable is not configured" }
       - name: Build Windows package
-        run: npx electron-builder --win nsis --x64 --publish never
+        run: bun --bun node_modules/electron-builder/cli.js --win nsis --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@v4
@@ -62,13 +64,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
-          cache: npm
-      - run: npm ci --legacy-peer-deps
-      - run: npm run prepare:desktop-runtime -- darwin-arm64
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run prepare:desktop-runtime darwin-arm64
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
           SENTRY_DSN: ${{ vars.SENTRY_DSN }}
-      - run: npm run build:desktop-app
+      - run: bun run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY }}
@@ -93,7 +97,7 @@ jobs:
             fi
           done
       - name: Build signed macOS package
-        run: npx electron-builder --mac dmg zip --arm64 --publish never
+        run: bun --bun node_modules/electron-builder/cli.js --mac dmg zip --arm64 --publish never
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}

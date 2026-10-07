@@ -18,7 +18,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
-          cache: npm
-      - run: npm ci --legacy-peer-deps
-      - run: npm run typecheck
-      - run: npm test
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run prepare:preinstalled-plugins
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run test:node-runtime

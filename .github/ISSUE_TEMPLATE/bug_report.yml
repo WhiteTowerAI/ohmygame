@@ -35,7 +35,7 @@ body:
         - macOS (Intel)
         - Windows
         - Linux (from source)
-        - Web renderer (npm run dev)
+        - Web renderer (bun run dev)
     validations:
       required: true
   - type: input

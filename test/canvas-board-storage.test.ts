@@ -1,14 +1,15 @@
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetCanvasDocument } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import type { CanvasBoardDetail } from "../src/shared/canvas-workspace.js";
-import { createCanvasBoardStorage } from "../src/renderer/canvas-board-storage.js";
 
-const api = vi.hoisted(() => ({
+const api = {
   getCanvasBoard: vi.fn(), saveCanvasBoard: vi.fn(), generateCanvasMedia: vi.fn(),
   listCanvasJobs: vi.fn(), cancelCanvasJob: vi.fn(),
-}));
-vi.mock("../src/renderer/canvas-api.js", () => api);
+};
+vi.doMock(fileURLToPath(new URL("../src/renderer/canvas-api.ts", import.meta.url)), () => api);
+const { createCanvasBoardStorage } = await import("../src/renderer/canvas-board-storage.js");
 
 const recoveryKey = "canvas-board:project:board";
 let entries: Map<string, string>;

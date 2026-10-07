@@ -71,7 +71,7 @@ export class ArtifactBuilder {
    */
   async preparePlayableDraft(project: ProjectState): Promise<string> {
     if (project.type !== "interactive-story") throw new PublishError("Playable drafts require an Interactive Story project");
-    if (!this.library || !this.playerDirectory) throw new PublishError("Published Player is not built. Run npm run build:player first.");
+    if (!this.library || !this.playerDirectory) throw new PublishError("Published Player is not built. Run bun run build:player first.");
     await assertNodePlayerBuilt(this.playerDirectory);
     let definition: NodePlayerDefinition | undefined;
     try {
@@ -89,7 +89,7 @@ export class ArtifactBuilder {
    * against the publish rules.
    */
   async preparePlayableExample(workspacePath: string, exampleId: string): Promise<string> {
-    if (!this.library || !this.playerDirectory) throw new PublishError("Published Player is not built. Run npm run build:player first.");
+    if (!this.library || !this.playerDirectory) throw new PublishError("Published Player is not built. Run bun run build:player first.");
     await assertNodePlayerBuilt(this.playerDirectory);
     const definition = await buildPlayableProject(workspacePath, "draft");
     if (!definition) throw new PublishError("This example has no graph.json.");
@@ -283,7 +283,7 @@ async function assertNodePlayerBuilt(playerDirectory: string): Promise<void> {
   ).filter((file): file is string => file !== undefined);
   if (missing.length) {
     throw new PublishError(
-      `Published Player build is incomplete. Missing: ${missing.join(", ")}. Run npm run build:player first.`,
+      `Published Player build is incomplete. Missing: ${missing.join(", ")}. Run bun run build:player first.`,
     );
   }
 }

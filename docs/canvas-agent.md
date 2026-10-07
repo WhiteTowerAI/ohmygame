@@ -53,7 +53,7 @@ Two tools supplement ordinary file editing:
 Stop OhMyGame, then run the migration against its data directory:
 
 ```sh
-npx tsx scripts/migrate-canvas-workspaces.ts .data
+bun scripts/migrate-canvas-workspaces.ts .data
 ```
 
 The script backs up old Design directories and Asset Canvas files under

@@ -63,7 +63,7 @@ SmartScreen warning during download and installation. The update manifest still
 provides the SHA-512 digest used by `electron-updater` to validate downloads.
 
 For a local package build, export `DESKTOP_UPDATE_URL` before running
-`npm run package:mac` or `npm run package:win`. Development builds do not use
+`bun run package:mac` or `bun run package:win`. Development builds do not use
 the update feed.
 
 ## Rollback

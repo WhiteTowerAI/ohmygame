@@ -1,19 +1,19 @@
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImageModel, ProjectState, VideoModel } from "../src/shared/contracts.js";
 
-const api = vi.hoisted(() => ({
+const api = {
   createProject: vi.fn(),
   deleteProject: vi.fn(),
   listImageModels: vi.fn(),
   listVideoModels: vi.fn(),
+  waitForRuntime: vi.fn(),
   getCanvasWorkspace: vi.fn(),
   getCanvasBoard: vi.fn(),
   saveCanvasBoard: vi.fn(),
-  waitForRuntime: vi.fn(),
-}));
-
-vi.mock("../src/renderer/api.js", () => api);
-vi.mock("../src/renderer/canvas-api.js", () => api);
+};
+vi.doMock(fileURLToPath(new URL("../src/renderer/api.ts", import.meta.url)), () => api);
+vi.doMock(fileURLToPath(new URL("../src/renderer/canvas-api.ts", import.meta.url)), () => api);
 
 type QuickStartModule = typeof import("../src/renderer/asset-canvas-quick-start.js");
 
@@ -39,7 +39,7 @@ const PROJECT: ProjectState = {
 
 describe("Asset Canvas quick start", () => {
   beforeEach(async () => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.resetModules();
     quickStart = await import("../src/renderer/asset-canvas-quick-start.js");
     api.waitForRuntime.mockResolvedValue(undefined);

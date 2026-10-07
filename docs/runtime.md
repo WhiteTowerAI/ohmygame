@@ -21,14 +21,37 @@ obvious from it.
 
 ## Processes
 
-`npm run dev` starts the React renderer on `http://127.0.0.1:43120` and the
+`bun run dev` starts the React renderer on `http://127.0.0.1:43120` and the
 Fastify daemon on `http://127.0.0.1:43110`. Vite proxies the renderer's `/api`
 requests to the daemon.
 
-`npm run dev:desktop` starts Vite and Electron. Electron starts the compiled
+`bun run dev:desktop` starts Vite and Electron. Electron starts the compiled
 daemon itself on an available loopback port, waits for `/health`, and passes
 the daemon address plus a random process-scoped token through the isolated
 preload bridge. The renderer has no Node.js access.
+
+Bun 1.4.2 installs dependencies and executes builds, tests, and most preparation
+scripts. Pinned Plugin archives use Node to preserve their locked ZIP checksums;
+desktop runtime preparation uses Node and its built-in environment-file loader.
+Standalone daemon development and `bun run start` use Node.js 22.19+
+explicitly; desktop development and packaged apps run the daemon with
+Electron's embedded Node.js. Desktop packages retain the checksum-pinned
+Node.js 22.19.0/npm distribution for workspace commands and MCP servers.
+New workspaces still default to npm, and existing package-manager choices remain
+authoritative. Prepared examples retain their npm lockfiles.
+
+Build and test commands select Bun explicitly. `bunfig.toml` disables automatic
+dotenv loading, automatic peer installation, and global Node-to-Bun substitution,
+so a daemon's `node` command runs the real Node executable. Runtime preparation
+loads `.env.local` while preserving values supplied by the parent process.
+`bun run test:node-runtime` builds the daemon and checks startup and its
+authenticated API with Node. `PI_CODING_AGENT_DIR` can isolate the desktop
+agent's configuration during verification.
+
+The full Bun daemon experiment remains on `chore/bun-runtime`; the adopted
+toolchain stage is on `chore/bun-toolchain`. See the
+[adoption report](experiments/bun-toolchain-2026-10-07.md) for validation and
+measured tradeoffs, including corrections to the earlier experiment's baseline.
 
 Electron main owns only desktop lifecycle. Projects, conversations, previews,
 and events live in the daemon. Closing the last window quits the application

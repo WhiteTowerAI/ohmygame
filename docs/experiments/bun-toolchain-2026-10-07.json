@@ -1,0 +1,408 @@
+{
+  "baseline_revision": "eb56e5d942180980122b8b94cf159d679c89cbd9",
+  "full_bun_revision": "d873411",
+  "cloud_revision": "cd580f5654e37810dddc63642c1f54b17c3255b0",
+  "toolchain": {
+    "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "cpu": "Apple M4",
+    "versions": {
+      "node": "v24.14.1",
+      "npm": "11.11.0",
+      "bun": "1.4.2"
+    },
+    "commands": {
+      "install-node": [
+        "npm",
+        "ci",
+        "--legacy-peer-deps",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "install-bun": ["bun", "install", "--frozen-lockfile"],
+      "typecheck-node": ["npm", "run", "typecheck"],
+      "typecheck-bun": ["bun", "run", "typecheck"],
+      "build-node": ["npm", "run", "build"],
+      "build-bun": ["bun", "run", "build"],
+      "tests-node": [
+        "npm",
+        "run",
+        "test",
+        "--",
+        "--maxWorkers=4",
+        "--reporter=json",
+        "--outputFile=.runtime/bun-migration/toolchain-comparison/tests-node-2.json"
+      ],
+      "tests-bun": [
+        "bun",
+        "run",
+        "test",
+        "--maxWorkers=4",
+        "--reporter=json",
+        "--outputFile=.runtime/bun-migration/toolchain-comparison/tests-bun-2.json"
+      ]
+    },
+    "measurements": {
+      "install": {
+        "node": [13.2101, 8.2777, 7.8866],
+        "bun": [1.6015, 0.9318, 0.9764]
+      },
+      "typecheck": {
+        "node": [6.0153, 5.7471, 5.3203],
+        "bun": [5.2068, 4.6953, 6.7126]
+      },
+      "build": {
+        "node": [8.8744, 7.7989, 7.761],
+        "bun": [7.0738, 6.9799, 6.0637]
+      },
+      "tests": {
+        "node": [15.8602, 16.8184, 18.4032],
+        "bun": [12.7285, 11.9757, 12.5524]
+      }
+    },
+    "test_counts": {
+      "node": {
+        "numTotalTests": 1058,
+        "numPassedTests": 1058,
+        "numPendingTests": 0,
+        "numFailedTests": 0,
+        "success": true
+      },
+      "bun": {
+        "numTotalTests": 1059,
+        "numPassedTests": 1059,
+        "numPendingTests": 0,
+        "numFailedTests": 0,
+        "success": true
+      }
+    },
+    "medians": {
+      "install": {
+        "node": 8.2777,
+        "bun": 0.9764
+      },
+      "typecheck": {
+        "node": 5.7471,
+        "bun": 5.2068
+      },
+      "build": {
+        "node": 7.7989,
+        "bun": 6.9799
+      },
+      "tests": {
+        "node": 16.8184,
+        "bun": 12.5524
+      }
+    }
+  },
+  "packaged_daemons": {
+    "method": "Same desktop executables and daemon entries; isolated data; no parent UI/IPC; 7 repetitions",
+    "measurements": {
+      "baseline": [
+        {
+          "ready_ms": 835.268,
+          "initialized_rss_mib": 227.188,
+          "request_median_ms": 0.0832,
+          "request_p95_ms": 0.1104,
+          "shutdown_ms": 18.239
+        },
+        {
+          "ready_ms": 825.68,
+          "initialized_rss_mib": 226.578,
+          "request_median_ms": 0.1002,
+          "request_p95_ms": 0.1324,
+          "shutdown_ms": 18.855
+        },
+        {
+          "ready_ms": 827.739,
+          "initialized_rss_mib": 227.281,
+          "request_median_ms": 0.0998,
+          "request_p95_ms": 0.1303,
+          "shutdown_ms": 18.828
+        },
+        {
+          "ready_ms": 810.201,
+          "initialized_rss_mib": 227.328,
+          "request_median_ms": 0.097,
+          "request_p95_ms": 0.1314,
+          "shutdown_ms": 18.25
+        },
+        {
+          "ready_ms": 822.532,
+          "initialized_rss_mib": 226.797,
+          "request_median_ms": 0.1002,
+          "request_p95_ms": 0.1294,
+          "shutdown_ms": 18.857
+        },
+        {
+          "ready_ms": 823.069,
+          "initialized_rss_mib": 226.859,
+          "request_median_ms": 0.1007,
+          "request_p95_ms": 0.1375,
+          "shutdown_ms": 18.86
+        },
+        {
+          "ready_ms": 828.052,
+          "initialized_rss_mib": 226.359,
+          "request_median_ms": 0.1004,
+          "request_p95_ms": 0.1301,
+          "shutdown_ms": 18.249
+        }
+      ],
+      "toolchain": [
+        {
+          "ready_ms": 804.09,
+          "initialized_rss_mib": 222.281,
+          "request_median_ms": 0.0984,
+          "request_p95_ms": 0.1249,
+          "shutdown_ms": 18.215
+        },
+        {
+          "ready_ms": 844.112,
+          "initialized_rss_mib": 216.859,
+          "request_median_ms": 0.0991,
+          "request_p95_ms": 0.1326,
+          "shutdown_ms": 17.327
+        },
+        {
+          "ready_ms": 799.168,
+          "initialized_rss_mib": 217.281,
+          "request_median_ms": 0.0995,
+          "request_p95_ms": 0.1303,
+          "shutdown_ms": 18.862
+        },
+        {
+          "ready_ms": 802.44,
+          "initialized_rss_mib": 216.812,
+          "request_median_ms": 0.0988,
+          "request_p95_ms": 0.1268,
+          "shutdown_ms": 17.868
+        },
+        {
+          "ready_ms": 788.882,
+          "initialized_rss_mib": 217.031,
+          "request_median_ms": 0.0971,
+          "request_p95_ms": 0.1247,
+          "shutdown_ms": 18.851
+        },
+        {
+          "ready_ms": 814.275,
+          "initialized_rss_mib": 218.047,
+          "request_median_ms": 0.0991,
+          "request_p95_ms": 0.1229,
+          "shutdown_ms": 18.84
+        },
+        {
+          "ready_ms": 810.889,
+          "initialized_rss_mib": 217.438,
+          "request_median_ms": 0.1009,
+          "request_p95_ms": 0.1345,
+          "shutdown_ms": 18.866
+        }
+      ],
+      "full_bun": [
+        {
+          "ready_ms": 695.024,
+          "initialized_rss_mib": 267.719,
+          "request_median_ms": 0.0944,
+          "request_p95_ms": 0.1834,
+          "shutdown_ms": 8.855
+        },
+        {
+          "ready_ms": 463.726,
+          "initialized_rss_mib": 253.625,
+          "request_median_ms": 0.0909,
+          "request_p95_ms": 0.1786,
+          "shutdown_ms": 8.841
+        },
+        {
+          "ready_ms": 464.222,
+          "initialized_rss_mib": 256.75,
+          "request_median_ms": 0.0935,
+          "request_p95_ms": 0.1699,
+          "shutdown_ms": 8.826
+        },
+        {
+          "ready_ms": 452.498,
+          "initialized_rss_mib": 253.484,
+          "request_median_ms": 0.0946,
+          "request_p95_ms": 0.1991,
+          "shutdown_ms": 8.797
+        },
+        {
+          "ready_ms": 472.996,
+          "initialized_rss_mib": 250.578,
+          "request_median_ms": 0.0943,
+          "request_p95_ms": 0.1856,
+          "shutdown_ms": 8.826
+        },
+        {
+          "ready_ms": 468.675,
+          "initialized_rss_mib": 257.172,
+          "request_median_ms": 0.0988,
+          "request_p95_ms": 0.1575,
+          "shutdown_ms": 8.838
+        },
+        {
+          "ready_ms": 478.057,
+          "initialized_rss_mib": 255.031,
+          "request_median_ms": 0.098,
+          "request_p95_ms": 0.1828,
+          "shutdown_ms": 8.824
+        }
+      ]
+    },
+    "versions": {
+      "baseline": "v24.18.1",
+      "toolchain": "v24.18.1",
+      "full_bun": "1.3.11"
+    },
+    "medians": {
+      "baseline": {
+        "ready_ms": 825.68,
+        "initialized_rss_mib": 226.859,
+        "request_median_ms": 0.1002,
+        "request_p95_ms": 0.1303,
+        "shutdown_ms": 18.828
+      },
+      "toolchain": {
+        "ready_ms": 804.09,
+        "initialized_rss_mib": 217.281,
+        "request_median_ms": 0.0991,
+        "request_p95_ms": 0.1268,
+        "shutdown_ms": 18.84
+      },
+      "full_bun": {
+        "ready_ms": 468.675,
+        "initialized_rss_mib": 255.031,
+        "request_median_ms": 0.0944,
+        "request_p95_ms": 0.1828,
+        "shutdown_ms": 8.826
+      }
+    }
+  },
+  "package_sizes": {
+    "node": {
+      "app_allocated_bytes": 967012352,
+      "app_logical_bytes": 958690291,
+      "zip_bytes": 351863325,
+      "runtime_allocated_bytes": 129470464
+    },
+    "bun": {
+      "app_allocated_bytes": 705110016,
+      "app_logical_bytes": 632003859,
+      "zip_bytes": 250460948,
+      "runtime_allocated_bytes": 61075456
+    },
+    "toolchain": {
+      "app_allocated_bytes": 714375168,
+      "app_logical_bytes": 694490906,
+      "zip_bytes": 251703980,
+      "runtime_allocated_bytes": 129470464
+    }
+  },
+  "package_size_method": "du -sk allocated bytes; regular files without symlinks for logical bytes; ditto -c -k --sequesterRsrc --keepParent for ZIP bytes. Baseline/full Bun ZIP sizes from the earlier experiment on these same apps.",
+  "validation": {
+    "frozen_install": "passed",
+    "typecheck": "passed",
+    "full_suite": {
+      "passed": 1059,
+      "skipped": 0,
+      "cli_exit": 0,
+      "repetitions": 3
+    },
+    "build_desktop_app": "passed",
+    "unsigned_mac_arm64_package": "passed",
+    "node_runtime_check": {
+      "node": "22.19.0",
+      "result": "passed"
+    },
+    "dev": {
+      "dev_daemon_start": "passed",
+      "daemon_runtime": "Node.js 22.19.0",
+      "runtime_substitution": false,
+      "authenticated_health": 200
+    },
+    "packaged_workspace": {
+      "parent": "v24.18.1",
+      "bundledNode": "v22.19.0",
+      "bundledNpm": "10.9.3",
+      "externalToolingOnPath": false,
+      "ipcRoundTrip": "passed",
+      "daemonApi": "passed",
+      "examplePreview": "passed",
+      "publishArtifactBytes": 6090686,
+      "exampleBuild": "passed",
+      "gracefulShutdown": "passed"
+    },
+    "packaged_desktop": {
+      "app_start": "passed",
+      "renderer_initial_requests": ["/examples", "/models", "/projects"],
+      "status": 200,
+      "daemon_executable": "Contents/MacOS/OhMyGame",
+      "daemon_entry": "Contents/Resources/app.asar/dist/daemon/server.js",
+      "external_tooling_on_path": false
+    },
+    "dev_desktop": {
+      "command": "bun dev:desktop",
+      "result": "passed",
+      "concurrently": "10.0.4",
+      "concurrently_entry": "node_modules/concurrently/dist/bin/index.js",
+      "isolated_data_pi_and_profile": true,
+      "renderer_initial_requests": ["/examples", "/models", "/projects"],
+      "initial_response_status": 200,
+      "daemon_executable": "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron",
+      "daemon_entry": "dist/daemon/server.js --dev"
+    },
+    "web_dev": {
+      "dev_daemon_start": "passed",
+      "daemon_runtime": "Node.js 22.19.0",
+      "runtime_substitution": false,
+      "authenticated_health": 200,
+      "vite_index": 200
+    }
+  },
+  "version_audit": {
+    "adopted_bun": "1.4.2",
+    "original_full_experiment_launcher": "1.3.11",
+    "original_full_experiment_observed_vitest_worker": "1.4.2",
+    "direct_1_3_11_vitest": "ERR_HTTP_HEADERS_SENT unhandled errors, exit 1; unsupported for this adoption",
+    "original_desktop_daemon_node": "24.18.1",
+    "bundled_node_for_workspace_commands": "22.19.0"
+  },
+  "not_validated": [
+    "Windows installation/runtime",
+    "macOS signing/notarization",
+    "automatic update",
+    "live provider streaming/OAuth",
+    "real Godot MCP",
+    "long-duration RSS"
+  ],
+  "pr_preparation": {
+    "main_revision": "f1c63ee",
+    "clean_install_bun": "1.4.2",
+    "full_suite": {
+      "passed": 1101,
+      "skipped": 0,
+      "cli_exit": 0
+    },
+    "timeline_suite_node_22_19_0": {
+      "passed": 72,
+      "cli_exit": 0
+    },
+    "timeline_mock": "vi.doMock with resolved TSX path before dynamic timeline import",
+    "plugin_archive_preparation": "Node.js with tsx, checked from empty prepared cache",
+    "pinned_plugin_sha256": "e3b5d2bb9e5e4b6b0afd1b2e3ba1da6ff9334b6e584bda0cd59978a88a734d93",
+    "bun_1_4_2_plugin_sha256_mismatch": "c6e52698406975e7c319c8554dc05d80e14b4584367f6b19d3419e4f25725516",
+    "benchmark_scope": "Earlier baseline; performance was not remeasured after updating main",
+    "build_desktop_app": "passed from fresh prepared resources",
+    "examples": "3 prepared from 1d2d2f84a34277c58c597daa978ab0eb1a26aad9",
+    "typecheck": "passed",
+    "node_runtime": "Node.js 22.19.0: daemon startup and authenticated API passed",
+    "linux_test_adaptations": [
+      "Sort directory entries before comparing the complete expected image-tool file list",
+      "Disable Shiki tokenization time budget only in the fixed short-fixture test mock; retain the production 500ms budget and all color/escape assertions"
+    ],
+    "github_cloud_contract_tests": "19 skipped because the adjacent cloud repository is not available on CI; all 19 passed in the full local suite"
+  }
+}

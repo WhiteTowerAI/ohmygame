@@ -1,17 +1,20 @@
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { AgentTimeline as ThreadTimeline } from "../src/renderer/agent-timeline.js";
 import type { ComponentProps } from "react";
 import type { ThreadItem, Turn } from "../src/shared/contracts.js";
 
 // Inspect the expanded contents in presentation tests. Mount behavior is tested separately.
-vi.mock("../src/renderer/lazy-details.js", () => ({
+const lazyDetailsPath = fileURLToPath(new URL("../src/renderer/lazy-details.tsx", import.meta.url));
+vi.doMock(lazyDetailsPath, () => ({
   LazyDetails: ({ className, summary, children }: { className: string; summary: React.ReactNode; children: React.ReactNode }) =>
     <details className={className}>{summary}{children}</details>,
 }));
 
+const { AgentTimeline: ThreadTimeline } = await import("../src/renderer/agent-timeline.js");
+
 it("does not mount the contents of a collapsed detail", async () => {
-  const { LazyDetails: ActualDetails } = await vi.importActual<typeof import("../src/renderer/lazy-details.js")>("../src/renderer/lazy-details.js");
+  const { LazyDetails: ActualDetails } = await vi.importActual<typeof import("../src/renderer/lazy-details.js")>(lazyDetailsPath);
   const html = renderToStaticMarkup(<ActualDetails className="test-details" summary={<summary>Inspect</summary>}>
     <div>Expensive content</div>
   </ActualDetails>);

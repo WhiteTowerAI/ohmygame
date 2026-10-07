@@ -1,0 +1,374 @@
+{
+  "date": "2026-10-07",
+  "baseline_revision": "eb56e5d942180980122b8b94cf159d679c89cbd9",
+  "platform": "macOS-15.6.1-arm64-arm-64bit-Mach-O",
+  "cpu": "Apple M4",
+  "memory_bytes": 25769803776,
+  "method": {
+    "command_repetitions": 3,
+    "daemon_repetitions": 7,
+    "test_workers": 4,
+    "install_cache": "existing global caches; fresh installation directories",
+    "request_workload": "10 warmup, then 200 sequential GET /projects on one HTTP connection",
+    "rss_scope": "daemon process after initialization and warmup",
+    "summary": "median of repetitions"
+  },
+  "toolchain_and_node24": {
+    "versions": {
+      "node": "v24.14.1",
+      "npm": "11.11.0",
+      "bun": "1.3.11"
+    },
+    "measurements": {
+      "install": {
+        "node": [8.0318, 8.1641, 7.9966],
+        "bun": [1.6233, 0.9135, 0.9417]
+      },
+      "typecheck": {
+        "node": [6.2627, 5.9984, 5.7741],
+        "bun": [5.7089, 5.2035, 5.5928]
+      },
+      "build": {
+        "node": [8.0953, 7.9399, 7.9229],
+        "bun": [6.6045, 6.4295, 6.5456]
+      },
+      "tests": {
+        "node": [17.7677, 15.6802, 15.9833],
+        "bun": [11.5572, 11.3006, 11.2466]
+      },
+      "daemon": {
+        "node": [
+          {
+            "ready_ms": 653.121,
+            "idle_rss_mib": 211.078,
+            "project_request_median_ms": 0.0923,
+            "project_request_p95_ms": 0.1164,
+            "shutdown_ms": 37.151
+          },
+          {
+            "ready_ms": 635.403,
+            "idle_rss_mib": 204.188,
+            "project_request_median_ms": 0.0931,
+            "project_request_p95_ms": 0.12,
+            "shutdown_ms": 35.37
+          },
+          {
+            "ready_ms": 663.72,
+            "idle_rss_mib": 221.359,
+            "project_request_median_ms": 0.0937,
+            "project_request_p95_ms": 0.1252,
+            "shutdown_ms": 36.381
+          },
+          {
+            "ready_ms": 616.867,
+            "idle_rss_mib": 210.703,
+            "project_request_median_ms": 0.0942,
+            "project_request_p95_ms": 0.1372,
+            "shutdown_ms": 38.909
+          },
+          {
+            "ready_ms": 629.349,
+            "idle_rss_mib": 220.797,
+            "project_request_median_ms": 0.0946,
+            "project_request_p95_ms": 0.1226,
+            "shutdown_ms": 18.024
+          },
+          {
+            "ready_ms": 722.568,
+            "idle_rss_mib": 210.578,
+            "project_request_median_ms": 0.095,
+            "project_request_p95_ms": 0.13,
+            "shutdown_ms": 18.175
+          },
+          {
+            "ready_ms": 689.674,
+            "idle_rss_mib": 222.969,
+            "project_request_median_ms": 0.0943,
+            "project_request_p95_ms": 0.123,
+            "shutdown_ms": 18.84
+          }
+        ],
+        "bun": [
+          {
+            "ready_ms": 615.456,
+            "idle_rss_mib": 272.719,
+            "project_request_median_ms": 0.0865,
+            "project_request_p95_ms": 0.154,
+            "shutdown_ms": 8.82
+          },
+          {
+            "ready_ms": 507.449,
+            "idle_rss_mib": 259.203,
+            "project_request_median_ms": 0.0858,
+            "project_request_p95_ms": 0.2311,
+            "shutdown_ms": 8.801
+          },
+          {
+            "ready_ms": 473.716,
+            "idle_rss_mib": 259.828,
+            "project_request_median_ms": 0.0854,
+            "project_request_p95_ms": 0.175,
+            "shutdown_ms": 8.84
+          },
+          {
+            "ready_ms": 478.343,
+            "idle_rss_mib": 257.062,
+            "project_request_median_ms": 0.0833,
+            "project_request_p95_ms": 0.1613,
+            "shutdown_ms": 8.795
+          },
+          {
+            "ready_ms": 572.209,
+            "idle_rss_mib": 256.703,
+            "project_request_median_ms": 0.0988,
+            "project_request_p95_ms": 0.2278,
+            "shutdown_ms": 8.629
+          },
+          {
+            "ready_ms": 494.023,
+            "idle_rss_mib": 258.797,
+            "project_request_median_ms": 0.0869,
+            "project_request_p95_ms": 0.2033,
+            "shutdown_ms": 8.607
+          },
+          {
+            "ready_ms": 505.265,
+            "idle_rss_mib": 259.359,
+            "project_request_median_ms": 0.0848,
+            "project_request_p95_ms": 0.1772,
+            "shutdown_ms": 8.861
+          }
+        ]
+      }
+    },
+    "medians": {
+      "install": {
+        "node": 8.0318,
+        "bun": 0.9417
+      },
+      "typecheck": {
+        "node": 5.9984,
+        "bun": 5.5928
+      },
+      "build": {
+        "node": 7.9399,
+        "bun": 6.5456
+      },
+      "tests": {
+        "node": 15.9833,
+        "bun": 11.3006
+      },
+      "daemon": {
+        "node": {
+          "ready_ms": 653.121,
+          "idle_rss_mib": 211.078,
+          "project_request_median_ms": 0.0942,
+          "project_request_p95_ms": 0.123,
+          "shutdown_ms": 35.37
+        },
+        "bun": {
+          "ready_ms": 505.265,
+          "idle_rss_mib": 259.203,
+          "project_request_median_ms": 0.0858,
+          "project_request_p95_ms": 0.1772,
+          "shutdown_ms": 8.801
+        }
+      }
+    },
+    "test_counts": {
+      "node": {
+        "numTotalTests": 1058,
+        "numPassedTests": 1058,
+        "numPendingTests": 0,
+        "numFailedTests": 0,
+        "success": true
+      },
+      "bun": {
+        "numTotalTests": 1061,
+        "numPassedTests": 1061,
+        "numPendingTests": 0,
+        "numFailedTests": 0,
+        "success": true
+      }
+    }
+  },
+  "node22_daemon": {
+    "versions": {
+      "node": "v22.19.0",
+      "bun": "1.3.11"
+    },
+    "measurements": {
+      "node": [
+        {
+          "ready_ms": 1139.366,
+          "idle_rss_mib": 181.5,
+          "project_request_median_ms": 0.101,
+          "project_request_p95_ms": 0.1385,
+          "shutdown_ms": 17.803
+        },
+        {
+          "ready_ms": 683.969,
+          "idle_rss_mib": 177.766,
+          "project_request_median_ms": 0.0995,
+          "project_request_p95_ms": 0.1319,
+          "shutdown_ms": 18.85
+        },
+        {
+          "ready_ms": 707.976,
+          "idle_rss_mib": 176.969,
+          "project_request_median_ms": 0.1016,
+          "project_request_p95_ms": 0.1383,
+          "shutdown_ms": 18.858
+        },
+        {
+          "ready_ms": 705.478,
+          "idle_rss_mib": 175.719,
+          "project_request_median_ms": 0.099,
+          "project_request_p95_ms": 0.1625,
+          "shutdown_ms": 18.338
+        },
+        {
+          "ready_ms": 687.343,
+          "idle_rss_mib": 180.953,
+          "project_request_median_ms": 0.0992,
+          "project_request_p95_ms": 0.1342,
+          "shutdown_ms": 17.9
+        },
+        {
+          "ready_ms": 788.041,
+          "idle_rss_mib": 180.391,
+          "project_request_median_ms": 0.1114,
+          "project_request_p95_ms": 0.1798,
+          "shutdown_ms": 17.95
+        },
+        {
+          "ready_ms": 720.4,
+          "idle_rss_mib": 178.875,
+          "project_request_median_ms": 0.0987,
+          "project_request_p95_ms": 0.1392,
+          "shutdown_ms": 18.124
+        }
+      ],
+      "bun": [
+        {
+          "ready_ms": 554.482,
+          "idle_rss_mib": 266.172,
+          "project_request_median_ms": 0.0841,
+          "project_request_p95_ms": 0.3142,
+          "shutdown_ms": 8.848
+        },
+        {
+          "ready_ms": 521.846,
+          "idle_rss_mib": 259.031,
+          "project_request_median_ms": 0.0923,
+          "project_request_p95_ms": 0.2183,
+          "shutdown_ms": 8.73
+        },
+        {
+          "ready_ms": 535.125,
+          "idle_rss_mib": 260.75,
+          "project_request_median_ms": 0.1011,
+          "project_request_p95_ms": 0.4825,
+          "shutdown_ms": 8.84
+        },
+        {
+          "ready_ms": 572.059,
+          "idle_rss_mib": 256.891,
+          "project_request_median_ms": 0.0911,
+          "project_request_p95_ms": 0.1765,
+          "shutdown_ms": 8.83
+        },
+        {
+          "ready_ms": 496.172,
+          "idle_rss_mib": 258.172,
+          "project_request_median_ms": 0.0907,
+          "project_request_p95_ms": 0.2009,
+          "shutdown_ms": 8.156
+        },
+        {
+          "ready_ms": 518.544,
+          "idle_rss_mib": 260.438,
+          "project_request_median_ms": 0.1004,
+          "project_request_p95_ms": 0.2856,
+          "shutdown_ms": 17.908
+        },
+        {
+          "ready_ms": 509.582,
+          "idle_rss_mib": 259.578,
+          "project_request_median_ms": 0.1003,
+          "project_request_p95_ms": 0.2443,
+          "shutdown_ms": 8.877
+        }
+      ]
+    },
+    "medians": {
+      "node": {
+        "ready_ms": 707.976,
+        "idle_rss_mib": 178.875,
+        "project_request_median_ms": 0.0995,
+        "project_request_p95_ms": 0.1385,
+        "shutdown_ms": 18.124
+      },
+      "bun": {
+        "ready_ms": 521.846,
+        "idle_rss_mib": 259.578,
+        "project_request_median_ms": 0.0923,
+        "project_request_p95_ms": 0.2443,
+        "shutdown_ms": 8.84
+      }
+    }
+  },
+  "package_sizes": {
+    "node": {
+      "app_allocated_bytes": 983982080,
+      "app_logical_bytes": 958690682,
+      "zip_bytes": 351863325,
+      "runtime_allocated_bytes": 129470464
+    },
+    "bun": {
+      "app_allocated_bytes": 705855488,
+      "app_logical_bytes": 632004132,
+      "zip_bytes": 250460948,
+      "runtime_allocated_bytes": 61075456
+    }
+  },
+  "packaged_smoke": {
+    "parent": "v24.14.1",
+    "bun": "1.3.11",
+    "externalNodeOnChildPath": false,
+    "ipcRoundTrip": "passed",
+    "daemonApi": "passed",
+    "examplePreview": "passed",
+    "publishArtifactBytes": 6090671,
+    "exampleBuild": "passed",
+    "gracefulShutdown": "passed"
+  },
+  "windows_runtime_preparation": {
+    "target": "win32-x64",
+    "bun": "1.3.11",
+    "sha256": "066f8694f8b7d8df592452746d18f01710d4053e93030922dbc6e8c34a8c4b9f",
+    "archive_preparation": "passed",
+    "execution_tested": false
+  },
+  "cloud_contract_revision": "cd580f5654e37810dddc63642c1f54b17c3255b0",
+  "final_validation": {
+    "typecheck": "passed",
+    "test_counts": {
+      "numTotalTests": 1061,
+      "numPassedTests": 1061,
+      "numPendingTests": 0,
+      "numFailedTests": 0,
+      "success": true
+    }
+  },
+  "runtime_audit": {
+    "original_desktop_daemon": {
+      "launcher": "Electron with ELECTRON_RUN_AS_NODE=1",
+      "node": "24.18.1"
+    },
+    "original_node22_measurement": "standalone reference; bundled workspace and MCP Node, not the desktop daemon",
+    "bun_toolchain_launcher": "1.3.11",
+    "vitest_worker_observed_by_replaying_original_command": "1.4.2",
+    "limitation": "JavaScript tool subprocesses did not necessarily use the launcher version; old toolchain numbers must not be attributed to a single Bun 1.3.11 runtime."
+  }
+}
