@@ -24,7 +24,7 @@ Everything you need to make games with AI, in one app. Bring your own key.
 </div>
 
 > [!NOTE]
-> OhMyGame is in beta. Expect rough edges. Join us and let's build it together!
+> 🚧 OhMyGame is in beta. Expect rough edges. Join us and let's build it together!
 
 ## What it is
 
