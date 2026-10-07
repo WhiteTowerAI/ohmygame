@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteAsset, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameAsset, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset } from "../src/renderer/api.js";
+import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset } from "../src/renderer/api.js";
 import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
@@ -550,18 +550,18 @@ describe("renderer project API", () => {
     ]);
   });
 
-  it("renames and deletes workspace assets", async () => {
+  it("renames and deletes workspace files", async () => {
     installWindow();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json({ path: "assets/new name.glb" }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await renameAsset("project-1", "assets/old name.glb", "new name");
-    await deleteAsset("project-1", "assets/new name.glb");
+    await renameWorkspaceEntry("project-1", "assets/old name.glb", "new name.glb");
+    await deleteWorkspaceEntry("project-1", "assets/new name.glb");
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/assets?path=assets%2Fold%20name.glb", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "new name" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/assets?path=assets%2Fnew%20name.glb", expect.objectContaining({ method: "DELETE" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project-1/files?path=assets%2Fold%20name.glb", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "new name.glb" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project-1/files?path=assets%2Fnew%20name.glb", expect.objectContaining({ method: "DELETE" }));
   });
 
   it("uses global Library asset endpoints", async () => {

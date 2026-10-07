@@ -173,14 +173,52 @@ export async function canvasLibraryAssetUsage(workspace: string): Promise<Map<st
   }
   return usage;
 }
-export async function removeCanvasAssetReferences(workspace: string, id: string): Promise<void> {
+export async function renameCanvasAssetPaths(workspace: string, from: string, to: string): Promise<void> {
+  await withCanvasLock(workspace, async () => {
+    const manifest = await readCanvasAssets(workspace);
+    const renamed = Object.values(manifest.assets).filter((asset) => asset.path === from || asset.path.startsWith(`${from}/`));
+    if (!renamed.length) return;
+    const links = renamed.map((asset) => {
+      const oldPath = asset.path;
+      asset.path = `${to}${oldPath.slice(from.length)}`;
+      if (oldPath === from && asset.name === path.posix.basename(oldPath)) asset.name = path.posix.basename(to);
+      return [oldPath, asset.path] as const;
+    });
+    const index = await readCanvasIndex(workspace);
+    const documents = index ? await readCanvasDocuments(workspace, index) : [];
+    await writeJson(workspace, "assets.json", manifest);
+    for (const detail of documents) {
+      let markdown = detail.document.markdown;
+      for (const [oldPath, newPath] of links) {
+        const link = (file: string) => `../../${file.split("/").map(encodeURIComponent).join("/")}`;
+        markdown = markdown.replaceAll(`](${link(oldPath)})`, `](${link(newPath)})`);
+      }
+      if (markdown !== detail.document.markdown) await writeAtomic(workspace, `documents/${detail.document.id}.md`, markdown);
+    }
+  });
+}
+
+export async function removeCanvasAssetReferences(workspace: string, assetIds: string | readonly string[], options: { localOnly?: boolean } = {}): Promise<void> {
+  const requested = new Set(typeof assetIds === "string" ? [assetIds] : assetIds);
+  if (!requested.size) return;
   await withCanvasLock(workspace, async () => {
     const index = await readCanvasIndex(workspace);
     const manifest = await readCanvasAssets(workspace);
-    const ids = new Set([id, ...Object.entries(manifest.assets).filter(([, asset]) => asset.libraryAssetId === id).map(([key]) => key)]);
-    for (const entry of index?.boards ?? []) {
+    const ids = new Set([...requested, ...Object.entries(manifest.assets).filter(([, asset]) => !options.localOnly && asset.libraryAssetId && requested.has(asset.libraryAssetId)).map(([key]) => key)]);
+    const boards = await Promise.all((index?.boards ?? []).map(async (entry) => {
       const detail = await readCanvasBoard(workspace, entry.id);
       if (!detail) throw new CanvasError("Canvas board data is missing", 409);
+      return detail;
+    }));
+    const removedLinks = new Set([...ids].flatMap((assetId) => manifest.assets[assetId] ? [`../../${manifest.assets[assetId]!.path.split("/").map(encodeURIComponent).join("/")}`] : []));
+    if (index && removedLinks.size) {
+      for (const detail of await readCanvasDocuments(workspace, index)) {
+        const markdown = detail.document.markdown.replace(/!\[[^\]\n]*\]\(([^)\s]+)\)/g, (image, link: string) => removedLinks.has(link) ? "" : image);
+        if (markdown !== detail.document.markdown) await writeAtomic(workspace, `documents/${detail.document.id}.md`, markdown);
+      }
+    }
+    for (const detail of boards) {
+      if (!canvasNodeAssetIds(detail.board.nodes).some((assetId) => ids.has(assetId))) continue;
       const removed = new Set(detail.board.nodes.filter((node) => node.type === "asset" && ids.has(node.data.assetId)).map((node) => node.id));
       detail.board.nodes = detail.board.nodes.filter((node) => !removed.has(node.id)).map((node) => {
         const data = { ...node.data };

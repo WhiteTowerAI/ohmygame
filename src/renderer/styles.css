@@ -36,6 +36,7 @@
   --menu-surface: var(--surface-raised);
   --settings-row-surface: rgb(255 255 255 / 2%);
   --settings-row-surface-emphasis: rgb(255 255 255 / 4%);
+  --settings-switch-accent: #2563eb;
   --control-surface: color-mix(in srgb, var(--text) 4%, var(--surface));
   --control-selected: color-mix(in srgb, var(--text) 8%, var(--surface));
   --content-column-width: 820px;
@@ -1104,8 +1105,8 @@ body {
 .settings-toggle input { position: absolute; opacity: 0; pointer-events: none; }
 .settings-toggle span { display: block; width: 34px; height: 19px; padding: 2px; border-radius: 10px; background: var(--settings-row-surface-emphasis); border: 1px solid var(--border-strong); transition: background 120ms ease; }
 .settings-toggle span::after { content: ""; display: block; width: 13px; height: 13px; border-radius: 50%; background: var(--text-muted); transition: transform 120ms ease, background 120ms ease; }
-.settings-toggle input:checked + span { background: var(--theme-accent); border-color: var(--theme-accent); }
-.settings-toggle input:checked + span::after { background: var(--accent-ink); transform: translateX(15px); }
+.settings-toggle input:checked + span { background: var(--settings-switch-accent); border-color: var(--settings-switch-accent); }
+.settings-toggle input:checked + span::after { background: #fff; transform: translateX(15px); }
 .settings-toggle input:focus-visible + span { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .settings-search-section { display: grid; gap: 12px; }
 .settings-web-search-panel > .settings-search-section + .settings-search-section { padding-top: 20px; border-top: 1px solid var(--border); }
@@ -2270,6 +2271,10 @@ select.settings-search-input {
     gap: 10px;
   }
 
+  .settings-panel-header .settings-add-button {
+    align-self: flex-end;
+  }
+
   .settings-provider-search {
     width: 100%;
   }
@@ -2519,18 +2524,13 @@ button.home-nav-item-active:hover {
   scrollbar-width: thin;
 }
 
-/* The top space gives way before the page scrolls, so Home fits the default window. */
+/* Keep the creation area near the upper middle as project shelves grow below it. */
 .home-content-fitted {
+  --home-start-offset: clamp(24px, calc(35dvh - 130px), 161px);
   display: flex;
   flex-direction: column;
-  padding-top: 0;
+  padding-top: var(--home-start-offset);
   padding-bottom: 32px;
-}
-
-.home-content-fitted::before {
-  min-height: 40px;
-  flex: 0 1 161px;
-  content: "";
 }
 
 .home-content-fitted > * {
@@ -4580,8 +4580,13 @@ button.home-nav-item-active:hover {
 }
 .library-filters {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 420px;
   gap: 8px;
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
 }
 
@@ -4633,16 +4638,18 @@ button.home-nav-item-active:hover {
 .library-toolbar {
   display: flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 12px 24px;
 }
 
 .library-search {
   display: flex;
   width: 260px;
+  min-width: 0;
   height: 36px;
-  flex: 0 0 260px;
+  flex: 1 1 260px;
   align-items: center;
   gap: 10px;
   padding: 0 13px;
@@ -4664,6 +4671,9 @@ button.home-nav-item-active:hover {
 .library-toolbar-end {
   display: flex;
   min-width: 0;
+  max-width: 100%;
+  flex: 0 1 298px;
+  margin-left: auto;
   align-items: center;
   gap: 6px;
 }
@@ -5355,7 +5365,7 @@ button.home-nav-item-active:hover {
   font-size: 12px;
 }
 
-.plugins-add-button {
+.settings-add-button {
   display: inline-flex;
   height: 32px;
   flex: 0 0 auto;
@@ -5372,11 +5382,11 @@ button.home-nav-item-active:hover {
   font-weight: 500;
 }
 
-.plugins-add-button:hover {
+.settings-add-button:hover {
   background: var(--surface-hover);
 }
 
-.plugins-add-button:disabled {
+.settings-add-button:disabled {
   cursor: default;
   opacity: 0.6;
 }
@@ -5661,7 +5671,7 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-switch[aria-checked="true"] {
-  background: var(--home-accent);
+  background: var(--settings-switch-accent);
 }
 
 .plugin-switch[aria-checked="true"] span {
@@ -5725,7 +5735,7 @@ button.home-nav-item-active:hover {
     width: 100%;
   }
 
-  .plugins-add-button {
+  .plugins-toolbar .settings-add-button {
     align-self: flex-end;
   }
 }
@@ -13049,6 +13059,20 @@ button {
   opacity: 0.5;
 }
 
+.workspace-tree-context-menu > hr {
+  width: 100%;
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--menu-border);
+}
+.workspace-tree-context-menu > .workspace-file-delete { color: var(--danger); }
+.file-action-error {
+  margin: 8px 12px;
+  color: var(--danger);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .workspace-media-preview {
   display: grid;
   flex: 1;
@@ -13158,6 +13182,12 @@ button {
     width: 100%;
     max-width: none;
     flex-basis: 36px;
+  }
+  .assets-view .library-filters,
+  .assets-view .library-toolbar-end {
+    width: 100%;
+    flex: 0 0 auto;
+    margin-left: 0;
   }
 }
 
@@ -13398,8 +13428,8 @@ button {
     padding: 38px 18px 28px;
   }
 
-  .home-content-fitted::before {
-    display: none;
+  .home-content-fitted {
+    padding-top: var(--home-start-offset);
   }
 
   .asset-canvas-home {
@@ -13460,6 +13490,12 @@ button {
     align-items: stretch;
     flex-direction: column;
     gap: 12px;
+  }
+  .library-filters,
+  .library-toolbar-end {
+    width: 100%;
+    flex: 0 0 auto;
+    margin-left: 0;
   }
   .library-search {
     width: 100%;
@@ -13893,12 +13929,12 @@ button {
   background: transparent;
 }
 
-:root[data-appearance="light"] .plugins-add-button {
+:root[data-appearance="light"] .settings-add-button {
   background: var(--control-selected);
 }
 
-:root[data-appearance="light"] .plugins-add-button:hover:not(:disabled),
-:root[data-appearance="light"] .plugins-add-button[aria-expanded="true"] {
+:root[data-appearance="light"] .settings-add-button:hover:not(:disabled),
+:root[data-appearance="light"] .settings-add-button[aria-expanded="true"] {
   background: color-mix(in srgb, var(--text) 12%, var(--surface));
 }
 
@@ -13921,7 +13957,7 @@ button {
 }
 
 :root[data-appearance="light"] .plugin-switch[aria-checked="true"] {
-  border-color: var(--home-accent);
+  border-color: var(--settings-switch-accent);
 }
 
 :root[data-appearance="light"] .plugin-row-icon-media {

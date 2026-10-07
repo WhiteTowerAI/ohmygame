@@ -228,6 +228,18 @@ describe("rendererReducer", () => {
     expect(state.lastEventId).toBe(1);
   });
 
+  it("ignores duplicate and stale events without duplicating queued prompts", () => {
+    const queued = { ...runtimeEvent(2, "prompt.queued", { prompt: "Next", references: [] }), turnId: "turn-2" };
+    const state = event(initialized(), queued);
+
+    expect(state.pendingPrompts).toHaveLength(1);
+    const replayed = event(state, queued);
+    expect(replayed.pendingPrompts).toEqual(state.pendingPrompts);
+    expect(replayed.lastEventId).toBe(2);
+    expect(event(state, { ...queued, id: 1 })).toEqual(state);
+    expect(state.pendingPrompts).toHaveLength(1);
+  });
+
   it("updates the active conversation title", () => {
     const renamed = { ...conversation(), title: "Build platform game" };
     const state = event(initialized(), runtimeEvent(1, "conversation.renamed", { conversation: renamed }));

@@ -1,5 +1,6 @@
 import {
   Check,
+  Copy,
   ChevronDown,
   ChevronRight,
   Code2,
@@ -8,6 +9,7 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  FolderPlus,
   Globe2,
   House,
   Image as ImageIcon,
@@ -16,11 +18,14 @@ import {
   LoaderCircle,
   Monitor,
   PanelToggle,
+  Pencil,
+  Plus,
   RefreshCw,
   Search,
   Share2,
   Smartphone,
   Tablet,
+  Trash2,
   Video,
   Wrench,
   X,
@@ -28,12 +33,14 @@ import {
 } from "./icons.js";
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Tree, type NodeRendererProps } from "react-arborist";
+import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { deleteAsset, getWorkspaceFile, listWorkspaceFiles, renameAsset, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
+import { createWorkspaceEntry, deleteWorkspaceEntry, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
-import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileExtension, fileName, fileStem, filterAssets, hasMediaType, type BrowsableAsset, type MediaFilter } from "./asset-browser.js";
+import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
+import { ProjectAssetCollectionFilters } from "./library-filters.js";
+import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { HighlightedCode } from "./highlighted-code.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { ProjectSettingsDialog } from "./project-settings-dialog.js";
@@ -44,6 +51,14 @@ import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 type WorkspaceContextMenu = { path: string; directory: boolean; x: number; y: number };
+type WorkspaceFileChange = { from?: string; to?: string };
+type WorkspaceEntryAction = "new-file" | "new-folder" | "rename" | "delete" | "copy-path" | "save-library";
+
+export function workspacePathAfterChange(selectedPath: string | undefined, change: WorkspaceFileChange): string | undefined {
+  if (!change.from) return change.to ?? selectedPath;
+  if (!selectedPath || (selectedPath !== change.from && !selectedPath.startsWith(`${change.from}/`))) return selectedPath;
+  return change.to ? `${change.to}${selectedPath.slice(change.from.length)}` : undefined;
+}
 interface CodingWorkspaceProps {
   project?: ProjectState;
   agentBusy: boolean;
@@ -141,38 +156,39 @@ export function CodingWorkspace({
   }, []);
 
   useEffect(() => {
-    if (!project || designOpen || activeTab === "preview") return;
-    let disposed = false;
-    setFilesLoading(true);
-    setFilesError(undefined);
-    void listWorkspaceFiles(project.id).then(async (result) => {
-      if (disposed) return;
-      setFiles(result);
-      if (activeTab === "code" && selectedCodePath) {
-        const selected = result.find((file) => file.path === selectedCodePath);
-        if (selected) {
-          const content = await loadWorkspaceFile(project.id, selectedCodePath, result);
-          if (!disposed) setSelectedFile(content);
-        } else {
-          setSelectedCodePath(undefined);
-          setSelectedFile(undefined);
-        }
-      }
-    }).catch((cause) => {
-      if (!disposed) setFilesError(errorMessage(cause));
-    }).finally(() => {
-      if (!disposed) setFilesLoading(false);
-    });
-    return () => { disposed = true; };
-  }, [project?.id, activeTab, designOpen, workspaceRevision, filesRevision]);
-
-  useEffect(() => {
     fileRequest.current += 1;
     setFiles([]);
     setSelectedCodePath(undefined);
     setSelectedFile(undefined);
     setFilesError(undefined);
   }, [project?.id]);
+
+  useEffect(() => {
+    if (!project || designOpen || activeTab === "preview") return;
+    let disposed = false;
+    const request = ++fileRequest.current;
+    setFilesLoading(true);
+    setFilesError(undefined);
+    void listWorkspaceFiles(project.id).then(async (result) => {
+      if (disposed) return;
+      setFiles(result);
+      if (fileRequest.current === request && activeTab === "code" && selectedCodePath) {
+        const selected = result.find((file) => file.path === selectedCodePath);
+        if (selected) {
+          const content = await loadWorkspaceFile(project.id, selectedCodePath, result);
+          if (!disposed && fileRequest.current === request) setSelectedFile(content);
+        } else {
+          setSelectedCodePath(undefined);
+          setSelectedFile(undefined);
+        }
+      }
+    }).catch((cause) => {
+      if (!disposed && fileRequest.current === request) setFilesError(errorMessage(cause));
+    }).finally(() => {
+      if (!disposed && fileRequest.current === request) setFilesLoading(false);
+    });
+    return () => { disposed = true; };
+  }, [project?.id, activeTab, designOpen, workspaceRevision, filesRevision]);
 
   async function selectFile(filePath: string): Promise<void> {
     if (!project) return;
@@ -331,18 +347,28 @@ export function CodingWorkspace({
           onSelect={selectFile}
           projectId={project?.id}
           revision={workspaceRevision}
+          onFilesChanged={(change) => {
+            fileRequest.current += 1;
+            setSelectedCodePath((current) => workspacePathAfterChange(current, change));
+            setSelectedFile(undefined);
+            setFilesRevision((value) => value + 1);
+          }}
           onOpenExternal={project && typeof window !== "undefined" && window.ohMyGameDesktop?.openProjectFile
             ? (path, mode) => window.ohMyGameDesktop!.openProjectFile(project.id, path, mode)
             : undefined}
         />
       ) : shownTab === "assets" ? (
         <AssetsView
+          key={project?.id}
           projectId={project?.id}
           files={files.filter((file) => file.mediaType && !file.directory)}
           loading={filesLoading}
           error={filesError}
-          revision={workspaceRevision}
-          onFilesChanged={() => setFilesRevision((value) => value + 1)}
+          revision={workspaceRevision + filesRevision}
+          onShowInCode={(path) => {
+            setSelectedCodePath(path);
+            setActiveTab("code");
+          }}
         />
       ) : null}
       {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
@@ -684,6 +710,7 @@ function CodeView({
   onOpenExternal,
   projectId,
   revision = 0,
+  onFilesChanged,
 }: {
   files: WorkspaceFile[];
   selectedPath?: string;
@@ -694,6 +721,7 @@ function CodeView({
   onOpenExternal?: (path: string, mode: ProjectFileOpenMode) => Promise<void>;
   projectId?: string;
   revision?: number;
+  onFilesChanged: (change: WorkspaceFileChange) => void;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
   const tree = useMemo(() => workspaceFileTree(files), [files]);
@@ -701,10 +729,52 @@ function CodeView({
   const selectedMedia = selectedEntry && hasMediaType(selectedEntry) ? selectedEntry : undefined;
   const [treeElement, setTreeElement] = useState<HTMLDivElement | null>(null);
   const [contextMenu, setContextMenu] = useState<WorkspaceContextMenu>();
+  const [entryDialog, setEntryDialog] = useState<{ kind: "rename" | "file" | "folder"; path: string }>();
+  const [actionError, setActionError] = useState<string>();
+  const [busy, setBusy] = useState(false);
   const treeSize = useElementSize(treeElement);
+  const fileTree = useRef<TreeApi<WorkspaceFileNode>>(null);
+
+  useEffect(() => {
+    const tree = fileTree.current;
+    if (!tree || !selectedPath || !files.some((file) => file.path === selectedPath)) return;
+    let active = true;
+    void tree.scrollTo(selectedPath)?.then(() => { if (active) tree.select(selectedPath, { focus: false }); });
+    return () => { active = false; };
+  }, [files, selectedPath, treeSize.height]);
+
+  async function mutate(operation: () => Promise<WorkspaceFileChange>): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    setActionError(undefined);
+    try { onFilesChanged(await operation()); }
+    catch (cause) { setActionError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+
+  function entryAction(action: WorkspaceEntryAction, entry: WorkspaceContextMenu): void {
+    setContextMenu(undefined);
+    setActionError(undefined);
+    if (!projectId || busy) return;
+    if (action === "rename") { setEntryDialog({ kind: "rename", path: entry.path }); return; }
+    if (action === "new-file" || action === "new-folder") {
+      const parent = entry.directory ? entry.path : entry.path.split("/").slice(0, -1).join("/");
+      setEntryDialog({ kind: action === "new-file" ? "file" : "folder", path: parent });
+      return;
+    }
+    if (action === "copy-path") {
+      void navigator.clipboard.writeText(entry.path).catch((cause) => setActionError(errorMessage(cause)));
+      return;
+    }
+    if (action === "save-library") {
+      void mutate(async () => { await saveProjectAssetToLibrary(projectId, entry.path); return {}; });
+      return;
+    }
+    if (!window.confirm(`Delete “${entry.path}”${entry.directory ? " and all its contents" : ""}? References in code will need to be updated. This cannot be undone.`)) return;
+    void mutate(async () => { await deleteWorkspaceEntry(projectId, entry.path); return { from: entry.path }; });
+  }
   if (loading && files.length === 0) return <WorkspaceState loading label="Loading code" />;
   if (error && !selectedPath) return <WorkspaceState error={error} />;
-  if (files.length === 0) return <WorkspaceState icon={<FileCode2 size={20} />} label="No workspace files" />;
   return <>
     <div className="code-view">
       <div className="file-explorer">
@@ -718,9 +788,14 @@ function CodeView({
             aria-label="Filter workspace files"
           />
         </label>
-        <div className="file-tree" ref={setTreeElement}>
+        {actionError ? <p className="file-action-error" role="alert">{actionError}</p> : null}
+        <div className="file-tree" ref={setTreeElement} onContextMenu={(event) => {
+          event.preventDefault();
+          if (projectId && !busy) setContextMenu({ path: "", directory: true, x: event.clientX, y: event.clientY });
+        }}>
           {treeSize.height > 0 ? (
             <Tree
+              ref={fileTree}
               data={tree}
               width={treeSize.width}
               height={treeSize.height}
@@ -740,8 +815,10 @@ function CodeView({
               }}
               aria-label="Workspace files"
             >
-              {(props) => <WorkspaceTreeNode {...props} onContextMenu={onOpenExternal ? (node, event) => {
+              {(props) => <WorkspaceTreeNode {...props} onContextMenu={projectId ? (node, event) => {
                 event.preventDefault();
+                event.stopPropagation();
+                if (busy) return;
                 if (node.data.path && !node.data.directory) onSelect(node.data.path);
                 setContextMenu({
                   path: node.data.path ?? node.data.id,
@@ -770,11 +847,22 @@ function CodeView({
         ) : <WorkspaceState icon={<FolderOpen size={20} />} label="Select a file from the workspace tree" />}
       </div>
     </div>
-    {contextMenu && onOpenExternal ? <WorkspaceTreeContextMenu menu={contextMenu} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} /> : null}
+    {contextMenu ? <WorkspaceTreeContextMenu menu={contextMenu} file={files.find((file) => file.path === contextMenu.path)} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} onAction={(action) => entryAction(action, contextMenu)} /> : null}
+    {entryDialog ? <ProjectRenameDialog title={entryDialog.kind === "rename" ? `Rename ${fileName(entryDialog.path)}` : `New ${entryDialog.kind}`} name={entryDialog.kind === "rename" ? fileName(entryDialog.path) : ""} returnFocus={null} onClose={() => setEntryDialog(undefined)} onConfirm={(name) => {
+      const entry = entryDialog;
+      setEntryDialog(undefined);
+      if (!projectId || !name.trim()) return;
+      void mutate(async () => {
+        if (entry.kind === "rename") return { from: entry.path, to: (await renameWorkspaceEntry(projectId, entry.path, name)).path };
+        const created = await createWorkspaceEntry(projectId, entry.path, name, entry.kind);
+        return entry.kind === "file" ? { to: created.path } : {};
+      });
+    }} /> : null}
   </>;
 }
 
 export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { projectId: string; revision: number; openFileRequest?: { path: string; id: number } }) {
+  const [filesRevision, setFilesRevision] = useState(0);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>();
   const [selectedFile, setSelectedFile] = useState<WorkspaceFileContent>();
@@ -785,16 +873,18 @@ export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { pr
 
   useEffect(() => {
     let disposed = false;
+    const currentRequest = ++request.current;
     setLoading(true);
     setError(undefined);
     void listWorkspaceFiles(projectId).then(async (result) => {
       if (disposed) return;
       setFiles(result);
+      if (request.current !== currentRequest) return;
       const requestedPath = openFileRequest?.path;
-      const nextPath = requestedPath && result.some((file) => file.path === requestedPath)
-        ? requestedPath
-        : selectedPath && result.some((file) => file.path === selectedPath)
+      const nextPath = selectedPath && result.some((file) => file.path === selectedPath)
         ? selectedPath
+        : requestedPath && result.some((file) => file.path === requestedPath)
+        ? requestedPath
         : result.find((file) => !file.directory)?.path;
       setSelectedPath(nextPath);
       if (!nextPath) {
@@ -802,14 +892,14 @@ export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { pr
         return;
       }
       const content = await loadWorkspaceFile(projectId, nextPath, result);
-      if (!disposed) setSelectedFile(content);
+      if (!disposed && request.current === currentRequest) setSelectedFile(content);
     }).catch((cause) => {
-      if (!disposed) setError(errorMessage(cause));
+      if (!disposed && request.current === currentRequest) setError(errorMessage(cause));
     }).finally(() => {
-      if (!disposed) setLoading(false);
+      if (!disposed && request.current === currentRequest) setLoading(false);
     });
     return () => { disposed = true; };
-  }, [projectId, revision]);
+  }, [projectId, revision, filesRevision]);
 
   async function selectFile(path: string): Promise<void> {
     const currentRequest = ++request.current;
@@ -842,6 +932,12 @@ export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { pr
     onSelect={(path) => void selectFile(path)}
     projectId={projectId}
     revision={revision}
+    onFilesChanged={(change) => {
+      request.current += 1;
+      setSelectedPath((current) => workspacePathAfterChange(current, change));
+      setSelectedFile(undefined);
+      setFilesRevision((value) => value + 1);
+    }}
     onOpenExternal={typeof window !== "undefined" && window.ohMyGameDesktop?.openProjectFile
       ? (path, mode) => window.ohMyGameDesktop!.openProjectFile(projectId, path, mode)
       : undefined}
@@ -891,15 +987,17 @@ function FileOpenActions({ path, onOpen }: { path: string; onOpen: (path: string
   );
 }
 
-function WorkspaceTreeContextMenu({ menu, onClose, onOpen }: {
+function WorkspaceTreeContextMenu({ menu, file, onClose, onOpen, onAction }: {
   menu: WorkspaceContextMenu;
+  file?: WorkspaceFile;
   onClose: () => void;
-  onOpen: (path: string, mode: ProjectFileOpenMode) => Promise<void>;
+  onOpen?: (path: string, mode: ProjectFileOpenMode) => Promise<void>;
+  onAction: (action: WorkspaceEntryAction) => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ x: menu.x, y: menu.y });
   const platform = window.ohMyGameDesktop?.platform;
-  const options = projectEntryOpenOptions(platform, menu.directory);
+  const options = onOpen && menu.path ? projectEntryOpenOptions(platform, menu.directory) : [];
   const opener = useProjectEntryOpener(menu.path, onOpen, onClose);
 
   useLayoutEffect(() => {
@@ -939,10 +1037,29 @@ function WorkspaceTreeContextMenu({ menu, onClose, onOpen }: {
       tabIndex={-1}
       style={{ left: position.x, top: position.y }}
       onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={(event) => {
+        const items = [...(root.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
+        if (!items.length || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const current = items.indexOf(document.activeElement as HTMLButtonElement);
+        const index = current < 0 && event.key === "ArrowUp" ? 0 : current;
+        const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }}
     >
+      <button type="button" role="menuitem" onClick={() => onAction("new-file")}><Plus size={14} /><span>New file</span></button>
+      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}><FolderPlus size={14} /><span>New folder</span></button>
+      {menu.path ? <>
+        <hr />
+        <button type="button" role="menuitem" onClick={() => onAction("rename")}><Pencil size={14} /><span>Rename</span></button>
+        <button type="button" role="menuitem" onClick={() => onAction("copy-path")}><Copy size={14} /><span>Copy relative path</span></button>
+        {file?.mediaType ? <button type="button" role="menuitem" onClick={() => onAction("save-library")}><Layers3 size={14} /><span>Save to Library</span></button> : null}
+      </> : null}
+      {options.length ? <hr /> : null}
       {options.map(({ mode, label, icon: Icon }) => (
         <button type="button" role="menuitem" disabled={opener.opening} key={mode} onClick={() => void opener.choose(mode)}><Icon size={14} /><span>{label}</span></button>
       ))}
+      {menu.path ? <><hr /><button type="button" role="menuitem" className="workspace-file-delete" onClick={() => onAction("delete")}><Trash2 size={14} /><span>Delete</span></button></> : null}
       {opener.error ? <p className="file-open-error" role="alert">{opener.error}</p> : null}
     </div>,
     document.body,
@@ -951,7 +1068,7 @@ function WorkspaceTreeContextMenu({ menu, onClose, onOpen }: {
 
 function useProjectEntryOpener(
   path: string,
-  onOpen: (path: string, mode: ProjectFileOpenMode) => Promise<void>,
+  onOpen: ((path: string, mode: ProjectFileOpenMode) => Promise<void>) | undefined,
   onOpened: () => void,
   onFailed?: () => void,
 ) {
@@ -959,7 +1076,7 @@ function useProjectEntryOpener(
   const [error, setError] = useState<string>();
 
   async function choose(mode: ProjectFileOpenMode): Promise<void> {
-    if (opening) return;
+    if (opening || !onOpen) return;
     setOpening(true);
     setError(undefined);
     try {
@@ -1112,52 +1229,28 @@ function useElementSize(element: HTMLElement | null): { width: number; height: n
   return size;
 }
 
-function AssetsView({
+export function AssetsView({
   projectId,
   files,
   loading,
   error,
   revision,
-  onFilesChanged,
+  onShowInCode,
 }: {
   projectId?: string;
   files: WorkspaceFile[];
   loading: boolean;
   error?: string;
   revision: number;
-  onFilesChanged: () => void;
+  onShowInCode: (path: string) => void;
 }) {
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("all");
   const [query, setQuery] = useState("");
   const [selectedPath, setSelectedPath] = useState<string>();
-  const [actionError, setActionError] = useState<string>();
-  const assets = useMemo(() => files.filter(hasMediaType).map((file) => ({ ...file, projectId: projectId ?? "", revision })), [files, projectId, revision]);
-  const visibleAssets = useMemo(() => filterAssets(assets, mediaFilter, query), [assets, mediaFilter, query]);
+  const [filters, setFilters] = useState<ProjectAssetFilters>({});
+  const assets = useMemo(() => files.filter(hasMediaType).map((file) => ({ ...file, projectId: projectId ?? "", revision, referenceOnly: file.purpose === "reference" })), [files, projectId, revision]);
+  const visibleAssets = useMemo(() => filterAssets(assets, mediaFilter, query, filters), [assets, mediaFilter, query, filters]);
   const selectedAsset = assets.find((asset) => asset.path === selectedPath);
-
-  async function runAssetAction(action: () => Promise<unknown>): Promise<void> {
-    setActionError(undefined);
-    try {
-      await action();
-      onFilesChanged();
-    } catch (cause) {
-      setActionError(errorMessage(cause));
-    }
-  }
-
-  function rename(asset: BrowsableAsset): boolean {
-    const extension = fileExtension(asset.path);
-    const name = window.prompt(`Rename asset (${extension} is preserved)`, fileStem(asset.path))?.trim();
-    if (!name || name === fileStem(asset.path)) return false;
-    void runAssetAction(() => renameAsset(asset.projectId!, asset.path, name));
-    return true;
-  }
-
-  function remove(asset: BrowsableAsset): boolean {
-    if (!window.confirm(`Delete “${fileName(asset.path)}”? This may break references in the project and cannot be undone.`)) return false;
-    void runAssetAction(() => deleteAsset(asset.projectId!, asset.path));
-    return true;
-  }
 
   if (loading && files.length === 0) return <WorkspaceState loading label="Loading assets" />;
   if (error) return <WorkspaceState error={error} />;
@@ -1165,18 +1258,17 @@ function AssetsView({
   return (
     <div className="assets-view">
       <div className="assets-toolbar">
-        <AssetToolbar mediaFilter={mediaFilter} query={query} onMediaFilterChange={setMediaFilter} onQueryChange={setQuery} />
+        <AssetToolbar mediaFilter={mediaFilter} query={query} onMediaFilterChange={setMediaFilter} onQueryChange={setQuery}>
+          <ProjectAssetCollectionFilters assets={assets} filters={filters} onChange={setFilters} />
+        </AssetToolbar>
       </div>
-      {actionError ? <p className="library-action-error" role="alert">{actionError}</p> : null}
       {visibleAssets.length ? <div className="library-grid assets-grid">{visibleAssets.map((asset) => (
-        <WorkspaceAssetCard key={asset.path} asset={asset} onOpen={() => setSelectedPath(asset.path)} onRename={() => rename(asset)} onDelete={() => remove(asset)} onSaveToLibrary={() => void runAssetAction(() => saveProjectAssetToLibrary(projectId, asset.path))} />
+        <WorkspaceAssetCard key={asset.path} title={fileName(asset.path)} asset={asset} onOpen={() => setSelectedPath(asset.path)} />
       ))}</div> : <WorkspaceState icon={<ImageIcon size={20} />} label="No assets match these filters" />}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedPath(undefined)}
-        onRename={() => { if (rename(selectedAsset)) setSelectedPath(undefined); }}
-        onDelete={() => { if (remove(selectedAsset)) setSelectedPath(undefined); }}
-        onSaveToLibrary={() => void runAssetAction(() => saveProjectAssetToLibrary(projectId, selectedAsset.path))}
+        onShowInCode={() => { setSelectedPath(undefined); onShowInCode(selectedAsset.path); }}
       /> : null}
     </div>
   );

@@ -1,11 +1,16 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { LibraryAssetOrigin, LibraryAssetProject, LibraryAssetPurpose, WorkspaceFile } from "../shared/contracts.js";
-import { Box, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, MoreHorizontal, Music2, Play, Search, X } from "./icons.js";
+import { Box, Code2, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCircle, MoreHorizontal, Music2, Play, Search, X } from "./icons.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { ModelPreview } from "./model-preview.js";
 
 export type MediaFilter = "all" | NonNullable<WorkspaceFile["mediaType"]>;
+
+export interface ProjectAssetFilters {
+  origin?: "all" | LibraryAssetOrigin;
+  purpose?: "all" | LibraryAssetPurpose;
+}
 
 export interface BrowsableAsset extends Omit<WorkspaceFile, "mediaType"> {
   mediaType: NonNullable<WorkspaceFile["mediaType"]>;
@@ -40,9 +45,24 @@ export function AssetToolbar({ mediaFilter, query, onMediaFilterChange, onQueryC
   children?: ReactNode;
 }) {
   const searchId = `asset-search-${useId()}`;
+  const filtersRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const filters = filtersRef.current;
+    if (!filters) return;
+    const scroll = (event: WheelEvent) => {
+      if (event.shiftKey || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? filters.clientWidth : 1);
+      const next = Math.max(0, Math.min(filters.scrollWidth - filters.clientWidth, filters.scrollLeft + delta));
+      const previous = filters.scrollLeft;
+      filters.scrollLeft = next;
+      if (filters.scrollLeft !== previous) event.preventDefault();
+    };
+    filters.addEventListener("wheel", scroll, { passive: false });
+    return () => filters.removeEventListener("wheel", scroll);
+  }, []);
   return (
     <div className="library-toolbar">
-      <nav className="library-filters" aria-label="Media types">
+      <nav ref={filtersRef} className="library-filters" aria-label="Media types" onFocusCapture={(event) => event.target.scrollIntoView({ block: "nearest", inline: "nearest" })}>
         {MEDIA_FILTERS.map(({ id, label, icon: Icon }) => (
           <button className={mediaFilter === id ? "is-active" : undefined} type="button" key={id} aria-pressed={mediaFilter === id} onClick={() => onMediaFilterChange(id)}>
             <Icon size={15} /><span>{label}</span>
@@ -61,8 +81,8 @@ export function WorkspaceAssetCard({ asset, title, onOpen, onRename, onDelete, o
   asset: BrowsableAsset;
   title?: string;
   onOpen: () => void;
-  onRename: () => void;
-  onDelete: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
   onSaveToLibrary?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -89,14 +109,14 @@ export function WorkspaceAssetCard({ asset, title, onOpen, onRename, onDelete, o
     subtitle={<>{mediaTypeLabel(asset.mediaType)}{asset.referenceOnly ? " · Reference" : ""}{asset.projectName ? ` · ${asset.projectName}` : asset.projects?.length === 1 ? ` · ${asset.projects[0]!.name}` : asset.projects?.length ? ` · ${asset.projects.length} projects` : ""}</>}
     preview={<AssetThumbnail asset={asset} visible={visible} />}
     badge={assetTypeBadge(asset.mediaType)}
-    actions={<div className="library-asset-actions">
+    actions={onRename || onDelete || onSaveToLibrary ? <div className="library-asset-actions">
         <button className="library-asset-menu" type="button" aria-label={`Asset actions for ${fileName(asset.path)}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
         {menuOpen ? <div className="library-asset-actions-menu" role="menu">
           {onSaveToLibrary ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSaveToLibrary(); }}>Save to Library</button> : null}
-          <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>Rename</button>
-          <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>Delete</button>
+          {onRename ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>Rename</button> : null}
+          {onDelete ? <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>Delete</button> : null}
         </div> : null}
-      </div>}
+      </div> : undefined}
     articleRef={card}
     onOpen={onOpen}
   />;
@@ -124,13 +144,14 @@ export function assetTypeBadge(mediaType: BrowsableAsset["mediaType"]): ReactNod
   return undefined;
 }
 
-export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete, onSaveToLibrary }: {
+export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete, onSaveToLibrary, onShowInCode }: {
   asset: BrowsableAsset;
   onClose: () => void;
   onOpenProject?: () => void;
-  onRename: () => void;
-  onDelete: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
   onSaveToLibrary?: () => void;
+  onShowInCode?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const actions = useRef<HTMLDivElement>(null);
@@ -151,14 +172,14 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
     onClose={onClose}
     onEscape={() => { if (menuOpen) setMenuOpen(false); else onClose(); }}
     headerActionsRef={actions}
-    headerActions={<>
+    headerActions={onRename || onDelete || onSaveToLibrary ? <>
       <button type="button" aria-label={`Asset actions for ${fileName(asset.path)}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={17} /></button>
       {menuOpen ? <div className="library-dialog-actions-menu" role="menu">
         {onSaveToLibrary ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSaveToLibrary(); }}>Save to Library</button> : null}
-        <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>Rename</button>
-        <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>Delete</button>
+        {onRename ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>Rename</button> : null}
+        {onDelete ? <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>Delete</button> : null}
       </div> : null}
-    </>}
+    </> : undefined}
     preview={<>
           {!preview.url && !preview.error ? <span className="library-dialog-state"><LoaderCircle className="spin" size={18} />Loading asset</span> : null}
           {preview.error ? <span className="library-dialog-state library-dialog-error" role="alert"><X size={18} />{preview.error}</span> : null}
@@ -176,15 +197,18 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
           </dl>
           <div className="library-dialog-footer-actions">
             {onOpenProject ? <button type="button" onClick={onOpenProject}><ExternalLink size={15} />Open project</button> : null}
+            {onShowInCode ? <button type="button" onClick={onShowInCode}><Code2 size={15} />Show in Code</button> : null}
           </div>
         </footer>}
   />;
 }
 
-export function filterAssets<T extends BrowsableAsset>(assets: T[], media: MediaFilter, query: string): T[] {
+export function filterAssets<T extends BrowsableAsset>(assets: readonly T[], media: MediaFilter, query: string, filters: ProjectAssetFilters = {}): T[] {
   const normalizedQuery = query.trim().toLowerCase();
   return assets.filter((asset) => (
     (media === "all" || asset.mediaType === media) &&
+    (!filters.origin || filters.origin === "all" || (asset.origin ?? "workspace") === filters.origin) &&
+    (!filters.purpose || filters.purpose === "all" || (asset.purpose ?? "asset") === filters.purpose) &&
     (!normalizedQuery || `${asset.path} ${asset.prompt ?? ""} ${asset.projectName ?? ""}`.toLowerCase().includes(normalizedQuery))
   ));
 }

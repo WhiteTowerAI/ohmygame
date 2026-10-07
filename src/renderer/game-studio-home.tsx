@@ -23,6 +23,7 @@ import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectsHash, type AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
+import { MAX_RECENT_PROJECTS, useProjectShelfLayout } from "./use-project-shelf-layout.js";
 import {
   GAME_STUDIOS,
   recentStudioProjects,
@@ -60,16 +61,18 @@ export function GameStudioHome({
   const [renameTarget, setRenameTarget] = useState<ProjectState>();
   const renameTrigger = useRef<HTMLElement | null>(null);
   const { examples, covers } = useExamples();
+  const { sectionRef, columns, recentProjectLimit } = useProjectShelfLayout();
+  const visibleProjects = projects.slice(0, recentProjectLimit);
   const studioExamples = examples
     .filter((example) => example.type === projectType)
-    .slice(0, 4);
+    .slice(0, columns);
 
   async function load(): Promise<void> {
     setPhase("loading");
     setError(undefined);
     try {
       await waitForRuntime();
-      setProjects(recentStudioProjects(await listProjects(), projectType));
+      setProjects(recentStudioProjects(await listProjects(), projectType, MAX_RECENT_PROJECTS));
       setPhase("ready");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -122,6 +125,7 @@ export function GameStudioHome({
         </div>
 
         <section
+          ref={sectionRef}
           className="home-recent studio-projects"
           aria-labelledby="studio-projects-heading"
         >
@@ -144,7 +148,7 @@ export function GameStudioHome({
           </div>
           {phase === "loading" ? (
             <div className="studio-project-grid" aria-label="Loading projects">
-              {Array.from({ length: 4 }, (_, index) => (
+              {Array.from({ length: recentProjectLimit }, (_, index) => (
                 <div className="studio-project-skeleton" key={index} />
               ))}
             </div>
@@ -159,7 +163,7 @@ export function GameStudioHome({
           ) : null}
           {phase === "ready" && projects.length > 0 ? (
             <div className="studio-project-grid">
-              {projects.map((project, index) => (
+              {visibleProjects.map((project, index) => (
                 <ProjectCard
                   key={project.id}
                   project={project}
