@@ -1,6 +1,7 @@
-import { access, mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
@@ -90,8 +91,7 @@ class FakeElement {
 
 /** Mounts a Scene whose background has the given attributes, as the editor writes them. */
 async function mountScene(attributes: Record<string, string>) {
-  const source = PLAYABLE_PROJECT_STYLE_FILES["shared/style/components.js"]!;
-  const { playScene } = await import(`data:text/javascript,${encodeURIComponent(source)}`);
+  const { playScene } = await loadSceneModule();
   const previous = globalThis.document;
   globalThis.document = { createElement: (tag: string) => new FakeElement(tag) } as unknown as Document;
   const root = new FakeElement("root");
@@ -110,6 +110,17 @@ async function mountScene(attributes: Record<string, string>) {
     return { scene, backdrop, emitted, cleanup, click: () => scene.listeners.get("click")!() };
   } finally {
     globalThis.document = previous;
+  }
+}
+
+async function loadSceneModule() {
+  const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-scene-module-"));
+  try {
+    const file = path.join(directory, "components.mjs");
+    await writeFile(file, PLAYABLE_PROJECT_STYLE_FILES["shared/style/components.js"]!);
+    return await import(pathToFileURL(file).href);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 }
 

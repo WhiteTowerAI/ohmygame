@@ -11,7 +11,7 @@ import { canvasNodeAssetIds } from "../src/shared/canvas-assets.js";
 import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
 
 const argument = process.argv[2];
-if (!argument) throw new Error("Usage: npx tsx scripts/migrate-canvas-workspaces.ts <data-directory>. Stop OhMyGame before migrating.");
+if (!argument) throw new Error("Usage: bun scripts/migrate-canvas-workspaces.ts <data-directory>. Stop OhMyGame before migrating.");
 const dataDirectory = path.resolve(argument);
 const library = new AssetLibrary(dataDirectory), projects = new ProjectManager(dataDirectory, library);
 await Promise.all([library.load(), projects.load()]);

@@ -4,5 +4,5 @@
 
 ## How it was checked
 
-<!-- Commands you ran (npm test, npm run typecheck, npm run build), manual
+<!-- Commands you ran (bun run test, bun run typecheck, bun run build), manual
 steps, and screenshots or recordings for UI changes. -->

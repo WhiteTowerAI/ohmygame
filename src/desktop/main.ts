@@ -263,7 +263,7 @@ try {
     dataDirectory: process.env.OHMYGAME_DATA_DIR ?? path.join(app.getPath("userData"), "data"),
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
-    piAgentDirectory: path.join(app.getPath("userData"), "pi-agent"),
+    piAgentDirectory: process.env.PI_CODING_AGENT_DIR ?? path.join(app.getPath("userData"), "pi-agent"),
     bundledPluginsDirectory: app.isPackaged ? path.join(process.resourcesPath, "plugins") : undefined,
     preinstalledPluginsDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "preinstalled-plugins")

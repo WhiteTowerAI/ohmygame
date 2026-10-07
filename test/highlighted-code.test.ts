@@ -30,7 +30,7 @@ describe("workspace code highlighting", () => {
       ]) {
         const html = await highlightWorkspaceCode(content, language, theme);
         expect(html).toContain(`shiki ${theme}`);
-        expect(new Set([...html.matchAll(/style="color:(#[A-Fa-f0-9]+)/g)].map((match) => match[1])).size)
+        expect(new Set([...html.matchAll(/style="color:(#[A-Fa-f0-9]+)/g)].map((match) => match[1])).size, `${theme}/${language}: ${html}`)
           .toBeGreaterThan(1);
         if (language === "tsx") {
           expect(html).toMatch(/&(?:lt|#x0*3c|#0*60);/i);

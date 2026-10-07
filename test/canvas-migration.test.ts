@@ -43,7 +43,7 @@ describe("offline canvas migration", () => {
     await writeFile(path.join(assetCanvas.workspacePath, "editor/layout.json"), JSON.stringify(old.editorLayout));
     await writeFile(path.join(assetCanvas.workspacePath, "AGENTS.md"), "My custom instructions. Read canvas.json and editor/layout.json.");
     await store.close();
-    const migrate = () => promisify(execFile)(process.execPath, ["--import", "tsx", path.resolve("scripts/migrate-canvas-workspaces.ts"), directory]);
+    const migrate = () => promisify(execFile)(process.execPath, ["--no-env-file", path.resolve("scripts/migrate-canvas-workspaces.ts"), directory]);
     await migrate();
     expect((await store.board(project.id, boardId)).board.nodes[0]).toMatchObject({ id: "reference", position: { x: 320, y: 120 } });
     const assets = (await store.workspace(project.id)).assets;

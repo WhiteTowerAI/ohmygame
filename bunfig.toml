@@ -1,0 +1,10 @@
+# Vite and the daemon load their own mode-specific environment files.
+env = false
+
+[install]
+# Preserve the dependency policy previously used by npm ci --legacy-peer-deps.
+peer = false
+
+[run]
+# Build/test commands opt into Bun explicitly; daemon commands must execute Node.
+bun = false

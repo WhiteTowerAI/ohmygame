@@ -3,18 +3,19 @@ import type { AssetCanvasDocument } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import type { CanvasBoardDetail } from "../src/shared/canvas-workspace.js";
 import { createCanvasBoardStorage } from "../src/renderer/canvas-board-storage.js";
+import { installCanvasHttpFixture } from "./canvas-http-fixture.js";
 
-const api = vi.hoisted(() => ({
+const api = {
   getCanvasBoard: vi.fn(), saveCanvasBoard: vi.fn(), generateCanvasMedia: vi.fn(),
   listCanvasJobs: vi.fn(), cancelCanvasJob: vi.fn(),
-}));
-vi.mock("../src/renderer/canvas-api.js", () => api);
+};
 
 const recoveryKey = "canvas-board:project:board";
 let entries: Map<string, string>;
 let browserStorage: { getItem: ReturnType<typeof vi.fn>; setItem: ReturnType<typeof vi.fn>; removeItem: ReturnType<typeof vi.fn> };
 beforeEach(() => {
   vi.resetAllMocks();
+  installCanvasHttpFixture(api);
   entries = new Map();
   browserStorage = {
     getItem: vi.fn((key: string) => entries.get(key) ?? null),

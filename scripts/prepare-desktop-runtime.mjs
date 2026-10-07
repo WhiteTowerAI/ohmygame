@@ -4,6 +4,7 @@ import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises
 import { pipeline } from "node:stream/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { loadEnvironmentFiles } from "../src/shared/environment.ts";
 
 const version = "22.19.0";
 const runtimes = {
@@ -70,11 +71,7 @@ await prepareDesktopConfig();
 console.log(`Node.js ${version} runtime is ready`);
 
 async function prepareDesktopConfig() {
-  try {
-    process.loadEnvFile(path.resolve(".env.local"));
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
+  loadEnvironmentFiles(path.resolve("."), "production");
   const cloudApiUrl = (process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL)?.trim();
   const sentryDsn = process.env.SENTRY_DSN?.trim();
   if (cloudApiUrl) {

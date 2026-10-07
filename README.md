@@ -155,15 +155,15 @@ which providers are supported, where to get a key, rough cost of one game -->
 
 ### Run from source
 
-Requires Node.js 22.19+.
+Requires Bun 1.4.2 or newer for the toolchain and Node.js 22.19+ for the daemon.
 
 ```bash
 git clone https://github.com/WhiteTowerAI/ohmygame.git
 cd ohmygame
-npm install
-npm run dev            # web renderer + local daemon
+bun install --frozen-lockfile
+bun run dev            # web renderer + local daemon
 # or
-npm run dev:desktop    # Electron app
+bun run dev:desktop    # Electron app
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md#configuration) for configuration.
@@ -198,4 +198,4 @@ security issues.
 ## License
 
 [Apache-2.0](LICENSE). The OhMyGame name and logo are not covered by the
-license. 
+license.
