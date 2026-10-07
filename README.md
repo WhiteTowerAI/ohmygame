@@ -12,13 +12,8 @@ Everything you need to make games with AI, in one app. Bring your own key.
 <p>
   <a href="#how-its-built"><img src="https://img.shields.io/badge/built%20on-Pi-7c3aed?style=flat-square" alt="Built on Pi" /></a>
   <a href="#any-model-your-keys"><img src="https://img.shields.io/badge/models-40%2B%20providers%20%C2%B7%20BYOK-black?style=flat-square" alt="40+ model providers, BYOK" /></a>
-  <img src="https://img.shields.io/badge/local--first-yes-2ea44f?style=flat-square" alt="Local-first" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License Apache 2.0" /></a>
-  <img src="https://img.shields.io/badge/status-beta-orange?style=flat-square" alt="Status beta" />
-</p>
-
-<p>
-  <a href="https://discord.gg/TkrgvGQ2Zc">Join Discord</a>
+  <a href="https://discord.gg/TkrgvGQ2Zc"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Join Discord" /></a>
 </p>
 
 </div>
