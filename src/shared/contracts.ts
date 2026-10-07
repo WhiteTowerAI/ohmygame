@@ -57,7 +57,35 @@ export type ProviderCapability = "language" | "image" | "3d" | "video";
 export interface ProviderSummary extends ModelProviderSummary {
   status: ProviderStatus;
   capabilities: ProviderCapability[];
+  enabled?: boolean;
+  custom?: boolean;
   error?: string;
+}
+
+export interface CustomProviderSettings {
+  id: string;
+  name: string;
+  baseUrl: string;
+  api: string;
+  authentication: "api_key" | "none";
+}
+
+export interface SaveCustomProviderRequest extends Omit<CustomProviderSettings, "id"> {
+  apiKey?: string;
+  models?: CustomProviderModel[];
+  hiddenModelIds?: string[];
+}
+
+export interface CustomProviderDetails extends CustomProviderSettings {
+  models: CustomProviderModel[];
+  hiddenModelIds: string[];
+}
+
+export type DiscoverProviderModelsRequest = Pick<SaveCustomProviderRequest, "baseUrl" | "api" | "authentication" | "apiKey"> & { providerId?: string };
+
+export interface DiscoveredProviderModels {
+  models: CustomProviderModel[];
+  truncated?: boolean;
 }
 
 export interface ModelProviderEndpointSettings {

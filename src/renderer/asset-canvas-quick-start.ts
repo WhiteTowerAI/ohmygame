@@ -34,17 +34,28 @@ type MediaModels = { image: ImageModel[]; video: VideoModel[] };
 // Provider catalogs can take seconds, so the app loads them ahead of a click and starters reuse the result.
 let cachedModels: MediaModels | undefined;
 let pendingModels: Promise<MediaModels> | undefined;
+let modelRevision = 0;
+
+export function invalidateQuickStartModels(): void {
+  modelRevision += 1;
+  cachedModels = undefined;
+  pendingModels = undefined;
+}
 
 /** Refreshes the media model lists, joining a load already in flight. */
 export function loadQuickStartModels(): Promise<MediaModels> {
-  pendingModels ??= waitForRuntime()
+  if (pendingModels) return pendingModels;
+  const revision = modelRevision;
+  const pending = waitForRuntime()
     .then(() => Promise.all([listImageModels().catch(() => []), listVideoModels().catch(() => [])]))
     .catch(() => [[], []] as [ImageModel[], VideoModel[]])
     .then(([image, video]) => {
-      cachedModels = { image, video };
-      return cachedModels;
+      const models = { image, video };
+      if (revision === modelRevision) cachedModels = models;
+      return models;
     })
-    .finally(() => { pendingModels = undefined; });
+    .finally(() => { if (pendingModels === pending) pendingModels = undefined; });
+  pendingModels = pending;
   return pendingModels;
 }
 

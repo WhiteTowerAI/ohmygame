@@ -25,6 +25,7 @@ export class ProviderVideos implements VideoGenerator {
     private readonly runtime: () => Promise<ModelRuntime>,
     private readonly request: typeof fetch = fetch,
     private readonly seedanceApiKey: (providerId: SeedanceProviderId) => string | undefined = () => undefined,
+    private readonly isEnabled: (provider: string) => boolean = () => true,
   ) {}
 
   async models(signal?: AbortSignal): Promise<VideoModel[]> {
@@ -36,7 +37,7 @@ export class ProviderVideos implements VideoGenerator {
     const entries = await Promise.all([
       this.#openRouterCatalog(signal),
       ...SEEDANCE_PROVIDER_IDS.map(async (providerId) => {
-        if (!this.seedanceApiKey(providerId)) return undefined;
+        if (!this.isEnabled(providerId) || !this.seedanceApiKey(providerId)) return undefined;
         const definition = SEEDANCE_PROVIDERS[providerId];
         const models = seedanceModels(providerId);
         return {
@@ -50,6 +51,7 @@ export class ProviderVideos implements VideoGenerator {
   }
 
   async #openRouterCatalog(signal?: AbortSignal): Promise<{ models: VideoModel[]; provider: MediaModelCatalog<VideoModel>["providers"][number] } | undefined> {
+    if (!this.isEnabled("openrouter")) return undefined;
     const source = await this.runtime().then((runtime) => resolveOpenRouterMediaSource(runtime, signal)).catch(() => undefined);
     if (!source) return undefined;
     try {
@@ -66,6 +68,7 @@ export class ProviderVideos implements VideoGenerator {
   }
 
   async generate(input: VideoGenerationInput, signal?: AbortSignal): Promise<GeneratedVideo> {
+    if (!this.isEnabled(input.model?.provider ?? "openrouter")) throw new VideoGenerationError("The selected provider is disabled", 409);
     if (input.model && isSeedanceProviderId(input.model.provider)) {
       const providerId = input.model.provider;
       const model = seedanceModel(providerId, input.model.id);

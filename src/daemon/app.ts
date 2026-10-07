@@ -35,7 +35,9 @@ import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, Project
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
-import { normalizeCustomProviderModel, ProviderModelSettingsStore } from "./provider-model-settings.js";
+import { normalizeCustomProvider, normalizeCustomProviderModel, ProviderModelSettingsStore } from "./provider-model-settings.js";
+import { discoverProviderModels } from "./provider-model-discovery.js";
+import type { DiscoverProviderModelsRequest } from "../shared/contracts.js";
 import type { Model3DGenerator } from "./model3d.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MODELS } from "../shared/generation-config.js";
 import { MeshyProvider } from "./meshy-provider.js";
@@ -102,6 +104,7 @@ export interface AppOptions {
   model3DFetch?: typeof fetch;
   videoGenerator?: VideoGenerator;
   videoFetch?: typeof fetch;
+  modelDiscoveryFetch?: typeof fetch;
   createModelRuntime?: () => Promise<ModelRuntime>;
   bundledPluginsDirectory?: string;
   preinstalledPluginsDirectory?: string;
@@ -587,12 +590,13 @@ export function createApp(options: AppOptions = {}) {
     getDeviceId: () => SettingsManager.create(piAgentDirectory, piAgentDirectory).getOrCreateDeviceId(),
     onCredentialsChanged: syncOpenAIEndpoint,
   });
-  const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"));
-  const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId));
+  const providerEnabled = (id: string) => providerModelSettings.isEnabled(id);
+  const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled);
+  const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
-    options.model3DGenerator ?? new MeshyProvider(() => meshySettings.key(), options.model3DFetch),
+    options.model3DGenerator ?? new MeshyProvider(() => meshySettings.key(), options.model3DFetch, undefined, () => providerEnabled("meshy")),
     options.videoGenerator ?? providerVideos,
     library,
   );
@@ -638,8 +642,10 @@ export function createApp(options: AppOptions = {}) {
     createSession: options.createSession ?? (async (project, conversation) => {
       const modelRuntime = await getModelRuntime();
       const selected = await conversations.model(project, conversation);
-      const model = selected ? modelRuntime.getModel(selected.provider, selected.id) : undefined;
-      if (selected && (!model || !modelRuntime.hasConfiguredAuth(selected.provider))) {
+      if (!selected) throw new Error("Select an available model before sending a prompt.");
+      if (!providerEnabled(selected.provider)) throw new Error(`Provider ${selected.provider} is disabled. Enable it in Settings to continue.`);
+      const model = modelRuntime.getModel(selected.provider, selected.id);
+      if (!model || !modelRuntime.hasConfiguredAuth(selected.provider)) {
         throw new Error(`The selected model ${selected.provider}/${selected.id} is not available`);
       }
       const playtestKey = `${project.id}:${conversation.summary.id}`;
@@ -1262,6 +1268,7 @@ export function createApp(options: AppOptions = {}) {
     const id = settings.getDefaultModel();
     const selected = request.body.model ?? (provider && id ? { provider, id } : undefined);
     if (!selected) return reply.code(409).send({ error: "No language model is configured" });
+    if (!providerEnabled(selected.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
     const model = runtime.getModel(selected.provider, selected.id);
     if (!model || !runtime.hasConfiguredAuth(selected.provider)) return reply.code(409).send({ error: "The selected language model is not available" });
     try {
@@ -1752,7 +1759,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/models", async () => {
     const runtime = await getModelRuntime();
-    const available = await runtime.getAvailable();
+    const available = (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider));
     const models = available.filter((model) => providerModelSettings.isVisible(model));
     const hidden = available.filter((model) => !providerModelSettings.isVisible(model));
     const defaultModel = findAgentModel(models, configuredDefaultModel(dataDirectory, piAgentDirectory));
@@ -1776,6 +1783,7 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(400).send({ error: "Invalid agent defaults" });
     }
     const runtime = await getModelRuntime();
+    if (!providerEnabled(request.body.model.provider)) return reply.code(400).send({ error: "Provider is disabled" });
     const model = (await runtime.getAvailable(request.body.model.provider))
       .find((candidate) => candidate.id === request.body.model.id);
     if (!model) return reply.code(400).send({ error: "Model is not available" });
@@ -1791,11 +1799,13 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
-  app.get("/settings/providers", async () => {
+  const providerSummaries = async () => {
     const piProviders = await modelAuth.providers();
     const providers = piProviders
       .map((provider) => ({
         ...provider,
+        enabled: providerEnabled(provider.id),
+        custom: providerModelSettings.isCustom(provider.id),
         status: provider.configured ? "connected" as const : "not_configured" as const,
         capabilities: provider.id === "openrouter"
           ? ["language", "image", "video"] as const
@@ -1805,6 +1815,8 @@ export function createApp(options: AppOptions = {}) {
     const directProviders = [{
       id: "meshy",
       name: "Meshy",
+      enabled: providerEnabled("meshy"),
+      custom: false,
       configured: meshySettings.get().configured,
       status: meshySettings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: "Meshy API key" }],
@@ -1817,6 +1829,8 @@ export function createApp(options: AppOptions = {}) {
         id: definition.id,
         name: definition.name,
         configured,
+        enabled: providerEnabled(providerId),
+        custom: false,
         status: configured ? "connected" as const : "not_configured" as const,
         methods: [{ type: "api_key" as const, label: `${definition.name} API key` }],
         credentialType: "api_key" as const,
@@ -1824,6 +1838,79 @@ export function createApp(options: AppOptions = {}) {
       };
     })];
     return [...providers, ...directProviders].sort((left, right) => left.name.localeCompare(right.name));
+  };
+  app.get("/settings/providers", providerSummaries);
+
+  app.patch<{ Params: { providerId: string }; Body: { enabled: boolean } }>("/settings/models/providers/:providerId/enabled", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["enabled"], properties: { enabled: { type: "boolean" } } } },
+  }, async (request, reply) => {
+    const provider = (await providerSummaries()).find((item) => item.id === request.params.providerId);
+    if (!provider) return reply.code(404).send({ error: "Provider not found" });
+    if (!provider.configured) return reply.code(400).send({ error: "Connect the provider before enabling it" });
+    await providerModelSettings.setEnabled(provider.id, request.body.enabled);
+    return { ...provider, enabled: request.body.enabled };
+  });
+
+  const saveCustomProvider = async (value: unknown, id: string) => {
+    const settings = normalizeCustomProvider(value);
+    const previous = await providerModelSettings.customProvider(id);
+    const runtime = await getModelRuntime();
+    if (settings.authentication === "api_key" && !settings.apiKey && (previous?.authentication !== "api_key" || !runtime.hasConfiguredAuth(id))) throw new Error("API key is required");
+    try {
+      await providerModelSettings.saveCustomProvider(id, settings, async () => {
+        await runtime.refresh({ allowNetwork: false, providers: [id] });
+        // Compatible local services accept an internal placeholder; users do not need a key.
+        const apiKey = settings.authentication === "none" ? "ohmygame-local" : settings.apiKey;
+        if (apiKey) await runtime.login(id, "api_key", { signal: new AbortController().signal, notify: () => {}, prompt: async () => apiKey });
+      });
+    } catch (cause) {
+      await runtime.refresh({ allowNetwork: false });
+      throw cause;
+    }
+    for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
+    return providerModelSettings.customProvider(id);
+  };
+
+  app.post<{ Body: DiscoverProviderModelsRequest }>("/settings/models/providers/discover", async (request, reply) => {
+    try {
+      let connection = request.body;
+      if (connection?.providerId !== undefined) {
+        if (typeof connection.providerId !== "string" || !providerModelSettings.isCustom(connection.providerId)) return reply.code(404).send({ error: "Custom provider not found" });
+        if (connection.authentication === "api_key" && !connection.apiKey?.trim()) {
+          const provider = await providerModelSettings.customProvider(connection.providerId);
+          if (provider?.authentication === "api_key") connection = { ...connection, apiKey: (await (await getModelRuntime()).getAuth(connection.providerId))?.auth?.apiKey };
+        }
+      }
+      return await discoverProviderModels(connection, options.modelDiscoveryFetch);
+    }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+
+  app.post("/settings/models/providers/custom", async (request, reply) => {
+    try { return reply.code(201).send(await saveCustomProvider(request.body, `custom-${randomUUID()}`)); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.get<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/custom", async (request, reply) => {
+    const { providerId } = request.params;
+    const settings = await providerModelSettings.customProvider(providerId);
+    if (!settings) return reply.code(404).send({ error: "Custom provider not found" });
+    return settings;
+  });
+  app.put<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/custom", async (request, reply) => {
+    if (!providerModelSettings.isCustom(request.params.providerId)) return reply.code(404).send({ error: "Custom provider not found" });
+    try { return await saveCustomProvider(request.body, request.params.providerId); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/custom", async (request, reply) => {
+    const { providerId } = request.params;
+    if (!providerModelSettings.isCustom(providerId)) return reply.code(404).send({ error: "Custom provider not found" });
+    const runtime = await getModelRuntime();
+    await providerModelSettings.removeCustomProvider(providerId, async () => {
+      await runtime.refresh({ allowNetwork: false });
+      await runtime.logout(providerId);
+    });
+    for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
+    return reply.code(204).send();
   });
 
   app.get("/settings/models/providers/meshy", async () => meshySettings.get());
@@ -1852,14 +1939,15 @@ export function createApp(options: AppOptions = {}) {
 
   const providerModels = async (runtime: ModelRuntime, providerId: string) => {
     const models = runtime.getModels(providerId);
-    const custom = await providerModelSettings.customModels(providerId);
+    const customProvider = await providerModelSettings.customProvider(providerId);
+    const custom = customProvider?.models ?? await providerModelSettings.customModels(providerId);
     return {
       models: models.map((model) => ({
         provider: model.provider, providerName: runtime.getProvider(providerId)?.name ?? providerId,
         id: model.id, name: model.name, reasoningLevels: supportedReasoningLevels(model),
         visible: providerModelSettings.isVisible(model), custom: custom.some((item) => item.id === model.id),
       })),
-      defaultApi: models[0]?.api ?? "openai-completions",
+      defaultApi: customProvider?.api ?? models[0]?.api ?? "openai-completions",
       defaultBaseUrl: runtime.getProvider(providerId)?.baseUrl ?? models[0]?.baseUrl,
       canAddCustomModel: runtime.hasConfiguredAuth(providerId) && !runtime.isUsingOAuth(providerId),
     };
@@ -1977,11 +2065,11 @@ export function createApp(options: AppOptions = {}) {
   app.get("/image-models/catalog", async () => providerImages.catalog());
   app.get("/video-models/catalog", async () => providerVideos.catalog());
   // 3D models all run on Meshy, so they are offered once its key is set; "Manage providers" covers the rest.
-  app.get("/model3d-models/catalog", async (): Promise<MediaModelCatalog<Model3DModel>> => meshySettings.get().configured
+  app.get("/model3d-models/catalog", async (): Promise<MediaModelCatalog<Model3DModel>> => meshySettings.get().configured && providerEnabled("meshy")
     ? { models: [...MODEL_3D_MODELS], providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }] }
     : { models: [], providers: [] });
   app.get("/model3d-animations", async (_request, reply) => {
-    if (!meshySettings.get().configured) return [];
+    if (!meshySettings.get().configured || !providerEnabled("meshy")) return [];
     try {
       return await tools.animationActions();
     } catch (cause) {
@@ -2001,11 +2089,11 @@ export function createApp(options: AppOptions = {}) {
       const requestedModel = request.body?.model;
       let selectedModel: RuntimeModel | undefined;
       if (requestedModel) {
-        selectedModel = await availableModel(getModelRuntime, requestedModel.provider, requestedModel.id);
+        selectedModel = await availableModel(getModelRuntime, requestedModel.provider, requestedModel.id, providerEnabled);
       } else {
         const runtime = await getModelRuntime();
         selectedModel = preferredAgentModel(
-          (await runtime.getAvailable()).filter((model) => providerModelSettings.isVisible(model)),
+          (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider) && providerModelSettings.isVisible(model)),
           undefined,
           configuredDefaultModel(dataDirectory, piAgentDirectory),
         );
@@ -2125,7 +2213,7 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const model = await availableModel(getModelRuntime, request.body.provider, request.body.id);
+      const model = await availableModel(getModelRuntime, request.body.provider, request.body.id, providerEnabled);
       if (!model) return reply.code(400).send({ error: "Model is not available" });
       try {
         await agents.setModel(project.id, conversation.summary.id, model, () => {
@@ -2167,7 +2255,7 @@ export function createApp(options: AppOptions = {}) {
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const modelRef = await conversations.model(project, conversation);
       if (!modelRef) return reply.code(409).send({ error: "Select a model before changing reasoning" });
-      const model = await availableModel(getModelRuntime, modelRef.provider, modelRef.id);
+      const model = await availableModel(getModelRuntime, modelRef.provider, modelRef.id, providerEnabled);
       if (!model) return reply.code(400).send({ error: "Model is not available" });
       const levels = supportedReasoningLevels(model);
       if (!levels.includes(request.body.level)) {
@@ -2241,6 +2329,8 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const selectedModel = await conversations.model(project, conversation);
+      if (selectedModel && !providerEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       if (!request.body?.prompt?.trim() && !request.body?.images?.length && !request.body?.attachments?.length) return reply.code(400).send({ error: "Prompt or attachment is required" });
       let mentions;
       try {
@@ -2348,6 +2438,8 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const selectedModel = await conversations.model(project, conversation);
+      if (selectedModel && !providerEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       try {
         const turn = await agents.compact(project, conversation, request.body?.instructions?.trim() || undefined);
         await turn.result;
@@ -2380,6 +2472,8 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const selectedModel = await conversations.model(project, conversation);
+      if (selectedModel && !providerEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       agents.restorePlanState(conversation, await conversations.planState(project, conversation));
       try {
         const turn = await agents.approvePlan(project, conversation);
@@ -2455,6 +2549,8 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const selectedModel = await conversations.model(project, conversation);
+      if (selectedModel && !providerEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       if (!request.body.prompt.trim()) return reply.code(400).send({ error: "Prompt is required" });
       try {
         const turn = await agents.reviseLast(project, conversation, request.body.prompt, async (reference) => ({
@@ -2730,7 +2826,9 @@ async function availableModel(
   getRuntime: () => Promise<ModelRuntime>,
   provider: string,
   id: string,
+  isEnabled: (provider: string) => boolean,
 ) {
+  if (!isEnabled(provider)) return undefined;
   const runtime = await getRuntime();
   const models = await runtime.getAvailable(provider);
   return models.find((model) => model.id === id);

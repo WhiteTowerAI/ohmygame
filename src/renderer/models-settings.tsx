@@ -1,6 +1,7 @@
-import { ArrowLeft, ChevronDown, ChevronRight, Code2, ExternalLink, LoaderCircle, Search, UserRound } from "./icons.js";
+import { ArrowLeft, ChevronDown, ChevronRight, Code2, ExternalLink, LoaderCircle, Search, Server, Plus, Plug, RefreshCw, Settings, UserRound } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
+  CustomProviderDetails,
   ModelAuthEvent,
   ModelAuthMethod,
   ModelAuthNotification,
@@ -12,8 +13,10 @@ import type {
   VideoModel,
 } from "../shared/contracts.js";
 import {
+  getCustomProvider,
+  removeCustomProvider,
+  setProviderEnabled,
   cancelModelAuth,
-  disconnectModelProvider,
   getOpenAIEndpointSettings,
   listProviders,
   listImageModelCatalog,
@@ -23,12 +26,11 @@ import {
   subscribeToModelAuth,
   updateOpenAIEndpointSettings,
   updateMeshyApiKey,
-  clearMeshyApiKey,
   updateSeedanceApiKey,
-  clearSeedanceApiKey,
   listVideoModelCatalog,
 } from "./api.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
+import { CustomProviderDialog } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
 import { SegmentedControl } from "./segmented-control.js";
 
@@ -64,6 +66,8 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [pending, setPending] = useState<Set<string>>(new Set());
   const [capability, setCapability] = useState<"all" | ProviderCapability>("all");
   useEffect(() => {
     let active = true;
@@ -76,6 +80,21 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
     });
     return () => { active = false; };
   }, []);
+  async function toggleProvider(provider: ProviderSummary, enabled: boolean): Promise<void> {
+    setPending((current) => new Set(current).add(provider.id));
+    setError(undefined);
+    setProviders((current) => current.map((item) => item.id === provider.id ? { ...item, enabled } : item));
+    try {
+      const saved = await setProviderEnabled(provider.id, enabled);
+      setProviders((current) => current.map((item) => item.id === provider.id ? saved : item));
+    } catch (cause) {
+      setProviders((current) => current.map((item) => item.id === provider.id ? provider : item));
+      setError(errorMessage(cause));
+    } finally {
+      setPending((current) => { const next = new Set(current); next.delete(provider.id); return next; });
+    }
+  }
+  const rowActions = { onToggle: (provider: ProviderSummary, enabled: boolean) => void toggleProvider(provider, enabled), pending };
   const normalizedQuery = query.trim().toLowerCase();
   const visibleProviders = providers.filter((provider) => (
     (capability === "all" || provider.capabilities.includes(capability))
@@ -102,21 +121,30 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search providers" aria-label="Search providers" />
         </label>
       </header>
+      {adding ? <CustomProviderDialog onClose={() => setAdding(false)} onSaved={() => {
+        setAdding(false);
+        setQuery("");
+        setCapability("all");
+        void listProviders().then(setProviders).catch((cause) => setError(errorMessage(cause)));
+      }} /> : null}
       <div className="settings-provider-list">
-        <SegmentedControl className="settings-provider-filters" label="Filter providers by capability" options={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
+        <div className="settings-provider-toolbar">
+          <SegmentedControl className="settings-provider-filters" label="Filter providers by capability" options={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
+          <button className="settings-secondary-button settings-provider-add" type="button" onClick={() => setAdding(true)}><Plus size={13} />Add provider</button>
+        </div>
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}
         {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match these filters.</p> : null}
-        {filtering && filteredProviders.length ? <ProviderGroup title="Providers" providers={filteredProviders} onProvider={onProvider} /> : null}
-        {!filtering && connectedProviders.length ? <ProviderGroup title="Connected providers" providers={connectedProviders} onProvider={onProvider} /> : null}
-        {!filtering && popularProviders.length ? <ProviderGroup title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
+        {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title="Providers" providers={filteredProviders} onProvider={onProvider} /> : null}
+        {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title="Connected providers" providers={connectedProviders} onProvider={onProvider} /> : null}
+        {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
         {!filtering && moreProviders.length ? (
           <section className="settings-provider-group">
             <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
               <span>More providers <small>({moreProviders.length})</small></span>
               <ChevronDown size={14} />
             </button>
-            {moreOpen ? moreProviders.map((provider) => <ProviderRow provider={provider} onProvider={onProvider} key={provider.id} />) : null}
+            {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={onProvider} key={provider.id} />) : null}
           </section>
         ) : null}
         {error ? <p className="settings-error" role="alert">{error}</p> : null}
@@ -125,53 +153,62 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   );
 }
 
-function ProviderGroup({ detail, onProvider, providers, title }: { detail?: string; onProvider: (provider: ProviderSummary) => void; providers: ProviderSummary[]; title: string }) {
+type ProviderRowActions = { onToggle: (provider: ProviderSummary, enabled: boolean) => void; pending: Set<string> };
+
+function ProviderGroup({ detail, onProvider, providers, title, ...actions }: { detail?: string; onProvider: (provider: ProviderSummary) => void; providers: ProviderSummary[]; title: string } & ProviderRowActions) {
   return (
     <section className="settings-provider-group">
       <h4>{title}</h4>
-      {providers.map((provider) => <ProviderRow provider={provider} detail={detail} featured={provider.id === "openrouter"} onProvider={onProvider} key={provider.id} />)}
+      {providers.map((provider) => <ProviderRow {...actions} provider={provider} detail={detail} featured={provider.id === "openrouter"} onProvider={onProvider} key={provider.id} />)}
     </section>
   );
 }
 
-function ProviderRow({ detail, featured = false, onProvider, provider }: { detail?: string; featured?: boolean; onProvider: (provider: ProviderSummary) => void; provider: ProviderSummary }) {
+function ProviderRow({ detail, featured = false, onProvider, provider, onToggle, pending }: { detail?: string; featured?: boolean; onProvider: (provider: ProviderSummary) => void; provider: ProviderSummary } & ProviderRowActions) {
+  const ActionIcon = provider.status === "connecting" ? LoaderCircle : provider.status === "error" ? RefreshCw : provider.configured ? Settings : Plug;
+  const actionLabel = `${providerAction(provider)} ${provider.name}`;
   return (
     <div className={`settings-provider-row${featured ? " is-featured" : ""}`}>
       <ProviderMark provider={provider} />
       <span className="settings-provider-copy">
         <strong className="settings-provider-name"><span>{provider.name}</span>{featured ? <small>Recommended</small> : null}</strong>
         <span className="settings-provider-details">
+          {provider.custom ? <small className="settings-provider-custom">Custom</small> : null}
           <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
           <span className="settings-provider-capabilities" aria-label={`Capabilities: ${provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]).join(", ")}`}>
             {provider.capabilities.map((capability) => <small key={capability}>{PROVIDER_CAPABILITY_LABELS[capability]}</small>)}
           </span>
         </span>
       </span>
-      {provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}><i />{providerStatus(provider)}</em>}
-      <button className={featured ? "is-primary" : undefined} type="button" disabled={provider.status === "connecting"} onClick={() => onProvider(provider)}>{providerAction(provider)}</button>
+      {provider.configured ? <label className="settings-toggle settings-provider-toggle" title={provider.enabled !== false ? "Enabled" : "Disabled"}>
+        <input type="checkbox" role="switch" aria-label={`Enable ${provider.name}`} checked={provider.enabled !== false} disabled={pending.has(provider.id)} onChange={(event) => onToggle(provider, event.target.checked)} /><span aria-hidden="true" />
+      </label> : provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}><i />{providerStatus(provider)}</em>}
+      <button className="icon-button settings-provider-action" type="button" data-tooltip={actionLabel} aria-label={actionLabel} disabled={provider.status === "connecting" || pending.has(provider.id)} onClick={() => onProvider(provider)}><ActionIcon size={17} className={provider.status === "connecting" ? "spin" : undefined} aria-hidden="true" /></button>
     </div>
   );
 }
 
 function ProviderMark({ provider }: { provider: Pick<ModelProviderSummary, "id"> }) {
   const icon = PROVIDER_ICONS[provider.id];
-  if (!icon) return <span className="settings-provider-mark-slot" aria-hidden="true" />;
+  if (!icon) return <span className="settings-provider-mark-slot" aria-hidden="true"><Server size={20} /></span>;
   return <span className={`settings-provider-mark is-${icon.tone}`} aria-hidden="true"><img src={icon.src} alt="" /></span>;
 }
 
-function ProviderAuthView({ provider, onBack, onCompleted }: { provider: ModelProviderSummary; onBack: () => void; onCompleted: () => void }) {
+function ProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  if (provider.custom) return <CustomProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (provider.id === "meshy") return <MeshyAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
-  if (provider.configured) return <ConnectedProvider provider={provider} onBack={onBack} onDisconnected={onCompleted} />;
+  if (provider.configured) return <ConnectedProvider provider={provider} onBack={onBack} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
   return <ActiveProviderAuth provider={provider} method={method} onBack={onBack} onCompleted={onCompleted} />;
 }
 
-function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: ModelProviderSummary; onBack: () => void; onCompleted: () => void }) {
+function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [modelsRevision, setModelsRevision] = useState(0);
   async function save(event: FormEvent): Promise<void> {
     event.preventDefault();
     setSaving(true);
@@ -185,28 +222,12 @@ function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: ModelPr
       setSaving(false);
     }
   }
-
-  async function clear(): Promise<void> {
-    setSaving(true);
-    setError(undefined);
-    try {
-      await clearSeedanceApiKey(provider.id);
-      onCompleted();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   const inputId = `${provider.id}-api-key`;
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack} />
       {provider.configured ? (
-        <ProviderStatusRow source={provider.source}>
-          <button className="settings-danger-button" type="button" disabled={saving} onClick={() => void clear()}>Disconnect</button>
-        </ProviderStatusRow>
+        <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} />
       ) : null}
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
         <label className="settings-search-field-label" htmlFor={inputId}>API key</label>
@@ -226,8 +247,8 @@ function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: ModelPr
         </div>
       </form>
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
-      {provider.configured && provider.id === "volcengine-ark" ? <SeedreamModels providerId={provider.id} /> : null}
-      {provider.configured ? <SeedanceModels providerId={provider.id} /> : null}
+      {provider.configured && provider.id === "volcengine-ark" ? <SeedreamModels key={`seedream-${modelsRevision}`} providerId={provider.id} /> : null}
+      {provider.configured ? <SeedanceModels key={`seedance-${modelsRevision}`} providerId={provider.id} /> : null}
     </section>
   );
 }
@@ -308,7 +329,47 @@ function SeedanceModels({ providerId }: { providerId: string }) {
   );
 }
 
-function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ModelProviderSummary; onBack: () => void; onCompleted: () => void }) {
+function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: ProviderSummary; onBack: () => void; onRemoved: () => void }) {
+  const [settings, setSettings] = useState<CustomProviderDetails>();
+  const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let active = true;
+    void getCustomProvider(provider.id).then((value) => { if (active) setSettings(value); }).catch((cause) => { if (active) setError(errorMessage(cause)); });
+    return () => { active = false; };
+  }, [provider.id]);
+  async function remove(): Promise<void> {
+    setDeleting(true);
+    setError(undefined);
+    try { await removeCustomProvider(provider.id); onRemoved(); }
+    catch (cause) { setError(errorMessage(cause)); setDeleting(false); }
+  }
+  const models = settings?.models.filter((model) => !settings.hiddenModelIds.includes(model.id));
+  return <section className="settings-panel settings-provider-detail">
+    <ProviderDetailHeader provider={{ ...provider, name: settings?.name ?? provider.name }} onBack={onBack} />
+    <ProviderEnableControl provider={provider} />
+    <div className="settings-custom-provider-config">
+      <div><small className="settings-provider-custom">Custom</small><span>{settings?.baseUrl ?? "Loading configuration…"}</span></div>
+      <button className="settings-secondary-button" type="button" disabled={!settings || deleting} onClick={() => setEditing(true)}>Edit provider</button>
+    </div>
+    {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    <section className="settings-detail-section provider-models" aria-label="Language models">
+      <div className="provider-models-heading"><h4>Language models <small>{models?.length ?? ""}</small></h4></div>
+      {models ? <div className="provider-models-list" role="list" aria-label="Enabled provider models">
+        {models.map((model) => <div className="provider-model-row" key={model.id} role="listitem"><div className="provider-model-readonly"><span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{model.name !== model.id ? <small title={model.id}>{model.id}</small> : null}</span></div></div>)}
+        {!models.length ? <p className="settings-empty">No models enabled. Use Edit provider to manage models.</p> : null}
+      </div> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading models</div> : null}
+    </section>
+    <div className="settings-custom-provider-delete">
+      {confirmingDelete ? <><span>Delete this provider, its key and model settings?</span><button className="settings-danger-button" type="button" disabled={deleting} onClick={() => void remove()}>{deleting ? "Deleting…" : "Delete provider"}</button><button className="settings-secondary-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Cancel</button></> : <button className="settings-danger-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(true)}>Delete provider</button>}
+    </div>
+    {editing && settings ? <CustomProviderDialog settings={settings} onClose={() => setEditing(false)} onSaved={(value) => { setSettings(value); setEditing(false); }} /> : null}
+  </section>;
+}
+
+function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -326,26 +387,11 @@ function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ModelProvi
     }
   }
 
-  async function clear(): Promise<void> {
-    setSaving(true);
-    setError(undefined);
-    try {
-      await clearMeshyApiKey();
-      onCompleted();
-    } catch (cause) {
-      setError(errorMessage(cause));
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack} />
       {provider.configured ? (
-        <ProviderStatusRow source={provider.source}>
-          <button className="settings-danger-button" type="button" disabled={saving} onClick={() => void clear()}>Disconnect</button>
-        </ProviderStatusRow>
+        <ProviderEnableControl provider={provider} />
       ) : null}
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
         <label className="settings-search-field-label" htmlFor="meshy-api-key">API key</label>
@@ -395,22 +441,10 @@ function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProvi
   );
 }
 
-function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: ModelProviderSummary; onBack: () => void; onDisconnected: () => void }) {
-  const [disconnecting, setDisconnecting] = useState(false);
+function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const endpoint = useProviderEndpoint(provider.id);
-  async function disconnect(): Promise<void> {
-    setDisconnecting(true);
-    try {
-      await disconnectModelProvider(provider.id);
-      notifyAgentModelsChanged();
-      onDisconnected();
-    } catch (cause) {
-      setError(errorMessage(cause));
-      setDisconnecting(false);
-    }
-  }
   async function saveEndpoint(event: FormEvent): Promise<void> {
     event.preventDefault();
     setError(undefined);
@@ -429,13 +463,7 @@ function ConnectedProvider({ provider, onBack, onDisconnected }: { provider: Mod
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack} />
-      <ProviderStatusRow source={provider.source}>
-        {provider.credentialType ? (
-          <button className="settings-danger-button" type="button" disabled={disconnecting} onClick={() => void disconnect()}>{disconnecting ? "Disconnecting…" : "Disconnect"}</button>
-        ) : (
-          <span className="settings-managed-label">Managed outside OhMyGame</span>
-        )}
-      </ProviderStatusRow>
+      <ProviderEnableControl provider={provider} />
       {showsEndpoint ? (
         <form onSubmit={(event) => void saveEndpoint(event)}>
           <BaseUrlField endpoint={endpoint}>
@@ -605,17 +633,27 @@ function ProviderDetailHeader({ provider, onBack }: { provider: ModelProviderSum
   );
 }
 
-function ProviderStatusRow({ source, children }: { source?: string; children: ReactNode }) {
-  return (
-    <div className="settings-detail-status">
-      <span className="settings-detail-status-line">
-        <i aria-hidden="true" />
-        <strong>Connected</strong>
-        {source ? <small>{source}</small> : null}
-      </span>
-      {children}
+function ProviderEnableControl({ provider, onChanged }: { provider: ProviderSummary; onChanged?: () => void }) {
+  const [enabled, setEnabled] = useState(provider.enabled !== false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  async function toggle(next: boolean): Promise<void> {
+    if (busy) return;
+    const previous = enabled;
+    setEnabled(next);
+    setBusy(true);
+    setError(undefined);
+    try { setEnabled((await setProviderEnabled(provider.id, next)).enabled !== false); onChanged?.(); }
+    catch (cause) { setEnabled(previous); setError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+  return <>
+    <div className="settings-detail-status settings-provider-enable-row">
+      <span className="settings-detail-status-copy"><strong>Enable provider</strong><small>{enabled ? "Available for new requests" : "Disabled · Your credentials and models are kept"}</small></span>
+      <label className="settings-toggle"><input type="checkbox" role="switch" aria-label={`Enable ${provider.name}`} checked={enabled} disabled={busy} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></label>
     </div>
-  );
+    {error ? <p className="settings-error" role="alert">{error}</p> : null}
+  </>;
 }
 
 function DetailSectionHeader({ title, description }: { title: string; description: string }) {
@@ -674,7 +712,8 @@ function useProviderEndpoint(providerId: string) {
   return { supported, baseUrl, setBaseUrl, dirty: baseUrl.trim() !== savedBaseUrl, loading, saving, error, save };
 }
 
-function providerDescription(provider: Pick<ModelProviderSummary, "methods">): string {
+function providerDescription(provider: Pick<ModelProviderSummary, "methods"> & { custom?: boolean }): string {
+  if (provider.custom) return "Custom endpoint";
   const oauth = provider.methods.some((method) => method.type === "oauth");
   const apiKey = provider.methods.some((method) => method.type === "api_key");
   if (oauth && apiKey) return "Browser sign-in or API key";

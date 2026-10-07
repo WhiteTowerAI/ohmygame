@@ -18,6 +18,10 @@ import {
   type ModelProviderEndpointSettings,
   type ProviderModelSettings,
   type CustomProviderModel,
+  type CustomProviderDetails,
+  type SaveCustomProviderRequest,
+  type DiscoverProviderModelsRequest,
+  type DiscoveredProviderModels,
   type ProviderSummary,
   type CreateProjectRequest,
   type CommunityGame,
@@ -197,6 +201,31 @@ export async function listProviders(): Promise<ProviderSummary[]> {
   return request("/settings/providers");
 }
 
+export async function setProviderEnabled(providerId: string, enabled: boolean): Promise<ProviderSummary> {
+  const result = await request<ProviderSummary>(`/settings/models/providers/${encodeURIComponent(providerId)}/enabled`, { method: "PATCH", body: JSON.stringify({ enabled }) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function getCustomProvider(providerId: string): Promise<CustomProviderDetails> {
+  return request(`/settings/models/providers/${encodeURIComponent(providerId)}/custom`);
+}
+
+export async function discoverCustomProviderModels(settings: DiscoverProviderModelsRequest, signal?: AbortSignal): Promise<DiscoveredProviderModels> {
+  return request("/settings/models/providers/discover", { method: "POST", body: JSON.stringify(settings), signal });
+}
+
+export async function saveCustomProvider(settings: SaveCustomProviderRequest, providerId?: string): Promise<CustomProviderDetails> {
+  const result = await request<CustomProviderDetails>(providerId ? `/settings/models/providers/${encodeURIComponent(providerId)}/custom` : "/settings/models/providers/custom", { method: providerId ? "PUT" : "POST", body: JSON.stringify(settings) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function removeCustomProvider(providerId: string): Promise<void> {
+  await request(`/settings/models/providers/${encodeURIComponent(providerId)}/custom`, { method: "DELETE" });
+  notifyAgentModelsChanged();
+}
+
 export async function getProviderModels(providerId: string): Promise<ProviderModelSettings> {
   return request(`/settings/models/providers/${encodeURIComponent(providerId)}/models`);
 }
@@ -233,19 +262,11 @@ export async function updateOpenAIEndpointSettings(baseUrl: string): Promise<Mod
 export async function updateMeshyApiKey(apiKey: string): Promise<{ configured: boolean }> {
   return request("/settings/models/providers/meshy", { method: "PUT", body: JSON.stringify({ apiKey }) });
 }
-export async function clearMeshyApiKey(): Promise<void> {
-  await request("/settings/models/providers/meshy", { method: "DELETE" });
-}
-
 export async function updateSeedanceApiKey(providerId: string, apiKey: string): Promise<{ configured: boolean }> {
   return request(`/settings/models/providers/${encodeURIComponent(providerId)}/seedance-key`, {
     method: "PUT",
     body: JSON.stringify({ apiKey }),
   });
-}
-
-export async function clearSeedanceApiKey(providerId: string): Promise<void> {
-  await request(`/settings/models/providers/${encodeURIComponent(providerId)}/seedance-key`, { method: "DELETE" });
 }
 
 export async function startModelProviderLogin(providerId: string, method: ModelAuthMethod): Promise<string> {
@@ -265,10 +286,6 @@ export async function respondToModelAuth(operationId: string, promptId: string, 
 
 export async function cancelModelAuth(operationId: string): Promise<void> {
   await request(`/settings/model-auth/${encodeURIComponent(operationId)}`, { method: "DELETE" });
-}
-
-export async function disconnectModelProvider(providerId: string): Promise<void> {
-  await request(`/settings/models/providers/${encodeURIComponent(providerId)}/credential`, { method: "DELETE" });
 }
 
 export function subscribeToModelAuth(

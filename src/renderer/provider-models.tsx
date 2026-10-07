@@ -73,7 +73,7 @@ export function ProviderModels({ providerId }: { providerId: string }) {
     <div className="provider-models-heading">
       <h4>Language models <small>{settings ? shown : ""}</small></h4>
       {settings ? <div className="provider-models-heading-actions">
-        {editing && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={() => { setAdding(true); setError(undefined); }} aria-expanded={adding}>
+        {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={() => { setAdding(true); setError(undefined); }} aria-expanded={adding}>
           <Plus size={13} /><span>Add model</span>
         </button> : null}
         <button className="settings-secondary-button" type="button" disabled={busy} onClick={toggleEditing} aria-label={editing ? "Done editing models" : "Edit models"} aria-pressed={editing}>
