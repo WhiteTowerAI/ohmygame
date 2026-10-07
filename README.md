@@ -2,7 +2,7 @@
 
 <img src="docs/assets/banner.webp" alt="OhMyGame — the open-source studio for making games with AI" width="100%" />
 
-Everything you need to make games with AI, in one app. Bring your own key.
+**Your own one-person game studio.** Everything you need to make games with AI, in one app. Bring your own key.
 
 <p>
   <a href="https://ohmygame.ai/download/mac"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
