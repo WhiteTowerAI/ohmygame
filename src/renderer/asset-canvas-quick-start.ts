@@ -104,7 +104,11 @@ function pickModel<Model extends { id: string }>(item: AssetCanvasQuickStart, mo
 }
 
 function matchesModelId(id: string, modelId: string): boolean {
-  return id === modelId || id.endsWith(`/${modelId}`);
+  if (id === modelId || id.endsWith(`/${modelId}`)) return true;
+  const normalizedId = id.toLowerCase().replaceAll(".", "-");
+  const normalizedModelId = modelId.toLowerCase().replaceAll(".", "-");
+  if (!normalizedModelId.startsWith("seedance-")) return false;
+  return normalizedId.split("/").pop()?.includes(normalizedModelId) ?? false;
 }
 
 function errorMessage(cause: unknown): string {

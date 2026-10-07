@@ -4,6 +4,7 @@ import { imageModelDefinition, imageModelsForProvider, preferredImageModelId } f
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
 import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
+import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedreamModel, seedreamModels } from "./seedream-models.js";
 
 const CAPABILITY_TTL_MS = 10 * 60_000;
 
@@ -13,6 +14,7 @@ export class ProviderImages implements ImageGenerator {
   constructor(
     private readonly runtime: () => Promise<ModelRuntime>,
     private readonly request: typeof fetch = fetch,
+    private readonly seedreamApiKey: () => string | undefined = () => undefined,
   ) {}
 
   async models(signal?: AbortSignal): Promise<ImageModel[]> {
@@ -21,10 +23,11 @@ export class ProviderImages implements ImageGenerator {
 
   /** Every connected image provider with its models, or the reason it has none. */
   async catalog(signal?: AbortSignal): Promise<MediaModelCatalog<ImageModel>> {
-    const runtime = await this.runtime();
+    const runtime = await this.runtime().catch(() => undefined);
     const entries = await Promise.all([
-      this.#openRouterEntry(runtime, signal),
-      this.#openAIEntry(runtime, signal),
+      runtime ? this.#openRouterEntry(runtime, signal) : undefined,
+      runtime ? this.#openAIEntry(runtime, signal) : undefined,
+      this.#seedreamEntry(),
     ]);
     const connected = entries.filter((entry): entry is CatalogEntry => Boolean(entry));
     return { models: connected.flatMap((entry) => entry.models), providers: connected.map((entry) => entry.status) };
@@ -53,6 +56,14 @@ export class ProviderImages implements ImageGenerator {
     return catalogEntry("openai", provider.name, () => this.#openAIModels(runtime, signal), "This OpenAI key or endpoint lists no GPT Image models.");
   }
 
+  #seedreamEntry(): CatalogEntry | undefined {
+    if (!this.seedreamApiKey()) return undefined;
+    return {
+      models: seedreamModels(),
+      status: { provider: SEEDREAM_PROVIDER_ID, providerName: SEEDREAM_PROVIDER_NAME, state: "ready" },
+    };
+  }
+
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
     const selection = await this.#selection(input.imageModel, signal);
     const definition = selection?.model;
@@ -73,7 +84,14 @@ export class ProviderImages implements ImageGenerator {
   }
 
   async #selection(requested?: ImageModelRef, signal?: AbortSignal): Promise<{ model: ImageModel; source: ImageSource } | undefined> {
-    const runtime = await this.runtime();
+    if (requested?.provider === SEEDREAM_PROVIDER_ID) return this.#seedreamSelection(requested.id);
+    let runtime: ModelRuntime;
+    try {
+      runtime = await this.runtime();
+    } catch (cause) {
+      if (!requested) return this.#seedreamSelection();
+      throw cause;
+    }
     if (requested?.provider === "openrouter") {
       const source = await resolveOpenRouterMediaSource(runtime, signal);
       if (!source) return undefined;
@@ -90,7 +108,13 @@ export class ProviderImages implements ImageGenerator {
     }
     const openAI = await this.#openAISelection(runtime, undefined, signal);
     if (openAI) return openAI;
-    return undefined;
+    return this.#seedreamSelection();
+  }
+
+  #seedreamSelection(requestedId?: string): { model: ImageModel; source: ImageSource } | undefined {
+    const apiKey = this.seedreamApiKey();
+    const model = requestedId ? seedreamModel(requestedId) : seedreamModels()[0];
+    return apiKey && model ? { model, source: { baseUrl: SEEDREAM_BASE_URL, apiKey } } : undefined;
   }
 
   async #openRouterModels(runtime: ModelRuntime, signal?: AbortSignal): Promise<ImageModel[]> {

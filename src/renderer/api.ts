@@ -237,6 +237,17 @@ export async function clearMeshyApiKey(): Promise<void> {
   await request("/settings/models/providers/meshy", { method: "DELETE" });
 }
 
+export async function updateSeedanceApiKey(providerId: string, apiKey: string): Promise<{ configured: boolean }> {
+  return request(`/settings/models/providers/${encodeURIComponent(providerId)}/seedance-key`, {
+    method: "PUT",
+    body: JSON.stringify({ apiKey }),
+  });
+}
+
+export async function clearSeedanceApiKey(providerId: string): Promise<void> {
+  await request(`/settings/models/providers/${encodeURIComponent(providerId)}/seedance-key`, { method: "DELETE" });
+}
+
 export async function startModelProviderLogin(providerId: string, method: ModelAuthMethod): Promise<string> {
   const result = await request<{ operationId: string }>(`/settings/models/providers/${encodeURIComponent(providerId)}/login`, {
     method: "POST",

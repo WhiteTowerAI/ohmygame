@@ -1,6 +1,8 @@
 import type { ImageProtocol } from "../shared/contracts.js";
 import { withOpenRouterAttribution } from "./openrouter-attribution.js";
 import { ImageGenerationError, OpenAIImageGenerator, type GeneratedImage, type GeneratedImageMediaType, type ImageGenerationInput } from "./openai-image.js";
+import { seedreamModel } from "./seedream-models.js";
+import { SeedreamProvider } from "./seedream-provider.js";
 
 export interface ImageSource {
   baseUrl: string;
@@ -24,6 +26,13 @@ export function createImageProtocolAdapters(request: Fetch = fetch): Record<Imag
     },
     "openrouter-images": {
       generate: (source, model, input, signal) => generateOpenRouter(source, model, input, signal, request),
+    },
+    "volcengine-images": {
+      generate: (source, model, input, signal) => {
+        const definition = seedreamModel(model);
+        if (!definition) throw new ImageGenerationError("The selected Seedream model is not available", 503);
+        return new SeedreamProvider(() => source.apiKey, request).generate(definition, input, signal);
+      },
     },
   };
 }

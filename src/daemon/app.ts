@@ -43,6 +43,8 @@ import { ProviderImages } from "./provider-images.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
+import { isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
+import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
@@ -491,7 +493,7 @@ const modelEndpointSchema = {
   },
 } as const;
 
-const meshySettingsSchema = {
+const apiKeySettingsSchema = {
   body: {
     type: "object",
     additionalProperties: false,
@@ -530,6 +532,7 @@ export function createApp(options: AppOptions = {}) {
   const previews = new PreviewManager(events);
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
   const meshySettings = new MeshySettingsStore(dataDirectory);
+  const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
@@ -579,8 +582,8 @@ export function createApp(options: AppOptions = {}) {
     getDeviceId: () => SettingsManager.create(piAgentDirectory, piAgentDirectory).getOrCreateDeviceId(),
     onCredentialsChanged: syncOpenAIEndpoint,
   });
-  const providerImages = new ProviderImages(getModelRuntime, options.imageFetch);
-  const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch);
+  const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"));
+  const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId));
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -701,7 +704,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), providerModelSettings.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
@@ -1735,7 +1738,7 @@ export function createApp(options: AppOptions = {}) {
           : provider.id === "openai" ? ["language", "image"] as const : ["language"] as const,
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
-    return [...providers, {
+    const directProviders = [{
       id: "meshy",
       name: "Meshy",
       configured: meshySettings.get().configured,
@@ -1743,15 +1746,43 @@ export function createApp(options: AppOptions = {}) {
       methods: [{ type: "api_key" as const, label: "Meshy API key" }],
       credentialType: "api_key" as const,
       capabilities: ["3d"] as const,
-    }].sort((left, right) => left.name.localeCompare(right.name));
+    }, ...SEEDANCE_PROVIDER_IDS.map((providerId) => {
+      const definition = SEEDANCE_PROVIDERS[providerId];
+      const configured = seedanceSettings.get(providerId).configured;
+      return {
+        id: definition.id,
+        name: definition.name,
+        configured,
+        status: configured ? "connected" as const : "not_configured" as const,
+        methods: [{ type: "api_key" as const, label: `${definition.name} API key` }],
+        credentialType: "api_key" as const,
+        capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
+      };
+    })];
+    return [...providers, ...directProviders].sort((left, right) => left.name.localeCompare(right.name));
   });
 
   app.get("/settings/models/providers/meshy", async () => meshySettings.get());
-  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/meshy", { schema: meshySettingsSchema }, async (request, reply) => {
+  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/meshy", { schema: apiKeySettingsSchema }, async (request, reply) => {
     try { return await meshySettings.update(request.body.apiKey); }
     catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
   app.delete("/settings/models/providers/meshy", async (_request, reply) => { await meshySettings.clear(); return reply.code(204).send(); });
+
+  app.put<{ Params: { providerId: string }; Body: { apiKey: string } }>(
+    "/settings/models/providers/:providerId/seedance-key",
+    { schema: apiKeySettingsSchema },
+    async (request, reply) => {
+      if (!isSeedanceProviderId(request.params.providerId)) return reply.code(404).send({ error: "Seedance provider not found" });
+      try { return await seedanceSettings.update(request.params.providerId, request.body.apiKey); }
+      catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+    },
+  );
+  app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/seedance-key", async (request, reply) => {
+    if (!isSeedanceProviderId(request.params.providerId)) return reply.code(404).send({ error: "Seedance provider not found" });
+    await seedanceSettings.clear(request.params.providerId);
+    return reply.code(204).send();
+  });
 
   app.get("/settings/models/providers/openai/endpoint", async () => openAIEndpoint.get());
 
