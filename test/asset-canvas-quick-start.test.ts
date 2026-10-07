@@ -58,6 +58,28 @@ describe("Asset Canvas quick start", () => {
     ]);
   });
 
+  it("drops cached models after provider settings change", async () => {
+    api.listImageModels.mockResolvedValue([GPT_IMAGE]);
+    await quickStart.loadQuickStartModels();
+    api.listImageModels.mockResolvedValue([]);
+    quickStart.invalidateQuickStartModels();
+    await expect(createAssetCanvasQuickStart(starter("gpt-image-2.5"))).rejects.toThrow("needs a provider");
+    expect(api.createProject).not.toHaveBeenCalled();
+  });
+
+  it("keeps an outdated catalog request from repopulating the cache", async () => {
+    let finish!: (models: ImageModel[]) => void;
+    api.listImageModels.mockImplementationOnce(() => new Promise<ImageModel[]>((resolve) => { finish = resolve; }));
+    const oldRequest = quickStart.loadQuickStartModels();
+    await vi.waitFor(() => expect(api.listImageModels).toHaveBeenCalledOnce());
+    quickStart.invalidateQuickStartModels();
+    api.listImageModels.mockResolvedValue([]);
+    await quickStart.loadQuickStartModels();
+    finish([GPT_IMAGE]);
+    await oldRequest;
+    await expect(createAssetCanvasQuickStart(starter("gpt-image-2.5"))).rejects.toThrow("needs a provider");
+  });
+
   it("creates a canvas with the selected image model and a setting it supports", async () => {
     api.listImageModels.mockResolvedValue([GPT_IMAGE, NANO_BANANA]);
 

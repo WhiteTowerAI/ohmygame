@@ -2,14 +2,17 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
-import { CUSTOM_MODEL_APIS, type CustomProviderModel, type ModelRef } from "../shared/contracts.js";
+import { CUSTOM_MODEL_APIS, type CustomProviderDetails, type CustomProviderModel, type SaveCustomProviderRequest, type ModelRef } from "../shared/contracts.js";
 
 type JsonObject = Record<string, unknown>;
+type CustomProviderRegistry = Record<string, { authentication: "api_key" | "none" }>;
 
 export class ProviderModelSettingsStore {
   readonly #preferencesPath: string;
   readonly #modelsPath: string;
   #hidden: Record<string, string[]> = {};
+  #disabled: string[] = [];
+  #customProviders: CustomProviderRegistry = {};
   #pending: Promise<unknown> = Promise.resolve();
 
   constructor(dataDirectory: string, piAgentDirectory: string) {
@@ -20,9 +23,125 @@ export class ProviderModelSettingsStore {
   async load(): Promise<void> {
     const text = await readOptional(this.#preferencesPath);
     if (!text) return;
-    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown };
+    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; customProviders?: unknown };
     if (stored.version !== 1 || !isObject(stored.hidden) || Object.values(stored.hidden).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) throw new Error("Invalid model visibility settings");
     this.#hidden = stored.hidden as Record<string, string[]>;
+    if (stored.disabled !== undefined && (!Array.isArray(stored.disabled) || stored.disabled.some((id) => typeof id !== "string"))) throw new Error("Invalid disabled providers");
+    if (stored.customProviders !== undefined && (!isObject(stored.customProviders) || Object.values(stored.customProviders).some((item) => !isObject(item) || !["api_key", "none"].includes(String(item.authentication))))) throw new Error("Invalid custom providers");
+    this.#disabled = (stored.disabled ?? []) as string[];
+    this.#customProviders = (stored.customProviders ?? {}) as CustomProviderRegistry;
+  }
+
+  isEnabled(provider: string): boolean { return !this.#disabled.includes(provider); }
+  isCustom(provider: string): boolean { return Object.hasOwn(this.#customProviders, provider); }
+
+  setEnabled(provider: string, enabled: boolean): Promise<void> {
+    return this.#enqueue(async () => {
+      const disabled = new Set(this.#disabled);
+      enabled ? disabled.delete(provider) : disabled.add(provider);
+      await this.#writePreferences({ disabled: [...disabled] });
+      this.#disabled = [...disabled];
+    });
+  }
+
+  async customProvider(id: string): Promise<CustomProviderDetails | undefined> {
+    if (!this.isCustom(id)) return undefined;
+    const { config } = await this.#readModels();
+    const entry = isObject(config.providers) ? config.providers[id] : undefined;
+    if (!isObject(entry)) throw new Error("Custom provider configuration is missing");
+    const api = String(entry.api);
+    const baseUrl = String(entry.baseUrl);
+    const models = (Array.isArray(entry.models) ? entry.models.filter(isObject) : []).map((model) => normalizeCustomProviderModel({ ...model, supportsImages: Array.isArray(model.input) && model.input.includes("image") }, api, baseUrl));
+    return {
+      id, name: String(entry.name), api, baseUrl, authentication: this.#customProviders[id].authentication,
+      models, hiddenModelIds: models.filter((model) => !this.isVisible({ provider: id, id: model.id })).map((model) => model.id),
+    };
+  }
+
+  saveCustomProvider(id: string, settings: SaveCustomProviderRequest, apply: () => Promise<void>): Promise<void> {
+    return this.#enqueue(async () => {
+      const { text, config } = await this.#readModels();
+      const existing = isObject(config.providers) ? config.providers[id] : undefined;
+      if (existing !== undefined && !this.isCustom(id)) throw new Error("Only custom providers can be edited");
+      // Edit individual fields so existing model definitions and JSONC comments survive.
+      let contents = text;
+      const fields: JsonObject = { name: settings.name, api: settings.api, baseUrl: settings.baseUrl };
+      const models = settings.models ?? (!existing ? [] : undefined);
+      if (models && (!isObject(existing) || !Array.isArray(existing.models) || !existing.models.length)) fields.models = models.map((model) => modelDefinition(model, settings.api, settings.baseUrl));
+      for (const [key, value] of Object.entries(fields)) contents = applyEdits(contents, modify(contents, ["providers", id, key], value, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      if (models && isObject(existing) && Array.isArray(existing.models) && existing.models.length) {
+        const desired = new Map(models.map((model) => [model.id, modelDefinition(model, settings.api, settings.baseUrl)]));
+        let index = 0;
+        for (const previous of existing.models) {
+          const definition = isObject(previous) ? desired.get(String(previous.id)) : undefined;
+          if (!definition) {
+            contents = applyEdits(contents, modify(contents, ["providers", id, "models", index], undefined, {}));
+            continue;
+          }
+          // Preserve model comments, pricing and provider-specific fields while editing supported settings.
+          for (const key of ["name", "api", "baseUrl", "contextWindow", "maxTokens", "reasoning", "input"]) {
+            if (JSON.stringify(previous[key]) !== JSON.stringify(definition[key])) contents = applyEdits(contents, modify(contents, ["providers", id, "models", index, key], definition[key], { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+          }
+          desired.delete(String(previous.id));
+          index += 1;
+        }
+        for (const definition of desired.values()) {
+          contents = applyEdits(contents, modify(contents, ["providers", id, "models", index++], definition, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+        }
+      }
+      const customProviders = { ...this.#customProviders, [id]: { authentication: settings.authentication } };
+      const hidden = { ...this.#hidden };
+      if (models) {
+        const ids = new Set(models.map((model) => model.id));
+        hidden[id] = (settings.hiddenModelIds ?? hidden[id] ?? []).filter((modelId) => ids.has(modelId));
+      }
+      const oldPreferences = this.#preferences();
+      try {
+        await writeAtomic(this.#modelsPath, contents);
+        await this.#writePreferences({ customProviders, hidden });
+        await apply();
+        this.#customProviders = customProviders;
+        this.#hidden = hidden;
+      } catch (cause) {
+        await writeAtomic(this.#modelsPath, text);
+        await writeAtomic(this.#preferencesPath, oldPreferences);
+        throw cause;
+      }
+    });
+  }
+
+  removeCustomProvider(id: string, apply: () => Promise<void>): Promise<void> {
+    return this.#enqueue(async () => {
+      if (!this.isCustom(id)) throw new Error("Only custom providers can be removed");
+      const { text } = await this.#readModels();
+      const contents = applyEdits(text, modify(text, ["providers", id], undefined, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      const customProviders = { ...this.#customProviders };
+      const hidden = { ...this.#hidden };
+      delete customProviders[id];
+      delete hidden[id];
+      const disabled = this.#disabled.filter((provider) => provider !== id);
+      const oldPreferences = this.#preferences();
+      try {
+        await writeAtomic(this.#modelsPath, contents);
+        await this.#writePreferences({ customProviders, hidden, disabled });
+        await apply();
+        this.#customProviders = customProviders;
+        this.#hidden = hidden;
+        this.#disabled = disabled;
+      } catch (cause) {
+        await writeAtomic(this.#modelsPath, text);
+        await writeAtomic(this.#preferencesPath, oldPreferences);
+        throw cause;
+      }
+    });
+  }
+
+  #preferences(overrides: JsonObject = {}): string {
+    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, customProviders: this.#customProviders, ...overrides }, null, 2)}\n`;
+  }
+
+  #writePreferences(overrides: JsonObject): Promise<void> {
+    return writeAtomic(this.#preferencesPath, this.#preferences(overrides));
   }
 
   isVisible(model: ModelRef): boolean {
@@ -35,7 +154,7 @@ export class ProviderModelSettingsStore {
       const hidden = new Set(Array.isArray(this.#hidden[provider]) ? this.#hidden[provider] : []);
       for (const id of ids) visible ? hidden.delete(id) : hidden.add(id);
       const next = { ...this.#hidden, [provider]: [...hidden] };
-      await writeAtomic(this.#preferencesPath, `${JSON.stringify({ version: 1, hidden: next }, null, 2)}\n`);
+      await this.#writePreferences({ hidden: next });
       this.#hidden = next;
     });
   }
@@ -52,13 +171,7 @@ export class ProviderModelSettingsStore {
       const entry = isObject(config.providers) ? config.providers[provider] : undefined;
       const models = isObject(entry) && Array.isArray(entry.models) ? entry.models : [];
       if (models.some((item) => isObject(item) && item.id === model.id)) throw new Error("A model with this ID already exists");
-      const definition = {
-        id: model.id, name: model.name, api: model.api,
-        ...(model.baseUrl ? { baseUrl: model.baseUrl } : {}),
-        contextWindow: model.contextWindow, maxTokens: model.maxTokens,
-        reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      };
+      const definition = modelDefinition(model, this.isCustom(provider) && isObject(entry) ? String(entry.api) : undefined, this.isCustom(provider) && isObject(entry) ? String(entry.baseUrl) : undefined);
       const contents = applyEdits(text, modify(text, ["providers", provider, "models"], [...models, definition], { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
       await writeAtomic(this.#modelsPath, contents);
     });
@@ -89,6 +202,45 @@ export class ProviderModelSettingsStore {
     this.#pending = next.catch(() => undefined);
     return next;
   }
+}
+
+function modelDefinition(model: CustomProviderModel, inheritedApi?: string, inheritedBaseUrl?: string): JsonObject {
+  return {
+    id: model.id, name: model.name,
+    ...(model.api !== inheritedApi ? { api: model.api } : {}),
+    ...(model.baseUrl && model.baseUrl !== inheritedBaseUrl ? { baseUrl: model.baseUrl } : {}),
+    contextWindow: model.contextWindow, maxTokens: model.maxTokens,
+    reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  };
+}
+
+export function normalizeCustomProvider(value: unknown): SaveCustomProviderRequest {
+  if (!isObject(value)) throw new Error("Invalid custom provider");
+  const name = typeof value.name === "string" ? value.name.trim() : "";
+  if (!name || name.length > 100 || /[\x00-\x1f]/.test(name)) throw new Error("Provider name is required (up to 100 characters)");
+  const api = typeof value.api === "string" ? value.api : "";
+  if (!CUSTOM_MODEL_APIS.some((known) => known === api)) throw new Error("Unsupported provider API");
+  const baseUrl = typeof value.baseUrl === "string" ? value.baseUrl.trim().replace(/\/+$/, "") : "";
+  let url: URL;
+  try { url = new URL(baseUrl); } catch { throw new Error("Invalid provider Base URL"); }
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Base URL must be an HTTP(S) URL without credentials, query or fragment");
+  if (value.authentication !== "api_key" && value.authentication !== "none") throw new Error("Invalid authentication method");
+  const apiKey = typeof value.apiKey === "string" ? value.apiKey.trim() : undefined;
+  if (apiKey && /[^\x20-\x7e]/.test(apiKey)) throw new Error("API key must contain printable ASCII characters");
+  let models: CustomProviderModel[] | undefined;
+  if (value.models !== undefined) {
+    if (!Array.isArray(value.models) || value.models.length > 2_000) throw new Error("Provide up to 2,000 models");
+    models = value.models.map((model) => normalizeCustomProviderModel(model, api, baseUrl));
+    if (new Set(models.map((model) => model.id)).size !== models.length) throw new Error("Model IDs must be unique");
+  }
+  let hiddenModelIds: string[] | undefined;
+  if (value.hiddenModelIds !== undefined) {
+    const ids = new Set(models?.map((model) => model.id));
+    if (!models || !Array.isArray(value.hiddenModelIds) || value.hiddenModelIds.length > models.length || value.hiddenModelIds.some((id) => typeof id !== "string" || !ids.has(id))) throw new Error("Hidden model IDs must belong to the submitted model list");
+    hiddenModelIds = [...new Set(value.hiddenModelIds as string[])];
+  }
+  return { name, api, baseUrl, authentication: value.authentication, ...(apiKey ? { apiKey } : {}), ...(models ? { models } : {}), ...(hiddenModelIds ? { hiddenModelIds } : {}) };
 }
 
 export function normalizeCustomProviderModel(value: unknown, defaultApi: string, defaultBaseUrl?: string): CustomProviderModel {

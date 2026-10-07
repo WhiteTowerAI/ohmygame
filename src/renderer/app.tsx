@@ -6,13 +6,13 @@ import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
 import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { AssetCanvasHome } from "./asset-canvas-home.js";
-import { loadQuickStartModels } from "./asset-canvas-quick-start.js";
+import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { GameStudioHome } from "./game-studio-home.js";
 import { SettingsPage } from "./settings-page.js";
 import type { PluginMention, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { pluginMentionToken } from "../shared/plugins.js";
-import { createConversation, createPluginAuthoringSession, createProject } from "./api.js";
+import { createConversation, createPluginAuthoringSession, createProject, MODELS_CHANGED_EVENT } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
 
 export function App() {
@@ -22,7 +22,12 @@ export function App() {
   const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
 
   // Provider catalogs are slow; load them now so asset canvas quick starts open without waiting.
-  useEffect(() => { void loadQuickStartModels(); }, []);
+  useEffect(() => {
+    void loadQuickStartModels();
+    const refresh = () => { invalidateQuickStartModels(); void loadQuickStartModels(); };
+    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
+  }, []);
 
   useEffect(() => {
     const updateRoute = () => {

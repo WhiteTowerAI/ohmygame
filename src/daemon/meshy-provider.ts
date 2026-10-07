@@ -20,6 +20,7 @@ export class MeshyProvider implements Model3DGenerator {
     private readonly apiKey: () => string | undefined,
     private readonly request: typeof fetch = fetch,
     private readonly pollIntervalMs = POLL_INTERVAL_MS,
+    private readonly isEnabled: () => boolean = () => true,
   ) {}
 
   async generate(input: Model3DGenerationInput, signal?: AbortSignal): Promise<Generated3DModel> {
@@ -104,6 +105,7 @@ export class MeshyProvider implements Model3DGenerator {
   }
 
   async #session<T>(signal: AbortSignal | undefined, timeoutMessage: string, run: (apiKey: string, signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (!this.isEnabled()) throw new Model3DGenerationError("Meshy provider is disabled", 409);
     const apiKey = this.apiKey();
     if (!apiKey) throw new Model3DGenerationError("Meshy API key is not configured", 503);
     const timeout = AbortSignal.timeout(MAX_WAIT_MS);

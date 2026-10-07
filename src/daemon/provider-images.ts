@@ -15,6 +15,7 @@ export class ProviderImages implements ImageGenerator {
     private readonly runtime: () => Promise<ModelRuntime>,
     private readonly request: typeof fetch = fetch,
     private readonly seedreamApiKey: () => string | undefined = () => undefined,
+    private readonly isEnabled: (provider: string) => boolean = () => true,
   ) {}
 
   async models(signal?: AbortSignal): Promise<ImageModel[]> {
@@ -34,12 +35,14 @@ export class ProviderImages implements ImageGenerator {
   }
 
   async #openRouterEntry(runtime: ModelRuntime, signal?: AbortSignal): Promise<CatalogEntry | undefined> {
+    if (!this.isEnabled("openrouter")) return undefined;
     const source = await resolveOpenRouterMediaSource(runtime, signal).catch(() => undefined);
     if (!source) return undefined;
     return catalogEntry("openrouter", "OpenRouter", () => listOpenRouterImageModels(source, this.request, signal), "OpenRouter lists no image models for this account.");
   }
 
   async #openAIEntry(runtime: ModelRuntime, signal?: AbortSignal): Promise<CatalogEntry | undefined> {
+    if (!this.isEnabled("openai")) return undefined;
     const provider = runtime.getProvider("openai");
     if (!provider || !runtime.hasConfiguredAuth("openai")) return undefined;
     const signedIn = await Promise.resolve()
@@ -57,7 +60,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   #seedreamEntry(): CatalogEntry | undefined {
-    if (!this.seedreamApiKey()) return undefined;
+    if (!this.isEnabled(SEEDREAM_PROVIDER_ID) || !this.seedreamApiKey()) return undefined;
     return {
       models: seedreamModels(),
       status: { provider: SEEDREAM_PROVIDER_ID, providerName: SEEDREAM_PROVIDER_NAME, state: "ready" },
@@ -65,6 +68,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   async generate(input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
+    if (input.imageModel && !this.isEnabled(input.imageModel.provider)) throw new ImageGenerationError("The selected provider is disabled", 409);
     const selection = await this.#selection(input.imageModel, signal);
     const definition = selection?.model;
     if (!selection || !definition) throw new ImageGenerationError("Image generation is not configured", 503);
@@ -101,7 +105,7 @@ export class ProviderImages implements ImageGenerator {
     if (requested?.provider === "openai") return this.#openAISelection(runtime, requested.id, signal);
     if (requested) return undefined;
 
-    const openRouterSource = await resolveOpenRouterMediaSource(runtime, signal);
+    const openRouterSource = this.isEnabled("openrouter") ? await resolveOpenRouterMediaSource(runtime, signal) : undefined;
     if (openRouterSource) {
       const model = (await listOpenRouterImageModels(openRouterSource, this.request, signal))[0];
       if (model) return { model, source: openRouterSource };
@@ -112,6 +116,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   #seedreamSelection(requestedId?: string): { model: ImageModel; source: ImageSource } | undefined {
+    if (!this.isEnabled(SEEDREAM_PROVIDER_ID)) return undefined;
     const apiKey = this.seedreamApiKey();
     const model = requestedId ? seedreamModel(requestedId) : seedreamModels()[0];
     return apiKey && model ? { model, source: { baseUrl: SEEDREAM_BASE_URL, apiKey } } : undefined;
@@ -143,6 +148,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   async #openAISelection(runtime: ModelRuntime, requestedId?: string, signal?: AbortSignal): Promise<{ model: ImageModel; source: ImageSource } | undefined> {
+    if (!this.isEnabled("openai")) return undefined;
     const provider = runtime.getProvider("openai");
     if (!provider || !runtime.hasConfiguredAuth("openai")) return undefined;
     const source = await runtimeSource(runtime, "openai", signal);
