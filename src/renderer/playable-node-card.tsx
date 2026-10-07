@@ -25,6 +25,8 @@ export const PlayableCanvasContext = createContext<{
   onRenameNode: (nodeId: string, title: string) => void;
   /** Selects a connection whose line is not drawn, such as a navigation Exit's. */
   onSelectEdge: (edgeId: string) => void;
+  /** Opens the node workbench editor panel. */
+  onOpenNode: (nodeId: string) => void;
 } | undefined>(undefined);
 
 export const PLAYABLE_NODE_TYPES: NodeTypes = { playable: PlayableNodeCard };
@@ -45,6 +47,16 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
       <PlayableNodePicture projectId={canvas?.projectId} technical={Boolean(canvas?.technical)} node={node} thumbnail={thumbnail} coverAsset={coverAsset} />
       {thumbnail?.stale && !failed ? <span className="playable-node-stale" title="The Scene changed since this picture was taken.">Stale</span> : null}
       {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
+      <button
+        type="button"
+        className="playable-node-open-button nodrag"
+        onClick={(event) => {
+          event.stopPropagation();
+          canvas?.onOpenNode(id);
+        }}
+      >
+        Open Scene editor
+      </button>
     </div>
     <PlayableSignalOutputs signals={node.signals} connected={connected} technical={Boolean(canvas?.technical)} onSelectEdge={canvas?.onSelectEdge} />
   </div>;

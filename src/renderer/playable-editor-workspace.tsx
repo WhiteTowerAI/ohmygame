@@ -855,7 +855,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       };
     });
   }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase, thumbnails, builtDefinition]);
-  const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode, onSelectEdge: selectEdge }), [projectId, technical]);
+  const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: openNode }), [projectId, technical]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const showCodeTab = technical || workspaceView === "code";
   const tabs: WorkspaceTabOption<"canvas" | "design" | "code">[] = [

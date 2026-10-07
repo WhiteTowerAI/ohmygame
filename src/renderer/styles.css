@@ -14282,6 +14282,34 @@ button {
   padding: 16px;
 }
 
+.playable-node-open-button {
+  position: absolute;
+  z-index: 3;
+  right: 8px;
+  bottom: 8px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, background 120ms ease;
+  white-space: nowrap;
+}
+
+.playable-node-stage:hover > .playable-node-open-button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.playable-node-open-button:hover {
+  background: var(--surface-hover);
+}
+
 .playable-node-summary {
   display: flex;
   min-width: 0;
