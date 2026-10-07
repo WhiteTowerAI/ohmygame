@@ -203,7 +203,7 @@ describe("tool runner", () => {
     expect(run).not.toHaveProperty("prompt");
 
     const runDirectory = path.join(dataDirectory, "tools", "runs", run.id);
-    expect(await readdir(runDirectory)).toEqual(["output.webp", "run.json"]);
+    expect((await readdir(runDirectory)).sort()).toEqual(["output.webp", "run.json"]);
     expect(await readFile(path.join(runDirectory, "output.webp"))).toEqual(Buffer.from([0, 1, 2, 255]));
     const storedRun = JSON.parse(await readFile(path.join(runDirectory, "run.json"), "utf8"));
     expect(storedRun).toMatchObject({
@@ -232,7 +232,7 @@ describe("tool runner", () => {
       { name: "output-2.webp", mediaType: "image/webp" },
     ]);
 
-    expect(await readdir(path.join(dataDirectory, "tools", "runs", run.id))).toEqual(["output-1.webp", "output-2.webp", "run.json"]);
+    expect((await readdir(path.join(dataDirectory, "tools", "runs", run.id))).sort()).toEqual(["output-1.webp", "output-2.webp", "run.json"]);
   });
 
   it("validates requests and reports missing configuration", async () => {

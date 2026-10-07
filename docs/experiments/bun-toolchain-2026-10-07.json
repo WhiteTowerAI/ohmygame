@@ -398,6 +398,11 @@
     "build_desktop_app": "passed from fresh prepared resources",
     "examples": "3 prepared from 1d2d2f84a34277c58c597daa978ab0eb1a26aad9",
     "typecheck": "passed",
-    "node_runtime": "Node.js 22.19.0: daemon startup and authenticated API passed"
+    "node_runtime": "Node.js 22.19.0: daemon startup and authenticated API passed",
+    "linux_test_adaptations": [
+      "Sort directory entries before comparing the complete expected image-tool file list",
+      "Disable Shiki tokenization time budget only in the fixed short-fixture test mock; retain the production 500ms budget and all color/escape assertions"
+    ],
+    "github_cloud_contract_tests": "19 skipped because the adjacent cloud repository is not available on CI; all 19 passed in the full local suite"
   }
 }
