@@ -6,6 +6,7 @@ import { PlaytestPage } from "./playtest.js";
 import { NodeThumbnailPage } from "./node-thumbnail-page.js";
 import { parseAppRoute } from "./routes.js";
 import { applyAppearance, readAppearance } from "./appearance.js";
+import { DesktopWindowFrame } from "./desktop-window-frame.js";
 import { initializeAnalytics } from "./analytics.js";
 import "./styles.css";
 
@@ -23,4 +24,4 @@ createRoot(root).render(route.page === "playtest"
   ? <PlaytestPage projectId={route.projectId} />
   : route.page === "thumbnail"
     ? <NodeThumbnailPage projectId={route.projectId} nodeId={route.nodeId} />
-    : <AuthProvider><App /></AuthProvider>);
+    : <DesktopWindowFrame><AuthProvider><App /></AuthProvider></DesktopWindowFrame>);

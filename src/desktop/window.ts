@@ -13,6 +13,8 @@ interface CreateWindowOptions {
   rendererFile?: string;
   rendererHash?: string;
   sidebarVibrancy?: boolean;
+  /** Hosts the application menu in a single custom Windows title bar. */
+  integratedMenuBar?: boolean;
   contentSize?: { width: number; height: number };
   aspectRatio?: number;
   minWidth?: number;
@@ -52,7 +54,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     `--ohmygame-daemon-url=${options.runtime.url}`,
     `--ohmygame-daemon-token=${options.runtime.token}`,
   ];
-  const macWindowOptions = process.platform === "darwin"
+  const platformWindowOptions = process.platform === "darwin"
     ? {
         titleBarStyle: "hiddenInset" as const,
         ...(options.sidebarVibrancy ? {
@@ -63,6 +65,15 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
           visualEffectState: "active" as const,
         } : {}),
       }
+    : process.platform === "win32" && options.integratedMenuBar
+      ? {
+          titleBarStyle: "hidden" as const,
+          titleBarOverlay: {
+            color: "#f7f7f7",
+            symbolColor: "#202020",
+            height: 32,
+          },
+        }
     : {};
   const window = new BrowserWindow({
     width: options.contentSize?.width ?? 1440,
@@ -72,7 +83,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     ...(options.contentSize ? { useContentSize: true } : {}),
     backgroundColor: "#171717",
     show: false,
-    ...macWindowOptions,
+    ...platformWindowOptions,
     webPreferences: {
       preload: path.resolve(options.preloadPath),
       additionalArguments: runtimeArguments,

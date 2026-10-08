@@ -20,6 +20,11 @@ if (process.isMainFrame) {
     }),
     setAppearance: (appearance: "system" | "light" | "dark") =>
       ipcRenderer.invoke("ohmygame:set-appearance", appearance) as Promise<void>,
+    windowMenu: Object.freeze({
+      icon: () => ipcRenderer.invoke("ohmygame:window-menu-icon") as Promise<string>,
+      popup: (label: string, x: number, y: number) =>
+        ipcRenderer.invoke("ohmygame:popup-window-menu", label, x, y) as Promise<void>,
+    }),
     openExternal: (url: string) => ipcRenderer.invoke("ohmygame:open-auth-url", url) as Promise<void>,
     openProjectFile: (projectId: string, filePath: string, mode: ProjectFileOpenMode = "default") =>
       ipcRenderer.invoke("ohmygame:open-project-file", projectId, filePath, mode) as Promise<void>,

@@ -176,4 +176,27 @@ describe("desktop window", () => {
       expect(sidebar.options.transparent).toBeUndefined();
     }
   });
+
+  it("uses a single integrated title and menu bar for the Windows main window", async () => {
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+      integratedMenuBar: true,
+    });
+
+    const window = electron.windows[0] as { options: Record<string, unknown> };
+    if (process.platform === "win32") {
+      expect(window.options).toMatchObject({
+        titleBarStyle: "hidden",
+        titleBarOverlay: { color: "#f7f7f7", symbolColor: "#202020", height: 32 },
+      });
+    } else if (process.platform === "darwin") {
+      expect(window.options.titleBarStyle).toBe("hiddenInset");
+      expect(window.options.titleBarOverlay).toBeUndefined();
+    } else {
+      expect(window.options.titleBarStyle).toBeUndefined();
+      expect(window.options.titleBarOverlay).toBeUndefined();
+    }
+  });
 });
