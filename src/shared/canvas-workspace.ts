@@ -95,5 +95,13 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     if ("promptSource" in data && data.promptSource && !ids.has(data.promptSource.nodeId)) delete data.promptSource;
     return { ...node, data } as AssetCanvasNode;
   });
-  return { ...local, nodes: cleaned, edges: edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)), viewport, editorLayout: { ...local.editorLayout, viewport: merge(base.editorLayout.viewport, local.editorLayout.viewport, remote.editorLayout.viewport) ?? local.editorLayout.viewport, nodes: Object.fromEntries(nodes.map((node) => [node.id, node.position])) } };
+  return {
+    ...local, nodes: cleaned, edges: edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)), viewport,
+    editorLayout: {
+      ...local.editorLayout,
+      fitView: merge(base.editorLayout.fitView, local.editorLayout.fitView, remote.editorLayout.fitView),
+      viewport: merge(base.editorLayout.viewport, local.editorLayout.viewport, remote.editorLayout.viewport) ?? local.editorLayout.viewport,
+      nodes: Object.fromEntries(nodes.map((node) => [node.id, node.position])),
+    },
+  };
 }

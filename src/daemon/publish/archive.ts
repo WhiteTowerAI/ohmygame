@@ -9,7 +9,9 @@ import type { ProjectState } from "../../shared/contracts.js";
 import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES } from "../../shared/plugins.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
 import type { AssetLibrary } from "../asset-library.js";
-import { packageManagerCommand, packageManagerInstallArguments, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
+import { packageManagerCommand, packageManagerRunArguments, resolvePackageManager } from "../package-manager.js";
+import { ensureProjectDependencies } from "../project-dependencies.js";
+import { projectProcessEnvironment } from "../project-process.js";
 import { resolveStartupDirectory } from "../projects.js";
 import { buildPlayableProject, nodeGraphSignature } from "../playable-project.js";
 import { isCompiledNodeGraph } from "../../shared/playable-compiled.js";
@@ -299,11 +301,11 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
     if (typeof build !== "string" || !build.trim()) {
       throw new PublishError("Projects with package.json need a non-empty scripts.build command before publishing");
     }
-    if (hasDependencies(packageJson) && !await exists(path.join(workspacePath, "node_modules"))) {
-      const packageManager = await resolvePackageManager(workspacePath, project?.packageManager);
-      await run(packageManagerCommand(packageManager), packageManagerInstallArguments(packageManager), workspacePath, track);
-    }
     const packageManager = await resolvePackageManager(workspacePath, project?.packageManager);
+    if (hasDependencies(packageJson)) {
+      await ensureProjectDependencies(workspacePath, packageManager,
+        (command, args) => run(command, args, workspacePath, track));
+    }
     await run(packageManagerCommand(packageManager), packageManagerRunArguments("build"), workspacePath, track);
     const output = await findBuildOutput(workspacePath);
     if (!output) throw new PublishError("Build completed but did not produce a static index.html in dist, build, or out");
@@ -383,7 +385,7 @@ async function findBuildOutput(workspacePath: string): Promise<string | undefine
 async function run(command: string, args: string[], cwd: string, track: (child: ChildProcess) => void): Promise<void> {
   const child = spawn(command, args, {
     cwd,
-    env: { ...process.env, BROWSER: "none" },
+    env: { ...projectProcessEnvironment(), BROWSER: "none" },
     stdio: ["ignore", "ignore", "pipe"],
     detached: process.platform !== "win32",
     shell: process.platform === "win32",

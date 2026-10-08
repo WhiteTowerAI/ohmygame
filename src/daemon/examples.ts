@@ -6,6 +6,8 @@ import { isPreparedExampleCatalog, type ExampleSummary, type PreparedExample } f
 import { LoopbackFileServer } from "./loopback-file-server.js";
 import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { ProjectWorkspaceError, type ProjectManager } from "./projects.js";
+import { readCanvasBoard, readCanvasIndex } from "./canvas-workspace.js";
+import { writeCanvasJson } from "./canvas-files.js";
 
 export class ExampleError extends Error {
   constructor(message: string, readonly statusCode: 400 | 404) {
@@ -119,6 +121,14 @@ export class ExampleStore {
           force: false,
           errorOnExist: true,
         });
+      }
+      // Preserve node coordinates, but frame each copied board for the new window.
+      const canvas = await readCanvasIndex(project.workspacePath);
+      for (const entry of canvas?.boards ?? []) {
+        const detail = await readCanvasBoard(project.workspacePath, entry.id);
+        if (detail?.board.nodes.length) {
+          await writeCanvasJson(project.workspacePath, `editor/${entry.id}.json`, { ...detail.board.editorLayout, fitView: true });
+        }
       }
       // Agent instructions and schemas follow this app version, not the example.
       if (example.type === "interactive-story") await ensureNodeCodebaseContract(project.workspacePath);

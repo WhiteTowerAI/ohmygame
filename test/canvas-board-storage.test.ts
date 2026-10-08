@@ -41,6 +41,24 @@ function adapter(onConflict = vi.fn(), flushDocuments = vi.fn<() => Promise<void
 }
 
 describe("canvas board storage", () => {
+  it("keeps a consumed remix fit request cleared when merging unsaved edits", async () => {
+    const base = canvas();
+    base.editorLayout.fitView = true;
+    api.getCanvasBoard.mockResolvedValue(detail(base));
+    const storage = adapter();
+    const local = structuredClone(await storage.load());
+    local.nodes[0]!.title = "Local edit";
+    const remote = structuredClone(base);
+    delete remote.editorLayout.fitView;
+    remote.editorLayout.viewport = { x: 32, y: 64, zoom: 0.3 };
+    api.getCanvasBoard.mockResolvedValue(detail(remote, "fitted"));
+    const merged = await storage.refresh(local);
+    expect(merged?.editorLayout.fitView).toBeUndefined();
+    expect(merged?.editorLayout.viewport).toEqual(remote.editorLayout.viewport);
+    expect(merged?.nodes[0]!.title).toBe("Local edit");
+    expect(merged?.nodes[0]!.position).toEqual(base.nodes[0]!.position);
+  });
+
   it("keeps a conflicting recovery draft through autosave, polling, generation and reload", async () => {
     const base = canvas(), local = structuredClone(base), remote = structuredClone(base);
     local.nodes[0]!.title = "My version"; remote.nodes[0]!.title = "Disk version";

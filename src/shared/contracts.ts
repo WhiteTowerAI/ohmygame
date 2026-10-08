@@ -255,6 +255,8 @@ export interface AssetCanvasEditorLayout {
   version: 1;
   nodes: Record<string, AssetCanvasPosition>;
   viewport: { x: number; y: number; zoom: number };
+  /** Fit a remixed board once its nodes are measured, then save the new viewport. */
+  fitView?: boolean;
   view: "canvas";
 }
 
