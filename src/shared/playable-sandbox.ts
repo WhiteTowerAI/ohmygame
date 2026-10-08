@@ -126,6 +126,10 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
       if (tool === "move") return place(movableTarget(event.composedPath())?.pick.box);
       const pick = describePlayablePick(event.composedPath());
       const target = event.composedPath()[0];
+      if (pick && tool === "select" && !pick.source) {
+        place(undefined);
+        return;
+      }
       place(pick && (tool === "select" || isTextTarget(target)) ? pick.box : undefined);
     };
     const finish = (commit: boolean) => {
@@ -205,7 +209,7 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
       if (inside(event)) return;
       finish(true);
       const pick = describePlayablePick(event.composedPath());
-      if (!pick) return;
+      if (!pick || !pick.source) return;
       if (tool === "select") {
         const mouse = event as MouseEvent;
         handlers.onPick(pick, mouse.shiftKey || mouse.metaKey || mouse.ctrlKey);
@@ -242,6 +246,7 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
       this.stopPicking();
       handlers.onCancel();
     };
+    const leavePreview = () => place(undefined);
     const listeners: Array<[string, (event: Event) => void]> = [
       ["pointermove", hover],
       ["pointerover", hover],
@@ -254,12 +259,14 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
     ];
     for (const [type, listener] of listeners)
       view.addEventListener(type, listener, { capture: true });
+    this.#projectRoot.addEventListener("pointerleave", leavePreview);
     this.#picking = {
       stop: () => {
         finish(true);
         endDrag(false);
         for (const [type, listener] of listeners)
           view.removeEventListener(type, listener, { capture: true });
+        this.#projectRoot.removeEventListener("pointerleave", leavePreview);
         outline.remove();
         this.#projectRoot.style.cursor = previousCursor;
       },
