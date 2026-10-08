@@ -131,8 +131,8 @@ OhMyGame does not lock you into one model or charge per run.
 - **Sign in with a subscription you already have**, such as ChatGPT Plus/Pro or
   GitHub Copilot, or paste an API key.
   <!-- TODO(legal): check each provider's terms before naming more subscriptions -->
-- **Media models** for images, video, and 3D through OpenAI, Gemini,
-  OpenRouter, and Meshy.
+- **Media models** for images, video, and 3D through OpenAI, OpenRouter,
+  Volcengine Ark / BytePlus ModelArk, and Meshy.
 
 Keys stay in the local daemon. They never reach the agent's workspace, your
 game, or the renderer.
@@ -143,13 +143,36 @@ game, or the renderer.
 
 Grab the installer from the buttons at the top or from
 [Releases](https://github.com/WhiteTowerAI/ohmygame/releases). Builds are
-available for macOS (Apple silicon) and Windows (x64).
+available for macOS (Apple silicon) and Windows (x64). The Windows build is
+not code-signed yet, so Windows may show a SmartScreen warning during install.
 
-Open the app, connect a model provider under **Providers & Models**, and describe your
-first game.
+### First run
 
-<!-- TODO(copy): short first-run guide once the BYOK onboarding lands:
-which providers are supported, where to get a key, rough cost of one game -->
+OhMyGame ships without a model. Connect one before your first prompt:
+
+1. **Open Settings → Providers & Models** and connect a provider for the
+   agent. Sign in with a subscription you already have, such as ChatGPT
+   Plus/Pro or Anthropic, or paste an API key. OpenRouter is the
+   quickest start: one key covers language, image, and video models.
+2. **Add media providers if you want them.** The agent can design and build a
+   game with only a language model. Generating art, video, or 3D needs its own
+   provider:
+
+   | To make                       | Connect                                                             |
+   | ----------------------------- | ------------------------------------------------------------------- |
+   | Design docs, code, playtests  | Any language model provider                                         |
+   | Images and sprites            | OpenAI (API key), OpenRouter, or Volcengine Ark / BytePlus ModelArk |
+   | Video                         | OpenRouter, or Volcengine Ark / BytePlus ModelArk                   |
+   | 3D models, rigging, animation | Meshy                                                               |
+
+   Signing in with ChatGPT does not cover image generation. To use GPT Image,
+   connect OpenAI with an API key.
+
+3. **Pick a model and describe your game.** Choose the model in the prompt box
+   on the home screen, then describe what you want to make.
+
+Web search works without setup. Sign in under **Account** only when you want
+to publish a game; making games locally needs no account.
 
 ### Run from source
 
