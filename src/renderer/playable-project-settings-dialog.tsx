@@ -11,8 +11,11 @@ import {
 import { formatStateValue } from "../shared/playable-debug.js";
 import { describePlayableValue } from "../shared/playable-editor.js";
 import { CanvasFormatOptions } from "./canvas-format-options.js";
-import { Download, LoaderCircle } from "./icons.js";
+import { CircleHelp, Download, LoaderCircle } from "./icons.js";
 import { ProjectSettingsDialogFrame } from "./project-settings-dialog.js";
+
+const variablesHelp =
+  "What the game remembers between Scenes. Ask the AI to add or change these values.";
 
 export function PlayableProjectSettingsDialog({
   project,
@@ -89,17 +92,24 @@ export function PlayableProjectSettingsDialog({
           />
           {changed && graph.nodes.length > 0 ? (
             <p className="project-settings-hint">
-              Existing UI and media are not reframed automatically. Review every
-              Scene after saving this change.
+              Review each Scene after changing screen size.
             </p>
           ) : null}
         </fieldset>
-        <fieldset className="project-settings-section">
-          <legend>Variables</legend>
-          <p className="project-settings-hint">
-            What the game remembers between Scenes. Ask the AI to add or change
-            these values.
-          </p>
+        <fieldset className="project-settings-section" aria-label="Variables">
+          <legend className="project-settings-section-heading">
+            Variables
+            <button
+              className="icon-button project-settings-help"
+              type="button"
+              aria-label="About variables"
+              aria-description={variablesHelp}
+              data-tooltip={variablesHelp}
+              disabled={saving || exporting}
+            >
+              <CircleHelp size={14} aria-hidden="true" />
+            </button>
+          </legend>
           {names.length ? (
             <ul className="playable-variables" aria-label="Variables">
               {names.map((name) => (
@@ -124,11 +134,11 @@ export function PlayableProjectSettingsDialog({
         </fieldset>
         <fieldset className="project-settings-section">
           <legend>Export</legend>
-          <p className="project-settings-hint">
-            {changed
-              ? "Save screen size changes before exporting."
-              : "Download a playable copy of your game to share."}
-          </p>
+          {changed ? (
+            <p className="project-settings-hint">
+              Save screen size changes before exporting.
+            </p>
+          ) : null}
           <button
             className="project-settings-browser"
             type="button"

@@ -4048,6 +4048,29 @@ button.home-nav-item-active:hover {
   font-size: 12px;
   font-weight: 600;
 }
+.project-settings-section-heading {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.project-settings-help.icon-button[data-tooltip] {
+  position: static;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+.project-settings-help.icon-button[data-tooltip]:is(:hover, :focus-visible) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.project-settings-help.icon-button[data-tooltip]::after {
+  right: auto;
+  left: 0;
+  max-width: min(240px, calc(100vw - 80px));
+}
 .project-settings-hint {
   margin: 0;
   color: var(--text-muted);
