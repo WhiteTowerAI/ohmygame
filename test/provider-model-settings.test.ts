@@ -62,7 +62,7 @@ describe("provider model settings", () => {
 
   it("validates token limits and endpoints and keeps the provider endpoint inherited", () => {
     expect(normalizeCustomProviderModel(model, "openai-completions", "https://api.openai.com/v1")).not.toHaveProperty("baseUrl");
-    for (const patch of [{ maxTokens: 0 }, { contextWindow: 1.5 }, { maxTokens: 40_000 }, { baseUrl: "file:///tmp/model" }, { baseUrl: "https://user:secret@example.com" }, { api: "unsupported" }, { id: " " }]) expect(() => normalizeCustomProviderModel({ ...model, ...patch }, "openai-completions", "https://api.openai.com/v1")).toThrow();
+    for (const patch of [{ maxTokens: 0 }, { contextWindow: 1.5 }, { maxTokens: 40_000 }, { baseUrl: "file:///tmp/model" }, { baseUrl: "https://user:secret@example.com" }, { api: "unsupported" }, { id: " " }, { thinkingLevelMap: null }, { thinkingLevelMap: { unknown: "high" } }, { thinkingLevelMap: { high: true } }]) expect(() => normalizeCustomProviderModel({ ...model, ...patch }, "openai-completions", "https://api.openai.com/v1")).toThrow();
   });
 
   it("adds and removes models in the real Pi runtime and filters the selector after restart", async () => {

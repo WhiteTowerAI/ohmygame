@@ -1,5 +1,5 @@
 import { ArrowLeft, ChevronDown, ChevronRight, Code2, ExternalLink, LoaderCircle, Pencil, Search, Server, Plus, Plug, RefreshCw, Settings, Trash2, UserRound } from "./icons.js";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   CustomProviderDetails,
   ModelAuthEvent,
@@ -7,11 +7,13 @@ import type {
   ModelAuthNotification,
   ModelAuthPrompt,
   ImageModel,
+  ImageModelRef,
   ModelProviderSummary,
   ProviderCapability,
   ProviderSummary,
   VideoModel,
 } from "../shared/contracts.js";
+import { CUSTOM_IMAGE_MODEL_APIS } from "../shared/contracts.js";
 import {
   getCustomProvider,
   removeCustomProvider,
@@ -20,6 +22,7 @@ import {
   getOpenAIEndpointSettings,
   listProviders,
   listImageModelCatalog,
+  setDefaultImageModel,
   notifyAgentModelsChanged,
   respondToModelAuth,
   startModelProviderLogin,
@@ -246,44 +249,68 @@ function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: Provide
         </div>
       </form>
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
-      {provider.configured && provider.id === "volcengine-ark" ? <SeedreamModels key={`seedream-${modelsRevision}`} providerId={provider.id} /> : null}
+      {provider.configured && provider.id === "volcengine-ark" ? <ProviderImageModels key={`seedream-${modelsRevision}`} providerId={provider.id} /> : null}
       {provider.configured ? <SeedanceModels key={`seedance-${modelsRevision}`} providerId={provider.id} /> : null}
     </section>
   );
 }
 
-function SeedreamModels({ providerId }: { providerId: string }) {
+function ProviderImageModels({ providerId }: { providerId: string }) {
+  const groupId = useId();
   const [models, setModels] = useState<ImageModel[]>();
+  const [defaultModel, setDefaultModel] = useState<ImageModelRef>();
+  const [busy, setBusy] = useState(false);
+  const [emptyMessage, setEmptyMessage] = useState("No image models are available.");
   const [error, setError] = useState<string>();
   useEffect(() => {
     let active = true;
     void listImageModelCatalog().then((catalog) => {
-      if (active) setModels(catalog.models.filter((model) => model.provider === providerId));
+      if (!active) return;
+      const status = catalog.providers.find((provider) => provider.provider === providerId);
+      setModels(catalog.models.filter((model) => model.provider === providerId));
+      setDefaultModel(catalog.defaultModel);
+      setEmptyMessage(status?.message ?? "No image models are available.");
+      setError(status?.state === "error" ? status.message : undefined);
     }).catch((cause) => {
       if (active) setError(errorMessage(cause));
     });
     return () => { active = false; };
   }, [providerId]);
 
+  async function chooseDefault(model: ImageModel): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      const selected = { provider: model.provider, id: model.id };
+      await setDefaultImageModel(selected);
+      setDefaultModel(selected);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+
   return (
     <section className="settings-detail-section provider-models" aria-label="Image models">
       <div className="provider-models-heading">
         <h4>Image models <small>{models?.length ?? ""}</small></h4>
       </div>
+      {models?.length ? <p className="settings-detail-hint">Choose the default for AI image generation. Existing canvas nodes keep their selected model.</p> : null}
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
       {models ? (
         <div className="provider-models-list" role="list" aria-label="Image models">
           {models.map((model) => (
             <div className="provider-model-row" key={model.id} role="listitem">
-              <div className="provider-model-readonly">
+              <label>
+                <input type="radio" name={groupId} checked={defaultModel?.provider === model.provider && defaultModel.id === model.id} disabled={busy} aria-label={`Use ${model.name} as the default image model`} onChange={() => void chooseDefault(model)} />
                 <span className="provider-model-copy">
                   <strong title={model.name}>{model.name}</strong>
                   <small title={model.id}>{model.id}</small>
                 </span>
-              </div>
+              </label>
+              {defaultModel?.provider === model.provider && defaultModel.id === model.id ? <small className="provider-model-custom">Default</small> : null}
             </div>
           ))}
-          {!models.length ? <p className="settings-empty">No image models are available.</p> : null}
+          {!models.length && !error ? <p className="settings-empty">{emptyMessage}</p> : null}
         </div>
       ) : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading models</div> : null}
     </section>
@@ -342,6 +369,7 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
     return () => { active = false; };
   }, [provider.id]);
   async function openEditor(field: CustomProviderField): Promise<void> {
+    if (openingEditor || deleting || editing) return;
     setOpeningEditor(true);
     setError(undefined);
     try {
@@ -365,7 +393,7 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
   return <section className="settings-panel settings-provider-detail">
     <ProviderDetailHeader provider={{ ...provider, name: settings?.name ?? provider.name }} onBack={onBack}>
       <button className="icon-button settings-provider-setting-edit settings-provider-delete" type="button" aria-label="Delete provider" data-tooltip="Delete provider" aria-expanded={confirmingDelete} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => setConfirmingDelete((value) => !value)}><Trash2 size={15} aria-hidden="true" /></button>
-      <ProviderEnableControl provider={provider} />
+      <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} />
     </ProviderDetailHeader>
     {settings ? <div className="settings-provider-connection">
       {fields.map(({ field, label, value }) => <div className="settings-provider-setting-row" key={field}>
@@ -375,7 +403,8 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
       </div>)}
     </div> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading configuration</div> : null}
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
-    <ProviderModels key={modelsRevision} providerId={provider.id} />
+    <ProviderModels key={modelsRevision} providerId={provider.id} onEditModels={() => void openEditor("models")} />
+    {settings && CUSTOM_IMAGE_MODEL_APIS.some((api) => api === settings.api) ? <ProviderImageModels key={`images-${modelsRevision}`} providerId={provider.id} /> : null}
     {confirmingDelete ? <div className="settings-custom-provider-delete" role="group" aria-label="Delete provider confirmation">
       <span>Delete this provider, its key and model settings?</span><button className="settings-danger-button" type="button" disabled={deleting} onClick={() => void remove()}>{deleting ? "Deleting…" : "Delete provider"}</button><button className="settings-secondary-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Cancel</button>
     </div> : null}
@@ -493,7 +522,7 @@ function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; on
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack}>
-        <ProviderEnableControl provider={provider} />
+        <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} />
       </ProviderDetailHeader>
       {alternateMethod || canEditKey || showsEndpoint ? <div className="settings-provider-connection">
         {alternateMethod ? <div className="settings-provider-setting-row settings-provider-auth-row">
@@ -527,6 +556,7 @@ function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; on
       {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
       {notice ? <p className="settings-success" role="status">{notice}</p> : null}
       <ProviderModels key={modelsRevision} providerId={provider.id} />
+      {provider.capabilities.includes("image") ? <ProviderImageModels key={`images-${modelsRevision}`} providerId={provider.id} /> : null}
     </section>
   );
 }

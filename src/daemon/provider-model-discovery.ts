@@ -1,11 +1,13 @@
-import type { CustomProviderModel, DiscoveredProviderModels } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, type CustomProviderModel, type CustomThinkingLevelMap, type DiscoveredProviderModels } from "../shared/contracts.js";
 import { normalizeCustomProvider } from "./provider-model-settings.js";
+import { automaticCustomReasoning, knownCustomModel, normalizeThinkingLevelMap, type CustomModelCatalog } from "./custom-model-capabilities.js";
+import { imageModelDefinition } from "./image-models.js";
 
 const MAX_MODELS = 2_000;
 const MAX_PAGES = 20;
 
 /** Reads the submitted endpoint without saving the provider or its credentials. */
-export async function discoverProviderModels(value: unknown, request: typeof fetch = fetch): Promise<DiscoveredProviderModels> {
+export async function discoverProviderModels(value: unknown, request: typeof fetch = fetch, catalog: CustomModelCatalog = new Map()): Promise<DiscoveredProviderModels> {
   if (!isObject(value)) throw new Error("Invalid provider connection");
   const settings = normalizeCustomProvider({ ...value, name: "Model discovery", models: undefined, hiddenModelIds: undefined });
   if (settings.authentication === "api_key" && !settings.apiKey) throw new Error("API key is required");
@@ -38,7 +40,7 @@ export async function discoverProviderModels(value: unknown, request: typeof fet
     const entries = isObject(body) ? (settings.api === "google-generative-ai" ? body.models : body.data) : undefined;
     if (!Array.isArray(entries)) throw new Error("The endpoint did not return a compatible model list. Add model IDs manually.");
     for (const entry of entries) {
-      const model = discoveredModel(entry, settings.api);
+      const model = discoveredModel(entry, settings.api, catalog);
       if (model) models.set(model.id, model);
       if (models.size >= MAX_MODELS) return { models: [...models.values()], truncated: true };
     }
@@ -51,24 +53,47 @@ export async function discoverProviderModels(value: unknown, request: typeof fet
   return { models: [...models.values()], truncated: true };
 }
 
-function discoveredModel(value: unknown, api: string): CustomProviderModel | undefined {
+function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalog): CustomProviderModel | undefined {
   if (!isObject(value)) return undefined;
   const google = api === "google-generative-ai";
   const rawId = string(google ? value.name : value.id);
   const id = google ? rawId?.replace(/^models\//, "") : rawId;
   if (!id || id.length > 200 || /[\s\x00-\x1f]/.test(id)) return undefined;
+  // Dedicated image models belong to the media catalog, not the chat model selector.
+  if (imageModelDefinition(id)) return undefined;
   if (google && Array.isArray(value.supportedGenerationMethods) && !value.supportedGenerationMethods.includes("generateContent")) return undefined;
   const architecture = isObject(value.architecture) ? value.architecture : undefined;
   if (Array.isArray(architecture?.output_modalities) && !architecture.output_modalities.includes("text")) return undefined;
   const name = (string(value.displayName) ?? string(value.display_name) ?? string(value.name) ?? id).slice(0, 200);
-  const contextWindow = tokenLimit(value.contextWindow ?? value.context_length ?? value.inputTokenLimit) ?? 128_000;
+  const known = knownCustomModel(id, api, catalog);
+  const contextWindow = tokenLimit(value.contextWindow ?? value.context_length ?? value.inputTokenLimit) ?? known?.contextWindow ?? 128_000;
   const topProvider = isObject(value.top_provider) ? value.top_provider : undefined;
-  const maxTokens = Math.min(contextWindow, tokenLimit(value.maxTokens ?? value.max_tokens ?? value.outputTokenLimit ?? topProvider?.max_completion_tokens) ?? 16_384);
+  const maxTokens = Math.min(contextWindow, tokenLimit(value.maxTokens ?? value.max_tokens ?? value.outputTokenLimit ?? topProvider?.max_completion_tokens) ?? known?.maxTokens ?? 16_384);
+  const reported = reportedThinkingLevelMap(value);
+  const reasoning = typeof value.reasoning === "boolean" ? value.reasoning
+    : reported ? true
+    : Array.isArray(value.supported_parameters) ? value.supported_parameters.some((parameter) => parameter === "reasoning" || parameter === "reasoning_effort")
+    : known?.reasoning ?? false;
+  const reasoningCapabilities = automaticCustomReasoning(id, api, catalog, reported);
   return {
     id, name, api, contextWindow, maxTokens,
-    reasoning: value.reasoning === true || (Array.isArray(value.supported_parameters) && value.supported_parameters.includes("reasoning")),
-    supportsImages: Array.isArray(architecture?.input_modalities) ? architecture.input_modalities.includes("image") : Array.isArray(value.input) && value.input.includes("image"),
+    reasoning,
+    ...(reasoningCapabilities ? { reasoningCapabilities } : {}),
+    supportsImages: Array.isArray(architecture?.input_modalities) ? architecture.input_modalities.includes("image")
+      : Array.isArray(value.input) ? value.input.includes("image") : known?.input.includes("image") ?? false,
   };
+}
+
+function reportedThinkingLevelMap(value: Record<string, unknown>): CustomThinkingLevelMap | undefined {
+  const explicit = value.thinkingLevelMap ?? value.thinking_level_map;
+  if (explicit !== undefined) return normalizeThinkingLevelMap(explicit);
+  const parameters = isObject(value.supported_parameters) ? value.supported_parameters : undefined;
+  const effort = isObject(parameters?.reasoning_effort) ? parameters.reasoning_effort : undefined;
+  const values = value.supported_reasoning_efforts ?? effort?.values;
+  if (!Array.isArray(values)) return undefined;
+  const settings = new Set(values.filter((item): item is string => typeof item === "string"));
+  const map = Object.fromEntries(AGENT_REASONING_LEVELS.map((level) => [level, settings.has(level) ? level : level === "off" && settings.has("none") ? "none" : level === "max" && settings.has("ultra") ? "ultra" : null]));
+  return normalizeThinkingLevelMap(map);
 }
 
 function tokenLimit(value: unknown): number | undefined { return typeof value === "number" && Number.isSafeInteger(value) && value > 0 && value <= 100_000_000 ? value : undefined; }

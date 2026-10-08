@@ -1809,7 +1809,8 @@ select.settings-search-input {
   cursor: pointer;
 }
 
-.provider-models input[type="checkbox"] {
+.provider-models input[type="checkbox"],
+.provider-models input[type="radio"] {
   width: 14px;
   height: 14px;
   flex: 0 0 14px;
@@ -14912,6 +14913,10 @@ button {
 .custom-provider-capabilities { display: flex; gap: 20px; }
 .custom-provider-capabilities label { display: flex; align-items: center; gap: 7px; }
 .custom-provider-capabilities input { width: 14px; height: 14px; padding: 0; accent-color: var(--theme-accent); }
+.custom-provider-reasoning-levels { display: grid; gap: 6px; }
+.custom-provider-reasoning-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 1fr); align-items: center; gap: 12px; }
+.custom-provider-reasoning-row > label { display: flex; align-items: center; gap: 7px; }
+.custom-provider-reasoning-row > input { min-width: 0; }
 .custom-provider-model-picker { display: grid; min-width: 0; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); }
 .custom-provider-model-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .custom-provider-model-heading h3 { margin: 0; color: var(--text); font-size: 13px; }
@@ -14920,6 +14925,7 @@ button {
 .custom-provider-model-picker .custom-provider-model-search { display: flex; min-width: 0; align-items: center; gap: 8px; padding-left: 10px; border-radius: var(--radius); background: var(--control-surface); }
 .custom-provider-model-search input { min-width: 0; flex: 1; background: transparent; padding-left: 0; font-family: inherit; }
 .custom-provider-model-results { max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.custom-provider-model-results.is-editing { max-height: none; overflow: visible; }
 .custom-provider-model-picker :is(.custom-provider-model-choice, .custom-provider-select-all) { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .custom-provider-model-choice { min-height: 48px; padding: 9px 10px; }
 .custom-provider-model-item + .custom-provider-model-item { border-top: 1px solid var(--border); }

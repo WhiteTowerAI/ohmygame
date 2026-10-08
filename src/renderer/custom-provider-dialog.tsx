@@ -1,8 +1,10 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { CUSTOM_MODEL_APIS, type CustomProviderDetails, type CustomProviderModel, type SaveCustomProviderRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, CUSTOM_MODEL_APIS, type CustomProviderDetails, type CustomProviderModel, type SaveCustomProviderRequest } from "../shared/contracts.js";
+import { reasoningLabel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { discoverCustomProviderModels, saveCustomProvider } from "./api.js";
 import { LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
+import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError, type ModelRow } from "./custom-provider-models.js";
 
 const PRESETS = {
   gateway: { name: "", baseUrl: "", api: "openai-completions", authentication: "api_key" },
@@ -18,10 +20,9 @@ export const PROVIDER_API_LABELS: Record<string, string> = {
   "google-vertex": "Google Vertex AI",
 };
 
-type ModelRow = { model: CustomProviderModel; enabled: boolean; saved: boolean };
 const emptyModel = (): CustomProviderModel => ({ id: "", name: "", api: "openai-completions", contextWindow: 128_000, maxTokens: 16_384, reasoning: false, supportsImages: false });
 
-export type CustomProviderField = "name" | "baseUrl" | "api" | "apiKey";
+export type CustomProviderField = "name" | "baseUrl" | "api" | "apiKey" | "models";
 
 export function CustomProviderDialog({ settings, initialFocus = "name", onClose, onSaved }: {
   settings?: CustomProviderDetails;
@@ -36,6 +37,8 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
   const keyInput = useRef<HTMLInputElement>(null);
   const apiInput = useRef<HTMLSelectElement>(null);
   const authenticationInput = useRef<HTMLSelectElement>(null);
+  const modelSearch = useRef<HTMLInputElement>(null);
+  const fetchButton = useRef<HTMLButtonElement>(null);
   const closeRef = useRef(onClose);
   const savingRef = useRef(false);
   const discovery = useRef<AbortController | undefined>(undefined);
@@ -63,6 +66,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
     const initialInput = initialFocus === "baseUrl" ? endpointInput.current
       : initialFocus === "api" ? apiInput.current
       : initialFocus === "apiKey" ? keyInput.current ?? authenticationInput.current
+      : initialFocus === "models" ? modelSearch.current ?? fetchButton.current
       : nameInput.current;
     initialInput?.focus();
     const keyboard = (event: KeyboardEvent) => {
@@ -90,7 +94,10 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
 
   function field<K extends keyof SaveCustomProviderRequest>(key: K, value: SaveCustomProviderRequest[K]): void {
     if (key !== "name") { cancelDiscovery(); setDiscoveryError(undefined); setFetchedCount(undefined); setTruncated(false); }
-    if (key === "api") setRows((current) => current.map((row) => row.model.api === form.api ? { ...row, model: { ...row.model, api: String(value) } } : row));
+    if (key === "api" || key === "baseUrl") {
+      setRows((current) => current.map((row) => ({ ...row, model: invalidateCustomModelCapabilities(row.model, key === "api" && row.model.api === form.api ? String(value) : row.model.api) })));
+      setManual((current) => invalidateCustomModelCapabilities(current, key === "api" ? String(value) : current.api));
+    }
     setForm((current) => ({ ...current, [key]: value }));
   }
 
@@ -104,11 +111,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
     try {
       const loaded = await discoverCustomProviderModels({ providerId: settings?.id, baseUrl: form.baseUrl, api: form.api, authentication: form.authentication, apiKey: form.authentication === "api_key" ? form.apiKey : undefined }, controller.signal);
       if (controller.signal.aborted) return;
-      setRows((current) => {
-        const merged = new Map(current.map((row) => [row.model.id, row]));
-        for (const model of loaded.models) if (!merged.has(model.id)) merged.set(model.id, { model, enabled: false, saved: false });
-        return [...merged.values()].sort((a, b) => a.model.name.localeCompare(b.model.name));
-      });
+      setRows((current) => mergeDiscoveredProviderModels(current, loaded.models));
       setFetchedCount(loaded.models.length);
       setTruncated(loaded.truncated === true);
     } catch (cause) {
@@ -181,7 +184,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
           <p className="custom-provider-intro">Connect a gateway or a local model service with its own endpoint and models.</p>
           <fieldset className="project-settings-section" disabled={saving}>
             <div className={!settings ? "project-settings-field-row" : undefined}>
-              {!settings ? <label><span>Preset</span><select value={preset} onChange={(event) => { const next = event.target.value as keyof typeof PRESETS; cancelDiscovery(); setPreset(next); setForm({ ...PRESETS[next] }); setDiscoveryError(undefined); setFetchedCount(undefined); setTruncated(false); }}>
+              {!settings ? <label><span>Preset</span><select value={preset} onChange={(event) => { const next = event.target.value as keyof typeof PRESETS; cancelDiscovery(); setPreset(next); setForm({ ...PRESETS[next] }); setRows((current) => current.map((row) => ({ ...row, model: invalidateCustomModelCapabilities(row.model, row.model.api === form.api ? PRESETS[next].api : row.model.api) }))); setManual((current) => invalidateCustomModelCapabilities(current, PRESETS[next].api)); setDiscoveryError(undefined); setFetchedCount(undefined); setTruncated(false); }}>
                 <option value="gateway">Custom gateway</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option>
               </select></label> : null}
               <label><span>Display name</span><input ref={nameInput} value={form.name} onChange={(event) => field("name", event.target.value)} placeholder="My provider" maxLength={100} required autoComplete="off" /></label>
@@ -195,17 +198,17 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
           </fieldset>
           <section className="custom-provider-model-picker" aria-label="Model settings">
             <div className="custom-provider-model-heading">
-              <h3>Models <small>{enabledCount} enabled</small></h3>
-              <button className="settings-secondary-button" type="button" disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? "Fetching…" : "Fetch"}</button>
+              <h3>Language models <small>{enabledCount} enabled</small></h3>
+              <button ref={fetchButton} className="settings-secondary-button" type="button" disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? "Fetching…" : "Fetch"}</button>
             </div>
             <p className="custom-provider-hint">Fetch models or add them manually. You can save this provider without any models.</p>
             {discoveryError ? <p className="project-settings-error" role="alert">{discoveryError}</p> : null}
             {fetchedCount !== undefined ? <p className="custom-provider-hint" role="status">{truncated ? `Fetched the first ${fetchedCount} models. Other model IDs can be added manually.` : `Fetched ${fetchedCount} models.`}</p> : null}
             {rows.length ? <>
-              <label className="custom-provider-model-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search models" aria-label="Search models" disabled={saving} /></label>
+              <label className="custom-provider-model-search"><Search size={14} /><input ref={modelSearch} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search models" aria-label="Search models" disabled={saving} /></label>
               {visibleModels.length ? <>
                 <label className="custom-provider-select-all"><input type="checkbox" checked={allVisibleEnabled} onChange={(event) => toggleModels(visibleModels.map((row) => row.model.id), event.target.checked)} disabled={saving} />{search ? "Enable matching models" : "Enable all models"}</label>
-                <div className="custom-provider-model-results" role="group" aria-label="Available models">
+                <div className={`custom-provider-model-results${visibleModels.some((row) => row.model.id === editing) ? " is-editing" : ""}`} role="group" aria-label="Available models">
                   {visibleModels.map((row) => <div className="custom-provider-model-item" key={row.model.id}>
                     <div className="custom-provider-model-row">
                       <label className="custom-provider-model-choice"><input type="checkbox" aria-label={`Enable ${row.model.name || row.model.id}`} checked={row.enabled} onChange={(event) => toggleModels([row.model.id], event.target.checked)} disabled={saving} /><span><strong>{row.model.name || row.model.id}</strong><small>{row.model.id}</small></span></label>
@@ -234,6 +237,10 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
 
 function ModelFields({ model, onChange, disabled }: { model: CustomProviderModel; onChange: (model: CustomProviderModel) => void; disabled: boolean }) {
   const field = <K extends keyof CustomProviderModel>(key: K, value: CustomProviderModel[K]) => onChange({ ...model, [key]: value });
+  const automaticMap = model.reasoningCapabilities?.thinkingLevelMap;
+  const automaticLevels = supportedReasoningLevels({ reasoning: true, thinkingLevelMap: automaticMap });
+  const effectiveMap = { ...automaticMap, ...model.thinkingLevelMap };
+  const levels = supportedReasoningLevels({ reasoning: true, thinkingLevelMap: effectiveMap });
   return <fieldset className="project-settings-section" disabled={disabled}>
     <label><span>Model display name</span><input value={model.name} onChange={(event) => field("name", event.target.value)} placeholder={model.id || "Same as model ID"} maxLength={200} /></label>
     <div className="project-settings-field-row">
@@ -241,10 +248,17 @@ function ModelFields({ model, onChange, disabled }: { model: CustomProviderModel
       <label><span>Max output tokens</span><input type="number" min={1} max={model.contextWindow} step={1} value={model.maxTokens} onChange={(event) => field("maxTokens", Number(event.target.value))} required /></label>
     </div>
     <div className="custom-provider-capabilities"><label><input type="checkbox" checked={model.reasoning} onChange={(event) => field("reasoning", event.target.checked)} />Reasoning</label><label><input type="checkbox" checked={model.supportsImages} onChange={(event) => field("supportsImages", event.target.checked)} />Image input</label></div>
+    {model.reasoning ? <details className="custom-provider-advanced"><summary>Reasoning settings</summary>
+      <label><span>Reasoning levels</span><select value={model.thinkingLevelMap ? "custom" : "automatic"} onChange={(event) => field("thinkingLevelMap", event.target.value === "automatic" ? undefined : initialCustomThinkingLevelMap(model))}><option value="automatic">Automatic</option><option value="custom">Custom</option></select></label>
+      {model.thinkingLevelMap ? <>
+        <p className="custom-provider-hint">Enable the supported levels and set the parameter sent to your provider.</p>
+        <div className="custom-provider-reasoning-levels">
+          {AGENT_REASONING_LEVELS.map((level) => <div className="custom-provider-reasoning-row" key={level}>
+            <label><input type="checkbox" checked={levels.includes(level)} onChange={(event) => field("thinkingLevelMap", { ...model.thinkingLevelMap, [level]: event.target.checked ? automaticMap?.[level] ?? (level === "off" ? "none" : level) : null })} />{reasoningLabel(level)}</label>
+            <input aria-label={`${reasoningLabel(level)} parameter`} value={levels.includes(level) ? effectiveMap[level] ?? (level === "off" ? "none" : level) : ""} disabled={!levels.includes(level)} maxLength={100} spellCheck={false} autoComplete="off" placeholder={level === "off" ? "none" : level} onChange={(event) => field("thinkingLevelMap", { ...model.thinkingLevelMap, [level]: event.target.value })} />
+          </div>)}
+        </div>
+      </> : <p className="custom-provider-hint">{automaticLevels.map(reasoningLabel).join(" · ")}{model.reasoningCapabilities?.source === "provider" ? " — reported by your provider" : model.reasoningCapabilities?.source === "catalog" ? " — from the model catalog" : " — default levels; customize if needed"}</p>}
+    </details> : null}
   </fieldset>;
-}
-
-function modelError(model: CustomProviderModel): string | undefined {
-  if (!model.id.trim() || /[\s\x00-\x1f]/.test(model.id) || model.id.length > 200) return "Enter a model ID without spaces (up to 200 characters).";
-  if (!Number.isSafeInteger(model.contextWindow) || model.contextWindow < 1 || model.contextWindow > 100_000_000 || !Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1 || model.maxTokens > model.contextWindow) return `Check the token limits for ${model.name || model.id}. Output tokens must not exceed the context window.`;
 }

@@ -2,6 +2,7 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight } from "./icons.js";
 import { useEffect, useId, useRef, useState } from "react";
 import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
 import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
+import { clampReasoningLevel, reasoningLabel } from "../shared/reasoning.js";
 
 interface ModelSelectorProps {
   models: AgentModel[];
@@ -22,6 +23,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const currentKey = value ? modelKey(value) : "";
   const current = models.find((model) => modelKey(model) === currentKey) ?? (value && "name" in value ? value : undefined);
   const providerGroups = groupModelsByProvider(models);
+  const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? "medium", current?.reasoningLevels ?? []);
 
   useEffect(() => {
     if (!open) return;
@@ -116,7 +118,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
               {current ? (
                 <button className="model-selector-reasoning" type="button" role="menuitem" onClick={() => setShowReasoning(true)}>
                   <span>Reasoning</span>
-                  <span className="model-selector-setting-value">{reasoningLabel(reasoningLevel)}<ChevronRight size={12} /></span>
+                  <span className="model-selector-setting-value">{reasoningLabel(effectiveReasoning)}<ChevronRight size={12} /></span>
                 </button>
               ) : null}
             </div>
@@ -129,7 +131,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 <span>Reasoning</span>
               </button>
               {(current?.reasoningLevels ?? []).map((level) => {
-                const selected = level === reasoningLevel;
+                const selected = level === effectiveReasoning;
                 return (
                   <button
                     className={selected ? "active" : ""}
@@ -197,10 +199,4 @@ export function groupModelsByProvider(models: AgentModel[]): { provider: string;
     else groups.set(model.provider, { provider: model.provider, providerName: model.providerName, models: [model] });
   }
   return [...groups.values()];
-}
-
-function reasoningLabel(level?: AgentReasoningLevel): string {
-  if (!level) return "Default";
-  if (level === "xhigh") return "Extra high";
-  return level[0].toUpperCase() + level.slice(1);
 }
