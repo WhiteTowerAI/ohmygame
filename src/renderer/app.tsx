@@ -68,9 +68,11 @@ export function App() {
       projectId={route.projectId}
       conversationId={route.conversationId}
       view={route.view}
-      onViewChange={(view) => {
+      onViewChange={(view, options) => {
         const next = { ...route, view: view === "design" ? "design" as const : undefined };
-        window.history.pushState(null, "", next.conversationId ? conversationHash(next.projectId, next.conversationId, next.view) : projectHash(next.projectId, next.view));
+        const hash = next.conversationId ? conversationHash(next.projectId, next.conversationId, next.view) : projectHash(next.projectId, next.view);
+        if (options?.replace) window.history.replaceState(null, "", hash);
+        else window.history.pushState(null, "", hash);
         setRoute(next);
       }}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
