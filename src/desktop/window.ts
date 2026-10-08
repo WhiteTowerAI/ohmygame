@@ -71,7 +71,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
       ? {
           titleBarStyle: "hidden" as const,
           titleBarOverlay: {
-            color: nativeTheme.shouldUseDarkColors ? "rgb(31 31 31 / 80%)" : "#f9f0f3",
+            color: nativeTheme.shouldUseDarkColors ? "rgb(31 31 31 / 80%)" : "#f7f7f7",
             symbolColor: nativeTheme.shouldUseDarkColors ? "#ffffff" : "#202020",
             height: 32,
           },

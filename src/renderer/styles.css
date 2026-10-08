@@ -77,7 +77,7 @@
 }
 
 :root[data-appearance="light"] .home-shell {
-  --home-sidebar: #f9f0f3;
+  --home-sidebar: rgb(255 255 255 / 82%);
   --home-sidebar-hover: rgb(0 0 0 / 5%);
   --home-nav-muted: #707070;
   --home-nav-active-surface: #ececec;
@@ -150,7 +150,7 @@ body {
   flex: 0 0 32px;
   align-items: center;
   padding: 0 138px 0 8px;
-  background: #f9f0f3;
+  background: #f7f7f7;
   color: #202020;
   font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
   font-size: 13px;
