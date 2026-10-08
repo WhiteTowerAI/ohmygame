@@ -88,7 +88,7 @@ export function PlayableProjectSettingsDialog({
             onChange={setSelection}
           />
           {changed && graph.nodes.length > 0 ? (
-            <p className="story-format-warning">
+            <p className="project-settings-hint">
               Existing UI and media are not reframed automatically. Review every
               Scene after saving this change.
             </p>

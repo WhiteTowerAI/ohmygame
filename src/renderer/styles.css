@@ -4573,15 +4573,6 @@ button.home-nav-item-active:hover {
 .publication-secondary-actions button:hover {
   color: var(--text);
 }
-.story-format-warning {
-  margin: 0;
-  padding: 10px;
-  border-left: 2px solid #d3a64a;
-  background: rgb(211 166 74 / 8%);
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
 .playable-template-dialog {
   width: min(760px, 100%);
 }
