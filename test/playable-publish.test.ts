@@ -1,7 +1,12 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
+import { createPackage } from "@electron/asar";
+import { build } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
 import yauzl from "yauzl";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
@@ -126,6 +131,80 @@ describe("Published Player", () => {
 
     expect(manifest.assets.background.path).toBe(manifest.assets.poster.path);
     expect(mediaFiles).toHaveLength(1);
+  });
+
+  it("exports, publishes and prepares drafts and examples from a real ASAR Player", async () => {
+    const root = await temporary("ohmygame-playable-publish-asar-");
+    const workspace = path.join(root, "workspace");
+    const source = path.join(root, "app");
+    const archive = path.join(root, "app.asar");
+    const graph = createNodeGraphFixture();
+    delete graph.assets.theme;
+    for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
+    await writePlayableFixtureWorkspace(workspace, graph);
+    await cp(await playerFixture(), path.join(source, "dist", "player"), { recursive: true });
+    const nestedAsset = "assets/fonts/player.woff2";
+    const font = Buffer.from([0, 255, 1, 128]);
+    await mkdir(path.join(source, "dist", "player", "assets", "fonts"));
+    await writeFile(path.join(source, "dist", "player", nestedAsset), font);
+
+    // Keep native esbuild and other package dependencies in the checkout.
+    // The application code and Player still execute/read from inside app.asar.
+    await symlink(path.resolve("node_modules"), path.join(root, "node_modules"), "junction");
+    await build({
+      stdin: {
+        resolveDir: path.resolve("."),
+        contents: `
+          import assert from "node:assert/strict";
+          import { readFile, rm, writeFile } from "node:fs/promises";
+          import path from "node:path";
+          import { fileURLToPath } from "node:url";
+          import { ArtifactBuilder, validatePlayablePublishDirectory } from "./src/daemon/publish/archive.js";
+          import { AssetLibrary } from "./src/daemon/asset-library.js";
+          assert.ok(process.versions.electron);
+          const library = new AssetLibrary(process.argv[2]);
+          await library.load();
+          const builder = new ArtifactBuilder(library, fileURLToPath(new URL("./dist/player", import.meta.url)));
+          const project = JSON.parse(process.argv[3]);
+          await writeFile(path.join(process.argv[2], "export.zip"), await builder.buildInteractiveStory(project));
+          await writeFile(path.join(process.argv[2], "publish.zip"), await builder.create(project));
+          for (const [prepare, scope] of [
+            [() => builder.preparePlayableDraft(project), "playtest:" + project.id],
+            [() => builder.preparePlayableExample(project.workspacePath, "example"), "example:example"],
+          ]) {
+            const directory = await prepare();
+            try {
+              await validatePlayablePublishDirectory(directory);
+              assert.equal(JSON.parse(await readFile(path.join(directory, "manifest.json"))).scope, scope);
+              assert.deepEqual(await readFile(path.join(directory, ${JSON.stringify(nestedAsset)})), Buffer.from([0, 255, 1, 128]));
+            } finally {
+              await rm(directory, { recursive: true, force: true });
+            }
+          }
+        `,
+      },
+      outfile: path.join(source, "check.mjs"),
+      bundle: true,
+      packages: "external",
+      platform: "node",
+      format: "esm",
+    });
+    await createPackage(source, archive);
+    const electron = createRequire(import.meta.url)("electron") as string;
+    await promisify(execFile)(electron, [path.join(archive, "check.mjs"), root, JSON.stringify(project(workspace))], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+      timeout: 20_000,
+    });
+
+    for (const filename of ["export.zip", "publish.zip"]) {
+      const files = await unzip(await readFile(path.join(root, filename)));
+      expect(files.get("index.html")?.toString()).toBe("Published Player");
+      expect(files.get("playable-sandbox.html")?.toString()).toBe("Playable sandbox");
+      expect(files.get("assets/playable-sandbox.js")?.toString()).toBe("window.sandbox = true");
+      expect(files.get(nestedAsset)).toEqual(font);
+      expect(JSON.parse(files.get("manifest.json")!.toString()).scope).toBe("published:playable-project");
+      expect(files.has("playable.json")).toBe(true);
+    }
   });
 
   it("rejects missing Library content as a publish validation error", async () => {

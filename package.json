@@ -58,6 +58,7 @@
     "yazl": "3.3.1"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@google/model-viewer": "^4.1.0",
     "@lobehub/icons-static-svg": "1.94.0",
     "@solar-icons/react": "^2.1.0",

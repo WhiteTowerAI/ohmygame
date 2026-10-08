@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
@@ -132,7 +132,7 @@ async function preparePlayableProject(
 ): Promise<string> {
   const output = await mkdtemp(path.join(tmpdir(), "ohmygame-playable-build-"));
   try {
-    await cp(playerDirectory, output, { recursive: true });
+    await copyPlayerDirectory(playerDirectory, output);
     await mkdir(path.join(output, "assets", "media"), { recursive: true });
     const assets: Record<string, PublishedNodeAsset> = {};
     const writtenAssets = new Set<string>();
@@ -192,6 +192,17 @@ async function preparePlayableProject(
     await rm(output, { recursive: true, force: true });
     if (cause instanceof PublishError) throw cause;
     throw new PublishError(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+async function copyPlayerDirectory(source: string, destination: string): Promise<void> {
+  // Electron can read ASAR entries, but fs.cp cannot copy an ASAR directory.
+  await mkdir(destination, { recursive: true });
+  for (const entry of await readdir(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name);
+    const to = path.join(destination, entry.name);
+    if (entry.isDirectory()) await copyPlayerDirectory(from, to);
+    else if (entry.isFile()) await copyFile(from, to);
   }
 }
 
