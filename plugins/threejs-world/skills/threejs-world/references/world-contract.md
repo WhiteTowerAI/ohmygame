@@ -14,7 +14,7 @@ Deliver an editable web project that realizes the expanded design. High-detail, 
 
 ## Visual completion
 
-Choose modeling and rendering techniques for their result. Procedural geometry can be highly detailed and external models can also fit; neither is a universal default or an excuse for a weak result. Prepare shipped GLB or glTF assets with `web-3d-asset-pipeline` when the world uses them.
+Follow [the expansion guide](world-expansion.md) to select the required Meshy subjects. For an authorized new world with OhMyGame's Meshy tools and API configuration available, complete at least six distinct major subjects covering every major region and core visual focus, and complete the entire required set even when it is larger. Meshy must supply their main visible forms; evaluating it and choosing procedural modeling for all subjects does not meet this requirement. Three.js still owns scene organization, layout, rendering, and interaction. Prepare shipped GLB or glTF assets with `web-3d-asset-pipeline` when the world uses them.
 
 - **World scale:** make boundaries, region relationships, entrances, routes, and overall composition readable. Organize foreground, midground, and background with spatial depth and intentional negative space.
 - **Middle scale:** give buildings, landmarks, environmental structures, and hero subjects recognizable silhouettes, proportions, construction or anatomy, and connected parts.
@@ -26,7 +26,47 @@ Implement by region or core subject. Before treating one as complete, return to 
 
 A generic box, cylinder, or smooth tube carrying a subject's name does not realize its appearance. Blockouts can support construction, but refine or replace the parts that define the subject before claiming completion. Shared geometry and generators are useful only when they preserve each object's key differences. Express thatch, fabric, or masonry repairs through visible construction and surface cues appropriate to the style, using geometry, textures, decals, or assets as needed; a color change alone does not realize those material descriptions. Remaining placeholders, default materials, and debug panels do not count as visual finish.
 
-When implementation requires a design change, retain the original requirement and record the replacement, reason, and impact in the design, with the remaining deviation in the validation report. A different technical method is acceptable if it preserves the intended visible result. Disclosing a missing or substituted feature does not make that requirement pass; do not erase a promise to claim agreement between design and implementation.
+When implementation requires a design change, retain the original requirement and record the replacement, reason, and impact in the design, with the remaining deviation in the validation report. A different technical method is acceptable if it preserves the intended visible result and the required Meshy contribution. Disclosing a missing or substituted feature does not make that requirement pass; do not erase a promise to claim agreement between design and implementation.
+
+### Count completed Meshy subjects
+
+- Count distinct major subjects, not scene nodes, GLB files, downloads, or API calls. Repeated placements, scale or color variants of the same model, and regenerated candidates do not add subjects. A subject split into several generated parts for production or interaction still counts as one.
+- Meshy must realize the subject's main visible form. A generated ornament attached to a procedural building does not make that building a Meshy subject. Do not generate door handles, ordinary signs, connectors, or other accessory details as standalone Meshy tasks. Those details may occur naturally within a complete generated subject.
+- Generation or copying a file into the project is insufficient. Count a subject as complete only after integration into the final scene, confirmed model and texture loading from the final static output, and the relevant visual and spatial checks. Temporary blockouts and unverified subjects do not count as completed.
+- Suitable existing Meshy models may be reused with their actual provenance recorded. Do not label an ordinary GLB of unknown or other origin as a Meshy result.
+- Check the minimum count, region and focal-point coverage, completion of every required subject, and visual quality separately; one cannot compensate for another. Important procedural buildings outside the required set must also meet the design and cannot remain rough placeholders.
+
+## Meshy reference images and generation
+
+Use OhMyGame's existing `generate_image` and `generate_3d_asset` tools for the required subjects, or reuse suitable existing reference images or models under the counting rules above. Follow the current user authorization and platform rules for generation; discussion, prompt-only, and plan-only tasks do not authorize paid generation.
+
+Prepare and inspect a reference image before submitting it:
+
+- Prefer a plain white background, the complete subject in frame, and clear edges with no cropped key parts. White describes the background; the subject keeps its designed colors and materials.
+- Show one asset per image. A building's roof, windows, porch, and base belong to it; surrounding roads, trees, and other buildings do not.
+- Specify proportions, materials, palette, style, and indispensable features from the current design. Choose an informative view, such as a front three-quarter view showing the facade, side, and roof, without strong perspective or excessive occlusion.
+- Avoid text, watermarks, complex backgrounds, collages, and multi-view sheets. Respect the platform tool's single-image input rather than packing several views into one image.
+- Check completeness and key features before generation. An attractive reference does not establish correct unseen sides, interiors, or usable entrances in the resulting model.
+
+Confirm tool availability, credentials, and that the project-local image exists in a supported actual format. `generate_image` may return WebP, while `generate_3d_asset` accepts PNG/JPEG. If conversion is needed, use available local image processing to change the actual encoding; renaming the extension is insufficient. Pass the compatible project-local path as `imagePath` to `generate_3d_asset` and reuse the platform's request, waiting, download, and save behavior.
+
+The current agent tool exposes only `imagePath`; leave model version, face count, topology, textures, and PBR to the platform defaults. Do not duplicate or override that configuration in the skill, assume a canvas node's custom settings are inherited, or add a Meshy client, credential store, or background task system. Do not impose fixed generation rounds, automatic batch retries, or a separate per-object approval workflow.
+
+Readable API configuration does not prove that generation will succeed. If tools, credentials, format conversion, generation, download, or integration fail, record the affected subject, specific blocker, and incomplete state in `.world/validation-report.md`. Do not count a temporary substitute or lower the requirements to mark a failure as passed. Distinguish reference-image defects, generated-model defects, and integration defects when choosing a repair; changing model versions, increasing face counts, or relaxing design requirements is not evidence of success. Meshy quality, including back sides, thin parts, and required interiors, must be checked in the scene.
+
+## Integrate or replace generated models
+
+For new scenes, load selected models directly. Use temporary blockouts only when needed to check layout, dimensions, or passage space; they are not the final visual delivery. For an existing scene, first read the affected design and code to establish the subject's named region, location, target size, orientation, and interaction relationships. Load and check the replacement before removing the original visible geometry.
+
+- Reuse the project's GLB/glTF loading approach and existing asset preparation guidance; do not introduce a general asset framework.
+- Set scale, orientation, origin, and intended contact points. Inspect foundations, steps, and porches against the actual terrain or bearing surface using the grounding requirements below; bounding boxes alone do not establish contact.
+- Check building entrances against connecting roads, surrounding passage space, and adjacent structures. Provide usable interiors, doors, and interaction parts when the design requires entering, passing through, or opening them. An exterior shell or a painted doorway does not prove a required interior is usable.
+- Coordinate materials, textures, lighting, and shadows with the scene. Inspect floating or intersecting parts, distorted proportions, and conflicting baked shadows at the intended viewing distance.
+- Reuse simple collision shapes where the existing experience needs them. Do not automatically use the detailed visible mesh as collision geometry or add a physics system.
+- Copy GLB files and required dependencies from `assets/generated/` into the project's buildable asset paths: `src/` for imports or `public/` for fixed URLs in the standard project layout. Reference those copies from scene code and verify that the final static output can load them; a preview-only URL into `assets/generated/` is insufficient.
+- Preserve unrelated regions and existing functionality. Remove only geometry and resources made unused by this replacement, disposing them without breaking shared users. If replacement fails, keep the original recoverable and report the incomplete state.
+
+Record the existing subject name, reference image and model paths, final scene reference location, and asset provenance in `.world/validation-report.md`, using the design's key visible features table as the required subject list. For reused models, record the available source and any unavailable reference-image history honestly. Do not add a database or separate manifest protocol. Generation success alone does not establish visual completion; follow the [validation guide](validation.md).
 
 ## Ground contact and connected support
 
@@ -60,4 +100,4 @@ Observe and measure the rendered project before optimizing or reducing detail. U
 
 ## Handoff
 
-Keep the design files in `.world/` and the runnable world in the workspace. In the final reply, give the controls, the major source locations, asset credits, known limitations, and the review evidence. A screenshot supplements the runnable world; it does not replace it.
+Keep the design files in `.world/` and the runnable world in the workspace. In the final reply, provide the world entry, necessary controls, and useful source locations. Keep asset credits, detailed validation evidence, generation and repair history, and remaining deviations or unverified items in `.world/validation-report.md`; do not repeat a technical checklist in the reply. This concise handoff does not turn unmet requirements into completion. If the world cannot build or open, state that no usable result is available. A screenshot supplements the runnable world; it does not replace it. Final visual approval belongs to the user.

@@ -30,6 +30,22 @@ For example, "a detailed hillside tavern with a thatched roof and supplies outsi
 
 This demonstrates resolved relationships, not a required theme, building, or material palette.
 
+### Choose how to model core subjects
+
+For a new world, when the user has authorized modeling and OhMyGame's Meshy tools and API configuration are available, actual Meshy use is required. Select the required subjects from the world design before checking their number:
+
+1. Include the main visual buildings, key landmarks, and major objects forming the core visual focal points.
+2. Cover every major region with representative Meshy subjects. Include all subjects needed to express each region and focal point, even when a region needs more than one.
+3. Check that the set contains at least six distinct major subjects. If fewer are selected, add suitable major subjects from the design, never accessory parts, unrelated additions, or artificial subdivisions. Complete the entire required set even when it exceeds six; six is a floor, not a cap or a measure of visual quality.
+
+Landmark trees, giant rock arches, major rock formations or landscape rock groups, and animals expressing the world's theme or activity can qualify. Judge importance through role, placement, scale, silhouette, and visibility in overview, regional, and planned route views. Ordinary decorative trees, small corner rocks, or barely visible animals do not qualify by category alone. Few buildings do not justify a general exemption from the minimum. If the design and minimum cannot both be satisfied, record the unmet requirement without silently relaxing it or changing the user's theme.
+
+In the existing key visible features table, mark required Meshy subjects and explain their visual role, selection reason, and Meshy or procedural scope. Meshy must provide the main visible form of each required subject. Consider viewing distance, form and material detail, entering or passing through, opening parts, and accurate joins to roads, foundations, and neighboring structures. A complete building model with local procedural additions can preserve these connections. Generate separate parts only when the subject needs them; parts of one subject and repeated instances do not increase the count. Follow the [world contract](world-contract.md) for full counting and completion rules.
+
+Terrain, roads, ordinary wall segments, continuous steps, precise connectors, and necessary interaction parts usually remain procedural. Do not submit door handles, ordinary signs, connectors, or other accessory details as standalone Meshy tasks; use procedural geometry, textures, or rendered text. Important procedural buildings outside the required Meshy set still need the designed appearance and close detail.
+
+New scenes can load the selected models directly without a complete procedural first pass. Existing-scene revisions affect only requested subjects and necessary connections; they do not require six new models for each local change. Follow the [world contract](world-contract.md) for reference images, platform generation, and integration. Discussion, prompt-only, and plan-only tasks do not trigger paid generation; tool or resource blockers must remain explicit in `.world/validation-report.md`.
+
 ## 3. Connect the scales and the journey
 
 Resolve the world boundary, terrain, entrances, regional connections, and navigable routes. Describe what is seen on arrival and what is discovered along each main route, including grounded movement and obstacles relevant to the requested experience. Connect world-scale composition to mid-scale buildings or subjects and then to close-range materials and traces of life.
@@ -47,7 +63,14 @@ Read [the presentation guide](presentation.md) and resolve the presentation alon
 
 ## 5. Check completeness before coding
 
-Include a concise **key visible features** table in `.world/expanded-prompt.md`, organized by major region and core subject. Use object and feature names, the specific design feature, a likely implementation direction, the near-view observation position, and applicable grounding or support points. Cover every major region, explicit user requirement, and defining feature; do not select only easy features. The table indexes the prose and does not cancel other commitments in it. Keep it in the existing design document without a new ID scheme or separate specification.
+Include a concise **key visible features** table in `.world/expanded-prompt.md`, organized by major region and core subject. Keep the existing subject names and use the table to record:
+
+- The region, subject, visual role, and required form, materials, and close-range features.
+- Whether the subject is required for Meshy and why, the main visible form Meshy supplies, and any procedural additions.
+- Location, scale, orientation, foundations, entrances, route connections, and necessary interaction relationships.
+- Overview or regional observation positions, subject close-ups, and applicable contact or support views.
+
+Cover every major region, explicit user requirement, and defining feature; do not select only easy features. The table indexes the prose and does not cancel other commitments in it. Keep it in the existing design document without a new ID scheme, asset list, or separate specification. When the new-world Meshy requirement applies, verify at least six distinct major subjects, coverage of all major regions and core visual focal points, and inspectable planned views for every required subject. Repeated instances and split parts cannot fill missing slots.
 
 Review the inventory against the expanded chapters, feature table, and acceptance views. Each core subject should answer: what form does it have, how do its parts connect, where are its details, and from where can they be seen? If implementation would still require inventing the spatial layout, key appearance, support relationships, materials, key routes, or presentation hierarchy, return to the relevant chapter and resolve those decisions first. Ordinary modeling parameters and implementation techniques can be chosen while coding.
 
