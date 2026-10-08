@@ -17,6 +17,7 @@ export class PreviewManager {
   readonly #running = new Map<string, ChildProcess>();
   readonly #children = new Map<string, Set<ChildProcess>>();
   readonly #operations = new Map<string, symbol>();
+  readonly #starting = new Map<string, Promise<string>>();
   readonly #readinessTimeoutMs: number;
 
   constructor(
@@ -26,7 +27,23 @@ export class PreviewManager {
     this.#readinessTimeoutMs = options.readinessTimeoutMs ?? 30_000;
   }
 
-  async start(project: ProjectState): Promise<string> {
+  /** Reuses a ready server or an in-flight launch; only an explicit start restarts it. */
+  ensureStarted(project: ProjectState): Promise<string> {
+    if (project.preview.status === "ready" && project.preview.url) return Promise.resolve(project.preview.url);
+    return this.#starting.get(project.id) ?? this.start(project);
+  }
+
+  start(project: ProjectState): Promise<string> {
+    const starting = this.#start(project);
+    this.#starting.set(project.id, starting);
+    const forget = () => {
+      if (this.#starting.get(project.id) === starting) this.#starting.delete(project.id);
+    };
+    void starting.then(forget, forget);
+    return starting;
+  }
+
+  async #start(project: ProjectState): Promise<string> {
     const operation = Symbol(project.id);
     this.#operations.set(project.id, operation);
     project.preview = { status: "starting" };
@@ -85,6 +102,7 @@ export class PreviewManager {
 
   async stop(project: ProjectState): Promise<void> {
     this.#operations.delete(project.id);
+    this.#starting.delete(project.id);
     const hadActivity = this.#children.has(project.id) || project.preview.status !== "stopped";
     await this.#terminateProject(project.id);
     if (!hadActivity) return;
@@ -94,6 +112,7 @@ export class PreviewManager {
 
   async stopAll(): Promise<void> {
     this.#operations.clear();
+    this.#starting.clear();
     await Promise.all([...this.#children.keys()].map((projectId) => this.#terminateProject(projectId)));
   }
 

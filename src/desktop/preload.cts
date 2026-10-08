@@ -3,6 +3,7 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
+import type { WebGamePlayerRequest, WebGamePlayerState } from "../shared/web-game-player.js";
 
 function argument(name: string): string {
   const prefix = `--${name}=`;
@@ -43,6 +44,16 @@ if (process.isMainFrame) {
     finishNodeThumbnail: (captured: boolean) => ipcRenderer.invoke("ohmygame:finish-node-thumbnail", captured) as Promise<void>,
     openPlaytest: (projectId: string, viewport: { width: number; height: number }) =>
       ipcRenderer.invoke("ohmygame:open-playtest", projectId, viewport) as Promise<void>,
+    webGamePlayer: Object.freeze({
+      open: (projectId: string, request: WebGamePlayerRequest) => ipcRenderer.invoke("ohmygame:open-web-game-player", projectId, request) as Promise<void>,
+      state: (projectId: string) => ipcRenderer.invoke("ohmygame:web-game-player-state", projectId) as Promise<WebGamePlayerState>,
+      refresh: (projectId: string, reload = false) => ipcRenderer.invoke("ohmygame:refresh-web-game-player", projectId, reload) as Promise<void>,
+      onState: (listener: (state: WebGamePlayerState) => void) => {
+        const callback = (_event: Electron.IpcRendererEvent, state: WebGamePlayerState) => listener(state);
+        ipcRenderer.on("ohmygame:web-game-player-state", callback);
+        return () => ipcRenderer.removeListener("ohmygame:web-game-player-state", callback);
+      },
+    }),
     openPlayableNode: (projectId: string, nodeId: string) =>
       ipcRenderer.invoke("ohmygame:open-playable-node", projectId, nodeId) as Promise<void>,
     onOpenPlayableNode: (listener: (projectId: string, nodeId: string) => void) => {

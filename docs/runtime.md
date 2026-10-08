@@ -70,6 +70,21 @@ and are never written to workspaces or returned to the renderer.
 
 ## Agent game use
 
+Web Game's **Play** button opens one human-controlled game window per project.
+Repeated clicks focus the existing game without reloading it. While that window
+is opening or running, the editor unloads its Preview iframe and shows the last
+project cover with a **Return to game** action. Closing the player restores the
+iframe when the Preview tab is visible; other tabs do not start another game.
+Opening or returning to the player reloads neither a ready development server
+nor an in-flight server startup. Browser-only development uses a named popup.
+
+The human window uses the Preview's browser storage and receives no editor
+preload or daemon credentials. Moving between the iframe and player reloads
+the game, so in-memory progress is not transferred; saved progress depends on
+the game's storage. Reload targets the active human game. A restarted server
+updates an open player to its new origin. Human play and agent tests share the
+development server and source, so code changes can still hot-update both.
+
 The desktop runtime exposes game interaction and verification as the Pi custom
 tool `game_use`. This is an OhMyGame core capability rather than a Plugin:
 

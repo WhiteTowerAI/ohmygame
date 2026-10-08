@@ -4048,6 +4048,40 @@ button.home-nav-item-active:hover {
   font-size: 12px;
   font-weight: 600;
 }
+.project-settings-section-heading {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.project-settings-help.icon-button[data-tooltip] {
+  position: static;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+.project-settings-help.icon-button[data-tooltip]:is(:hover, :focus-visible) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.project-settings-help.icon-button[data-tooltip]::after {
+  right: auto;
+  left: 0;
+  max-width: min(240px, calc(100vw - 80px));
+}
+.project-settings-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.project-settings-dialog .playable-variables {
+  max-height: 180px;
+  overflow-y: auto;
+  font-size: 11px;
+}
 .project-settings-field-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(120px, 0.6fr);
@@ -4561,31 +4595,6 @@ button.home-nav-item-active:hover {
 .publication-secondary-actions a:hover,
 .publication-secondary-actions button:hover {
   color: var(--text);
-}
-.story-canvas-settings-dialog {
-  width: min(460px, 100%);
-}
-.story-canvas-settings-dialog header p {
-  margin: 3px 0 0;
-  color: var(--text-faint);
-  font-size: 10px;
-}
-.story-canvas-settings-content {
-  display: grid;
-  gap: 14px;
-  padding: 18px;
-}
-.story-format-warning {
-  margin: 0;
-  padding: 10px;
-  border-left: 2px solid #d3a64a;
-  background: rgb(211 166 74 / 8%);
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-.story-canvas-settings-dialog > footer {
-  padding: 0 18px 18px;
 }
 .playable-template-dialog {
   width: min(760px, 100%);
@@ -6740,15 +6749,7 @@ button {
   object-fit: cover;
 }
 .interactive-story-header {
-  position: relative;
   z-index: 4;
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
 }
 
 .story-code-view {
@@ -6759,103 +6760,6 @@ button {
 .story-code-view > .code-view {
   width: 100%;
   height: 100%;
-}
-
-.interactive-story-header-actions {
-  display: flex;
-  grid-column: 3;
-  grid-row: 1;
-  justify-self: end;
-  gap: 8px;
-}
-
-.interactive-story-project-tools {
-  display: inline-flex;
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: start;
-  gap: 6px;
-  app-region: no-drag;
-}
-.interactive-story-project-tools > button {
-  display: inline-flex;
-  height: 30px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-raised);
-  color: var(--text-muted);
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 600;
-}
-.interactive-story-project-tools > button:hover {
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-
-.interactive-story-home-button {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.interactive-story-home-button:hover,
-.interactive-story-home-button:focus-visible {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.interactive-story-home-button:focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
-.interactive-story-project-tools > button > small {
-  min-width: 15px;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: var(--surface-hover);
-  color: var(--text-faint);
-  font-size: 8px;
-  text-align: center;
-}
-
-.interactive-story-action {
-  display: flex;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 13px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface-raised);
-  color: var(--text);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.interactive-story-action:hover {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
-}
-
-.interactive-story-action.is-active {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
 }
 
 .interactive-story-canvas {
@@ -6897,16 +6801,6 @@ button {
     var(--accent) 0 4px,
     transparent 4px 8px
   );
-}
-
-@container (max-width: 860px) {
-  .interactive-story-header-actions .interactive-story-action span {
-    display: none;
-  }
-  .interactive-story-action {
-    width: 32px;
-    padding: 0;
-  }
 }
 
 .story-canvas-state {
@@ -8673,17 +8567,6 @@ button {
   border-top: 0;
 }
 
-@container (max-width: 620px) {
-  .interactive-story-action {
-    width: 32px;
-    padding: 0;
-  }
-
-  .interactive-story-action span {
-    display: none;
-  }
-}
-
 .workspace-resizer,
 .file-explorer-resizer {
   position: relative;
@@ -8751,7 +8634,7 @@ button {
 }
 
 .agent-pane > .pane-header,
-.coding-workspace[data-active-tab="code"] > .pane-header {
+.viewer-pane[data-active-tab="code"] > .pane-header {
   border-bottom: 1px solid
     color-mix(in srgb, var(--border) 58%, transparent);
 }
@@ -11858,6 +11741,7 @@ button {
 
 .viewer-publish {
   display: flex;
+  grid-column: 3;
   min-width: 0;
   align-items: center;
   gap: 6px;
@@ -12795,6 +12679,53 @@ button {
   height: 100%;
   border: 0;
   background: var(--canvas);
+}
+
+.preview-player-state {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.preview-player-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0.18;
+  filter: blur(3px);
+}
+
+.preview-player-state .preview-empty-state {
+  background: transparent;
+}
+
+.preview-return-button {
+  margin-top: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-hover);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.preview-return-button:disabled { opacity: 0.5; cursor: default; }
+.preview-return-button:hover:not(:disabled) { background: var(--surface); }
+.preview-play-button.is-active { color: var(--text); background: var(--surface-hover); }
+
+.preview-player-error {
+  position: absolute;
+  z-index: 1;
+  right: 16px;
+  bottom: 16px;
+  left: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 11px;
 }
 
 .preview-starting {
@@ -14277,25 +14208,6 @@ button {
   white-space: nowrap;
 }
 
-.playable-project-menu {
-  width: 232px;
-}
-
-.playable-project-menu button {
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-}
-
-.playable-project-menu button > small {
-  grid-column: 3;
-  color: var(--text-faint);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.playable-project-menu button[role="menuitemcheckbox"][aria-checked="true"] {
-  color: var(--text);
-}
-
 .playable-project-menu-separator {
   height: 1px;
   margin: 4px 6px;
@@ -14754,79 +14666,6 @@ button {
 .playable-editor-workspace {
   position: relative;
 }
-.interactive-story-project-tools > button.is-active {
-  border-color: var(--border-strong);
-  background: var(--surface-hover);
-  color: var(--text);
-}
-.playable-project-panel {
-  position: absolute;
-  z-index: 40;
-  top: 56px;
-  right: 12px;
-  display: flex;
-  width: min(460px, calc(100% - 24px));
-  max-height: calc(100% - 68px);
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  outline: 0;
-  background: var(--surface);
-  box-shadow: 0 16px 40px rgb(0 0 0 / 22%);
-  color: var(--text);
-  font-size: 11px;
-}
-.playable-project-panel > header {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
-}
-.playable-project-panel > header strong {
-  flex: 1;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-}
-.playable-project-panel > header button {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.playable-project-panel > header button:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-.playable-project-panel-body {
-  display: grid;
-  gap: 12px;
-  padding: 12px;
-  overflow-y: auto;
-}
-.playable-project-panel-body h3 {
-  margin: 0 0 6px;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-.playable-project-panel-hint {
-  margin: 0;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-.playable-project-panel-hint b {
-  color: var(--text);
-  font-weight: 600;
-}
 .playable-variables {
   display: grid;
   gap: 2px;
@@ -14867,10 +14706,6 @@ button {
 .playable-variables-empty {
   margin: 0;
   color: var(--text-faint);
-}
-.interactive-story-project-tools > button:disabled {
-  cursor: default;
-  opacity: 0.5;
 }
 
 /* Over the Playtest game: Replay on hover, and a note when something breaks. Always dark. */
