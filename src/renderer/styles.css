@@ -6571,7 +6571,7 @@ button {
   --story-edge-color: #898989;
   --story-editor-surface: var(--surface);
   --story-editor-stage: #202020;
-  --story-player-empty-background: #737373;
+  --story-player-empty-background: #1a1a1a;
   container-type: inline-size;
   display: grid;
   grid-template-rows: 50px minmax(0, 1fr) auto;
