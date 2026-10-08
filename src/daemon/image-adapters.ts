@@ -19,7 +19,7 @@ type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Resp
 export function createImageProtocolAdapters(request: Fetch = fetch): Record<ImageProtocol, ImageProtocolAdapter> {
   return {
     "openai-images": {
-      generate: (source, model, input, signal) => new OpenAIImageGenerator(source.apiKey, source.baseUrl, request).generate({ ...input, model }, signal),
+      generate: (source, model, input, signal) => new OpenAIImageGenerator(source.apiKey, source.baseUrl, request, source.headers).generate({ ...input, model }, signal),
     },
     "gemini-generate-content": {
       generate: (source, model, input, signal) => generateGemini(source, model, input, signal, request),

@@ -13,6 +13,8 @@ import {
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
   type ImageModel,
+  type ImageModelCatalog,
+  type ImageModelRef,
   type ModelAuthEvent,
   type ModelAuthMethod,
   type ModelProviderEndpointSettings,
@@ -312,8 +314,13 @@ export async function listVideoModels(): Promise<VideoModel[]> {
 }
 
 /** Image models grouped by connected provider, with the reason a provider has none. */
-export async function listImageModelCatalog(): Promise<MediaModelCatalog<ImageModel>> {
+export async function listImageModelCatalog(): Promise<ImageModelCatalog> {
   return request("/image-models/catalog");
+}
+
+export async function setDefaultImageModel(model: ImageModelRef): Promise<void> {
+  await request("/image-models/default", { method: "PUT", body: JSON.stringify(model) });
+  notifyAgentModelsChanged();
 }
 
 export async function listVideoModelCatalog(): Promise<MediaModelCatalog<VideoModel>> {

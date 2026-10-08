@@ -25,6 +25,21 @@ describe("provider model discovery", () => {
     expect(request.mock.calls[0]?.[1]?.headers).toEqual({ accept: "application/json" });
   });
 
+  it("reads explicit reasoning mappings and supported effort lists, including relay ultra", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [
+      { id: "mapped", thinking_level_map: { minimal: null, xhigh: "extra_high", max: "ultra" } },
+      { id: "listed", supported_reasoning_efforts: ["none", "low", "high", "ultra"] },
+      { id: "parameter-values", supported_parameters: { reasoning_effort: { values: ["medium", "xhigh", "max"] } } },
+      { id: "disabled", reasoning: false, supported_reasoning_efforts: ["low", "high"] },
+    ] }));
+    const { models } = await discoverProviderModels(connection, request);
+    expect(models[0]).toMatchObject({ reasoning: true, reasoningCapabilities: { source: "provider", thinkingLevelMap: { minimal: null, xhigh: "extra_high", max: "ultra" } } });
+    expect(models[1]).toMatchObject({ reasoningCapabilities: { thinkingLevelMap: { off: "none", minimal: null, medium: null, xhigh: null, max: "ultra" } } });
+    expect(models[2]).toMatchObject({ reasoningCapabilities: { thinkingLevelMap: { medium: "medium", xhigh: "xhigh", max: "max", off: null } } });
+    expect(models[3].reasoning).toBe(false);
+    expect(models.every((model) => model.thinkingLevelMap === undefined)).toBe(true);
+  });
+
   it("paginates Anthropic models with the correct API key header", async () => {
     const request = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ data: [{ id: "claude-a", display_name: "Claude A" }], has_more: true, last_id: "claude-a" }))
