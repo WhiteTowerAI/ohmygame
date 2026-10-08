@@ -1,6 +1,7 @@
 appId: ai.ohmygame.desktop
 productName: OhMyGame
 asar: true
+beforePack: scripts/prepare-desktop-typebox.mjs
 asarUnpack:
   - node_modules/esbuild/**/*
   - node_modules/@esbuild/**/*
@@ -16,6 +17,9 @@ files:
   - dist/shared/**/*.js
   - dist/renderer/**/*
   - dist/player/**/*
+  - "!node_modules/typebox/build/**/*.mjs"
+  - from: .runtime/typebox
+    to: node_modules/typebox/build
 
 extraResources:
   - from: plugins

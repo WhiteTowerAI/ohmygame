@@ -121,7 +121,19 @@ export const ASSET_CANVAS_SCHEMA = {
       required: ["width", "height"],
       properties: { width: { type: "integer", minimum: 240, maximum: 8192 }, height: { type: "integer", minimum: 240, maximum: 8192 } },
     },
-    nodes: { type: "array", maxItems: MAX_ASSET_CANVAS_NODES, items: { oneOf: nodes } },
+    nodes: {
+      type: "array", maxItems: MAX_ASSET_CANVAS_NODES,
+      items: {
+        type: "object", required: ["type"],
+        properties: { type: { enum: nodes.map((schema) => schema.properties.type.const) } },
+        // Skip unrelated node kinds. TypeBox retains detailed field errors in
+        // else branches, whereas then branches report only a generic error.
+        allOf: nodes.map((schema) => ({
+          if: { properties: { type: { not: schema.properties.type } } },
+          else: schema,
+        })),
+      },
+    },
     edges: {
       type: "array",
       maxItems: 8_000,
