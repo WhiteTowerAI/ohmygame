@@ -1,4 +1,5 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { CustomProviderSettings } from "../src/shared/contracts.js";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 
@@ -74,14 +75,14 @@ describe("ProviderImages", () => {
   it("explains that a ChatGPT sign-in cannot generate images without asking OpenAI", async () => {
     const request = vi.fn<typeof fetch>();
     const images = new ProviderImages(
-      async () => ({ ...runtime(), listCredentials: async () => [{ providerId: "openai", type: "oauth" }] }) as unknown as ModelRuntime,
+      async () => ({ ...runtime(), isUsingOAuth: () => true }) as unknown as ModelRuntime,
       request,
     );
 
     const catalog = await images.catalog();
 
     expect(catalog.models).toEqual([]);
-    expect(catalog.providers).toEqual([expect.objectContaining({ provider: "openai", state: "empty", message: expect.stringContaining("connect OpenAI with an API key instead, or connect OpenRouter") })]);
+    expect(catalog.providers).toEqual([expect.objectContaining({ provider: "openai", state: "empty", message: expect.stringContaining("choose another image provider") })]);
     expect(request).not.toHaveBeenCalled();
   });
 
@@ -198,6 +199,59 @@ describe("ProviderImages", () => {
     await expect(images.generate({ prompt: "A game icon", imageModel, resolution: "512", aspectRatio: "1:1" }))
       .rejects.toMatchObject({ message: "Image resolution and aspect ratio are not supported by the selected model", statusCode: 400 });
   });
+
+  it("keeps an explicit provider ahead of the default, and refuses unavailable defaults without changing providers", async () => {
+    const request = vi.fn<typeof fetch>(async (input) => String(input).endsWith("/models")
+      ? Response.json({ data: [{ id: "gpt-image-1" }, { id: "gpt-image-2.5-flare" }] })
+      : Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
+    let defaultModel = { provider: "openai", id: "gpt-image-1" };
+    const images = new ProviderImages(async () => runtime(), request, undefined, undefined, { defaultModel: () => defaultModel });
+    expect((await images.catalog()).models[0]?.id).toBe("gpt-image-1");
+    await images.generate({ prompt: "Default", size: "1024x1024" });
+    await images.generate({ prompt: "Explicit", imageModel: { provider: "openai", id: "gpt-image-2.5-flare" }, size: "1024x1024" });
+    const generated = request.mock.calls.filter(([input]) => String(input).endsWith("/images/generations"));
+    expect(generated.map(([, init]) => JSON.parse(String(init?.body)).model)).toEqual(["gpt-image-1", "gpt-image-2.5-flare"]);
+    defaultModel = { provider: "missing-provider", id: "gpt-image-1" };
+    await expect(images.generate({ prompt: "Unavailable", size: "1024x1024" })).rejects.toThrow("selected image model is unavailable");
+    expect(request.mock.calls.filter(([input]) => String(input).endsWith("/images/generations"))).toHaveLength(2);
+  });
+
+  it("automatically skips failed provider catalogs, while an explicit provider failure never changes routes", async () => {
+    const custom: CustomProviderSettings[] = ["failed-relay", "working-relay"].map((id) => ({ id: `custom-${id}`, name: id, api: "openai-completions", baseUrl: `https://${id}.test/v1`, authentication: "api_key" }));
+    const providers = [
+      { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.test/v1" },
+      { id: "openai", name: "OpenAI", baseUrl: "https://openai.test/v1" },
+      ...custom,
+    ];
+    const modelRuntime = {
+      ...runtime(),
+      getProvider: (id: string) => providers.find((provider) => provider.id === id),
+      hasConfiguredAuth: (id: string) => providers.some((provider) => provider.id === id),
+    } as unknown as ModelRuntime;
+    const request = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === "https://working-relay.test/v1/models") return Response.json({ data: [{ id: "gpt-image-1" }] });
+      if (url === "https://working-relay.test/v1/images/generations") return Response.json({ data: [{ b64_json: Buffer.from("relay").toString("base64") }] });
+      return new Response("{}", { status: 503 });
+    });
+    const images = new ProviderImages(async () => modelRuntime, request, undefined, undefined, { customProviders: async () => custom });
+    await expect(images.generate({ prompt: "Automatic", size: "1024x1024" })).resolves.toMatchObject({ bytes: Buffer.from("relay") });
+    expect(request.mock.calls.filter(([input]) => String(input).endsWith("/images/generations"))).toHaveLength(1);
+    request.mockClear();
+    await expect(images.generate({ prompt: "Explicit", imageModel: { provider: "openai", id: "gpt-image-1" } })).rejects.toThrow("Model request failed (503)");
+    expect(request.mock.calls.some(([input]) => String(input).includes("working-relay.test"))).toBe(false);
+  });
+
+  it("stops automatic selection when the request is canceled", async () => {
+    const controller = new AbortController();
+    const request = vi.fn<typeof fetch>(async () => {
+      controller.abort(new Error("Canceled by user"));
+      throw controller.signal.reason;
+    });
+    const images = new ProviderImages(async () => runtime(), request, () => "seedream-key");
+    await expect(images.generate({ prompt: "Canceled" }, controller.signal)).rejects.toThrow("Canceled by user");
+    expect(request.mock.calls.some(([input]) => String(input).endsWith("/images/generations"))).toBe(false);
+  });
 });
 
 function runtime(): ModelRuntime {
@@ -206,6 +260,7 @@ function runtime(): ModelRuntime {
       ? { name: "OpenAI", baseUrl: "https://api.openai.com/v1" }
       : undefined,
     hasConfiguredAuth: (provider: string) => provider === "openai",
+    isUsingOAuth: () => false,
     getAuth: async () => ({ auth: { apiKey: "sk-openai" }, source: "test" }),
     listCredentials: async () => [{ providerId: "openai", type: "api_key" }],
   } as unknown as ModelRuntime;

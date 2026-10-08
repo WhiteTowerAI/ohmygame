@@ -34,6 +34,7 @@ export class OpenAIImageGenerator implements ImageGenerator {
     private readonly apiKey: string | undefined,
     private readonly baseUrl = "https://api.openai.com/v1",
     private readonly request: Fetch = fetch,
+    private readonly headers: Record<string, string> = {},
   ) {}
 
   async generate(input: ImageGenerationInput & { model?: string }, signal?: AbortSignal): Promise<GeneratedImage> {
@@ -58,6 +59,7 @@ export class OpenAIImageGenerator implements ImageGenerator {
       response = await this.request(endpoint, {
         method: "POST",
         headers: {
+          ...this.headers,
           authorization: `Bearer ${this.apiKey}`,
           ...(!images.length ? { "content-type": "application/json" } : {}),
         },

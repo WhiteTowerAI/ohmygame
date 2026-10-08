@@ -10,7 +10,7 @@ const MODEL_FILTER_OPTIONS = [
   { value: "custom", label: "Custom" },
 ] as const;
 
-export function ProviderModels({ providerId }: { providerId: string }) {
+export function ProviderModels({ providerId, onEditModels }: { providerId: string; onEditModels?: () => void }) {
   const [settings, setSettings] = useState<ProviderModelSettings>();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "shown" | "custom">("all");
@@ -73,10 +73,10 @@ export function ProviderModels({ providerId }: { providerId: string }) {
     <div className="provider-models-heading">
       <h4>Language models <small>{settings ? shown : ""}</small></h4>
       {settings ? <div className="provider-models-heading-actions">
-        {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={() => { setAdding(true); setError(undefined); }} aria-expanded={adding}>
+        {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
           <Plus size={13} /><span>Add model</span>
         </button> : null}
-        <button className="settings-secondary-button" type="button" disabled={busy} onClick={toggleEditing} aria-label={editing ? "Done editing models" : "Edit models"} aria-pressed={editing}>
+        <button className="settings-secondary-button" type="button" disabled={busy} onClick={onEditModels ?? toggleEditing} aria-label={editing ? "Done editing models" : "Edit models"} aria-pressed={onEditModels ? undefined : editing}>
           {editing ? <Check size={13} /> : <Pencil size={13} />}<span>{editing ? "Done" : "Edit"}</span>
         </button>
       </div> : null}

@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
-import { CUSTOM_MODEL_APIS, type CustomProviderDetails, type CustomProviderModel, type SaveCustomProviderRequest, type ModelRef } from "../shared/contracts.js";
+import { applyEdits, format, modify, parse, type JSONPath, type ParseError } from "jsonc-parser";
+import { CUSTOM_MODEL_APIS, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, type ModelRef } from "../shared/contracts.js";
+import type { RuntimeModel } from "./agent.js";
+import { automaticCustomReasoning, normalizeThinkingLevelMap, resolveCustomModelCapabilities, type CustomModelCatalog } from "./custom-model-capabilities.js";
+import { supportedReasoningLevels } from "../shared/reasoning.js";
 
 type JsonObject = Record<string, unknown>;
-type CustomProviderRegistry = Record<string, { authentication: "api_key" | "none" }>;
+type CustomProviderRegistry = Record<string, { authentication: "api_key" | "none"; reasoningCapabilities?: Record<string, CustomThinkingLevelMap> }>;
 
 export class ProviderModelSettingsStore {
   readonly #preferencesPath: string;
@@ -13,6 +16,7 @@ export class ProviderModelSettingsStore {
   #hidden: Record<string, string[]> = {};
   #disabled: string[] = [];
   #customProviders: CustomProviderRegistry = {};
+  #defaultImageModel?: ModelRef;
   #pending: Promise<unknown> = Promise.resolve();
 
   constructor(dataDirectory: string, piAgentDirectory: string) {
@@ -23,17 +27,51 @@ export class ProviderModelSettingsStore {
   async load(): Promise<void> {
     const text = await readOptional(this.#preferencesPath);
     if (!text) return;
-    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; customProviders?: unknown };
+    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; customProviders?: unknown; defaultImageModel?: unknown };
     if (stored.version !== 1 || !isObject(stored.hidden) || Object.values(stored.hidden).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) throw new Error("Invalid model visibility settings");
     this.#hidden = stored.hidden as Record<string, string[]>;
     if (stored.disabled !== undefined && (!Array.isArray(stored.disabled) || stored.disabled.some((id) => typeof id !== "string"))) throw new Error("Invalid disabled providers");
     if (stored.customProviders !== undefined && (!isObject(stored.customProviders) || Object.values(stored.customProviders).some((item) => !isObject(item) || !["api_key", "none"].includes(String(item.authentication))))) throw new Error("Invalid custom providers");
     this.#disabled = (stored.disabled ?? []) as string[];
     this.#customProviders = (stored.customProviders ?? {}) as CustomProviderRegistry;
+    for (const provider of Object.values(this.#customProviders)) {
+      if (provider.reasoningCapabilities === undefined) continue;
+      if (!isObject(provider.reasoningCapabilities)) throw new Error("Invalid provider reasoning capabilities");
+      for (const capabilities of Object.values(provider.reasoningCapabilities)) normalizeThinkingLevelMap(capabilities);
+    }
+    if (stored.defaultImageModel !== undefined) {
+      const model = stored.defaultImageModel;
+      if (!isObject(model) || typeof model.provider !== "string" || !model.provider || typeof model.id !== "string" || !model.id) throw new Error("Invalid default image model");
+      this.#defaultImageModel = { provider: model.provider, id: model.id };
+    }
   }
 
   isEnabled(provider: string): boolean { return !this.#disabled.includes(provider); }
   isCustom(provider: string): boolean { return Object.hasOwn(this.#customProviders, provider); }
+
+  resolveModel(model: RuntimeModel, catalog: CustomModelCatalog): RuntimeModel {
+    return this.isCustom(model.provider) ? resolveCustomModelCapabilities(model, catalog, this.#customProviders[model.provider].reasoningCapabilities?.[model.id]) : model;
+  }
+
+  defaultImageModel(): ModelRef | undefined { return this.#defaultImageModel; }
+
+  setDefaultImageModel(model: ModelRef): Promise<void> {
+    const selected = { provider: model.provider, id: model.id };
+    return this.#enqueue(async () => {
+      await this.#writePreferences({ defaultImageModel: selected });
+      this.#defaultImageModel = selected;
+    });
+  }
+
+  async customProviders(): Promise<CustomProviderSettings[]> {
+    if (!Object.keys(this.#customProviders).length) return [];
+    const { config } = await this.#readModels();
+    return Object.entries(this.#customProviders).map(([id, settings]) => {
+      const entry = isObject(config.providers) ? config.providers[id] : undefined;
+      if (!isObject(entry)) throw new Error("Custom provider configuration is missing");
+      return { id, name: String(entry.name), api: String(entry.api), baseUrl: String(entry.baseUrl), authentication: settings.authentication };
+    });
+  }
 
   setEnabled(provider: string, enabled: boolean): Promise<void> {
     return this.#enqueue(async () => {
@@ -44,14 +82,17 @@ export class ProviderModelSettingsStore {
     });
   }
 
-  async customProvider(id: string): Promise<CustomProviderDetails | undefined> {
+  async customProvider(id: string, catalog: CustomModelCatalog = new Map()): Promise<CustomProviderDetails | undefined> {
     if (!this.isCustom(id)) return undefined;
     const { config } = await this.#readModels();
     const entry = isObject(config.providers) ? config.providers[id] : undefined;
     if (!isObject(entry)) throw new Error("Custom provider configuration is missing");
     const api = String(entry.api);
     const baseUrl = String(entry.baseUrl);
-    const models = (Array.isArray(entry.models) ? entry.models.filter(isObject) : []).map((model) => normalizeCustomProviderModel({ ...model, supportsImages: Array.isArray(model.input) && model.input.includes("image") }, api, baseUrl));
+    const models = (Array.isArray(entry.models) ? entry.models.filter(isObject) : []).map((model) => {
+      const reported = this.#customProviders[id].reasoningCapabilities?.[String(model.id)];
+      return normalizeCustomProviderModel({ ...model, supportsImages: Array.isArray(model.input) && model.input.includes("image"), ...(reported ? { reasoningCapabilities: { source: "provider", thinkingLevelMap: reported } } : {}) }, api, baseUrl, catalog);
+    });
     return {
       id, name: String(entry.name), api, baseUrl, authentication: this.#customProviders[id].authentication,
       models, hiddenModelIds: models.filter((model) => !this.isVisible({ provider: id, id: model.id })).map((model) => model.id),
@@ -68,7 +109,7 @@ export class ProviderModelSettingsStore {
       const fields: JsonObject = { name: settings.name, api: settings.api, baseUrl: settings.baseUrl };
       const models = settings.models ?? (!existing ? [] : undefined);
       if (models && (!isObject(existing) || !Array.isArray(existing.models) || !existing.models.length)) fields.models = models.map((model) => modelDefinition(model, settings.api, settings.baseUrl));
-      for (const [key, value] of Object.entries(fields)) contents = applyEdits(contents, modify(contents, ["providers", id, key], value, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      for (const [key, value] of Object.entries(fields)) contents = modifyFormattedJsonc(contents, ["providers", id, key], value);
       if (models && isObject(existing) && Array.isArray(existing.models) && existing.models.length) {
         const desired = new Map(models.map((model) => [model.id, modelDefinition(model, settings.api, settings.baseUrl)]));
         let index = 0;
@@ -79,17 +120,19 @@ export class ProviderModelSettingsStore {
             continue;
           }
           // Preserve model comments, pricing and provider-specific fields while editing supported settings.
-          for (const key of ["name", "api", "baseUrl", "contextWindow", "maxTokens", "reasoning", "input"]) {
-            if (JSON.stringify(previous[key]) !== JSON.stringify(definition[key])) contents = applyEdits(contents, modify(contents, ["providers", id, "models", index, key], definition[key], { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+          for (const key of ["name", "api", "baseUrl", "contextWindow", "maxTokens", "reasoning", "thinkingLevelMap", "input"]) {
+            if (JSON.stringify(previous[key]) !== JSON.stringify(definition[key])) contents = modifyFormattedJsonc(contents, ["providers", id, "models", index, key], definition[key]);
           }
           desired.delete(String(previous.id));
           index += 1;
         }
         for (const definition of desired.values()) {
-          contents = applyEdits(contents, modify(contents, ["providers", id, "models", index++], definition, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+          contents = modifyFormattedJsonc(contents, ["providers", id, "models", index++], definition);
         }
       }
-      const customProviders = { ...this.#customProviders, [id]: { authentication: settings.authentication } };
+      const reported = models ? Object.fromEntries(models.filter((model) => model.reasoningCapabilities?.source === "provider").map((model) => [model.id, model.reasoningCapabilities!.thinkingLevelMap]))
+        : isObject(existing) && existing.api === settings.api && existing.baseUrl === settings.baseUrl ? this.#customProviders[id]?.reasoningCapabilities : undefined;
+      const customProviders = { ...this.#customProviders, [id]: { authentication: settings.authentication, ...(reported && Object.keys(reported).length ? { reasoningCapabilities: reported } : {}) } };
       const hidden = { ...this.#hidden };
       if (models) {
         const ids = new Set(models.map((model) => model.id));
@@ -114,20 +157,22 @@ export class ProviderModelSettingsStore {
     return this.#enqueue(async () => {
       if (!this.isCustom(id)) throw new Error("Only custom providers can be removed");
       const { text } = await this.#readModels();
-      const contents = applyEdits(text, modify(text, ["providers", id], undefined, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      const contents = modifyFormattedJsonc(text, ["providers", id], undefined);
       const customProviders = { ...this.#customProviders };
       const hidden = { ...this.#hidden };
       delete customProviders[id];
       delete hidden[id];
       const disabled = this.#disabled.filter((provider) => provider !== id);
+      const defaultImageModel = this.#defaultImageModel?.provider === id ? undefined : this.#defaultImageModel;
       const oldPreferences = this.#preferences();
       try {
         await writeAtomic(this.#modelsPath, contents);
-        await this.#writePreferences({ customProviders, hidden, disabled });
+        await this.#writePreferences({ customProviders, hidden, disabled, defaultImageModel });
         await apply();
         this.#customProviders = customProviders;
         this.#hidden = hidden;
         this.#disabled = disabled;
+        this.#defaultImageModel = defaultImageModel;
       } catch (cause) {
         await writeAtomic(this.#modelsPath, text);
         await writeAtomic(this.#preferencesPath, oldPreferences);
@@ -137,7 +182,7 @@ export class ProviderModelSettingsStore {
   }
 
   #preferences(overrides: JsonObject = {}): string {
-    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, customProviders: this.#customProviders, ...overrides }, null, 2)}\n`;
+    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, customProviders: this.#customProviders, defaultImageModel: this.#defaultImageModel, ...overrides }, null, 2)}\n`;
   }
 
   #writePreferences(overrides: JsonObject): Promise<void> {
@@ -172,7 +217,7 @@ export class ProviderModelSettingsStore {
       const models = isObject(entry) && Array.isArray(entry.models) ? entry.models : [];
       if (models.some((item) => isObject(item) && item.id === model.id)) throw new Error("A model with this ID already exists");
       const definition = modelDefinition(model, this.isCustom(provider) && isObject(entry) ? String(entry.api) : undefined, this.isCustom(provider) && isObject(entry) ? String(entry.baseUrl) : undefined);
-      const contents = applyEdits(text, modify(text, ["providers", provider, "models"], [...models, definition], { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      const contents = modifyFormattedJsonc(text, ["providers", provider, "models"], [...models, definition]);
       await writeAtomic(this.#modelsPath, contents);
     });
   }
@@ -184,7 +229,7 @@ export class ProviderModelSettingsStore {
       const models = isObject(entry) && Array.isArray(entry.models) ? entry.models : [];
       const index = models.findIndex((item) => isObject(item) && item.id === id);
       if (index < 0) throw new Error("Custom model not found");
-      const contents = applyEdits(text, modify(text, ["providers", provider, "models", index], undefined, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      const contents = modifyFormattedJsonc(text, ["providers", provider, "models", index], undefined);
       await writeAtomic(this.#modelsPath, contents);
     });
   }
@@ -204,6 +249,28 @@ export class ProviderModelSettingsStore {
   }
 }
 
+function modifyFormattedJsonc(text: string, jsonPath: JSONPath, value: unknown): string {
+  const edit = modify(text, jsonPath, value, {})[0];
+  if (!edit) return text;
+  const contents = applyEdits(text, [edit]);
+  let begin = edit.offset;
+  let end = begin + edit.content.length;
+  if (!edit.length || !edit.content.length) {
+    while (begin > 0 && !/[\r\n]/.test(contents[begin - 1])) begin--;
+    while (end < contents.length && !/[\r\n]/.test(contents[end])) end++;
+  }
+  // jsonc-parser's formatted modify copies the entire document for each whitespace
+  // edit. Join the ordered formatting edits once to keep large model lists linear.
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const formatting of format(contents, { offset: begin, length: end - begin }, { insertSpaces: true, tabSize: 2, keepLines: false })) {
+    parts.push(contents.slice(cursor, formatting.offset), formatting.content);
+    cursor = formatting.offset + formatting.length;
+  }
+  parts.push(contents.slice(cursor));
+  return parts.join("");
+}
+
 function modelDefinition(model: CustomProviderModel, inheritedApi?: string, inheritedBaseUrl?: string): JsonObject {
   return {
     id: model.id, name: model.name,
@@ -211,11 +278,12 @@ function modelDefinition(model: CustomProviderModel, inheritedApi?: string, inhe
     ...(model.baseUrl && model.baseUrl !== inheritedBaseUrl ? { baseUrl: model.baseUrl } : {}),
     contextWindow: model.contextWindow, maxTokens: model.maxTokens,
     reasoning: model.reasoning, input: model.supportsImages ? ["text", "image"] : ["text"],
+    ...(model.thinkingLevelMap ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   };
 }
 
-export function normalizeCustomProvider(value: unknown): SaveCustomProviderRequest {
+export function normalizeCustomProvider(value: unknown, catalog: CustomModelCatalog = new Map()): SaveCustomProviderRequest {
   if (!isObject(value)) throw new Error("Invalid custom provider");
   const name = typeof value.name === "string" ? value.name.trim() : "";
   if (!name || name.length > 100 || /[\x00-\x1f]/.test(name)) throw new Error("Provider name is required (up to 100 characters)");
@@ -231,7 +299,7 @@ export function normalizeCustomProvider(value: unknown): SaveCustomProviderReque
   let models: CustomProviderModel[] | undefined;
   if (value.models !== undefined) {
     if (!Array.isArray(value.models) || value.models.length > 2_000) throw new Error("Provide up to 2,000 models");
-    models = value.models.map((model) => normalizeCustomProviderModel(model, api, baseUrl));
+    models = value.models.map((model) => normalizeCustomProviderModel(model, api, baseUrl, catalog));
     if (new Set(models.map((model) => model.id)).size !== models.length) throw new Error("Model IDs must be unique");
   }
   let hiddenModelIds: string[] | undefined;
@@ -243,7 +311,7 @@ export function normalizeCustomProvider(value: unknown): SaveCustomProviderReque
   return { name, api, baseUrl, authentication: value.authentication, ...(apiKey ? { apiKey } : {}), ...(models ? { models } : {}), ...(hiddenModelIds ? { hiddenModelIds } : {}) };
 }
 
-export function normalizeCustomProviderModel(value: unknown, defaultApi: string, defaultBaseUrl?: string): CustomProviderModel {
+export function normalizeCustomProviderModel(value: unknown, defaultApi: string, defaultBaseUrl?: string, catalog: CustomModelCatalog = new Map()): CustomProviderModel {
   if (!isObject(value)) throw new Error("Invalid custom model");
   const id = typeof value.id === "string" ? value.id.trim() : "";
   const name = typeof value.name === "string" ? value.name.trim() : "";
@@ -254,6 +322,12 @@ export function normalizeCustomProviderModel(value: unknown, defaultApi: string,
   const maxTokens = value.maxTokens;
   if (typeof contextWindow !== "number" || !Number.isSafeInteger(contextWindow) || contextWindow < 1 || contextWindow > 100_000_000 || typeof maxTokens !== "number" || !Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > contextWindow) throw new Error("Token limits must be positive integers, with output tokens no greater than context size");
   if (typeof value.reasoning !== "boolean" || typeof value.supportsImages !== "boolean") throw new Error("Invalid model capabilities");
+  const thinkingLevelMap = normalizeThinkingLevelMap(value.thinkingLevelMap);
+  const detected = value.reasoningCapabilities;
+  if (detected !== undefined && (!isObject(detected) || !["provider", "catalog"].includes(String(detected.source)) || detected.thinkingLevelMap === undefined)) throw new Error("Invalid reasoning capabilities");
+  const reported = isObject(detected) && detected.source === "provider" ? normalizeThinkingLevelMap(detected.thinkingLevelMap) : undefined;
+  const reasoningCapabilities = automaticCustomReasoning(id, api, catalog, reported);
+  if (!supportedReasoningLevels({ reasoning: value.reasoning, thinkingLevelMap: { ...reasoningCapabilities?.thinkingLevelMap, ...thinkingLevelMap } }).length) throw new Error("Enable at least one reasoning level");
   const baseUrl = typeof value.baseUrl === "string" && value.baseUrl.trim() ? value.baseUrl.trim() : undefined;
   if (!baseUrl && !defaultBaseUrl) throw new Error("Model Base URL is required for this provider");
   if (baseUrl) {
@@ -261,7 +335,7 @@ export function normalizeCustomProviderModel(value: unknown, defaultApi: string,
     try { url = new URL(baseUrl); } catch { throw new Error("Invalid model Base URL"); }
     if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid model Base URL");
   }
-  return { id, name, api, ...(baseUrl ? { baseUrl: baseUrl.replace(/\/$/, "") } : {}), contextWindow, maxTokens, reasoning: value.reasoning, supportsImages: value.supportsImages };
+  return { id, name, api, ...(baseUrl ? { baseUrl: baseUrl.replace(/\/$/, "") } : {}), contextWindow, maxTokens, reasoning: value.reasoning, ...(thinkingLevelMap ? { thinkingLevelMap } : {}), ...(reasoningCapabilities ? { reasoningCapabilities } : {}), supportsImages: value.supportsImages };
 }
 
 function isObject(value: unknown): value is JsonObject {

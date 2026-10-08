@@ -5,6 +5,9 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
+import { customModelCatalog } from "../src/daemon/custom-model-capabilities.js";
+import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, modelError } from "../src/renderer/custom-provider-models.js";
+import { AGENT_REASONING_LEVELS, type CustomProviderModel } from "../src/shared/contracts.js";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 import { ProviderVideos } from "../src/daemon/provider-videos.js";
 import { MeshyProvider } from "../src/daemon/meshy-provider.js";
@@ -19,12 +22,12 @@ afterEach(async () => {
 const firstModel = { id: "local-model", name: "Local model", api: "openai-completions", contextWindow: 32_000, maxTokens: 4_000, reasoning: false, supportsImages: false };
 const gateway = { name: "My gateway", baseUrl: "https://gateway.example/v1", api: "openai-completions", authentication: "api_key" as const, apiKey: "test-secret-key", models: [firstModel] };
 
-async function fixture(prompt = vi.fn(async () => {}), modelDiscoveryFetch?: typeof fetch) {
+async function fixture(prompt = vi.fn(async () => {}), modelDiscoveryFetch?: typeof fetch, imageFetch?: typeof fetch) {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-custom-providers-"));
   directories.push(directory);
   const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
   const abort = vi.fn(async () => {});
-  const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, modelDiscoveryFetch, createModelRuntime: async () => runtime, createSession: async () => ({ messages: [], prompt, abort, dispose: () => {}, subscribe: () => () => {} }) });
+  const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, modelDiscoveryFetch, imageFetch, createModelRuntime: async () => runtime, createSession: async () => ({ messages: [], prompt, abort, dispose: () => {}, subscribe: () => () => {} }) });
   apps.push(app);
   const create = async (payload = gateway) => {
     const result = await app.inject({ method: "POST", url: "/settings/models/providers/custom", payload });
@@ -35,6 +38,270 @@ async function fixture(prompt = vi.fn(async () => {}), modelDiscoveryFetch?: typ
 }
 
 describe("custom providers", () => {
+  it("passes canvas text and document reasoning to the runtime, uses defaults, and rejects unsupported levels", async () => {
+    const { runtime, app, create } = await fixture();
+    const { id } = await create({ ...gateway, models: [{ ...firstModel, reasoning: true }] });
+    const model = { provider: id, id: firstModel.id };
+    const response = { role: "assistant", content: [{ type: "text", text: "Generated rules" }], stopReason: "stop" } as Awaited<ReturnType<typeof runtime.completeSimple>>;
+    const complete = vi.spyOn(runtime, "completeSimple").mockResolvedValue(response);
+    const stream = vi.spyOn(runtime, "streamSimple").mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() { yield { type: "done", reason: "stop", message: response }; },
+    }) as unknown as ReturnType<typeof runtime.streamSimple>);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+    const created = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/documents`, payload: { title: "Rules" } });
+    expect(created.statusCode, created.body).toBe(201);
+    const document = created.json();
+    const textUrl = `/projects/${project.id}/canvas/text/generate`;
+    const documentUrl = `/projects/${project.id}/canvas/documents/${document.document.id}/generate`;
+    for (const [url, extra] of [[textUrl, {}], [documentUrl, { revision: document.revision }]] as const) {
+      const result = await app.inject({ method: "POST", url, payload: { instruction: "Write rules", model, reasoningLevel: "high", ...extra } });
+      expect(result.statusCode, result.body).toBe(200);
+      if (url === documentUrl) expect(result.json()).toMatchObject({ status: "complete", markdown: "Generated rules" });
+      const generate = url === documentUrl ? stream : complete;
+      expect(generate).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ reasoning: "high" }));
+      const calls = generate.mock.calls.length;
+      for (const reasoningLevel of ["max", "turbo"]) {
+        const rejected = await app.inject({ method: "POST", url, payload: { instruction: "Write rules", model, reasoningLevel, ...extra } });
+        expect(rejected.statusCode, rejected.body).toBe(400);
+      }
+      expect(generate).toHaveBeenCalledTimes(calls);
+    }
+    expect((await app.inject({ method: "PUT", url: "/models/default", payload: { model, reasoningLevel: "high" } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "POST", url: textUrl, payload: { instruction: "Write rules" } })).statusCode).toBe(200);
+    expect(complete.mock.lastCall?.[2]?.reasoning).toBe("high");
+    expect((await app.inject({ method: "POST", url: textUrl, payload: { instruction: "Write rules", model, reasoningLevel: "off" } })).statusCode).toBe(200);
+    expect(complete.mock.lastCall?.[2]).not.toHaveProperty("reasoning");
+  });
+
+  it("fills missing GPT relay capabilities from the catalog and preserves reasoning levels through edits", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "gpt-5.4" }, { id: "gpt-4o" }, { id: "gpt-image-2.5-flare" }] }));
+    const { directory, runtime, app, create } = await fixture(undefined, request);
+    const discovery = await app.inject({ method: "POST", url: "/settings/models/providers/discover", payload: gateway });
+    expect(discovery.statusCode, discovery.body).toBe(200);
+    const models = discovery.json().models;
+    expect(models.map((model: { id: string }) => model.id)).toEqual(["gpt-5.4", "gpt-4o"]);
+    expect(models[0]).toMatchObject({ reasoning: true, supportsImages: true, reasoningCapabilities: { source: "catalog", thinkingLevelMap: { xhigh: "xhigh", max: null } } });
+    expect(models[1].reasoning).toBe(false);
+    const { id } = await create({ ...gateway, models });
+    expect(runtime.getModel(id, "gpt-5.4")?.thinkingLevelMap).toBeUndefined();
+    expect(await readFile(path.join(directory, "models.json"), "utf8")).not.toContain("thinkingLevelMap");
+    const modelCatalog = (await app.inject({ method: "GET", url: "/models" })).json();
+    expect(modelCatalog.models).toContainEqual(expect.objectContaining({ provider: id, id: "gpt-5.4", reasoningLevels: ["off", "low", "medium", "high", "xhigh"] }));
+    const update = await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/custom`, payload: { ...gateway, apiKey: undefined, models: [{ ...models[0], reasoning: false }] } });
+    expect(update.statusCode, update.body).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/models" })).json().models).toContainEqual(expect.objectContaining({ provider: id, id: "gpt-5.4", reasoningLevels: ["off"] }));
+    const enable = await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/custom`, payload: { ...gateway, apiKey: undefined, models: [{ ...models[0], thinkingLevelMap: undefined, reasoning: true }] } });
+    expect(enable.statusCode, enable.body).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/models" })).json().models).toContainEqual(expect.objectContaining({ provider: id, id: "gpt-5.4", reasoningLevels: ["off", "low", "medium", "high", "xhigh"] }));
+  });
+
+  it("resolves an existing GPT-6.1 relay at load time without fetching or rewriting it", async () => {
+    const { directory, runtime, app } = await fixture();
+    const id = "custom-legacy";
+    const model = { ...firstModel, id: "gpt-6.1-sol", name: "GPT-6.1 Sol", reasoning: true };
+    // A provider created by the previous version, with no reasoning map on disk.
+    const definition = { ...model, input: ["text"], supportsImages: undefined };
+    const original = JSON.stringify({ providers: { [id]: { name: gateway.name, api: gateway.api, baseUrl: gateway.baseUrl, models: [definition] } } });
+    await writeFile(path.join(directory, "models.json"), original);
+    await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: {}, customProviders: { [id]: { authentication: "api_key" } } }));
+    await runtime.refresh({ allowNetwork: false });
+    await runtime.setRuntimeApiKey(id, "fixture-key");
+    const levels = ["low", "medium", "high", "xhigh", "max"];
+    const catalog = (await app.inject({ method: "GET", url: "/models" })).json();
+    expect(catalog.models).toContainEqual(expect.objectContaining({ provider: id, id: model.id, reasoningLevels: levels }));
+    expect((await app.inject({ method: "GET", url: `/settings/models/providers/${id}/models` })).json().models[0].reasoningLevels).toEqual(levels);
+    const details = (await app.inject({ method: "GET", url: `/settings/models/providers/${id}/custom` })).json();
+    expect(details.models[0]).toMatchObject({ reasoningCapabilities: { source: "catalog", thinkingLevelMap: { off: null, minimal: null, xhigh: "xhigh", max: "max" } } });
+    const selected = { provider: id, id: model.id };
+    expect((await app.inject({ method: "PUT", url: "/models/default", payload: { model: selected, reasoningLevel: "max" } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "PUT", url: "/models/default", payload: { model: selected, reasoningLevel: "minimal" } })).statusCode).toBe(400);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations`, payload: { model: selected, reasoningLevel: "xhigh" } });
+    expect(conversation.statusCode, conversation.body).toBe(201);
+    const detailsOfConversation = (await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.json().id}` })).json();
+    expect(detailsOfConversation.settings.reasoningLevel).toBe("xhigh");
+    expect(await readFile(path.join(directory, "models.json"), "utf8")).toBe(original);
+  });
+
+  it("saves the catalog levels after changing an endpoint and switching to Custom", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "gpt-6.1-sol", supported_reasoning_efforts: ["low", "high", "ultra"] }] }));
+    const { app, create } = await fixture(undefined, request);
+    const discovered = (await app.inject({ method: "POST", url: "/settings/models/providers/discover", payload: gateway })).json().models[0];
+    const { id } = await create({ ...gateway, models: [discovered] });
+    const changed = invalidateCustomModelCapabilities(discovered as CustomProviderModel);
+    const custom = { ...changed, thinkingLevelMap: initialCustomThinkingLevelMap(changed) };
+    expect(modelError(custom)).toBeUndefined();
+    const saved = await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/custom`, payload: { ...gateway, apiKey: undefined, baseUrl: "https://other-gateway.example/v1", models: [custom] } });
+    expect(saved.statusCode, saved.body).toBe(200);
+    const catalog = (await app.inject({ method: "GET", url: "/models" })).json();
+    expect(catalog.models).toContainEqual(expect.objectContaining({ provider: id, id: custom.id, reasoningLevels: ["low", "medium", "high", "xhigh", "max"] }));
+  });
+
+  it("reads the catalog once for a batch of 2,000 relay models", async () => {
+    const { app, runtime, create } = await fixture();
+    const models = Array.from({ length: 2_000 }, (_, index) => ({ ...firstModel, id: index === 0 ? "gpt-6.1-sol" : `fixture-${index}`, reasoning: true }));
+    const { id } = await create({ ...gateway, models });
+    const getModels = vi.spyOn(runtime, "getModels");
+    try {
+      const result = await app.inject({ method: "GET", url: "/models" });
+      expect(result.statusCode, result.body).toBe(200);
+      const selected = result.json().models.filter((model: { provider: string }) => model.provider === id);
+      expect(selected).toHaveLength(2_000);
+      expect(selected.find((model: { id: string }) => model.id === "gpt-6.1-sol").reasoningLevels).toEqual(["low", "medium", "high", "xhigh", "max"]);
+      expect(selected.find((model: { id: string }) => model.id === "fixture-1").reasoningLevels).toEqual(["off", "minimal", "low", "medium", "high"]);
+      expect(getModels.mock.calls.filter((args) => args.length === 0)).toHaveLength(1);
+    } finally { getModels.mockRestore(); }
+  });
+
+  it("can edit and fetch again when manual overrides leave only catalog reasoning levels enabled", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "gpt-6.1-sol" }] }));
+    const { app, create } = await fixture(undefined, request);
+    const model = { ...firstModel, id: "gpt-6.1-sol", reasoning: true, thinkingLevelMap: { off: null, minimal: null, low: null, medium: null, high: null } };
+    const { id } = await create({ ...gateway, models: [model] });
+    const update = await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/custom`, payload: { ...gateway, apiKey: undefined, name: "Renamed gateway", models: [model] } });
+    expect(update.statusCode, update.body).toBe(200);
+    const fetched = await app.inject({ method: "POST", url: "/settings/models/providers/discover", payload: { ...gateway, apiKey: undefined, providerId: id, models: undefined } });
+    expect(fetched.statusCode, fetched.body).toBe(200);
+    expect(request).toHaveBeenCalledOnce();
+    expect((await app.inject({ method: "GET", url: "/models" })).json().models).toContainEqual(expect.objectContaining({ provider: id, reasoningLevels: ["xhigh", "max"] }));
+  });
+
+  it.each(["manual", "reported"])("saves disabled reasoning with no enabled %s levels and rejects re-enabling it", async (source) => {
+    const { app, create } = await fixture();
+    const allDisabled = Object.fromEntries(AGENT_REASONING_LEVELS.map((level) => [level, null]));
+    const disabled: CustomProviderModel = {
+      ...firstModel, reasoning: false,
+      thinkingLevelMap: source === "manual" ? allDisabled : { low: null },
+      ...(source === "reported" ? { reasoningCapabilities: { source: "provider", thinkingLevelMap: { ...allDisabled, low: "low" } } } : {}),
+    };
+    expect(modelError(disabled)).toBeUndefined();
+    const { id } = await create({ ...gateway, models: [disabled] });
+    const details = (await app.inject({ method: "GET", url: `/settings/models/providers/${id}/custom` })).json();
+    expect(details.models[0]).toMatchObject({ reasoning: false, thinkingLevelMap: disabled.thinkingLevelMap });
+    expect((await app.inject({ method: "GET", url: "/models" })).json().models).toContainEqual(expect.objectContaining({ provider: id, reasoningLevels: ["off"] }));
+    const enable = await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/custom`, payload: { ...gateway, apiKey: undefined, models: [{ ...disabled, reasoning: true }] } });
+    expect(enable.statusCode, enable.body).toBe(400);
+    expect(enable.json().error).toContain("Enable at least one");
+    const invalid = await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/custom`, payload: { ...gateway, apiKey: undefined, models: [{ ...disabled, thinkingLevelMap: { max: "" } }] } });
+    expect(invalid.statusCode).toBe(400);
+  });
+
+  it.each(["openai-completions", "openai-responses"])("sends xhigh/max and explicit relay overrides through the real %s adapter", async (api) => {
+    const { directory, runtime, create } = await fixture();
+    const model = { ...firstModel, id: "gpt-6.1-sol", name: "GPT-6.1 Sol", api, reasoning: true };
+    const { id } = await create({ ...gateway, api, models: [model] });
+    const store = new ProviderModelSettingsStore(directory, directory);
+    await store.load();
+    const raw = runtime.getModel(id, model.id)!;
+    const resolved = store.resolveModel(raw, customModelCatalog(runtime.getModels()));
+    const request = vi.fn<typeof fetch>(async () => Response.json({ error: { message: "Stopped by test fixture" } }, { status: 400 }));
+    for (const [level, expected] of [["xhigh", "xhigh"], ["max", "max"], ["max", "ultra"]] as const) {
+      const sentModel = expected === "ultra" ? { ...resolved, thinkingLevelMap: { ...resolved.thinkingLevelMap, max: "ultra" } } : resolved;
+      const result = await runtime.completeSimple(sentModel, { messages: [{ role: "user", content: "Test", timestamp: 1 }] }, { reasoning: level, fetch: request, maxRetries: 0 });
+      expect(result.stopReason).toBe("error");
+      const payload = JSON.parse(String(request.mock.lastCall?.[1]?.body));
+      expect(api === "openai-responses" ? payload.reasoning?.effort : payload.reasoning_effort).toBe(expected);
+    }
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(raw.thinkingLevelMap).toBeUndefined();
+  });
+
+  it("retains reported capabilities across restart, preserves manual overrides and restores automatic mode", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "gpt-6.1-sol", supported_reasoning_efforts: ["low", "high", "ultra"] }] }));
+    const { directory, runtime, app, create } = await fixture(undefined, request);
+    const discovered = (await app.inject({ method: "POST", url: "/settings/models/providers/discover", payload: gateway })).json().models[0];
+    const manual = { ...discovered, thinkingLevelMap: { max: "relay-max", low: null } };
+    const { id } = await create({ ...gateway, models: [manual] });
+    const store = new ProviderModelSettingsStore(directory, directory);
+    await store.load();
+    expect(store.resolveModel(runtime.getModel(id, manual.id)!, customModelCatalog(runtime.getModels())).thinkingLevelMap).toMatchObject({ minimal: null, low: null, max: "relay-max" });
+    const restored = createApp({ dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime });
+    apps.push(restored);
+    expect((await restored.inject({ method: "GET", url: "/models" })).json().models).toContainEqual(expect.objectContaining({ provider: id, reasoningLevels: ["high", "max"] }));
+    const url = `/settings/models/providers/${id}/custom`;
+    const details = (await restored.inject({ method: "GET", url })).json();
+    expect(details.models[0]).toMatchObject({ thinkingLevelMap: manual.thinkingLevelMap, reasoningCapabilities: { source: "provider", thinkingLevelMap: { max: "ultra" } } });
+    expect(details.models[0].reasoningCapabilities.catalogThinkingLevelMap).toMatchObject({ xhigh: "xhigh", max: "max" });
+    for (const file of ["models.json", "model-visibility.json"]) expect(await readFile(path.join(directory, file), "utf8")).not.toContain("catalogThinkingLevelMap");
+    const reset = await restored.inject({ method: "PUT", url, payload: { ...gateway, apiKey: undefined, models: [{ ...details.models[0], thinkingLevelMap: undefined }] } });
+    expect(reset.statusCode, reset.body).toBe(200);
+    expect(reset.json().models[0]).not.toHaveProperty("thinkingLevelMap");
+    expect(await readFile(path.join(directory, "models.json"), "utf8")).not.toContain("thinkingLevelMap");
+    expect((await restored.inject({ method: "GET", url: "/models" })).json().models).toContainEqual(expect.objectContaining({ provider: id, reasoningLevels: ["low", "high", "max"] }));
+    expect(runtime.getModel(id, manual.id)?.thinkingLevelMap).toBeUndefined();
+    const changedEndpoint = await restored.inject({ method: "PUT", url, payload: { ...gateway, apiKey: undefined, models: undefined, baseUrl: "https://other-gateway.example/v1" } });
+    expect(changedEndpoint.statusCode, changedEndpoint.body).toBe(200);
+    expect(changedEndpoint.json().models[0].reasoningCapabilities).toMatchObject({ source: "catalog", thinkingLevelMap: { xhigh: "xhigh", max: "max" } });
+  });
+
+  it("shares a relay connection with image generation and uses its saved default without a canvas", async () => {
+    const request = vi.fn<typeof fetch>(async (input) => String(input) === `${gateway.baseUrl}/models`
+      ? Response.json({ data: [{ id: "gpt-image-1" }, { id: "gpt-image-2.5-flare" }, { id: "gpt-5.4" }] })
+      : String(input).startsWith(`${gateway.baseUrl}/images/`)
+        ? Response.json({ data: [{ b64_json: Buffer.from("relay image").toString("base64") }] })
+        : Response.json({ data: [] }));
+    const { directory, runtime, app, create } = await fixture(undefined, undefined, request);
+    const { id } = await create();
+    expect((await app.inject({ method: "GET", url: "/settings/providers" })).json()).toContainEqual(expect.objectContaining({ id, capabilities: ["language", "image"] }));
+    const catalog = (await app.inject({ method: "GET", url: "/image-models/catalog" })).json();
+    expect(catalog.models.map((model: { provider: string; id: string }) => [model.provider, model.id])).toEqual([[id, "gpt-image-2.5-flare"], [id, "gpt-image-1"]]);
+    const defaultModel = { provider: id, id: "gpt-image-1" };
+    expect((await app.inject({ method: "PUT", url: "/image-models/default", payload: defaultModel })).statusCode).toBe(204);
+    const restored = new ProviderModelSettingsStore(directory, directory);
+    await restored.load();
+    expect(restored.defaultImageModel()).toEqual(defaultModel);
+    const after = (await app.inject({ method: "GET", url: "/image-models/catalog" })).json();
+    expect(after.defaultModel).toEqual(defaultModel);
+    expect(after.models[0]).toMatchObject(defaultModel);
+
+    const response = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "Make a game icon" } });
+    expect(response.statusCode, response.body).toBe(202);
+    await vi.waitFor(async () => {
+      const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
+      expect(jobs.find((job: { id: string }) => job.id === response.json().id)?.status).toBe("succeeded");
+    }, { timeout: 5_000 });
+    const generated = request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"));
+    expect(generated?.[0]).toBe(`${gateway.baseUrl}/images/generations`);
+    expect(generated?.[1]?.headers).toMatchObject({ authorization: `Bearer ${gateway.apiKey}` });
+    expect(JSON.parse(String(generated?.[1]?.body))).toMatchObject({ model: "gpt-image-1" });
+    expect((await runtime.getAuth(id))?.auth?.apiKey).toBe(gateway.apiKey);
+    expect(after).not.toHaveProperty("apiKey");
+
+    expect((await app.inject({ method: "PUT", url: "/image-models/default", payload: { provider: "openai", id: "gpt-image-1" } })).statusCode).toBe(400);
+    await app.inject({ method: "DELETE", url: `/settings/models/providers/${id}/custom` });
+    const removed = new ProviderModelSettingsStore(directory, directory);
+    await removed.load();
+    expect(removed.defaultImageModel()).toBeUndefined();
+  });
+
+  it("routes canvas reference-image requests to the chosen relay, preserves provider identity and honors disabling it", async () => {
+    const request = vi.fn<typeof fetch>(async (input) => String(input) === `${gateway.baseUrl}/models`
+      ? Response.json({ data: [{ id: "gpt-image-2.5-flare" }] })
+      : String(input).endsWith("/images/edits")
+        ? Response.json({ data: [{ b64_json: Buffer.from("cover").toString("base64") }] })
+        : Response.json({ data: [] }));
+    const { runtime, app, create } = await fixture();
+    const { id } = await create();
+    const store = new ProviderModelSettingsStore(directories.at(-1)!, directories.at(-1)!);
+    await store.load();
+    const images = new ProviderImages(async () => runtime, request, undefined, (provider) => store.isEnabled(provider), { customProviders: () => store.customProviders() });
+    const input = { prompt: "Cover", imageModel: { provider: id, id: "gpt-image-2.5-flare" }, resolution: "2K" as const, aspectRatio: "16:9" as const, images: [{ mediaType: "image/png" as const, data: Buffer.from("reference").toString("base64") }] };
+    await expect(images.generate(input)).resolves.toMatchObject({ bytes: Buffer.from("cover") });
+    const generated = request.mock.calls.find(([url]) => String(url).endsWith("/images/edits"));
+    expect(generated?.[0]).toBe(`${gateway.baseUrl}/images/edits`);
+    const form = generated?.[1]?.body as FormData;
+    expect(form.get("model")).toBe("gpt-image-2.5-flare");
+    expect(form.get("size")).toBe("2048x1152");
+    expect(form.getAll("image[]")).toHaveLength(1);
+    await expect(images.generate({ ...input, imageModel: { provider: "openai", id: input.imageModel.id } })).rejects.toThrow("selected image model is unavailable");
+    await store.setEnabled(id, false);
+    request.mockClear();
+    expect((await images.catalog()).models).toEqual([]);
+    await expect(images.generate(input)).rejects.toThrow("disabled");
+    expect(request).not.toHaveBeenCalled();
+    expect((await app.inject({ method: "GET", url: `/settings/models/providers/${id}/custom` })).statusCode).toBe(200);
+  });
+
   it("saves a keyed provider without fetching or selecting models, then discovers with its saved key", async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "first" }, { id: "second" }] }));
     const { directory, runtime, app } = await fixture(undefined, request);

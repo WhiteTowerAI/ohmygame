@@ -93,6 +93,15 @@ export interface ModelProviderEndpointSettings {
 }
 
 export const CUSTOM_MODEL_APIS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai", "google-vertex"] as const;
+export const CUSTOM_IMAGE_MODEL_APIS = ["openai-completions", "openai-responses"] as const;
+
+export type CustomThinkingLevelMap = Partial<Record<AgentReasoningLevel, string | null>>;
+export interface CustomReasoningCapabilities {
+  source: "provider" | "catalog";
+  thinkingLevelMap: CustomThinkingLevelMap;
+  /** Catalog fallback for the editor when endpoint metadata becomes stale; never persisted. */
+  catalogThinkingLevelMap?: CustomThinkingLevelMap;
+}
 
 export interface CustomProviderModel {
   id: string;
@@ -102,6 +111,9 @@ export interface CustomProviderModel {
   contextWindow: number;
   maxTokens: number;
   reasoning: boolean;
+  /** Only explicit user overrides are written to the SDK model definition. */
+  thinkingLevelMap?: CustomThinkingLevelMap;
+  reasoningCapabilities?: CustomReasoningCapabilities;
   supportsImages: boolean;
 }
 
@@ -146,6 +158,10 @@ export interface MediaProviderStatus {
 export interface MediaModelCatalog<Model> {
   models: Model[];
   providers: MediaProviderStatus[];
+}
+
+export interface ImageModelCatalog extends MediaModelCatalog<ImageModel> {
+  defaultModel?: ImageModelRef;
 }
 
 export type Model3DModelRef = ModelRef;
