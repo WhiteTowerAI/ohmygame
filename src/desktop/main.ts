@@ -346,6 +346,9 @@ try {
     examplesDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "examples")
       : path.join(repositoryRoot, ".runtime", "examples"),
+    playerDirectory: app.isPackaged
+      ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "player")
+      : undefined,
     runtimeBin: app.isPackaged
       ? process.platform === "win32"
         ? path.join(process.resourcesPath, "runtime", "node")

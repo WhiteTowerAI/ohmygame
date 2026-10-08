@@ -49,6 +49,7 @@ try {
     preinstalledPluginsDirectory: process.env.OHMYGAME_PREINSTALLED_PLUGINS_DIR
       ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
     examplesDirectory: process.env.OHMYGAME_EXAMPLES_DIR ?? path.join(repositoryRoot, ".runtime", "examples"),
+    interactiveStoryPlayerDirectory: process.env.OHMYGAME_PLAYER_DIR,
     accessToken: process.env.OHMYGAME_DAEMON_TOKEN,
     allowedOrigins: (process.env.OHMYGAME_ALLOWED_ORIGINS ?? "")
       .split(",")
