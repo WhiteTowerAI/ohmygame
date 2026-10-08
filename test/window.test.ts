@@ -190,7 +190,7 @@ describe("desktop window", () => {
     if (process.platform === "win32") {
       expect(window.options).toMatchObject({
         titleBarStyle: "hidden",
-        titleBarOverlay: { color: "#f9f0f3", symbolColor: "#202020", height: 32 },
+        titleBarOverlay: { color: "#f7f7f7", symbolColor: "#202020", height: 32 },
       });
     } else if (process.platform === "darwin") {
       expect(window.options.titleBarStyle).toBe("hiddenInset");
