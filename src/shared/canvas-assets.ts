@@ -10,6 +10,11 @@ export interface CanvasAsset {
 }
 export interface CanvasAssetManifest { version: 1; assets: Record<string, CanvasAsset> }
 export interface CanvasAssetCatalogEntry extends CanvasAsset, Omit<LibraryAsset, "name" | "prompt"> {}
+export interface UnavailableCanvasAsset extends CanvasAsset {
+  id: string;
+  status: "missing" | "unavailable";
+  message: string;
+}
 
 export const CANVAS_ASSETS_FILE = "canvas/assets.json";
 export const CANVAS_ASSETS_SCHEMA = Type.Object({

@@ -20,8 +20,8 @@ export async function checkCanvasWorkspace(workspace: string): Promise<CanvasChe
   }
   const manifest = await inspect("canvas/assets.json", () => readCanvasAssets(workspace));
   const assets = new Map<string, CanvasAssetCatalogEntry>();
-  if (manifest) for (const [id, asset] of Object.entries(manifest.assets)) {
-    const result = await inspect(`canvas/assets.json /assets/${id}`, () => canvasAssetCatalog(workspace, { version: 1, assets: { [id]: asset } }));
+  if (manifest) for (const id of Object.keys(manifest.assets)) {
+    const result = await inspect(`canvas/assets.json /assets/${id}`, () => canvasAssetCatalog(workspace, manifest, [id]));
     if (result?.[0]) assets.set(id, result[0]);
   }
   for (const document of index.documents) await inspect(`canvas/documents/${document.id}.md`, () => readCanvasDocument(workspace, document.id));

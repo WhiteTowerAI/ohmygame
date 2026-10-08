@@ -41,6 +41,39 @@ Concurrent edits to different fields merge; competing edits require the user
 to choose a version. Invalid external edits leave the last valid canvas
 visible with diagnostics. External node changes enter the canvas undo history.
 
+Asset Canvas has **Canvas** and **Code** navigation. Code shows the workspace
+files and stays accessible when canvas loading or saving fails. Switching
+views keeps the canvas session, document generation state and local drafts.
+
+Missing media files do not prevent the workspace from opening or the board
+from being saved. The affected node keeps its ID and references, shows the
+missing path, and can check the file again. Restoring the file also refreshes
+its preview automatically. Generation, image insertion and export validate
+the files needed for that operation; unrelated missing assets do not block it.
+Deleting a node keeps the resource registration and file for reuse and undo.
+An unused registration for a missing file does not block the editor. Remove
+such a registration only after checking other boards and document links.
+`canvas_check` still reports missing files as diagnostics.
+
+Loading, background synchronization and saving have separate recovery actions.
+An initial load failure can reload the canvas. A failed background read keeps
+the last valid board interactive and retries synchronization. A failed save
+keeps the local recovery draft and can retry saving. Competing edits show
+version choices without covering the canvas; choosing a version runs through
+the same serialized storage session as saving and synchronization. Missing
+document files or index entries also preserve unsaved Markdown drafts until
+their sources are restored.
+
+Document AI generation saves complete output only when the source document has
+not changed. Truncated or interrupted text stays in an editable candidate draft,
+with the specific failure reason, and never replaces the document automatically.
+Candidates can be copied, discarded or explicitly adopted through the normal save
+flow. Instructions, model settings and candidates are kept locally across reloads.
+Retrying keeps the current candidate until another text result arrives; retry
+results also require review. Responses with no document text preserve the document
+and instruction and allow retrying or choosing another model. Thinking and tool
+output are never used as document Markdown.
+
 Three tools supplement ordinary file editing:
 
 - `canvas_initialize` creates the file contract and an empty board on demand,

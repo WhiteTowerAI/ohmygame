@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { groupModelsByProvider, ModelSelector } from "../src/renderer/model-selector.js";
+import { filterModels, groupModelsByProvider, ModelSelector } from "../src/renderer/model-selector.js";
 import type { AgentModel } from "../src/shared/contracts.js";
 
 const model: AgentModel = {
@@ -12,6 +12,14 @@ const model: AgentModel = {
 };
 
 describe("ModelSelector", () => {
+  it("searches model names, IDs and provider metadata without changing their order", () => {
+    const available = [model, { ...model, provider: "relay", providerName: "My Gateway", id: "vendor/fast", name: "Fast Model" }];
+    expect(filterModels(available, "  GPT-TEST ")).toEqual([model]);
+    expect(filterModels(available, "gateway")).toEqual([available[1]]);
+    expect(filterModels(available, "fast model")).toEqual([available[1]]);
+    expect(filterModels(available, "missing")).toEqual([]);
+    expect(filterModels(available, " ")).toEqual(available);
+  });
   it("allows recovery when models are available but none is selected", () => {
     const html = renderToStaticMarkup(
       <ModelSelector models={[model]} onChange={() => undefined} onReasoningChange={() => undefined} />,

@@ -1240,6 +1240,7 @@ export function createApp(options: AppOptions = {}) {
         required: ["instruction"],
         properties: {
           instruction: { type: "string", minLength: 1, maxLength: 12_000 },
+          reasoningLevel: { type: "string", enum: AGENT_REASONING_LEVELS },
           model: {
             type: "object",
             additionalProperties: false,
@@ -1271,10 +1272,17 @@ export function createApp(options: AppOptions = {}) {
     if (!providerEnabled(selected.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
     const model = runtime.getModel(selected.provider, selected.id);
     if (!model || !runtime.hasConfiguredAuth(selected.provider)) return reply.code(409).send({ error: "The selected language model is not available" });
+    if (request.body.reasoningLevel && !supportedReasoningLevels(model).includes(request.body.reasoningLevel)) {
+      return reply.code(400).send({ error: "The selected language model does not support this reasoning level" });
+    }
+    const reasoningLevel = effectiveReasoningLevel(model, request.body.reasoningLevel, defaultReasoningLevel(project.workspacePath, piAgentDirectory));
     try {
-      const text = document ? await generateDesignDocumentMarkdown(runtime, selected, document.document, request.body.instruction) : await generateCreativeText(runtime, selected, request.body.instruction);
+      if (document) {
+        const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel);
+        return { ...result, model: selected, revision: document.revision };
+      }
+      const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel);
       if (!text) return reply.code(502).send({ error: "The language model returned no text" });
-      if (document) return { markdown: text, model: selected, revision: document.revision };
       return { text, model: selected };
     } catch (cause) {
       return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });

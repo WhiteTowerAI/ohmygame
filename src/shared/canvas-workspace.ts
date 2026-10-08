@@ -3,7 +3,7 @@ import { Check } from "typebox/value";
 import type { AssetCanvasDocument, AssetCanvasNode } from "./contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "./asset-canvas.js";
 import type { CanvasMarkdownDocument } from "./canvas-document.js";
-import type { CanvasAssetCatalogEntry } from "./canvas-assets.js";
+import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "./canvas-assets.js";
 import { ASSET_CANVAS_SCHEMA, ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA } from "./asset-canvas-schema.js";
 
 export type CanvasBoard = AssetCanvasDocument & { id: string };
@@ -17,6 +17,8 @@ export interface CanvasWorkspaceIndex {
 export interface CanvasWorkspaceDetail extends Omit<CanvasWorkspaceIndex, "documents"> {
   documents: Array<CanvasMarkdownDocument & { revision: string; source: string; main: boolean }>;
   assets: CanvasAssetCatalogEntry[];
+  unavailableAssets?: UnavailableCanvasAsset[];
+  documentIssues?: Array<{ id: string; title: string; source: string; message: string }>;
 }
 const id = Type.String({ pattern: "^[a-zA-Z0-9_-]{1,100}$" });
 export const CANVAS_INDEX_SCHEMA = Type.Object({

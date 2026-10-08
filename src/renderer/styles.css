@@ -11475,6 +11475,15 @@ button {
   color: var(--text-muted);
 }
 
+.model-selector-canvas {
+  height: 28px;
+  gap: 6px;
+}
+
+.model-selector-canvas > .canvas-chip:not(.is-wide) {
+  flex-shrink: 0;
+}
+
 .model-selector-trigger {
   display: flex;
   min-width: 0;
@@ -11538,17 +11547,21 @@ button {
 }
 
 .model-selector-popover {
-  position: absolute;
-  z-index: 40;
-  right: 0;
-  bottom: calc(100% + 8px);
+  position: fixed;
+  z-index: 200;
   width: 200px;
+  max-width: calc(100vw - 16px);
+}
+
+.model-selector-popover-canvas {
+  width: 220px;
 }
 
 .model-selector-menu,
 .model-selector-submenu {
   display: flex;
-  width: 200px;
+  box-sizing: border-box;
+  width: 100%;
   flex-direction: column;
   padding: 4px;
   border-radius: 8px;
@@ -11570,10 +11583,44 @@ button {
   overflow: hidden;
 }
 
+.model-selector-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding: 7px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.model-selector-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.model-selector-search input::placeholder {
+  color: var(--text-faint);
+}
+
+.model-selector-empty {
+  margin: 0;
+  padding: 10px 7px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .model-selector-model-list {
   display: flex;
   gap: 2px;
-  max-height: min(210px, calc(100dvh - 72px));
+  min-height: 0;
+  max-height: min(210px, calc(100dvh - 150px));
   flex-direction: column;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -11615,11 +11662,6 @@ button {
   border-radius: 999px;
   background: var(--border-strong);
   background-clip: padding-box;
-}
-
-.prompt-box-home .model-selector-popover {
-  top: calc(100% + 8px);
-  bottom: auto;
 }
 
 .prompt-box-home .model-selector-current small,
@@ -11675,6 +11717,13 @@ button {
   margin-top: 2px;
   border-top: 0;
   border-radius: 0 0 4px 4px;
+}
+
+.model-selector-menu .model-selector-manage {
+  justify-content: flex-start;
+  gap: 7px;
+  margin-top: 2px;
+  color: var(--text-muted);
 }
 
 .model-selector-menu button:hover,
@@ -14276,11 +14325,6 @@ button {
   white-space: nowrap;
 }
 
-.playable-node-summary small {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
 .playable-node-picture {
   position: absolute;
   inset: 0;
@@ -14787,14 +14831,6 @@ button {
   margin: 0;
   color: var(--text-muted);
   line-height: 1.45;
-}
-.playable-variables > li > code {
-  overflow: hidden;
-  color: var(--text-faint);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .playable-variables-empty {
   margin: 0;

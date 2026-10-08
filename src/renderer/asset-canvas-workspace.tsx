@@ -11,12 +11,10 @@ import {
   Folder,
   FolderPlus,
   Image as ImageIcon,
-  House,
   LoaderCircle,
   Maximize,
   Music2,
   Pause,
-  PanelToggle,
   Pencil,
   Play,
   Plus,
@@ -63,6 +61,7 @@ import {
   type ImageAspectRatio,
   type AgentModel,
   type AgentModelRef,
+  type AgentReasoningLevel,
   type CreateLibraryImageRequest,
   type ImageModel,
   type MediaProviderStatus,
@@ -86,9 +85,10 @@ import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover
 import { downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
+import { clampReasoningLevel } from "../shared/reasoning.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { settingsHash } from "./routes.js";
-import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { useCanvasAssetSources, useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { canvasNodeTitle } from "../shared/canvas-assets.js";
 import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { prepareVideoReferenceFile, readMediaFileDuration } from "./video-reference-files.js";
@@ -169,6 +169,7 @@ type AssetCanvasFlowData = {
   text?: string;
   instruction?: string;
   textModel?: AgentModelRef;
+  reasoningLevel?: AgentReasoningLevel;
   model?: ImageModelRef;
   resolution?: ImageResolution;
   aspectRatio?: ImageAspectRatio;
@@ -189,6 +190,7 @@ type AssetCanvasFlowData = {
   assetDuration?: number;
   name?: string;
   assetOrigin?: "Project" | "Library";
+  assetError?: string;
   imageRuntime?: ImageNodeRuntime;
   videoRuntime?: VideoNodeRuntime;
   model3DRuntime?: Model3DNodeRuntime;
@@ -212,11 +214,12 @@ interface TextNodeRuntime {
   models: AgentModel[];
   modelStatus: AgentModelCatalogStatus;
   defaultModel?: AgentModelRef;
+  defaultReasoningLevel?: AgentReasoningLevel;
   generating: boolean;
   busy: boolean;
   error?: string;
   onChange: (data: AssetCanvasFlowData) => void;
-  onGenerate: () => void;
+  onGenerate: (model: AgentModelRef, reasoningLevel: AgentReasoningLevel) => void;
 }
 
 interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
@@ -277,25 +280,31 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, storage, documents, assets: localAssets, overlay, onSaveReady, onStatusChange, onSelectionChange }: {
+export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, assets: localAssets, conflicted = false, overlay, onSaveReady, onResolveReady, onStatusChange, onSelectionChange }: {
   project: ProjectState;
   initialNodeId?: string;
   onInitialNodeHandled?: () => void;
-  chatOnRight?: boolean;
-  chatCollapsed?: boolean;
-  onHome?: () => void;
-  onToggleChat?: () => void;
+  hidden?: boolean;
   storage: CanvasBoardStorage;
   documents: CanvasDocuments;
   assets: CanvasAssetCatalogEntry[];
+  conflicted?: boolean;
   overlay?: ReactNode;
   onSaveReady?: (save: (() => Promise<void>) | undefined) => void;
-  onStatusChange?: (status: "loading" | "saved" | "saving" | "error") => void;
+  onResolveReady?: (resolve: ((version: "local" | "remote") => Promise<void>) | undefined) => void;
+  onStatusChange?: (status: "loading" | "saved" | "saving" | "error" | "sync-error" | "load-error") => void;
   onSelectionChange?: (nodes: AssetCanvasNode[]) => void;
 }) {
   const projectId = project.id;
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
-  const [notice, setNotice] = useState<string>();
+  const [notice, setNotice] = useState<{ kind: "save" | "sync" | "action"; message: string }>();
+  const [loadError, setLoadError] = useState<string>();
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const resolvingRef = useRef(false);
+  const mounted = useRef(false);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const [transferError, setTransferError] = useState<string>();
   // The canvas file format still requires a viewport; nothing in Asset Canvas uses it, so it is only carried through saves.
   const [viewport, setViewport] = useState({ width: 1280, height: 720 });
@@ -323,7 +332,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     for (const asset of localAssets) assets.set(asset.id, { ...assets.get(asset.libraryAssetId ?? asset.id), ...asset, assetId: asset.id });
     return [...assets.values()];
   }, [globalAssets, localAssets]);
-  const assetPaths = useMemo(() => new Map(localAssets.map((asset) => [asset.id, { projectId, path: asset.path, revision: Date.parse(asset.createdAt) }])), [projectId, localAssets]);
+  const assetPaths = useCanvasAssetSources();
   const [nodeDetails, setNodeDetails] = useState<{ id: string; title: string; description: string }>();
   const libraryImages = useMemo(() => libraryAssets.filter((asset) => asset.mediaType === "image"), [libraryAssets]);
 
@@ -363,7 +372,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const storageRef = useRef(storage);
   storageRef.current = storage;
   const queuedCanvas = useRef<string | undefined>(undefined);
-  const saveChain = useRef(Promise.resolve());
+  // Apply each result before the next operation reads the live canvas.
+  const operationChain = useRef(Promise.resolve());
   const initialNodeRequest = useRef({ nodeId: initialNodeId, onHandled: onInitialNodeHandled });
   const editorUndoHistory = useRef<AssetCanvasDocument[]>([]);
   const editorRedoHistory = useRef<AssetCanvasDocument[]>([]);
@@ -379,6 +389,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   useEffect(() => {
     let disposed = false;
     setPhase("loading");
+    setLoadError(undefined);
+    onStatusChange?.("loading");
     window.clearTimeout(historyTimer.current);
     editorUndoHistory.current = [];
     editorRedoHistory.current = [];
@@ -388,7 +400,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     historyGestureBase.current = undefined;
     setCanvasContextMenu(undefined);
     const emptyCatalog = { models: [], providers: [] };
-    void Promise.all([storageRef.current.load(), loadLibraryAssets(), listImageModelCatalog().catch(() => emptyCatalog), listVideoModelCatalog().catch(() => emptyCatalog), listModel3DCatalog().catch(() => emptyCatalog)]).then(([story, assets, imageCatalog, videoCatalog, model3DCatalog]) => {
+    void Promise.all([storage.load(), loadLibraryAssets().catch(() => []), listImageModelCatalog().catch(() => emptyCatalog), listVideoModelCatalog().catch(() => emptyCatalog), listModel3DCatalog().catch(() => emptyCatalog)]).then(([story, assets, imageCatalog, videoCatalog, model3DCatalog]) => {
       const models = imageCatalog.models;
       const loadedVideoModels = videoCatalog.models;
       if (disposed) return;
@@ -411,15 +423,17 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       setVideoProviders(videoCatalog.providers);
       setModel3DModels(model3DCatalog.models);
       setModel3DProviders(model3DCatalog.providers);
+      setNotice(undefined);
       setPhase("ready");
       onStatusChange?.("saved");
     }).catch((error) => {
       if (disposed) return;
-      setNotice(errorMessage(error));
+      setLoadError(errorMessage(error));
       setPhase("error");
+      onStatusChange?.("load-error");
     });
     return () => { disposed = true; };
-  }, [projectId, storage.key]);
+  }, [projectId, storage, loadAttempt]);
 
   useEffect(() => {
     if (phase !== "ready") return;
@@ -630,29 +644,30 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }), [nodes, selectedAssetEdgeId]);
 
   const save = useCallback((story: AssetCanvasDocument): Promise<void> => {
+    if (resolvingRef.current) return operationChain.current;
     const serialized = JSON.stringify(story);
-    if (serialized === queuedCanvas.current) return saveChain.current;
+    if (serialized === queuedCanvas.current) return operationChain.current;
     queuedCanvas.current = serialized;
     onStatusChange?.("saving");
-    const operation = saveChain.current
+    const operation = operationChain.current
       .catch(() => undefined)
       .then(async () => {
-        const adapter = storageRef.current;
         const submitted = latestCanvas.current ?? story;
-        const saved = await adapter.save(submitted);
-        reconcileCanvas(submitted, saved);
+        const saved = await storage.save(submitted);
+        if (mounted.current) reconcileCanvas(submitted, saved);
       });
-    saveChain.current = operation;
+    operationChain.current = operation;
     void operation.then(
-      () => { setNotice(undefined); onStatusChange?.("saved"); },
+      () => { if (mounted.current) { setNotice(undefined); onStatusChange?.("saved"); } },
       (error) => {
+        if (!mounted.current) return;
         if (queuedCanvas.current === serialized) queuedCanvas.current = undefined;
-        setNotice(`Could not save canvas: ${errorMessage(error)}`);
+        setNotice({ kind: "save", message: `Could not save canvas: ${errorMessage(error)}` });
         onStatusChange?.("error");
       },
     );
     return operation;
-  }, [projectId, onStatusChange]);
+  }, [storage, onStatusChange]);
 
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
   const imageModelsRef = useRef(imageModels); imageModelsRef.current = imageModels;
@@ -684,32 +699,66 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
   }, [save, phase]);
   useEffect(() => { onSaveReady?.(flush); return () => onSaveReady?.(undefined); }, [onSaveReady, flush]);
+  const resolveConflict = useCallback(async (version: "local" | "remote") => {
+    resolvingRef.current = true;
+    setResolving(true);
+    try {
+      await operationChain.current.catch(() => {});
+      const submitted = latestCanvas.current;
+      if (!submitted) return;
+      const operation = storage.resolveConflict(version, submitted);
+      operationChain.current = operation.then(() => {}, () => {});
+      const selected = await operation;
+      if (version === "local") reconcileCanvas(submitted, selected);
+      else {
+        commitPendingHistory(); pushUndoSnapshot(submitted); editorRedoHistory.current = [];
+        latestCanvas.current = selected; observeHistoryDocument(selected); applyEditorCanvas(selected); updateHistoryControls();
+      }
+      queuedCanvas.current = JSON.stringify(selected);
+      setNotice(undefined);
+      onStatusChange?.("saved");
+    } finally { resolvingRef.current = false; setResolving(false); }
+  }, [storage, onStatusChange]);
+  useEffect(() => { onResolveReady?.(phase === "ready" ? resolveConflict : undefined); return () => onResolveReady?.(undefined); }, [onResolveReady, resolveConflict, phase]);
+  const sync = useCallback(() => {
+    if (resolvingRef.current) return Promise.resolve();
+    const operation = operationChain.current.catch(() => {}).then(async () => {
+      if (!mounted.current || !latestCanvas.current) return;
+      const submitted = latestCanvas.current;
+      const wasSaved = queuedCanvas.current === JSON.stringify(submitted);
+      const refreshed = await storage.refresh(submitted);
+      if (!mounted.current) return;
+      if (refreshed) {
+        queuedCanvas.current = wasSaved ? JSON.stringify(refreshed) : undefined;
+        reconcileCanvas(submitted, refreshed);
+      }
+      setNotice((current) => current?.kind === "sync" ? undefined : current);
+      if (queuedCanvas.current === JSON.stringify(latestCanvas.current)) onStatusChange?.("saved");
+    });
+    operationChain.current = operation;
+    void operation.catch((cause) => {
+      if (!mounted.current) return;
+      setNotice((current) => current?.kind === "save" ? current : { kind: "sync", message: `Could not sync canvas. Your edits are kept. ${errorMessage(cause)}` });
+      onStatusChange?.("sync-error");
+    });
+    return operation;
+  }, [storage, onStatusChange]);
   useEffect(() => {
-    if (phase !== "ready") return;
-    let stopped = false;
+    if (phase !== "ready" || conflicted || resolving) return;
+    let pending = false;
     const timer = window.setInterval(() => {
-      const operation = saveChain.current.catch(() => {}).then(async () => {
-        if (stopped || !latestCanvas.current) return;
-        const submitted = latestCanvas.current;
-        const wasSaved = queuedCanvas.current === JSON.stringify(submitted);
-        const refreshed = await storageRef.current.refresh(submitted);
-        if (!stopped && refreshed) {
-          queuedCanvas.current = wasSaved ? JSON.stringify(refreshed) : undefined;
-          reconcileCanvas(submitted, refreshed);
-        }
-        if (!stopped && (refreshed || queuedCanvas.current === JSON.stringify(submitted))) { setNotice(undefined); onStatusChange?.("saved"); }
-      });
-      saveChain.current = operation;
-      void operation.catch((cause) => { if (!stopped) { setNotice(errorMessage(cause)); onStatusChange?.("error"); } });
+      if (pending) return;
+      pending = true;
+      void sync().catch(() => {}).finally(() => { pending = false; });
     }, 2500);
-    return () => { stopped = true; window.clearInterval(timer); };
-  }, [storage.key, phase]);
+    return () => window.clearInterval(timer);
+  }, [sync, phase, conflicted, resolving]);
 
   useEffect(() => {
-    if (phase !== "ready" || !document) return;
+    if (phase !== "ready" || !document || resolving) return;
     const timeout = window.setTimeout(() => { void save(document).catch(() => {}); }, 350);
     return () => window.clearTimeout(timeout);
-  }, [document, phase, save]);
+  }, [document, phase, save, resolving]);
 
   useEffect(() => () => {
     const story = latestCanvas.current;
@@ -974,7 +1023,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   function downloadAsset(assetId: string, fallbackName: string): void {
     const name = libraryAssets.find((candidate) => candidate.id === assetId)?.name ?? fallbackName;
-    void assetBlob(assetId).then((blob) => downloadAssetBlob(blob, name)).catch((cause) => setNotice(`Could not download: ${errorMessage(cause)}`));
+    void assetBlob(assetId).then((blob) => downloadAssetBlob(blob, name)).catch((cause) => setNotice({ kind: "action", message: `Could not download: ${errorMessage(cause)}` }));
   }
 
   function assetBlob(assetId: string): Promise<Blob> {
@@ -987,7 +1036,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const name = libraryAssets.find((candidate) => candidate.id === assetId)?.name ?? fallbackName;
     void (assetPaths.has(assetId) ? exportCanvasAsset(projectId, assetId) : Promise.resolve({ assetId }))
       .then((asset) => setSentAsset({ assetId: asset.assetId, name }))
-      .catch((cause) => setNotice(`Could not send asset: ${errorMessage(cause)}`));
+      .catch((cause) => setNotice({ kind: "action", message: `Could not send asset: ${errorMessage(cause)}` }));
   }
 
   function clearSelection(): void {
@@ -995,7 +1044,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
   }
 
-  async function generateTextNode(node: AssetCanvasFlowNode): Promise<void> {
+  async function generateTextNode(node: AssetCanvasFlowNode, model: AgentModelRef, reasoningLevel: AgentReasoningLevel): Promise<void> {
     if (node.type !== "text" || generatingTextNodeId) return;
     const instruction = node.data.instruction?.trim();
     if (!instruction) {
@@ -1005,14 +1054,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setGeneratingTextNodeId(node.id);
     setGenerationError(undefined);
     try {
-      const model = node.data.textModel ?? defaultTextModel;
-      if (!model) {
-        setGenerationError({ nodeId: node.id, message: "No language model is available." });
-        return;
-      }
-      const result = await generateCanvasText(projectId, instruction, model);
+      const result = await generateCanvasText(projectId, instruction, model, reasoningLevel);
       setNodes((current) => current.map((candidate) => candidate.id === node.id
-        ? { ...candidate, data: { ...candidate.data, text: result.text, textModel: result.model } }
+        ? { ...candidate, data: { ...candidate.data, text: result.text, textModel: result.model, reasoningLevel } }
         : candidate));
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
@@ -1134,15 +1178,17 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original), documents.documents, libraryAssets), description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: original.title ?? "", description: original.description ?? "" }),
     } } };
-    if (node.type === "document") return { ...node, data: { ...node.data, documentRuntime: { design: documents, document: documents.documents.find((doc) => doc.id === node.data.documentId), models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel } } };
+    if (node.type === "document") return { ...node, data: { ...node.data, documentRuntime: { design: documents, document: documents.documents.find((doc) => doc.id === node.data.documentId), models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
     if (node.type === "asset") return {
       ...node,
       data: (() => {
         const asset = libraryAssets.find((candidate) => candidate.id === node.data.assetId);
+        const local = assetPaths.get(node.data.assetId ?? "");
         return {
           ...node.data,
-          name: asset?.name ?? "Missing asset",
-          assetOrigin: assetPaths.has(node.data.assetId ?? "") ? "Project" as const : "Library" as const,
+          name: asset?.name ?? local?.name ?? "Missing asset",
+          assetError: local?.error,
+          assetOrigin: local ? "Project" as const : "Library" as const,
           contentType: asset?.contentType,
           assetDuration: asset?.duration,
         };
@@ -1156,6 +1202,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           models: textModelCatalog.models,
           modelStatus: textModelCatalog.status,
           ...(defaultTextModel ? { defaultModel: defaultTextModel } : {}),
+          defaultReasoningLevel: textModelCatalog.defaultReasoningLevel,
           generating: generatingTextNodeId === node.id,
           busy: Boolean(generatingTextNodeId),
           ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
@@ -1164,7 +1211,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
             setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
           },
-          onGenerate: () => void generateTextNode(node),
+          onGenerate: (model: AgentModelRef, reasoningLevel: AgentReasoningLevel) => void generateTextNode(node, model, reasoningLevel),
         },
       },
     };
@@ -1296,24 +1343,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }
 
   return (
-    <section className="viewer-pane interactive-story-workspace" aria-label="Asset Canvas workspace">
-      {project.type === "asset-canvas" ? <header className="interactive-story-header window-drag-handle">
-        <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-        <div className="interactive-story-project-tools">
-          {chatOnRight && onHome ? (
-            <button className="interactive-story-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
-          ) : null}
-        </div>
-        <div className="interactive-story-header-actions">
-          {chatOnRight && chatCollapsed && onToggleChat ? (
-            <button className="interactive-story-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
-              <PanelToggle size={14} />
-            </button>
-          ) : null}
-        </div>
-      </header> : null}
+    <section className="viewer-pane interactive-story-workspace" hidden={hidden} aria-label="Asset Canvas workspace">
       <div className="interactive-story-body">
-        <div ref={canvasElement} tabIndex={0} className={`interactive-story-canvas${fileDropActive ? " is-file-drop-active" : ""}`} onPointerMoveCapture={(event) => { pointer.current = { x: event.clientX, y: event.clientY }; }}
+        <div ref={canvasElement} tabIndex={0} inert={resolving || undefined} aria-busy={resolving || undefined} className={`interactive-story-canvas${fileDropActive ? " is-file-drop-active" : ""}`} onPointerMoveCapture={(event) => { pointer.current = { x: event.clientX, y: event.clientY }; }}
           onPointerDownCapture={(event) => { if (!isTextEntry(event.target) && !eventWithin(event, "button, a, .nokey")) event.currentTarget.focus({ preventScroll: true }); }}
           onCopy={copySelection} onCut={(event) => copySelection(event, true)} onPaste={pasteFromClipboard}
           onKeyDown={(event) => {
@@ -1333,7 +1365,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           {overlay}
           {fileDropActive ? <div className="canvas-file-drop-overlay"><Upload size={18} /><span>Drop files</span></div> : importingAssets ? <div className="canvas-file-import-status" role="status"><LoaderCircle size={13} className="spin" /><span>Importing files</span></div> : null}
           {phase === "loading" ? <div className="story-canvas-state">Loading canvas...</div> : null}
-          {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
+          {phase === "error" ? <div className="story-canvas-state story-canvas-state-error" role="alert"><span>Could not load canvas. {loadError}</span><button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>Reload canvas</button></div> : null}
           {phase === "ready" ? (
             <EditorCanvas<AssetCanvasFlowNode>
               nodes={renderedNodes}
@@ -1408,7 +1440,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             onDuplicate={() => { if (canvasContextMenu.nodeId) duplicateCanvasNode(canvasContextMenu.nodeId); }}
             onDelete={() => { if (canvasContextMenu.nodeId) removeCanvasNodes(new Set([canvasContextMenu.nodeId])); }}
           /> : null}
-          {notice && phase === "ready" ? <div className="story-save-notice" role="alert">{notice}<button type="button" onClick={() => void flush().catch(() => {})}>Retry</button></div> : null}
+          {notice && phase === "ready" && !conflicted ? <div className="story-save-notice" role="alert"><span>{notice.message}</span>{notice.kind === "action" ? <button type="button" onClick={() => setNotice(undefined)}>Dismiss</button> : <button type="button" disabled={retrying} onClick={() => {
+            setRetrying(true);
+            void (notice.kind === "save" ? flush() : sync()).catch(() => {}).finally(() => setRetrying(false));
+          }}>{retrying ? "Retrying…" : notice.kind === "save" ? "Retry save" : "Reload changes"}</button>}</div> : null}
           {!notice && transferError && phase === "ready" ? <div className="story-save-notice canvas-transfer-error" role="alert"><span>{transferError}</span><button type="button" title="Dismiss error" aria-label="Dismiss error" onClick={() => setTransferError(undefined)}><X size={13} /></button></div> : null}
         </div>
       </div>
@@ -1456,11 +1491,12 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
         />
       </div>
       {selected ? (
-        <CanvasTextComposer models={runtime?.models ?? []} modelStatus={runtime?.modelStatus ?? "loading"} defaultModel={runtime?.defaultModel}
-          model={data.textModel} instruction={data.instruction ?? ""} generating={runtime?.generating} busy={runtime?.busy} error={runtime?.error}
+        <CanvasTextComposer models={runtime?.models ?? []} modelStatus={runtime?.modelStatus ?? "loading"} defaultModel={runtime?.defaultModel} defaultReasoningLevel={runtime?.defaultReasoningLevel}
+          model={data.textModel} reasoningLevel={data.reasoningLevel} instruction={data.instruction ?? ""} generating={runtime?.generating} busy={runtime?.busy} error={runtime?.error}
           onInstruction={(instruction) => runtime?.onChange({ ...data, textRuntime: undefined, instruction })}
-          onModel={(textModel) => runtime?.onChange({ ...data, textRuntime: undefined, textModel })}
-          onGenerate={() => runtime?.onGenerate()} />
+          onModel={(textModel, reasoningLevel) => runtime?.onChange({ ...data, textRuntime: undefined, textModel, reasoningLevel })}
+          onReasoningChange={(reasoningLevel) => runtime?.onChange({ ...data, textRuntime: undefined, textModel: data.textModel ?? runtime.defaultModel, reasoningLevel })}
+          onGenerate={(model, reasoningLevel) => runtime?.onGenerate(model, reasoningLevel)} />
       ) : null}
       <Handle className="story-text-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
@@ -1698,8 +1734,8 @@ function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || "Library image"} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && kind === "model" ? <ModelPreview source={preview.url} label={data.name || "3D model"} minHeight={220} interactive={false} /> : null}
-        {kind === "audio" ? <div className="story-audio-asset"><Music2 size={25} /><strong>{preview.error ? "Asset unavailable" : "Audio"}</strong>{data.assetDuration ? <span>{formatMediaTime(data.assetDuration)}</span> : null}</div> : null}
-        {!preview.url && kind !== "audio" ? <div className="story-media-empty"><Icon size={34} /><strong>{preview.error ? "Asset unavailable" : "Loading asset..."}</strong></div> : null}
+        {kind === "audio" ? <div className="story-audio-asset"><Music2 size={25} /><strong>{data.assetError ? "Asset unavailable" : "Audio"}</strong>{data.assetError ? <span>{data.assetError}</span> : data.assetDuration ? <span>{formatMediaTime(data.assetDuration)}</span> : null}</div> : null}
+        {!preview.url && kind !== "audio" ? <div className="story-media-empty"><Icon size={34} /><strong>{preview.error ? "Asset unavailable" : "Loading asset..."}</strong><CanvasAssetRecovery preview={preview} /></div> : null}
       </div>
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
@@ -1928,13 +1964,14 @@ function MediaReferenceThumbnail({ reference, caption, disabled, onRemove }: {
 }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, reference.type === "audio" || reference.type === "model" ? undefined : reference.assetId);
   return (
-    <div className="story-media-reference" title={`${reference.label}: ${reference.name}`}>
+    <div className={`story-media-reference${preview.error ? " is-unavailable" : ""}`} title={preview.error ?? `${reference.label}: ${reference.name}`}>
       {preview.url && reference.type === "image" ? <img src={preview.url} alt={reference.name} /> : null}
       {preview.url && reference.type === "video" ? <video src={preview.url} muted playsInline preload="metadata" /> : null}
       {reference.type === "audio" || reference.type === "model" || !preview.url
         ? reference.type === "audio" ? <Music2 size={18} /> : reference.type === "model" ? <Box size={18} /> : reference.type === "video" ? <Film size={18} /> : <ImageIcon size={18} />
         : null}
       {caption ? <small>{caption}</small> : null}
+      {preview.error ? <button className="canvas-reference-retry" type="button" title={`Recheck ${reference.name}: ${preview.error}`} aria-label={`Recheck ${reference.name}`} disabled={preview.loading} onClick={preview.retry}>↻</button> : null}
       <button type="button" title={`Remove ${reference.name}`} aria-label={`Remove ${reference.name}`} disabled={disabled} onClick={onRemove}>
         <X size={11} />
       </button>
@@ -1967,10 +2004,10 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, details
         {!preview.url && !runtime?.generating ? (
           <div className="story-media-empty">
             <Icon size={34} />
-            <strong>No {kind} yet</strong>
-            <span>{kind === "model" ? "Add a reference image below, then generate"
+            <strong>{assetId ? preview.error ? "Asset unavailable" : "Loading asset..." : `No ${kind} yet`}</strong>
+            {assetId ? <CanvasAssetRecovery preview={preview} /> : <span>{kind === "model" ? "Add a reference image below, then generate"
               : kind === "animation" ? "Connect a humanoid 3D model, pick moves, then animate"
-              : `Describe a ${kind} below, then generate`}</span>
+              : `Describe a ${kind} below, then generate`}</span>}
           </div>
         ) : null}
         {runtime?.generating ? (
@@ -1986,6 +2023,10 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, details
       {selected ? <div className="story-media-composer nodrag nowheel">{children}</div> : null}
     </div>
   );
+}
+
+function CanvasAssetRecovery({ preview }: { preview: ReturnType<typeof useWorkspaceAssetUrl> }) {
+  return preview.error ? <><span role="status">{preview.error}</span><button className="canvas-asset-retry nodrag" type="button" disabled={preview.loading} onClick={preview.retry}>{preview.loading ? "Checking…" : "Check again"}</button></> : null;
 }
 
 function CanvasVideo({ src, onLoadedMetadata }: {
@@ -2462,6 +2503,7 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
       text: node.data.text,
       instruction: node.data.instruction,
       ...(node.data.model ? { textModel: node.data.model } : {}),
+      ...(node.data.reasoningLevel ? { reasoningLevel: node.data.reasoningLevel } : {}),
     },
   };
   if (node.type === "video") {
@@ -2552,12 +2594,12 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
 }
 
 /** The generation settings a node passes on to the next node of its type. */
-type NodeGenerationSettings = Pick<AssetCanvasFlowData, "textModel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "model3DConfig">;
+type NodeGenerationSettings = Pick<AssetCanvasFlowData, "textModel" | "reasoningLevel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "model3DConfig">;
 type RememberedSettings = Partial<Record<AssetCanvasNodeType, NodeGenerationSettings>>;
 
 export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | "data">): NodeGenerationSettings | undefined {
   const { data } = node;
-  if (node.type === "text") return data.textModel ? { textModel: { provider: data.textModel.provider, id: data.textModel.id } } : {};
+  if (node.type === "text") return { ...(data.textModel ? { textModel: { provider: data.textModel.provider, id: data.textModel.id } } : {}), ...(data.reasoningLevel ? { reasoningLevel: data.reasoningLevel } : {}) };
   if (node.type === "image") return { model: data.model, resolution: data.resolution, aspectRatio: data.aspectRatio };
   if (node.type === "video") return { videoModel: data.videoModel, videoResolution: data.videoResolution, videoAspectRatio: data.videoAspectRatio, duration: data.duration };
   if (node.type === "model-3d") return { model3DConfig: data.model3DConfig };
@@ -2593,7 +2635,10 @@ export function applyRememberedSettings(
     };
   }
   if (node.type === "model-3d" && settings.model3DConfig) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig(settings.model3DConfig) } };
-  if (node.type === "text" && catalogs.textModels.some((model) => sameModel(model, settings.textModel))) return { ...node, data: { ...node.data, textModel: settings.textModel } };
+  if (node.type === "text") {
+    const model = catalogs.textModels.find((candidate) => sameModel(candidate, settings.textModel));
+    if (model) return { ...node, data: { ...node.data, textModel: settings.textModel, ...(settings.reasoningLevel ? { reasoningLevel: clampReasoningLevel(settings.reasoningLevel, model.reasoningLevels) } : {}) } };
+  }
   return node;
 }
 
@@ -2645,6 +2690,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode): AssetCanvasNode {
       text: node.data.text ?? "",
       instruction: node.data.instruction ?? "",
       ...(node.data.textModel ? { model: modelRef(node.data.textModel) } : {}),
+      ...(node.data.reasoningLevel ? { reasoningLevel: node.data.reasoningLevel } : {}),
     },
   };
   if (node.type === "image") return {

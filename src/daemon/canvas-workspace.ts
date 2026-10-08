@@ -15,7 +15,7 @@ import type { AssetLibrary } from "./asset-library.js";
 import type { ProjectManager } from "./projects.js";
 import type { ToolRunner } from "./tools.js";
 import { CanvasError, canvasPath, parseCanvasJson, readCanvasFile, writeCanvasFile as writeAtomic, writeCanvasJson as writeJson } from "./canvas-files.js";
-import { canvasAssetCatalog, canvasLibraryAsset, ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
+import { canvasAssetCatalog, canvasLibraryAsset, ensureCanvasAssets, inspectCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 export { CanvasError } from "./canvas-files.js";
 
 const locks = new Map<string, Promise<unknown>>();
@@ -257,10 +257,18 @@ export class CanvasStore {
   async workspace(id: string): Promise<CanvasWorkspaceDetail> {
     const project = this.#project(id), workspace = project.workspacePath;
     return withCanvasLock(workspace, async () => {
-      const index = await ensureCanvasIndex(workspace), documents = await readCanvasDocuments(workspace, index);
+      const index = await ensureCanvasIndex(workspace);
+      const documentIssues: NonNullable<CanvasWorkspaceDetail["documentIssues"]> = [];
+      const documents = (await Promise.all(index.documents.map(async (entry) => {
+        try { return await readDocumentEntry(workspace, entry); }
+        catch (cause) {
+          documentIssues.push({ ...entry, source: canvasDocumentPath(entry.id), message: cause instanceof Error ? cause.message : String(cause) });
+          return undefined;
+        }
+      }))).filter((document) => document !== undefined);
       await ensureCanvasContract(workspace);
-      const assets = await canvasAssetCatalog(workspace, await readCanvasAssets(workspace));
-      return { ...index, assets, documents: documents.map((detail) => ({ ...detail.document, revision: detail.revision, source: canvasDocumentPath(detail.document.id), main: detail.document.id === index.mainDocumentId })) };
+      const assets = await inspectCanvasAssets(workspace, await readCanvasAssets(workspace));
+      return { ...index, ...assets, documentIssues, documents: documents.map((detail) => ({ ...detail.document, revision: detail.revision, source: canvasDocumentPath(detail.document.id), main: detail.document.id === index.mainDocumentId })) };
     });
   }
   async createDocument(id: string, title: string) {
@@ -300,8 +308,9 @@ export class CanvasStore {
       if (current.revision !== expected) throw new CanvasError("The board changed. Reload the latest board before saving.", 409);
       if (!isCanvasBoard(board)) throw new CanvasError("Invalid canvas board");
       const documents = (await readCanvasIndex(workspace))!.documents;
-      if (board.nodes.some((node) => node.type === "document" && !documents.some((document) => document.id === node.data.documentId))) throw new CanvasError("Document reference not found", 404);
-      await canvasAssetCatalog(workspace, await ensureCanvasAssets(project, this.projects, this.library, canvasNodeAssetIds(board.nodes)));
+      const existingDocuments = new Set(current.board.nodes.flatMap((node) => node.type === "document" ? [node.data.documentId] : []));
+      if (board.nodes.some((node) => node.type === "document" && !existingDocuments.has(node.data.documentId) && !documents.some((document) => document.id === node.data.documentId))) throw new CanvasError("Document reference not found", 404);
+      await ensureCanvasAssets(project, this.projects, this.library, canvasNodeAssetIds(board.nodes), canvasNodeAssetIds(current.board.nodes));
       const detail = await writeCanvasBoard(workspace, board);
       await this.projects.touch(id);
       return detail;
@@ -334,7 +343,7 @@ export class CanvasStore {
     const workspace = this.#project(id).workspacePath;
     return withCanvasLock(workspace, async () => {
       const manifest = await ensureCanvasAssets(this.#project(id), this.projects, this.library, [assetId]);
-      const asset = (await canvasAssetCatalog(workspace, manifest)).find((asset) => asset.id === assetId)!;
+      const asset = (await canvasAssetCatalog(workspace, manifest, [assetId]))[0]!;
       if (asset.mediaType !== "image") throw new CanvasError("Choose an image asset");
       const detail = await readCanvasDocument(workspace, documentId);
       if (!detail) throw new CanvasError("Document not found", 404);
@@ -419,9 +428,10 @@ export class CanvasStore {
     const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
     if (!prompt) throw new CanvasError("Add a prompt before generating");
     if (node.type === "image") return this.start(id, boardId, nodeId, "generate-image", { prompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), images: await Promise.all(node.data.images.map(image)) }, revision);
-    const catalog = await canvasAssetCatalog(project.workspacePath, manifest);
-    const references = node.data.references.map((reference) => {
-      const id = assetId(reference), asset = catalog.find((asset) => asset.id === id)!;
+    const referenceIds = node.data.references.map(assetId);
+    const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);
+    const references = referenceIds.map((id) => {
+      const asset = catalog.find((asset) => asset.id === id)!;
       if (asset.mediaType !== "image") throw new CanvasError("Video generation currently accepts image references only");
       return { type: "image" as const, assetId: id };
     });
