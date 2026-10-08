@@ -23,6 +23,8 @@
 .design-document-node-footer button, .design-expanded-toolbar button, .design-expanded-close, .design-ai-result button, .design-modal header button { display: inline-grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; padding: 0; background: transparent; border: 0; border-radius: 4px; color: var(--text-muted); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
 :is(.design-document-node-footer, .design-expanded-toolbar, .design-ai-result) button:hover, .design-expanded-close:hover { background: var(--surface-hover); color: var(--text); }
 .story-text-node.design-document-node { width: 360px; }
+.design-document-node > .story-text-output { overflow: visible; }
+.design-document-node-content { position: relative; display: flow-root; }
 .design-document-node-header input, .design-document-node-header > span { flex: 1; min-width: 0; height: 18px; padding: 0; font: inherit; line-height: 18px; }
 .design-document-node-header input { border: 0; outline: 0; background: transparent; color: inherit; }
 .design-document-node-header > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
