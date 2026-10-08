@@ -83,6 +83,21 @@ listed in the in-app Community, where you can play what others have made.
 
 ## What you can make
 
+Three games our team made with OhMyGame:
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/assets/showcase/interactive-film.webp" alt="Interactive film made with OhMyGame: a monkey warrior dodges a sword strike" width="100%" /></td>
+    <td width="33%"><img src="docs/assets/showcase/island-builder.webp" alt="Island builder made with OhMyGame: building a workshop on a floating dock" width="100%" /></td>
+    <td width="33%"><img src="docs/assets/showcase/deckbuilding-roguelike.webp" alt="Deckbuilding roguelike made with OhMyGame: playing cards in a gothic battle" width="100%" /></td>
+  </tr>
+  <tr>
+    <td align="center">Interactive film</td>
+    <td align="center">Island builder</td>
+    <td align="center">Deckbuilding roguelike</td>
+  </tr>
+</table>
+
 ### 🎮 Web games
 
 2D and 3D games for the browser, built with Three.js, React Three Fiber, or
