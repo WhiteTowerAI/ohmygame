@@ -1,4 +1,5 @@
 import {
+  AGENT_REASONING_LEVELS,
   IMAGE_ASPECT_RATIOS,
   IMAGE_RESOLUTIONS,
   VIDEO_ASPECT_RATIOS,
@@ -42,7 +43,7 @@ const nodes = [
     type: "object",
     additionalProperties: false,
     required: ["text", "instruction"],
-    properties: { text: { type: "string" }, instruction: { type: "string" }, model },
+    properties: { text: { type: "string" }, instruction: { type: "string" }, model, reasoningLevel: { enum: AGENT_REASONING_LEVELS } },
   }),
   node("image", {
     type: "object",

@@ -63,6 +63,7 @@ import {
   type ImageAspectRatio,
   type AgentModel,
   type AgentModelRef,
+  type AgentReasoningLevel,
   type CreateLibraryImageRequest,
   type ImageModel,
   type MediaProviderStatus,
@@ -86,6 +87,7 @@ import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover
 import { downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
+import { clampReasoningLevel } from "../shared/reasoning.js";
 import { CanvasChipSelect, type CanvasChipNote } from "./canvas-chip-select.js";
 import { settingsHash } from "./routes.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -169,6 +171,7 @@ type AssetCanvasFlowData = {
   text?: string;
   instruction?: string;
   textModel?: AgentModelRef;
+  reasoningLevel?: AgentReasoningLevel;
   model?: ImageModelRef;
   resolution?: ImageResolution;
   aspectRatio?: ImageAspectRatio;
@@ -212,11 +215,12 @@ interface TextNodeRuntime {
   models: AgentModel[];
   modelStatus: AgentModelCatalogStatus;
   defaultModel?: AgentModelRef;
+  defaultReasoningLevel?: AgentReasoningLevel;
   generating: boolean;
   busy: boolean;
   error?: string;
   onChange: (data: AssetCanvasFlowData) => void;
-  onGenerate: () => void;
+  onGenerate: (model: AgentModelRef, reasoningLevel: AgentReasoningLevel) => void;
 }
 
 interface ReferenceMediaNodeRuntime extends MediaNodeRuntime {
@@ -995,7 +999,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
   }
 
-  async function generateTextNode(node: AssetCanvasFlowNode): Promise<void> {
+  async function generateTextNode(node: AssetCanvasFlowNode, model: AgentModelRef, reasoningLevel: AgentReasoningLevel): Promise<void> {
     if (node.type !== "text" || generatingTextNodeId) return;
     const instruction = node.data.instruction?.trim();
     if (!instruction) {
@@ -1005,14 +1009,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setGeneratingTextNodeId(node.id);
     setGenerationError(undefined);
     try {
-      const model = node.data.textModel ?? defaultTextModel;
-      if (!model) {
-        setGenerationError({ nodeId: node.id, message: "No language model is available." });
-        return;
-      }
-      const result = await generateCanvasText(projectId, instruction, model);
+      const result = await generateCanvasText(projectId, instruction, model, reasoningLevel);
       setNodes((current) => current.map((candidate) => candidate.id === node.id
-        ? { ...candidate, data: { ...candidate.data, text: result.text, textModel: result.model } }
+        ? { ...candidate, data: { ...candidate.data, text: result.text, textModel: result.model, reasoningLevel } }
         : candidate));
     } catch (error) {
       setGenerationError({ nodeId: node.id, message: errorMessage(error) });
@@ -1134,7 +1133,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original), documents.documents, libraryAssets), description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: original.title ?? "", description: original.description ?? "" }),
     } } };
-    if (node.type === "document") return { ...node, data: { ...node.data, documentRuntime: { design: documents, document: documents.documents.find((doc) => doc.id === node.data.documentId), models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel } } };
+    if (node.type === "document") return { ...node, data: { ...node.data, documentRuntime: { design: documents, document: documents.documents.find((doc) => doc.id === node.data.documentId), models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
     if (node.type === "asset") return {
       ...node,
       data: (() => {
@@ -1156,6 +1155,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           models: textModelCatalog.models,
           modelStatus: textModelCatalog.status,
           ...(defaultTextModel ? { defaultModel: defaultTextModel } : {}),
+          defaultReasoningLevel: textModelCatalog.defaultReasoningLevel,
           generating: generatingTextNodeId === node.id,
           busy: Boolean(generatingTextNodeId),
           ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
@@ -1164,7 +1164,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             setGenerationError((error) => error?.nodeId === node.id ? undefined : error);
             setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
           },
-          onGenerate: () => void generateTextNode(node),
+          onGenerate: (model: AgentModelRef, reasoningLevel: AgentReasoningLevel) => void generateTextNode(node, model, reasoningLevel),
         },
       },
     };
@@ -1456,11 +1456,12 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
         />
       </div>
       {selected ? (
-        <CanvasTextComposer models={runtime?.models ?? []} modelStatus={runtime?.modelStatus ?? "loading"} defaultModel={runtime?.defaultModel}
-          model={data.textModel} instruction={data.instruction ?? ""} generating={runtime?.generating} busy={runtime?.busy} error={runtime?.error}
+        <CanvasTextComposer models={runtime?.models ?? []} modelStatus={runtime?.modelStatus ?? "loading"} defaultModel={runtime?.defaultModel} defaultReasoningLevel={runtime?.defaultReasoningLevel}
+          model={data.textModel} reasoningLevel={data.reasoningLevel} instruction={data.instruction ?? ""} generating={runtime?.generating} busy={runtime?.busy} error={runtime?.error}
           onInstruction={(instruction) => runtime?.onChange({ ...data, textRuntime: undefined, instruction })}
-          onModel={(textModel) => runtime?.onChange({ ...data, textRuntime: undefined, textModel })}
-          onGenerate={() => runtime?.onGenerate()} />
+          onModel={(textModel, reasoningLevel) => runtime?.onChange({ ...data, textRuntime: undefined, textModel, reasoningLevel })}
+          onReasoningChange={(reasoningLevel) => runtime?.onChange({ ...data, textRuntime: undefined, textModel: data.textModel ?? runtime.defaultModel, reasoningLevel })}
+          onGenerate={(model, reasoningLevel) => runtime?.onGenerate(model, reasoningLevel)} />
       ) : null}
       <Handle className="story-text-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
@@ -2462,6 +2463,7 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
       text: node.data.text,
       instruction: node.data.instruction,
       ...(node.data.model ? { textModel: node.data.model } : {}),
+      ...(node.data.reasoningLevel ? { reasoningLevel: node.data.reasoningLevel } : {}),
     },
   };
   if (node.type === "video") {
@@ -2552,12 +2554,12 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
 }
 
 /** The generation settings a node passes on to the next node of its type. */
-type NodeGenerationSettings = Pick<AssetCanvasFlowData, "textModel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "model3DConfig">;
+type NodeGenerationSettings = Pick<AssetCanvasFlowData, "textModel" | "reasoningLevel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "model3DConfig">;
 type RememberedSettings = Partial<Record<AssetCanvasNodeType, NodeGenerationSettings>>;
 
 export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | "data">): NodeGenerationSettings | undefined {
   const { data } = node;
-  if (node.type === "text") return data.textModel ? { textModel: { provider: data.textModel.provider, id: data.textModel.id } } : {};
+  if (node.type === "text") return { ...(data.textModel ? { textModel: { provider: data.textModel.provider, id: data.textModel.id } } : {}), ...(data.reasoningLevel ? { reasoningLevel: data.reasoningLevel } : {}) };
   if (node.type === "image") return { model: data.model, resolution: data.resolution, aspectRatio: data.aspectRatio };
   if (node.type === "video") return { videoModel: data.videoModel, videoResolution: data.videoResolution, videoAspectRatio: data.videoAspectRatio, duration: data.duration };
   if (node.type === "model-3d") return { model3DConfig: data.model3DConfig };
@@ -2593,7 +2595,10 @@ export function applyRememberedSettings(
     };
   }
   if (node.type === "model-3d" && settings.model3DConfig) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig(settings.model3DConfig) } };
-  if (node.type === "text" && catalogs.textModels.some((model) => sameModel(model, settings.textModel))) return { ...node, data: { ...node.data, textModel: settings.textModel } };
+  if (node.type === "text") {
+    const model = catalogs.textModels.find((candidate) => sameModel(candidate, settings.textModel));
+    if (model) return { ...node, data: { ...node.data, textModel: settings.textModel, ...(settings.reasoningLevel ? { reasoningLevel: clampReasoningLevel(settings.reasoningLevel, model.reasoningLevels) } : {}) } };
+  }
   return node;
 }
 
@@ -2645,6 +2650,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode): AssetCanvasNode {
       text: node.data.text ?? "",
       instruction: node.data.instruction ?? "",
       ...(node.data.textModel ? { model: modelRef(node.data.textModel) } : {}),
+      ...(node.data.reasoningLevel ? { reasoningLevel: node.data.reasoningLevel } : {}),
     },
   };
   if (node.type === "image") return {

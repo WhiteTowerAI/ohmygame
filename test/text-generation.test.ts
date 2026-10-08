@@ -3,6 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 import { generateCreativeText, generateDesignDocumentMarkdown } from "../src/daemon/text-generation.js";
 
 describe("text generation", () => {
+  it.each(["off", "high", "max"] as const)("passes %s reasoning to creative and document generation", async (reasoningLevel) => {
+    const model = { provider: "provider-one", id: "model-one" };
+    const completeSimple = vi.fn().mockResolvedValue(assistant("Generated text"));
+    const runtime = { getModel: () => model, completeSimple } as unknown as ModelRuntime;
+    await generateCreativeText(runtime, model, "Write", reasoningLevel);
+    await generateDesignDocumentMarkdown(runtime, model, { id: "rules", title: "Rules", markdown: "" }, "Write", reasoningLevel);
+    expect(completeSimple).toHaveBeenCalledTimes(2);
+    for (const [, , options] of completeSimple.mock.calls) {
+      if (reasoningLevel === "off") expect(options).not.toHaveProperty("reasoning");
+      else expect(options.reasoning).toBe(reasoningLevel);
+    }
+  });
   it("generates clean text without tools or conversation state", async () => {
     const model = { provider: "provider-one", id: "model-one" };
     const completeSimple = vi.fn().mockResolvedValue(assistant("A polished image prompt."));

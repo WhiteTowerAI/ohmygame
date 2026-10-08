@@ -248,6 +248,7 @@ export interface AssetCanvasTextReference {
 export interface AssetCanvasTextGenerationRequest {
   instruction: string;
   model?: AgentModelRef;
+  reasoningLevel?: AgentReasoningLevel;
 }
 
 export interface AssetCanvasTextGenerationResponse {
@@ -265,6 +266,7 @@ export type AssetCanvasNode = (
     text: string;
     instruction: string;
     model?: AgentModelRef;
+    reasoningLevel?: AgentReasoningLevel;
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;

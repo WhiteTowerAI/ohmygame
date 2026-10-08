@@ -80,7 +80,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
     },
     update: docs.update, open: setDocumentId,
     generations: docs.generations, changeGeneration: docs.changeGeneration,
-    generate: (id, model) => { void docsRef.current.generate(id, model); }, applyGeneration: docs.applyGeneration,
+    generate: (id, model, reasoningLevel) => { void docsRef.current.generate(id, model, reasoningLevel); }, applyGeneration: docs.applyGeneration,
     setMain: singleBoard ? undefined : (id) => { void run(() => docsRef.current.setMain(id)); },
     insertImage: (id, assetId) => { void run(() => docsRef.current.insertImage(id, assetId)); },
     pickImage: (id) => {

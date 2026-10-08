@@ -35,6 +35,36 @@ async function fixture(prompt = vi.fn(async () => {}), modelDiscoveryFetch?: typ
 }
 
 describe("custom providers", () => {
+  it("passes canvas text and document reasoning to the runtime, uses defaults, and rejects unsupported levels", async () => {
+    const { runtime, app, create } = await fixture();
+    const { id } = await create({ ...gateway, models: [{ ...firstModel, reasoning: true }] });
+    const model = { provider: id, id: firstModel.id };
+    const complete = vi.spyOn(runtime, "completeSimple").mockResolvedValue({ role: "assistant", content: [{ type: "text", text: "Generated rules" }], stopReason: "stop" } as Awaited<ReturnType<typeof runtime.completeSimple>>);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
+    const created = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/documents`, payload: { title: "Rules" } });
+    expect(created.statusCode, created.body).toBe(201);
+    const document = created.json();
+    const textUrl = `/projects/${project.id}/canvas/text/generate`;
+    const documentUrl = `/projects/${project.id}/canvas/documents/${document.document.id}/generate`;
+    for (const [url, extra] of [[textUrl, {}], [documentUrl, { revision: document.revision }]] as const) {
+      const result = await app.inject({ method: "POST", url, payload: { instruction: "Write rules", model, reasoningLevel: "high", ...extra } });
+      expect(result.statusCode, result.body).toBe(200);
+      if (url === documentUrl) expect(result.json()).toMatchObject({ markdown: "Generated rules" });
+      expect(complete).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ reasoning: "high" }));
+      const calls = complete.mock.calls.length;
+      for (const reasoningLevel of ["max", "turbo"]) {
+        const rejected = await app.inject({ method: "POST", url, payload: { instruction: "Write rules", model, reasoningLevel, ...extra } });
+        expect(rejected.statusCode, rejected.body).toBe(400);
+      }
+      expect(complete).toHaveBeenCalledTimes(calls);
+    }
+    expect((await app.inject({ method: "PUT", url: "/models/default", payload: { model, reasoningLevel: "high" } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "POST", url: textUrl, payload: { instruction: "Write rules" } })).statusCode).toBe(200);
+    expect(complete.mock.lastCall?.[2]?.reasoning).toBe("high");
+    expect((await app.inject({ method: "POST", url: textUrl, payload: { instruction: "Write rules", model, reasoningLevel: "off" } })).statusCode).toBe(200);
+    expect(complete.mock.lastCall?.[2]).not.toHaveProperty("reasoning");
+  });
+
   it("saves a keyed provider without fetching or selecting models, then discovers with its saved key", async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "first" }, { id: "second" }] }));
     const { directory, runtime, app } = await fixture(undefined, request);

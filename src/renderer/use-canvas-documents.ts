@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentModelRef } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
 import {
   mergeCanvasDocumentContent,
@@ -20,6 +20,7 @@ import { isCanvasDocument } from "../shared/canvas-document-schema.js";
 export interface DocumentGenerationState {
   instruction: string;
   model?: AgentModelRef;
+  reasoningLevel?: AgentReasoningLevel;
   generating?: boolean;
   error?: string;
   proposal?: string;
@@ -312,12 +313,12 @@ export function useCanvasDocuments(projectId: string) {
     [projectId, flush, refresh],
   );
   const generate = useCallback(
-    async (id: string, model: AgentModelRef) => {
+    async (id: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel) => {
       const state = generationStates.current[id],
         instruction = state?.instruction.trim();
       if (!instruction || state?.generating || state?.proposal !== undefined)
         return;
-      changeGeneration(id, { generating: true, model, error: undefined });
+      changeGeneration(id, { generating: true, model, reasoningLevel, error: undefined });
       try {
         await flush();
         const base = current.current?.documents.find((doc) => doc.id === id);
@@ -325,6 +326,7 @@ export function useCanvasDocuments(projectId: string) {
         const result = await generateCanvasDocument(projectId, id, {
           instruction,
           model,
+          reasoningLevel,
           revision: base.revision,
         });
         if (!mounted.current) return;

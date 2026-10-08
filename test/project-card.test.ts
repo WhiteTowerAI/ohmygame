@@ -30,6 +30,11 @@ describe("project card menu placement", () => {
     expect(menuPlacement({ top: 720, bottom: 750, right: 600 }, popup, viewport)).toEqual({ top: 604, left: 492 });
   });
 
+  it("prefers above for composer menus and flips below near the top", () => {
+    expect(menuPlacement({ top: 300, bottom: 330, right: 600 }, popup, viewport, "end", "above")).toEqual({ top: 184, left: 492 });
+    expect(menuPlacement({ top: 40, bottom: 70, right: 600 }, popup, viewport, "end", "above")).toEqual({ top: 74, left: 492 });
+  });
+
   it("can line up with the trigger's left edge", () => {
     expect(menuPlacement({ top: 100, bottom: 130, left: 300, right: 360 }, popup, viewport, "start")).toEqual({ top: 134, left: 300 });
   });

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
-import type { AgentModelRef } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
 import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { Check, Columns2, Download, Eye, FileText, Image as ImageIcon, Maximize, MoreHorizontal, Pencil, X } from "./icons.js";
 import { CanvasTextarea, CanvasTextInput, CanvasTextComposer, type CanvasTextModels } from "./canvas-text-composer.js";
@@ -25,7 +25,7 @@ export interface CanvasDocuments {
   appendText(text: string): void;
   generations: Record<string, DocumentGenerationState>;
   changeGeneration(id: string, patch: Partial<DocumentGenerationState>): void;
-  generate(id: string, model: AgentModelRef): void;
+  generate(id: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel): void;
   applyGeneration(id: string): void;
 }
 export interface DocumentNodeRuntime extends CanvasTextModels { design: CanvasDocuments; document?: CanvasWorkspaceDetail["documents"][number] }
@@ -93,11 +93,12 @@ function CanvasImage({ projectId, documentId, src, alt }: { projectId: string; d
 function CanvasDocumentAI({ design, document, textModels }: { design: CanvasDocuments; document: CanvasMarkdownDocument; textModels: CanvasTextModels }) {
   const state = design.generations[document.id];
   return <>
-    <CanvasTextComposer {...textModels} instruction={state?.instruction ?? ""} model={state?.model} generating={state?.generating}
+    <CanvasTextComposer {...textModels} instruction={state?.instruction ?? ""} model={state?.model} reasoningLevel={state?.reasoningLevel} generating={state?.generating}
       busy={state?.generating || state?.proposal !== undefined} error={state?.error} label="Document generation instruction" placeholder="Describe what to write or change" generateLabel="Generate document"
       onInstruction={(instruction) => design.changeGeneration(document.id, { instruction, error: undefined })}
-      onModel={(model) => design.changeGeneration(document.id, { model, error: undefined })}
-      onGenerate={(model) => design.generate(document.id, model)} />
+      onModel={(model, reasoningLevel) => design.changeGeneration(document.id, { model, reasoningLevel, error: undefined })}
+      onReasoningChange={(reasoningLevel) => design.changeGeneration(document.id, { model: state?.model ?? textModels.defaultModel, reasoningLevel, error: undefined })}
+      onGenerate={(model, reasoningLevel) => design.generate(document.id, model, reasoningLevel)} />
     {state?.proposal !== undefined ? <details className="design-ai-result nodrag nowheel">
       <summary>Review AI result</summary>
       <div className="design-ai-result-preview"><CanvasMarkdown projectId={design.projectId} document={{ ...document, markdown: state.proposal }} /></div>
@@ -130,7 +131,7 @@ export function ExpandedCanvasDocument({ design, document }: { design: CanvasDoc
       {mode !== "preview" ? <CanvasTextarea spellCheck={false} aria-label="Expanded document Markdown" value={document.markdown} onChange={(markdown) => design.update(document.id, { markdown })} /> : null}
       {mode !== "edit" ? <div className="design-expanded-preview"><CanvasMarkdown projectId={design.projectId} document={document} /></div> : null}
     </div>
-    <div className="design-expanded-ai"><CanvasDocumentAI design={design} document={document} textModels={{ models: catalog.models, modelStatus: catalog.status, defaultModel: catalog.defaultModel ?? catalog.models[0] }} /></div>
+    <div className="design-expanded-ai"><CanvasDocumentAI design={design} document={document} textModels={{ models: catalog.models, modelStatus: catalog.status, defaultModel: catalog.defaultModel ?? catalog.models[0], defaultReasoningLevel: catalog.defaultReasoningLevel }} /></div>
     {menu ? <CanvasContextMenu screenPosition={menu} label="Document options" onClose={() => setMenu(undefined)}>
       <button type="button" role="menuitem" disabled={document.main} onClick={() => { design.setMain?.(document.id); setMenu(undefined); }}><Check size={14} /><span>{document.main ? "Main design document" : "Set as main design document"}</span></button>
     </CanvasContextMenu> : null}
