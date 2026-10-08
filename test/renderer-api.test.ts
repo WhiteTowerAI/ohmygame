@@ -54,9 +54,9 @@ describe("renderer event stream", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await createProject({ type: "interactive-story" });
-    await createProject({ type: "interactive-story", exampleId: "night-train" });
+    await createProject({ type: "interactive-story", exampleId: "story-example" });
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-story" }) }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-story", exampleId: "night-train" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects", expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "interactive-story", exampleId: "story-example" }) }));
   });
 
   it("loads and updates the Playable codebase contract", async () => {
