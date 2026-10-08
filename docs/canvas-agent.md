@@ -2,6 +2,8 @@
 
 Design and Asset Canvas share a project directory the agent edits with its ordinary file tools.
 The canvas renders those files and autosaves user edits into the same sources.
+The agent can initialize a canvas when design or asset work needs it, without
+requiring the user to open Design first.
 
 ```text
 canvas/
@@ -39,12 +41,15 @@ Concurrent edits to different fields merge; competing edits require the user
 to choose a version. Invalid external edits leave the last valid canvas
 visible with diagnostics. External node changes enter the canvas undo history.
 
-Two tools supplement ordinary file editing:
+Three tools supplement ordinary file editing:
 
+- `canvas_initialize` creates the file contract and an empty board on demand,
+  preserving existing content. It is unavailable in planning mode.
 - `canvas_check` validates schemas, document references, asset paths and media
   types. It is read-only and available in planning mode.
 - `generate_canvas_media(boardId, nodeId)` executes the saved node settings
-  when generation is requested. It shares canvas jobs, cancellation and
+  when generation is requested, including necessary media for a game-creation
+  request unless the user limits its scope. It shares canvas jobs, cancellation and
   history, materializes output in the project, and writes the output ID back
   to the node. Changing a file does not start generation.
 

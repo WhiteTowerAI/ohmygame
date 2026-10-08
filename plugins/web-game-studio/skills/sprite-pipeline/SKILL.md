@@ -17,7 +17,7 @@ Use this skill for production 2D sprites and frame-based animation, not for gene
 6. Update the asset manifest and animation metadata through stable keys.
 7. Inspect a preview and the animation at actual game scale before approval.
 
-Use OhMyGame's `generate_image` tool for new source art when it fits the request. If the available generator cannot preserve an approved reference or transparency reliably, state the limitation and use the project's existing asset workflow rather than pretending consistency was verified.
+Use `generate_canvas_media` with saved image nodes and references when working on a canvas; use `generate_image` for standalone source art without a canvas. If the available generator cannot preserve an approved reference or transparency reliably, state the limitation and use the project's existing asset workflow rather than pretending consistency was verified.
 
 ## Generation Invariants
 
