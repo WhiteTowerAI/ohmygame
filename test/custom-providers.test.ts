@@ -42,7 +42,11 @@ describe("custom providers", () => {
     const { runtime, app, create } = await fixture();
     const { id } = await create({ ...gateway, models: [{ ...firstModel, reasoning: true }] });
     const model = { provider: id, id: firstModel.id };
-    const complete = vi.spyOn(runtime, "completeSimple").mockResolvedValue({ role: "assistant", content: [{ type: "text", text: "Generated rules" }], stopReason: "stop" } as Awaited<ReturnType<typeof runtime.completeSimple>>);
+    const response = { role: "assistant", content: [{ type: "text", text: "Generated rules" }], stopReason: "stop" } as Awaited<ReturnType<typeof runtime.completeSimple>>;
+    const complete = vi.spyOn(runtime, "completeSimple").mockResolvedValue(response);
+    const stream = vi.spyOn(runtime, "streamSimple").mockImplementation(() => ({
+      async *[Symbol.asyncIterator]() { yield { type: "done", reason: "stop", message: response }; },
+    }) as unknown as ReturnType<typeof runtime.streamSimple>);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json();
     const created = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/documents`, payload: { title: "Rules" } });
     expect(created.statusCode, created.body).toBe(201);
@@ -52,8 +56,8 @@ describe("custom providers", () => {
     for (const [url, extra] of [[textUrl, {}], [documentUrl, { revision: document.revision }]] as const) {
       const result = await app.inject({ method: "POST", url, payload: { instruction: "Write rules", model, reasoningLevel: "high", ...extra } });
       expect(result.statusCode, result.body).toBe(200);
-      if (url === documentUrl) expect(result.json()).toMatchObject({ markdown: "Generated rules" });
-      const generate = complete;
+      if (url === documentUrl) expect(result.json()).toMatchObject({ status: "complete", markdown: "Generated rules" });
+      const generate = url === documentUrl ? stream : complete;
       expect(generate).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), expect.objectContaining({ reasoning: "high" }));
       const calls = generate.mock.calls.length;
       for (const reasoningLevel of ["max", "turbo"]) {

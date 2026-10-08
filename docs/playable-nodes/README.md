@@ -59,7 +59,7 @@ editor's words.
 | Template                 | Preset                                         |
 | Replay                   | Restart                                        |
 | Select                   | Pick element                                   |
-| History                  | Back stack (shown only with technical details) |
+| History                  | Back stack                                     |
 
 ## Documents
 

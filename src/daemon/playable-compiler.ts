@@ -92,12 +92,13 @@ export async function compileNodeGraph(
   }
 
   const workspaceRoot = await resolveWorkspaceRoot(workspacePath);
+  const resolvedFiles = new Map<string, Promise<string>>();
   const entries = await mapConcurrent(
     graph.nodes,
     MAX_CONCURRENT_SURFACE_BUILDS,
     async (node): Promise<[string, CompiledPlayableSurface]> => [
       node.id,
-      await compileSurface(workspaceRoot, node.id, node.source, options),
+      await compileSurface(workspaceRoot, node.id, node.source, options, resolvedFiles),
     ],
   );
   return { version: 1, nodes: Object.fromEntries(entries) };
@@ -108,13 +109,14 @@ async function compileSurface(
   surfaceId: string,
   source: NodeSource,
   options: NodeCompilerOptions,
+  resolvedFiles: Map<string, Promise<string>>,
 ): Promise<CompiledPlayableSurface> {
   const [htmlPath, cssPath, javascriptPath] = await Promise.all([
     resolveSourceFile(workspaceRoot, source.html, surfaceId),
     resolveSourceFile(workspaceRoot, source.css, surfaceId),
     resolveSourceFile(workspaceRoot, source.javascript, surfaceId),
   ]);
-  const boundary = workspaceBoundaryPlugin(workspaceRoot, surfaceId);
+  const boundary = workspaceBoundaryPlugin(workspaceRoot, surfaceId, resolvedFiles);
 
   try {
     const [html, buildResult] = await Promise.all([
@@ -127,6 +129,7 @@ async function compileSurface(
         options,
       ),
     ]);
+    assertNoExternalImports(buildResult.metafile);
     const explicitCss = outputText(buildResult, "style.css");
     const importedCss = outputText(buildResult, "script.css", false);
     const javascript = outputText(buildResult, "script.js");
@@ -216,36 +219,23 @@ async function bundleSurface(
 function workspaceBoundaryPlugin(
   workspaceRoot: string,
   surfaceId: string,
+  resolvedFiles: Map<string, Promise<string>>,
 ): { plugin: Plugin; violation?: NodeCompilerError } {
   const boundary: { plugin: Plugin; violation?: NodeCompilerError } = {
     plugin: {
       name: "playable-workspace-boundary",
       setup(context) {
-        context.onResolve({ filter: /.*/ }, async (args) => {
-          if (isBoundaryChecked(args.pluginData)) return;
-          const result = await context.resolve(args.path, {
-            importer: args.importer,
-            kind: args.kind,
-            namespace: args.namespace,
-            resolveDir: args.resolveDir,
-            pluginData: { playableBoundaryChecked: true },
-          });
-          if (result.errors.length > 0) return result;
-          if (result.external) {
-            if (args.path.startsWith("data:") || args.path.startsWith("#"))
-              return result;
-            return {
-              errors: [
-                {
-                  text: `External import "${args.path}" is not allowed in Playable surfaces.`,
-                },
-              ],
-            };
-          }
-          if (result.namespace !== "file") return result;
-
+        // Check each loaded file instead of resolving every import a second
+        // time. Large package barrels otherwise trigger thousands of resolver
+        // round trips, repeated for every Scene that imports the package.
+        context.onLoad({ filter: /.*/, namespace: "file" }, async (args) => {
           try {
-            const resolved = await realpath(result.path);
+            let resolution = resolvedFiles.get(args.path);
+            if (!resolution) {
+              resolution = realpath(args.path);
+              resolvedFiles.set(args.path, resolution);
+            }
+            const resolved = await resolution;
             assertInsideWorkspace(
               workspaceRoot,
               resolved,
@@ -260,17 +250,29 @@ function workspaceBoundaryPlugin(
             return {
               errors: [
                 {
-                  text: `Cannot resolve "${args.path}" inside the project workspace: ${errorMessage(cause)}`,
+                  text: `Cannot load "${args.path}" inside the project workspace: ${errorMessage(cause)}`,
                 },
               ],
             };
           }
-          return result;
+          // Let esbuild use its normal loader after the boundary check.
         });
       },
     },
   };
   return boundary;
+}
+
+function assertNoExternalImports(metafile: Metafile): void {
+  // Input metadata retains imports removed from the output by tree shaking.
+  for (const input of Object.values(metafile.inputs)) {
+    for (const imported of input.imports) {
+      if (!imported.external) continue;
+      const requestedPath = imported.original ?? imported.path;
+      if (requestedPath.startsWith("data:") || requestedPath.startsWith("#")) continue;
+      throw new Error(`External import "${requestedPath}" is not allowed in Playable surfaces.`);
+    }
+  }
 }
 
 async function resolveWorkspaceRoot(workspacePath: string): Promise<string> {
@@ -372,14 +374,6 @@ function outputExports(
 
 function relativePath(workspaceRoot: string, target: string): string {
   return path.relative(workspaceRoot, target).replaceAll(path.sep, "/");
-}
-
-function isBoundaryChecked(pluginData: unknown): boolean {
-  return (
-    typeof pluginData === "object" &&
-    pluginData !== null &&
-    Reflect.get(pluginData, "playableBoundaryChecked") === true
-  );
 }
 
 function errorMessage(value: unknown): string {

@@ -20,6 +20,13 @@ function imageNode(data: FlowNode["data"] = {}): FlowNode {
 }
 
 describe("Asset Canvas remembered settings", () => {
+  it("remembers text reasoning and adjusts it when the model's supported levels change", () => {
+    const model = { provider: "openai", id: "gpt-test", name: "GPT Test", providerName: "OpenAI", reasoningLevels: ["off", "high"] as const };
+    const base: FlowNode = { id: "text-1", type: "text", position: { x: 0, y: 0 }, data: { text: "", instruction: "" } };
+    const settings = nodeGenerationSettings({ type: "text", data: { textModel: model, reasoningLevel: "xhigh" } });
+    expect(settings).toMatchObject({ reasoningLevel: "xhigh" });
+    expect(applyRememberedSettings(base, settings, { ...catalogs, textModels: [{ ...model, reasoningLevels: [...model.reasoningLevels] }] }).data).toMatchObject({ textModel: { provider: "openai", id: "gpt-test" }, reasoningLevel: "high" });
+  });
   it("starts a new image node with the last picked model and options", () => {
     const settings = nodeGenerationSettings(imageNode({ model: { provider: "openai", id: "gpt-image-2" }, resolution: "2K", aspectRatio: "16:9", prompt: "a cat" }));
     const node = applyRememberedSettings(imageNode(), settings, catalogs);

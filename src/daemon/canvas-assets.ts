@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { CANVAS_ASSETS_SCHEMA, type CanvasAssetManifest, type CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
+import { CANVAS_ASSETS_SCHEMA, type CanvasAsset, type CanvasAssetManifest, type CanvasAssetCatalogEntry, type UnavailableCanvasAsset } from "../shared/canvas-assets.js";
 import type { AssetLibrary } from "./asset-library.js";
 import type { ProjectManager } from "./projects.js";
 import type { ProjectState } from "../shared/contracts.js";
@@ -15,13 +15,17 @@ export async function readCanvasAssets(workspace: string): Promise<CanvasAssetMa
   return { ...manifest, assets: Object.assign(Object.create(null), manifest.assets) };
 }
 
-export async function ensureCanvasAssets(project: ProjectState, projects: ProjectManager, library: AssetLibrary, ids: readonly string[]): Promise<CanvasAssetManifest> {
+export async function ensureCanvasAssets(project: ProjectState, projects: ProjectManager, library: AssetLibrary, ids: readonly string[], existingIds: readonly string[] = []): Promise<CanvasAssetManifest> {
   const manifest = await readCanvasAssets(project.workspacePath);
   let changed = false;
   for (const id of new Set(ids)) {
     if (manifest.assets[id]) continue;
     const asset = library.get(id);
-    if (!asset) throw new CanvasError(`canvas/assets.json: asset ${id} is not registered`);
+    if (!asset) {
+      // Keep existing broken references editable without accepting new unknown assets.
+      if (existingIds.includes(id)) continue;
+      throw new CanvasError(`canvas/assets.json: asset ${id} is not registered`);
+    }
     const file = await projects.materializeLibraryAsset(project.id, id);
     manifest.assets[id] = { name: asset.name, path: file.path, libraryAssetId: id, ...(asset.prompt ? { prompt: asset.prompt } : {}) };
     changed = true;
@@ -30,13 +34,30 @@ export async function ensureCanvasAssets(project: ProjectState, projects: Projec
   return manifest;
 }
 
-export async function canvasAssetCatalog(workspace: string, manifest: CanvasAssetManifest): Promise<CanvasAssetCatalogEntry[]> {
-  return Promise.all(Object.entries(manifest.assets).map(async ([id, asset]) => {
+export async function canvasAssetCatalog(workspace: string, manifest: CanvasAssetManifest, ids: readonly string[] = Object.keys(manifest.assets)): Promise<CanvasAssetCatalogEntry[]> {
+  return Promise.all([...new Set(ids)].map(async (id) => {
+    const asset = manifest.assets[id];
+    if (!asset) throw new CanvasError(`canvas/assets.json: asset ${id} is not registered`);
     try {
-      const file = await getWorkspaceMedia(workspace, asset.path), info = await stat(file.absolutePath);
-      return { ...asset, id, contentType: file.contentType, mediaType: file.mediaType, size: info.size, createdAt: info.mtime.toISOString() };
+      return await resolveCanvasAsset(workspace, id, asset);
     } catch (cause) { throw new CanvasError(`canvas/assets.json /assets/${id}/path: ${cause instanceof Error ? cause.message : String(cause)}`); }
   }));
+}
+
+export async function inspectCanvasAssets(workspace: string, manifest: CanvasAssetManifest): Promise<{ assets: CanvasAssetCatalogEntry[]; unavailableAssets: UnavailableCanvasAsset[] }> {
+  const results = await Promise.all(Object.entries(manifest.assets).map(async ([id, asset]) => {
+    try { return { asset: await resolveCanvasAsset(workspace, id, asset) }; }
+    catch (cause) {
+      const status = (cause as NodeJS.ErrnoException).code === "ENOENT" ? "missing" : "unavailable";
+      return { issue: { ...asset, id, status, message: cause instanceof Error ? cause.message : String(cause) } satisfies UnavailableCanvasAsset };
+    }
+  }));
+  return { assets: results.flatMap((result) => result.asset ? [result.asset] : []), unavailableAssets: results.flatMap((result) => result.issue ? [result.issue] : []) };
+}
+
+async function resolveCanvasAsset(workspace: string, id: string, asset: CanvasAsset): Promise<CanvasAssetCatalogEntry> {
+  const file = await getWorkspaceMedia(workspace, asset.path), info = await stat(file.absolutePath);
+  return { ...asset, id, contentType: file.contentType, mediaType: file.mediaType, size: info.size, createdAt: info.mtime.toISOString() };
 }
 
 export async function canvasLibraryAsset(project: ProjectState, library: AssetLibrary, id: string): Promise<string> {

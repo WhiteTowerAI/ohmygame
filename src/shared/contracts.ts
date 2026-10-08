@@ -207,6 +207,12 @@ export interface PublicationState {
   description?: string;
 }
 
+export type ProjectCoverMode = "auto" | "custom";
+
+export interface ProjectCoverState {
+  mode: ProjectCoverMode;
+}
+
 export interface ProjectState {
   id: string;
   name: string;
@@ -282,6 +288,7 @@ export type AssetCanvasNode = (
     text: string;
     instruction: string;
     model?: AgentModelRef;
+    reasoningLevel?: AgentReasoningLevel;
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;

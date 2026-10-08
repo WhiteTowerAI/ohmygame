@@ -153,6 +153,78 @@ describe("Node compiler", () => {
     );
   });
 
+  it("rejects symlinked media imported from outside the workspace", async () => {
+    const { root, workspace, graph } = await createCompilerWorkspace();
+    const outside = path.join(root, "outside.svg");
+    await writeFile(outside, '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    await rm(path.join(workspace, "shared", "pixel.svg"));
+    await symlink(outside, path.join(workspace, "shared", "pixel.svg"));
+
+    await expect(compileNodeGraph(workspace, graph)).rejects.toMatchObject({
+      code: "path-outside-workspace",
+      surfaceId: "menu",
+    });
+  });
+
+  it("rejects an unused external JavaScript import", async () => {
+    const { workspace, graph } = await createCompilerWorkspace();
+    await writeFile(
+      path.join(workspace, "nodes", "menu", "node.js"),
+      'import { unused } from "https://example.test/module.js";\nexport function mount() {}\n',
+    );
+
+    await expect(compileNodeGraph(workspace, graph)).rejects.toMatchObject({
+      code: "build-failed",
+      surfaceId: "menu",
+      message: expect.stringContaining('External import "https://example.test/module.js" is not allowed'),
+    });
+  });
+
+  it.each([
+    "https://example.test/image.svg",
+    "//example.test/image.svg",
+  ])("rejects the external CSS URL %s", async (url) => {
+    const { workspace, graph } = await createCompilerWorkspace();
+    await writeFile(
+      path.join(workspace, "nodes", "menu", "style.css"),
+      `.menu { background: url("${url}"); }\n`,
+    );
+
+    await expect(compileNodeGraph(workspace, graph)).rejects.toMatchObject({
+      code: "build-failed",
+      surfaceId: "menu",
+      message: expect.stringContaining(`External import "${url}" is not allowed`),
+    });
+  });
+
+  it("rejects absolute CSS paths outside the workspace", async () => {
+    const { root, workspace, graph } = await createCompilerWorkspace();
+    const outside = path.join(root, "outside.svg");
+    await writeFile(outside, '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    await writeFile(
+      path.join(workspace, "nodes", "menu", "style.css"),
+      `.menu { background: url("${outside}"); }\n`,
+    );
+
+    await expect(compileNodeGraph(workspace, graph)).rejects.toMatchObject({
+      code: "path-outside-workspace",
+      surfaceId: "menu",
+    });
+  });
+
+  it("allows embedded media and SVG fragment references", async () => {
+    const { workspace, graph } = await createCompilerWorkspace();
+    await writeFile(
+      path.join(workspace, "nodes", "menu", "style.css"),
+      '.menu { background: url("data:image/png;base64,AAAA"); filter: url("#clip"); }\n',
+    );
+
+    const result = await compileNodeGraph(workspace, graph);
+
+    expect(result.nodes.menu!.css).toContain("data:image/png;base64,AAAA");
+    expect(result.nodes.menu!.css).toContain("#clip");
+  });
+
   it("reports missing surface source files with a stable error code", async () => {
     const { workspace, graph } = await createCompilerWorkspace();
     await rm(path.join(workspace, "nodes", "archive", "node.js"));

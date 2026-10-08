@@ -289,6 +289,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         actions={(
           <>
             <ModelSelector
+              placement="below"
               models={modelCatalog.models}
               status={modelCatalog.status}
               value={selectedModel}

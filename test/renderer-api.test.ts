@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset } from "../src/renderer/api.js";
-import { cancelToolJob, listToolJobs, retryToolJob, startToolJob } from "../src/renderer/api.js";
+import { cancelToolJob, getProjectCoverState, listToolJobs, restoreAutomaticProjectCover, retryToolJob, startToolJob } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -659,6 +659,27 @@ describe("renderer project API", () => {
       method: "PUT",
       headers: { "content-type": "image/webp", authorization: "Bearer secret" },
       body: cover,
+    });
+  });
+
+  it("marks automatic cover writes and restores automatic mode without publishing", async () => {
+    vi.stubGlobal("window", {
+      ohMyGameDesktop: { runtime: { daemonUrl: "http://127.0.0.1:43210", token: "secret" } },
+    });
+    const cover = new Blob(["cover"], { type: "image/webp" });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ mode: "custom" }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(getProjectCoverState("project-1")).resolves.toEqual({ mode: "custom" });
+    await setProjectCover("project-1", cover, "auto");
+    await restoreAutomaticProjectCover("project-1");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://127.0.0.1:43210/projects/project-1/cover?source=auto", {
+      method: "PUT", headers: { "content-type": "image/webp", authorization: "Bearer secret" }, body: cover,
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "http://127.0.0.1:43210/projects/project-1/cover", {
+      method: "DELETE", headers: { authorization: "Bearer secret" },
     });
   });
 
