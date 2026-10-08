@@ -13,6 +13,22 @@ afterEach(async () => {
 });
 
 describe("PreviewManager", () => {
+  it("reuses the same process for concurrent player and agent launches and subsequent opens", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = createProject(workspacePath);
+    const manager = new PreviewManager(new RuntimeEventBus(), { readinessTimeoutMs: 2_000 });
+    managers.push(manager);
+    const urls = await Promise.all([manager.ensureStarted(project), manager.ensureStarted(project)]);
+    expect(urls[0]).toBe(urls[1]);
+    const pid = await readFile(path.join(workspacePath, "server.pid"), "utf8");
+    expect(await manager.ensureStarted(project)).toBe(urls[0]);
+    expect(await readFile(path.join(workspacePath, "server.pid"), "utf8")).toBe(pid);
+    expect(isProcessRunning(Number(pid))).toBe(true);
+    await manager.stop(project);
+    await manager.ensureStarted(project);
+    expect(await readFile(path.join(workspacePath, "server.pid"), "utf8")).not.toBe(pid);
+  });
+
   it("starts and stops a preview process tree", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);

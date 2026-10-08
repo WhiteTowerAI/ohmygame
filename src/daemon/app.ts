@@ -688,9 +688,7 @@ export function createApp(options: AppOptions = {}) {
               runtime: "web",
               url: project.type === "interactive-story"
                 ? await playableDrafts.open(project)
-                : project.preview.status === "ready" && project.preview.url
-                  ? project.preview.url
-                  : await previews.start(project),
+                : await previews.ensureStarted(project),
             }),
           } : undefined,
           webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
@@ -714,7 +712,7 @@ export function createApp(options: AppOptions = {}) {
       void resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")
         .then(({ absolutePath }) => isRunnableWorkspace(absolutePath, project.startupScript ?? "dev"))
         .then((runnable) => {
-          if (runnable) return previews.start(project).catch(() => {});
+          if (runnable) return previews.ensureStarted(project).catch(() => {});
         })
         .catch(() => {});
     },
@@ -2322,20 +2320,22 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/preview", async (request, reply) => {
+  app.post<{ Params: { projectId: string }; Querystring: { reuse?: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    let startupDirectory: string;
-    try {
-      startupDirectory = (await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")).absolutePath;
-    } catch (cause) {
-      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    const reuse = request.query.reuse === "1";
+    if (reuse && project.type !== "web-game") return reply.code(409).send({ error: "Play requires a Web Game project." });
+    if (!reuse || (project.preview.status !== "ready" && project.preview.status !== "starting")) {
+      try {
+        const startup = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
+        const workspace = await previewWorkspaceStatus(startup.absolutePath, project.startupScript ?? "dev");
+        if (!workspace.runnable) return reply.code(409).send({ error: workspace.error ?? "Workspace is not runnable yet" });
+      } catch (error) {
+        return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+      }
     }
-    const previewWorkspace = await previewWorkspaceStatus(startupDirectory, project.startupScript ?? "dev");
-    if (!previewWorkspace.runnable) {
-      return reply.code(409).send({ error: previewWorkspace.error ?? "Workspace is not runnable yet" });
-    }
-    return { url: await previews.start(project) };
+    const url = await (reuse ? previews.ensureStarted(project) : previews.start(project));
+    return { url, title: project.name };
   });
 
   app.post<{ Params: { projectId: string }; Querystring: { batchId: string; name: string; relativePath?: string }; Body: AsyncIterable<Buffer | string> }>(

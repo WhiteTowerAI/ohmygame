@@ -20,6 +20,7 @@ import {
   PanelToggle,
   Pencil,
   Plus,
+  Play,
   RefreshCw,
   Search,
   Share2,
@@ -36,7 +37,7 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { createWorkspaceEntry, deleteWorkspaceEntry, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
+import { createWorkspaceEntry, deleteWorkspaceEntry, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
 import { ProjectAssetCollectionFilters } from "./library-filters.js";
@@ -47,6 +48,7 @@ import { ProjectSettingsDialog } from "./project-settings-dialog.js";
 import { AssetMedia } from "./asset-gallery.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
+import { useWebGamePlayer } from "./use-web-game-player.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -133,6 +135,8 @@ export function CodingWorkspace({
   const preview = project?.preview;
   const previewBaseUrl = preview?.status === "ready" ? preview.url : undefined;
   const previewPageUrl = previewBaseUrl ? new URL(previewPath, previewBaseUrl).toString() : undefined;
+  const player = useWebGamePlayer(supportsPreview ? project?.id : undefined, previewBaseUrl);
+  const previewStage = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPreviewPath(project?.previewPath ?? "/");
@@ -226,10 +230,16 @@ export function CodingWorkspace({
 
   function refreshPreview(): void {
     if (preview?.status === "ready") {
-      setReload((value) => value + 1);
+      if (player.open) void player.reload();
+      else setReload((value) => value + 1);
     } else if (preview?.status === "error" || preview?.status === "stopped") {
       onRestart();
     }
+  }
+
+  function playGame(): void {
+    const bounds = previewStage.current?.getBoundingClientRect();
+    void player.play({ path: previewPath, viewport: playerViewport(viewport, bounds) });
   }
 
   async function toggleAgentPlaytestWatch(): Promise<void> {
@@ -288,7 +298,16 @@ export function CodingWorkspace({
           ) : null}
         </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {!designOpen ? <><button
+          {!designOpen ? <>
+          {supportsPreview ? <button
+            className={`icon-button pane-header-action preview-play-button${player.open ? " is-active" : ""}`}
+            type="button"
+            aria-label={player.open ? "Return to game" : "Play"}
+            data-tooltip={player.pending ? "Opening game..." : player.open ? "Return to game" : "Play in a new window"}
+            disabled={player.pending || (player.checking && !player.error) || (!player.open && (!project || preview?.status === "waiting" || preview?.status === "starting"))}
+            onClick={playGame}
+          >{player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}</button> : null}
+          <button
             className="publish-button workspace-publish-button"
             type="button"
             onClick={onOpenPublish}
@@ -334,7 +353,11 @@ export function CodingWorkspace({
           hidden={shownTab !== "preview"}
           aria-hidden={shownTab !== "preview"}
         >
-          <PreviewView project={project} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport} />
+          <PreviewView
+            project={project} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport}
+            active={shownTab === "preview"} playerOpen={player.open} suspended={player.suspended} pending={player.pending || player.checking}
+            error={player.error} onPlay={playGame} stageRef={previewStage}
+          />
         </div>
       ) : null}
       {shownTab === "code" ? (
@@ -653,10 +676,41 @@ function viewportLabel(viewport: PreviewViewport): string {
   return "Fit";
 }
 
-function PreviewView({ project, reload, revision, url, viewport }: { project?: ProjectState; reload: number; revision: number; url?: string; viewport: PreviewViewport }) {
+export function playerViewport(viewport: PreviewViewport, bounds?: { width: number; height: number }): { width: number; height: number } {
+  if (viewport === "mobile") return { width: 375, height: 667 };
+  if (viewport === "tablet") return { width: 768, height: 1024 };
+  const size = (value: number | undefined, fallback: number) => Math.min(8192, Math.max(240, Math.round(value || fallback)));
+  return { width: size(bounds?.width, 1280), height: size(bounds?.height, 720) };
+}
+
+export function PreviewView({ project, reload, revision, url, viewport, active = true, playerOpen = false, suspended = false, pending = false, error, onPlay, stageRef }: {
+  project?: ProjectState; reload: number; revision: number; url?: string; viewport: PreviewViewport;
+  active?: boolean; playerOpen?: boolean; suspended?: boolean; pending?: boolean; error?: string; onPlay?: () => void;
+  stageRef?: React.Ref<HTMLDivElement>;
+}) {
   const preview = project?.preview;
   const frame = useRef<HTMLIFrameElement>(null);
   const captureTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [started, setStarted] = useState(active && !suspended);
+  const [cover, setCover] = useState<string>();
+
+  useEffect(() => {
+    if (suspended) { setStarted(false); clearTimeout(captureTimer.current); }
+    else if (active) setStarted(true);
+  }, [suspended, active]);
+
+  useEffect(() => {
+    setCover(undefined);
+    if (!project || !playerOpen) return;
+    let disposed = false;
+    let objectUrl: string | undefined;
+    void getProjectCover(project.id).then((blob) => {
+      if (disposed || !blob) return;
+      objectUrl = URL.createObjectURL(blob);
+      setCover(objectUrl);
+    }).catch(() => {});
+    return () => { disposed = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [project?.id, playerOpen]);
 
   useEffect(() => () => clearTimeout(captureTimer.current), []);
   useEffect(() => {
@@ -672,8 +726,16 @@ function PreviewView({ project, reload, revision, url, viewport }: { project?: P
   }
 
   return (
-    <div className={`viewer-stage viewer-stage-${viewport}`}>
-      {preview?.status === "ready" && url ? (
+    <div ref={stageRef} className={`viewer-stage viewer-stage-${viewport}`}>
+      {suspended ? <div className="preview-player-state">
+        {cover ? <img className="preview-player-cover" src={cover} alt="" /> : null}
+        <div className="preview-empty-state">
+          <div className="preview-empty-mark" aria-hidden="true">{pending ? <LoaderCircle className="spin" size={20} /> : <Play size={20} />}</div>
+          <p className="preview-empty-title">{pending ? "Opening game..." : "Game is running in its own window"}</p>
+          <p className="preview-empty-description">Close the game window to return to the preview.</p>
+          {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>Return to game</button> : null}
+        </div>
+      </div> : (active || started) && preview?.status === "ready" && url ? (
         <div className="preview-frame-wrap">
           <iframe
             ref={frame}
@@ -686,6 +748,7 @@ function PreviewView({ project, reload, revision, url, viewport }: { project?: P
           />
         </div>
       ) : <PreviewState status={preview?.status} error={preview?.error} />}
+      {error ? <div className="preview-player-error" role="alert">{error}</div> : null}
     </div>
   );
 }

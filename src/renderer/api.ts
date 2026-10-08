@@ -68,6 +68,7 @@ import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallIn
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
+import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
 
 const API_BASE = "/api";
 
@@ -102,6 +103,7 @@ declare global {
       /** Called by the hidden thumbnail window once its capture is stored or failed. */
       finishNodeThumbnail?: (captured: boolean) => Promise<void>;
       openPlaytest: (projectId: string, viewport: { width: number; height: number }) => Promise<void>;
+      webGamePlayer?: WebGamePlayerBridge;
       /** Called from a Playtest window: shows the Node in the main window's editor. */
       openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
       /** Called in the main window when a Playtest asks to open a Node. */
@@ -462,6 +464,10 @@ export async function waitForRuntime(timeoutMs = 10_000): Promise<void> {
 
 export async function getProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}`);
+}
+
+export async function ensureProjectPreview(projectId: string): Promise<{ url: string; title: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST" });
 }
 
 export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
