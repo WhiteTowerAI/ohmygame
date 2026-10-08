@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   CodingWorkspace,
+  PreviewView,
+  playerViewport,
   AssetsView,
   normalizePreviewPath,
   workspaceFileTree,
@@ -12,6 +14,30 @@ import { workspaceLanguage } from "../src/renderer/highlighted-code.js";
 import { filterAssets } from "../src/renderer/asset-browser.js";
 
 describe("coding workspace", () => {
+  const previewProject = { id: "game", name: "Game", type: "web-game" as const, updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/game", preview: { status: "ready" as const, url: "http://127.0.0.1:43123" } };
+
+  it("unmounts the inline game while the player is opening or running", () => {
+    for (const playerOpen of [false, true]) {
+      const html = renderToStaticMarkup(createElement(PreviewView, { project: previewProject, reload: 0, revision: 0, url: previewProject.preview.url, viewport: "fit", suspended: true, playerOpen, pending: !playerOpen, onPlay: () => {} }));
+      expect(html).not.toContain("<iframe");
+      expect(html).toContain(playerOpen ? "Return to game" : "Opening game...");
+    }
+  });
+
+  it("waits for the Preview tab before creating another inline game", () => {
+    const props = { project: previewProject, reload: 0, revision: 0, url: previewProject.preview.url, viewport: "fit" as const };
+    expect(renderToStaticMarkup(createElement(PreviewView, { ...props, active: false }))).not.toContain("<iframe");
+    expect(renderToStaticMarkup(createElement(PreviewView, { ...props, active: true }))).toContain("<iframe");
+  });
+
+  it("uses device presets and bounds the fit viewport to supported dimensions", () => {
+    expect(playerViewport("mobile")).toEqual({ width: 375, height: 667 });
+    expect(playerViewport("tablet")).toEqual({ width: 768, height: 1024 });
+    expect(playerViewport("fit", { width: 930.4, height: 660.8 })).toEqual({ width: 930, height: 661 });
+    expect(playerViewport("fit", { width: 0, height: 0 })).toEqual({ width: 1280, height: 720 });
+    expect(playerViewport("fit", { width: 20000, height: 200 })).toEqual({ width: 8192, height: 240 });
+  });
+
   it("browses project assets without file mutation menus and keeps a shared filter entry", () => {
     const html = renderToStaticMarkup(createElement(AssetsView, {
       projectId: "project", files: [{ path: "hero.png", size: 3, mediaType: "image", origin: "generated", purpose: "asset", prompt: "A long generation prompt" }],

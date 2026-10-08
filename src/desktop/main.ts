@@ -12,8 +12,10 @@ import { applySystemProxy } from "./system-proxy.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
 import { DesktopUpdater } from "./updater.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
+import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
+import type { WebGamePlayerRequest } from "../shared/web-game-player.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
@@ -41,6 +43,9 @@ function handle(channel: string, listener: Parameters<typeof ipcMain.handle>[1])
 const agentPlaytests = new ElectronPlaytestDriver((state) => {
   mainWindow?.webContents.send("ohmygame:agent-playtest-state", state);
 });
+const webGamePlayers = new WebGamePlayerWindows((state) => {
+  mainWindow?.webContents.send("ohmygame:web-game-player-state", state);
+});
 let quitting = false;
 let updater: DesktopUpdater | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
@@ -48,6 +53,7 @@ const windowMenuLabels = new Set(["File", "Edit", "View", "Window"]);
 let applicationIconDataUrl: Promise<string> | undefined;
 
 async function stopServices(): Promise<void> {
+  webGamePlayers.close();
   agentPlaytests.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
 }
@@ -214,6 +220,39 @@ handle("ohmygame:set-agent-playtest-visible", (event, visible: unknown): Playtes
   }
   return agentPlaytests.setVisible(visible);
 });
+handle("ohmygame:web-game-player-state", (event, projectId: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  return webGamePlayers.state(projectId);
+});
+handle("ohmygame:open-web-game-player", (event, projectId: unknown, request: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  const input = request as Partial<WebGamePlayerRequest> | null;
+  if (!input || typeof input.path !== "string" || input.path.length > 2_000 || !isValidPlaytestViewport(input.viewport)) {
+    throw new Error("Invalid game player target");
+  }
+  return webGamePlayers.open(projectId, input as WebGamePlayerRequest, () => resolvePlayerTarget(projectId));
+});
+handle("ohmygame:refresh-web-game-player", (event, projectId: unknown, reload: unknown = false) => {
+  requirePlayerSource(event.sender, projectId);
+  if (typeof reload !== "boolean") throw new Error("Invalid game player refresh");
+  return webGamePlayers.refresh(projectId, () => resolvePlayerTarget(projectId), reload);
+});
+
+function requirePlayerSource(sender: Electron.WebContents, projectId: unknown): asserts projectId is string {
+  if (!mainWindow || sender !== mainWindow.webContents || !validRouteId(projectId) || !daemon) {
+    throw new Error("Invalid game player source");
+  }
+}
+
+async function resolvePlayerTarget(projectId: string): Promise<WebGamePlayerTarget> {
+  if (!daemon) throw new Error("The game service is unavailable.");
+  const headers = { authorization: `Bearer ${daemon.runtime.token}` };
+  const response = await fetch(`${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST", headers });
+  const result = await response.json() as { url?: string; title?: string; error?: string; message?: string };
+  if (!response.ok || !result.url || !result.title) throw new Error(result.message ?? result.error ?? "The game server could not start.");
+  return { url: result.url, title: result.title };
+}
+
 handle("ohmygame:open-playtest", async (event, projectId: unknown, viewport: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid playtest source");
   if (!validRouteId(projectId) || !isValidPlaytestViewport(viewport) || !daemon) throw new Error("Invalid playtest target");
@@ -325,6 +364,7 @@ try {
   if (app.isPackaged) void updater.check();
   mainWindow.once("closed", () => {
     mainWindow = undefined;
+    webGamePlayers.close();
     for (const playtest of playtestWindows.values()) {
       void Promise.resolve(playtest).then((window) => window.close(), () => {});
     }
