@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from "electron";
+import { BrowserWindow, nativeTheme, shell } from "electron";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
@@ -69,8 +69,8 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
       ? {
           titleBarStyle: "hidden" as const,
           titleBarOverlay: {
-            color: "#f7f7f7",
-            symbolColor: "#202020",
+            color: nativeTheme.shouldUseDarkColors ? "rgb(31 31 31 / 80%)" : "#f9f0f3",
+            symbolColor: nativeTheme.shouldUseDarkColors ? "#ffffff" : "#202020",
             height: 32,
           },
         }

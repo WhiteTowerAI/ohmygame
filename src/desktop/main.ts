@@ -108,6 +108,14 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
     throw new Error("Invalid appearance");
   }
   nativeTheme.themeSource = appearance;
+  const isDark = appearance === "dark" || (appearance === "system" && nativeTheme.shouldUseDarkColors);
+  if (process.platform === "win32" && senderWindow.setTitleBarOverlay) {
+    senderWindow.setTitleBarOverlay({
+      color: isDark ? "#1f1f1f" : "#f9f0f3",
+      symbolColor: isDark ? "#ffffff" : "#202020",
+      height: 32,
+    });
+  }
 });
 handle("ohmygame:window-menu-icon", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid window menu source");
