@@ -12448,16 +12448,14 @@ button {
   width: 100%;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
   grid-template-rows: minmax(0, 1fr) auto;
-  border: 1px solid rgb(255 255 255 / 7%);
-  border-radius: 12px;
-  background: #050608;
 }
 
 .electron-game-stage {
   min-height: 0;
+  overflow: hidden;
   aspect-ratio: 16 / 9;
+  border-radius: var(--radius-panel);
   background: #050608;
 }
 
@@ -12475,9 +12473,27 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 8px 12px 8px 14px;
-  border-top: 1px solid rgb(255 255 255 / 7%);
-  background: var(--surface-raised);
+  padding: 12px 0;
+}
+
+.electron-game-share-notice {
+  position: absolute;
+  right: 44px;
+  bottom: calc(100% + 4px);
+  z-index: 1;
+  width: max-content;
+  max-width: min(220px, calc(100vw - 48px));
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 15px;
+  pointer-events: none;
+}
+
+.electron-game-share-notice.is-error {
+  color: var(--danger);
 }
 
 .electron-game-summary {
@@ -12541,6 +12557,7 @@ button {
 }
 
 .electron-game-toolbar-actions {
+  position: relative;
   display: flex;
   flex: 0 0 auto;
   gap: 8px;
@@ -12556,7 +12573,7 @@ button {
   padding: 0;
   border: 0;
   border-radius: 6px;
-  background: var(--surface-raised);
+  background: transparent;
   color: var(--text);
   cursor: pointer;
   font-size: 11px;
@@ -12617,12 +12634,11 @@ button {
   width: 100%;
   height: 100%;
   grid-template-rows: minmax(0, 1fr);
-  border: 0;
-  border-radius: 0;
 }
 
 .electron-game-player:fullscreen .electron-game-stage {
   aspect-ratio: auto;
+  border-radius: 0;
 }
 .electron-game-player:fullscreen .electron-game-toolbar {
   display: none;
@@ -12639,7 +12655,13 @@ button {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;
-    padding: 12px;
+  }
+  .electron-game-share-notice {
+    right: auto;
+    bottom: 50%;
+    left: calc(100% + 8px);
+    max-width: min(220px, calc(100cqw - 96px));
+    transform: translateY(50%);
   }
   .electron-game-related-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

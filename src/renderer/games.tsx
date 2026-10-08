@@ -1,4 +1,4 @@
-import { LoaderCircle, Maximize, RefreshCw, Share2, X } from "./icons.js";
+import { Check, LoaderCircle, Maximize, RefreshCw, Share2, X } from "./icons.js";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import {
@@ -205,22 +205,26 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const coverUrl = useGameCover(game);
-  const [shared, setShared] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [shareNotice, setShareNotice] = useState<{ tone: "success" | "error"; message: string }>();
 
   useEffect(() => {
-    setShared(false);
-  }, [game.id]);
+    if (!shareNotice) return;
+    const timer = setTimeout(() => setShareNotice(undefined), shareNotice.tone === "success" ? 3000 : 6000);
+    return () => clearTimeout(timer);
+  }, [shareNotice]);
 
   async function shareGame() {
-    const data = { title: game.title, text: game.description, url: game.playUrl };
+    if (sharing) return;
+    setSharing(true);
+    setShareNotice(undefined);
     try {
-      if (navigator.share) await navigator.share(data);
-      else {
-        await navigator.clipboard.writeText(data.url);
-        setShared(true);
-      }
-    } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) console.error(cause);
+      await navigator.clipboard.writeText(game.playUrl);
+      setShareNotice({ tone: "success", message: "Link copied" });
+    } catch {
+      setShareNotice({ tone: "error", message: "Could not copy the game link. Please try again." });
+    } finally {
+      setSharing(false);
     }
   }
 
@@ -250,7 +254,10 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
             </div>
           </div>
           <div className="electron-game-toolbar-actions">
-            <button type="button" onClick={() => void shareGame()} title={shared ? "Link copied" : "Share game"} aria-label="Share game"><Share2 size={17} /></button>
+            {shareNotice ? <div className={`electron-game-share-notice is-${shareNotice.tone}`} role={shareNotice.tone === "error" ? "alert" : "status"}>{shareNotice.message}</div> : null}
+            <button type="button" onClick={() => void shareGame()} disabled={sharing} aria-busy={sharing} title={sharing ? "Copying game link…" : shareNotice?.tone === "success" ? "Link copied" : "Share game"} aria-label="Share game">
+              {sharing ? <LoaderCircle className="spin" size={17} /> : shareNotice?.tone === "success" ? <Check size={17} /> : <Share2 size={17} />}
+            </button>
             <button type="button" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen"><Maximize size={17} /></button>
           </div>
         </div>
