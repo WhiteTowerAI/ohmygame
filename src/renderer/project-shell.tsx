@@ -69,7 +69,7 @@ interface ProjectShellProps {
   projectId: string;
   conversationId?: string;
   view?: "design";
-  onViewChange?: (view: "design" | "workspace") => void;
+  onViewChange?: (view: "design" | "workspace", options?: { replace?: boolean }) => void;
   initialPrompt?: { prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] };
   initialDraft?: ComposerDraft;
   initialCanvasNodeId?: string;
@@ -109,9 +109,9 @@ export function ProjectShell({
   const [agentCollapsed, setAgentCollapsed] = useState(view === "design");
   const [designOpen, setDesignOpen] = useState(view === "design");
   useEffect(() => { setDesignOpen(view === "design"); }, [view]);
-  const changeWorkspaceView = useCallback((open: boolean): void => {
+  const changeWorkspaceView = useCallback((open: boolean, options?: { replace?: boolean }): void => {
     setDesignOpen(open);
-    onViewChange?.(open ? "design" : "workspace");
+    onViewChange?.(open ? "design" : "workspace", options);
   }, [onViewChange]);
   const [godotWorkspaceOpen, setGodotWorkspaceOpen] = useState(readGodotWorkspaceOpen);
   const [agentWidth, setAgentWidth] = useState(readAgentWidth);
@@ -153,8 +153,15 @@ export function ProjectShell({
     setChatReference(undefined);
   }, [conversationId]);
 
+  // Godot has no Preview, so its workspace opens on Design unless the user hid it,
+  // since Design keeps the workspace shown.
+  const godotDefaultViewApplied = useRef(false);
   useEffect(() => {
-    if (state.project?.type === "godot-game") setAgentCollapsed(false);
+    if (state.project?.type !== "godot-game") return;
+    setAgentCollapsed(false);
+    if (godotDefaultViewApplied.current) return;
+    godotDefaultViewApplied.current = true;
+    if (view !== "design" && godotWorkspaceOpen) changeWorkspaceView(true, { replace: true });
   }, [state.project?.id, state.project?.type]);
 
   useEffect(() => {
@@ -1019,7 +1026,8 @@ function readAgentWidth(): number {
 }
 
 function readGodotWorkspaceOpen(): boolean {
-  return localStorage.getItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY) === "true";
+  // Open unless the user hid it; storage may be unavailable.
+  try { return localStorage.getItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY) !== "false"; } catch { return true; }
 }
 
 function getMaximumAgentWidth(workspaceWidth: number): number {
