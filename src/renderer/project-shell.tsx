@@ -918,6 +918,8 @@ export function ProjectShell({
         />
       ) : project.type === "asset-canvas" ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
+        workspaceRevision={workspaceRevision}
+        openFileRequest={openFileRequest}
         initialNodeId={initialCanvasNodeId}
         onInitialNodeHandled={onInitialCanvasNodeHandled}
         onSaveReady={registerDesignSave}

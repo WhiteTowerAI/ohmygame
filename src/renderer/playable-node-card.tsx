@@ -21,7 +21,6 @@ const CARD_STYLE = {
 
 export const PlayableCanvasContext = createContext<{
   projectId: string;
-  technical: boolean;
   onRenameNode: (nodeId: string, title: string) => void;
   /** Selects a connection whose line is not drawn, such as a navigation Exit's. */
   onSelectEdge: (edgeId: string) => void;
@@ -44,7 +43,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
       </div>
     </div>
     <div data-alignment-frame className={`story-media-stage playable-node-stage${failed ? " is-failed" : ""}`}>
-      <PlayableNodePicture projectId={canvas?.projectId} technical={Boolean(canvas?.technical)} node={node} thumbnail={thumbnail} coverAsset={coverAsset} />
+      <PlayableNodePicture projectId={canvas?.projectId} node={node} thumbnail={thumbnail} coverAsset={coverAsset} />
       {thumbnail?.stale && !failed ? <span className="playable-node-stale" title="The Scene changed since this picture was taken.">Stale</span> : null}
       {issues.length ? <p className="playable-node-issue" role="alert"><InfoCircle size={13} /><span title={issues.join("\n")}>{issues[0]}</span></p> : null}
       <button
@@ -58,7 +57,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
         Open Scene editor
       </button>
     </div>
-    <PlayableSignalOutputs signals={node.signals} connected={connected} technical={Boolean(canvas?.technical)} onSelectEdge={canvas?.onSelectEdge} />
+    <PlayableSignalOutputs signals={node.signals} connected={connected} onSelectEdge={canvas?.onSelectEdge} />
   </div>;
 }
 
@@ -66,9 +65,8 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
  * What a Node card shows: the Node's last thumbnail, else its first image
  * Asset, else a neutral card with its title.
  */
-function PlayableNodePicture({ projectId, technical, node, thumbnail, coverAsset }: {
+function PlayableNodePicture({ projectId, node, thumbnail, coverAsset }: {
   projectId?: string;
-  technical: boolean;
   node: PlayableNode;
   thumbnail?: { capturedAt: string };
   coverAsset?: PlayableAssetDefinition;
@@ -85,7 +83,6 @@ function PlayableNodePicture({ projectId, technical, node, thumbnail, coverAsset
   if (url) return <img className={`playable-node-picture${captured ? "" : " is-asset"}`} src={url} alt="" draggable={false} />;
   return <div className="playable-node-summary">
     <strong>{node.title}</strong>
-    {technical ? <small>{node.id}</small> : null}
   </div>;
 }
 
@@ -119,10 +116,9 @@ function usePlayableThumbnailUrl(projectId: string | undefined, nodeId: string, 
  * line is not drawn; the row names its target instead, and clicking the name
  * selects the connection.
  */
-function PlayableSignalOutputs({ signals, connected, technical, onSelectEdge }: {
+function PlayableSignalOutputs({ signals, connected, onSelectEdge }: {
   signals: readonly PlayableSignal[];
   connected: PlayableFlowData["connected"];
-  technical: boolean;
   onSelectEdge?: (edgeId: string) => void;
 }) {
   if (!signals.length) return <div className="story-node-outputs playable-node-outputs-empty"><span>No exits yet</span></div>;
@@ -131,7 +127,7 @@ function PlayableSignalOutputs({ signals, connected, technical, onSelectEdge }: 
     const name = signal.label || signal.id;
     return <div className={`story-node-output${route ? "" : " is-unconnected"}`} key={signal.id}>
       <span className="story-node-output-label" title={route
-        ? technical ? `${signal.label} (${signal.id})` : signal.label
+        ? name
         : `"${name}" doesn't go anywhere yet. Drag from here to a Scene.`}>{name}</span>
       {signal.when ? <span className="playable-node-output-when" title={`Taken ${signal.when}`}>{signal.when}</span> : null}
       <Handle className="story-node-output-handle" id={signal.id} type="source" position={Position.Right} />

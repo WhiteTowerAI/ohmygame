@@ -24,7 +24,9 @@ const MEDIA_TYPES: Record<string, { mediaType: NonNullable<WorkspaceFile["mediaT
   ".glb": { mediaType: "model", contentType: "model/gltf-binary" },
 };
 
-export class WorkspaceError extends Error {}
+export class WorkspaceError extends Error {
+  constructor(message: string, readonly code?: string) { super(message); }
+}
 
 export async function listWorkspaceFiles(workspacePath: string): Promise<WorkspaceFile[]> {
   const files: WorkspaceFile[] = [];
@@ -134,7 +136,7 @@ export async function resolveWorkspaceEntry(workspacePath: string, requestedPath
   try {
     target = await realpath(candidate);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new WorkspaceError("File not found");
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new WorkspaceError("File not found", "ENOENT");
     throw error;
   }
   if (target !== candidate) throw new WorkspaceError("Symbolic links cannot be opened");

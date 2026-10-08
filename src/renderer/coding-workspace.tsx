@@ -36,7 +36,7 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { createWorkspaceEntry, deleteWorkspaceEntry, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
+import { createWorkspaceEntry, deleteWorkspaceEntry, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
 import { ProjectAssetCollectionFilters } from "./library-filters.js";
@@ -691,8 +691,11 @@ function PreviewView({ project, reload, revision, url, viewport }: { project?: P
 }
 
 async function captureProjectCover(projectId: string, frame: HTMLIFrameElement): Promise<void> {
+  if ((await getProjectCoverState(projectId)).mode === "custom") return;
+  // A publish dialog can cover the preview in the desktop window's screenshot.
+  if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
   const cover = await captureElementImage(frame, 800);
-  if (cover) await setProjectCover(projectId, cover);
+  if (cover) await setProjectCover(projectId, cover, "auto");
 }
 
 export function normalizePreviewPath(value: string): string {

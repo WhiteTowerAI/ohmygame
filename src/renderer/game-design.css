@@ -1,12 +1,22 @@
 .design-workspace { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .design-workspace > .viewer-pane.interactive-story-workspace { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.design-workspace > .viewer-pane[hidden] { display: none; }
 .design-workspace .interactive-story-body { flex: 1; }
 .design-workspace .interactive-story-canvas { position: relative; }
 .design-loading { flex: 1; display: grid; place-items: center; }
 .design-save-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; white-space: nowrap; }
 .design-save-status.is-error { color: var(--danger); }
-.design-notice { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 11px; background: var(--surface); border-bottom: 1px solid var(--border); z-index: 6; }
+.design-notice { display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: center; gap: 8px; padding: 8px 12px; font-size: 11px; background: var(--surface); border-bottom: 1px solid var(--border); z-index: 6; }
 .design-notice span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.design-notice button { flex-shrink: 0; }
+.design-document-issue { padding: 8px 12px; color: var(--danger); font-size: 11px; overflow-wrap: anywhere; }
+.design-image-placeholder button, .canvas-asset-retry { padding: 5px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-secondary); cursor: pointer; }
+.story-media-reference.is-unavailable { border: 1px solid var(--danger); }
+.story-media-reference .canvas-reference-retry { left: 4px; right: auto; }
+.story-save-notice { display: flex; align-items: center; gap: 8px; }
+.story-save-notice > span { min-width: 0; overflow-wrap: anywhere; }
+.story-save-notice > button { flex-shrink: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-secondary); cursor: pointer; }
+.story-canvas-state-error { align-content: center; gap: 12px; padding: 24px; overflow-wrap: anywhere; }
 .design-board-switcher { position: absolute; top: 12px; left: 16px; z-index: 6; display: flex; align-items: center; gap: 5px; max-width: calc(100% - 32px); height: 28px; color: var(--text-muted); }
 .design-board-switcher > svg { flex-shrink: 0; }
 .design-board-switcher .canvas-chip { max-width: 180px; }
@@ -46,9 +56,11 @@
 .design-expanded-preview .markdown-content { max-width: 760px; margin: 0 auto; }
 .design-expanded-ai { width: 100%; max-width: 760px; max-height: 40%; flex-shrink: 0; overflow: auto; margin: 0 auto; padding: 0 12px 12px; }
 .design-ai-result { margin-top: 8px; font-size: 11px; color: var(--text-secondary); }
-.design-ai-result summary { padding: 4px 0; cursor: pointer; }
+.design-ai-result-status { margin: 0 0 6px; line-height: 1.5; }
+.design-ai-result > textarea { display: block; width: 100%; min-height: 140px; max-height: 300px; resize: vertical; margin: 6px 0; padding: 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); font: 11px/1.6 var(--font-mono, monospace); }
 .design-ai-result-preview { max-height: 260px; overflow: auto; padding: 8px 0; }
 .design-ai-result footer { display: flex; justify-content: flex-end; gap: 4px; }
+.design-ai-result footer button { display: inline-flex; gap: 4px; width: auto; padding: 0 6px; font-size: 11px; }
 .design-modal-backdrop { position: fixed; inset: 0; display: grid; place-items: center; z-index: 1300; padding: 16px; background: rgb(0 0 0 / 35%); }
 .design-modal { width: min(400px, calc(100vw - 32px)); min-width: 0; max-height: calc(100dvh - 32px); overflow: auto; border-radius: 8px; background: var(--menu-surface); padding: 14px; color: var(--text); box-shadow: var(--menu-shadow), 0 0 0 0.5px var(--border); }
 .design-modal > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
@@ -59,8 +71,7 @@
 .design-modal footer button, .design-notice button { padding: 6px 10px; border: 0; border-radius: 5px; background: var(--surface-hover); color: var(--text-secondary); font-size: 11px; }
 .design-modal footer button:hover { color: var(--text); }
 .design-modal p { font-size: 12px; line-height: 1.6; }
-.design-insert-text, .design-conflict-preview pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
-.design-conflict-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.design-insert-text { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 @media (max-width: 640px) {
   .design-workspace .react-flow__panel.story-canvas-zoom { bottom: 62px; }
   .design-board-switcher { top: 10px; left: 10px; }

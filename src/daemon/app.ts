@@ -1277,9 +1277,12 @@ export function createApp(options: AppOptions = {}) {
     }
     const reasoningLevel = effectiveReasoningLevel(model, request.body.reasoningLevel, defaultReasoningLevel(project.workspacePath, piAgentDirectory));
     try {
-      const text = document ? await generateDesignDocumentMarkdown(runtime, selected, document.document, request.body.instruction, reasoningLevel) : await generateCreativeText(runtime, selected, request.body.instruction, reasoningLevel);
+      if (document) {
+        const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel);
+        return { ...result, model: selected, revision: document.revision };
+      }
+      const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel);
       if (!text) return reply.code(502).send({ error: "The language model returned no text" });
-      if (document) return { markdown: text, model: selected, revision: document.revision };
       return { text, model: selected };
     } catch (cause) {
       return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -1586,10 +1589,24 @@ export function createApp(options: AppOptions = {}) {
     return reply.send(cover);
   });
 
-  app.put<{ Params: { projectId: string }; Body: Buffer }>("/projects/:projectId/cover", async (request, reply) => {
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/cover/state", async (request, reply) => {
     if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+    reply.header("cache-control", "no-store");
+    return projects.coverState(request.params.projectId);
+  });
+
+  app.put<{ Params: { projectId: string }; Querystring: { source?: string }; Body: Buffer }>("/projects/:projectId/cover", async (request, reply) => {
+    if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+    const source = request.query.source ?? "custom";
+    if (source !== "auto" && source !== "custom") return reply.code(400).send({ error: "Invalid cover source" });
     if (!isWebp(request.body)) return reply.code(400).send({ error: "Project cover must be a WebP image" });
-    await projects.setCover(request.params.projectId, request.body);
+    await projects.setCover(request.params.projectId, request.body, source);
+    return reply.code(204).send();
+  });
+
+  app.delete<{ Params: { projectId: string } }>("/projects/:projectId/cover", async (request, reply) => {
+    if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
+    await projects.restoreAutomaticCover(request.params.projectId);
     return reply.code(204).send();
   });
 

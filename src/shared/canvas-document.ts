@@ -5,7 +5,10 @@ export const canvasDocumentPath = (id: string) => `canvas/documents/${id}.md`;
 export interface CanvasMarkdownDocument { id: string; title: string; markdown: string }
 export interface CanvasDocumentDetail { document: CanvasMarkdownDocument; revision: string }
 export interface CanvasDocumentGenerationRequest { instruction: string; model?: AgentModelRef; reasoningLevel?: AgentReasoningLevel; revision: string }
-export interface CanvasDocumentGenerationResponse { markdown: string; model: AgentModelRef; revision: string }
+export type CanvasDocumentGenerationResult =
+  | { status: "complete"; markdown: string }
+  | { status: "incomplete" | "empty"; markdown: string; error: string };
+export type CanvasDocumentGenerationResponse = CanvasDocumentGenerationResult & { model: AgentModelRef; revision: string };
 export function createCanvasDocument(title: string): CanvasMarkdownDocument {
   return { id: crypto.randomUUID(), title, markdown: "" };
 }

@@ -122,7 +122,7 @@ export class ExampleStore {
       }
       // Agent instructions and schemas follow this app version, not the example.
       if (example.type === "interactive-story") await ensureNodeCodebaseContract(project.workspacePath);
-      await projects.setCover(project.id, await readFile(path.join(this.#directory!, example.cover)));
+      await projects.setCover(project.id, await readFile(path.join(this.#directory!, example.cover)), "auto");
       return await projects.refreshPreviewReadiness(project.id);
     } catch (error) {
       await projects.delete(project.id);

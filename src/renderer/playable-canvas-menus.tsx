@@ -3,7 +3,6 @@ import {
   CircleStop,
   Clapperboard,
   Clipboard,
-  Code2,
   Copy,
   Download,
   Eye,
@@ -32,19 +31,17 @@ import { type PlayablePresetSummary } from "../shared/playable-editor.js";
 import { PlayableTemplateDialog } from "./playable-template-dialog.js";
 
 /**
- * Project-wide things that are not on the canvas: screen size, the Variables, Export, and whether engine details show.
+ * Project-wide things that are not on the canvas: screen size, Variables, and Export.
  */
-export function PlayableProjectMenu({ disabled, screenSize, exporting, canExport, technical, variablesOpen, onScreenSize, onVariables, onExport, onTechnicalChange }: {
+export function PlayableProjectMenu({ disabled, screenSize, exporting, canExport, variablesOpen, onScreenSize, onVariables, onExport }: {
   disabled: boolean;
   screenSize: string;
   variablesOpen: boolean;
   onVariables: () => void;
   exporting: boolean;
   canExport: boolean;
-  technical: boolean;
   onScreenSize: () => void;
   onExport: () => void;
-  onTechnicalChange: (on: boolean) => void;
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -110,10 +107,6 @@ export function PlayableProjectMenu({ disabled, screenSize, exporting, canExport
       <div className="playable-project-menu-separator" role="separator" />
       <button type="button" role="menuitem" disabled={!canExport} onClick={() => run(onExport)}>
         {exporting ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}<span>{exporting ? "Exporting" : "Export"}</span>
-      </button>
-      <div className="playable-project-menu-separator" role="separator" />
-      <button type="button" role="menuitemcheckbox" aria-checked={technical} title="Show IDs, file paths, types, and the Code view" onClick={() => onTechnicalChange(!technical)}>
-        <Code2 size={15} /><span>Show technical details</span><small>{technical ? "✓" : ""}</small>
       </button>
     </div>, document.body) : null}
   </>;
