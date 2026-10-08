@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, session, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
@@ -44,6 +44,8 @@ const agentPlaytests = new ElectronPlaytestDriver((state) => {
 let quitting = false;
 let updater: DesktopUpdater | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
+const windowMenuLabels = new Set(["File", "Edit", "View", "Window"]);
+let applicationIconDataUrl: Promise<string> | undefined;
 
 async function stopServices(): Promise<void> {
   agentPlaytests.close();
@@ -106,6 +108,29 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
     throw new Error("Invalid appearance");
   }
   nativeTheme.themeSource = appearance;
+  const isDark = appearance === "dark" || (appearance === "system" && nativeTheme.shouldUseDarkColors);
+  if (process.platform === "win32" && senderWindow.setTitleBarOverlay) {
+    senderWindow.setTitleBarOverlay({
+      color: isDark ? "#1f1f1f" : "#f9f0f3",
+      symbolColor: isDark ? "#ffffff" : "#202020",
+      height: 32,
+    });
+  }
+});
+handle("ohmygame:window-menu-icon", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid window menu source");
+  applicationIconDataUrl ??= app.getFileIcon(process.execPath, { size: "small" }).then((icon) => icon.toDataURL());
+  return applicationIconDataUrl;
+});
+handle("ohmygame:popup-window-menu", (event, label: unknown, x: unknown, y: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || typeof label !== "string" ||
+      !windowMenuLabels.has(label) || typeof x !== "number" || !Number.isFinite(x) ||
+      typeof y !== "number" || !Number.isFinite(y)) {
+    throw new Error("Invalid window menu request");
+  }
+  const item = Menu.getApplicationMenu()?.items.find((candidate) => candidate.label.replaceAll("&", "") === label);
+  if (!item?.submenu) throw new Error(`Window menu is not available: ${label}`);
+  item.submenu.popup({ window: mainWindow, x: Math.max(0, Math.round(x)), y: Math.max(0, Math.round(y)) });
 });
 handle("ohmygame:browse-plugin-directory", async (event, pluginId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid browse source");
@@ -293,6 +318,8 @@ try {
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
     sidebarVibrancy: true,
+    integratedMenuBar: true,
+    beforeLoad: (window) => { mainWindow = window; },
   });
   updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));
   if (app.isPackaged) void updater.check();

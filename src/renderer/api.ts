@@ -79,6 +79,10 @@ declare global {
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
+      windowMenu?: {
+        icon: () => Promise<string>;
+        popup: (label: string, x: number, y: number) => Promise<void>;
+      };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
       browsePluginDirectory: (pluginId: string) => Promise<void>;
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
