@@ -1,10 +1,12 @@
 import { BrowserWindow, nativeTheme, shell } from "electron";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { DaemonRuntime } from "./daemon-process.js";
 
 const PLAYTEST_MAX_CONTENT_WIDTH = 1280;
 const PLAYTEST_MAX_CONTENT_HEIGHT = 800;
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = path.resolve(moduleDirectory, "../..");
 
 interface CreateWindowOptions {
   runtime: DaemonRuntime;
@@ -76,6 +78,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
         }
     : {};
   const window = new BrowserWindow({
+    icon: path.resolve(repositoryRoot, "build/icon.ico"),
     width: options.contentSize?.width ?? 1440,
     height: options.contentSize?.height ?? 900,
     minWidth: options.minWidth ?? 960,
