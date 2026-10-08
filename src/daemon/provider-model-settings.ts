@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { applyEdits, modify, parse, type ParseError } from "jsonc-parser";
+import { applyEdits, format, modify, parse, type JSONPath, type ParseError } from "jsonc-parser";
 import { CUSTOM_MODEL_APIS, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, type ModelRef } from "../shared/contracts.js";
 import type { RuntimeModel } from "./agent.js";
 import { automaticCustomReasoning, normalizeThinkingLevelMap, resolveCustomModelCapabilities, type CustomModelCatalog } from "./custom-model-capabilities.js";
@@ -109,7 +109,7 @@ export class ProviderModelSettingsStore {
       const fields: JsonObject = { name: settings.name, api: settings.api, baseUrl: settings.baseUrl };
       const models = settings.models ?? (!existing ? [] : undefined);
       if (models && (!isObject(existing) || !Array.isArray(existing.models) || !existing.models.length)) fields.models = models.map((model) => modelDefinition(model, settings.api, settings.baseUrl));
-      for (const [key, value] of Object.entries(fields)) contents = applyEdits(contents, modify(contents, ["providers", id, key], value, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      for (const [key, value] of Object.entries(fields)) contents = modifyFormattedJsonc(contents, ["providers", id, key], value);
       if (models && isObject(existing) && Array.isArray(existing.models) && existing.models.length) {
         const desired = new Map(models.map((model) => [model.id, modelDefinition(model, settings.api, settings.baseUrl)]));
         let index = 0;
@@ -121,13 +121,13 @@ export class ProviderModelSettingsStore {
           }
           // Preserve model comments, pricing and provider-specific fields while editing supported settings.
           for (const key of ["name", "api", "baseUrl", "contextWindow", "maxTokens", "reasoning", "thinkingLevelMap", "input"]) {
-            if (JSON.stringify(previous[key]) !== JSON.stringify(definition[key])) contents = applyEdits(contents, modify(contents, ["providers", id, "models", index, key], definition[key], { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+            if (JSON.stringify(previous[key]) !== JSON.stringify(definition[key])) contents = modifyFormattedJsonc(contents, ["providers", id, "models", index, key], definition[key]);
           }
           desired.delete(String(previous.id));
           index += 1;
         }
         for (const definition of desired.values()) {
-          contents = applyEdits(contents, modify(contents, ["providers", id, "models", index++], definition, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+          contents = modifyFormattedJsonc(contents, ["providers", id, "models", index++], definition);
         }
       }
       const reported = models ? Object.fromEntries(models.filter((model) => model.reasoningCapabilities?.source === "provider").map((model) => [model.id, model.reasoningCapabilities!.thinkingLevelMap]))
@@ -157,7 +157,7 @@ export class ProviderModelSettingsStore {
     return this.#enqueue(async () => {
       if (!this.isCustom(id)) throw new Error("Only custom providers can be removed");
       const { text } = await this.#readModels();
-      const contents = applyEdits(text, modify(text, ["providers", id], undefined, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      const contents = modifyFormattedJsonc(text, ["providers", id], undefined);
       const customProviders = { ...this.#customProviders };
       const hidden = { ...this.#hidden };
       delete customProviders[id];
@@ -217,7 +217,7 @@ export class ProviderModelSettingsStore {
       const models = isObject(entry) && Array.isArray(entry.models) ? entry.models : [];
       if (models.some((item) => isObject(item) && item.id === model.id)) throw new Error("A model with this ID already exists");
       const definition = modelDefinition(model, this.isCustom(provider) && isObject(entry) ? String(entry.api) : undefined, this.isCustom(provider) && isObject(entry) ? String(entry.baseUrl) : undefined);
-      const contents = applyEdits(text, modify(text, ["providers", provider, "models"], [...models, definition], { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      const contents = modifyFormattedJsonc(text, ["providers", provider, "models"], [...models, definition]);
       await writeAtomic(this.#modelsPath, contents);
     });
   }
@@ -229,7 +229,7 @@ export class ProviderModelSettingsStore {
       const models = isObject(entry) && Array.isArray(entry.models) ? entry.models : [];
       const index = models.findIndex((item) => isObject(item) && item.id === id);
       if (index < 0) throw new Error("Custom model not found");
-      const contents = applyEdits(text, modify(text, ["providers", provider, "models", index], undefined, { formattingOptions: { insertSpaces: true, tabSize: 2 } }));
+      const contents = modifyFormattedJsonc(text, ["providers", provider, "models", index], undefined);
       await writeAtomic(this.#modelsPath, contents);
     });
   }
@@ -247,6 +247,28 @@ export class ProviderModelSettingsStore {
     this.#pending = next.catch(() => undefined);
     return next;
   }
+}
+
+function modifyFormattedJsonc(text: string, jsonPath: JSONPath, value: unknown): string {
+  const edit = modify(text, jsonPath, value, {})[0];
+  if (!edit) return text;
+  const contents = applyEdits(text, [edit]);
+  let begin = edit.offset;
+  let end = begin + edit.content.length;
+  if (!edit.length || !edit.content.length) {
+    while (begin > 0 && !/[\r\n]/.test(contents[begin - 1])) begin--;
+    while (end < contents.length && !/[\r\n]/.test(contents[end])) end++;
+  }
+  // jsonc-parser's formatted modify copies the entire document for each whitespace
+  // edit. Join the ordered formatting edits once to keep large model lists linear.
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const formatting of format(contents, { offset: begin, length: end - begin }, { insertSpaces: true, tabSize: 2, keepLines: false })) {
+    parts.push(contents.slice(cursor, formatting.offset), formatting.content);
+    cursor = formatting.offset + formatting.length;
+  }
+  parts.push(contents.slice(cursor));
+  return parts.join("");
 }
 
 function modelDefinition(model: CustomProviderModel, inheritedApi?: string, inheritedBaseUrl?: string): JsonObject {
