@@ -8,6 +8,14 @@ const PLAYTEST_MAX_CONTENT_HEIGHT = 800;
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
 
+export function windowsTitleBarOverlay(isDark: boolean) {
+  return {
+    color: isDark ? "#1f1f1f" : "#f7f7f7",
+    symbolColor: isDark ? "#ffffff" : "#202020",
+    height: 32,
+  };
+}
+
 interface CreateWindowOptions {
   runtime: DaemonRuntime;
   preloadPath: string;
@@ -70,11 +78,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     : process.platform === "win32" && options.integratedMenuBar
       ? {
           titleBarStyle: "hidden" as const,
-          titleBarOverlay: {
-            color: nativeTheme.shouldUseDarkColors ? "rgb(31 31 31 / 80%)" : "#f7f7f7",
-            symbolColor: nativeTheme.shouldUseDarkColors ? "#ffffff" : "#202020",
-            height: 32,
-          },
+          titleBarOverlay: windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors),
         }
     : {};
   const window = new BrowserWindow({

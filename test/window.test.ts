@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const electron = vi.hoisted(() => ({ windows: [] as unknown[], openExternal: vi.fn(async () => {}) }));
+const electron = vi.hoisted(() => ({ windows: [] as unknown[], dark: false, openExternal: vi.fn(async () => {}) }));
 
 vi.mock("electron", () => ({
   shell: { openExternal: electron.openExternal },
-  nativeTheme: { shouldUseDarkColors: false },
+  nativeTheme: { get shouldUseDarkColors() { return electron.dark; } },
   BrowserWindow: class {
     readonly options: Record<string, unknown>;
     readonly webContents = {
@@ -34,8 +34,11 @@ import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport } 
 
 beforeEach(() => {
   electron.windows.length = 0;
+  electron.dark = false;
   electron.openExternal.mockClear();
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("desktop window", () => {
   it("blocks main-frame navigation away from the renderer", async () => {
@@ -178,7 +181,14 @@ describe("desktop window", () => {
     }
   });
 
-  it("uses a single integrated title and menu bar for the Windows main window", async () => {
+  it.each([
+    ["win32", false, "#f7f7f7"],
+    ["win32", true, "#1f1f1f"],
+    ["darwin", false, undefined],
+    ["linux", false, undefined],
+  ] as const)("configures %s window chrome with dark mode %s", async (platform, dark, color) => {
+    vi.stubGlobal("process", { ...process, platform });
+    electron.dark = dark;
     await createDesktopWindow({
       runtime: { url: "http://127.0.0.1:43110", token: "token" },
       preloadPath: "/tmp/preload.cjs",
@@ -187,12 +197,12 @@ describe("desktop window", () => {
     });
 
     const window = electron.windows[0] as { options: Record<string, unknown> };
-    if (process.platform === "win32") {
+    if (platform === "win32") {
       expect(window.options).toMatchObject({
         titleBarStyle: "hidden",
-        titleBarOverlay: { color: "#f7f7f7", symbolColor: "#202020", height: 32 },
+        titleBarOverlay: { color, symbolColor: dark ? "#ffffff" : "#202020", height: 32 },
       });
-    } else if (process.platform === "darwin") {
+    } else if (platform === "darwin") {
       expect(window.options.titleBarStyle).toBe("hiddenInset");
       expect(window.options.titleBarOverlay).toBeUndefined();
     } else {

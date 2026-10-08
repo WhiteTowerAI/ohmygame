@@ -135,11 +135,20 @@ body {
 }
 
 .desktop-window-frame {
+  --window-chrome-background: #1f1f1f;
+  --window-chrome-text: #ffffff;
+  --window-chrome-hover: rgb(255 255 255 / 10%);
   display: flex;
   height: 100dvh;
   min-height: 0;
   flex-direction: column;
   background: var(--canvas);
+}
+
+:root[data-appearance="light"] .desktop-window-frame {
+  --window-chrome-background: #f7f7f7;
+  --window-chrome-text: #202020;
+  --window-chrome-hover: rgb(0 0 0 / 7%);
 }
 
 .desktop-window-menu-bar {
@@ -150,8 +159,8 @@ body {
   flex: 0 0 32px;
   align-items: center;
   padding: 0 138px 0 8px;
-  background: #f7f7f7;
-  color: #202020;
+  background: var(--window-chrome-background);
+  color: var(--window-chrome-text);
   font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
   font-size: 13px;
   app-region: drag;
@@ -186,18 +195,8 @@ body {
 
 .desktop-window-menu-bar button:hover,
 .desktop-window-menu-bar button:focus-visible {
-  background: rgb(0 0 0 / 7%);
+  background: var(--window-chrome-hover);
   outline: 0;
-}
-
-:root[data-appearance="dark"] .desktop-window-menu-bar {
-  background: rgb(31 31 31 / 80%);
-  color: #fff;
-}
-
-:root[data-appearance="dark"] .desktop-window-menu-bar button:hover,
-:root[data-appearance="dark"] .desktop-window-menu-bar button:focus-visible {
-  background: rgb(255 255 255 / 10%);
 }
 
 .desktop-window-content {
@@ -231,6 +230,10 @@ body {
   height: 100dvh;
   min-height: 0;
   background: transparent;
+}
+
+:root .desktop-window-frame .home-shell {
+  --home-sidebar: var(--window-chrome-background);
 }
 
 .home-shell
