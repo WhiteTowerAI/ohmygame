@@ -82,7 +82,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listVideoModelCatalog, setProjectCover, uploadLibraryAsset } from "./api.js";
+import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listVideoModelCatalog, setProjectCover, uploadLibraryAsset } from "./api.js";
 import { downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -453,8 +453,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           const assets = await loadLibraryAssets();
           if (completedCover && !stopped && project.type === "asset-canvas") {
             try {
-              const cover = await projectCoverBlob(completedCover, assets);
-              if (!stopped && cover) await setProjectCover(projectId, cover);
+              if ((await getProjectCoverState(projectId)).mode === "auto") {
+                const cover = await projectCoverBlob(completedCover, assets);
+                if (!stopped && cover) await setProjectCover(projectId, cover, "auto");
+              }
             } catch { /* Cover generation is best-effort. */ }
           }
           if (!stopped) setLibraryAssets(assets);
@@ -485,7 +487,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const source = findAssetCanvasCoverSource(document);
       if (!source || await getProjectCover(projectId)) return;
       const cover = await projectCoverBlob(source, libraryAssets, assetBlob);
-      if (!disposed && cover && !(await getProjectCover(projectId))) await setProjectCover(projectId, cover);
+      if (!disposed && cover && !(await getProjectCover(projectId))) await setProjectCover(projectId, cover, "auto");
     })().catch(() => {});
     return () => { disposed = true; };
   }, [document, libraryAssets, phase, projectId, project.type]);

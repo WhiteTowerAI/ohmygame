@@ -31,6 +31,8 @@ import {
   type ProjectPackageManager,
   type ProjectFileOpenMode,
   type ProjectAgentActivity,
+  type ProjectCoverMode,
+  type ProjectCoverState,
   type ProjectState,
   type UpdateAgentDefaultsRequest,
   type PublishProjectRequest,
@@ -522,13 +524,22 @@ export async function getProjectCover(projectId: string): Promise<Blob | undefin
   return response.blob();
 }
 
-export async function setProjectCover(projectId: string, cover: Blob): Promise<void> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/cover`), {
+export async function getProjectCoverState(projectId: string): Promise<ProjectCoverState> {
+  return request(`/projects/${projectId}/cover/state`);
+}
+
+export async function setProjectCover(projectId: string, cover: Blob, source: ProjectCoverMode = "custom"): Promise<void> {
+  const suffix = source === "auto" ? "?source=auto" : "";
+  const response = await fetch(apiUrl(`/projects/${projectId}/cover${suffix}`), {
     method: "PUT",
     headers: { "content-type": "image/webp", ...runtimeHeaders() },
     body: cover,
   });
   if (!response.ok) throw await responseError(response);
+}
+
+export async function restoreAutomaticProjectCover(projectId: string): Promise<void> {
+  await request(`/projects/${projectId}/cover`, { method: "DELETE" });
 }
 
 export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFile[]> {

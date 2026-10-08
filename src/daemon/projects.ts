@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { LibraryAssetProject, PreviewViewport, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
+import type { LibraryAssetProject, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { getWorkspaceMedia, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
@@ -13,6 +13,7 @@ import type { NodeGraph } from "../shared/playable-nodes.js";
 import { readNodeCodebase, writeNodeCodebase } from "./playable-codebase.js";
 import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetReferences, renameCanvasAssetPaths } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
+import { ProjectCovers } from "./project-covers.js";
 
 interface ProjectMetadata {
   version: 1;
@@ -58,7 +59,6 @@ export interface ProjectRunSettings {
   previewViewport: PreviewViewport;
 }
 
-const PROJECT_COVER_FILE = "cover.webp";
 const PLAYABLE_GRAPH_FILE = "graph.json";
 
 function workspaceEntryName(value: string): string {
@@ -81,6 +81,7 @@ async function assetDigest(file: string): Promise<string> {
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
+  readonly #covers = new ProjectCovers();
   readonly #assetMetadataWrites = new Map<string, Promise<unknown>>();
   readonly #workspaceWrites = new Map<string, Promise<unknown>>();
   readonly #projectsDirectory: string;
@@ -238,9 +239,7 @@ export class ProjectManager {
           return path.basename(sourcePath) !== "node_modules" && relative !== ".data/agent-attachments";
         },
       });
-      await copyFile(projectCoverPath(this.#projectDirectory(source.id)), path.join(duplicateDirectory, PROJECT_COVER_FILE)).catch((error) => {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      });
+      await this.#covers.copy(this.#projectDirectory(source.id), duplicateDirectory);
       await writeMetadata(duplicateDirectory, metadata);
     } catch (error) {
       await rm(duplicateDirectory, { recursive: true, force: true });
@@ -280,27 +279,23 @@ export class ProjectManager {
   }
 
   async cover(id: string): Promise<Buffer | undefined> {
-    const project = this.#projects.get(id);
-    if (!project) return undefined;
-    try {
-      return await readFile(projectCoverPath(this.#projectDirectory(id)));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-      throw error;
-    }
+    if (!this.#projects.has(id)) return undefined;
+    return this.#covers.read(this.#projectDirectory(id));
   }
 
-  async setCover(id: string, contents: Uint8Array): Promise<void> {
-    const project = this.#projects.get(id);
-    if (!project) throw new Error(`Project not found: ${id}`);
-    const destination = projectCoverPath(this.#projectDirectory(id));
-    const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
-    try {
-      await writeFile(temporary, contents, { flag: "wx" });
-      await rename(temporary, destination);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+  async coverState(id: string): Promise<ProjectCoverState> {
+    if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
+    return this.#covers.state(this.#projectDirectory(id));
+  }
+
+  async setCover(id: string, contents: Uint8Array, source: ProjectCoverMode = "custom"): Promise<void> {
+    if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
+    return this.#covers.set(this.#projectDirectory(id), contents, source);
+  }
+
+  async restoreAutomaticCover(id: string): Promise<void> {
+    if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
+    await this.#covers.restoreAutomatic(this.#projectDirectory(id));
   }
 
   async addGeneratedAsset(
@@ -681,10 +676,6 @@ export class ProjectManager {
     return path.join(this.#projectsDirectory, id);
   }
 
-}
-
-function projectCoverPath(projectDirectory: string): string {
-  return path.join(projectDirectory, PROJECT_COVER_FILE);
 }
 
 function projectState(

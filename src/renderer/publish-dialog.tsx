@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { ProjectState, PublicationState } from "../shared/contracts.js";
-import { getProjectCover, setProjectCover } from "./api.js";
+import type { ProjectCoverMode, ProjectState, PublicationState } from "../shared/contracts.js";
+import { getExploreGameCover, getProjectCover, getProjectCoverState, restoreAutomaticProjectCover, setProjectCover } from "./api.js";
 import { imageToWebP } from "./image.js";
 import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, RefreshCw, Upload, X } from "./icons.js";
 import { localDebug } from "./auth.js";
@@ -19,30 +19,42 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
   onPublish: (details: PublishDetails) => Promise<boolean>;
 }) {
   const titleId = useId();
+  const coverInputId = useId();
   const dialog = useRef<HTMLElement>(null);
   const titleInput = useRef<HTMLInputElement>(null);
   const coverSelection = useRef(0);
-  const coverChanged = useRef(false);
   const [title, setTitle] = useState(project.publication?.title ?? project.name);
   const [description, setDescription] = useState(project.publication?.description ?? "");
-  const [cover, setCover] = useState<Blob>();
-  const [coverUrl, setCoverUrl] = useState<string>();
+  const [savedCover, setSavedCover] = useState<Blob>();
+  const [pendingCover, setPendingCover] = useState<Blob>();
+  const [coverMode, setCoverMode] = useState<ProjectCoverMode>();
+  const coverUrl = useCoverUrl(pendingCover ?? savedCover);
+  const [coverLoading, setCoverLoading] = useState(true);
+  const [coverOperation, setCoverOperation] = useState<"process" | "apply" | "restore">();
+  const [coverNotice, setCoverNotice] = useState<string>();
   const [error, setError] = useState<string>();
-  const [coverProcessing, setCoverProcessing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editing, setEditing] = useState(!project.publication);
   const publication = editing ? undefined : project.publication;
-  const busy = publishing || submitting || coverProcessing;
-  const submitLabel = coverProcessing ? "Processing cover..." : busy ? "Publishing..." : project.publication ? "Publish update" : "Publish";
+  const busy = publishing || submitting || Boolean(coverOperation);
+  const submitLabel = coverOperation === "process" ? "Processing cover..." : coverOperation ? "Saving cover..." : busy ? "Publishing..." : project.publication ? "Publish update" : "Publish";
 
   useEffect(() => {
+    if (!editing) return;
     let active = true;
-    void getProjectCover(project.id).then((value) => { if (active && coverSelection.current === 0) setCover(value); }).catch(() => undefined);
+    setCoverLoading(true);
+    void Promise.all([getProjectCover(project.id), getProjectCoverState(project.id)]).then(([value, state]) => {
+      if (!active) return;
+      setSavedCover(value);
+      setCoverMode(state.mode);
+    }).catch((cause) => {
+      if (active) setError(cause instanceof Error ? cause.message : String(cause));
+    }).finally(() => { if (active) setCoverLoading(false); });
     return () => {
       active = false;
       coverSelection.current += 1;
     };
-  }, [project.id]);
+  }, [project.id, editing]);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -53,16 +65,6 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
     if (editing) titleInput.current?.focus();
     else dialog.current?.focus();
   }, [editing]);
-
-  useEffect(() => {
-    if (!cover) {
-      setCoverUrl(undefined);
-      return;
-    }
-    const url = URL.createObjectURL(cover);
-    setCoverUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [cover]);
 
   useEffect(() => {
     const handleKeyboard = (event: KeyboardEvent) => {
@@ -98,30 +100,68 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
     if (!file) return;
     const selection = ++coverSelection.current;
     setError(undefined);
-    setCoverProcessing(true);
+    setCoverNotice(undefined);
+    setCoverOperation("process");
     try {
       const nextCover = await imageToWebP(file);
       if (selection !== coverSelection.current) return;
-      coverChanged.current = true;
-      setCover(nextCover);
+      setPendingCover(nextCover);
     } catch (cause) {
       if (selection === coverSelection.current) setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      if (selection === coverSelection.current) setCoverProcessing(false);
+      if (selection === coverSelection.current) setCoverOperation(undefined);
+    }
+  }
+
+  async function applyCover(): Promise<void> {
+    if (!pendingCover || busy) return;
+    const nextCover = pendingCover;
+    setCoverOperation("apply");
+    setError(undefined);
+    try {
+      await setProjectCover(project.id, nextCover);
+      setSavedCover(nextCover);
+      setPendingCover(undefined);
+      setCoverMode("custom");
+      setCoverNotice("Cover applied. Automatic replacement is off.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCoverOperation(undefined);
+    }
+  }
+
+  async function restoreCover(): Promise<void> {
+    if (busy) return;
+    setCoverOperation("restore");
+    setError(undefined);
+    setCoverNotice(undefined);
+    try {
+      await restoreAutomaticProjectCover(project.id);
+      setCoverMode("auto");
+      setSavedCover(undefined);
+      setSavedCover(await getProjectCover(project.id));
+      setCoverNotice("Automatic cover restored.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCoverOperation(undefined);
     }
   }
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     const normalizedTitle = title.trim();
-    if (!normalizedTitle || busy) return;
+    if (!normalizedTitle || busy || coverLoading) return;
+    if (pendingCover) {
+      setError("Apply or cancel the selected cover before publishing.");
+      return;
+    }
     setError(undefined);
     setSubmitting(true);
     try {
-      if (coverChanged.current && cover) await setProjectCover(project.id, cover);
       if (await onPublish({ title: normalizedTitle, description: description.trim() })) {
         setEditing(false);
-        coverChanged.current = false;
       } else setError("Publishing did not complete. Please try again.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -136,7 +176,6 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
       {publication ? <PublicationDetails
         publication={publication}
         name={project.name}
-        coverUrl={coverUrl}
         justPublished={justPublished}
         onClose={onClose}
         onUpdate={() => {
@@ -144,36 +183,73 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
           setError(undefined);
         }}
       /> : <form onSubmit={(event) => void submit(event)}>
-        <label className="publish-cover-field">
-          <span>Cover</span>
-          <span className="publish-cover-preview">
-            {coverUrl ? <img src={coverUrl} alt="Game cover preview" /> : <span><Image size={22} />The preview is captured automatically</span>}
-            <span className="publish-cover-action"><Upload size={14} />Replace cover</span>
-          </span>
-          <input hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={(event) => void selectCover(event.target.files?.[0])} />
-        </label>
+        <div className="publish-cover-field">
+          <label htmlFor={coverInputId}>
+            <span className="publish-cover-heading">Cover{pendingCover ? <span>Not applied</span> : coverMode ? <span>{coverMode === "custom" ? "Custom" : "Automatic"}</span> : null}</span>
+            <span className="publish-cover-preview">
+              {coverUrl ? <img src={coverUrl} alt="Game cover preview" /> : <span>{coverLoading ? <LoaderCircle className="spin" size={22} /> : <Image size={22} />}{coverLoading ? "Loading cover..." : "The preview is captured automatically"}</span>}
+              <span className="publish-cover-action"><Upload size={14} />Replace cover</span>
+            </span>
+          </label>
+          <input id={coverInputId} hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || coverLoading} onChange={(event) => {
+            void selectCover(event.target.files?.[0]);
+            event.target.value = "";
+          }} />
+          {pendingCover ? <div className="publish-cover-controls">
+            <button type="button" disabled={busy} onClick={() => { setPendingCover(undefined); setError(undefined); setCoverNotice(undefined); }}>Cancel selection</button>
+            <button className="project-create-submit" type="button" disabled={busy} onClick={() => void applyCover()}>{coverOperation === "apply" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}Apply cover</button>
+          </div> : coverMode === "custom" ? <div className="publish-cover-controls">
+            <button type="button" disabled={busy || coverLoading} onClick={() => void restoreCover()}><RefreshCw className={coverOperation === "restore" ? "spin" : undefined} size={14} />Restore automatic cover</button>
+          </div> : null}
+          <p className="publish-cover-status" role="status">{pendingCover ? "Apply or cancel the selected cover before publishing." : coverNotice ?? (coverMode === "custom" ? "Automatic replacement is off." : "The cover updates automatically with your project preview.")}</p>
+          {project.publication ? <p className="publish-cover-status">This is your local project cover. Publish an update to change the Community cover.</p> : null}
+        </div>
         <label><span>Name</span><input ref={titleInput} value={title} maxLength={200} disabled={busy} required onChange={(event) => setTitle(event.target.value)} /></label>
         <label><span>Description</span><textarea value={description} maxLength={2000} disabled={busy} rows={4} placeholder="Describe what makes this game worth playing" onChange={(event) => setDescription(event.target.value)} /></label>
         {localDebug ? <LocalPublishNotice /> : null}
         {error ? <p className="project-create-error" role="alert">{error}</p> : null}
-        <footer><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button className="project-create-submit" type="submit" aria-label={submitLabel} disabled={busy || !title.trim()}>{busy ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span role={busy ? "status" : undefined}>{submitLabel}</span></button></footer>
+        <footer><button type="button" disabled={busy} onClick={onClose}>Close</button><button className="project-create-submit" type="submit" aria-label={submitLabel} disabled={busy || coverLoading || Boolean(pendingCover) || !title.trim()}>{busy ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span role={busy ? "status" : undefined}>{submitLabel}</span></button></footer>
       </form>}
     </section>
   </div>;
 }
 
-export function PublicationDetails({ publication, name, coverUrl, justPublished = false, onClose, onUpdate }: {
+function useCoverUrl(cover: Blob | undefined): string | undefined {
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    if (!cover) {
+      setUrl(undefined);
+      return;
+    }
+    const nextUrl = URL.createObjectURL(cover);
+    setUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [cover]);
+  return url;
+}
+
+export function PublicationDetails({ publication, name, justPublished = false, onClose, onUpdate }: {
   publication: PublicationState;
   name: string;
-  coverUrl?: string;
   justPublished?: boolean;
   onClose: () => void;
   onUpdate: () => void;
 }) {
   const linkId = useId();
+  const [cover, setCover] = useState<Blob>();
+  const coverUrl = useCoverUrl(cover);
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   useEffect(() => { setCopied(false); setCopyError(false); }, [publication.playUrl]);
+
+  useEffect(() => {
+    let active = true;
+    setCover(undefined);
+    void getExploreGameCover(publication.gameId, publication.deploymentId)
+      .then((value) => { if (active) setCover(value); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [publication.gameId, publication.deploymentId]);
 
   async function copyLink(): Promise<void> {
     setCopyError(false);

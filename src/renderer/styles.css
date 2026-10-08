@@ -4376,13 +4376,40 @@ button.home-nav-item-active:hover {
 .publish-cover-preview:hover .publish-cover-action {
   background: var(--surface-hover);
 }
+.publish-cover-field {
+  display: grid;
+  gap: 8px;
+}
+.publish-cover-heading,
+.publish-cover-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+.publish-cover-heading > span {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 400;
+}
+.publish-cover-controls {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.publish-cover-status {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 16px;
+}
 .publish-dialog footer {
   display: flex;
   justify-content: flex-end;
   gap: 7px;
   padding-top: 2px;
 }
-.publish-dialog footer button {
+.publish-dialog footer button,
+.publish-cover-controls button {
   display: inline-flex;
   height: 32px;
   align-items: center;
@@ -4399,14 +4426,17 @@ button.home-nav-item-active:hover {
   font-weight: 500;
   text-decoration: none;
 }
-.publish-dialog footer button:hover:not(:disabled) {
+.publish-dialog footer button:hover:not(:disabled),
+.publish-cover-controls button:hover:not(:disabled) {
   background: var(--surface-hover);
 }
-.publish-dialog footer .project-create-submit {
+.publish-dialog footer .project-create-submit,
+.publish-cover-controls .project-create-submit {
   background: var(--composer-accent);
   color: var(--accent-ink);
 }
-.publish-dialog footer .project-create-submit:hover:not(:disabled) {
+.publish-dialog footer .project-create-submit:hover:not(:disabled),
+.publish-cover-controls .project-create-submit:hover:not(:disabled) {
   background: var(--composer-accent-hover);
 }
 .publish-dialog :disabled {

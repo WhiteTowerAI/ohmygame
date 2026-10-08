@@ -191,6 +191,12 @@ export interface PublicationState {
   description?: string;
 }
 
+export type ProjectCoverMode = "auto" | "custom";
+
+export interface ProjectCoverState {
+  mode: ProjectCoverMode;
+}
+
 export interface ProjectState {
   id: string;
   name: string;
