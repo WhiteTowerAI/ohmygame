@@ -66,6 +66,11 @@ For a local package build, export `DESKTOP_UPDATE_URL` before running
 `bun run package:mac` or `bun run package:win`. Development builds do not use
 the update feed.
 
+TypeBox is pinned to the same version as Pi so the desktop daemon shares one
+installation. The `beforePack` hook bundles its public runtime entry points
+into `.runtime/typebox`, which replaces the original ESM files in the packaged
+app while preserving TypeBox's package metadata and declarations.
+
 ## Rollback
 
 Do not overwrite versioned installers. To roll back a bad release, restore the
