@@ -10,9 +10,40 @@ const managers: PreviewManager[] = [];
 
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((manager) => manager.stopAll()));
+  vi.unstubAllEnvs();
 });
 
 describe("PreviewManager", () => {
+  it("isolates project binaries during install and preview, and retries failed installs", async () => {
+    vi.stubEnv("ESBUILD_BINARY_PATH", "/app/esbuild");
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-preview-retry-"));
+    await writeFile(path.join(workspacePath, "package.json"), JSON.stringify({
+      private: true, scripts: { postinstall: "node install.mjs", dev: "node server.mjs" },
+    }));
+    await writeFile(path.join(workspacePath, "install.mjs"), `
+      import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+      if (process.env.ESBUILD_BINARY_PATH) throw new Error("app binary leaked into install");
+      const attempts = existsSync("attempts") ? Number(readFileSync("attempts", "utf8")) + 1 : 1;
+      writeFileSync("attempts", String(attempts));
+      mkdirSync("node_modules", { recursive: true });
+      if (attempts === 1) throw new Error("interrupted postinstall");
+    `);
+    await writeFile(path.join(workspacePath, "server.mjs"), `
+      import { createServer } from "node:http";
+      if (process.env.ESBUILD_BINARY_PATH) throw new Error("app binary leaked into preview");
+      const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+      createServer((_request, response) => response.end("ready")).listen(port, "127.0.0.1");
+    `);
+    const project = createProject(workspacePath);
+    const manager = new PreviewManager(new RuntimeEventBus(), { readinessTimeoutMs: 2_000 });
+    managers.push(manager);
+    await expect(manager.start(project)).rejects.toThrow("interrupted postinstall");
+    const url = await manager.start(project);
+    expect(await (await fetch(url)).text()).toBe("ready");
+    expect(await readFile(path.join(workspacePath, "attempts"), "utf8")).toBe("2");
+    expect(process.env.ESBUILD_BINARY_PATH).toBe("/app/esbuild");
+  });
+
   it("reuses the same process for concurrent player and agent launches and subsequent opens", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);

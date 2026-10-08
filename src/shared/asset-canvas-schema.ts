@@ -14,6 +14,7 @@ export const ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA = {
   ...EDITOR_LAYOUT_SCHEMA,
   properties: {
     ...EDITOR_LAYOUT_SCHEMA.properties,
+    fitView: { type: "boolean" },
     view: { const: "canvas" },
   },
 } as const;

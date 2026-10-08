@@ -8,6 +8,7 @@ import {
   ReactFlow,
   ViewportPortal,
   useReactFlow,
+  useNodesInitialized,
   useStore,
   useViewport,
   type Edge,
@@ -55,6 +56,8 @@ type EditorCanvasProps<N extends Node> = Omit<ReactFlowProps<N, Edge>, "onPaneCo
   /** The Add control at the start of the tool bar. */
   addControl: ReactNode;
   onOpenMenu: (menu: CanvasContextMenuState) => void;
+  fitViewOnLoad?: boolean;
+  onInitialFit?: (viewport: { x: number; y: number; zoom: number }) => void;
 };
 
 /**
@@ -71,6 +74,8 @@ export function EditorCanvas<N extends Node>({
   onNodeDragStart,
   onNodeDragStop,
   onNodeContextMenu,
+  fitViewOnLoad = false,
+  onInitialFit,
   children,
   ...props
 }: EditorCanvasProps<N>) {
@@ -97,7 +102,7 @@ export function EditorCanvas<N extends Node>({
       edges={edges?.map((edge) => edge.selected ? { ...edge, ...SELECTED_EDGE_OPTIONS } : edge)}
       defaultEdgeOptions={EDGE_OPTIONS}
       connectionLineStyle={EDGE_OPTIONS.style}
-      minZoom={0.25}
+      minZoom={0.1}
       maxZoom={2}
       snapToGrid
       snapGrid={SNAP_GRID}
@@ -124,6 +129,7 @@ export function EditorCanvas<N extends Node>({
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-story-grid)" />
       <AlignmentGuides guides={guides} />
       <ZoomControls />
+      {fitViewOnLoad ? <InitialCanvasView onReady={onInitialFit} /> : null}
       <Panel className="story-canvas-toolbar" position="bottom-center">
         {addControl}
         <button className={mode === "pointer" ? "is-active" : undefined} type="button" title="Select" aria-label="Select" aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
@@ -137,6 +143,25 @@ export function EditorCanvas<N extends Node>({
       {children}
     </ReactFlow>
   );
+}
+
+/** Wait for actual node sizes and a visible canvas before consuming a remix's fit request. */
+function InitialCanvasView({ onReady }: {
+  onReady?: (viewport: { x: number; y: number; zoom: number }) => void;
+}) {
+  const initialized = useNodesInitialized();
+  const width = useStore((state) => state.width);
+  const height = useStore((state) => state.height);
+  const { fitView, getViewport } = useReactFlow();
+  useEffect(() => {
+    if (!initialized || width <= 0 || height <= 0) return;
+    let disposed = false;
+    void fitView({ padding: 0.2, maxZoom: 1 }).then((fitted) => {
+      if (fitted && !disposed) onReady?.(getViewport());
+    });
+    return () => { disposed = true; };
+  }, [initialized, width, height, fitView, getViewport, onReady]);
+  return null;
 }
 
 /** Where the tool bar adds a node: the center of the visible canvas. */

@@ -7,6 +7,7 @@ import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 import type { PreparedExampleCatalog } from "../src/shared/examples.js";
 import { isPreparedExampleCatalog } from "../src/shared/examples.js";
+import { createCanvasBoard } from "../src/shared/canvas-workspace.js";
 
 const apps: Array<ReturnType<typeof createApp>> = [];
 
@@ -78,6 +79,36 @@ async function startApp(examplesDirectory?: string, interactiveStoryPlayerDirect
 }
 
 describe("examples", () => {
+  it("preserves remixed node positions and fits each board only until its viewport is saved", async () => {
+    const directory = await writeExamples();
+    const canvas = path.join(directory, "pond/files/canvas");
+    for (const folder of ["boards", "editor"]) await mkdir(path.join(canvas, folder), { recursive: true });
+    await writeFile(path.join(canvas, "index.json"), JSON.stringify({ version: 1, boards: [{ id: "design", name: "Design" }, { id: "art", name: "Art" }], documents: [] }));
+    const layout = { version: 1, view: "canvas", nodes: { note: { x: 96, y: 576 } }, viewport: { x: -4805, y: 44, zoom: 1.14 } };
+    for (const id of ["design", "art"]) {
+      const { editorLayout: _editorLayout, ...board } = createCanvasBoard();
+      await writeFile(path.join(canvas, `boards/${id}.json`), JSON.stringify({ ...board, id, nodes: [{ id: "note", type: "text", data: { text: "Example", instruction: "" } }] }));
+      await writeFile(path.join(canvas, `editor/${id}.json`), JSON.stringify(layout));
+    }
+    const app = await startApp(directory);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", exampleId: "pond" } })).json();
+    for (const id of ["design", "art"]) {
+      const url = `/projects/${project.id}/canvas/boards/${id}`;
+      const detail = (await app.inject({ method: "GET", url })).json();
+      expect(detail.board.nodes[0].position).toEqual({ x: 96, y: 576 });
+      expect(detail.board.editorLayout).toEqual({ ...layout, fitView: true });
+      expect(JSON.parse(await readFile(path.join(canvas, `editor/${id}.json`), "utf8"))).toEqual(layout);
+      delete detail.board.editorLayout.fitView;
+      detail.board.editorLayout.viewport = { x: 64, y: 32, zoom: 0.3 };
+      const saved = await app.inject({ method: "PUT", url, payload: detail });
+      expect(saved.statusCode).toBe(200);
+      const reopened = (await app.inject({ method: "GET", url })).json();
+      expect(reopened.board.editorLayout.fitView).toBeUndefined();
+      expect(reopened.board.editorLayout.viewport).toEqual({ x: 64, y: 32, zoom: 0.3 });
+      expect(reopened.board.nodes[0].position).toEqual({ x: 96, y: 576 });
+    }
+  });
+
   it("lists packaged examples and serves their covers", async () => {
     const app = await startApp(await writeExamples());
 

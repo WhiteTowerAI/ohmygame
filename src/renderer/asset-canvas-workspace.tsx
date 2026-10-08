@@ -316,6 +316,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     viewport: { x: 64, y: 32, zoom: 1 },
     view: "canvas",
   });
+  const finishInitialFit = useCallback((viewport: AssetCanvasEditorLayout["viewport"]) => {
+    setEditorLayout(({ fitView: _fitView, ...current }) => ({ ...current, viewport }));
+  }, []);
   const [selectedAssetEdgeId, setSelectedAssetEdgeId] = useState<string>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
   const [copiedSelection, setCopiedSelection] = useState(lastCanvasClipboard);
@@ -1413,6 +1416,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 return Boolean(source && target && connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels));
               }}
               defaultViewport={editorLayout.viewport}
+              fitViewOnLoad={editorLayout.fitView === true}
+              onInitialFit={finishInitialFit}
             />
           ) : null}
           {canvasContextMenu ? <AssetCanvasContextMenu

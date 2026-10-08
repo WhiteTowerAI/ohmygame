@@ -1,10 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access } from "node:fs/promises";
 import { createServer } from "node:net";
-import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
-import { packageManagerCommand, packageManagerInstallArguments, packageManagerRunArguments, resolvePackageManager } from "./package-manager.js";
+import { packageManagerCommand, packageManagerRunArguments, resolvePackageManager } from "./package-manager.js";
+import { ensureProjectDependencies } from "./project-dependencies.js";
+import { projectProcessEnvironment } from "./project-process.js";
 import { resolveStartupDirectory } from "./projects.js";
 
 interface PreviewOptions {
@@ -55,15 +55,17 @@ export class PreviewManager {
       const startupDirectory = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
       const packageManager = await resolvePackageManager(startupDirectory.absolutePath, project.packageManager);
       const command = packageManagerCommand(packageManager);
-      if (await needsInstall(startupDirectory.absolutePath)) {
-        await this.#run(project.id, command, packageManagerInstallArguments(packageManager), startupDirectory.absolutePath);
-      }
+      await ensureProjectDependencies(startupDirectory.absolutePath, packageManager,
+        (command, args) => {
+          this.#assertCurrent(project.id, operation);
+          return this.#run(project.id, command, args, startupDirectory.absolutePath);
+        });
       this.#assertCurrent(project.id, operation);
 
       const port = await availablePort();
       const child = spawn(command, packageManagerRunArguments(project.startupScript ?? "dev", ["--host", "127.0.0.1", "--port", String(port), "--strictPort"]), {
         cwd: startupDirectory.absolutePath,
-        env: { ...process.env, BROWSER: "none" },
+        env: { ...projectProcessEnvironment(), BROWSER: "none" },
         stdio: ["ignore", "ignore", "pipe"],
         detached: process.platform !== "win32",
         shell: process.platform === "win32",
@@ -126,6 +128,7 @@ export class PreviewManager {
   async #run(projectId: string, command: string, args: string[], cwd: string): Promise<void> {
     const child = spawn(command, args, {
       cwd,
+      env: projectProcessEnvironment(),
       stdio: ["ignore", "ignore", "pipe"],
       detached: process.platform !== "win32",
       shell: process.platform === "win32",
@@ -155,15 +158,6 @@ export class PreviewManager {
     if (children?.size === 0) this.#children.delete(projectId);
   }
 
-}
-
-async function needsInstall(workspacePath: string): Promise<boolean> {
-  try {
-    await access(path.join(workspacePath, "node_modules"));
-    return false;
-  } catch {
-    return true;
-  }
 }
 
 async function availablePort(): Promise<number> {

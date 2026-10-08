@@ -2,13 +2,32 @@ import fs from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ArtifactBuilder,
   createPluginArchive,
 } from "../src/daemon/publish/archive.js";
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("publish archives", () => {
+  it("builds with project binaries instead of the app's esbuild override", async () => {
+    vi.stubEnv("ESBUILD_BINARY_PATH", "/app/esbuild");
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-env-"));
+    await writeFile(path.join(workspacePath, "package.json"), JSON.stringify({ scripts: { build: "node build.mjs" } }));
+    await writeFile(path.join(workspacePath, "build.mjs"), `
+      import { mkdirSync, writeFileSync } from "node:fs";
+      if (process.env.ESBUILD_BINARY_PATH) throw new Error("app binary leaked into build");
+      mkdirSync("dist", { recursive: true });
+      writeFileSync("dist/index.html", "built game");
+    `);
+    await expect(new ArtifactBuilder().create({
+      id: "environment-test", name: "Game", type: "web-game", updatedAt: new Date(0).toISOString(),
+      workspacePath, preview: { status: "stopped" },
+    })).resolves.toBeInstanceOf(Buffer);
+    expect(process.env.ESBUILD_BINARY_PATH).toBe("/app/esbuild");
+  });
+
   it("creates identical ZIPs in different time zones", async () => {
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-"));
     await writeFile(path.join(source, "example.txt"), "same content");

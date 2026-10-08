@@ -1,5 +1,6 @@
 import {
   createAgentSession,
+  createBashToolDefinition,
   DefaultResourceLoader,
   loadSkills,
   ModelRuntime,
@@ -27,6 +28,7 @@ import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
 import { appendSystemPromptForProject, type AgentPromptProject } from "./agent-prompts.js";
 import { openRouterAttributionExtension } from "./openrouter-attribution.js";
+import { projectProcessEnvironment } from "./project-process.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -2159,7 +2161,11 @@ export async function createPiSession(
   const { session } = await createAgentSession({
     cwd: project.workspacePath,
     agentDir,
-    customTools,
+    customTools: [createBashToolDefinition(project.workspacePath, {
+      shellPath: sessionSettings.getShellPath(),
+      commandPrefix: sessionSettings.getShellCommandPrefix(),
+      spawnHook: (context) => ({ ...context, env: projectProcessEnvironment(context.env) }),
+    }) as ToolDefinition, ...customTools],
     model: model ? compatibleRuntimeModel(model) : undefined,
     modelRuntime,
     resourceLoader,
