@@ -31,7 +31,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
@@ -735,8 +735,15 @@ function CodeView({
   const [entryDialog, setEntryDialog] = useState<{ kind: "rename" | "file" | "folder"; path: string }>();
   const [actionError, setActionError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const codeElement = useRef<HTMLDivElement>(null);
+  const [explorerWidth, setExplorerWidth] = useState(240);
+  const explorerResize = useRef<{ clientX: number; width: number }>(null);
   const treeSize = useElementSize(treeElement);
   const fileTree = useRef<TreeApi<WorkspaceFileNode>>(null);
+
+  function finishExplorerResize(): void {
+    explorerResize.current = null;
+  }
 
   useEffect(() => {
     const tree = fileTree.current;
@@ -779,7 +786,7 @@ function CodeView({
   if (loading && files.length === 0) return <WorkspaceState loading label="Loading code" />;
   if (error && !selectedPath) return <WorkspaceState error={error} />;
   return <>
-    <div className="code-view">
+    <div className="code-view" ref={codeElement} style={{ "--file-explorer-width": `${explorerWidth}px` } as CSSProperties}>
       <div className="file-explorer">
         <label className="file-filter">
           <Search size={13} aria-hidden="true" />
@@ -834,6 +841,31 @@ function CodeView({
           ) : null}
         </div>
       </div>
+      <div
+        className="file-explorer-resizer"
+        role="separator"
+        aria-label="Resize file explorer"
+        aria-orientation="vertical"
+        onPointerDown={(event) => {
+          if (!event.isPrimary || event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          explorerResize.current = { clientX: event.clientX, width: event.currentTarget.previousElementSibling!.getBoundingClientRect().width };
+          setContextMenu(undefined);
+        }}
+        onPointerMove={(event) => {
+          const resize = explorerResize.current;
+          const bounds = codeElement.current?.getBoundingClientRect();
+          if (!resize || !bounds || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+          setExplorerWidth(Math.round(Math.max(140, Math.min(480, bounds.width - 241, resize.width + event.clientX - resize.clientX))));
+        }}
+        onPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+          finishExplorerResize();
+        }}
+        onPointerCancel={finishExplorerResize}
+        onLostPointerCapture={finishExplorerResize}
+      />
       <div className="file-content">
         {error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label="Loading file" /> : selectedFile ? (
           <>

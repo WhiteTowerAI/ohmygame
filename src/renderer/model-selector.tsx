@@ -19,7 +19,7 @@ interface ModelSelectorProps {
   onReasoningChange: (level: AgentReasoningLevel) => void;
 }
 
-type ModelPanel = { view: "models" | "reasoning"; anchor: "model" | "reasoning" };
+type ModelPanel = "models" | "reasoning";
 
 export function ModelSelector({ models, status = "ready", value, reasoningLevel, disabled, variant = "chat", placement = "above", onChange, onReasoningChange }: ModelSelectorProps) {
   const [panel, setPanel] = useState<ModelPanel>();
@@ -27,7 +27,6 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const reasoningTrigger = useRef<HTMLButtonElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
@@ -38,35 +37,34 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? "medium", current?.reasoningLevels ?? []);
   const supportsReasoning = !!current && current.reasoningLevels.length > 1;
   const open = !!panel;
-  const showReasoning = panel?.view === "reasoning";
+  const showReasoning = panel === "reasoning";
   const canvas = variant === "canvas";
   const canSelect = status === "ready" && models.length > 0;
 
   function close(restoreFocus = false): void {
     setPanel(undefined);
-    if (restoreFocus) (panel?.anchor === "reasoning" ? reasoningTrigger : trigger).current?.focus();
+    if (restoreFocus) trigger.current?.focus();
   }
 
-  function toggle(anchor: ModelPanel["anchor"]): void {
-    if (panel?.anchor === anchor) { close(); return; }
+  function toggle(): void {
+    if (open) { close(); return; }
     setQuery("");
     setPosition(undefined);
-    setPanel({ anchor, view: anchor === "reasoning" ? "reasoning" : "models" });
+    setPanel("models");
   }
 
   function select(model: AgentModel): void {
     if (modelKey(model) !== currentKey) onChange(model, clampReasoningLevel(reasoningLevel ?? "medium", model.reasoningLevels));
-    close();
-    trigger.current?.focus();
+    close(true);
   }
 
   useLayoutEffect(() => {
     if (!panel) return;
-    const anchor = (panel.anchor === "reasoning" ? reasoningTrigger : trigger).current?.getBoundingClientRect();
+    const anchor = trigger.current?.getBoundingClientRect();
     const bounds = popover.current?.getBoundingClientRect();
     if (anchor && bounds) setPosition(menuPlacement(anchor, bounds, { width: window.innerWidth, height: window.innerHeight }, canvas ? "start" : "end", placement));
     // Query changes keep the popup anchored in place while its list shrinks.
-  }, [panel?.view, panel?.anchor, canvas, placement]);
+  }, [panel, canvas, placement]);
 
   useEffect(() => {
     if (!open || !position) return;
@@ -103,7 +101,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   }, [disabled, status]);
 
   useEffect(() => {
-    if (!supportsReasoning) setPanel((current) => current?.view === "reasoning" ? undefined : current);
+    if (!supportsReasoning) setPanel((current) => current === "reasoning" ? undefined : current);
   }, [supportsReasoning]);
 
   const unavailableLabel = status === "loading" ? "Loading models..."
@@ -118,11 +116,11 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
         type="button"
         aria-label={canvas ? `Text model: ${current?.name ?? unavailableLabel}` : "Model"}
         aria-controls={menuId}
-        aria-expanded={open && panel.anchor === "model"}
+        aria-expanded={open}
         aria-haspopup="menu"
         disabled={disabled || (!canvas && !canSelect)}
-        onClick={() => toggle("model")}
-        title={canvas && current ? `Text model: ${current.providerName} · ${current.name}` : "Model"}
+        onClick={toggle}
+        title={canvas && current ? `Text model: ${current.providerName} · ${current.name}${supportsReasoning ? ` · Reasoning: ${reasoningLabel(effectiveReasoning)}` : ""}` : "Model"}
       >
         {canvas ? <span>{current?.name ?? unavailableLabel}</span> : <span className="model-selector-current">
           <span className="model-selector-name">{current?.name ?? unavailableLabel}</span>
@@ -131,35 +129,35 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
         <ChevronDown aria-hidden="true" size={12} />
       </button>
 
-      {canvas && supportsReasoning ? <button ref={reasoningTrigger} type="button" className="canvas-chip" aria-label={`Reasoning: ${reasoningLabel(effectiveReasoning)}`}
-        title={`Reasoning: ${reasoningLabel(effectiveReasoning)}`} aria-controls={menuId} aria-haspopup="menu" aria-expanded={open && panel.anchor === "reasoning"}
-        disabled={disabled || !canSelect} onClick={() => toggle("reasoning")}>
-        <span>{reasoningLabel(effectiveReasoning)}</span><ChevronDown aria-hidden="true" size={12} />
-      </button> : null}
-
       {panel ? createPortal(
         <div className={`model-selector-popover nodrag nowheel${canvas ? " model-selector-popover-canvas" : ""}`} ref={popover} id={menuId} style={position ?? { top: 0, left: 0, visibility: "hidden" }} onKeyDown={(event) => {
           if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           if (event.key === "Escape" || (showReasoning && event.key === "ArrowLeft")) {
             event.preventDefault();
             event.stopPropagation();
-            if (showReasoning && (panel.anchor === "model" || event.key === "ArrowLeft")) setPanel({ ...panel, view: "models" });
+            if (showReasoning) setPanel("models");
             else close(true);
           } else moveModelFocus(event, popover.current, showReasoning ? undefined : search.current);
         }}>
           {!showReasoning ? (
             <div className="model-selector-menu" role="menu" aria-label="Models">
-              <label className="model-selector-search">
-                <Search size={13} aria-hidden="true" />
-                <input ref={search} value={query} placeholder="Search models" aria-label="Search models" onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
-                  if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const first = visibleModels[0];
-                  if (!first) return;
-                  select(first);
-                }} />
-              </label>
+              <div className="model-selector-search-row">
+                <label className="model-selector-search">
+                  <Search size={13} aria-hidden="true" />
+                  <input ref={search} value={query} placeholder="Search models" aria-label="Search models" onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+                    if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const first = visibleModels[0];
+                    if (!first) return;
+                    select(first);
+                  }} />
+                </label>
+                <button className="model-selector-manage" type="button" aria-label="Manage providers" title="Manage providers" onClick={() => {
+                  close(true);
+                  window.location.hash = settingsHash("providers");
+                }}><Settings aria-hidden="true" size={13} /></button>
+              </div>
               <div className="model-selector-model-list">
                 {providerGroups.map((group) => (
                   <div className="model-selector-provider-group" role="group" aria-label={group.providerName} key={group.provider}>
@@ -186,21 +184,17 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 {visibleModels.length === 0 ? <p className="model-selector-empty" role="status">{status !== "ready" || !query.trim() ? unavailableLabel : "No matching models"}</p> : null}
               </div>
               {supportsReasoning && canSelect ? (
-                <button className="model-selector-reasoning" type="button" role="menuitem" onClick={() => setPanel({ ...panel, view: "reasoning" })}>
+                <button className="model-selector-reasoning" type="button" role="menuitem" onClick={() => setPanel("reasoning")}>
                   <span>Reasoning</span>
                   <span className="model-selector-setting-value">{reasoningLabel(effectiveReasoning)}<ChevronRight size={12} /></span>
                 </button>
               ) : null}
-              <button className="model-selector-manage" type="button" role="menuitem" onClick={() => {
-                close(true);
-                window.location.hash = settingsHash("providers");
-              }}><Settings aria-hidden="true" size={13} /><span>Manage providers</span></button>
             </div>
           ) : null}
 
           {showReasoning ? (
             <div className="model-selector-submenu" role="menu" aria-label="Reasoning levels">
-              <button className="model-selector-back" type="button" role="menuitem" onClick={() => setPanel({ ...panel, view: "models" })}>
+              <button className="model-selector-back" type="button" role="menuitem" onClick={() => setPanel("models")}>
                 <ChevronLeft size={12} />
                 <span>Reasoning</span>
               </button>
@@ -273,7 +267,7 @@ function moveModelFocus(event: React.KeyboardEvent, menu: HTMLDivElement | null,
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   event.preventDefault();
   event.stopPropagation();
-  const items = [...(menu?.querySelectorAll<HTMLButtonElement>("button") ?? [])];
+  const items = [...(menu?.querySelectorAll<HTMLButtonElement>('button[role^="menuitem"]') ?? [])];
   const index = items.indexOf(document.activeElement as HTMLButtonElement);
   if (event.key === "ArrowUp" && index === 0 && search) {
     search.focus();
