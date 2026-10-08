@@ -415,9 +415,22 @@ export function createAgentTools(
       return { content: [{ type: "text", text: result.ok ? "Canvas files and references are valid." : result.issues.map((issue) => `${issue.file}: ${issue.message}`).join("\n") }], details: { canvasCheck: result } };
     },
   }), ...(canvasStore ? [defineTool({
+    name: "canvas_initialize",
+    label: "Initialize Canvas",
+    description: "Initialize the canvas file contract and an empty board when the requested design or asset work needs a canvas. Preserves existing boards, documents and assets. Read canvas/AGENTS.md, index.json and schemas/ afterwards. Do not use for casual conversation or planning-only requests.",
+    parameters: Type.Object({}),
+    execute: async (_toolCallId, _input, signal) => {
+      signal?.throwIfAborted();
+      const workspace = await canvasStore.workspace(project.id);
+      return {
+        content: [{ type: "text", text: `Canvas ready. Read canvas/AGENTS.md, canvas/index.json and canvas/schemas/. Boards: ${JSON.stringify(workspace.boards)}.` }],
+        details: {},
+      };
+    },
+  }), defineTool({
     name: "generate_canvas_media",
     label: "Generate Canvas Media",
-    description: "Generate the saved image, video, 3D or animation node using its current prompt, model and references. Use only when the user requests generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
+    description: "Generate the saved image, video, 3D or animation node using its current prompt, model and references. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
     parameters: Type.Object({ boardId: Type.String({ minLength: 1, maxLength: 100 }), nodeId: Type.String({ minLength: 1, maxLength: 120 }) }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();

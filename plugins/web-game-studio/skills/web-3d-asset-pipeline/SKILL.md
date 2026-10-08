@@ -10,7 +10,7 @@ Use this skill for shipped 3D assets rather than scene, camera, or gameplay arch
 ## Pipeline
 
 1. Define the asset's gameplay purpose, visible size, interactions, animation needs, collision role, and target budget.
-2. Create or acquire the source using the user's requested workflow. Use OhMyGame's `generate_3d_asset` or a matching installed reconstruction skill when appropriate.
+2. Create or acquire the source using the user's requested workflow. Use `generate_canvas_media` for saved canvas nodes, `generate_3d_asset` for standalone assets, or a matching installed reconstruction skill when appropriate.
 3. Normalize transforms, units, axes, pivots, hierarchy names, and material assignments.
 4. Ship GLB or glTF 2.0 unless the existing engine has a different established runtime contract.
 5. Remove unused nodes, duplicate materials, excess geometry, and oversized textures.

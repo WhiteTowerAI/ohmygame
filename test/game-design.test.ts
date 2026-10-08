@@ -52,6 +52,27 @@ describe("Markdown design workspace", () => {
     expect(workspace.boards[0]!.name).toBe("Untitled");
     expect((await store.board(other.id, workspace.boards[0]!.id)).board.nodes).toEqual([]);
   });
+  it.each(["managed", "external"])("initializes a %s agent canvas on demand and preserves subsequent edits", async (location) => {
+    const { store, projects, tools } = await runtime();
+    const project = await projects.create("New game", "web-game", location === "external" ? await temp() : undefined);
+    await writeFile(path.join(project.workspacePath, "README.md"), "Existing project notes");
+    await expect(lstat(path.join(project.workspacePath, "canvas"))).rejects.toMatchObject({ code: "ENOENT" });
+    const initialize = createAgentTools(project, tools, projects, undefined, undefined, undefined, undefined, store)
+      .find((tool) => tool.name === "canvas_initialize")!;
+    await initialize.execute("initialize", {}, undefined, undefined, {} as never);
+    expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
+    expect(await readFile(path.join(project.workspacePath, "canvas/schemas/board.schema.json"), "utf8")).toContain("documentId");
+
+    const document = await store.createDocument(project.id, "Rules");
+    await store.save(project.id, { ...document.document, markdown: "# Keep these rules" }, document.revision, document.document.id);
+    const index = await readFile(path.join(project.workspacePath, "canvas/index.json"), "utf8");
+    await writeFile(path.join(project.workspacePath, "canvas/AGENTS.md"), "Custom canvas instructions");
+    await initialize.execute("initialize-again", {}, undefined, undefined, {} as never);
+    expect(await readFile(path.join(project.workspacePath, "canvas/index.json"), "utf8")).toBe(index);
+    expect((await store.read(project.id))!.document.markdown).toBe("# Keep these rules");
+    expect(await readFile(path.join(project.workspacePath, "canvas/AGENTS.md"), "utf8")).toBe("Custom canvas instructions");
+    expect(await readFile(path.join(project.workspacePath, "README.md"), "utf8")).toBe("Existing project notes");
+  });
   it.each(["design", "canvas.json"])("requires migration before opening the legacy %s format", async (legacy) => {
     const { store, projects } = await runtime();
     const project = await projects.create("Legacy project");

@@ -1,6 +1,6 @@
 ---
 name: game-ui-frontend
-description: Design and implement browser-game HUDs, menus, overlays, responsive layouts, touch controls, and visual feedback without obscuring the playfield.
+description: Design browser-game visual mockups and implement restrained, themed HUDs and menus with generated art, responsive layouts, touch controls, and clear feedback.
 ---
 
 # Game UI Frontend
@@ -11,14 +11,20 @@ Build interface surfaces that support play rather than turning the game into a g
 
 Before substantial UI work, identify the game's fantasy, camera, primary actions, information hierarchy, material language, typography, palette, and motion tone. Use CSS variables for shared theme values.
 
+Make mockups depict real gameplay information and actions. Carry the world's shapes, materials, and palette into icons, frames, and buttons.
+
 ## Layout Rules
 
 - Protect the center and primary action area of the playfield.
-- Keep critical status persistent, secondary information compact, and rare actions behind menus or drawers.
-- Prefer contextual prompts and transient feedback over permanent instruction panels.
-- Use DOM for text-heavy HUD, menus, settings, inventories, and accessible controls unless the design requires in-world UI.
+- Keep only information needed for current decisions persistent. Group secondary information and rare actions in contextual panels or the pause menu; avoid simultaneous button strips along the top, side, and bottom.
+- Prefer icons with values or short labels. Keep short labels for unfamiliar icons and put explanations in tooltips, onboarding, or help. Use contextual prompts and transient feedback instead of permanent instruction panels.
 - Keep HUD readable over motion without flattening the game beneath excessive panels or blur.
 - Do not use landing-page heroes, SaaS dashboard grids, decorative card stacks, or large explanatory text over active play.
+
+## UI Art
+
+- Prefer generated art for theme-specific icons, button skins, frames, and panel textures when configured media tools are available. Reuse approved assets and shared visual references; check readability at actual gameplay scale.
+- Keep dynamic text, numbers, layout, hit areas, and interaction states in code, using DOM for text-heavy surfaces unless the game requires in-world UI. Prepare transparent or scalable skins as needed; keep simple bars and geometric controls lightweight.
 
 ## Responsive And Input Behavior
 
