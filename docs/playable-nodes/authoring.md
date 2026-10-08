@@ -44,17 +44,17 @@ The workspace keeps the current Interactive Story layout:
 - The main area shows either the **Story** tab, the flow canvas, or the
   Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to
   return. The tab is named for the whole story it shows, not for one Scene.
-- The **Project ▾** menu holds **Screen size**, **Variables**, **Export**,
-  and **Show technical details**. **Home** returns
+- The **Project ▾** menu holds **Screen size**, **Variables**, and **Export**.
+  **Home** returns
   to the project list. **Playtest** opens the real Runtime; the chat toggle
   and **Publish** follow it.
 
-### Technical details
+### Source files
 
-The editor hides engine details by default. **Show technical details** in
-the Project ▾ menu reveals IDs, file paths, raw Variable values, the Playtest
-**History** (back stack) and **State**, and the **Code** tab. The setting is shared by
-every editor window.
+The **Code** tab is always available beside **Story** and **Design**. It shows
+the project's files and their contents. Scene cards use readable names;
+the Variables panel shows starting values in author words and includes the
+raw JSON value in each value's tooltip.
 
 ## Flow canvas
 
@@ -240,7 +240,7 @@ possible later improvement, not a v1 requirement.
 ### Code, when it is really needed
 
 The Workbench has no code. The Scene's files are in the **Code** tab, which
-appears only with technical details shown and is never the default view.
+is always available. **Story** remains the initial view for new projects.
 
 ## Project Style
 
@@ -249,7 +249,7 @@ The Project Style is the project's shared visual language: the tokens in
 in `components.js`. It is stored as ordinary shared source files that every
 Scene imports. The editor has no Style panel: a read-only view could not
 change anything, so the style is changed in conversation, or in those files
-from the Code view with technical details on.
+from the Code view.
 
 - The Agent reads and uses the Project Style whenever it builds a Scene.
 - Authors can change the style through conversation ("make the whole game
@@ -300,8 +300,8 @@ What the game remembers from Scene to Scene...
 Ask the AI to add or change them.
 ```
 
-Starting values read in author words (Yes/No, empty, "3 items"); technical
-details add the raw value. There is no form to add, delete, or edit them.
+Starting values read in author words (Yes/No, empty, "3 items"); their tooltips
+include the raw value. There is no form to add, delete, or edit them.
 
 A branch shows as Exits. A Scene that goes different ways declares one Exit
 per outcome, and the Agent writes when each is taken. The canvas shows it on
@@ -316,7 +316,7 @@ Final talk
 The condition is a description (Signal `when`), not a rule the editor runs:
 the Scene decides which Exit to take, and the Agent updates the words when it
 changes the logic. There are no Condition or Update State Scenes. Playtest
-shows what the game remembers with technical details, for when a branch goes
+shows what the game remembers in its State panel, for when a branch goes
 the wrong way.
 
 ## Playtest

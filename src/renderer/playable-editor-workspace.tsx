@@ -66,7 +66,6 @@ import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench, type PlayableAssetRequest, type PlaytestStart } from "./playable-node-workbench.js";
 import { PlayableVariablesPanel } from "./playable-project-panels.js";
 import { requestPlaytestStart } from "./playable-playtest.js";
-import { setTechnicalDetails, useTechnicalDetails } from "./playable-details.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
 import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
@@ -122,7 +121,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
 }) {
   const projectId = project.id;
-  const technical = useTechnicalDetails();
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [notice, setNotice] = useState<string>();
   const [graphMeta, setGraphMeta] = useState<GraphMeta>();
@@ -855,13 +853,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       };
     });
   }, [nodes, edges, selectedEdgeId, issues, graphMeta, codebase, thumbnails, builtDefinition]);
-  const canvasPlayer = useMemo(() => ({ projectId, technical, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: openNode }), [projectId, technical]);
+  const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: openNode }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
-  const showCodeTab = technical || workspaceView === "code";
   const tabs: WorkspaceTabOption<"canvas" | "design" | "code">[] = [
     { id: "canvas", label: "Story", icon: Clapperboard },
     ...(onDesignOpenChange ? [{ id: "design" as const, label: "Design", icon: FileText }] : []),
-    ...(showCodeTab ? [{ id: "code" as const, label: "Code", icon: Code2 }] : []),
+    { id: "code", label: "Code", icon: Code2 },
   ];
   const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
     {chatOnRight && onHome ? (
@@ -903,15 +900,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
             screenSize={viewportRatio(playerViewport)}
             exporting={building}
             canExport={!agentBusy && !publishing && !building}
-            technical={technical}
             variablesOpen={variablesOpen}
             onScreenSize={() => setCanvasSettingsOpen(true)}
             onVariables={() => setVariablesOpen((open) => !open)}
             onExport={() => void exportGame()}
-            onTechnicalChange={(on) => {
-              setTechnicalDetails(on);
-              if (!on && workspaceView === "code") setWorkspaceView("canvas");
-            }}
           /> : null}
         </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>

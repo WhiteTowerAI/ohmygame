@@ -272,6 +272,97 @@ describe("Markdown design workspace", () => {
       { file: `canvas/boards/${boardId}.json`, message: expect.stringContaining("unsupported media type") },
     ]));
   });
+  it("keeps a missing asset registered without blocking workspace loading or unrelated board saves", async () => {
+    const { store, project, boardId } = await runtime();
+    const manifest = JSON.stringify({ version: 1, assets: { missing: { name: "Deleted image", path: "assets/deleted.png" } } });
+    await writeFile(path.join(project.workspacePath, "canvas/assets.json"), manifest);
+    const workspace = await store.workspace(project.id);
+    expect(workspace.assets).toEqual([]);
+    expect(workspace.unavailableAssets).toEqual([{ id: "missing", name: "Deleted image", path: "assets/deleted.png", status: "missing", message: "File not found" }]);
+    const board = await store.board(project.id, boardId);
+    board.board.nodes[0]!.title = "Still editable";
+    await expect(store.saveBoard(project.id, board.board, board.revision)).resolves.toMatchObject({ board: { nodes: [expect.objectContaining({ title: "Still editable" })] } });
+    expect(await readFile(path.join(project.workspacePath, "canvas/assets.json"), "utf8")).toBe(manifest);
+    expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(false);
+    await mkdir(path.join(project.workspacePath, "assets"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, "assets/deleted.png"), "restored");
+    const restored = await store.workspace(project.id);
+    expect(restored.unavailableAssets).toEqual([]);
+    expect(restored.assets).toContainEqual(expect.objectContaining({ id: "missing" }));
+  });
+
+  it("allows deleting the last node after its file has been removed externally", async () => {
+    const { store, project, boardId } = await runtime();
+    await mkdir(path.join(project.workspacePath, "assets"), { recursive: true });
+    const file = path.join(project.workspacePath, "assets/reference.png");
+    await writeFile(file, "reference");
+    await writeFile(path.join(project.workspacePath, "canvas/assets.json"), JSON.stringify({ version: 1, assets: { image: { name: "Reference", path: "assets/reference.png" } } }));
+    let board = await store.board(project.id, boardId);
+    board.board.nodes.push({ id: "reference", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "image", mediaType: "image" } });
+    board.board.editorLayout.nodes.reference = { x: 0, y: 0 };
+    await store.saveBoard(project.id, board.board, board.revision);
+    await rm(file);
+    board = await store.board(project.id, boardId);
+    await store.saveBoard(project.id, board.board, board.revision);
+    board = await store.board(project.id, boardId);
+    board.board.nodes = []; board.board.editorLayout.nodes = {};
+    await store.saveBoard(project.id, board.board, board.revision);
+    expect((await store.board(project.id, boardId)).board.nodes).toEqual([]);
+    expect((await store.workspace(project.id)).unavailableAssets).toHaveLength(1);
+  });
+
+  it("preserves existing unregistered references but rejects introducing unknown assets", async () => {
+    const { store, project, boardId } = await runtime();
+    const file = path.join(project.workspacePath, `canvas/boards/${boardId}.json`);
+    const content = JSON.parse(await readFile(file, "utf8"));
+    content.nodes[0].data.assetId = "unregistered";
+    await writeFile(file, JSON.stringify(content));
+    let board = await store.board(project.id, boardId);
+    board.board.nodes[0]!.title = "Keep missing output";
+    await store.saveBoard(project.id, board.board, board.revision);
+    board = await store.board(project.id, boardId);
+    if (board.board.nodes[0]!.type === "image") board.board.nodes[0]!.data.images = [{ type: "library", assetId: "new-unknown" }];
+    await expect(store.saveBoard(project.id, board.board, board.revision)).rejects.toThrow("new-unknown is not registered");
+  });
+
+  it("loads healthy documents and assets when one document file is missing", async () => {
+    const { store, project, boardId } = await runtime();
+    const missing = await store.createDocument(project.id, "Missing"), healthy = await store.createDocument(project.id, "Healthy");
+    await rm(path.join(project.workspacePath, canvasDocumentPath(missing.document.id)));
+    const workspace = await store.workspace(project.id);
+    expect(workspace.documents.map((document) => document.id)).toEqual([healthy.document.id]);
+    expect(workspace.documentIssues).toEqual([expect.objectContaining({ id: missing.document.id, title: "Missing", source: canvasDocumentPath(missing.document.id) })]);
+    const board = await store.board(project.id, boardId);
+    await store.saveBoard(project.id, board.board, board.revision);
+    await writeFile(path.join(project.workspacePath, canvasDocumentPath(missing.document.id)), "Restored document");
+    expect((await store.workspace(project.id)).documentIssues).toEqual([]);
+  });
+
+  it("inserts a healthy image without validating unrelated missing assets", async () => {
+    const { store, project } = await runtime();
+    const document = await store.createDocument(project.id, "References");
+    await mkdir(path.join(project.workspacePath, "assets"), { recursive: true });
+    await writeFile(path.join(project.workspacePath, "assets/healthy.png"), "healthy");
+    await writeFile(path.join(project.workspacePath, "canvas/assets.json"), JSON.stringify({ version: 1, assets: {
+      healthy: { name: "Healthy", path: "assets/healthy.png" }, missing: { name: "Missing", path: "assets/missing.png" },
+    } }));
+    expect((await store.insertAsset(project.id, document.document.id, "healthy")).document.markdown).toContain("../../assets/healthy.png");
+    await expect(store.insertAsset(project.id, document.document.id, "missing")).rejects.toThrow("File not found");
+  });
+
+  it("generates video without requiring unrelated missing assets", async () => {
+    const { store, project, boardId, tools, library } = await runtime();
+    await writeFile(path.join(project.workspacePath, "canvas/assets.json"), JSON.stringify({ version: 1, assets: { missing: { name: "Missing", path: "assets/missing.png" } } }));
+    const board = await store.board(project.id, boardId), video = createAssetGenerationNode("video", { x: 560, y: 0 });
+    if (video.type !== "video") throw new Error("Expected video node");
+    video.data.prompt = "A garden";
+    board.board.nodes.push(video); board.board.editorLayout.nodes[video.id] = video.position;
+    await store.saveBoard(project.id, board.board, board.revision);
+    const output = await library.add("garden.mp4", Buffer.from("video"));
+    vi.spyOn(tools, "run").mockResolvedValue({ id: "video-run", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
+    await store.generateNode(project.id, boardId, video.id);
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+  });
   it("allows named IDs without inheriting object properties and rejects escaping asset paths", async () => {
     const { store, project, boardId } = await runtime();
     const layout = fitCanvasLayout([{ id: "constructor" }, { id: "__proto__" }], { version: 1, nodes: {}, viewport: { x: 0, y: 0, zoom: 1 }, view: "canvas" });
@@ -466,8 +557,12 @@ describe("Markdown design workspace", () => {
   });
   it.each(["web-game", "asset-canvas"] as const)("generates from a saved %s document snapshot and rejects stale revisions before calling the model", async (type) => {
     const model = { provider: "test-provider", id: "test-model" };
-    const completeSimple = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "## Rules\n\nImproved rules" }], stopReason: "stop" });
-    const modelRuntime = { getModel: () => model, getAvailable: async () => [model], hasConfiguredAuth: () => true, completeSimple } as unknown as ModelRuntime;
+    const response = vi.fn(() => ({ content: [{ type: "text", text: "## Rules\n\nImproved rules" }], stopReason: "stop" }));
+    const streamSimple = vi.fn((_model, _context, _options) => ({ async *[Symbol.asyncIterator]() {
+      const message = response();
+      yield message.stopReason === "error" ? { type: "error", reason: "error", error: message } : { type: "done", reason: message.stopReason, message };
+    } }));
+    const modelRuntime = { getModel: () => model, getAvailable: async () => [model], hasConfiguredAuth: () => true, streamSimple } as unknown as ModelRuntime;
     const app = createApp({ dataDirectory: await temp(), createModelRuntime: async () => modelRuntime }); apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type } })).json(), base = `/projects/${project.id}/canvas`;
     const original = (await app.inject({ method: "POST", url: `${base}/documents`, payload: { title: "Rules" } })).json();
@@ -476,14 +571,20 @@ describe("Markdown design workspace", () => {
     const payload = { instruction: "Improve the rules", model, revision: saved.revision };
     expect((await app.inject({ method: "POST", url, payload: { ...payload, revision: original.revision } })).statusCode).toBe(409);
     expect((await app.inject({ method: "POST", url: `${base}/documents/missing/generate`, payload })).statusCode).toBe(404);
-    expect(completeSimple).not.toHaveBeenCalled();
+    expect(streamSimple).not.toHaveBeenCalled();
     const generated = await app.inject({ method: "POST", url, payload });
     expect(generated.statusCode).toBe(200);
-    expect(generated.json()).toEqual({ markdown: "## Rules\n\nImproved rules", model, revision: saved.revision });
-    expect(JSON.parse(completeSimple.mock.calls[0]![1].messages[0].content).document).toEqual({ title: "Rules", markdown: saved.document.markdown });
+    expect(generated.json()).toEqual({ status: "complete", markdown: "## Rules\n\nImproved rules", model, revision: saved.revision });
+    expect(JSON.parse(streamSimple.mock.calls[0]![1].messages[0].content).document).toEqual({ title: "Rules", markdown: saved.document.markdown });
     expect((await app.inject(`${base}?documentId=${saved.document.id}`)).json()).toEqual(saved);
-    completeSimple.mockResolvedValueOnce({ content: [], stopReason: "error" });
-    expect((await app.inject({ method: "POST", url, payload })).statusCode).toBe(502);
+    response.mockReturnValueOnce({ content: [], stopReason: "error" });
+    const empty = await app.inject({ method: "POST", url, payload });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toMatchObject({ status: "empty", markdown: "", error: expect.stringContaining("could not generate"), revision: saved.revision });
+    response.mockReturnValueOnce({ content: [{ type: "text", text: "Partial rules" }], stopReason: "length" });
+    const incomplete = await app.inject({ method: "POST", url, payload });
+    expect(incomplete.statusCode).toBe(200);
+    expect(incomplete.json()).toMatchObject({ status: "incomplete", markdown: "Partial rules", error: expect.stringContaining("output limit"), revision: saved.revision });
     expect((await app.inject(`${base}?documentId=${saved.document.id}`)).json()).toEqual(saved);
   });
 });
