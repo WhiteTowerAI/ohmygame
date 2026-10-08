@@ -7,6 +7,7 @@ import {
   PanelToggle,
   Play,
   Share2,
+  Settings,
 } from "./icons.js";
 import {
   useCallback,
@@ -48,7 +49,6 @@ import {
   type PlayableProjectValidationIssue,
   type PlayableThumbnailManifest,
 } from "../shared/playable-editor.js";
-import { viewportRatio } from "../shared/canvas-formats.js";
 import {
   addPlayableNode,
   buildInteractiveStory,
@@ -59,17 +59,16 @@ import {
   listPlayableThumbnails,
   updateNodeCodebase,
 } from "./api.js";
-import { CanvasSettingsDialog } from "./canvas-settings-dialog.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
 import { PlayableNodeWorkbench, type PlayableAssetRequest, type PlaytestStart } from "./playable-node-workbench.js";
-import { PlayableVariablesPanel } from "./playable-project-panels.js";
+import { PlayableProjectSettingsDialog } from "./playable-project-settings-dialog.js";
 import { requestPlaytestStart } from "./playable-playtest.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
 import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
-import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEmptyCanvas, PlayableProjectMenu } from "./playable-canvas-menus.js";
+import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEmptyCanvas } from "./playable-canvas-menus.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
@@ -147,8 +146,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [builtDefinition, setBuiltDefinition] = useState<NodePlayerDefinition>();
   const [thumbnails, setThumbnails] = useState<PlayableThumbnailManifest>();
   const [thumbnailRevision, setThumbnailRevision] = useState(0);
-  const [canvasSettingsOpen, setCanvasSettingsOpen] = useState(false);
-  const [variablesOpen, setVariablesOpen] = useState(false);
+  const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [building, setBuilding] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
   const [writing, setWriting] = useState(false);
@@ -424,7 +422,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   useEffect(() => () => window.clearTimeout(historyTimer.current), []);
 
   useEffect(() => {
-    if (workspaceView === "code") return;
+    if (workspaceView === "code" || projectSettingsOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const step = undoShortcut(event);
       if (!step || isTextEntry(event.target)) return;
@@ -433,14 +431,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [codebase, workspaceView]);
+  }, [codebase, workspaceView, projectSettingsOpen]);
 
   // A navigation Exit has no line for the canvas to delete, so a connection
   // selected from its Exit row is deleted here, as a drawn one is.
   const selectedNavigation = Boolean(selectedEdgeId && edges.some((edge) => edge.id === selectedEdgeId
     && nodes.find((node) => node.id === edge.source)?.data.node.signals.some((signal) => signal.id === edge.sourceHandle && signal.role === "navigation")));
   useEffect(() => {
-    if (!selectedNavigation || openedNodeId) return;
+    if (!selectedNavigation || openedNodeId || projectSettingsOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.key !== "Delete" && event.key !== "Backspace") || isTextEntry(event.target)) return;
       setEdges((current) => current.filter((edge) => edge.id !== selectedEdgeId));
@@ -448,7 +446,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedNavigation, selectedEdgeId, openedNodeId]);
+  }, [selectedNavigation, selectedEdgeId, openedNodeId, projectSettingsOpen]);
 
   const save = useCallback((next: NodeCodebaseUpdate): Promise<void> => {
     const serialized = JSON.stringify(next);
@@ -794,8 +792,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       link.download = `${project.name}.zip`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    } catch (cause) {
-      setNotice(errorMessage(cause));
     } finally {
       setBuilding(false);
     }
@@ -865,7 +861,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
     ) : null}
     <WorkspaceTabs
-      tabs={tabs} active={designOpen ? "design" : workspaceView} label="Workspace mode"
+      tabs={tabs} active={designOpen ? "design" : workspaceView}
       onChange={(tab) => {
         const navigate = () => {
           if (tab !== "design") {
@@ -883,6 +879,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   return (
     <section
       className={`viewer-pane interactive-story-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
+      data-active-tab={designOpen ? "design" : workspaceView}
       aria-label="Playable Nodes workspace"
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
@@ -894,23 +891,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       <header className="pane-header viewer-header interactive-story-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         {renderNavigation()}
-        <div className="viewer-controls-slot">
-          {!designOpen ? <PlayableProjectMenu
-            disabled={phase !== "ready"}
-            screenSize={viewportRatio(playerViewport)}
-            exporting={building}
-            canExport={!agentBusy && !publishing && !building}
-            variablesOpen={variablesOpen}
-            onScreenSize={() => setCanvasSettingsOpen(true)}
-            onVariables={() => setVariablesOpen((open) => !open)}
-            onExport={() => void exportGame()}
-          /> : null}
-        </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {!designOpen ? <><button className="icon-button pane-header-action" type="button" data-tooltip={playtesting ? "Opening playtest..." : "Playtest in a new window"} aria-label="Playtest" disabled={phase !== "ready" || building || playtesting} onClick={() => void startPlaytest()}>
+          {!designOpen ? <><button className="icon-button pane-header-action" type="button" title="Project settings" aria-label="Project settings" aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
+            <Settings size={14} />
+          </button>
+          <button className="icon-button pane-header-action" type="button" data-tooltip={playtesting ? "Opening playtest..." : "Playtest in a new window"} aria-label="Playtest" disabled={phase !== "ready" || building || playtesting} onClick={() => void startPlaytest()}>
             {playtesting ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
           </button>
-          <button className="publish-button workspace-publish-button" type="button" title="Publish" aria-label="Publish" disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
+          <button className="publish-button workspace-publish-button" type="button" title={publishing ? "Publishing" : "Publish"} aria-label={publishing ? "Publishing" : "Publish"} disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
             <span>Publish</span>
           </button>
@@ -940,7 +928,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                   onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
                 />}
                 onOpenMenu={setCanvasContextMenu}
-                deleteKeyCode={openedNode ? null : ["Backspace", "Delete"]}
+                deleteKeyCode={openedNode || projectSettingsOpen ? null : ["Backspace", "Delete"]}
                 onNodesChange={onNodesChange}
                 onNodeDragStart={() => { setCanvasContextMenu(undefined); beginHistoryGesture(); }}
                 onNodeDragStop={finishHistoryGesture}
@@ -1024,16 +1012,18 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onChatContextChange={onChatContextChange}
       /> : null}
       {openedNode && notice ? <div className="story-save-notice is-over-workbench" role="alert">{notice}</div> : null}
-      {!designOpen && variablesOpen && graphMeta && workspaceView === "canvas" && !openedNodeId ? <PlayableVariablesPanel
-        initialState={graphMeta.initialState}
-        descriptions={graphMeta.variables}
-        onClose={() => setVariablesOpen(false)}
-      /> : null}
-      {!designOpen && canvasSettingsOpen ? <CanvasSettingsDialog
-        viewport={playerViewport}
-        hasContent={nodes.length > 0}
-        onClose={() => setCanvasSettingsOpen(false)}
-        onChange={(viewport) => setGraphMeta((current) => current ? { ...current, viewport } : current)}
+      {!designOpen && projectSettingsOpen && codebase ? <PlayableProjectSettingsDialog
+        project={project}
+        graph={codebase.graph}
+        exporting={building}
+        canExport={!agentBusy && !publishing && !building}
+        onSave={async (viewport) => {
+          const graph = { ...codebase.graph, viewport };
+          await save({ graph, editorLayout: codebase.editorLayout });
+          applyGraph(graph);
+        }}
+        onExport={exportGame}
+        onClose={() => setProjectSettingsOpen(false)}
       /> : null}
       {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
     </section>

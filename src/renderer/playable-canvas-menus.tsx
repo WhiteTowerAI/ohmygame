@@ -4,24 +4,17 @@ import {
   Clapperboard,
   Clipboard,
   Copy,
-  Download,
   Eye,
   Flag,
   LoaderCircle,
   Maximize,
-  Box,
-  Monitor,
   Plus,
   Redo2,
-  Settings,
   Trash2,
   Undo2,
 } from "./icons.js";
 import {
   useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -29,88 +22,6 @@ import { createPortal } from "react-dom";
 import { CanvasContextMenu, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import { type PlayablePresetSummary } from "../shared/playable-editor.js";
 import { PlayableTemplateDialog } from "./playable-template-dialog.js";
-
-/**
- * Project-wide things that are not on the canvas: screen size, Variables, and Export.
- */
-export function PlayableProjectMenu({ disabled, screenSize, exporting, canExport, variablesOpen, onScreenSize, onVariables, onExport }: {
-  disabled: boolean;
-  screenSize: string;
-  variablesOpen: boolean;
-  onVariables: () => void;
-  exporting: boolean;
-  canExport: boolean;
-  onScreenSize: () => void;
-  onExport: () => void;
-}) {
-  const button = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number }>();
-
-  useLayoutEffect(() => {
-    if (!position || !menu.current) return;
-    const bounds = menu.current.getBoundingClientRect();
-    const next = {
-      top: Math.max(6, Math.min(position.top, window.innerHeight - bounds.height - 6)),
-      left: Math.max(6, Math.min(position.left, window.innerWidth - bounds.width - 6)),
-    };
-    if (next.top !== position.top || next.left !== position.left) setPosition(next);
-    menu.current.focus();
-  }, [position]);
-
-  useEffect(() => {
-    if (!position) return;
-    const close = () => setPosition(undefined);
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as globalThis.Node;
-      if (!menu.current?.contains(target) && !button.current?.contains(target)) close();
-    };
-    const closeOnKey = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
-    document.addEventListener("pointerdown", closeOutside);
-    window.addEventListener("keydown", closeOnKey);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      window.removeEventListener("keydown", closeOnKey);
-      window.removeEventListener("resize", close);
-    };
-  }, [position]);
-
-  const run = (action: () => void) => { setPosition(undefined); action(); };
-
-  return <>
-    <button
-      ref={button}
-      type="button"
-      className={`icon-button pane-header-action${position || variablesOpen ? " is-active" : ""}`}
-      title="Project settings"
-      aria-label="Project settings"
-      aria-haspopup="menu"
-      aria-expanded={Boolean(position)}
-      disabled={disabled}
-      onClick={() => {
-        if (position) return setPosition(undefined);
-        const bounds = button.current?.getBoundingClientRect();
-        if (bounds) setPosition({ top: bounds.bottom + 4, left: bounds.left });
-      }}
-    ><Settings size={14} /></button>
-    {position ? createPortal(<div
-      ref={menu}
-      className="story-canvas-context-menu playable-project-menu"
-      role="menu"
-      aria-label="Project"
-      tabIndex={-1}
-      style={{ top: position.top, left: position.left }}
-    >
-      <button type="button" role="menuitem" onClick={() => run(onScreenSize)}><Monitor size={15} /><span>Screen size</span><small>{screenSize}</small></button>
-      <button type="button" role="menuitemcheckbox" aria-checked={variablesOpen} title="What the game remembers between Scenes" onClick={() => run(onVariables)}><Box size={15} /><span>Variables</span></button>
-      <div className="playable-project-menu-separator" role="separator" />
-      <button type="button" role="menuitem" disabled={!canExport} onClick={() => run(onExport)}>
-        {exporting ? <LoaderCircle className="spin" size={15} /> : <Download size={15} />}<span>{exporting ? "Exporting" : "Export"}</span>
-      </button>
-    </div>, document.body) : null}
-  </>;
-}
 
 /** Opens Add a Scene and adds the chosen Template at the center of the canvas. */
 export function PlayableAddControl({ presets, busy, onAdd, className, children }: {
