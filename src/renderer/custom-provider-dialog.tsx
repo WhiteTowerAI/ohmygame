@@ -10,7 +10,7 @@ const PRESETS = {
   lmstudio: { name: "LM Studio", baseUrl: "http://localhost:1234/v1", api: "openai-completions", authentication: "none" },
 } as const;
 
-const PROVIDER_API_LABELS: Record<string, string> = {
+export const PROVIDER_API_LABELS: Record<string, string> = {
   "openai-completions": "OpenAI Chat Completions",
   "openai-responses": "OpenAI Responses",
   "anthropic-messages": "Anthropic Messages",
@@ -21,8 +21,11 @@ const PROVIDER_API_LABELS: Record<string, string> = {
 type ModelRow = { model: CustomProviderModel; enabled: boolean; saved: boolean };
 const emptyModel = (): CustomProviderModel => ({ id: "", name: "", api: "openai-completions", contextWindow: 128_000, maxTokens: 16_384, reasoning: false, supportsImages: false });
 
-export function CustomProviderDialog({ settings, onClose, onSaved }: {
+export type CustomProviderField = "name" | "baseUrl" | "api" | "apiKey";
+
+export function CustomProviderDialog({ settings, initialFocus = "name", onClose, onSaved }: {
   settings?: CustomProviderDetails;
+  initialFocus?: CustomProviderField;
   onClose: () => void;
   onSaved: (settings: CustomProviderDetails) => void;
 }) {
@@ -31,6 +34,8 @@ export function CustomProviderDialog({ settings, onClose, onSaved }: {
   const nameInput = useRef<HTMLInputElement>(null);
   const endpointInput = useRef<HTMLInputElement>(null);
   const keyInput = useRef<HTMLInputElement>(null);
+  const apiInput = useRef<HTMLSelectElement>(null);
+  const authenticationInput = useRef<HTMLSelectElement>(null);
   const closeRef = useRef(onClose);
   const savingRef = useRef(false);
   const discovery = useRef<AbortController | undefined>(undefined);
@@ -55,7 +60,11 @@ export function CustomProviderDialog({ settings, onClose, onSaved }: {
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    nameInput.current?.focus();
+    const initialInput = initialFocus === "baseUrl" ? endpointInput.current
+      : initialFocus === "api" ? apiInput.current
+      : initialFocus === "apiKey" ? keyInput.current ?? authenticationInput.current
+      : nameInput.current;
+    initialInput?.focus();
     const keyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -179,8 +188,8 @@ export function CustomProviderDialog({ settings, onClose, onSaved }: {
             </div>
             <label><span>Base URL</span><input ref={endpointInput} type="url" value={form.baseUrl} onChange={(event) => field("baseUrl", event.target.value)} placeholder="https://api.example.com/v1" required autoComplete="off" spellCheck={false} /><small>Use the API endpoint, including /v1 when your service requires it.</small></label>
             <div className="project-settings-field-row">
-              <label><span>API protocol</span><select value={form.api} onChange={(event) => field("api", event.target.value)}>{CUSTOM_MODEL_APIS.map((api) => <option key={api} value={api}>{PROVIDER_API_LABELS[api]}</option>)}</select></label>
-              <label><span>Authentication</span><select value={form.authentication} onChange={(event) => field("authentication", event.target.value as SaveCustomProviderRequest["authentication"])}><option value="api_key">API key</option><option value="none">No API key</option></select></label>
+              <label><span>API protocol</span><select ref={apiInput} value={form.api} onChange={(event) => field("api", event.target.value)}>{CUSTOM_MODEL_APIS.map((api) => <option key={api} value={api}>{PROVIDER_API_LABELS[api]}</option>)}</select></label>
+              <label><span>Authentication</span><select ref={authenticationInput} value={form.authentication} onChange={(event) => field("authentication", event.target.value as SaveCustomProviderRequest["authentication"])}><option value="api_key">API key</option><option value="none">No API key</option></select></label>
             </div>
             {form.authentication === "api_key" ? <label><span>API key</span><input ref={keyInput} type="password" value={form.apiKey ?? ""} onChange={(event) => field("apiKey", event.target.value)} required={!settings || settings.authentication !== "api_key"} placeholder={settings?.authentication === "api_key" ? "Leave blank to keep the current key" : "Paste your API key"} autoComplete="new-password" spellCheck={false} /></label> : <p className="custom-provider-hint">For local services that do not require an API key.</p>}
           </fieldset>

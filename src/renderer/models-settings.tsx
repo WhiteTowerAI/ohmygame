@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, ChevronRight, Code2, ExternalLink, LoaderCircle, Search, Server, Plus, Plug, RefreshCw, Settings, UserRound } from "./icons.js";
+import { ArrowLeft, ChevronDown, ChevronRight, Code2, ExternalLink, LoaderCircle, Pencil, Search, Server, Plus, Plug, RefreshCw, Settings, Trash2, UserRound } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   CustomProviderDetails,
@@ -30,7 +30,7 @@ import {
   listVideoModelCatalog,
 } from "./api.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
-import { CustomProviderDialog } from "./custom-provider-dialog.js";
+import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
 import { SegmentedControl } from "./segmented-control.js";
 
@@ -173,10 +173,10 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
       <span className="settings-provider-copy">
         <strong className="settings-provider-name"><span>{provider.name}</span>{featured ? <small>Recommended</small> : null}</strong>
         <span className="settings-provider-details">
-          {provider.custom ? <small className="settings-provider-custom">Custom</small> : null}
           <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
-          <span className="settings-provider-capabilities" aria-label={`Capabilities: ${provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]).join(", ")}`}>
+          <span className="settings-provider-capabilities" aria-label={`Provider labels: ${[...provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]), ...(provider.custom ? ["Custom"] : [])].join(", ")}`}>
             {provider.capabilities.map((capability) => <small key={capability}>{PROVIDER_CAPABILITY_LABELS[capability]}</small>)}
+            {provider.custom ? <small>Custom</small> : null}
           </span>
         </span>
       </span>
@@ -225,10 +225,9 @@ function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: Provide
   const inputId = `${provider.id}-api-key`;
   return (
     <section className="settings-panel settings-provider-detail">
-      <ProviderDetailHeader provider={provider} onBack={onBack} />
-      {provider.configured ? (
-        <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} />
-      ) : null}
+      <ProviderDetailHeader provider={provider} onBack={onBack}>
+        {provider.configured ? <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} /> : null}
+      </ProviderDetailHeader>
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
         <label className="settings-search-field-label" htmlFor={inputId}>API key</label>
         <div className="settings-detail-inline">
@@ -331,7 +330,9 @@ function SeedanceModels({ providerId }: { providerId: string }) {
 
 function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: ProviderSummary; onBack: () => void; onRemoved: () => void }) {
   const [settings, setSettings] = useState<CustomProviderDetails>();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState<CustomProviderField>();
+  const [openingEditor, setOpeningEditor] = useState(false);
+  const [modelsRevision, setModelsRevision] = useState(0);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string>();
@@ -340,32 +341,45 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
     void getCustomProvider(provider.id).then((value) => { if (active) setSettings(value); }).catch((cause) => { if (active) setError(errorMessage(cause)); });
     return () => { active = false; };
   }, [provider.id]);
+  async function openEditor(field: CustomProviderField): Promise<void> {
+    setOpeningEditor(true);
+    setError(undefined);
+    try {
+      // Model edits on this page may have changed the settings since the detail first loaded.
+      setSettings(await getCustomProvider(provider.id));
+      setEditing(field);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setOpeningEditor(false); }
+  }
   async function remove(): Promise<void> {
     setDeleting(true);
     setError(undefined);
     try { await removeCustomProvider(provider.id); onRemoved(); }
     catch (cause) { setError(errorMessage(cause)); setDeleting(false); }
   }
-  const models = settings?.models.filter((model) => !settings.hiddenModelIds.includes(model.id));
+  const fields: Array<{ field: CustomProviderField; label: string; value: string }> = settings ? [
+    { field: "apiKey", label: "API key", value: settings.authentication === "api_key" ? "••••••••" : "Not required" },
+    { field: "baseUrl", label: "Base URL", value: settings.baseUrl },
+    { field: "api", label: "API", value: PROVIDER_API_LABELS[settings.api] ?? settings.api },
+  ] : [];
   return <section className="settings-panel settings-provider-detail">
-    <ProviderDetailHeader provider={{ ...provider, name: settings?.name ?? provider.name }} onBack={onBack} />
-    <ProviderEnableControl provider={provider} />
-    <div className="settings-custom-provider-config">
-      <div><small className="settings-provider-custom">Custom</small><span>{settings?.baseUrl ?? "Loading configuration…"}</span></div>
-      <button className="settings-secondary-button" type="button" disabled={!settings || deleting} onClick={() => setEditing(true)}>Edit provider</button>
-    </div>
+    <ProviderDetailHeader provider={{ ...provider, name: settings?.name ?? provider.name }} onBack={onBack}>
+      <button className="icon-button settings-provider-setting-edit settings-provider-delete" type="button" aria-label="Delete provider" data-tooltip="Delete provider" aria-expanded={confirmingDelete} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => setConfirmingDelete((value) => !value)}><Trash2 size={15} aria-hidden="true" /></button>
+      <ProviderEnableControl provider={provider} />
+    </ProviderDetailHeader>
+    {settings ? <div className="settings-provider-connection">
+      {fields.map(({ field, label, value }) => <div className="settings-provider-setting-row" key={field}>
+        <span className="settings-search-field-label">{label}</span>
+        <span className="settings-provider-setting-value" title={field === "apiKey" ? undefined : value}>{value}</span>
+        <button className="icon-button settings-provider-setting-edit" type="button" aria-label={`Edit ${label}`} data-tooltip={`Edit ${label}`} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => void openEditor(field)}><Pencil size={15} aria-hidden="true" /></button>
+      </div>)}
+    </div> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading configuration</div> : null}
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
-    <section className="settings-detail-section provider-models" aria-label="Language models">
-      <div className="provider-models-heading"><h4>Language models <small>{models?.length ?? ""}</small></h4></div>
-      {models ? <div className="provider-models-list" role="list" aria-label="Enabled provider models">
-        {models.map((model) => <div className="provider-model-row" key={model.id} role="listitem"><div className="provider-model-readonly"><span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{model.name !== model.id ? <small title={model.id}>{model.id}</small> : null}</span></div></div>)}
-        {!models.length ? <p className="settings-empty">No models enabled. Use Edit provider to manage models.</p> : null}
-      </div> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading models</div> : null}
-    </section>
-    <div className="settings-custom-provider-delete">
-      {confirmingDelete ? <><span>Delete this provider, its key and model settings?</span><button className="settings-danger-button" type="button" disabled={deleting} onClick={() => void remove()}>{deleting ? "Deleting…" : "Delete provider"}</button><button className="settings-secondary-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Cancel</button></> : <button className="settings-danger-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(true)}>Delete provider</button>}
-    </div>
-    {editing && settings ? <CustomProviderDialog settings={settings} onClose={() => setEditing(false)} onSaved={(value) => { setSettings(value); setEditing(false); }} /> : null}
+    <ProviderModels key={modelsRevision} providerId={provider.id} />
+    {confirmingDelete ? <div className="settings-custom-provider-delete" role="group" aria-label="Delete provider confirmation">
+      <span>Delete this provider, its key and model settings?</span><button className="settings-danger-button" type="button" disabled={deleting} onClick={() => void remove()}>{deleting ? "Deleting…" : "Delete provider"}</button><button className="settings-secondary-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Cancel</button>
+    </div> : null}
+    {editing && settings ? <CustomProviderDialog settings={settings} initialFocus={editing} onClose={() => setEditing(undefined)} onSaved={(value) => { setSettings(value); setEditing(undefined); setModelsRevision((revision) => revision + 1); }} /> : null}
   </section>;
 }
 
@@ -389,10 +403,9 @@ function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ProviderSu
 
   return (
     <section className="settings-panel settings-provider-detail">
-      <ProviderDetailHeader provider={provider} onBack={onBack} />
-      {provider.configured ? (
-        <ProviderEnableControl provider={provider} />
-      ) : null}
+      <ProviderDetailHeader provider={provider} onBack={onBack}>
+        {provider.configured ? <ProviderEnableControl provider={provider} /> : null}
+      </ProviderDetailHeader>
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
         <label className="settings-search-field-label" htmlFor="meshy-api-key">API key</label>
         <div className="settings-detail-inline">
@@ -444,7 +457,21 @@ function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProvi
 function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [editing, setEditing] = useState<ModelAuthMethod | "endpoint">();
+  const [credentialType, setCredentialType] = useState(provider.credentialType ?? "api_key");
+  const [modelsRevision, setModelsRevision] = useState(0);
   const endpoint = useProviderEndpoint(provider.id);
+  function edit(setting: ModelAuthMethod | "endpoint"): void {
+    setNotice(undefined);
+    setError(undefined);
+    setEditing(setting);
+  }
+  function completeAuth(method: ModelAuthMethod): void {
+    setCredentialType(method);
+    setEditing(undefined);
+    setModelsRevision((value) => value + 1);
+    setNotice(method === "oauth" ? "Browser sign-in connected." : "API key updated.");
+  }
   async function saveEndpoint(event: FormEvent): Promise<void> {
     event.preventDefault();
     setError(undefined);
@@ -452,6 +479,7 @@ function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; on
     try {
       await endpoint.save();
       notifyAgentModelsChanged();
+      setEditing(undefined);
       setNotice("Base URL saved.");
     } catch (cause) {
       setError(errorMessage(cause));
@@ -459,26 +487,51 @@ function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; on
   }
   const displayedError = error ?? endpoint.error;
   // Only API keys can go through a proxy; a ChatGPT sign-in always talks to OpenAI directly.
-  const showsEndpoint = endpoint.supported && provider.credentialType !== "oauth";
+  const showsEndpoint = endpoint.supported && credentialType !== "oauth";
+  const canEditKey = credentialType !== "oauth" && provider.methods.some((method) => method.type === "api_key");
+  const alternateMethod = provider.methods.length > 1 ? provider.methods.find((method) => method.type !== credentialType)?.type : undefined;
   return (
     <section className="settings-panel settings-provider-detail">
-      <ProviderDetailHeader provider={provider} onBack={onBack} />
-      <ProviderEnableControl provider={provider} />
-      {showsEndpoint ? (
-        <form onSubmit={(event) => void saveEndpoint(event)}>
-          <BaseUrlField endpoint={endpoint}>
-            <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || !endpoint.baseUrl.trim() || !endpoint.dirty}>{endpoint.saving ? "Saving…" : "Save"}</button>
-          </BaseUrlField>
-        </form>
-      ) : null}
+      <ProviderDetailHeader provider={provider} onBack={onBack}>
+        <ProviderEnableControl provider={provider} />
+      </ProviderDetailHeader>
+      {alternateMethod || canEditKey || showsEndpoint ? <div className="settings-provider-connection">
+        {alternateMethod ? <div className="settings-provider-setting-row settings-provider-auth-row">
+          <span className="settings-search-field-label">Sign-in</span>
+          <span className="settings-provider-setting-value">{credentialType === "oauth" ? "Browser sign-in" : "API key"}</span>
+          <button className="settings-secondary-button" type="button" disabled={Boolean(editing)} onClick={() => edit(alternateMethod)}>{alternateMethod === "oauth" ? "Use browser sign-in" : "Use API key"}</button>
+        </div> : null}
+        {canEditKey ? <section aria-label="API key settings">
+          <div className="settings-provider-setting-row">
+            <span className="settings-search-field-label">API key</span>
+            <span className="settings-provider-setting-value" aria-label="API key is configured">••••••••</span>
+            <button className="icon-button settings-provider-setting-edit" type="button" aria-label="Edit API key" data-tooltip="Edit API key" aria-expanded={editing === "api_key"} disabled={Boolean(editing)} onClick={() => edit("api_key")}><Pencil size={15} aria-hidden="true" /></button>
+          </div>
+        </section> : null}
+        {editing === "api_key" || editing === "oauth" ? <div className="settings-provider-setting-editor"><ActiveProviderAuth provider={provider} method={editing} inline onBack={() => setEditing(undefined)} onCompleted={() => completeAuth(editing)} onFailed={(message) => { setEditing(undefined); setError(message); }} /></div> : null}
+        {showsEndpoint ? <section aria-label="Base URL settings">
+          <div className="settings-provider-setting-row">
+            <span className="settings-search-field-label">Base URL</span>
+            <span className="settings-provider-setting-value" title={endpoint.savedBaseUrl}>{endpoint.loading ? "Loading…" : endpoint.savedBaseUrl || "Unavailable"}</span>
+            <button className="icon-button settings-provider-setting-edit" type="button" aria-label="Edit Base URL" data-tooltip="Edit Base URL" aria-expanded={editing === "endpoint"} disabled={Boolean(editing) || endpoint.loading} onClick={() => edit("endpoint")}><Pencil size={15} aria-hidden="true" /></button>
+          </div>
+          {editing === "endpoint" ? <form className="settings-provider-setting-editor settings-detail-section" onSubmit={(event) => void saveEndpoint(event)}>
+            <BaseUrlField endpoint={endpoint} />
+            <div className="settings-form-actions">
+              <button className="settings-secondary-button" type="button" disabled={endpoint.saving} onClick={() => { endpoint.reset(); setEditing(undefined); setError(undefined); }}>Cancel</button>
+              <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || !endpoint.baseUrl.trim() || !endpoint.dirty}>{endpoint.saving ? "Saving…" : "Save"}</button>
+            </div>
+          </form> : null}
+        </section> : null}
+      </div> : null}
       {displayedError ? <p className="settings-error" role="alert">{displayedError}</p> : null}
       {notice ? <p className="settings-success" role="status">{notice}</p> : null}
-      <ProviderModels providerId={provider.id} />
+      <ProviderModels key={modelsRevision} providerId={provider.id} />
     </section>
   );
 }
 
-function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provider: ModelProviderSummary; method: ModelAuthMethod; onBack: () => void; onCompleted: () => void }) {
+function ActiveProviderAuth({ provider, method, inline = false, onBack, onCompleted, onFailed }: { provider: ModelProviderSummary; method: ModelAuthMethod; inline?: boolean; onBack: () => void; onCompleted: () => void; onFailed?: (error: string) => void }) {
   const [operationId, setOperationId] = useState<string>();
   const [prompt, setPrompt] = useState<{ id: string; value: ModelAuthPrompt }>();
   const [notification, setNotification] = useState<ModelAuthNotification>();
@@ -486,7 +539,8 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
   const [error, setError] = useState<string>();
   const operationRef = useRef<string | undefined>(undefined);
   const openedUrl = useRef<string | undefined>(undefined);
-  const endpoint = useProviderEndpoint(provider.id);
+  const endpoint = useProviderEndpoint(inline ? "" : provider.id);
+  const editingKey = inline && method === "api_key";
   // A proxy Base URL only applies to API keys; never send a ChatGPT sign-in through it.
   const editsEndpoint = endpoint.supported && method === "api_key";
 
@@ -500,7 +554,7 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
       operationRef.current = id;
       setOperationId(id);
     }).catch((cause) => {
-      if (active) setError(errorMessage(cause));
+      if (active) fail(errorMessage(cause));
     });
     return () => {
       active = false;
@@ -515,6 +569,11 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
       onError: () => setError("Connection to the authentication flow was interrupted."),
     });
   }, [operationId]);
+
+  function fail(message: string): void {
+    if (onFailed) onFailed(message);
+    else setError(message);
+  }
 
   function handleAuthEvent(event: ModelAuthEvent): void {
     if (event.type === "notification") {
@@ -535,7 +594,7 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
       onBack();
     } else if (event.type === "error") {
       operationRef.current = undefined;
-      setError(event.error);
+      fail(event.error);
     }
   }
 
@@ -570,24 +629,24 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
     void openExternal(external).catch(() => undefined);
   }, [external, method]);
   return (
-    <section className="settings-panel settings-provider-detail">
-      <ProviderDetailHeader provider={provider} onBack={() => void cancel()} />
+    <section className={inline ? undefined : "settings-panel settings-provider-detail"}>
+      {!inline ? <ProviderDetailHeader provider={provider} onBack={() => void cancel()} /> : null}
       {prompt && !browserFallback ? (
         <form className="settings-detail-section" onSubmit={(event) => void respond(event)}>
           {editsEndpoint ? <BaseUrlField endpoint={endpoint} /> : null}
           <label className="settings-detail-field">
-            <span className="settings-search-field-label">{prompt.value.message}</span>
+            <span className="settings-search-field-label">{editingKey && prompt.value.type === "secret" ? "New API key" : prompt.value.message}</span>
             {prompt.value.type === "select" ? (
               <select className="settings-search-input" value={answer || prompt.value.options[0]?.id || ""} onChange={(event) => setAnswer(event.target.value)}>
                 {prompt.value.options.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
               </select>
             ) : (
-              <input className="settings-search-input" type={prompt.value.type === "secret" ? "password" : "text"} value={answer} placeholder={prompt.value.placeholder} onChange={(event) => setAnswer(event.target.value)} autoFocus />
+              <input className="settings-search-input" type={prompt.value.type === "secret" ? "password" : "text"} value={answer} placeholder={editingKey && prompt.value.type === "secret" ? "Paste a new key to replace the current one" : prompt.value.placeholder} onChange={(event) => setAnswer(event.target.value)} autoFocus autoComplete={prompt.value.type === "secret" ? "new-password" : "off"} spellCheck={false} />
             )}
           </label>
           <div className="settings-form-actions">
             <button className="settings-secondary-button" type="button" onClick={() => void cancel()}>Cancel</button>
-            <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || (editsEndpoint && !endpoint.baseUrl.trim()) || (prompt.value.type !== "select" && !prompt.value.optional && !answer.trim())}>Continue</button>
+            <button className="settings-primary-button" type="submit" disabled={endpoint.loading || endpoint.saving || (editsEndpoint && !endpoint.baseUrl.trim()) || (prompt.value.type !== "select" && !prompt.value.optional && !answer.trim())}>{editingKey && prompt.value.type === "secret" ? "Save key" : "Continue"}</button>
           </div>
         </form>
       ) : (
@@ -620,15 +679,16 @@ function ActiveProviderAuth({ provider, method, onBack, onCompleted }: { provide
   );
 }
 
-function ProviderDetailHeader({ provider, onBack }: { provider: ModelProviderSummary; onBack: () => void }) {
+function ProviderDetailHeader({ provider, onBack, children }: { provider: ModelProviderSummary; onBack: () => void; children?: ReactNode }) {
   return (
     <header className="settings-provider-detail-header">
       <button type="button" onClick={onBack} aria-label="Back"><ArrowLeft size={16} /></button>
       <ProviderMark provider={provider} />
-      <span>
+      <span className="settings-provider-heading">
         <h3>{provider.name}</h3>
         <small>{providerDescription(provider)}</small>
       </span>
+      {children}
     </header>
   );
 }
@@ -647,26 +707,25 @@ function ProviderEnableControl({ provider, onChanged }: { provider: ProviderSumm
     catch (cause) { setEnabled(previous); setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-  return <>
-    <div className="settings-detail-status settings-provider-enable-row">
-      <span className="settings-detail-status-copy"><strong>Enable provider</strong><small>{enabled ? "Available for new requests" : "Disabled · Your credentials and models are kept"}</small></span>
-      <label className="settings-toggle"><input type="checkbox" role="switch" aria-label={`Enable ${provider.name}`} checked={enabled} disabled={busy} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></label>
-    </div>
+  return <div className="settings-provider-enable-control">
+    <label className="settings-provider-enable-label" title={enabled ? "Available for new requests" : "Disabled · Your credentials and models are kept"}>
+      <small>{enabled ? "Enabled" : "Disabled"}</small>
+      <span className="settings-toggle"><input type="checkbox" role="switch" aria-label={`Enable ${provider.name}`} checked={enabled} disabled={busy} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></span>
+    </label>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
-  </>;
+  </div>;
 }
 
 function DetailSectionHeader({ title, description }: { title: string; description: string }) {
   return <div className="settings-search-section-header"><h4>{title}</h4><p>{description}</p></div>;
 }
 
-function BaseUrlField({ endpoint, children }: { endpoint: ReturnType<typeof useProviderEndpoint>; children?: ReactNode }) {
+function BaseUrlField({ endpoint }: { endpoint: ReturnType<typeof useProviderEndpoint> }) {
   return (
     <div className="settings-detail-field">
       <label className="settings-search-field-label" htmlFor="model-provider-base-url">Base URL</label>
       <div className="settings-detail-inline">
         <input id="model-provider-base-url" className="settings-search-input" value={endpoint.baseUrl} onChange={(event) => endpoint.setBaseUrl(event.target.value)} disabled={endpoint.loading || endpoint.saving} spellCheck={false} />
-        {children}
       </div>
       <small className="settings-detail-hint">Requests go to this OpenAI-compatible URL. Change it to use a proxy.</small>
     </div>
@@ -709,7 +768,7 @@ function useProviderEndpoint(providerId: string) {
     }
   }
 
-  return { supported, baseUrl, setBaseUrl, dirty: baseUrl.trim() !== savedBaseUrl, loading, saving, error, save };
+  return { supported, baseUrl, savedBaseUrl, setBaseUrl, reset: () => setBaseUrl(savedBaseUrl), dirty: baseUrl.trim() !== savedBaseUrl, loading, saving, error, save };
 }
 
 function providerDescription(provider: Pick<ModelProviderSummary, "methods"> & { custom?: boolean }): string {
