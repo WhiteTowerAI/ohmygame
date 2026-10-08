@@ -9,7 +9,7 @@ import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { applySystemProxy } from "./system-proxy.js";
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer } from "./window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdater } from "./updater.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
@@ -114,13 +114,8 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
     throw new Error("Invalid appearance");
   }
   nativeTheme.themeSource = appearance;
-  const isDark = appearance === "dark" || (appearance === "system" && nativeTheme.shouldUseDarkColors);
-  if (process.platform === "win32" && senderWindow.setTitleBarOverlay) {
-    senderWindow.setTitleBarOverlay({
-      color: isDark ? "#1f1f1f" : "#f9f0f3",
-      symbolColor: isDark ? "#ffffff" : "#202020",
-      height: 32,
-    });
+  if (process.platform === "win32" && senderWindow === mainWindow) {
+    senderWindow.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors));
   }
 });
 handle("ohmygame:window-menu-icon", async (event) => {
