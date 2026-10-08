@@ -8652,7 +8652,8 @@ button {
   }
 }
 
-.workspace-resizer {
+.workspace-resizer,
+.file-explorer-resizer {
   position: relative;
   z-index: 3;
   width: 9px;
@@ -8662,7 +8663,8 @@ button {
   touch-action: none;
 }
 
-.workspace-resizer::after {
+.workspace-resizer::after,
+.file-explorer-resizer::after {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -8675,7 +8677,9 @@ button {
 
 .workspace-resizer:hover::after,
 .workspace-resizer:focus-visible::after,
-.workspace-shell-resizing .workspace-resizer::after {
+.workspace-shell-resizing .workspace-resizer::after,
+.file-explorer-resizer:hover::after,
+.file-explorer-resizer:active::after {
   background: var(--border-strong);
 }
 
@@ -11466,7 +11470,6 @@ button {
 }
 
 .model-selector {
-  position: relative;
   display: inline-flex;
   min-width: 0;
   height: 30px;
@@ -11477,11 +11480,6 @@ button {
 
 .model-selector-canvas {
   height: 28px;
-  gap: 6px;
-}
-
-.model-selector-canvas > .canvas-chip:not(.is-wide) {
-  flex-shrink: 0;
 }
 
 .model-selector-trigger {
@@ -11583,15 +11581,22 @@ button {
   overflow: hidden;
 }
 
-.model-selector-search {
+.model-selector-search-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   margin-bottom: 4px;
-  padding: 7px;
   border-bottom: 1px solid var(--border);
+}
+
+.model-selector-search {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  padding: 7px;
   color: var(--text-faint);
-  flex-shrink: 0;
 }
 
 .model-selector-search input {
@@ -11720,9 +11725,11 @@ button {
 }
 
 .model-selector-menu .model-selector-manage {
-  justify-content: flex-start;
-  gap: 7px;
-  margin-top: 2px;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  justify-content: center;
+  padding: 0;
   color: var(--text-muted);
 }
 
@@ -12831,7 +12838,9 @@ button {
 .code-view {
   display: grid;
   flex: 1;
+  min-width: 0;
   min-height: 0;
+  grid-template-columns: clamp(140px, var(--file-explorer-width, 240px), min(480px, calc(100% - 241px))) 1px minmax(0, 1fr);
 }
 
 .file-explorer {
@@ -12839,7 +12848,6 @@ button {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  border-right: 1px solid var(--border);
   background: var(--surface);
 }
 
@@ -12972,10 +12980,6 @@ button {
   margin: 0;
   background: transparent !important;
   font: inherit;
-}
-
-.code-view {
-  grid-template-columns: minmax(190px, 28%) minmax(0, 1fr);
 }
 
 .file-content {
@@ -13681,10 +13685,6 @@ button {
 
   .preview-controls {
     gap: 4px;
-  }
-
-  .code-view {
-    grid-template-columns: minmax(140px, 34%) minmax(0, 1fr);
   }
 }
 

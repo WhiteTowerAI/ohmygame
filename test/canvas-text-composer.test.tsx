@@ -8,11 +8,11 @@ const props = { models: [model], modelStatus: "ready" as const, defaultModel: mo
 
 describe("canvas text reasoning", () => {
   it("uses the configured default and clamps unsupported saved reasoning", () => {
-    expect(renderToStaticMarkup(<CanvasTextComposer {...props} defaultReasoningLevel="high" />)).toContain('aria-label="Reasoning: High"');
-    expect(renderToStaticMarkup(<CanvasTextComposer {...props} reasoningLevel="max" />)).toContain('aria-label="Reasoning: High"');
+    expect(renderToStaticMarkup(<CanvasTextComposer {...props} defaultReasoningLevel="high" />)).toContain('title="Text model: OpenAI · Test · Reasoning: High"');
+    expect(renderToStaticMarkup(<CanvasTextComposer {...props} reasoningLevel="max" />)).toContain('title="Text model: OpenAI · Test · Reasoning: High"');
   });
 
   it("hides reasoning for a model with a single supported level", () => {
-    expect(renderToStaticMarkup(<CanvasTextComposer {...props} models={[{ ...model, reasoningLevels: ["off"] }]} />)).not.toContain('aria-label="Reasoning:');
+    expect(renderToStaticMarkup(<CanvasTextComposer {...props} models={[{ ...model, reasoningLevels: ["off"] }]} />)).not.toContain('Reasoning:');
   });
 });
