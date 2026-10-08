@@ -16,7 +16,9 @@ export function initializeAnalytics(): void {
     disable_session_recording: true,
     person_profiles: "identified_only",
     before_send: (event) => {
-      if (event) scrubber.scrub(event, window.location.href);
+      if (!event) return event;
+      scrubber.scrub(event, window.location.href);
+      event.properties.app_version = __APP_VERSION__;
       return event;
     },
   });
