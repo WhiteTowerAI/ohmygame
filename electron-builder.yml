@@ -4,6 +4,7 @@ asar: true
 asarUnpack:
   - node_modules/esbuild/**/*
   - node_modules/@esbuild/**/*
+  - dist/player/**/*
 
 directories:
   output: release
