@@ -271,7 +271,18 @@ handle("ohmygame:check-for-update", () => updater?.check());
 handle("ohmygame:download-update", () => updater?.download());
 handle("ohmygame:install-update", () => updater?.install());
 
-app.on("window-all-closed", () => app.quit());
+// On macOS, closing the last window keeps the app and its services running
+// until Quit, and clicking the Dock icon opens the main window again.
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
+app.on("activate", () => {
+  if (!daemon || mainWindow || quitting) return;
+  openMainWindow().catch((error) => {
+    console.error(error);
+    dialog.showErrorBox("OhMyGame could not open a window", error instanceof Error ? error.message : String(error));
+  });
+});
 app.on("before-quit", (event) => {
   if (quitting || !daemon) return;
   event.preventDefault();
@@ -312,31 +323,39 @@ try {
   });
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
-  mainWindow = await createDesktopWindow({
-    runtime: daemon.runtime,
-    preloadPath: path.join(moduleDirectory, "preload.cjs"),
-    rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
-    rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
-    sidebarVibrancy: true,
-    integratedMenuBar: true,
-    beforeLoad: (window) => { mainWindow = window; },
-  });
   updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));
+  await openMainWindow();
   if (app.isPackaged) void updater.check();
-  mainWindow.once("closed", () => {
-    mainWindow = undefined;
-    for (const playtest of playtestWindows.values()) {
-      void Promise.resolve(playtest).then((window) => window.close(), () => {});
-    }
-    playtestWindows.clear();
-    for (const thumbnail of nodeThumbnails.values()) thumbnail.finish(false);
-  });
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(error);
   if (app.isReady()) dialog.showErrorBox("OhMyGame could not start", message);
   await stopServices();
   app.exit(1);
+}
+
+async function openMainWindow(): Promise<void> {
+  if (!daemon) throw new Error("The daemon is not running");
+  // beforeLoad runs before the first await, so a second activate sees mainWindow already set.
+  await createDesktopWindow({
+    runtime: daemon.runtime,
+    preloadPath: path.join(moduleDirectory, "preload.cjs"),
+    rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
+    rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
+    sidebarVibrancy: true,
+    integratedMenuBar: true,
+    beforeLoad: (window) => {
+      mainWindow = window;
+      window.once("closed", () => {
+        if (mainWindow === window) mainWindow = undefined;
+        for (const playtest of playtestWindows.values()) {
+          void Promise.resolve(playtest).then((window) => window.close(), () => {});
+        }
+        playtestWindows.clear();
+        for (const thumbnail of nodeThumbnails.values()) thumbnail.finish(false);
+      });
+    },
+  });
 }
 
 async function packagedEnvironment(): Promise<NodeJS.ProcessEnv> {
