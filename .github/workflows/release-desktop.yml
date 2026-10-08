@@ -31,6 +31,8 @@ jobs:
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
           SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+      # Fail the release instead of shipping without examples; the build step reuses this output.
+      - run: bun run prepare:examples --require
       - run: bun run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
@@ -72,6 +74,8 @@ jobs:
         env:
           PUBLISH_API_URL: ${{ vars.PUBLISH_API_URL }}
           SENTRY_DSN: ${{ vars.SENTRY_DSN }}
+      # Fail the release instead of shipping without examples; the build step reuses this output.
+      - run: bun run prepare:examples --require
       - run: bun run build:desktop-app
         env:
           VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
