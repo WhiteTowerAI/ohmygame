@@ -7253,8 +7253,9 @@ button {
   background: var(--theme-accent);
 }
 
-.story-media-input-handle,
-.story-media-output-handle {
+/* Keep preview anchors stable even when React Flow's styles load after ours. */
+.story-node > .story-media-input-handle,
+.story-node > .story-media-output-handle {
   top: calc(28px + var(--story-media-height, 280px) / 2);
 }
 
@@ -7362,7 +7363,7 @@ button {
   color: var(--text-faint);
 }
 
-.story-text-output-handle {
+.story-node > .story-text-output-handle {
   top: 78px;
 }
 

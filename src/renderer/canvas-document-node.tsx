@@ -42,23 +42,27 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
     if (pane) pane.scrollTop = scrollProgress.current * Math.max(0, pane.scrollHeight - pane.clientHeight);
   }, [isEditing]);
   return <div className={`story-node story-text-node design-document-node${selected ? " is-selected" : ""}`}>
-    <div data-alignment-frame className="story-text-output">
-      <CanvasNodeLabel icon={FileText} label={doc?.title ?? issue?.title ?? "Missing document"} details={data.nodeDetails} className="design-document-node-header"
-        titleEditor={isEditing && doc ? <CanvasTextInput className="nodrag" aria-label="Document title" value={doc.title} maxLength={200} onChange={(title) => runtime?.design.update(doc.id, { title })} /> : undefined} />
-      {issue ? <div className="design-document-issue" role="status">Document unavailable: {issue.source}{doc ? ". Your unsaved draft is kept." : ". Restore the file to load it again."}</div> : null}
-      {doc ? <div ref={bodyRef} className={`design-document-node-body nowheel${isEditing ? " nodrag" : " is-preview"}`} onScrollCapture={(event) => {
-        const pane = event.target as HTMLElement;
-        if (pane.parentElement !== bodyRef.current || pane.hidden) return;
-        const range = pane.scrollHeight - pane.clientHeight;
-        scrollProgress.current = range > 0 ? pane.scrollTop / range : 0;
-      }} onMouseDown={(event) => {
-        if ((event.target as HTMLElement).closest("a, button, input")) event.stopPropagation();
-      }} onTouchStart={(event) => {
-        if ((event.target as HTMLElement).closest("a, button, input")) event.stopPropagation();
-      }}>
-        <CanvasTextarea hidden={!isEditing} spellCheck={false} aria-label="Document Markdown" value={doc.markdown} onChange={(markdown) => runtime?.design.update(doc.id, { markdown })} />
-        <div hidden={isEditing} className="design-document-node-preview"><CanvasMarkdown projectId={runtime!.design.projectId} document={doc} /></div>
-      </div> : <div className="design-document-node-body">Document not found</div>}
+    <div className="story-text-output">
+      <div data-alignment-frame className="design-document-node-content">
+        <CanvasNodeLabel icon={FileText} label={doc?.title ?? issue?.title ?? "Missing document"} details={data.nodeDetails} className="design-document-node-header"
+          titleEditor={isEditing && doc ? <CanvasTextInput className="nodrag" aria-label="Document title" value={doc.title} maxLength={200} onChange={(title) => runtime?.design.update(doc.id, { title })} /> : undefined} />
+        {issue ? <div className="design-document-issue" role="status">Document unavailable: {issue.source}{doc ? ". Your unsaved draft is kept." : ". Restore the file to load it again."}</div> : null}
+        {doc ? <div ref={bodyRef} className={`design-document-node-body nowheel${isEditing ? " nodrag" : " is-preview"}`} onScrollCapture={(event) => {
+          const pane = event.target as HTMLElement;
+          if (pane.parentElement !== bodyRef.current || pane.hidden) return;
+          const range = pane.scrollHeight - pane.clientHeight;
+          scrollProgress.current = range > 0 ? pane.scrollTop / range : 0;
+        }} onMouseDown={(event) => {
+          if ((event.target as HTMLElement).closest("a, button, input")) event.stopPropagation();
+        }} onTouchStart={(event) => {
+          if ((event.target as HTMLElement).closest("a, button, input")) event.stopPropagation();
+        }}>
+          <CanvasTextarea hidden={!isEditing} spellCheck={false} aria-label="Document Markdown" value={doc.markdown} onChange={(markdown) => runtime?.design.update(doc.id, { markdown })} />
+          <div hidden={isEditing} className="design-document-node-preview"><CanvasMarkdown projectId={runtime!.design.projectId} document={doc} /></div>
+        </div> : <div className="design-document-node-body">Document not found</div>}
+        <Handle type="target" position={Position.Left} id="image" />
+        <Handle type="source" position={Position.Right} id="out" />
+      </div>
       {selected && doc ? <footer className="design-document-node-footer nodrag nowheel">
         <div className="design-mode-control" role="group" aria-label="Document view">
           <button type="button" title="Edit Markdown" aria-label="Edit Markdown" aria-pressed={editing} onClick={() => setEditing(true)}><Pencil size={14} /></button>
@@ -71,8 +75,6 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
       </footer> : null}
     </div>
     {selected && doc && runtime ? <CanvasDocumentAI design={runtime.design} document={doc} textModels={runtime} /> : null}
-    <Handle type="target" position={Position.Left} id="image" />
-    <Handle type="source" position={Position.Right} id="out" />
   </div>;
 }
 export function CanvasMarkdown({ projectId, document }: { projectId: string; document: CanvasMarkdownDocument }) {
