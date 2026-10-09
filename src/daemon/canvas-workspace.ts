@@ -35,6 +35,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - index.json lists boards, documents, and the main document. Keep IDs stable; names and titles may change.
 - boards/<id>.json contains nodes and their content. Every node may have a title and a description of its purpose. Document bodies live in documents/<id>.md, referenced by documentId.
 - Give nodes meaningful titles. Descriptions explain their intended role; do not describe unseen image pixels as verified facts.
+- For game work, identify reference mockups and production assets in node titles/descriptions. Record production assets' intended gameplay use in the design document; reference mockups do not fulfill those requirements.
 - editor/<board-id>.json stores positions and zoom. fitView requests a one-time fit when a remixed board is first opened; the editor clears it after saving the new viewport. New nodes are placed automatically; layout edits are only needed when the user asks to arrange the canvas.
 - assets.json maps asset IDs to names, workspace-relative paths, optional descriptions and generation prompts. Use the same ID for the same asset across boards. References with type "library" resolve through this manifest. libraryAssetId records provenance; local files remain usable without the Library.
 - Read actual image files with read when judging their appearance. A name, description, or generation prompt is not proof of what the image shows.
