@@ -14815,7 +14815,7 @@ button {
 .settings-provider-toggle input:disabled + span { opacity: 0.5; cursor: wait; }
 .settings-provider-mark-slot { color: var(--text-muted); }
 .settings-provider-delete:hover:not(:disabled) { color: var(--danger); }
-.settings-custom-provider-delete { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 11px; }
+.settings-provider-delete-confirmation { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 11px; }
 .custom-provider-dialog { display: flex; width: min(580px, 100%); flex-direction: column; overflow: hidden; }
 .custom-provider-dialog > header { flex-shrink: 0; }
 .custom-provider-dialog > form { display: flex; min-height: 0; flex-direction: column; gap: 0; padding: 0; }
@@ -14836,16 +14836,22 @@ button {
 .custom-model-use-settings details[open] { display: grid; gap: 12px; }
 .custom-model-usage-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .custom-model-usage-badges > small { padding: 2px 5px; border-radius: 4px; background: var(--control-surface); color: var(--text-muted); font-size: 10px; }
-/* Global generation defaults share the provider overview's spacing and controls. */
-.settings-generation-defaults { display: grid; gap: 12px; margin-bottom: 8px; padding: 14px; border-radius: var(--radius); background: var(--surface-raised); }
-.settings-generation-heading { display: grid; gap: 4px; }
-.settings-generation-heading h4 { margin: 0; color: var(--text); font-size: 12px; font-weight: 600; }
-.settings-generation-heading p { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.5; }
-.settings-generation-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 12px; }
-.settings-generation-fields label { display: grid; min-width: 0; gap: 7px; color: var(--text-muted); font-size: 11px; }
-.settings-generation-fields select { width: 100%; min-width: 0; height: 34px; padding: 0 8px; border: 0; border-radius: var(--radius); background: var(--control-surface); color: var(--text); font: inherit; }
-.settings-generation-fields select:disabled { opacity: .5; }
-.settings-generation-fields select:focus-visible { outline: 2px solid var(--text-muted); outline-offset: 2px; }
+/* Default model controls reuse the provider rows and Canvas model picker. */
+.settings-generation-fields { display: grid; gap: 8px; }
+.settings-generation-defaults.is-all .settings-generation-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.settings-generation-defaults .media-default-field { min-height: 38px; padding: 5px 10px; border-radius: var(--radius); background: color-mix(in srgb, var(--settings-row-surface) 70%, transparent); }
+.settings-generation-defaults .canvas-chip { max-width: 240px; }
+.media-default-field { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 16px; color: var(--text-secondary); font-size: 12px; }
+.media-default-field > span { flex: 0 0 auto; }
+.settings-generation-defaults > .settings-error { margin: 0; }
+.project-media-defaults { width: min(300px, calc(100vw - 16px)); max-width: none; gap: 2px; overflow: visible; }
+.project-media-defaults > .canvas-chip-menu-heading { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px 6px; }
+.project-media-defaults .media-default-field { min-height: 34px; padding: 0 8px; font-size: 11px; }
+.project-media-defaults .canvas-chip { max-width: 210px; }
+.project-media-defaults > .settings-error { margin: 0; padding: 6px 8px; font-size: 11px; }
+@media (max-width: 720px) {
+  .settings-generation-defaults.is-all .settings-generation-fields { grid-template-columns: minmax(0, 1fr); }
+}
 .custom-provider-capabilities label { display: flex; align-items: center; gap: 7px; }
 .custom-provider-capabilities input { width: 14px; height: 14px; padding: 0; accent-color: var(--theme-accent); }
 .custom-provider-reasoning-levels { display: grid; gap: 6px; }

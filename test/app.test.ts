@@ -1497,7 +1497,7 @@ describe("daemon", () => {
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({ models: [], providers: [] });
     await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: { apiKey: "meshy-key" } });
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({
-      models: MODEL_3D_MODELS,
+      models: MODEL_3D_MODELS.filter((model) => model.provider === "meshy"),
       providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }],
     });
   });

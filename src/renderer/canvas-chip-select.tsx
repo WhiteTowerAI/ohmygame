@@ -6,6 +6,8 @@ import { menuPlacement } from "./popover-placement.js";
 export interface CanvasChipOption<Value extends string> {
   value: Value;
   label: string;
+  /** A compact label for the trigger; the menu keeps the full label. */
+  shortLabel?: string;
   /** Options sharing a group are listed under its heading, like the Home model picker's providers. */
   group?: string;
 }
@@ -22,7 +24,7 @@ const SEARCH_THRESHOLD = 10;
  * The pill-shaped picker used in canvas node composers, matching the Home
  * composer's chips. The menu renders in body so the canvas cannot clip it.
  */
-export function CanvasChipSelect<Value extends string>({ label, value, options, placeholder, disabled = false, wide = false, notes = [], action, optionAction, onChange }: {
+export function CanvasChipSelect<Value extends string>({ label, value, options, placeholder, disabled = false, wide = false, notes = [], action, optionAction, menuContainer, onChange }: {
   label: string;
   value: Value | undefined;
   options: readonly CanvasChipOption<Value>[];
@@ -34,6 +36,8 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
   /** A footer entry, such as opening provider settings. */
   action?: { label: string; icon?: IconComponent; onSelect: () => void };
   optionAction?: { label: (option: CanvasChipOption<Value>) => string; icon: IconComponent; onSelect: (value: Value, anchor: DOMRect) => void };
+  /** Keeps a nested picker inside its parent overlay's focus and dismissal boundary. */
+  menuContainer?: HTMLElement | null;
   onChange: (value: Value) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -43,7 +47,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const current = options.find((option) => option.value === value);
-  const text = current?.label ?? placeholder ?? "Select";
+  const text = current?.shortLabel ?? current?.label ?? placeholder ?? "Select";
   const searchable = options.length > SEARCH_THRESHOLD;
   const ActionIcon = action?.icon ?? Settings;
   const OptionActionIcon = optionAction?.icon;
@@ -65,7 +69,10 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
       if (!menu.current?.contains(event.target as Node)) close();
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key === "Escape" && !event.defaultPrevented) {
+        close();
+        trigger.current?.focus();
+      }
     };
     // The menu is fixed to the viewport, so panning or zooming the canvas would leave it behind.
     document.addEventListener("pointerdown", closeOutside, true);
@@ -112,8 +119,8 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
       ref={trigger}
       className={`canvas-chip${wide ? " is-wide" : ""}`}
       type="button"
-      title={`${label}: ${current?.group ? `${current.group} · ` : ""}${text}`}
-      aria-label={`${label}: ${text}`}
+      title={`${label}: ${current?.group ? `${current.group} · ` : ""}${current?.label ?? text}`}
+      aria-label={`${label}: ${current?.label ?? text}`}
       aria-haspopup={optionAction ? "menu" : "listbox"}
       aria-expanded={open}
       disabled={disabled || (options.length === 0 && notes.length === 0 && !action)}
@@ -127,7 +134,14 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
         ref={menu}
         className="canvas-chip-menu nodrag nowheel"
         style={position ?? { top: 0, left: 0, visibility: "hidden" }}
-        onKeyDown={(event) => moveFocus(event, menu.current, search.current)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            setOpen(false);
+            trigger.current?.focus();
+          } else moveFocus(event, menu.current, search.current);
+        }}
       >
         {searchable ? <label className="canvas-chip-menu-search">
           <Search size={13} />
@@ -179,7 +193,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
           }}
         ><ActionIcon size={13} /><span>{action.label}</span></button> : null}
       </div>,
-      document.body,
+      menuContainer ?? document.body,
     ) : null}
   </>;
 }

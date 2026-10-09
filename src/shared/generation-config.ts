@@ -21,6 +21,18 @@ export const MODEL_3D_MODELS: readonly Model3DModel[] = [
     maxReferenceImages: 4,
     polycount: { min: 100, max: 300_000, default: 30_000, presets: [10_000, 30_000, 100_000] },
   },
+  {
+    provider: "tripo", providerName: "Tripo", id: "P1-20260311", name: "Tripo P1",
+    maxReferenceImages: 4, referenceImageLabels: ["Front", "Left", "Back", "Right"],
+    polycount: { min: 100, max: 20_000, default: 4_000, presets: [1_000, 4_000, 10_000, 20_000] },
+    supportsTexture: true, supportsPbr: true,
+  },
+  {
+    provider: "tripo", providerName: "Tripo", id: "v3.1-20260211", name: "Tripo V3.1",
+    maxReferenceImages: 4, referenceImageLabels: ["Front", "Left", "Back", "Right"],
+    polycount: { min: 100, max: 1_500_000, default: 30_000, presets: [10_000, 30_000, 100_000, 300_000] },
+    supportsTexture: true, supportsPbr: true,
+  },
 ];
 
 export const DEFAULT_MODEL_3D = MODEL_3D_MODELS[0]!;

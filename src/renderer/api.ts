@@ -232,8 +232,8 @@ export async function saveCustomProvider(settings: SaveCustomProviderRequest, pr
   return result;
 }
 
-export async function removeCustomProvider(providerId: string): Promise<void> {
-  await request(`/settings/models/providers/${encodeURIComponent(providerId)}/custom`, { method: "DELETE" });
+export async function removeProvider(providerId: string): Promise<void> {
+  await request(`/settings/models/providers/${encodeURIComponent(providerId)}`, { method: "DELETE" });
   notifyAgentModelsChanged();
 }
 
@@ -270,8 +270,10 @@ export async function updateOpenAIEndpointSettings(baseUrl: string): Promise<Mod
   });
 }
 
-export async function updateMeshyApiKey(apiKey: string): Promise<{ configured: boolean }> {
-  return request("/settings/models/providers/meshy", { method: "PUT", body: JSON.stringify({ apiKey }) });
+export async function updateModel3DProviderApiKey(providerId: string, apiKey: string): Promise<{ configured: boolean }> {
+  const result = await request<{ configured: boolean }>(`/settings/models/providers/${encodeURIComponent(providerId)}`, { method: "PUT", body: JSON.stringify({ apiKey }) });
+  notifyAgentModelsChanged();
+  return result;
 }
 export async function updateSeedanceApiKey(providerId: string, apiKey: string): Promise<{ configured: boolean }> {
   return request(`/settings/models/providers/${encodeURIComponent(providerId)}/seedance-key`, {

@@ -187,7 +187,7 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["generate-image"],
     label: "Generate Image",
-    description: "Generate an image using the default image model in Settings > Providers and save it into the current project workspace.",
+    description: "Generate an image using the project or global default model and save it into the current project workspace.",
     parameters: Type.Object({
       prompt: Type.String({ description: "A detailed description of the image to generate" }),
       imageModel: Type.Optional(mediaModelParameter()),

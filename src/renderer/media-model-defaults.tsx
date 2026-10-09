@@ -1,23 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { MediaModelCatalog, MediaModelDefaults, MediaModelUsage, ModelRef, ProjectState, ProviderCapability } from "../shared/contracts.js";
 import { MODEL_USAGE_LABELS } from "../shared/custom-models.js";
 import { listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setDefaultMediaModel, updateProjectMediaModelDefaults } from "./api.js";
-import { ProjectSettingsDialogFrame } from "./project-settings-dialog.js";
-import { LoaderCircle } from "./icons.js";
+import { CanvasChipSelect, type CanvasChipOption } from "./canvas-chip-select.js";
+import { LoaderCircle, Settings } from "./icons.js";
+import { menuPlacement } from "./popover-placement.js";
 
 const USAGES = ["image", "video", "3d"] as const;
 type Catalog = MediaModelCatalog<ModelRef & { name: string; providerName: string }>;
 type Catalogs = Partial<Record<MediaModelUsage, Catalog>>;
 
-function useMediaModelCatalogs() {
+function useMediaModelCatalogs(enabled = true) {
   const [catalogs, setCatalogs] = useState<Catalogs>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     let revision = 0;
     const refresh = () => {
       const current = ++revision;
+      setLoading(true);
       void Promise.allSettled([listImageModelCatalog(), listVideoModelCatalog(), listModel3DCatalog()]).then((results) => {
         if (!active || current !== revision) return;
         const loaded: Catalogs = {};
@@ -34,28 +38,33 @@ function useMediaModelCatalogs() {
     refresh();
     window.addEventListener(MODELS_CHANGED_EVENT, refresh);
     return () => { active = false; window.removeEventListener(MODELS_CHANGED_EVENT, refresh); };
-  }, []);
+  }, [enabled]);
   return { catalogs, loading, error };
 }
 
-function ModelDefaultField({ usage, catalog, selected, inherit = false, disabled, onChange }: {
+function ModelDefaultField({ usage, catalog, selected, inherit = false, loading, disabled, menuContainer, onChange }: {
   usage: MediaModelUsage; catalog?: Catalog; selected?: ModelRef; inherit?: boolean; disabled: boolean;
+  loading: boolean;
+  menuContainer?: HTMLElement | null;
   onChange: (model?: ModelRef) => void;
 }) {
-  const configured = selected && catalog?.models.some((model) => modelKey(model) === modelKey(selected));
+  const selectedModel = selected && catalog?.models.find((model) => modelKey(model) === modelKey(selected));
   const automatic = inherit ? catalog?.defaultModel ?? catalog?.models[0] : catalog?.models[0];
   const effective = automatic && catalog?.models.find((model) => modelKey(model) === modelKey(automatic));
-  const fallbackLabel = effective ? `${effective.providerName} · ${effective.name}` : automatic ? "Selected model unavailable" : "No model available";
-  return <label>
+  const effectiveLabel = !catalog ? loading ? "Loading models…" : "Models unavailable" : effective?.name ?? (automatic ? `${automatic.id} · Unavailable` : "No model available");
+  const automaticLabel = catalog ? `${inherit ? "Use global" : "Automatic"} · ${effectiveLabel}` : effectiveLabel;
+  const options: CanvasChipOption<string>[] = [
+    { value: "", label: automaticLabel, shortLabel: effectiveLabel },
+    ...(selected && !selectedModel ? [{ value: modelKey(selected), label: `${selected.id} · Unavailable`, group: selected.provider }] : []),
+    ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, group: model.providerName })) ?? []),
+  ];
+  return <div className="media-default-field">
     <span>{MODEL_USAGE_LABELS[usage]}</span>
-    <select aria-label={`${inherit ? "Project" : "Global default"} ${MODEL_USAGE_LABELS[usage]} model`} disabled={disabled || !catalog}
-      value={configured ? modelKey(selected) : selected ? "__unavailable" : ""}
-      onChange={(event) => onChange(catalog?.models.find((model) => modelKey(model) === event.target.value))}>
-      <option value="">{inherit ? "Inherit global" : "Automatic"} · {fallbackLabel}</option>
-      {selected && !configured ? <option value="__unavailable" disabled>Unavailable · {selected.provider} / {selected.id}</option> : null}
-      {catalog?.models.map((model) => <option key={modelKey(model)} value={modelKey(model)}>{model.providerName} · {model.name}</option>)}
-    </select>
-  </label>;
+    <CanvasChipSelect label={`${inherit ? "Project" : "Global default"} ${MODEL_USAGE_LABELS[usage]} model`}
+      value={selected ? modelKey(selected) : ""} options={options} menuContainer={menuContainer}
+      disabled={disabled || !catalog || (!catalog.models.length && !selected)}
+      onChange={(value) => onChange(catalog?.models.find((model) => modelKey(model) === value))} />
+  </div>;
 }
 
 export function GlobalMediaModelDefaults({ capability }: { capability: "all" | ProviderCapability }) {
@@ -71,50 +80,82 @@ export function GlobalMediaModelDefaults({ capability }: { capability: "all" | P
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-  return <section className="settings-generation-defaults" aria-label="Global generation defaults">
-    <div className="settings-generation-heading"><h4>Global defaults</h4><p>Used by projects that inherit global settings.</p></div>
+  return <section className={`settings-generation-defaults settings-provider-group${capability === "all" ? " is-all" : ""}`} aria-label="Global generation defaults">
+    <h4>Default models</h4>
     <div className="settings-generation-fields">
-      {usages.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={catalogs[usage]?.defaultModel} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
+      {usages.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={catalogs[usage]?.defaultModel} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
     </div>
     {error || loadError ? <p role="alert" className="settings-error">{error ?? loadError}</p> : null}
   </section>;
 }
 
-export function ProjectMediaModelSettingsDialog({ project, onClose, onSaved }: {
-  project: ProjectState; onClose: () => void; onSaved: (project: ProjectState) => void;
+export function ProjectMediaModelSettings({ project, onSaved }: {
+  project: ProjectState; onSaved: (project: ProjectState) => void;
 }) {
-  const { catalogs, loading, error: loadError } = useMediaModelCatalogs();
+  const titleId = useId();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [popup, setPopup] = useState<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number }>();
+  const { catalogs, loading, error: loadError } = useMediaModelCatalogs(open);
   const [defaults, setDefaults] = useState<MediaModelDefaults>(() => ({ ...project.mediaModelDefaults }));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
+  useEffect(() => { setDefaults({ ...project.mediaModelDefaults }); }, [project.mediaModelDefaults]);
+  useLayoutEffect(() => {
+    if (!open) { setPosition(undefined); return; }
+    const anchor = trigger.current?.getBoundingClientRect();
+    const bounds = popup?.getBoundingClientRect();
+    if (anchor && bounds) setPosition(menuPlacement(anchor, bounds, { width: window.innerWidth, height: window.innerHeight }));
+  }, [open, popup, loading, error, loadError]);
+  useLayoutEffect(() => {
+    if (open && position && document.activeElement === trigger.current) popup?.querySelector<HTMLButtonElement>(".canvas-chip")?.focus();
+  }, [open, position, popup]);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: PointerEvent) => {
+      if (!popup?.contains(event.target as Node) && !trigger.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const close = () => setOpen(false);
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      close();
+      trigger.current?.focus();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    window.addEventListener("keydown", escape);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", outside, true);
+      window.removeEventListener("keydown", escape);
+      window.removeEventListener("resize", close);
+    };
+  }, [open, popup]);
+
+  async function choose(usage: MediaModelUsage, model?: ModelRef) {
     if (saving) return;
     setSaving(true); setError(undefined);
+    const next = { ...defaults };
+    if (model) next[usage] = { provider: model.provider, id: model.id };
+    else delete next[usage];
     try {
-      const updated = await updateProjectMediaModelDefaults(project.id, defaults);
+      const updated = await updateProjectMediaModelDefaults(project.id, next);
+      setDefaults({ ...updated.mediaModelDefaults });
       onSaved(updated);
-      onClose();
-    } catch (cause) { setError(errorMessage(cause)); setSaving(false); }
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
   }
-  return <ProjectSettingsDialogFrame busy={saving} onClose={onClose}>
-    <form onSubmit={(event) => void submit(event)}>
-      <section className="project-settings-project" aria-label="Project"><span>Project</span><strong title={project.name}>{project.name}</strong></section>
-      <fieldset className="project-settings-section">
-        <legend>Generation models</legend>
-        <p className="project-settings-hint">Defaults for new nodes and generations in this project. Existing nodes keep their selected models.</p>
-        {USAGES.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={defaults[usage]} inherit disabled={saving || loading}
-          onChange={(model) => setDefaults((current) => {
-            const next = { ...current };
-            if (model) next[usage] = { provider: model.provider, id: model.id };
-            else delete next[usage];
-            return next;
-          })} />)}
-      </fieldset>
-      {error || loadError ? <p className="project-settings-error" role="alert">{error ?? loadError}</p> : null}
-      <footer><button type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="project-settings-submit" type="submit" disabled={saving || loading}>{saving ? <LoaderCircle className="spin" size={14} /> : null}Save</button></footer>
-    </form>
-  </ProjectSettingsDialogFrame>;
+  return <>
+    <button ref={trigger} className="icon-button pane-header-action" type="button" title="Project settings" aria-label="Project settings" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((next) => !next)}><Settings size={14} /></button>
+    {open ? createPortal(<div ref={setPopup} className="canvas-chip-menu project-media-defaults" role="dialog" aria-labelledby={titleId}
+      style={position ?? { top: 0, left: 0, visibility: "hidden" }}>
+      <div className="canvas-chip-menu-heading" id={titleId}>Default models{saving ? <LoaderCircle className="spin" size={12} aria-label="Saving" /> : null}</div>
+      {USAGES.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={defaults[usage]} inherit loading={loading} disabled={saving || loading} menuContainer={popup} onChange={(model) => void choose(usage, model)} />)}
+      {error || loadError ? <p className="settings-error" role="alert">{error ?? loadError}</p> : null}
+    </div>, document.body) : null}
+  </>;
 }
 
 function modelKey(model: ModelRef): string { return JSON.stringify([model.provider, model.id]); }

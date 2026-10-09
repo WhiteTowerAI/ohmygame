@@ -98,7 +98,7 @@ function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalo
       aspectRatios: [...new Set(image.generationOptions.map((option) => option.aspectRatio))], maxReferenceImages: Math.min(14, image.maxReferenceImages ?? 1), maxOutputs: image.maxOutputs } : defaultImageSettings(protocol);
   }
   if (outputs.includes("video")) usages.video = defaultVideoSettings(preset === "seedance" ? "seedance" : "openrouter-videos");
-  if (outputs.includes("3d") || outputs.includes("model") || preset === "meshy") usages["3d"] = defaultModel3DSettings(id === "meshy-t2" ? "smart-topology" : "standard");
+  if (outputs.includes("3d") || outputs.includes("model") || preset === "meshy" || preset === "tripo") usages["3d"] = defaultModel3DSettings(id === "meshy-t2" ? "smart-topology" : "standard", preset === "tripo" ? "tripo" : "meshy");
   const contextWindow = tokenLimit(value.contextWindow ?? value.context_length ?? value.inputTokenLimit) ?? known?.contextWindow ?? 128_000;
   const topProvider = isObject(value.top_provider) ? value.top_provider : undefined;
   const maxTokens = Math.min(contextWindow, tokenLimit(value.maxTokens ?? value.max_tokens ?? value.outputTokenLimit ?? topProvider?.max_completion_tokens) ?? known?.maxTokens ?? 16_384);

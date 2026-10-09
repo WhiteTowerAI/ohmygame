@@ -49,15 +49,20 @@ describe("Markdown design workspace", () => {
     const generate = vi.fn<ImageGenerator["generate"]>()
       .mockRejectedValueOnce(new ImageGenerationError("Temporary service failure", 502))
       .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
-    const resolve = vi.fn(async (_tool: string, input: RunToolRequest, projectId?: string) => ({ ...input, imageModel: "imageModel" in input && input.imageModel ? input.imageModel : { provider: projectId!, id: defaultId } }));
+    const resolve = vi.fn(async (_tool: string, input: RunToolRequest, projectId?: string) => {
+      if (!projectId) throw new Error("Project context missing");
+      return { ...input, imageModel: "imageModel" in input && input.imageModel ? input.imageModel : { provider: projectId, id: defaultId } };
+    });
     const { store, project, projects, library, tools, boardId, node } = await runtime({ generate }, "asset-canvas", resolve);
     const first = await store.generateNode(project.id, boardId, node.id);
     expect(first.model).toEqual({ provider: project.id, id: "project-image" });
-    expect((await waitForJob(store, project.id)).status).toBe("failed");
+    expect(await waitForJob(store, project.id)).toMatchObject({ status: "failed", error: "Temporary service failure" });
+    expect(resolve).toHaveBeenCalledOnce();
     defaultId = "changed-image";
     const restored = new CanvasStore(projects, library, tools); stores.push(restored);
     await restored.retry(project.id, first.id);
     expect((await waitForJob(restored, project.id)).status).toBe("succeeded");
+    expect(resolve).toHaveBeenCalledTimes(2);
     expect(generate.mock.calls.map(([input]) => input.imageModel)).toEqual([{ provider: project.id, id: "project-image" }, { provider: project.id, id: "project-image" }]);
     const history = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"));
     expect(history[0].model).toEqual({ provider: project.id, id: "project-image" });
@@ -271,7 +276,7 @@ describe("Markdown design workspace", () => {
     detail.board.nodes.push(video); detail.board.editorLayout.nodes[video.id] = video.position;
     await store.saveBoard(project.id, detail.board, detail.revision);
     const output = await library.add("walk.mp4", Buffer.from("video"));
-    const run = vi.spyOn(tools, "run").mockRejectedValueOnce(new Error("Temporary provider error")).mockResolvedValueOnce({ id: "retry-run", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
+    const run = vi.spyOn(tools, "runPrepared").mockRejectedValueOnce(new Error("Temporary provider error")).mockResolvedValueOnce({ id: "retry-run", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
     const job = await store.generateNode(project.id, boardId, video.id);
     expect((await waitForJob(store, project.id)).status).toBe("failed");
     await store.retry(project.id, job.id);
@@ -380,7 +385,7 @@ describe("Markdown design workspace", () => {
     board.board.nodes.push(video); board.board.editorLayout.nodes[video.id] = video.position;
     await store.saveBoard(project.id, board.board, board.revision);
     const output = await library.add("garden.mp4", Buffer.from("video"));
-    vi.spyOn(tools, "run").mockResolvedValue({ id: "video-run", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
+    vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "video-run", toolId: "generate-video", createdAt: "now", files: [{ name: output.name, mediaType: "video/mp4", assetId: output.id }] });
     await store.generateNode(project.id, boardId, video.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
   });
@@ -452,7 +457,7 @@ describe("Markdown design workspace", () => {
       : createAssetGenerationNode(toolId === "generate-video" ? "video" : "model-3d", { x: 0, y: 0 });
     board.board.nodes.push(node); board.board.editorLayout.nodes[node.id] = node.position; await store.saveBoard(project.id, board.board, board.revision);
     const output = await library.add(toolId === "generate-video" ? "output.mp4" : "output.glb", Buffer.from("output"));
-    vi.spyOn(tools, "run").mockResolvedValue({ id: "run", toolId, createdAt: "now", files: [{ name: output.name, mediaType: toolId === "generate-video" ? "video/mp4" : "model/gltf-binary", assetId: output.id }] } satisfies ToolRun);
+    vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "run", toolId, createdAt: "now", files: [{ name: output.name, mediaType: toolId === "generate-video" ? "video/mp4" : "model/gltf-binary", assetId: output.id }] } satisfies ToolRun);
     await store.start(project.id, boardId, node.id, toolId, {} as RunToolRequest);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded"); expect((await store.board(project.id, boardId)).board.nodes.find((candidate) => candidate.id === node.id)!.data).toHaveProperty("assetId", output.id);
   });
@@ -467,7 +472,7 @@ describe("Markdown design workspace", () => {
     await store.saveBoard(project.id, board.board, board.revision);
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
     const output = await library.add("animated.glb", Buffer.from("animated"));
-    const run = vi.spyOn(tools, "run").mockResolvedValue({ id: "animation-run", toolId: "animate-3d", createdAt: "now", files: [{ name: output.name, mediaType: "model/gltf-binary", assetId: output.id }] });
+    const run = vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "animation-run", toolId: "animate-3d", createdAt: "now", files: [{ name: output.name, mediaType: "model/gltf-binary", assetId: output.id }] });
     await store.generateNode(project.id, boardId, animation.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     expect(run).toHaveBeenCalledWith("animate-3d", { assetId: source.id, actionIds: [0], heightMeters: 1.7 }, expect.any(AbortSignal));
@@ -488,7 +493,7 @@ describe("Markdown design workspace", () => {
     await store.saveBoard(project.id, board.board, board.revision);
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
     const output = await library.add("character.glb", Buffer.from("model"));
-    const run = vi.spyOn(tools, "run").mockResolvedValue({ id: "3d-run", toolId: "image-to-3d", createdAt: "now", files: [{ name: output.name, mediaType: "model/gltf-binary", assetId: output.id }] });
+    const run = vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "3d-run", toolId: "image-to-3d", createdAt: "now", files: [{ name: output.name, mediaType: "model/gltf-binary", assetId: output.id }] });
     await store.generateNode(project.id, boardId, model.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
     const input = run.mock.calls[0]![1];
@@ -506,7 +511,7 @@ describe("Markdown design workspace", () => {
     model.data.images = [{ type: "library", assetId: reference.id }];
     board.board.nodes.push(model); board.board.editorLayout.nodes[model.id] = model.position;
     await store.saveBoard(project.id, board.board, board.revision);
-    const run = vi.spyOn(tools, "run");
+    const run = vi.spyOn(tools, "runPrepared");
     await expect(store.generateNode(project.id, boardId, model.id)).rejects.toThrow("Could not convert the WebP");
     expect(run).not.toHaveBeenCalled();
     expect(await store.jobs(project.id)).toEqual([]);

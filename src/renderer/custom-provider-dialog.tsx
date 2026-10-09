@@ -15,6 +15,7 @@ const PRESETS = {
   google: { name: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", api: "google-generative-ai", authentication: "api_key" },
   openrouter: { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", api: "openai-completions", authentication: "api_key" },
   seedance: { name: "Volcengine Ark", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", api: "openai-completions", authentication: "api_key" },
+  tripo: { name: "Tripo", baseUrl: "https://openapi.tripo3d.ai/v3", api: "openai-completions", authentication: "api_key" },
   meshy: { name: "Meshy", baseUrl: "https://api.meshy.ai/openapi/v1", api: "openai-completions", authentication: "api_key" },
 } as const;
 
@@ -196,7 +197,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
           <fieldset className="project-settings-section" disabled={saving}>
             <div className={!settings ? "project-settings-field-row" : undefined}>
               {!settings ? <label><span>Preset</span><select value={preset} onChange={(event) => { const next = event.target.value as keyof typeof PRESETS; cancelDiscovery(); setForm({ ...PRESETS[next], preset: next }); setRows((current) => current.map((row) => ({ ...row, model: invalidateCustomModelCapabilities(row.model, row.model.api === form.api ? PRESETS[next].api : row.model.api) }))); setManual((current) => invalidateCustomModelCapabilities(current, PRESETS[next].api)); setDiscoveryError(undefined); setDiscoveryWarnings([]); setFetchedCount(undefined); setTruncated(false); }}>
-                <option value="gateway">Custom gateway</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="google">Gemini</option><option value="openrouter">OpenRouter</option><option value="seedance">Seedance / Ark</option><option value="meshy">Meshy</option>
+                <option value="gateway">Custom gateway</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="google">Gemini</option><option value="openrouter">OpenRouter</option><option value="seedance">Seedance / Ark</option><option value="meshy">Meshy</option><option value="tripo">Tripo</option>
               </select></label> : null}
               <label><span>Display name</span><input ref={nameInput} value={form.name} onChange={(event) => field("name", event.target.value)} placeholder="My provider" maxLength={100} required autoComplete="off" /></label>
             </div>
