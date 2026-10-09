@@ -10,9 +10,7 @@ import {
   type ImageModel,
   type ImageOutputCount,
   type ImageResolution,
-  type VideoAspectRatio,
   type VideoModel,
-  type VideoResolution,
 } from "../shared/contracts.js";
 import { withOpenRouterAttribution } from "./openrouter-attribution.js";
 
@@ -20,6 +18,7 @@ export interface OpenRouterMediaSource {
   baseUrl: string;
   apiKey: string;
   headers: Record<string, string>;
+  authentication?: "api_key" | "none";
 }
 
 interface CapabilityDescriptor {
@@ -100,7 +99,7 @@ export async function listOpenRouterVideoModels(source: OpenRouterMediaSource, r
 export function openRouterHeaders(source: OpenRouterMediaSource, json = false): Record<string, string> {
   return {
     ...withOpenRouterAttribution(source.headers),
-    authorization: `Bearer ${source.apiKey}`,
+    ...(source.authentication === "none" ? {} : { authorization: `Bearer ${source.apiKey}` }),
     ...(json ? { "content-type": "application/json" } : {}),
   };
 }

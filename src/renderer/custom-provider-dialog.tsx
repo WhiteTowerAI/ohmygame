@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { AGENT_REASONING_LEVELS, CUSTOM_MODEL_APIS, type CustomProviderDetails, type CustomProviderModel, type SaveCustomProviderRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, CUSTOM_MODEL_APIS, type CustomProviderDetails, type CustomProviderModel, type SaveCustomProviderRequest, type CustomProviderPreset } from "../shared/contracts.js";
+import { modelUsageList, modelUsages, MODEL_USAGE_LABELS } from "../shared/custom-models.js";
+import { CustomModelUsageFields } from "./custom-model-usage-fields.js";
 import { reasoningLabel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { discoverCustomProviderModels, saveCustomProvider } from "./api.js";
 import { LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
@@ -10,6 +12,10 @@ const PRESETS = {
   gateway: { name: "", baseUrl: "", api: "openai-completions", authentication: "api_key" },
   ollama: { name: "Ollama", baseUrl: "http://localhost:11434/v1", api: "openai-completions", authentication: "none" },
   lmstudio: { name: "LM Studio", baseUrl: "http://localhost:1234/v1", api: "openai-completions", authentication: "none" },
+  google: { name: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", api: "google-generative-ai", authentication: "api_key" },
+  openrouter: { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", api: "openai-completions", authentication: "api_key" },
+  seedance: { name: "Volcengine Ark", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", api: "openai-completions", authentication: "api_key" },
+  meshy: { name: "Meshy", baseUrl: "https://api.meshy.ai/openapi/v1", api: "openai-completions", authentication: "api_key" },
 } as const;
 
 export const PROVIDER_API_LABELS: Record<string, string> = {
@@ -20,7 +26,7 @@ export const PROVIDER_API_LABELS: Record<string, string> = {
   "google-vertex": "Google Vertex AI",
 };
 
-const emptyModel = (): CustomProviderModel => ({ id: "", name: "", api: "openai-completions", contextWindow: 128_000, maxTokens: 16_384, reasoning: false, supportsImages: false });
+const emptyModel = (): CustomProviderModel => ({ id: "", name: "", api: "openai-completions", contextWindow: 128_000, maxTokens: 16_384, reasoning: false, supportsImages: false, usages: {} });
 
 export type CustomProviderField = "name" | "baseUrl" | "api" | "apiKey" | "models";
 
@@ -42,16 +48,17 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
   const closeRef = useRef(onClose);
   const savingRef = useRef(false);
   const discovery = useRef<AbortController | undefined>(undefined);
-  const [preset, setPreset] = useState<keyof typeof PRESETS>("gateway");
-  const [form, setForm] = useState<SaveCustomProviderRequest>(settings ? { name: settings.name, baseUrl: settings.baseUrl, api: settings.api, authentication: settings.authentication } : PRESETS.gateway);
+  const [form, setForm] = useState<SaveCustomProviderRequest>(settings ? { name: settings.name, baseUrl: settings.baseUrl, api: settings.api, authentication: settings.authentication, preset: settings.preset } : { ...PRESETS.gateway, preset: "gateway" });
+  const preset = form.preset ?? "gateway";
   const [rows, setRows] = useState<ModelRow[]>(() => {
     const hidden = new Set(settings?.hiddenModelIds);
-    return settings?.models.map((model) => ({ model, enabled: !hidden.has(model.id), saved: true })) ?? [];
+    return settings?.models.map((model) => ({ model, enabled: !hidden.has(model.id) })) ?? [];
   });
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<string>();
   const [fetching, setFetching] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string>();
+  const [discoveryWarnings, setDiscoveryWarnings] = useState<string[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [fetchedCount, setFetchedCount] = useState<number>();
   const [manualOpen, setManualOpen] = useState(false);
@@ -93,7 +100,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
   }
 
   function field<K extends keyof SaveCustomProviderRequest>(key: K, value: SaveCustomProviderRequest[K]): void {
-    if (key !== "name") { cancelDiscovery(); setDiscoveryError(undefined); setFetchedCount(undefined); setTruncated(false); }
+    if (key !== "name") { cancelDiscovery(); setDiscoveryError(undefined); setDiscoveryWarnings([]); setFetchedCount(undefined); setTruncated(false); }
     if (key === "api" || key === "baseUrl") {
       setRows((current) => current.map((row) => ({ ...row, model: invalidateCustomModelCapabilities(row.model, key === "api" && row.model.api === form.api ? String(value) : row.model.api) })));
       setManual((current) => invalidateCustomModelCapabilities(current, key === "api" ? String(value) : current.api));
@@ -108,12 +115,14 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
     discovery.current = controller;
     setFetching(true);
     setDiscoveryError(undefined);
+    setDiscoveryWarnings([]);
     try {
-      const loaded = await discoverCustomProviderModels({ providerId: settings?.id, baseUrl: form.baseUrl, api: form.api, authentication: form.authentication, apiKey: form.authentication === "api_key" ? form.apiKey : undefined }, controller.signal);
+      const loaded = await discoverCustomProviderModels({ providerId: settings?.id, baseUrl: form.baseUrl, api: form.api, authentication: form.authentication, apiKey: form.authentication === "api_key" ? form.apiKey : undefined, preset: form.preset }, controller.signal);
       if (controller.signal.aborted) return;
       setRows((current) => mergeDiscoveredProviderModels(current, loaded.models));
       setFetchedCount(loaded.models.length);
       setTruncated(loaded.truncated === true);
+      setDiscoveryWarnings(loaded.warnings ?? []);
     } catch (cause) {
       if (!controller.signal.aborted) setDiscoveryError(cause instanceof Error ? cause.message : String(cause));
     } finally { if (!controller.signal.aborted) setFetching(false); }
@@ -121,6 +130,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
 
   function updateModel(id: string, model: CustomProviderModel): void {
     setRows((current) => current.map((row) => row.model.id === id ? { ...row, model } : row));
+    setError(undefined);
   }
 
   function toggleModels(ids: string[], enabled: boolean): void {
@@ -129,15 +139,15 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
   }
 
   function addManualModel(): void {
-    const model = { ...manual, id: manual.id.trim(), name: manual.name.trim() || manual.id.trim(), api: form.api };
-    const invalid = modelError(model);
+    const model = { ...manual, id: manual.id.trim(), name: manual.name.trim() || manual.id.trim() };
+    const invalid = modelError(model, true);
     if (invalid || rows.some((row) => row.model.id === model.id)) {
       setError(invalid ?? "A model with this ID is already in the list.");
       setManualOpen(true);
       return;
     }
-    setRows((current) => [...current, { model, enabled: true, saved: false }]);
-    setManual(emptyModel());
+    setRows((current) => [...current, { model, enabled: true }]);
+    setManual({ ...emptyModel(), api: form.api });
     setManualOpen(false);
     setQuery("");
     setError(undefined);
@@ -147,12 +157,11 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
     event.preventDefault();
     if (savingRef.current) return;
     if (!nameInput.current?.reportValidity() || !endpointInput.current?.reportValidity() || (keyInput.current && !keyInput.current.reportValidity())) return;
-    const included = rows.filter((row) => row.saved || row.enabled);
-    for (const row of included) {
-      const invalid = modelError(row.model);
+    for (const row of rows) {
+      const invalid = modelError(row.model, row.enabled);
       if (invalid) { setError(invalid); setQuery(""); setEditing(row.model.id); return; }
     }
-    const models = included.map((row) => ({ ...row.model, name: row.model.name.trim() || row.model.id }));
+    const models = rows.map((row) => ({ ...row.model, name: row.model.name.trim() || row.model.id }));
     cancelDiscovery();
     savingRef.current = true;
     setSaving(true);
@@ -160,8 +169,9 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
     try {
       const saved = await saveCustomProvider({
         ...form,
+        modelConfigurationVersion: 2,
         apiKey: form.authentication === "api_key" ? form.apiKey : undefined,
-        models, hiddenModelIds: included.filter((row) => !row.enabled).map((row) => row.model.id),
+        models, hiddenModelIds: rows.filter((row) => !row.enabled).map((row) => row.model.id),
       }, settings?.id);
       onSaved(saved);
     } catch (cause) {
@@ -173,8 +183,9 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
 
   const search = query.trim().toLowerCase();
   const visibleModels = rows.filter((row) => !search || `${row.model.id} ${row.model.name}`.toLowerCase().includes(search));
-  const enabledCount = rows.filter((row) => row.enabled).length;
-  const allVisibleEnabled = visibleModels.length > 0 && visibleModels.every((row) => row.enabled);
+  const enabledCount = rows.filter((row) => row.enabled && modelUsageList(row.model).length).length;
+  const configuredModels = visibleModels.filter((row) => modelUsageList(row.model).length);
+  const allVisibleEnabled = configuredModels.length > 0 && configuredModels.every((row) => row.enabled);
 
   return createPortal(<div className="project-settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingRef.current) onClose(); }}>
     <section ref={dialog} className="project-settings-dialog custom-provider-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
@@ -184,38 +195,39 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
           <p className="custom-provider-intro">Connect a gateway or a local model service with its own endpoint and models.</p>
           <fieldset className="project-settings-section" disabled={saving}>
             <div className={!settings ? "project-settings-field-row" : undefined}>
-              {!settings ? <label><span>Preset</span><select value={preset} onChange={(event) => { const next = event.target.value as keyof typeof PRESETS; cancelDiscovery(); setPreset(next); setForm({ ...PRESETS[next] }); setRows((current) => current.map((row) => ({ ...row, model: invalidateCustomModelCapabilities(row.model, row.model.api === form.api ? PRESETS[next].api : row.model.api) }))); setManual((current) => invalidateCustomModelCapabilities(current, PRESETS[next].api)); setDiscoveryError(undefined); setFetchedCount(undefined); setTruncated(false); }}>
-                <option value="gateway">Custom gateway</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option>
+              {!settings ? <label><span>Preset</span><select value={preset} onChange={(event) => { const next = event.target.value as keyof typeof PRESETS; cancelDiscovery(); setForm({ ...PRESETS[next], preset: next }); setRows((current) => current.map((row) => ({ ...row, model: invalidateCustomModelCapabilities(row.model, row.model.api === form.api ? PRESETS[next].api : row.model.api) }))); setManual((current) => invalidateCustomModelCapabilities(current, PRESETS[next].api)); setDiscoveryError(undefined); setDiscoveryWarnings([]); setFetchedCount(undefined); setTruncated(false); }}>
+                <option value="gateway">Custom gateway</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="google">Gemini</option><option value="openrouter">OpenRouter</option><option value="seedance">Seedance / Ark</option><option value="meshy">Meshy</option>
               </select></label> : null}
               <label><span>Display name</span><input ref={nameInput} value={form.name} onChange={(event) => field("name", event.target.value)} placeholder="My provider" maxLength={100} required autoComplete="off" /></label>
             </div>
             <label><span>Base URL</span><input ref={endpointInput} type="url" value={form.baseUrl} onChange={(event) => field("baseUrl", event.target.value)} placeholder="https://api.example.com/v1" required autoComplete="off" spellCheck={false} /><small>Use the API endpoint, including /v1 when your service requires it.</small></label>
             <div className="project-settings-field-row">
-              <label><span>API protocol</span><select ref={apiInput} value={form.api} onChange={(event) => field("api", event.target.value)}>{CUSTOM_MODEL_APIS.map((api) => <option key={api} value={api}>{PROVIDER_API_LABELS[api]}</option>)}</select></label>
+              <label><span>Default language protocol</span><select ref={apiInput} value={form.api} onChange={(event) => field("api", event.target.value)}>{CUSTOM_MODEL_APIS.map((api) => <option key={api} value={api}>{PROVIDER_API_LABELS[api]}</option>)}</select></label>
               <label><span>Authentication</span><select ref={authenticationInput} value={form.authentication} onChange={(event) => field("authentication", event.target.value as SaveCustomProviderRequest["authentication"])}><option value="api_key">API key</option><option value="none">No API key</option></select></label>
             </div>
             {form.authentication === "api_key" ? <label><span>API key</span><input ref={keyInput} type="password" value={form.apiKey ?? ""} onChange={(event) => field("apiKey", event.target.value)} required={!settings || settings.authentication !== "api_key"} placeholder={settings?.authentication === "api_key" ? "Leave blank to keep the current key" : "Paste your API key"} autoComplete="new-password" spellCheck={false} /></label> : <p className="custom-provider-hint">For local services that do not require an API key.</p>}
           </fieldset>
           <section className="custom-provider-model-picker" aria-label="Model settings">
             <div className="custom-provider-model-heading">
-              <h3>Language models <small>{enabledCount} enabled</small></h3>
+              <h3>Models <small>{enabledCount} enabled</small></h3>
               <button ref={fetchButton} className="settings-secondary-button" type="button" disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? "Fetching…" : "Fetch"}</button>
             </div>
-            <p className="custom-provider-hint">Fetch models or add them manually. You can save this provider without any models.</p>
+            <p className="custom-provider-hint">Fetch all models or add an ID manually. Choose each model's uses and protocols, then enable it.</p>
+            {discoveryWarnings.map((warning) => <p className="custom-provider-hint" role="status" key={warning}>{warning}</p>)}
             {discoveryError ? <p className="project-settings-error" role="alert">{discoveryError}</p> : null}
             {fetchedCount !== undefined ? <p className="custom-provider-hint" role="status">{truncated ? `Fetched the first ${fetchedCount} models. Other model IDs can be added manually.` : `Fetched ${fetchedCount} models.`}</p> : null}
             {rows.length ? <>
               <label className="custom-provider-model-search"><Search size={14} /><input ref={modelSearch} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search models" aria-label="Search models" disabled={saving} /></label>
               {visibleModels.length ? <>
-                <label className="custom-provider-select-all"><input type="checkbox" checked={allVisibleEnabled} onChange={(event) => toggleModels(visibleModels.map((row) => row.model.id), event.target.checked)} disabled={saving} />{search ? "Enable matching models" : "Enable all models"}</label>
+                <label className="custom-provider-select-all"><input type="checkbox" checked={allVisibleEnabled} onChange={(event) => toggleModels(configuredModels.map((row) => row.model.id), event.target.checked)} disabled={saving || !configuredModels.length} />{search ? "Enable matching configured models" : "Enable all configured models"}</label>
                 <div className={`custom-provider-model-results${visibleModels.some((row) => row.model.id === editing) ? " is-editing" : ""}`} role="group" aria-label="Available models">
                   {visibleModels.map((row) => <div className="custom-provider-model-item" key={row.model.id}>
                     <div className="custom-provider-model-row">
-                      <label className="custom-provider-model-choice"><input type="checkbox" aria-label={`Enable ${row.model.name || row.model.id}`} checked={row.enabled} onChange={(event) => toggleModels([row.model.id], event.target.checked)} disabled={saving} /><span><strong>{row.model.name || row.model.id}</strong><small>{row.model.id}</small></span></label>
+                      <label className="custom-provider-model-choice"><input type="checkbox" aria-label={`Enable ${row.model.name || row.model.id}`} checked={row.enabled} onChange={(event) => { toggleModels([row.model.id], event.target.checked); if (event.target.checked && !modelUsageList(row.model).length) setEditing(row.model.id); }} disabled={saving} /><span><strong>{row.model.name || row.model.id}</strong><small>{row.model.id}</small><span className="custom-model-usage-badges">{modelUsageList(row.model).length ? modelUsageList(row.model).map((usage) => <small key={usage}>{MODEL_USAGE_LABELS[usage]}</small>) : <small>Unassigned</small>}</span></span></label>
                       <button className="icon-button" type="button" aria-label={`Edit ${row.model.name || row.model.id}`} data-tooltip={`Edit ${row.model.name || row.model.id}`} aria-expanded={editing === row.model.id} disabled={saving} onClick={() => setEditing((current) => current === row.model.id ? undefined : row.model.id)}><Pencil size={14} /></button>
                       <button className="icon-button" type="button" aria-label={`Remove ${row.model.name || row.model.id}`} data-tooltip={`Remove ${row.model.name || row.model.id}`} disabled={saving} onClick={() => { setRows((current) => current.filter((item) => item.model.id !== row.model.id)); if (editing === row.model.id) setEditing(undefined); }}><Trash2 size={14} /></button>
                     </div>
-                    {editing === row.model.id ? <div className="custom-provider-model-editor" role="group" aria-label={`Edit model ${row.model.id}`}><ModelFields model={row.model} onChange={(model) => updateModel(row.model.id, model)} disabled={saving} /></div> : null}
+                    {editing === row.model.id ? <div className="custom-provider-model-editor" role="group" aria-label={`Edit model ${row.model.id}`}><ModelFields model={row.model} preset={form.preset} onChange={(model) => updateModel(row.model.id, model)} disabled={saving} /></div> : null}
                   </div>)}
                 </div>
               </> : <p className="custom-provider-hint">No models match your search.</p>}
@@ -223,7 +235,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
             <details className="custom-provider-manual" open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)}>
               <summary>Add a model manually</summary>
               <label><span>Model ID</span><input value={manual.id} onChange={(event) => setManual((current) => ({ ...current, id: event.target.value }))} placeholder={preset === "ollama" ? "qwen3:8b" : "Model ID from your provider"} maxLength={200} disabled={saving} autoComplete="off" spellCheck={false} /></label>
-              <details className="custom-provider-advanced"><summary>Advanced model settings</summary><ModelFields model={manual} onChange={setManual} disabled={saving || !manual.id.trim()} /></details>
+              <ModelFields model={manual} preset={form.preset} onChange={setManual} disabled={saving || !manual.id.trim()} />
               <button className="settings-secondary-button custom-provider-manual-add" type="button" disabled={saving || !manual.id.trim()} onClick={addManualModel}><Plus size={13} />Add model</button>
             </details>
           </section>
@@ -235,14 +247,24 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
   </div>, document.body);
 }
 
-function ModelFields({ model, onChange, disabled }: { model: CustomProviderModel; onChange: (model: CustomProviderModel) => void; disabled: boolean }) {
+function ModelFields({ model, preset, onChange, disabled }: { model: CustomProviderModel; preset?: CustomProviderPreset; onChange: (model: CustomProviderModel) => void; disabled: boolean }) {
+  const usages = modelUsages(model);
+  return <fieldset className="project-settings-section" disabled={disabled}>
+    <label><span>Model display name</span><input value={model.name} onChange={(event) => onChange({ ...model, name: event.target.value })} placeholder={model.id || "Same as model ID"} maxLength={200} /></label>
+    <CustomModelUsageFields usages={usages} preset={preset} onChange={(usages) => onChange({ ...model, usages })} />
+    {usages.language ? <details className="custom-provider-advanced"><summary>Language settings</summary><LanguageModelFields model={model} onChange={onChange} disabled={disabled} /></details> : null}
+  </fieldset>;
+}
+
+function LanguageModelFields({ model, onChange, disabled }: { model: CustomProviderModel; onChange: (model: CustomProviderModel) => void; disabled: boolean }) {
   const field = <K extends keyof CustomProviderModel>(key: K, value: CustomProviderModel[K]) => onChange({ ...model, [key]: value });
   const automaticMap = model.reasoningCapabilities?.thinkingLevelMap;
   const automaticLevels = supportedReasoningLevels({ reasoning: true, thinkingLevelMap: automaticMap });
   const effectiveMap = { ...automaticMap, ...model.thinkingLevelMap };
   const levels = supportedReasoningLevels({ reasoning: true, thinkingLevelMap: effectiveMap });
   return <fieldset className="project-settings-section" disabled={disabled}>
-    <label><span>Model display name</span><input value={model.name} onChange={(event) => field("name", event.target.value)} placeholder={model.id || "Same as model ID"} maxLength={200} /></label>
+    <label><span>Language protocol</span><select value={model.api} onChange={(event) => onChange(invalidateCustomModelCapabilities(model, event.target.value))}>{CUSTOM_MODEL_APIS.map((api) => <option key={api} value={api}>{PROVIDER_API_LABELS[api]}</option>)}</select></label>
+    <label><span>Language Base URL override</span><input type="url" value={model.baseUrl ?? ""} onChange={(event) => field("baseUrl", event.target.value || undefined)} placeholder="Use the provider's Base URL" /></label>
     <div className="project-settings-field-row">
       <label><span>Context window</span><input type="number" min={1} max={100_000_000} step={1} value={model.contextWindow} onChange={(event) => field("contextWindow", Number(event.target.value))} required /></label>
       <label><span>Max output tokens</span><input type="number" min={1} max={model.contextWindow} step={1} value={model.maxTokens} onChange={(event) => field("maxTokens", Number(event.target.value))} required /></label>

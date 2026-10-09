@@ -255,7 +255,7 @@ export class ToolRunner {
 
   async #run3D(input: Run3DToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
     const { images } = input;
-    const model = resolveModel3D(input.model);
+    const model = this.model3DGenerator?.resolveModel ? await this.model3DGenerator.resolveModel(input.model) : resolveModel3D(input.model);
     if (!model) throw new ToolRunError("Unknown 3D model", 400);
     if (!Array.isArray(images) || images.length < 1 || images.length > model.maxReferenceImages) {
       throw new ToolRunError(model.maxReferenceImages === 1 ? "Provide exactly one reference image" : `Provide 1 to ${model.maxReferenceImages} reference images`, 400);

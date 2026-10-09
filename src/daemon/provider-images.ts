@@ -1,7 +1,9 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { CUSTOM_IMAGE_MODEL_APIS, type CustomProviderSettings, type ImageModel, type ImageModelCatalog, type ImageModelRef, type MediaProviderStatus } from "../shared/contracts.js";
+import { CUSTOM_IMAGE_MODEL_APIS, type CustomProviderDetails, type ImageModel, type ImageModelCatalog, type ImageModelRef, type MediaProviderStatus } from "../shared/contracts.js";
+import { customImageModel } from "../shared/custom-models.js";
 import { imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
+import { customMediaSource } from "./custom-media-source.js";
 import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput, type ImageGenerator } from "./openai-image.js";
 import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpenRouterMediaSource } from "./openrouter-media.js";
 import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedreamModel, seedreamModels } from "./seedream-models.js";
@@ -9,7 +11,8 @@ import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedre
 const CAPABILITY_TTL_MS = 10 * 60_000;
 
 interface ProviderImagesOptions {
-  customProviders?: () => Promise<CustomProviderSettings[]>;
+  customProviders?: () => Promise<CustomProviderDetails[]>;
+  migrateLegacyModels?: (provider: string, models: ImageModel[]) => Promise<void>;
   defaultModel?: () => ImageModelRef | undefined;
 }
 
@@ -41,7 +44,7 @@ export class ProviderImages implements ImageGenerator {
       runtime ? this.#openRouterEntry(runtime, signal) : undefined,
       runtime ? this.#openAIEntry(runtime, signal) : undefined,
       this.#seedreamEntry(),
-      ...custom.map((provider) => catalogEntry(provider.id, provider.name, () => this.#compatibleModels(runtime!, provider.id, signal), "This endpoint lists no supported image models.")),
+      ...custom.map((provider) => catalogEntry(provider.id, provider.name, () => this.#customModels(runtime!, provider, signal), "Choose and enable image models in Models.")),
     ]);
     const connected = entries.filter((entry): entry is CatalogEntry => Boolean(entry));
     const models = connected.flatMap((entry) => entry.models);
@@ -73,9 +76,32 @@ export class ProviderImages implements ImageGenerator {
     return catalogEntry("openai", provider.name, () => this.#compatibleModels(runtime, "openai", signal), "This OpenAI key or endpoint lists no GPT Image models.");
   }
 
-  async #customImageProviders(runtime: ModelRuntime): Promise<CustomProviderSettings[]> {
-    return (await this.options.customProviders?.() ?? []).filter((provider) => CUSTOM_IMAGE_MODEL_APIS.some((api) => api === provider.api)
+  async #customImageProviders(runtime: ModelRuntime): Promise<CustomProviderDetails[]> {
+    const providers = await this.options.customProviders?.() ?? [];
+    return providers.filter((provider) => (provider.modelConfigurationVersion === 2
+      ? provider.models.some((model) => model.usages?.image) : CUSTOM_IMAGE_MODEL_APIS.some((api) => api === provider.api))
       && this.isEnabled(provider.id) && runtime.hasConfiguredAuth(provider.id));
+  }
+
+  async #customModels(runtime: ModelRuntime, provider: CustomProviderDetails, signal?: AbortSignal): Promise<ImageModel[]> {
+    if (provider.modelConfigurationVersion !== 2) {
+      const models = await this.#compatibleModels(runtime, provider.id, signal);
+      await this.options.migrateLegacyModels?.(provider.id, models);
+      return models;
+    }
+    return provider.models.filter((model) => !provider.hiddenModelIds.includes(model.id)).flatMap((model) => {
+      const image = customImageModel(provider, model);
+      return image ? [image] : [];
+    });
+  }
+
+  async #customSelection(runtime: ModelRuntime, provider: CustomProviderDetails, requestedId?: string, signal?: AbortSignal): Promise<ImageSelection | undefined> {
+    const models = await this.#customModels(runtime, provider, signal);
+    const model = requestedId ? models.find((candidate) => candidate.id === requestedId) : models[0];
+    if (!model) return undefined;
+    const settings = provider.models.find((candidate) => candidate.id === model.id)?.usages?.image;
+    const source = await customMediaSource(runtime, provider, settings?.baseUrl, signal);
+    return { model, source: { ...source, ...(provider.preset === "google" || provider.api === "google-generative-ai" ? { apiKeyHeader: "x-goog-api-key" as const } : {}) } };
   }
 
   #seedreamEntry(): CatalogEntry | undefined {
@@ -100,13 +126,14 @@ export class ProviderImages implements ImageGenerator {
       if (!supported) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
     }
     if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
+    if (input.images && definition.maxReferenceImages !== undefined && input.images.length > definition.maxReferenceImages) throw new ImageGenerationError(`The selected image model supports up to ${definition.maxReferenceImages} reference images`, 400);
     const adapter = createImageProtocolAdapters(this.request)[definition.protocol];
     const { imageModel: _, ...generationInput } = input;
     return adapter.generate(selection.source, selection.model.id, {
       ...generationInput,
       ...(definition.supportsResolution === false ? { resolution: undefined } : {}),
       ...(definition.supportsAspectRatio === false ? { aspectRatio: undefined } : {}),
-    }, signal);
+    }, signal, definition);
   }
 
   async #selection(requested?: ImageModelRef, signal?: AbortSignal): Promise<ImageSelection | undefined> {
@@ -122,16 +149,17 @@ export class ProviderImages implements ImageGenerator {
     if (requested?.provider === "openrouter") return this.#openRouterSelection(runtime, requested.id, signal);
     if (requested?.provider === "openai") return this.#compatibleSelection(runtime, "openai", requested.id, signal);
     const custom = await this.#customImageProviders(runtime);
-    if (requested && custom.some((provider) => provider.id === requested.provider)) return this.#compatibleSelection(runtime, requested.provider, requested.id, signal);
-    if (requested) return undefined;
-
+    if (requested) {
+      const provider = custom.find((provider) => provider.id === requested.provider);
+      return provider ? this.#customSelection(runtime, provider, requested.id, signal) : undefined;
+    }
     // Automatic selection can skip a failed catalog. An explicit selection above always
     // keeps its provider, and a failed generation is never retried through another one.
     const candidates = [
       () => this.#openRouterSelection(runtime, undefined, signal),
       () => this.#compatibleSelection(runtime, "openai", undefined, signal),
       () => this.#seedreamSelection(),
-      ...custom.map((provider) => () => this.#compatibleSelection(runtime, provider.id, undefined, signal)),
+      ...custom.map((provider) => () => this.#customSelection(runtime, provider, undefined, signal)),
     ];
     for (const select of candidates) {
       signal?.throwIfAborted();

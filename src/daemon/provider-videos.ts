@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { MediaModelCatalog, VideoModel, VideoModelRef } from "../shared/contracts.js";
+import type { CustomProviderDetails, MediaModelCatalog, VideoModel, VideoModelRef } from "../shared/contracts.js";
+import { customVideoModel } from "../shared/custom-models.js";
+import { customMediaSource } from "./custom-media-source.js";
 import {
   VideoGenerationError,
   type GeneratedVideo,
@@ -26,6 +28,7 @@ export class ProviderVideos implements VideoGenerator {
     private readonly request: typeof fetch = fetch,
     private readonly seedanceApiKey: (providerId: SeedanceProviderId) => string | undefined = () => undefined,
     private readonly isEnabled: (provider: string) => boolean = () => true,
+    private readonly options: { customProviders?: () => Promise<CustomProviderDetails[]>; defaultModel?: () => VideoModelRef | undefined } = {},
   ) {}
 
   async models(signal?: AbortSignal): Promise<VideoModel[]> {
@@ -34,6 +37,7 @@ export class ProviderVideos implements VideoGenerator {
 
   /** Every connected video provider with its models, or the reason it has none. */
   async catalog(signal?: AbortSignal): Promise<MediaModelCatalog<VideoModel>> {
+    const custom = await this.options.customProviders?.() ?? [];
     const entries = await Promise.all([
       this.#openRouterCatalog(signal),
       ...SEEDANCE_PROVIDER_IDS.map(async (providerId) => {
@@ -45,9 +49,22 @@ export class ProviderVideos implements VideoGenerator {
           provider: { provider: definition.id, providerName: definition.name, state: "ready" as const },
         };
       }),
+      ...custom.filter((provider) => this.isEnabled(provider.id) && provider.models.some((model) => model.usages?.video)).map(async (provider) => {
+        if (!(await this.runtime()).hasConfiguredAuth(provider.id)) return undefined;
+        const models = provider.models.filter((model) => !provider.hiddenModelIds.includes(model.id)).flatMap((model) => {
+          const video = customVideoModel(provider, model);
+          return video ? [video] : [];
+        });
+        return { models, provider: { provider: provider.id, providerName: provider.name, state: models.length ? "ready" as const : "empty" as const,
+          ...(!models.length ? { message: "Enable video models in Models." } : {}) } };
+      }),
     ]);
     const connected = entries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
-    return { models: connected.flatMap((entry) => entry.models), providers: connected.map((entry) => entry.provider) };
+    const defaultModel = this.options.defaultModel?.();
+    const models = connected.flatMap((entry) => entry.models);
+    const index = models.findIndex((model) => sameModel(model, defaultModel));
+    if (index > 0) models.unshift(...models.splice(index, 1));
+    return { models, providers: connected.map((entry) => entry.provider), ...(defaultModel ? { defaultModel } : {}) };
   }
 
   async #openRouterCatalog(signal?: AbortSignal): Promise<{ models: VideoModel[]; provider: MediaModelCatalog<VideoModel>["providers"][number] } | undefined> {
@@ -68,7 +85,21 @@ export class ProviderVideos implements VideoGenerator {
   }
 
   async generate(input: VideoGenerationInput, signal?: AbortSignal): Promise<GeneratedVideo> {
+    input = { ...input, model: input.model ?? this.options.defaultModel?.() };
     if (!this.isEnabled(input.model?.provider ?? "openrouter")) throw new VideoGenerationError("The selected provider is disabled", 409);
+    const custom = (await this.options.customProviders?.() ?? []).find((provider) => provider.id === input.model?.provider);
+    if (custom) {
+      const selected = custom.models.find((model) => model.id === input.model?.id && !custom.hiddenModelIds.includes(model.id));
+      const model = selected && customVideoModel(custom, selected);
+      const config = selected?.usages?.video;
+      if (!model || !config) throw new VideoGenerationError("The selected video model is not available", 503);
+      const runtime = await this.runtime();
+      if (!runtime.hasConfiguredAuth(custom.id)) throw new VideoGenerationError("Video generation is not configured", 503);
+      const source = await customMediaSource(runtime, custom, config.baseUrl, signal);
+      if (config.protocol === "seedance") return new SeedanceProvider("volcengine-ark", () => source.apiKey, this.request, undefined, undefined,
+        { name: custom.name, baseUrl: source.baseUrl, headers: source.headers, authentication: source.authentication }).generate(model, input, signal);
+      return this.#generateOpenRouter({ ...source, headers: source.headers ?? {} }, model, input, signal);
+    }
     if (input.model && isSeedanceProviderId(input.model.provider)) {
       const providerId = input.model.provider;
       const model = seedanceModel(providerId, input.model.id);
@@ -94,14 +125,17 @@ export class ProviderVideos implements VideoGenerator {
     if (!model.resolutions.includes(resolution)) throw new VideoGenerationError("Video resolution is not supported by the selected model", 400);
     if (!model.aspectRatios.includes(aspectRatio)) throw new VideoGenerationError("Video aspect ratio is not supported by the selected model", 400);
     const references = input.references ?? [];
+    const mode = input.referenceMode ?? model.imageReferenceMode ?? "reference";
+    if (!(model.referenceModes ?? [model.imageReferenceMode ?? "reference"]).includes(mode)) throw new VideoGenerationError("The selected video model does not support this reference mode", 400);
     if (references.some((reference) => reference.type !== "image")) {
       throw new VideoGenerationError("OpenRouter video generation currently supports image references only", 400);
     }
-    if (references.length > model.maxImageReferences) {
-      throw new VideoGenerationError(`The selected video model supports up to ${model.maxImageReferences} reference images`, 400);
+    const maxReferences = mode === "frame" ? Math.min(2, model.maxImageReferences) : model.maxImageReferences;
+    if (references.length > maxReferences) {
+      throw new VideoGenerationError(`The selected video model supports up to ${maxReferences} reference images`, 400);
     }
     const referenceItems = await Promise.all(references.map(referenceItem));
-    const referencePayload = model.imageReferenceMode === "frame" && referenceItems.length
+    const referencePayload = mode === "frame" && referenceItems.length
       ? { frame_images: referenceItems.slice(0, 2).map((reference, index) => ({ ...reference, frame_type: index === 0 ? "first_frame" : "last_frame" })) }
       : referenceItems.length ? { input_references: referenceItems } : {};
     const created = await json(await this.request(`${source.baseUrl}/videos`, {
@@ -124,11 +158,11 @@ export class ProviderVideos implements VideoGenerator {
     const deadline = Date.now() + MAX_WAIT_MS;
     while (Date.now() < deadline) {
       signal?.throwIfAborted();
-      const status = await json(await this.request(pollingUrl, { headers: openRouterHeaders(source), signal }), "OpenRouter video status request failed");
+      const status = await json(await this.request(pollingUrl, { headers: new URL(pollingUrl).origin === new URL(source.baseUrl).origin ? openRouterHeaders(source) : {}, signal }), "OpenRouter video status request failed");
       const state = string(status.status)?.toLowerCase();
       if (state === "completed" || state === "succeeded" || state === "success") {
         const contentUrl = firstHttpUrl(status.unsigned_urls) ?? httpUrl(status.content_url) ?? `${source.baseUrl}/videos/${encodeURIComponent(requestId)}/content`;
-        const content = await this.request(contentUrl, { headers: openRouterHeaders(source), signal });
+        const content = await this.request(contentUrl, { headers: new URL(contentUrl).origin === new URL(source.baseUrl).origin ? openRouterHeaders(source) : {}, signal });
         if (!content.ok) throw new VideoGenerationError(`OpenRouter video download failed (${content.status})`, content.status);
         return { bytes: Buffer.from(await content.arrayBuffer()), mediaType: "video/mp4", requestId };
       }

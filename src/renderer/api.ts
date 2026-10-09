@@ -321,7 +321,12 @@ export async function listImageModelCatalog(): Promise<ImageModelCatalog> {
 }
 
 export async function setDefaultImageModel(model: ImageModelRef): Promise<void> {
-  await request("/image-models/default", { method: "PUT", body: JSON.stringify(model) });
+  await setDefaultMediaModel("image", model);
+}
+
+export async function setDefaultMediaModel(usage: "image" | "video" | "3d", model?: AgentModelRef): Promise<void> {
+  const endpoint = usage === "image" ? "/image-models/default" : usage === "video" ? "/video-models/default" : "/model3d-models/default";
+  await request(endpoint, model ? { method: "PUT", body: JSON.stringify(model) } : { method: "DELETE" });
   notifyAgentModelsChanged();
 }
 

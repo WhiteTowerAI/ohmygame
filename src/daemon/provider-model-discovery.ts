@@ -1,4 +1,6 @@
-import { AGENT_REASONING_LEVELS, type CustomProviderModel, type CustomThinkingLevelMap, type DiscoveredProviderModels } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, type CustomProviderModel, type CustomThinkingLevelMap, type DiscoveredProviderModels, type CustomProviderPreset, type CustomModelUsages } from "../shared/contracts.js";
+import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings } from "../shared/custom-models.js";
+import { listOpenRouterImageModels, listOpenRouterVideoModels } from "./openrouter-media.js";
 import { normalizeCustomProvider } from "./provider-model-settings.js";
 import { automaticCustomReasoning, knownCustomModel, normalizeThinkingLevelMap, type CustomModelCatalog } from "./custom-model-capabilities.js";
 import { imageModelDefinition } from "./image-models.js";
@@ -40,32 +42,63 @@ export async function discoverProviderModels(value: unknown, request: typeof fet
     const entries = isObject(body) ? (settings.api === "google-generative-ai" ? body.models : body.data) : undefined;
     if (!Array.isArray(entries)) throw new Error("The endpoint did not return a compatible model list. Add model IDs manually.");
     for (const entry of entries) {
-      const model = discoveredModel(entry, settings.api, catalog);
+      const model = discoveredModel(entry, settings.api, catalog, settings.preset);
       if (model) models.set(model.id, model);
       if (models.size >= MAX_MODELS) return { models: [...models.values()], truncated: true };
     }
     cursor = isObject(body) ? (settings.api === "anthropic-messages" && body.has_more === true ? string(body.last_id) : settings.api === "google-generative-ai" ? string(body.nextPageToken) : undefined) : undefined;
     if (isObject(body) && settings.api === "anthropic-messages" && body.has_more === true && !cursor) throw new Error("The endpoint returned an invalid model page. Add model IDs manually.");
-    if (!cursor) return { models: [...models.values()] };
+    if (!cursor) {
+      const warnings: string[] = [];
+      if (settings.preset === "openrouter") {
+        const source = { baseUrl: settings.baseUrl, apiKey: settings.apiKey ?? "", headers: {}, authentication: settings.authentication };
+        const media = await Promise.allSettled([listOpenRouterImageModels(source, request, signal), listOpenRouterVideoModels(source, request, signal)]);
+        for (let index = 0; index < media.length; index++) {
+          const result = media[index];
+          if (result.status === "rejected") { warnings.push(`Could not fetch ${index === 0 ? "image" : "video"} models. Add their IDs manually.`); continue; }
+          for (const item of result.value) {
+            if (models.size >= MAX_MODELS && !models.has(item.id)) return { models: [...models.values()], truncated: true, warnings };
+            const previous = models.get(item.id) ?? discoveredModel({ id: item.id, name: item.name }, settings.api, catalog, settings.preset)!;
+            if ("generationOptions" in item) previous.usages = { ...previous.usages, image: {
+              protocol: "openrouter-images", resolutions: [...new Set(item.generationOptions.map((option) => option.resolution))],
+              aspectRatios: [...new Set(item.generationOptions.map((option) => option.aspectRatio))],
+              maxReferenceImages: Math.min(14, item.maxReferenceImages ?? 0), maxOutputs: item.maxOutputs,
+            } };
+            else previous.usages = { ...previous.usages, video: { protocol: "openrouter-videos", resolutions: [...item.resolutions],
+              aspectRatios: [...item.aspectRatios], durations: [...item.durations], maxReferenceImages: item.maxImageReferences,
+              referenceModes: [...(item.referenceModes ?? [item.imageReferenceMode ?? "reference"])] } };
+            models.set(item.id, previous);
+          }
+        }
+      }
+      return { models: [...models.values()], ...(warnings.length ? { warnings } : {}) };
+    }
     if (cursors.has(cursor)) throw new Error("The endpoint returned an invalid model page. Add model IDs manually.");
     cursors.add(cursor);
   }
   return { models: [...models.values()], truncated: true };
 }
 
-function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalog): CustomProviderModel | undefined {
+function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalog, preset?: CustomProviderPreset): CustomProviderModel | undefined {
   if (!isObject(value)) return undefined;
   const google = api === "google-generative-ai";
   const rawId = string(google ? value.name : value.id);
   const id = google ? rawId?.replace(/^models\//, "") : rawId;
   if (!id || id.length > 200 || /[\s\x00-\x1f]/.test(id)) return undefined;
-  // Dedicated image models belong to the media catalog, not the chat model selector.
-  if (imageModelDefinition(id)) return undefined;
-  if (google && Array.isArray(value.supportedGenerationMethods) && !value.supportedGenerationMethods.includes("generateContent")) return undefined;
   const architecture = isObject(value.architecture) ? value.architecture : undefined;
-  if (Array.isArray(architecture?.output_modalities) && !architecture.output_modalities.includes("text")) return undefined;
   const name = (string(value.displayName) ?? string(value.display_name) ?? string(value.name) ?? id).slice(0, 200);
   const known = knownCustomModel(id, api, catalog);
+  const usages: CustomModelUsages = {};
+  const outputs = Array.isArray(architecture?.output_modalities) ? architecture.output_modalities : [];
+  const image = imageModelDefinition(id);
+  if (outputs.includes("text") || (!outputs.length && (known || preset === "ollama" || preset === "lmstudio" || api === "anthropic-messages" || (google && Array.isArray(value.supportedGenerationMethods) && value.supportedGenerationMethods.includes("generateContent"))))) usages.language = true;
+  if (image || outputs.includes("image")) {
+    const protocol = preset === "openrouter" ? "openrouter-images" : preset === "seedance" ? "volcengine-images" : google ? "gemini-generate-content" : image?.protocol ?? "openai-images";
+    usages.image = image ? { protocol, resolutions: [...new Set(image.generationOptions.map((option) => option.resolution))],
+      aspectRatios: [...new Set(image.generationOptions.map((option) => option.aspectRatio))], maxReferenceImages: Math.min(14, image.maxReferenceImages ?? 1), maxOutputs: image.maxOutputs } : defaultImageSettings(protocol);
+  }
+  if (outputs.includes("video")) usages.video = defaultVideoSettings(preset === "seedance" ? "seedance" : "openrouter-videos");
+  if (outputs.includes("3d") || outputs.includes("model") || preset === "meshy") usages["3d"] = defaultModel3DSettings(id === "meshy-t2" ? "smart-topology" : "standard");
   const contextWindow = tokenLimit(value.contextWindow ?? value.context_length ?? value.inputTokenLimit) ?? known?.contextWindow ?? 128_000;
   const topProvider = isObject(value.top_provider) ? value.top_provider : undefined;
   const maxTokens = Math.min(contextWindow, tokenLimit(value.maxTokens ?? value.max_tokens ?? value.outputTokenLimit ?? topProvider?.max_completion_tokens) ?? known?.maxTokens ?? 16_384);
@@ -76,7 +109,7 @@ function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalo
     : known?.reasoning ?? false;
   const reasoningCapabilities = automaticCustomReasoning(id, api, catalog, reported);
   return {
-    id, name, api, contextWindow, maxTokens,
+    id, name, api, contextWindow, maxTokens, usages,
     reasoning,
     ...(reasoningCapabilities ? { reasoningCapabilities } : {}),
     supportsImages: Array.isArray(architecture?.input_modalities) ? architecture.input_modalities.includes("image")

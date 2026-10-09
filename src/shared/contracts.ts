@@ -68,6 +68,48 @@ export interface CustomProviderSettings {
   baseUrl: string;
   api: string;
   authentication: "api_key" | "none";
+  preset?: CustomProviderPreset;
+  modelConfigurationVersion?: 2;
+}
+
+export type CustomProviderPreset = "gateway" | "ollama" | "lmstudio" | "google" | "openrouter" | "seedance" | "meshy";
+
+export interface CustomImageModelSettings {
+  protocol: ImageProtocol;
+  baseUrl?: string;
+  resolutions: ImageResolution[];
+  aspectRatios: ImageAspectRatio[];
+  maxReferenceImages: number;
+  maxOutputs: ImageOutputCount;
+}
+
+export type VideoProtocol = "openrouter-videos" | "seedance";
+export interface CustomVideoModelSettings {
+  protocol: VideoProtocol;
+  baseUrl?: string;
+  resolutions: VideoResolution[];
+  aspectRatios: VideoAspectRatio[];
+  durations: number[];
+  maxReferenceImages: number;
+  referenceModes: Array<"frame" | "reference">;
+}
+
+export interface CustomModel3DSettings {
+  protocol: "meshy";
+  baseUrl?: string;
+  operation: "image-to-3d" | "multi-image-to-3d";
+  modelType: "standard" | "smart-topology";
+  maxReferenceImages: number;
+  polycount: Model3DModel["polycount"];
+  supportsTexture: boolean;
+  supportsPbr: boolean;
+}
+
+export interface CustomModelUsages {
+  language?: boolean;
+  image?: CustomImageModelSettings;
+  video?: CustomVideoModelSettings;
+  "3d"?: CustomModel3DSettings;
 }
 
 export interface SaveCustomProviderRequest extends Omit<CustomProviderSettings, "id"> {
@@ -81,11 +123,12 @@ export interface CustomProviderDetails extends CustomProviderSettings {
   hiddenModelIds: string[];
 }
 
-export type DiscoverProviderModelsRequest = Pick<SaveCustomProviderRequest, "baseUrl" | "api" | "authentication" | "apiKey"> & { providerId?: string };
+export type DiscoverProviderModelsRequest = Pick<SaveCustomProviderRequest, "baseUrl" | "api" | "authentication" | "apiKey" | "preset"> & { providerId?: string };
 
 export interface DiscoveredProviderModels {
   models: CustomProviderModel[];
   truncated?: boolean;
+  warnings?: string[];
 }
 
 export interface ModelProviderEndpointSettings {
@@ -115,10 +158,12 @@ export interface CustomProviderModel {
   thinkingLevelMap?: CustomThinkingLevelMap;
   reasoningCapabilities?: CustomReasoningCapabilities;
   supportsImages: boolean;
+  /** Undefined is a legacy language model; an empty object is explicitly unassigned. */
+  usages?: CustomModelUsages;
 }
 
 export interface ProviderModelSettings {
-  models: Array<AgentModel & { visible: boolean; custom: boolean }>;
+  models: Array<AgentModel & { visible: boolean; custom: boolean; capabilities?: ProviderCapability[] }>;
   defaultApi: string;
   defaultBaseUrl?: string;
   canAddCustomModel: boolean;
@@ -158,11 +203,10 @@ export interface MediaProviderStatus {
 export interface MediaModelCatalog<Model> {
   models: Model[];
   providers: MediaProviderStatus[];
+  defaultModel?: ModelRef;
 }
 
-export interface ImageModelCatalog extends MediaModelCatalog<ImageModel> {
-  defaultModel?: ImageModelRef;
-}
+export type ImageModelCatalog = MediaModelCatalog<ImageModel>;
 
 export type Model3DModelRef = ModelRef;
 
@@ -172,6 +216,8 @@ export interface Model3DModel extends Model3DModelRef {
   /** Distinct views of one object; the first is treated as the front. */
   maxReferenceImages: number;
   polycount: { min: number; max: number; default: number; presets: readonly number[] };
+  supportsTexture?: boolean;
+  supportsPbr?: boolean;
 }
 
 /** A preset move from the 3D provider's animation library. */

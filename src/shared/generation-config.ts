@@ -3,7 +3,7 @@ import { type Model3DGenerationConfig, type Model3DModel, type PromptImage, type
 export const DEFAULT_IMAGE_NODE_CONFIG = { resolution: "1K", aspectRatio: "1:1" } as const;
 export const DEFAULT_VIDEO_NODE_CONFIG = { resolution: "720p", aspectRatio: "adaptive", duration: 6 } as const;
 
-/** Every 3D model the daemon can run, all on Meshy. The first one is the default. */
+/** Built-in 3D models. Custom providers add their saved definitions at runtime. */
 export const MODEL_3D_MODELS: readonly Model3DModel[] = [
   {
     provider: "meshy",
@@ -28,11 +28,11 @@ export const MODEL_3D_MAX_REFERENCE_IMAGES = Math.max(...MODEL_3D_MODELS.map((mo
 export const MODEL_3D_MAX_POLYCOUNT = Math.max(...MODEL_3D_MODELS.map((model) => model.polycount.max));
 
 /** The known 3D model a request or node names, or the default when it names none. Unknown models return undefined. */
-export function resolveModel3D(model: unknown): Model3DModel | undefined {
+export function resolveModel3D(model: unknown, models: readonly Model3DModel[] = MODEL_3D_MODELS): Model3DModel | undefined {
   if (model === undefined) return DEFAULT_MODEL_3D;
   if (!model || typeof model !== "object") return undefined;
   const { provider, id } = model as Record<string, unknown>;
-  return MODEL_3D_MODELS.find((candidate) => candidate.provider === provider && candidate.id === id);
+  return models.find((candidate) => candidate.provider === provider && candidate.id === id);
 }
 
 /** Meshy rejects animation requests with more library actions than this; larger sets are split across requests. */
@@ -51,7 +51,8 @@ export const DEFAULT_MODEL_3D_CONFIG: Model3DGenerationConfig = {
 
 export function normalizeModel3DConfig(value: Partial<Model3DGenerationConfig> | undefined): Model3DGenerationConfig {
   const texture = value?.texture ?? DEFAULT_MODEL_3D_CONFIG.texture;
-  const { polycount } = resolveModel3D(value?.model) ?? DEFAULT_MODEL_3D;
+  const polycount = resolveModel3D(value?.model)?.polycount ?? (value?.model
+    ? { min: 100, max: MODEL_3D_MAX_POLYCOUNT, default: DEFAULT_MODEL_3D.polycount.default } : DEFAULT_MODEL_3D.polycount);
   const targetPolycount = value?.targetPolycount;
   return {
     ...(value?.model ? { model: value.model } : {}),

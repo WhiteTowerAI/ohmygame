@@ -148,6 +148,9 @@ OhMyGame does not lock you into one model or charge per run.
   <!-- TODO(legal): check each provider's terms before naming more subscriptions -->
 - **Media models** for images, video, and 3D through OpenAI, OpenRouter,
   Volcengine Ark / BytePlus ModelArk, and Meshy.
+- **Custom providers and model aliases** with selectable language, image, video
+  and 3D uses, protocol templates and generation defaults.
+  See [custom model configuration](docs/custom-models.md).
 
 Keys stay in the local daemon. They never reach the agent's workspace, your
 game, or the renderer.

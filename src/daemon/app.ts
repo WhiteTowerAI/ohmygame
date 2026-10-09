@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelCatalog, type Model3DModel, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -40,11 +40,13 @@ import { discoverProviderModels } from "./provider-model-discovery.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
 import { CUSTOM_IMAGE_MODEL_APIS, type DiscoverProviderModelsRequest } from "../shared/contracts.js";
 import type { Model3DGenerator } from "./model3d.js";
-import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MODELS } from "../shared/generation-config.js";
+import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
 import { MeshyProvider } from "./meshy-provider.js";
 import { MeshySettingsStore } from "./meshy-settings.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
+import { ProviderModels3D } from "./provider-models3d.js";
+import { modelUsageList, modelUsages } from "../shared/custom-models.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
@@ -604,14 +606,21 @@ export function createApp(options: AppOptions = {}) {
   });
   const providerEnabled = (id: string) => providerModelSettings.isEnabled(id);
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
-    customProviders: () => providerModelSettings.customProviders(),
+    customProviders: () => providerModelSettings.customProviderCatalog(),
+    migrateLegacyModels: (id, models) => providerModelSettings.migrateLegacyImageModels(id, models, async () => { await (await getModelRuntime()).refresh({ allowNetwork: false, providers: [id] }); }),
     defaultModel: () => providerModelSettings.defaultImageModel(),
   });
-  const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled);
+  const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
+    customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
+  });
+  const providerModels3D = new ProviderModels3D(getModelRuntime,
+    new MeshyProvider(() => meshySettings.key(), options.model3DFetch, undefined, () => providerEnabled("meshy")),
+    () => meshySettings.get().configured, () => providerModelSettings.customProviderCatalog(), providerEnabled,
+    options.model3DFetch, () => providerModelSettings.defaultModel3D());
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
-    options.model3DGenerator ?? new MeshyProvider(() => meshySettings.key(), options.model3DFetch, undefined, () => providerEnabled("meshy")),
+    options.model3DGenerator ?? providerModels3D,
     options.videoGenerator ?? providerVideos,
     library,
   );
@@ -1834,7 +1843,9 @@ export function createApp(options: AppOptions = {}) {
 
   const providerSummaries = async () => {
     const piProviders = await modelAuth.providers();
-    const customImageProviders = new Set((await providerModelSettings.customProviders())
+    const customProviders = await providerModelSettings.customProviderCatalog();
+    const customModels = new Map(customProviders.map((provider) => [provider.id, provider]));
+    const customImageProviders = new Set(customProviders
       .filter((provider) => CUSTOM_IMAGE_MODEL_APIS.some((api) => api === provider.api)).map((provider) => provider.id));
     const providers = piProviders
       .map((provider) => ({
@@ -1842,7 +1853,9 @@ export function createApp(options: AppOptions = {}) {
         enabled: providerEnabled(provider.id),
         custom: providerModelSettings.isCustom(provider.id),
         status: provider.configured ? "connected" as const : "not_configured" as const,
-        capabilities: provider.id === "openrouter"
+        capabilities: customModels.get(provider.id)?.modelConfigurationVersion === 2
+          ? [...new Set(customModels.get(provider.id)!.models.flatMap(modelUsageList))]
+          : provider.id === "openrouter"
           ? ["language", "image", "video"] as const
           : provider.id === "openai" || customImageProviders.has(provider.id) ? ["language", "image"] as const : ["language"] as const,
       }))
@@ -1981,7 +1994,11 @@ export function createApp(options: AppOptions = {}) {
     const customProvider = await providerModelSettings.customProvider(providerId, catalog);
     const custom = customProvider?.models ?? await providerModelSettings.customModels(providerId);
     return {
-      models: models.map((model) => ({
+      models: customProvider ? customProvider.models.map((model) => ({
+        provider: providerId, providerName: customProvider.name, id: model.id, name: model.name,
+        reasoningLevels: modelUsages(model).language ? supportedReasoningLevels(models.find((candidate) => candidate.id === model.id) ?? model) : [],
+        visible: providerModelSettings.isVisible({ provider: providerId, id: model.id }), custom: true, capabilities: modelUsageList(model),
+      })) : models.map((model) => ({
         provider: model.provider, providerName: runtime.getProvider(providerId)?.name ?? providerId,
         id: model.id, name: model.name, reasoningLevels: supportedReasoningLevels(model),
         visible: providerModelSettings.isVisible(model), custom: custom.some((item) => item.id === model.id),
@@ -2004,8 +2021,10 @@ export function createApp(options: AppOptions = {}) {
     const runtime = await getModelRuntime();
     const { providerId } = request.params;
     if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
-    const known = new Set(runtime.getModels(providerId).map((model) => model.id));
+    const custom = await providerModelSettings.customProvider(providerId);
+    const known = new Set(custom ? custom.models.map((model) => model.id) : runtime.getModels(providerId).map((model) => model.id));
     if (request.body.ids.some((id) => !known.has(id))) return reply.code(400).send({ error: "Model not found" });
+    if (request.body.visible && custom?.models.some((model) => request.body.ids.includes(model.id) && !modelUsageList(model).length)) return reply.code(400).send({ error: "Assign a use to the model before enabling it" });
     await providerModelSettings.setVisibility(providerId, request.body.ids, request.body.visible);
     return providerModels(runtime, providerId);
   });
@@ -2101,20 +2120,22 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
-  app.get("/image-models/catalog", async () => providerImages.catalog());
-
-  app.put<{ Body: AgentModelRef }>("/image-models/default", async (request, reply) => {
-    if (!isAgentModelRef(request.body)) return reply.code(400).send({ error: "Invalid image model" });
-    const catalog = await providerImages.catalog();
-    if (!catalog.models.some((model) => model.provider === request.body.provider && model.id === request.body.id)) return reply.code(400).send({ error: "Image model is not available" });
-    await providerModelSettings.setDefaultImageModel(request.body);
-    return reply.code(204).send();
-  });
-  app.get("/video-models/catalog", async () => providerVideos.catalog());
-  // 3D models all run on Meshy, so they are offered once its key is set; "Manage providers" covers the rest.
-  app.get("/model3d-models/catalog", async (): Promise<MediaModelCatalog<Model3DModel>> => meshySettings.get().configured && providerEnabled("meshy")
-    ? { models: [...MODEL_3D_MODELS], providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }] }
-    : { models: [], providers: [] });
+  for (const [path, usage, generator] of [
+    ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],
+  ] as const) {
+    app.get(`/${path}/catalog`, async () => generator.catalog());
+    app.put<{ Body: AgentModelRef }>(`/${path}/default`, async (request, reply) => {
+      if (!isAgentModelRef(request.body)) return reply.code(400).send({ error: "Invalid media model" });
+      const catalog = await generator.catalog();
+      if (!catalog.models.some((model) => model.provider === request.body.provider && model.id === request.body.id)) return reply.code(400).send({ error: "Media model is not available" });
+      await providerModelSettings.setDefaultMediaModel(usage, request.body);
+      return reply.code(204).send();
+    });
+    app.delete(`/${path}/default`, async (_request, reply) => {
+      await providerModelSettings.setDefaultMediaModel(usage);
+      return reply.code(204).send();
+    });
+  }
   app.get("/model3d-animations", async (_request, reply) => {
     if (!meshySettings.get().configured || !providerEnabled("meshy")) return [];
     try {

@@ -14815,7 +14815,15 @@ button {
 .custom-provider-advanced summary { cursor: pointer; padding: 4px 0; }
 .custom-provider-advanced[open] { display: grid; gap: 12px; }
 .custom-provider-advanced[open] > fieldset { margin-top: 12px; }
-.custom-provider-capabilities { display: flex; gap: 20px; }
+.custom-provider-capabilities { display: flex; flex-wrap: wrap; gap: 10px 20px; }
+.custom-model-uses, .custom-model-choices { min-width: 0; margin: 0; padding: 0; border: 0; }
+.custom-model-uses > legend, .custom-model-choices > legend { margin-bottom: 8px; color: var(--text-muted); font-size: 11px; }
+.custom-model-uses > small { display: block; margin-top: 8px; color: var(--text-faint); font-size: 11px; }
+.custom-model-use-settings { display: grid; min-width: 0; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.custom-model-use-settings details[open] { display: grid; gap: 12px; }
+.custom-model-usage-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.custom-model-usage-badges > small { padding: 2px 5px; border-radius: 4px; background: var(--control-surface); color: var(--text-muted); font-size: 10px; }
+.custom-provider-defaults { display: grid; gap: 12px; }
 .custom-provider-capabilities label { display: flex; align-items: center; gap: 7px; }
 .custom-provider-capabilities input { width: 14px; height: 14px; padding: 0; accent-color: var(--theme-accent); }
 .custom-provider-reasoning-levels { display: grid; gap: 6px; }
