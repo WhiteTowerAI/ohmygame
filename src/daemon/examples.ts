@@ -1,13 +1,12 @@
 import { cp, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ProjectState, ProjectType } from "../shared/contracts.js";
+import type { ProjectState, ProjectType, ToolJob } from "../shared/contracts.js";
 import { isPreparedExampleCatalog, type ExampleSummary, type PreparedExample } from "../shared/examples.js";
 import { LoopbackFileServer } from "./loopback-file-server.js";
 import { ensureNodeCodebaseContract } from "./playable-codebase.js";
 import { ProjectWorkspaceError, type ProjectManager } from "./projects.js";
-import { readCanvasBoard, readCanvasIndex } from "./canvas-workspace.js";
-import { writeCanvasJson } from "./canvas-files.js";
+import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 
 export class ExampleError extends Error {
   constructor(message: string, readonly statusCode: 400 | 404) {
@@ -122,13 +121,17 @@ export class ExampleStore {
           errorOnExist: true,
         });
       }
-      // Preserve node coordinates, but frame each copied board for the new window.
-      const canvas = await readCanvasIndex(project.workspacePath);
-      for (const entry of canvas?.boards ?? []) {
-        const detail = await readCanvasBoard(project.workspacePath, entry.id);
-        if (detail?.board.nodes.length) {
-          await writeCanvasJson(project.workspacePath, `editor/${entry.id}.json`, { ...detail.board.editorLayout, fitView: true });
-        }
+      // Keep copied boards and layouts verbatim. Historical jobs belong to the
+      // new project; their node IDs, status, settings and outputs stay intact.
+      // Retry inputs can contain inline images, exceeding the board-file limit.
+      const history = await readCanvasFile(project.workspacePath, "jobs.json", Infinity);
+      if (history !== undefined) {
+        const jobs = JSON.parse(history) as ToolJob[];
+        if (!Array.isArray(jobs)) throw new ExampleError("The example has invalid Canvas generation history", 400);
+        await writeCanvasJson(project.workspacePath, "jobs.json", jobs.map((job) => ({
+          ...job,
+          context: { ...job.context, projectId: project.id },
+        })));
       }
       // Agent instructions and schemas follow this app version, not the example.
       if (example.type === "interactive-story") await ensureNodeCodebaseContract(project.workspacePath);
