@@ -53,6 +53,9 @@ export interface ModelProviderSummary {
 
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
 export type ProviderCapability = "language" | "image" | "3d" | "video";
+export type MediaModelUsage = Exclude<ProviderCapability, "language">;
+/** Missing entries inherit the global default for that kind of generation. */
+export type MediaModelDefaults = Partial<Record<MediaModelUsage, ModelRef>>;
 
 export interface ProviderSummary extends ModelProviderSummary {
   status: ProviderStatus;
@@ -275,6 +278,7 @@ export interface ProjectState {
   previewPath?: string;
   /** Device preset selected when a Web Game preview starts. */
   previewViewport?: PreviewViewport;
+  mediaModelDefaults?: MediaModelDefaults;
   /** Internal OhMyGame data kept separately from a user-selected workspace. */
   storagePath?: string;
   /** Whether OhMyGame owns the workspace directory or only references it. */
@@ -884,6 +888,7 @@ export interface ToolRunFile {
 }
 
 export interface ToolRun {
+  model?: ModelRef;
   id: string;
   toolId: ToolId;
   createdAt: string;
@@ -899,6 +904,7 @@ export interface ToolJobContext {
 }
 
 export interface ToolJob {
+  model?: ModelRef;
   id: string;
   toolId: ToolId;
   createdAt: string;

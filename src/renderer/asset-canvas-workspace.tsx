@@ -340,14 +340,17 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const libraryImages = useMemo(() => libraryAssets.filter((asset) => asset.mediaType === "image"), [libraryAssets]);
 
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
-  const [defaultImageModel, setDefaultImageModel] = useState<ImageModelRef>();
+  const [globalDefaultImageModel, setDefaultImageModel] = useState<ImageModelRef>();
   const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
   const [imageProviders, setImageProviders] = useState<MediaProviderStatus[]>([]);
   const [videoProviders, setVideoProviders] = useState<MediaProviderStatus[]>([]);
-  const [defaultVideoModel, setDefaultVideoModel] = useState<ModelRef>();
+  const [globalDefaultVideoModel, setDefaultVideoModel] = useState<ModelRef>();
   const [model3DModels, setModel3DModels] = useState<Model3DModel[]>([]);
   const [model3DProviders, setModel3DProviders] = useState<MediaProviderStatus[]>([]);
-  const [defaultModel3D, setDefaultModel3D] = useState<ModelRef>();
+  const [globalDefaultModel3D, setDefaultModel3D] = useState<ModelRef>();
+  const defaultImageModel = project.mediaModelDefaults?.image ?? globalDefaultImageModel;
+  const defaultVideoModel = project.mediaModelDefaults?.video ?? globalDefaultVideoModel;
+  const defaultModel3D = project.mediaModelDefaults?.["3d"] ?? globalDefaultModel3D;
   const [animationActions, setAnimationActions] = useState<{ status: "idle" | "loading" | "ready" | "error"; actions: Model3DAnimationAction[] }>({ status: "idle", actions: [] });
   const hasAnimateNode = nodes.some((node) => node.type === "animate-3d");
   const meshyConfigured = model3DModels.some((model) => model.provider === "meshy");

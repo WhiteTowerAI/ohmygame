@@ -5,13 +5,13 @@ import { isCanvasBoard, type CanvasBoard } from "../shared/canvas-workspace.js";
 import { CanvasError, CanvasStore } from "./canvas-workspace.js";
 import type { ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
-import type { ToolRunner } from "./tools.js";
+import { ToolRunError, type ToolRunner } from "./tools.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
   projects: ProjectManager; library: AssetLibrary; tools: ToolRunner;
 }): CanvasStore {
   const store = new CanvasStore(options.projects, options.library, options.tools);
-  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
+  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {
     const value = (query as { documentId?: unknown })?.documentId;

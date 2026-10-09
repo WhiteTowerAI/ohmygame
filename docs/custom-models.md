@@ -57,10 +57,7 @@ GLB files from images. Meshy's rigging and animation library remain separate
 capabilities of the built-in Meshy connection.
 
 Enabled models appear in their corresponding canvas node's model selector.
-Provider details also let you choose default image, video and 3D models for new
-generations. Existing nodes keep their selected model. An explicitly selected
-unavailable or disabled model produces an error; generation does not switch to
-another provider.
+Choose defaults in the Providers overview or Project settings, as described below.
 
 ## Existing configuration
 
@@ -71,6 +68,16 @@ use the saved choices and do not rediscover or re-enable image models.
 
 The unified model definitions, uses, visibility and media defaults live in the
 daemon's `model-visibility.json`. Only language model definitions are projected to
-Pi's `models.json`. Existing JSONC comments and unrelated SDK fields are preserved.
+Pi's `models.json`. Project overrides are stored in each project's `project.json`. Existing JSONC comments and unrelated SDK fields are preserved.
 Credentials remain in the existing credential store and are not copied into model
 definitions or returned in settings responses.
+
+## Global and project defaults
+
+The **Providers & Models** overview has global Image, Video and 3D selectors. Capability filters show the corresponding default. Provider details describe the provider's models; they do not define a separate default.
+
+Open **Project settings** from the top right of Asset Canvas (or a project's Design view) to choose generation models for that project. Each selector can inherit the global setting or use a specific connected model. Inheritance shows the effective provider and model. Unused generation types can stay inherited without a connected provider.
+
+Generation uses the explicit node/request model first, then the project's default, then the global default. Global **Automatic** uses the first available model; when none is available, generation reports that a provider must be connected. An unavailable explicit or configured default produces an error instead of selecting another provider.
+
+Changing defaults affects newly created nodes and requests without an explicit model. Existing nodes keep their saved choices. Both Canvas generations and project AI tools use this rule, and generation history records the resolved model so retries keep the original selection.
