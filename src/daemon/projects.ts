@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { LibraryAssetProject, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
+import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { getWorkspaceMedia, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
@@ -34,6 +34,7 @@ interface ProjectMetadata {
   /** Present only when the user chose a workspace outside OhMyGame storage. */
   workspacePath?: string;
   publication?: PublicationState;
+  mediaModelDefaults?: MediaModelDefaults;
 }
 
 export class ProjectLibraryReferenceError extends Error {}
@@ -81,6 +82,7 @@ async function assetDigest(file: string): Promise<string> {
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
+  readonly #metadataWrites = new Map<string, Promise<void>>();
   readonly #covers = new ProjectCovers();
   readonly #assetMetadataWrites = new Map<string, Promise<unknown>>();
   readonly #workspaceWrites = new Map<string, Promise<unknown>>();
@@ -212,6 +214,17 @@ export class ProjectManager {
     return project;
   }
 
+  async setMediaModelDefaults(id: string, defaults: MediaModelDefaults): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new Error(`Project not found: ${id}`);
+    if (!validMediaModelDefaults(defaults)) throw new Error("Invalid generation model defaults");
+    await this.#save(project, {
+      mediaModelDefaults: Object.keys(defaults).length ? structuredClone(defaults) : undefined,
+      updatedAt: new Date().toISOString(),
+    });
+    return project;
+  }
+
   async duplicate(id: string): Promise<ProjectState> {
     const source = this.#projects.get(id);
     if (!source) throw new Error(`Project not found: ${id}`);
@@ -229,6 +242,7 @@ export class ProjectManager {
       ...(source.packageManager ? { packageManager: source.packageManager } : {}),
       ...(source.previewPath ? { previewPath: source.previewPath } : {}),
       ...(source.previewViewport ? { previewViewport: source.previewViewport } : {}),
+      ...(source.mediaModelDefaults ? { mediaModelDefaults: structuredClone(source.mediaModelDefaults) } : {}),
     };
     try {
       await cp(source.workspacePath, path.join(duplicateDirectory, "workspace"), {
@@ -624,24 +638,31 @@ export class ProjectManager {
 
   async #save(
     project: ProjectState,
-    changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication">>,
+    changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults">>,
   ): Promise<void> {
-    const metadata = { ...metadataFor(project), ...changes };
-    await writeMetadata(this.#projectDirectory(project.id), metadata);
-    project.name = metadata.name;
-    project.updatedAt = metadata.updatedAt;
-    if (metadata.startupDirectory) project.startupDirectory = metadata.startupDirectory;
-    else delete project.startupDirectory;
-    if (metadata.startupScript) project.startupScript = metadata.startupScript;
-    else delete project.startupScript;
-    if (metadata.packageManager) project.packageManager = metadata.packageManager;
-    else delete project.packageManager;
-    if (metadata.previewPath) project.previewPath = metadata.previewPath;
-    else delete project.previewPath;
-    if (metadata.previewViewport) project.previewViewport = metadata.previewViewport;
-    else delete project.previewViewport;
-    if (metadata.publication) project.publication = metadata.publication;
-    else delete project.publication;
+    const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      const metadata = { ...metadataFor(project), ...changes };
+      await writeMetadata(this.#projectDirectory(project.id), metadata);
+      project.name = metadata.name;
+      project.updatedAt = metadata.updatedAt;
+      if (metadata.startupDirectory) project.startupDirectory = metadata.startupDirectory;
+      else delete project.startupDirectory;
+      if (metadata.startupScript) project.startupScript = metadata.startupScript;
+      else delete project.startupScript;
+      if (metadata.packageManager) project.packageManager = metadata.packageManager;
+      else delete project.packageManager;
+      if (metadata.previewPath) project.previewPath = metadata.previewPath;
+      else delete project.previewPath;
+      if (metadata.previewViewport) project.previewViewport = metadata.previewViewport;
+      else delete project.previewViewport;
+      if (metadata.mediaModelDefaults) project.mediaModelDefaults = metadata.mediaModelDefaults;
+      else delete project.mediaModelDefaults;
+      if (metadata.publication) project.publication = metadata.publication;
+      else delete project.publication;
+    });
+    this.#metadataWrites.set(project.id, operation);
+    try { await operation; }
+    finally { if (this.#metadataWrites.get(project.id) === operation) this.#metadataWrites.delete(project.id); }
   }
 
   async #validateExternalWorkspace(selectedWorkspacePath: string): Promise<string> {
@@ -696,6 +717,7 @@ function projectState(
     ...(metadata.packageManager ? { packageManager: metadata.packageManager } : {}),
     ...(metadata.previewPath ? { previewPath: metadata.previewPath } : {}),
     ...(metadata.previewViewport ? { previewViewport: metadata.previewViewport } : {}),
+    ...(metadata.mediaModelDefaults ? { mediaModelDefaults: metadata.mediaModelDefaults } : {}),
     storagePath,
     workspaceLocation: metadata.workspacePath ? "external" : "managed",
     workspaceAvailable,
@@ -835,6 +857,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
       (parsed.previewPath === undefined || normalizePreviewPath(parsed.previewPath) !== undefined) &&
       (parsed.previewViewport === undefined || isPreviewViewport(parsed.previewViewport)) &&
       (parsed.workspacePath === undefined || (typeof parsed.workspacePath === "string" && path.isAbsolute(parsed.workspacePath))) &&
+      (parsed.mediaModelDefaults === undefined || validMediaModelDefaults(parsed.mediaModelDefaults)) &&
       (parsed.publication === undefined || validPublication(parsed.publication))
     ) {
       const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
@@ -861,6 +884,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
           ...(previewViewport && previewViewport !== "fit" ? { previewViewport } : {}),
           ...(workspacePath ? { workspacePath } : {}),
           ...(parsed.publication ? { publication: parsed.publication } : {}),
+          ...(parsed.mediaModelDefaults ? { mediaModelDefaults: parsed.mediaModelDefaults } : {}),
         },
         missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.startupDirectory !== startupDirectory ||
           parsed.startupScript !== startupScript || parsed.packageManager !== packageManager ||
@@ -886,6 +910,7 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     ...(project.packageManager ? { packageManager: project.packageManager } : {}),
     ...(project.previewPath ? { previewPath: project.previewPath } : {}),
     ...(project.previewViewport ? { previewViewport: project.previewViewport } : {}),
+    ...(project.mediaModelDefaults ? { mediaModelDefaults: project.mediaModelDefaults } : {}),
     ...(project.workspaceLocation === "external" ? { workspacePath: project.workspacePath } : {}),
     ...(project.publication ? { publication: project.publication } : {}),
   };
@@ -973,4 +998,13 @@ function validPublication(value: unknown): value is PublicationState {
     typeof publication.playUrl === "string" && typeof publication.publishedAt === "string" &&
     (publication.title === undefined || typeof publication.title === "string") &&
     (publication.description === undefined || typeof publication.description === "string");
+}
+
+function validMediaModelDefaults(value: unknown): value is MediaModelDefaults {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return Object.entries(value).every(([usage, ref]) => ["image", "video", "3d"].includes(usage)
+    && ref && typeof ref === "object" && !Array.isArray(ref)
+    && Object.keys(ref).every((key) => key === "provider" || key === "id")
+    && typeof ref.provider === "string" && ref.provider.trim().length > 0 && ref.provider.length <= 100
+    && typeof ref.id === "string" && ref.id.trim().length > 0 && ref.id.length <= 200);
 }

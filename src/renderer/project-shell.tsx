@@ -925,6 +925,7 @@ export function ProjectShell({
         />
       ) : project.type === "asset-canvas" ? <Suspense fallback={<div className="design-loading"><LoaderCircle className="spin" size={18} /></div>}><CanvasWorkspace
         project={project}
+        onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         workspaceRevision={workspaceRevision}
         openFileRequest={openFileRequest}
         initialNodeId={initialCanvasNodeId}
@@ -937,6 +938,7 @@ export function ProjectShell({
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
       /></Suspense> : <PlayableEditorWorkspace
         project={project}
+        onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         designOpen={designOpen}
         onDesignOpenChange={changeWorkspaceView}
         onDesignSaveReady={registerDesignSave}

@@ -63,6 +63,11 @@ export type AskQuestionnaire = (
 export type InstallPlugin = (sourcePath: string) => Promise<PluginDetail>;
 export type SearchWeb = (input: WebSearchInput, signal?: AbortSignal) => Promise<WebSearchExecution>;
 
+const mediaModelParameter = () => Type.Object({
+  provider: Type.String({ description: "Model provider ID" }),
+  id: Type.String({ description: "Provider model ID" }),
+}, { description: "Override the project or global default generation model" });
+
 export function createAgentTools(
   project: ProjectState,
   tools: ToolRunner,
@@ -185,6 +190,7 @@ export function createAgentTools(
     description: "Generate an image and save it into the current project workspace.",
     parameters: Type.Object({
       prompt: Type.String({ description: "A detailed description of the image to generate" }),
+      imageModel: Type.Optional(mediaModelParameter()),
       size: Type.Optional(Type.Union([
         Type.Literal("1024x1024"),
         Type.Literal("1536x1024"),
@@ -193,7 +199,7 @@ export function createAgentTools(
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const run = await tools.run("generate-image", input, signal);
+      const run = await tools.run("generate-image", input, signal, project.id);
       try {
         const output = run.files[0];
         if (!output) throw new Error("Image generator returned no output");
@@ -220,6 +226,7 @@ export function createAgentTools(
     description: "Turn a PNG or JPEG in the current project into a textured GLB model.",
     parameters: Type.Object({
       imagePath: Type.String({ description: "Path to a PNG or JPEG image in the current project workspace" }),
+      model: Type.Optional(mediaModelParameter()),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
@@ -228,8 +235,9 @@ export function createAgentTools(
         throw new Error("Image to 3D requires a PNG or JPEG image");
       }
       const run = await tools.run("image-to-3d", {
+        ...(input.model ? { model: input.model } : {}),
         images: [{ mediaType: source.contentType, data: (await readFile(source.absolutePath)).toString("base64") }],
-      }, signal);
+      }, signal, project.id);
       try {
         const output = run.files[0];
         if (!output) throw new Error("3D generator returned no output");
@@ -305,10 +313,7 @@ export function createAgentTools(
     description: "Generate a video from a text prompt, optionally animating a PNG, JPEG, or WebP image from the current project.",
     parameters: Type.Object({
       prompt: Type.String({ description: "Describe the motion and camera movement" }),
-      model: Type.Object({
-        provider: Type.String({ description: "Model provider ID" }),
-        id: Type.String({ description: "Provider model ID" }),
-      }, { description: "Video model reference" }),
+      model: Type.Optional(mediaModelParameter()),
       imagePath: Type.Optional(Type.String({ description: "Optional path to a PNG, JPEG, or WebP image in the current project workspace" })),
       duration: Type.Optional(Type.Integer({ minimum: 1, maximum: 30, description: "Video duration in seconds" })),
       aspectRatio: Type.Optional(Type.Union([Type.Literal("adaptive"), Type.Literal("21:9"), Type.Literal("16:9"), Type.Literal("4:3"), Type.Literal("3:2"), Type.Literal("1:1"), Type.Literal("2:3"), Type.Literal("3:4"), Type.Literal("9:16"), Type.Literal("9:21")], { description: "Video aspect ratio" })),
@@ -329,7 +334,7 @@ export function createAgentTools(
         resolution: input.resolution,
         ...(assetId ? { references: [{ type: "image", assetId }] } : {}),
       };
-      const run = await tools.run("generate-video", request, signal);
+      const run = await tools.run("generate-video", request, signal, project.id);
       try {
         const output = run.files[0];
         if (!output) throw new Error("Video generator returned no output");

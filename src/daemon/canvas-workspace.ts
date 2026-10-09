@@ -377,10 +377,12 @@ export class CanvasStore {
       if (!node || ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d" } as Record<string, string>)[toolId] !== node.type) throw new CanvasError("Generation node not found", 404);
       const jobs = await this.#loadJobs(id);
       if (jobs.some((job) => job.context?.boardId === boardId && job.context.nodeId === nodeId && job.status === "running")) throw new CanvasError("This node is already generating", 409);
-      const prepared = structuredClone(input);
+      const resolved = await this.tools.prepare(toolId, input, id);
+      const prepared = structuredClone(resolved);
+      const model = "imageModel" in resolved ? resolved.imageModel : "model" in resolved ? resolved.model : undefined;
       if (toolId === "generate-video" && "references" in prepared) for (const reference of prepared.references ?? []) reference.assetId = await canvasLibraryAsset(this.#project(id), this.library, reference.assetId);
       if (toolId === "animate-3d" && "assetId" in prepared) prepared.assetId = await canvasLibraryAsset(this.#project(id), this.library, prepared.assetId);
-      const job: StoredJob = { id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? input.prompt.slice(0, 200) : "Model 3D", context: { projectId: id, boardId, nodeId }, input: structuredClone(input) };
+      const job: StoredJob = { id: randomUUID(), toolId, createdAt: new Date().toISOString(), status: "running", title: "prompt" in input ? input.prompt.slice(0, 200) : "Model 3D", context: { projectId: id, boardId, nodeId }, ...(model ? { model } : {}), input: structuredClone(resolved) };
       if (jobs.filter((job) => job.status === "running").length >= 20) throw new CanvasError("Too many active generation jobs", 409);
       this.#jobs.set(id, [job, ...jobs.filter((job) => job.status === "running"), ...jobs.filter((job) => job.status !== "running").slice(0, 80)]); await this.#saveJobs(id); return { job, prepared };
     });

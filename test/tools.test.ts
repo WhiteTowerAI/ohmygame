@@ -331,15 +331,16 @@ describe("tool runner", () => {
     const app = createApp({ dataDirectory, imageGenerator: { generate } });
     apps.push(app);
 
-    const first = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "First image", projectId: "project-1", nodeId: "node-1" } });
+    const projectId = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json().id;
+    const first = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "First image", projectId, nodeId: "node-1" } });
     const second = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "Second image" } });
 
     expect(first.statusCode).toBe(202);
     expect(second.statusCode).toBe(202);
-    expect(pending).toHaveLength(2);
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
     expect((await app.inject({ method: "GET", url: "/tool-jobs" })).json()).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: second.json().id, status: "running", title: "Second image" }),
-      expect.objectContaining({ id: first.json().id, status: "running", title: "First image", context: { projectId: "project-1", nodeId: "node-1" } }),
+      expect.objectContaining({ id: first.json().id, status: "running", title: "First image", context: { projectId, nodeId: "node-1" } }),
     ]));
 
     pending[0]!({ bytes: Buffer.from("first"), mediaType: "image/webp" });
@@ -393,6 +394,25 @@ describe("tool runner", () => {
       expect(jobs.find((job: { id: string }) => job.id === retried.json().id)?.status).toBe("succeeded");
       expect(jobs.some((job: { id: string }) => job.id === created.json().id)).toBe(false);
     });
+  });
+
+  it("freezes a resolved model for retries and shares resolution with direct project calls", async () => {
+    let current = { provider: "studio", id: "first" };
+    const resolve = vi.fn(async (_tool: string, input: object, projectId?: string) => ({ ...input, prompt: "Icon", imageModel: { ...current, provider: projectId ?? current.provider } }));
+    const generate = vi.fn<ImageGenerator["generate"]>()
+      .mockRejectedValueOnce(new ImageGenerationError("Temporary failure", 502))
+      .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const runner = new ToolRunner(await temporaryData(), { generate }, undefined, undefined, undefined, resolve);
+    await runner.load();
+    const first = runner.start("generate-image", { prompt: "Icon" });
+    await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("failed"));
+    current = { provider: "another-studio", id: "second" };
+    runner.retryJob(first.id);
+    await vi.waitFor(() => expect(runner.jobs()[0]?.status).toBe("succeeded"));
+    expect(generate.mock.calls.map(([input]) => input.imageModel)).toEqual([{ provider: "studio", id: "first" }, { provider: "studio", id: "first" }]);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    await runner.run("generate-image", { prompt: "Icon" }, undefined, "project-1");
+    expect(generate.mock.calls.at(-1)?.[0].imageModel).toEqual({ provider: "project-1", id: "second" });
   });
 
   it("keeps only recent completed background jobs", async () => {
