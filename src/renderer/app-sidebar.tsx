@@ -66,10 +66,17 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
     : updateStatus === "ready"
       ? { label: "Restart", icon: <RefreshCw size={14} />, action: () => void window.ohMyGameDesktop?.updates.install() }
       : undefined;
+
+  const updatePercent = updateStatus === "downloading" ? update!.status.percent : undefined;
   const updateButton = updateAction ? (
     <button className="home-sidebar-update" type="button" aria-label={updateAction.label} onClick={updateAction.action}>
       {updateAction.icon}<span>{updateAction.label}</span>
     </button>
+  ) : updatePercent !== undefined ? (
+    <div className="home-sidebar-update-progress" role="progressbar" aria-valuenow={updatePercent} aria-valuemin={0} aria-valuemax={100}>
+      <div className="home-sidebar-update-progress-fill" style={{ width: `${updatePercent}%` }} />
+      <span className="home-sidebar-update-progress-text">{updatePercent}%</span>
+    </div>
   ) : null;
 
   function resize(clientX: number): void {
@@ -133,6 +140,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
             <span className="home-sidebar-account-name" title={auth.state.user.email}>{auth.state.user.name}</span>
           </button>
           {updateButton}
+          <button className="home-sidebar-account-menu" type="button" aria-label="Application menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
           {accountMenuOpen ? (
             <div className="home-sidebar-account-popover" role="menu">
               <button type="button" role="menuitem" onClick={() => {
@@ -151,7 +159,8 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
             <span className="home-sidebar-signed-out-icon" aria-hidden="true"><UserRound size={16} /></span>
             <span className="home-sidebar-account-name">{auth.state.status === "loading" ? "Loading account" : "Sign in"}</span>
           </button>
-          {updateButton ?? <button className="home-sidebar-account-menu" type="button" aria-label="Application menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>}
+          {updateButton}
+          <button className="home-sidebar-account-menu" type="button" aria-label="Application menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
           {accountMenuOpen ? (
             <div className="home-sidebar-account-popover" role="menu">
               <button type="button" role="menuitem" onClick={() => {
