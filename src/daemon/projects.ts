@@ -15,6 +15,8 @@ import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetRefere
 import { readCanvasAssets } from "./canvas-assets.js";
 import { ProjectCovers } from "./project-covers.js";
 
+const PROJECT_LOAD_CONCURRENCY = 8;
+
 interface ProjectMetadata {
   version: 1;
   id: string;
@@ -95,21 +97,27 @@ export class ProjectManager {
   async load(): Promise<void> {
     await mkdir(this.#projectsDirectory, { recursive: true });
     const entries = await readdir(this.#projectsDirectory, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory() || !isProjectId(entry.name)) continue;
-      const projectDirectory = path.join(this.#projectsDirectory, entry.name);
-      const { metadata, missing } = await readMetadata(projectDirectory, entry.name, (await lstat(projectDirectory)).mtime.toISOString());
-      const workspacePath = metadata.workspacePath ?? path.join(projectDirectory, "workspace");
-      const workspaceAvailable = await isDirectory(workspacePath);
-      const project = projectState(
-        workspacePath,
-        metadata,
-        await isRunnableStartupWorkspace(workspacePath, metadata.startupDirectory, metadata.startupScript),
-        projectDirectory,
-        workspaceAvailable,
-      );
+    const projects = await mapConcurrent(
+      entries.filter((entry) => entry.isDirectory() && isProjectId(entry.name)),
+      PROJECT_LOAD_CONCURRENCY,
+      async (entry) => {
+        const projectDirectory = path.join(this.#projectsDirectory, entry.name);
+        const { metadata, missing } = await readMetadata(projectDirectory, entry.name, (await lstat(projectDirectory)).mtime.toISOString());
+        const workspacePath = metadata.workspacePath ?? path.join(projectDirectory, "workspace");
+        const workspaceAvailable = await isDirectory(workspacePath);
+        const project = projectState(
+          workspacePath,
+          metadata,
+          await isRunnableStartupWorkspace(workspacePath, metadata.startupDirectory, metadata.startupScript),
+          projectDirectory,
+          workspaceAvailable,
+        );
+        if (missing) await writeMetadata(projectDirectory, metadata);
+        return project;
+      },
+    );
+    for (const project of projects) {
       this.#projects.set(project.id, project);
-      if (missing) await writeMetadata(projectDirectory, metadata);
     }
   }
 
@@ -989,6 +997,23 @@ function isProjectId(value: string): boolean {
 function validAssetName(value: string): boolean {
   return value.length > 0 && value.length <= 200 && value !== "." && value !== ".." &&
     !value.includes("/") && !value.includes("\\") && !/[\u0000-\u001f]/.test(value);
+}
+
+async function mapConcurrent<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  transform: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await transform(values[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function validPublication(value: unknown): value is PublicationState {

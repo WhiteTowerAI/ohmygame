@@ -351,7 +351,7 @@ try {
       : undefined,
     environment: app.isPackaged ? await packagedEnvironment() : undefined,
     development: !useBuiltRenderer,
-    healthTimeoutMs: 30_000,
+    healthTimeoutMs: 60_000,
     handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
   });
   updater = new DesktopUpdater(app.getVersion(), async () => {

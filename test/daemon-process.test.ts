@@ -5,6 +5,27 @@ import { describe, expect, it, vi } from "vitest";
 import { startDaemon } from "../src/desktop/daemon-process.js";
 
 describe("desktop daemon process", () => {
+  it("includes daemon output when the child exits before becoming healthy", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-desktop-error-"));
+    const entry = path.join(directory, "daemon.mjs");
+    await writeFile(entry, `
+      process.stderr.write("\\u001b[31mCould not read project metadata\\u001b[0m\\n");
+      process.exit(1);
+    `);
+
+    await expect(startDaemon({
+      daemonEntry: entry,
+      dataDirectory: directory,
+      token: "test-token",
+      allowedOrigins: ["null"],
+      executable: process.execPath,
+      environment: {},
+      healthTimeoutMs: 2_000,
+    })).rejects.toThrow(
+      "Daemon exited before becoming ready (1)\n\nDaemon output:\nCould not read project metadata",
+    );
+  });
+
   it.each([false, true])("waits for health and stops the managed child (development=%s)", async (development) => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-desktop-"));
     const pidFile = path.join(directory, "pid");

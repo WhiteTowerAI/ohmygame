@@ -3,6 +3,8 @@ import { createServer } from "node:net";
 import path from "node:path";
 import type { PlaytestIpcMessage, PlaytestRequest, PlaytestResult } from "../shared/playtest.js";
 
+const MAX_STARTUP_OUTPUT_CHARS = 8_000;
+
 export interface DaemonRuntime {
   url: string;
   token: string;
@@ -61,16 +63,26 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
     ? bindPlaytestRequests(child, options.handlePlaytestRequest)
     : undefined;
   let processError: Error | undefined;
+  let startupOutput = "";
+  const captureStartupOutput = (chunk: unknown) => {
+    startupOutput = `${startupOutput}${String(chunk)}`.slice(-MAX_STARTUP_OUTPUT_CHARS);
+  };
 
-  child.stdout?.on("data", (chunk) => process.stdout.write(`[daemon] ${String(chunk)}`));
-  child.stderr?.on("data", (chunk) => process.stderr.write(`[daemon] ${String(chunk)}`));
+  child.stdout?.on("data", (chunk) => {
+    captureStartupOutput(chunk);
+    process.stdout.write(`[daemon] ${String(chunk)}`);
+  });
+  child.stderr?.on("data", (chunk) => {
+    captureStartupOutput(chunk);
+    process.stderr.write(`[daemon] ${String(chunk)}`);
+  });
   child.on("error", (error) => {
     processError = error;
     console.error("Managed daemon process error", error);
   });
 
   try {
-    await waitForHealth(runtime, child, () => processError, options.healthTimeoutMs ?? 15_000);
+    await waitForHealth(runtime, child, () => processError, () => startupOutput, options.healthTimeoutMs ?? 15_000);
   } catch (error) {
     await stopChild(child);
     throw error;
@@ -142,13 +154,16 @@ async function waitForHealth(
   runtime: DaemonRuntime,
   child: ChildProcess,
   processError: () => Error | undefined,
+  startupOutput: () => string,
   timeoutMs: number,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const error = processError();
     if (error) throw error;
-    if (child.exitCode !== null) throw new Error(`Daemon exited before becoming ready (${child.exitCode})`);
+    if (child.exitCode !== null) {
+      throw startupError(`Daemon exited before becoming ready (${child.exitCode})`, startupOutput());
+    }
     try {
       const response = await fetch(`${runtime.url}/health`, {
         headers: { authorization: `Bearer ${runtime.token}` },
@@ -160,7 +175,15 @@ async function waitForHealth(
     }
     await delay(100);
   }
-  throw new Error(`Daemon did not become ready within ${timeoutMs}ms`);
+  throw startupError(`Daemon did not become ready within ${timeoutMs}ms`, startupOutput());
+}
+
+function startupError(message: string, output: string): Error {
+  const detail = output
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .trim();
+  return new Error(detail ? `${message}\n\nDaemon output:\n${detail}` : message);
 }
 
 async function stopChild(child: ChildProcess): Promise<void> {
