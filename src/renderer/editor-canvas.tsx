@@ -32,7 +32,7 @@ type CanvasPosition = { x: number; y: number };
 type InteractionMode = "pointer" | "pan";
 
 export interface CanvasContextMenuState {
-  kind: "pane" | "node";
+  kind: "pane" | "node" | "add";
   nodeId?: string;
   screenPosition: CanvasPosition;
   flowPosition: CanvasPosition;
@@ -56,6 +56,8 @@ type EditorCanvasProps<N extends Node> = Omit<ReactFlowProps<N, Edge>, "onPaneCo
   /** The Add control at the start of the tool bar. */
   addControl: ReactNode;
   onOpenMenu: (menu: CanvasContextMenuState) => void;
+  /** Open the menu as "add" on a double-click on empty canvas in pointer mode. */
+  addOnDoubleClick?: boolean;
   fitViewOnLoad?: boolean;
   onInitialFit?: (viewport: { x: number; y: number; zoom: number }) => void;
 };
@@ -70,6 +72,7 @@ export function EditorCanvas<N extends Node>({
   edges,
   addControl,
   onOpenMenu,
+  addOnDoubleClick = false,
   onInit,
   onNodeDragStart,
   onNodeDragStop,
@@ -124,6 +127,9 @@ export function EditorCanvas<N extends Node>({
       }}
       onNodeDragStop={(event, node, dragged) => { setGuides(undefined); onNodeDragStop?.(event, node, dragged); }}
       onPaneContextMenu={(event) => openMenu(event, "pane")}
+      onDoubleClick={(event) => {
+        if (addOnDoubleClick && mode === "pointer" && (event.target as Element).classList.contains("react-flow__pane")) openMenu(event, "add");
+      }}
       onNodeContextMenu={(event, node) => { onNodeContextMenu?.(event, node); openMenu(event, "node", node.id); }}
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-story-grid)" />
