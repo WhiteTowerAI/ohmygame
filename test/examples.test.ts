@@ -79,7 +79,7 @@ async function startApp(examplesDirectory?: string, interactiveStoryPlayerDirect
 }
 
 describe("examples", () => {
-  it("preserves remixed node positions and fits each board only until its viewport is saved", async () => {
+  it("preserves remixed node positions and the original viewport until explicitly edited", async () => {
     const directory = await writeExamples();
     const canvas = path.join(directory, "pond/files/canvas");
     for (const folder of ["boards", "editor"]) await mkdir(path.join(canvas, folder), { recursive: true });
@@ -96,9 +96,8 @@ describe("examples", () => {
       const url = `/projects/${project.id}/canvas/boards/${id}`;
       const detail = (await app.inject({ method: "GET", url })).json();
       expect(detail.board.nodes[0].position).toEqual({ x: 96, y: 576 });
-      expect(detail.board.editorLayout).toEqual({ ...layout, fitView: true });
+      expect(detail.board.editorLayout).toEqual(layout);
       expect(JSON.parse(await readFile(path.join(canvas, `editor/${id}.json`), "utf8"))).toEqual(layout);
-      delete detail.board.editorLayout.fitView;
       detail.board.editorLayout.viewport = { x: 64, y: 32, zoom: 0.3 };
       const saved = await app.inject({ method: "PUT", url, payload: detail });
       expect(saved.statusCode).toBe(200);
@@ -107,6 +106,48 @@ describe("examples", () => {
       expect(reopened.board.editorLayout.viewport).toEqual({ x: 64, y: 32, zoom: 0.3 });
       expect(reopened.board.nodes[0].position).toEqual({ x: 96, y: 576 });
     }
+  });
+
+  it("preserves generation history and binds it to the remixed project", async () => {
+    const directory = await writeExamples();
+    const canvas = path.join(directory, "pond/files/canvas");
+    await mkdir(canvas, { recursive: true });
+    await writeFile(path.join(canvas, "index.json"), JSON.stringify({ version: 1, boards: [{ id: "design", name: "Design" }], documents: [] }));
+    const history = ["succeeded", "failed"].map((status, index) => ({
+      id: `historical-${index}`,
+      toolId: "generate-image",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      status,
+      title: "Original concept",
+      context: { projectId: "original-project", boardId: "design", nodeId: "concept" },
+      input: {
+        prompt: "Original prompt", resolution: "2K", aspectRatio: "16:9",
+        images: status === "failed" ? [`data:image/png;base64,${"A".repeat(4 * 1024 * 1024)}`] : [],
+      },
+      ...(status === "succeeded" ? { run: { id: "original-run", assetIds: ["original-asset"] } } : { error: "Original error" }),
+    }));
+    await writeFile(path.join(canvas, "jobs.json"), JSON.stringify(history));
+    const app = await startApp(directory);
+    const created = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", exampleId: "pond" } });
+    expect(created.statusCode).toBe(201);
+    const project = created.json();
+    const expected = history.map((job) => ({ ...job, context: { ...job.context, projectId: project.id } }));
+    expect(JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"))).toEqual(expected);
+    const response = await app.inject({ method: "GET", url: `/projects/${project.id}/canvas/jobs` });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(expected.map(({ input: _input, ...job }) => job));
+    expect(JSON.parse(await readFile(path.join(canvas, "jobs.json"), "utf8"))).toEqual(history);
+  });
+
+  it("rejects invalid generation history without leaving a partially copied project", async () => {
+    const directory = await writeExamples();
+    const canvas = path.join(directory, "pond/files/canvas");
+    await mkdir(canvas, { recursive: true });
+    await writeFile(path.join(canvas, "jobs.json"), JSON.stringify({ jobs: [] }));
+    const app = await startApp(directory);
+    const response = await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game", exampleId: "pond" } });
+    expect(response.statusCode).toBe(400);
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
   });
 
   it("lists packaged examples and serves their covers", async () => {

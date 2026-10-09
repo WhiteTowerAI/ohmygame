@@ -49,12 +49,11 @@ import {
 } from "./api.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { AgentTimeline } from "./agent-timeline.js";
-import type { ChatReference } from "./chat-reference.js";
-import { formatChatPrompt } from "./chat-reference.js";
 import { CodingWorkspace } from "./coding-workspace.js";
 import { PlayableEditorWorkspace } from "./playable-editor-workspace.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
+import { composerDrafts } from "./composer-drafts.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
@@ -124,21 +123,15 @@ export function ProjectShell({
   const [openFileRequest, setOpenFileRequest] = useState<{ path: string; id: number }>();
   const [modelChanging, setModelChanging] = useState(false);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
-  const [chatReference, setChatReference] = useState<ChatReference>();
   const [playableChat, setPlayableChat] = useState<PlayableChatState>();
   /** The Playable surface whose chip the user removed from the next message. */
   const [dismissedSurface, setDismissedSurface] = useState<string>();
-  const [composerDirty, setComposerDirty] = useState(false);
-  const [promptRequest, setPromptRequest] = useState<{ text: string; id: number }>();
   const saveDesign = useRef<(() => Promise<void>) | undefined>(undefined);
   const registerDesignSave = useCallback((save: (() => Promise<void>) | undefined) => { saveDesign.current = save; }, []);
   const [designContext, setDesignContext] = useState<PromptContext>();
   const [dismissedDesign, setDismissedDesign] = useState<string>();
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
-  usePlaytestAskRequests(state.project?.id, (text) => {
-    setAgentCollapsed(false);
-    setPromptRequest({ text, id: Date.now() });
-  });
+  usePlaytestAskRequests(state.project?.id, requestPrompt);
   const modelCatalog = useAgentModels();
   const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
@@ -148,10 +141,6 @@ export function ProjectShell({
   const workspaceShell = useRef<HTMLElement>(null);
   const agentWidthRef = useRef(agentWidth);
   const resizingAgentRef = useRef(false);
-
-  useEffect(() => {
-    setChatReference(undefined);
-  }, [conversationId]);
 
   // Godot has no Preview, so its workspace opens on Design unless the user hid it,
   // since Design keeps the workspace shown.
@@ -445,9 +434,8 @@ export function ProjectShell({
       const contexts = [surface?.context, ...previewContexts.map((attachment) => attachment.context)].filter((context) => context !== undefined);
       const sentImages = previewImage ? [...images, previewImage] : images;
       const allReferences = [...(surface?.references ?? []), ...references.filter((reference) => !(surface?.references ?? []).some((current) => current.path === reference.path))];
-      await sendPrompt(project.id, conversation.id, chatReference ? formatChatPrompt(chatReference, nextPrompt) : nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : [])]);
+      await sendPrompt(project.id, conversation.id, nextPrompt, allReferences, sentImages, mode, mentions, attachments, [...contexts, ...designContexts, ...(currentDesignContext ? [currentDesignContext] : [])]);
       if (sentImages.length || attachments.length) setWorkspaceRevision((value) => value + 1);
-      setChatReference(undefined);
       if (previewContexts.length) playableChat?.clearAttachments();
       return true;
     } catch (error) {
@@ -682,12 +670,7 @@ export function ProjectShell({
     setConversations((items) => items.map((item) => item.id === renamed.id ? renamed : item));
   }
 
-  function confirmNavigation(): boolean {
-    return !composerDirty || window.confirm("Discard the message you are composing?");
-  }
-
   function requestHome(): void {
-    if (!confirmNavigation()) return;
     const save = saveDesign.current;
     if (!save) { onHome(); return; }
     void save().then(onHome).catch((cause) => {
@@ -707,7 +690,16 @@ export function ProjectShell({
     setOpenFileRequest((current) => ({ path, id: (current?.id ?? 0) + 1 }));
     if (isGodotProject) setGodotWorkspaceVisibility(true);
   }, [changeWorkspaceView, isGodotProject, setGodotWorkspaceVisibility]);
-  const addToChat = useCallback((text: string) => setChatReference({ text }), []);
+  const addToChat = useCallback((text: string) => {
+    if (!conversation) return;
+    composerDrafts.get({ projectId, conversationId: conversation.id }).update({ reference: { text } });
+  }, [projectId, conversation?.id]);
+
+  function requestPrompt(text: string): void {
+    setAgentCollapsed(false);
+    if (!state.conversation) return;
+    composerDrafts.get({ projectId, conversationId: state.conversation.id }).insertPrompt(text);
+  }
 
   const agentIsCollapsed = !isGodotProject && agentCollapsed;
   const viewerCollapsed = isGodotProject && !godotWorkspaceOpen && !designOpen;
@@ -822,6 +814,7 @@ export function ProjectShell({
           {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
             key={conversation?.id}
             projectId={project?.id}
+            conversationId={conversation?.id}
             supportsDesign={project?.type !== "asset-canvas"}
             conversationReady={Boolean(conversation) && state.connection === "open"}
             running={currentConversationBusy}
@@ -847,16 +840,12 @@ export function ProjectShell({
             initialDraft={conversation?.id === conversationId ? initialDraft : undefined}
             onInitialDraftHandled={onInitialDraftHandled}
             onSubmit={submitPrompt}
-            reference={chatReference}
-            onClearReference={() => setChatReference(undefined)}
             contexts={chatContexts}
             onRemoveContext={(key) => {
               if (key === designChipKey) setDismissedDesign(key);
               else if (key === playableChat?.surface?.key) setDismissedSurface(key);
               else playableChat?.removeAttachment(key);
             }}
-            onDirtyChange={setComposerDirty}
-            promptRequest={promptRequest}
             onCompact={compactCurrentConversation}
             onContextUsage={currentContextPercent}
             onCancelPlan={discardPlan}
@@ -956,10 +945,7 @@ export function ProjectShell({
         onHome={requestHome}
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
         onChatContextChange={setPlayableChat}
-        onAskAgent={(text) => {
-          setAgentCollapsed(false);
-          setPromptRequest({ text, id: Date.now() });
-        }}
+        onAskAgent={requestPrompt}
         onSendToAgent={sendEditorRequest}
       />}
     </main>
