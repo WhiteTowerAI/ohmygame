@@ -69,6 +69,7 @@ import type { Connection, SaveConnectionRequest } from "../shared/connections.js
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
+import { composerDrafts } from "./composer-drafts.js";
 
 const API_BASE = "/api";
 
@@ -188,6 +189,7 @@ export async function duplicateProject(projectId: string): Promise<ProjectState>
 
 export async function deleteProject(projectId: string): Promise<void> {
   await request(`/projects/${projectId}`, { method: "DELETE" });
+  composerDrafts.deleteProject(projectId);
 }
 
 export async function listModels(): Promise<AgentModelCatalog> {
