@@ -27,6 +27,14 @@ describe("shared generation config", () => {
     expect(normalizeModel3DConfig({ model: meshy71, targetPolycount: 400_000 })).toMatchObject({ targetPolycount: 30_000 });
   });
 
+  it("preserves Tripo V3.1 high-poly settings when building a request and bounds P1 separately", () => {
+    const image = { mediaType: "image/png" as const, data: "base64" };
+    const model = { provider: "tripo", id: "v3.1-20260211" };
+    const config = normalizeModel3DConfig({ model, targetPolycount: 1_200_000 });
+    expect(buildModel3DToolRequest(JSON.parse(JSON.stringify(config)), [image])).toMatchObject({ model, targetPolycount: 1_200_000 });
+    expect(normalizeModel3DConfig({ model: { provider: "tripo", id: "P1-20260311" }, targetPolycount: 30_000 })).toMatchObject({ targetPolycount: 4_000 });
+  });
+
   it("resolves known 3D models and defaults to the first", () => {
     expect(resolveModel3D(undefined)).toMatchObject({ id: "meshy-t2" });
     expect(resolveModel3D({ provider: "meshy", id: "meshy-7.1" })).toMatchObject({ maxReferenceImages: 4 });

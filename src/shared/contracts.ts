@@ -75,7 +75,7 @@ export interface CustomProviderSettings {
   modelConfigurationVersion?: 2;
 }
 
-export type CustomProviderPreset = "gateway" | "ollama" | "lmstudio" | "google" | "openrouter" | "seedance" | "meshy";
+export type CustomProviderPreset = "gateway" | "ollama" | "lmstudio" | "google" | "openrouter" | "seedance" | "meshy" | "tripo";
 
 export interface CustomImageModelSettings {
   protocol: ImageProtocol;
@@ -98,7 +98,7 @@ export interface CustomVideoModelSettings {
 }
 
 export interface CustomModel3DSettings {
-  protocol: "meshy";
+  protocol: "meshy" | "tripo";
   baseUrl?: string;
   operation: "image-to-3d" | "multi-image-to-3d";
   modelType: "standard" | "smart-topology";
@@ -214,6 +214,7 @@ export type ImageModelCatalog = MediaModelCatalog<ImageModel>;
 export type Model3DModelRef = ModelRef;
 
 export interface Model3DModel extends Model3DModelRef {
+  referenceImageLabels?: readonly string[];
   name: string;
   providerName: string;
   /** Distinct views of one object; the first is treated as the front. */

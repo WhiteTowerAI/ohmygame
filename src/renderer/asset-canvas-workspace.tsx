@@ -1255,6 +1255,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     };
     if (node.type === "model-3d") {
       const nodeJob = canvasJobs[node.id];
+      const model = nodeModel3D(node, model3DModels);
       return {
         ...node,
         data: {
@@ -1270,9 +1271,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               setNodes((current) => current.map((candidate) => candidate.id === node.id ? { ...candidate, data } : candidate));
             },
             onGenerate: () => void generateMedia(node),
-            references: imageReferenceViews(node, nodes, libraryAssets),
-            maxReferences: nodeModel3D(node, model3DModels).maxReferenceImages,
-            slotLabels: MODEL_3D_VIEW_LABELS.slice(0, nodeModel3D(node, model3DModels).maxReferenceImages),
+            references: imageReferenceViews(node, nodes, libraryAssets, model3DModels),
+            maxReferences: model.maxReferenceImages,
+            slotLabels: (model.referenceImageLabels ?? MODEL_3D_VIEW_LABELS).slice(0, model.maxReferenceImages),
             uploading: uploadingNodeId === node.id,
             accept: "image/png,image/jpeg,image/webp",
             addLabel: "Add reference images",
@@ -2816,10 +2817,11 @@ function sameImageModel(left: ImageModelRef, right?: ImageModelRef): boolean {
   return Boolean(right && left.provider === right.provider && left.id === right.id);
 }
 
-function imageReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNode[], libraryAssets: LibraryAsset[]): MediaReferenceView[] {
+function imageReferenceViews(node: AssetCanvasFlowNode, nodes: AssetCanvasFlowNode[], libraryAssets: LibraryAsset[], model3DModels?: readonly Model3DModel[]): MediaReferenceView[] {
   if (node.type !== "image" && node.type !== "model-3d") return [];
+  const viewLabels = node.type === "model-3d" ? nodeModel3D(node, model3DModels).referenceImageLabels ?? MODEL_3D_VIEW_LABELS : undefined;
   return (node.data.images ?? []).map((reference, index) => {
-    const label = node.type === "model-3d" ? MODEL_3D_VIEW_LABELS[index] ?? `View ${index + 1}` : `Image ${index + 1}`;
+    const label = viewLabels ? viewLabels[index] ?? `View ${index + 1}` : `Image ${index + 1}`;
     if (reference.type === "library") {
       const asset = libraryAssets.find((candidate) => candidate.id === reference.assetId);
       return { assetId: reference.assetId, key: `library:${reference.assetId}:${index}`, name: asset?.name ?? "Missing image", label, type: "image" };

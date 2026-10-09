@@ -42,7 +42,8 @@ import { CUSTOM_IMAGE_MODEL_APIS, type DiscoverProviderModelsRequest } from "../
 import type { Model3DGenerator } from "./model3d.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
 import { MeshyProvider } from "./meshy-provider.js";
-import { MeshySettingsStore } from "./meshy-settings.js";
+import { MediaProviderKeyStore } from "./media-provider-settings.js";
+import { TripoProvider } from "./tripo-provider.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ProviderModels3D } from "./provider-models3d.js";
@@ -542,7 +543,9 @@ export function createApp(options: AppOptions = {}) {
   });
   const previews = new PreviewManager(events);
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
-  const meshySettings = new MeshySettingsStore(dataDirectory);
+  const meshySettings = new MediaProviderKeyStore(dataDirectory, "meshy", "Meshy");
+  const tripoSettings = new MediaProviderKeyStore(dataDirectory, "tripo", "Tripo");
+  const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings]] as const;
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
@@ -616,7 +619,10 @@ export function createApp(options: AppOptions = {}) {
   const providerModels3D = new ProviderModels3D(getModelRuntime,
     new MeshyProvider(() => meshySettings.key(), options.model3DFetch, undefined, () => providerEnabled("meshy")),
     () => meshySettings.get().configured, () => providerModelSettings.customProviderCatalog(), providerEnabled,
-    options.model3DFetch, () => providerModelSettings.defaultModel3D());
+    options.model3DFetch, () => providerModelSettings.defaultModel3D(), {
+      generator: new TripoProvider(() => tripoSettings.key(), options.model3DFetch, undefined, () => providerEnabled("tripo")),
+      configured: () => tripoSettings.get().configured,
+    });
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -776,7 +782,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), tripoSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
@@ -1913,17 +1919,12 @@ export function createApp(options: AppOptions = {}) {
           : provider.id === "openai" || customImageProviders.has(provider.id) ? ["language", "image"] as const : ["language"] as const,
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
-    const directProviders = [{
-      id: "meshy",
-      name: "Meshy",
-      enabled: providerEnabled("meshy"),
-      custom: false,
-      configured: meshySettings.get().configured,
-      status: meshySettings.get().configured ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: "Meshy API key" }],
-      credentialType: "api_key" as const,
-      capabilities: ["3d"] as const,
-    }, ...SEEDANCE_PROVIDER_IDS.map((providerId) => {
+    const directProviders = [...native3DProviders.map(([id, name, settings]) => ({
+      id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,
+      status: settings.get().configured ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: `${name} API key` }],
+      credentialType: "api_key" as const, capabilities: ["3d"] as const,
+    })), ...SEEDANCE_PROVIDER_IDS.map((providerId) => {
       const definition = SEEDANCE_PROVIDERS[providerId];
       const configured = seedanceSettings.get(providerId).configured;
       return {
@@ -2005,24 +2006,51 @@ export function createApp(options: AppOptions = {}) {
     try { return await saveCustomProvider(request.body, request.params.providerId); }
     catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
-  app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/custom", async (request, reply) => {
-    const { providerId } = request.params;
-    if (!providerModelSettings.isCustom(providerId)) return reply.code(404).send({ error: "Custom provider not found" });
+  const removeProvider = async (providerId: string) => {
     const runtime = await getModelRuntime();
-    await providerModelSettings.removeCustomProvider(providerId, async () => {
+    const native = native3DProviders.find(([id]) => id === providerId);
+    const seedance = isSeedanceProviderId(providerId);
+    if (!native && !seedance && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
+    try {
+      await providerModelSettings.removeProviderSettings(providerId, async () => {
+        await runtime.refresh({ allowNetwork: false });
+        if (previousEndpoint) await openAIEndpoint.update(openAIEndpoint.defaultBaseUrl);
+        if (native) await native[2].clear();
+        else if (seedance) await seedanceSettings.clear(providerId);
+        else await runtime.logout(providerId);
+        await syncOpenAIEndpoint(runtime);
+      });
+    } catch (cause) {
+      if (previousEndpoint) await openAIEndpoint.update(previousEndpoint);
       await runtime.refresh({ allowNetwork: false });
-      await runtime.logout(providerId);
-    });
+      await syncOpenAIEndpoint(runtime);
+      throw cause;
+    }
     for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
+  };
+  app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId", async (request, reply) => {
+    try {
+      await removeProvider(request.params.providerId);
+      return reply.code(204).send();
+    } catch (cause) {
+      if (cause instanceof ModelAuthError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+  app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/custom", async (request, reply) => {
+    if (!providerModelSettings.isCustom(request.params.providerId)) return reply.code(404).send({ error: "Custom provider not found" });
+    await removeProvider(request.params.providerId);
     return reply.code(204).send();
   });
 
-  app.get("/settings/models/providers/meshy", async () => meshySettings.get());
-  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/meshy", { schema: apiKeySettingsSchema }, async (request, reply) => {
-    try { return await meshySettings.update(request.body.apiKey); }
-    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
-  });
-  app.delete("/settings/models/providers/meshy", async (_request, reply) => { await meshySettings.clear(); return reply.code(204).send(); });
+  for (const [id, , settings] of native3DProviders) {
+    app.get(`/settings/models/providers/${id}`, async () => settings.get());
+    app.put<{ Body: { apiKey: string } }>(`/settings/models/providers/${id}`, { schema: apiKeySettingsSchema }, async (request, reply) => {
+      try { return await settings.update(request.body.apiKey); }
+      catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+    });
+  }
 
   app.put<{ Params: { providerId: string }; Body: { apiKey: string } }>(
     "/settings/models/providers/:providerId/seedance-key",

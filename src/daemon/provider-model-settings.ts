@@ -206,11 +206,11 @@ export class ProviderModelSettingsStore {
     });
   }
 
-  removeCustomProvider(id: string, apply: () => Promise<void>): Promise<void> {
+  removeProviderSettings(id: string, apply: () => Promise<void>): Promise<void> {
     return this.#enqueue(async () => {
-      if (!this.isCustom(id)) throw new Error("Only custom providers can be removed");
-      const { text } = await this.#readModels();
-      const contents = modifyFormattedJsonc(text, ["providers", id], undefined);
+      const { text, config } = await this.#readModels();
+      const contents = isObject(config.providers) && Object.hasOwn(config.providers, id)
+        ? modifyFormattedJsonc(text, ["providers", id], undefined) : text;
       const customProviders = { ...this.#customProviders };
       const hidden = { ...this.#hidden };
       delete customProviders[id];
@@ -221,7 +221,7 @@ export class ProviderModelSettingsStore {
       const defaultModel3D = this.#defaultModel3D?.provider === id ? undefined : this.#defaultModel3D;
       const oldPreferences = this.#preferences();
       try {
-        await writeAtomic(this.#modelsPath, contents);
+        if (contents !== text) await writeAtomic(this.#modelsPath, contents);
         await this.#writePreferences({ customProviders, hidden, disabled, defaultImageModel, defaultVideoModel, defaultModel3D });
         await apply();
         this.#customProviders = customProviders;
@@ -231,7 +231,7 @@ export class ProviderModelSettingsStore {
         this.#defaultVideoModel = defaultVideoModel;
         this.#defaultModel3D = defaultModel3D;
       } catch (cause) {
-        await writeAtomic(this.#modelsPath, text);
+        if (contents !== text) await writeAtomic(this.#modelsPath, text);
         await writeAtomic(this.#preferencesPath, oldPreferences);
         throw cause;
       }
@@ -359,7 +359,7 @@ export function normalizeCustomProvider(value: unknown, catalog: CustomModelCata
   if (!CUSTOM_MODEL_APIS.some((known) => known === api)) throw new Error("Unsupported provider API");
   const baseUrl = normalizeEndpoint(value.baseUrl);
   if (value.authentication !== "api_key" && value.authentication !== "none") throw new Error("Invalid authentication method");
-  if (value.preset !== undefined && !["gateway", "ollama", "lmstudio", "google", "openrouter", "seedance", "meshy"].includes(String(value.preset))) throw new Error("Invalid provider preset");
+  if (value.preset !== undefined && !["gateway", "ollama", "lmstudio", "google", "openrouter", "seedance", "meshy", "tripo"].includes(String(value.preset))) throw new Error("Invalid provider preset");
   if (value.modelConfigurationVersion !== undefined && value.modelConfigurationVersion !== 2) throw new Error("Unsupported model configuration version");
   const apiKey = typeof value.apiKey === "string" ? value.apiKey.trim() : undefined;
   if (apiKey && /[^\x20-\x7e]/.test(apiKey)) throw new Error("API key must contain printable ASCII characters");

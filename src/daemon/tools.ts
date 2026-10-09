@@ -141,7 +141,7 @@ export class ToolRunner {
         job.prepared = true;
       }
       job.model = selectedModel(job.toolId, job.input!);
-      job.run = await this.#runPrepared(job.toolId, job.input!, job.controller.signal);
+      job.run = await this.runPrepared(job.toolId, job.input!, job.controller.signal);
       if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
         await this.removeRun(job.run.id);
       }
@@ -179,7 +179,7 @@ export class ToolRunner {
   }
 
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, projectId?: string): Promise<ToolRun> {
-    return this.#runPrepared(toolId, await this.prepare(toolId, input, projectId), signal);
+    return this.runPrepared(toolId, await this.prepare(toolId, input, projectId), signal);
   }
 
   async prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
@@ -187,7 +187,8 @@ export class ToolRunner {
     return this.resolveInput ? this.resolveInput(toolId, input, projectId) : input;
   }
 
-  async #runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+  /** Executes an input whose model and generation options have already been resolved. */
+  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr"]);
       return this.#run3D(input as Run3DToolRequest, signal);

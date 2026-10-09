@@ -9,7 +9,7 @@ Existing duplicate names remain usable while you rename them.
 
 Choose **Fetch** to load the complete model list, or **Add a model manually** to
 enter a model ID that the endpoint does not list. Model discovery is optional;
-services such as Meshy may require manual IDs. Discovery never generates media.
+services such as Meshy and Tripo may require manual IDs. Discovery never generates media.
 
 Newly fetched models start disabled. Edit a model and choose one or more uses:
 **Language**, **Image**, **Video**, or **3D**, then enable it. The same model ID can
@@ -33,6 +33,7 @@ by the endpoint. Remove those models explicitly if you no longer want them.
 | Video | OpenRouter Videos | `/videos`, task polling and output download |
 | Video | Seedance | `/contents/generations/tasks`, task polling and output download |
 | 3D | Meshy | `/image-to-3d` or `/multi-image-to-3d`, task polling and GLB download |
+| 3D | Tripo V3 | `/files`, `/generation/image-to-model` or `/generation/multiview-to-model`, `/tasks/{id}` and GLB download |
 
 Custom models use the exact model ID you save, including gateway aliases. The
 endpoint must implement the selected protocol and accept that ID. A matching name
@@ -56,6 +57,21 @@ count range, default and presets, plus texture and PBR support. These paths gene
 GLB files from images. Meshy's rigging and animation library remain separate
 capabilities of the built-in Meshy connection.
 
+For Tripo-compatible services, choose **Tripo V3** and enter the model ID or gateway
+alias. One reference uses the single-image endpoint; two to four references use
+multiview in **Front / Left / Back / Right** order. The first reference is always
+the front view. Set the face-count range for the model version: P1 supports up to
+20,000 faces; standard V3.1 supports up to 1,500,000. Texture and PBR are optional;
+disabling texture also disables PBR. Canvas converts WebP references to PNG before
+upload; direct 3D tool requests accept PNG and JPEG.
+
+The built-in **Tripo** provider only needs an API key in its provider detail page.
+It includes **Tripo P1** (`P1-20260311`) for low-poly game assets and **Tripo V3.1**
+(`v3.1-20260211`) for detailed geometry. Versions are pinned to keep saved projects
+stable. The connection uses `https://openapi.tripo3d.ai/v3`; custom relays can use
+their own Base URL and headers with the same protocol. Rigging and animation
+continue to use the built-in Meshy connection.
+
 Enabled models appear in their corresponding canvas node's model selector.
 Choose defaults in the Providers overview or Project settings, as described below.
 
@@ -72,11 +88,22 @@ Pi's `models.json`. Project overrides are stored in each project's `project.json
 Credentials remain in the existing credential store and are not copied into model
 definitions or returned in settings responses.
 
+Connected provider details have a **Delete provider** button with inline
+confirmation. For custom providers, it removes the provider definition, credential
+and model settings. For built-in providers, including Meshy and Tripo, it clears
+the saved credential, endpoint overrides, custom models and visibility/enable
+settings; the service remains available to connect again. Global media defaults
+pointing to the deleted connection are reset. Project defaults and existing node
+choices stay saved and need an available connection to generate again.
+
+Deleting an official browser sign-in clears the local login only. It does not
+cancel or change the service's subscription.
+
 ## Global and project defaults
 
 The **Providers & Models** overview has global Image, Video and 3D selectors. Capability filters show the corresponding default. Provider details describe the provider's models; they do not define a separate default.
 
-Open **Project settings** from the top right of Asset Canvas (or a project's Design view) to choose generation models for that project. Each selector can inherit the global setting or use a specific connected model. Inheritance shows the effective provider and model. Unused generation types can stay inherited without a connected provider.
+Open **Project settings** from the top right of Asset Canvas (or a project's Design view) to choose generation models in a compact menu. Global and project defaults use the same model picker as Canvas, with models grouped by provider. Changes save immediately. Closed selectors show only the effective model name; **Automatic** and **Use global** remain available in the model menu. Unused generation types can keep the global setting without a connected provider.
 
 Generation uses the explicit node/request model first, then the project's default, then the global default. Global **Automatic** uses the first available model; when none is available, generation reports that a provider must be connected. An unavailable explicit or configured default produces an error instead of selecting another provider.
 

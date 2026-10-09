@@ -50,8 +50,9 @@ export class SeedanceSettingsStore {
     const normalized = value.trim();
     if (!normalized || !/^[\x21-\x7E]+$/.test(normalized)) throw new Error("API key must contain only printable ASCII characters");
     await this.#mutate(async () => {
-      this.#settings = { ...this.#settings, [KEY_FIELDS[providerId]]: normalized };
-      await this.#persist();
+      const next = { ...this.#settings, [KEY_FIELDS[providerId]]: normalized };
+      await this.#persist(next);
+      this.#settings = next;
     });
     return this.get(providerId);
   }
@@ -60,12 +61,12 @@ export class SeedanceSettingsStore {
     await this.#mutate(async () => {
       const next = { ...this.#settings };
       delete next[KEY_FIELDS[providerId]];
-      this.#settings = next;
-      if (!this.key("volcengine-ark") && !this.key("byteplus-modelark")) {
+      if (!next.volcengineApiKey && !next.byteplusApiKey) {
         await rm(this.#filePath, { force: true });
       } else {
-        await this.#persist();
+        await this.#persist(next);
       }
+      this.#settings = next;
     });
   }
 
@@ -75,11 +76,11 @@ export class SeedanceSettingsStore {
     await pending;
   }
 
-  async #persist(): Promise<void> {
+  async #persist(settings: StoredSeedanceSettings): Promise<void> {
     await mkdir(path.dirname(this.#filePath), { recursive: true });
     const temporary = `${this.#filePath}.${process.pid}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, `${JSON.stringify(this.#settings)}\n`, { encoding: "utf8", mode: 0o600 });
+      await writeFile(temporary, `${JSON.stringify(settings)}\n`, { encoding: "utf8", mode: 0o600 });
       await rename(temporary, this.#filePath);
     } catch (error) {
       await rm(temporary, { force: true }).catch(() => undefined);

@@ -14,7 +14,7 @@ import type {
 } from "../shared/contracts.js";
 import {
   getCustomProvider,
-  removeCustomProvider,
+  removeProvider,
   setProviderEnabled,
   cancelModelAuth,
   getOpenAIEndpointSettings,
@@ -25,7 +25,7 @@ import {
   startModelProviderLogin,
   subscribeToModelAuth,
   updateOpenAIEndpointSettings,
-  updateMeshyApiKey,
+  updateModel3DProviderApiKey,
   updateSeedanceApiKey,
   listVideoModelCatalog,
 } from "./api.js";
@@ -33,11 +33,12 @@ import { PROVIDER_ICONS } from "./provider-icons.js";
 import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
+import { MODEL_3D_MODELS } from "../shared/generation-config.js";
 import { SegmentedControl } from "./segmented-control.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
-const POPULAR_PROVIDER_IDS = ["openrouter", "openai", "anthropic"];
+const POPULAR_PROVIDER_IDS = ["openrouter", "openai", "anthropic", "meshy", "tripo"];
 const SEEDANCE_PROVIDER_IDS = new Set(["volcengine-ark", "byteplus-modelark"]);
 const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; label: string }> = [
   { value: "all", label: "All" },
@@ -198,15 +199,16 @@ function ProviderMark({ provider }: { provider: Pick<ModelProviderSummary, "id">
 
 function ProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
   if (provider.custom) return <CustomProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
-  if (provider.id === "meshy") return <MeshyAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (provider.id === "meshy" || provider.id === "tripo") return <Native3DProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
-  if (provider.configured) return <ConnectedProvider provider={provider} onBack={onBack} />;
+  if (provider.configured) return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
   return <ActiveProviderAuth provider={provider} method={method} onBack={onBack} onCompleted={onCompleted} />;
 }
 
 function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const deletion = useProviderDeletion(provider.id, onCompleted);
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -228,8 +230,9 @@ function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: Provide
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack}>
-        {provider.configured ? <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} /> : null}
+        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader>
+      <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
         <label className="settings-search-field-label" htmlFor={inputId}>API key</label>
         <div className="settings-detail-inline">
@@ -240,14 +243,14 @@ function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: Provide
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
             placeholder={provider.configured ? "Paste a new key to replace the current one" : `Paste your ${provider.name} API key`}
-            disabled={saving}
+            disabled={saving || deletion.busy}
           />
-          <button className="settings-primary-button" type="submit" disabled={saving || !apiKey.trim()}>
+          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </form>
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
       {provider.configured && provider.id === "volcengine-ark" ? <ProviderImageModels key={`seedream-${modelsRevision}`} providerId={provider.id} /> : null}
       {provider.configured ? <SeedanceModels key={`seedance-${modelsRevision}`} providerId={provider.id} /> : null}
     </section>
@@ -335,13 +338,41 @@ function SeedanceModels({ providerId }: { providerId: string }) {
   );
 }
 
+function useProviderDeletion(providerId: string, onRemoved: () => void) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  async function remove() {
+    if (busy) return;
+    setBusy(true);
+    setError(undefined);
+    try { await removeProvider(providerId); onRemoved(); }
+    catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+  return { confirming, setConfirming, busy, error, remove };
+}
+
+function ProviderDeleteButton({ deletion, disabled = false }: { deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean }) {
+  return <button className="icon-button settings-provider-setting-edit settings-provider-delete" type="button" aria-label="Delete provider" data-tooltip="Delete provider" aria-expanded={deletion.confirming} disabled={deletion.busy || disabled} onClick={() => deletion.setConfirming((value) => !value)}><Trash2 size={15} aria-hidden="true" /></button>;
+}
+
+function ProviderDeleteConfirmation({ provider, deletion, disabled = false }: { provider: ProviderSummary; deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean }) {
+  if (!deletion.confirming) return null;
+  return <div className="settings-provider-delete-confirmation" role="group" aria-label="Delete provider confirmation">
+    <span>{provider.custom ? "Delete this provider, its key and model settings?" : "Delete this provider's saved connection and settings?"}{!provider.custom && provider.credentialType === "oauth" ? " Your subscription stays active." : null}</span>
+    <button className="settings-danger-button" type="button" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? "Deleting…" : "Delete provider"}</button>
+    <button className="settings-secondary-button" type="button" disabled={deletion.busy} onClick={() => deletion.setConfirming(false)}>Cancel</button>
+  </div>;
+}
+
 function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: ProviderSummary; onBack: () => void; onRemoved: () => void }) {
+  const deletion = useProviderDeletion(provider.id, onRemoved);
   const [settings, setSettings] = useState<CustomProviderDetails>();
   const [editing, setEditing] = useState<CustomProviderField>();
   const [openingEditor, setOpeningEditor] = useState(false);
   const [modelsRevision, setModelsRevision] = useState(0);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const deleting = deletion.busy;
   const [error, setError] = useState<string>();
   useEffect(() => {
     let active = true;
@@ -366,12 +397,6 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setOpeningEditor(false); }
   }
-  async function remove(): Promise<void> {
-    setDeleting(true);
-    setError(undefined);
-    try { await removeCustomProvider(provider.id); onRemoved(); }
-    catch (cause) { setError(errorMessage(cause)); setDeleting(false); }
-  }
   const fields: Array<{ field: CustomProviderField; label: string; value: string }> = settings ? [
     { field: "apiKey", label: "API key", value: settings.authentication === "api_key" ? "••••••••" : "Not required" },
     { field: "baseUrl", label: "Base URL", value: settings.baseUrl },
@@ -379,9 +404,10 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
   ] : [];
   return <section className="settings-panel settings-provider-detail">
     <ProviderDetailHeader provider={{ ...provider, name: settings?.name ?? provider.name }} onBack={onBack}>
-      <button className="icon-button settings-provider-setting-edit settings-provider-delete" type="button" aria-label="Delete provider" data-tooltip="Delete provider" aria-expanded={confirmingDelete} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => setConfirmingDelete((value) => !value)}><Trash2 size={15} aria-hidden="true" /></button>
-      <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} />
+      <ProviderDeleteButton deletion={deletion} disabled={openingEditor || Boolean(editing)} />
+      <ProviderEnableControl provider={provider} disabled={deleting} onChanged={() => setModelsRevision((value) => value + 1)} />
     </ProviderDetailHeader>
+    <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={openingEditor || Boolean(editing)} />
     {settings ? <div className="settings-provider-connection">
       {fields.map(({ field, label, value }) => <div className="settings-provider-setting-row" key={field}>
         <span className="settings-search-field-label">{label}</span>
@@ -389,16 +415,14 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
         <button className="icon-button settings-provider-setting-edit" type="button" aria-label={`Edit ${label}`} data-tooltip={`Edit ${label}`} disabled={deleting || openingEditor || Boolean(editing)} onClick={() => void openEditor(field)}><Pencil size={15} aria-hidden="true" /></button>
       </div>)}
     </div> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading configuration</div> : null}
-    {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
     {settings ? <ProviderModels key={modelsRevision} providerId={provider.id} onEditModels={() => void openEditor("models")} /> : null}
-    {confirmingDelete ? <div className="settings-custom-provider-delete" role="group" aria-label="Delete provider confirmation">
-      <span>Delete this provider, its key and model settings?</span><button className="settings-danger-button" type="button" disabled={deleting} onClick={() => void remove()}>{deleting ? "Deleting…" : "Delete provider"}</button><button className="settings-secondary-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Cancel</button>
-    </div> : null}
     {editing && settings ? <CustomProviderDialog settings={settings} initialFocus={editing} onClose={() => setEditing(undefined)} onSaved={(value) => { setSettings(value); setEditing(undefined); setModelsRevision((revision) => revision + 1); }} /> : null}
   </section>;
 }
 
-function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+function Native3DProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const deletion = useProviderDeletion(provider.id, onCompleted);
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -407,7 +431,7 @@ function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ProviderSu
     setSaving(true);
     setError(undefined);
     try {
-      await updateMeshyApiKey(apiKey);
+      await updateModel3DProviderApiKey(provider.id, apiKey);
       onCompleted();
     } catch (cause) {
       setError(errorMessage(cause));
@@ -419,26 +443,34 @@ function MeshyAuthView({ provider, onBack, onCompleted }: { provider: ProviderSu
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack}>
-        {provider.configured ? <ProviderEnableControl provider={provider} /> : null}
+        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} /></> : null}
       </ProviderDetailHeader>
+      <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
-        <label className="settings-search-field-label" htmlFor="meshy-api-key">API key</label>
+        <label className="settings-search-field-label" htmlFor={`${provider.id}-api-key`}>API key</label>
         <div className="settings-detail-inline">
           <input
-            id="meshy-api-key"
+            id={`${provider.id}-api-key`}
             className="settings-search-input"
             type="password"
             value={apiKey}
             onChange={(event) => setApiKey(event.target.value)}
-            placeholder={provider.configured ? "Paste a new key to replace the current one" : "Paste your Meshy API key"}
-            disabled={saving}
+            placeholder={provider.configured ? "Paste a new key to replace the current one" : `Paste your ${provider.name} API key`}
+            disabled={saving || deletion.busy}
           />
-          <button className="settings-primary-button" type="submit" disabled={saving || !apiKey.trim()}>
+          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </form>
-      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+      {provider.configured ? <section className="settings-detail-section provider-models" aria-label="3D models">
+        <div className="provider-models-heading"><h4>Models</h4></div>
+        <div className="provider-models-list" role="list" aria-label="3D models">
+          {MODEL_3D_MODELS.filter((model) => model.provider === provider.id).map((model) => <div key={model.id} className="provider-model-row" role="listitem"><span className="provider-model-copy"><strong>{model.name}</strong><small>{model.id} · {model.maxReferenceImages} views · {model.polycount.min.toLocaleString()}–{model.polycount.max.toLocaleString()} faces</small></span></div>)}
+        </div>
+        <p className="settings-detail-hint">{provider.id === "tripo" ? "P1 creates low-poly game assets. V3.1 creates detailed geometry. Both support textures and PBR." : "T2 creates low-poly assets from one image. 7.1 accepts up to four views."}</p>
+      </section> : null}
+      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
     </section>
   );
 }
@@ -469,7 +501,8 @@ function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProvi
   );
 }
 
-function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
+function ConnectedProvider({ provider, onBack, onRemoved }: { provider: ProviderSummary; onBack: () => void; onRemoved: () => void }) {
+  const deletion = useProviderDeletion(provider.id, onRemoved);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [editing, setEditing] = useState<ModelAuthMethod | "endpoint">();
@@ -500,7 +533,7 @@ function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; on
       setError(errorMessage(cause));
     }
   }
-  const displayedError = error ?? endpoint.error;
+  const displayedError = deletion.error ?? error ?? endpoint.error;
   // Only API keys can go through a proxy; a ChatGPT sign-in always talks to OpenAI directly.
   const showsEndpoint = endpoint.supported && credentialType !== "oauth";
   const canEditKey = credentialType !== "oauth" && provider.methods.some((method) => method.type === "api_key");
@@ -508,19 +541,21 @@ function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; on
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack}>
-        <ProviderEnableControl provider={provider} onChanged={() => setModelsRevision((value) => value + 1)} />
+        <ProviderDeleteButton deletion={deletion} disabled={Boolean(editing) || endpoint.saving} />
+        <ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} />
       </ProviderDetailHeader>
+      <ProviderDeleteConfirmation provider={{ ...provider, credentialType }} deletion={deletion} disabled={Boolean(editing) || endpoint.saving} />
       {alternateMethod || canEditKey || showsEndpoint ? <div className="settings-provider-connection">
         {alternateMethod ? <div className="settings-provider-setting-row settings-provider-auth-row">
           <span className="settings-search-field-label">Sign-in</span>
           <span className="settings-provider-setting-value">{credentialType === "oauth" ? "Browser sign-in" : "API key"}</span>
-          <button className="settings-secondary-button" type="button" disabled={Boolean(editing)} onClick={() => edit(alternateMethod)}>{alternateMethod === "oauth" ? "Use browser sign-in" : "Use API key"}</button>
+          <button className="settings-secondary-button" type="button" disabled={Boolean(editing) || deletion.busy} onClick={() => edit(alternateMethod)}>{alternateMethod === "oauth" ? "Use browser sign-in" : "Use API key"}</button>
         </div> : null}
         {canEditKey ? <section aria-label="API key settings">
           <div className="settings-provider-setting-row">
             <span className="settings-search-field-label">API key</span>
             <span className="settings-provider-setting-value" aria-label="API key is configured">••••••••</span>
-            <button className="icon-button settings-provider-setting-edit" type="button" aria-label="Edit API key" data-tooltip="Edit API key" aria-expanded={editing === "api_key"} disabled={Boolean(editing)} onClick={() => edit("api_key")}><Pencil size={15} aria-hidden="true" /></button>
+            <button className="icon-button settings-provider-setting-edit" type="button" aria-label="Edit API key" data-tooltip="Edit API key" aria-expanded={editing === "api_key"} disabled={Boolean(editing) || deletion.busy} onClick={() => edit("api_key")}><Pencil size={15} aria-hidden="true" /></button>
           </div>
         </section> : null}
         {editing === "api_key" || editing === "oauth" ? <div className="settings-provider-setting-editor"><ActiveProviderAuth provider={provider} method={editing} inline onBack={() => setEditing(undefined)} onCompleted={() => completeAuth(editing)} onFailed={(message) => { setEditing(undefined); setError(message); }} /></div> : null}
@@ -528,7 +563,7 @@ function ConnectedProvider({ provider, onBack }: { provider: ProviderSummary; on
           <div className="settings-provider-setting-row">
             <span className="settings-search-field-label">Base URL</span>
             <span className="settings-provider-setting-value" title={endpoint.savedBaseUrl}>{endpoint.loading ? "Loading…" : endpoint.savedBaseUrl || "Unavailable"}</span>
-            <button className="icon-button settings-provider-setting-edit" type="button" aria-label="Edit Base URL" data-tooltip="Edit Base URL" aria-expanded={editing === "endpoint"} disabled={Boolean(editing) || endpoint.loading} onClick={() => edit("endpoint")}><Pencil size={15} aria-hidden="true" /></button>
+            <button className="icon-button settings-provider-setting-edit" type="button" aria-label="Edit Base URL" data-tooltip="Edit Base URL" aria-expanded={editing === "endpoint"} disabled={Boolean(editing) || endpoint.loading || deletion.busy} onClick={() => edit("endpoint")}><Pencil size={15} aria-hidden="true" /></button>
           </div>
           {editing === "endpoint" ? <form className="settings-provider-setting-editor settings-detail-section" onSubmit={(event) => void saveEndpoint(event)}>
             <BaseUrlField endpoint={endpoint} />
@@ -709,7 +744,7 @@ function ProviderDetailHeader({ provider, onBack, children }: { provider: ModelP
   );
 }
 
-function ProviderEnableControl({ provider, onChanged }: { provider: ProviderSummary; onChanged?: () => void }) {
+function ProviderEnableControl({ provider, onChanged, disabled = false }: { provider: ProviderSummary; onChanged?: () => void; disabled?: boolean }) {
   const [enabled, setEnabled] = useState(provider.enabled !== false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -726,7 +761,7 @@ function ProviderEnableControl({ provider, onChanged }: { provider: ProviderSumm
   return <div className="settings-provider-enable-control">
     <label className="settings-provider-enable-label" title={enabled ? "Available for new requests" : "Disabled · Your credentials and models are kept"}>
       <small>{enabled ? "Enabled" : "Disabled"}</small>
-      <span className="settings-toggle"><input type="checkbox" role="switch" aria-label={`Enable ${provider.name}`} checked={enabled} disabled={busy} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></span>
+      <span className="settings-toggle"><input type="checkbox" role="switch" aria-label={`Enable ${provider.name}`} checked={enabled} disabled={busy || disabled} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></span>
     </label>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
   </div>;

@@ -1,12 +1,12 @@
 import { mkdir, readFile, rm, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-export class MeshySettingsStore {
+export class MediaProviderKeyStore {
   readonly #filePath: string;
   #apiKey: string | undefined;
 
-  constructor(dataDirectory: string) {
-    this.#filePath = path.join(dataDirectory, "meshy.json");
+  constructor(dataDirectory: string, providerId: "meshy" | "tripo", private readonly providerName: string) {
+    this.#filePath = path.join(dataDirectory, `${providerId}.json`);
   }
 
   async load(): Promise<void> {
@@ -28,7 +28,7 @@ export class MeshySettingsStore {
 
   async update(apiKey: string): Promise<{ configured: boolean }> {
     const value = apiKey.trim();
-    if (!value || !/^[\x21-\x7E]+$/.test(value)) throw new Error("Meshy API key is invalid");
+    if (!value || !/^[\x21-\x7E]+$/.test(value)) throw new Error(`${this.providerName} API key is invalid`);
     await mkdir(path.dirname(this.#filePath), { recursive: true });
     const temporary = `${this.#filePath}.tmp`;
     await writeFile(temporary, `${JSON.stringify({ version: 1, apiKey: value })}\n`, { encoding: "utf8", mode: 0o600 });
@@ -38,7 +38,7 @@ export class MeshySettingsStore {
   }
 
   async clear(): Promise<void> {
-    this.#apiKey = undefined;
     await rm(this.#filePath, { force: true });
+    this.#apiKey = undefined;
   }
 }
