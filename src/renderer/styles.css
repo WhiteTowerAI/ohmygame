@@ -412,10 +412,10 @@ body {
   gap: 0;
   overflow: hidden;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid #3b81e9;
   border-radius: 999px;
-  background: var(--control-selected);
-  color: var(--text);
+  background: #3b81e9;
+  color: #ffffff;
   font: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -429,7 +429,7 @@ body {
   height: 32px;
   flex-basis: 72px;
   gap: 4px;
-  background: color-mix(in srgb, var(--text) 12%, var(--surface));
+  background: #2563eb;
   outline: 0;
 }
 
@@ -451,6 +451,39 @@ body {
 .home-sidebar-update:focus-visible span {
   max-width: 48px;
   opacity: 1;
+}
+
+.home-sidebar-update-progress {
+  position: relative;
+  display: inline-flex;
+  width: 72px;
+  height: 28px;
+  flex: 0 0 72px;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #3b81e9;
+  border-radius: 20px;
+  background: #3b81e9;
+}
+
+.home-sidebar-update-progress-fill {
+  position: absolute;
+  inset: 0;
+  width: 0;
+  background: #2563eb;
+  border-radius: 20px;
+  transition: width 200ms ease;
+}
+
+.home-sidebar-update-progress-text {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffffff;
+  user-select: none;
 }
 
 .home-sidebar-sign-in-main:disabled {
