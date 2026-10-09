@@ -81,7 +81,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listVideoModelCatalog, setProjectCover, uploadLibraryAsset } from "./api.js";
+import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset } from "./api.js";
 import { downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -340,14 +340,17 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const libraryImages = useMemo(() => libraryAssets.filter((asset) => asset.mediaType === "image"), [libraryAssets]);
 
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
+  const [defaultImageModel, setDefaultImageModel] = useState<ImageModelRef>();
   const [videoModels, setVideoModels] = useState<VideoModel[]>([]);
   const [imageProviders, setImageProviders] = useState<MediaProviderStatus[]>([]);
   const [videoProviders, setVideoProviders] = useState<MediaProviderStatus[]>([]);
+  const [defaultVideoModel, setDefaultVideoModel] = useState<ModelRef>();
   const [model3DModels, setModel3DModels] = useState<Model3DModel[]>([]);
   const [model3DProviders, setModel3DProviders] = useState<MediaProviderStatus[]>([]);
+  const [defaultModel3D, setDefaultModel3D] = useState<ModelRef>();
   const [animationActions, setAnimationActions] = useState<{ status: "idle" | "loading" | "ready" | "error"; actions: Model3DAnimationAction[] }>({ status: "idle", actions: [] });
   const hasAnimateNode = nodes.some((node) => node.type === "animate-3d");
-  const meshyConfigured = model3DModels.length > 0;
+  const meshyConfigured = model3DModels.some((model) => model.provider === "meshy");
 
   // The move library is only needed once an Animate node exists and a 3D provider is set up.
   useEffect(() => {
@@ -402,7 +405,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     historyPendingBase.current = undefined;
     historyGestureBase.current = undefined;
     setCanvasContextMenu(undefined);
-    const emptyCatalog = { models: [], providers: [] };
+    const emptyCatalog = { models: [], providers: [], defaultModel: undefined };
     void Promise.all([storage.load(), loadLibraryAssets().catch(() => []), listImageModelCatalog().catch(() => emptyCatalog), listVideoModelCatalog().catch(() => emptyCatalog), listModel3DCatalog().catch(() => emptyCatalog)]).then(([story, assets, imageCatalog, videoCatalog, model3DCatalog]) => {
       const models = imageCatalog.models;
       const loadedVideoModels = videoCatalog.models;
@@ -421,11 +424,14 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       queuedCanvas.current = undefined;
       setLibraryAssets(assets);
       setImageModels(models);
+      setDefaultImageModel(imageCatalog.defaultModel);
       setVideoModels(loadedVideoModels);
       setImageProviders(imageCatalog.providers);
       setVideoProviders(videoCatalog.providers);
+      setDefaultVideoModel(videoCatalog.defaultModel);
       setModel3DModels(model3DCatalog.models);
       setModel3DProviders(model3DCatalog.providers);
+      setDefaultModel3D(model3DCatalog.defaultModel);
       setNotice(undefined);
       setPhase("ready");
       onStatusChange?.("saved");
@@ -437,6 +443,30 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     });
     return () => { disposed = true; };
   }, [projectId, storage, loadAttempt]);
+
+  useEffect(() => {
+    let active = true;
+    let revision = 0;
+    const refresh = () => {
+      const current = ++revision;
+      void listImageModelCatalog().then((catalog) => {
+        if (!active || current !== revision) return;
+        setImageModels(catalog.models);
+        setDefaultImageModel(catalog.defaultModel);
+        setImageProviders(catalog.providers);
+      }).catch(() => undefined);
+      void listVideoModelCatalog().then((catalog) => {
+        if (!active || current !== revision) return;
+        setVideoModels(catalog.models); setVideoProviders(catalog.providers); setDefaultVideoModel(catalog.defaultModel);
+      }).catch(() => undefined);
+      void listModel3DCatalog().then((catalog) => {
+        if (!active || current !== revision) return;
+        setModel3DModels(catalog.models); setModel3DProviders(catalog.providers); setDefaultModel3D(catalog.defaultModel);
+      }).catch(() => undefined);
+    };
+    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
+    return () => { active = false; window.removeEventListener(MODELS_CHANGED_EVENT, refresh); };
+  }, [projectId]);
 
   useEffect(() => {
     if (phase !== "ready") return;
@@ -807,7 +837,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const target = nodes.find((node) => node.id === connection.target);
     const source = nodes.find((node) => node.id === connection.source);
     if (!source || !target) return;
-    const relation = connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels);
+    const relation = connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels, model3DModels);
     if (relation === "document-image" && target.data.documentId && source.data.assetId) {
       documents.insertImage(target.data.documentId, source.data.assetId);
       return;
@@ -854,7 +884,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       return;
     }
     const created = createFlowNode(type, position, imageModels, videoModels, defaultTextModel);
-    const node = { ...applyRememberedSettings(created, rememberedSettings.current[type], { imageModels, videoModels, textModels: textModelCatalog.models }), selected: true };
+    const node = { ...applyRememberedSettings(created, rememberedSettings.current[type], { imageModels, defaultImageModel, videoModels, defaultVideoModel, model3DModels, defaultModel3D, textModels: textModelCatalog.models }), selected: true };
     setNodes((current) => [...current.map((candidate) => candidate.selected ? { ...candidate, selected: false } : candidate), node]);
   }
 
@@ -1072,7 +1102,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   async function uploadReferenceImages(node: AssetCanvasFlowNode, files: File[]): Promise<void> {
     if ((node.type !== "image" && node.type !== "model-3d") || files.length === 0 || uploadingNodeId) return;
-    const available = (node.type === "image" ? imageReferenceLimit(node, imageModels) : nodeModel3D(node).maxReferenceImages) - (node.data.images?.length ?? 0);
+    const available = (node.type === "image" ? imageReferenceLimit(node, imageModels) : nodeModel3D(node, model3DModels).maxReferenceImages) - (node.data.images?.length ?? 0);
     if (available <= 0) {
       setGenerationError({ nodeId: node.id, message: "This node cannot accept more reference images." });
       return;
@@ -1238,8 +1268,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             },
             onGenerate: () => void generateMedia(node),
             references: imageReferenceViews(node, nodes, libraryAssets),
-            maxReferences: nodeModel3D(node).maxReferenceImages,
-            slotLabels: MODEL_3D_VIEW_LABELS.slice(0, nodeModel3D(node).maxReferenceImages),
+            maxReferences: nodeModel3D(node, model3DModels).maxReferenceImages,
+            slotLabels: MODEL_3D_VIEW_LABELS.slice(0, nodeModel3D(node, model3DModels).maxReferenceImages),
             uploading: uploadingNodeId === node.id,
             accept: "image/png,image/jpeg,image/webp",
             addLabel: "Add reference images",
@@ -1282,7 +1312,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               : candidate)),
             actions: animationActions.actions,
             actionsStatus: animationActions.status === "ready" || animationActions.status === "error" ? animationActions.status : "loading",
-            configured: model3DModels.length > 0,
+            configured: meshyConfigured,
             onReloadActions: () => setAnimationActions({ status: "idle", actions: [] }),
           } satisfies Animate3DNodeRuntime,
         },
@@ -1413,7 +1443,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               isValidConnection={(connection) => {
                 const target = nodes.find((node) => node.id === connection.target);
                 const source = nodes.find((node) => node.id === connection.source);
-                return Boolean(source && target && connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels));
+                return Boolean(source && target && connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels, model3DModels));
               }}
               defaultViewport={editorLayout.viewport}
               fitViewOnLoad={editorLayout.fitView === true}
@@ -1521,7 +1551,8 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
 
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
-    const option = preferredImageOption(model);
+    const option = model?.generationOptions.find((candidate) => candidate.resolution === data.resolution && candidate.aspectRatio === data.aspectRatio)
+      ?? preferredImageOption(model, data.aspectRatio);
     if (!model || !option || !runtime) return;
     runtime.onChange({ ...data, imageRuntime: undefined, model: { provider: model.provider, id: model.id }, resolution: option.resolution, aspectRatio: option.aspectRatio });
   }
@@ -1709,7 +1740,8 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
           disabled={runtime?.busy}
           onChange={(key) => {
             const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
-            if (model) updateConfig({ model: modelRef(model), targetPolycount: model.polycount.default });
+            if (model) updateConfig({ model: modelRef(model), targetPolycount: model.polycount.default,
+              ...(model.supportsTexture === false ? { texture: false, pbr: false } : model.supportsPbr === false ? { pbr: false } : {}) });
           }}
         />
         <CanvasChipSelect
@@ -1719,8 +1751,8 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
           disabled={runtime?.busy}
           onChange={(value) => updateConfig({ targetPolycount: Number(value) })}
         />
-        <CanvasChipToggle label="Texture" pressed={config.texture} disabled={runtime?.busy} onChange={(texture) => updateConfig({ texture, ...(!texture ? { pbr: false } : {}) })} />
-        <CanvasChipToggle label="PBR" pressed={config.pbr} disabled={runtime?.busy || !config.texture} onChange={(pbr) => updateConfig({ pbr })} />
+        <CanvasChipToggle label="Texture" pressed={config.texture} disabled={runtime?.busy || selectedModel?.supportsTexture === false} onChange={(texture) => updateConfig({ texture, ...(!texture ? { pbr: false } : {}) })} />
+        <CanvasChipToggle label="PBR" pressed={config.pbr} disabled={runtime?.busy || !config.texture || selectedModel?.supportsPbr === false} onChange={(pbr) => updateConfig({ pbr })} />
         <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={!hasImages || !selectedModel} />
       </div>
     </MediaNodeShell>
@@ -2613,35 +2645,53 @@ export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | 
   return undefined;
 }
 
-/** Starts a new node with remembered settings, dropping any the current catalogs no longer offer. */
+/** Starts a new node with supported remembered options and configured media defaults. */
 export function applyRememberedSettings(
   node: AssetCanvasFlowNode,
   settings: NodeGenerationSettings | undefined,
-  catalogs: { imageModels: readonly ImageModel[]; videoModels: readonly VideoModel[]; textModels: readonly AgentModel[] },
+  catalogs: { imageModels: readonly ImageModel[]; defaultImageModel?: ImageModelRef; videoModels: readonly VideoModel[]; defaultVideoModel?: ModelRef; model3DModels?: readonly Model3DModel[]; defaultModel3D?: ModelRef; textModels: readonly AgentModel[] },
 ): AssetCanvasFlowNode {
-  if (!settings) return node;
   if (node.type === "image") {
-    const model = catalogs.imageModels.find((candidate) => sameImageModel(candidate, settings.model));
-    if (!model) return node;
-    const option = model.generationOptions.find((candidate) => candidate.resolution === settings.resolution && candidate.aspectRatio === settings.aspectRatio)
-      ?? preferredImageOption(model);
+    const reference = catalogs.defaultImageModel ?? settings?.model;
+    if (!reference) return node;
+    const model = catalogs.imageModels.find((candidate) => sameImageModel(candidate, reference));
+    if (!model) return catalogs.defaultImageModel ? { ...node, data: { ...node.data, model: reference } } : node;
+    const options = settings ?? node.data;
+    const option = model.generationOptions.find((candidate) => candidate.resolution === options.resolution && candidate.aspectRatio === options.aspectRatio)
+      ?? preferredImageOption(model, options.aspectRatio);
     return { ...node, data: { ...node.data, model: { provider: model.provider, id: model.id }, ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}) } };
   }
   if (node.type === "video") {
-    const model = catalogs.videoModels.find((candidate) => sameModel(candidate, settings.videoModel));
+    const reference = catalogs.defaultVideoModel ?? settings?.videoModel ?? node.data.videoModel;
+    const model = catalogs.videoModels.find((candidate) => sameModel(candidate, reference));
+    if (!model && catalogs.defaultVideoModel) return { ...node, data: { ...node.data, videoModel: catalogs.defaultVideoModel } };
     if (!model) return node;
+    const options = settings ?? node.data;
     return {
       ...node,
       data: {
         ...node.data,
         videoModel: { provider: model.provider, id: model.id },
-        videoResolution: settings.videoResolution && model.resolutions.includes(settings.videoResolution) ? settings.videoResolution : model.resolutions[0],
-        videoAspectRatio: settings.videoAspectRatio && model.aspectRatios.includes(settings.videoAspectRatio) ? settings.videoAspectRatio : model.aspectRatios[0],
-        duration: settings.duration !== undefined && model.durations.includes(settings.duration) ? settings.duration : model.durations[0],
+        videoResolution: options.videoResolution && model.resolutions.includes(options.videoResolution) ? options.videoResolution : model.resolutions[0],
+        videoAspectRatio: options.videoAspectRatio && model.aspectRatios.includes(options.videoAspectRatio) ? options.videoAspectRatio : model.aspectRatios[0],
+        duration: options.duration !== undefined && model.durations.includes(options.duration) ? options.duration : model.durations[0],
+        referenceMode: model.referenceModes?.includes(node.data.referenceMode ?? model.imageReferenceMode ?? "reference") ? node.data.referenceMode ?? model.imageReferenceMode : model.referenceModes?.[0],
       },
     };
   }
-  if (node.type === "model-3d" && settings.model3DConfig) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig(settings.model3DConfig) } };
+  if (node.type === "model-3d") {
+    const reference = catalogs.defaultModel3D ?? settings?.model3DConfig?.model;
+    const model = reference ? catalogs.model3DModels?.find((candidate) => sameModel(candidate, reference)) : catalogs.model3DModels?.[0];
+    if (reference && !model) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig({ ...settings?.model3DConfig, model: reference }) } };
+    if (model) {
+      const options = settings?.model3DConfig;
+      return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig({ ...options, model: modelRef(model),
+        targetPolycount: options && options.targetPolycount >= model.polycount.min && options.targetPolycount <= model.polycount.max ? options.targetPolycount : model.polycount.default,
+        texture: model.supportsTexture === false ? false : options?.texture, pbr: model.supportsPbr === false ? false : options?.pbr }) } };
+    }
+    if (settings?.model3DConfig) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig(settings.model3DConfig) } };
+  }
+  if (!settings) return node;
   if (node.type === "text") {
     const model = catalogs.textModels.find((candidate) => sameModel(candidate, settings.textModel));
     if (model) return { ...node, data: { ...node.data, textModel: settings.textModel, ...(settings.reasoningLevel ? { reasoningLevel: clampReasoningLevel(settings.reasoningLevel, model.reasoningLevels) } : {}) } };
@@ -2849,14 +2899,14 @@ function sameModel(model: ModelRef, ref?: ModelRef): boolean {
 /** Meshy reads the first image as the front; the rest are any other angles, named here as suggestions. */
 const MODEL_3D_VIEW_LABELS = ["Front", "Side", "Back", "Other angle"];
 
-function nodeModel3D(node: Pick<AssetCanvasFlowNode, "type" | "data">): Model3DModel {
-  return resolveModel3D(nodeModel3DConfig(node).model) ?? DEFAULT_MODEL_3D;
+function nodeModel3D(node: Pick<AssetCanvasFlowNode, "type" | "data">, models: readonly Model3DModel[] = node.data.model3DRuntime?.models ?? []): Model3DModel {
+  const reference = nodeModel3DConfig(node).model;
+  return (reference ? resolveModel3D(reference, models) ?? resolveModel3D(reference) : models[0]) ?? DEFAULT_MODEL_3D;
 }
 
 /** The node's model as offered by the catalog; undefined while its provider is not set up. */
 function selectedModel3D(config: Model3DGenerationConfig, models: readonly Model3DModel[]): Model3DModel | undefined {
-  const model = resolveModel3D(config.model) ?? DEFAULT_MODEL_3D;
-  return models.find((candidate) => sameModel(candidate, model));
+  return config.model ? models.find((candidate) => sameModel(candidate, config.model)) : models[0];
 }
 
 function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data">): Model3DGenerationConfig {
@@ -2873,6 +2923,7 @@ function connectionRelation(
   nodes: AssetCanvasFlowNode[],
   libraryAssets: LibraryAsset[],
   imageModels: ImageModel[],
+  model3DModels: readonly Model3DModel[] = [],
 ): ConnectionRelation | undefined {
   if (source.id === target.id) return undefined;
   if (target.type === "document" && source.data.assetId && isSupportedImageReferenceSource(source, libraryAssets)) return "document-image";
@@ -2883,7 +2934,7 @@ function connectionRelation(
       : undefined;
   }
   if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "model-3d") {
-    return (target.data.images?.length ?? 0) < nodeModel3D(target).maxReferenceImages &&
+    return (target.data.images?.length ?? 0) < nodeModel3D(target, model3DModels).maxReferenceImages &&
       !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id)
       ? "image-reference"
       : undefined;

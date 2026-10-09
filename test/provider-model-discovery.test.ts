@@ -13,7 +13,9 @@ describe("provider model discovery", () => {
     const result = await discoverProviderModels(connection, request);
     expect(request.mock.calls[0]?.[0].toString()).toBe("https://gateway.example/v1/models");
     expect(request.mock.calls[0]?.[1]).toMatchObject({ headers: { authorization: `Bearer ${connection.apiKey}` }, redirect: "error" });
-    expect(result.models).toHaveLength(2);
+    expect(result.models).toHaveLength(3);
+    expect(result.models[1].usages).toEqual({});
+    expect(result.models[2].usages?.image?.protocol).toBe("openai-images");
     expect(result.models[0]).toMatchObject({ id: "model-a", name: "Model A", contextWindow: 32_000, maxTokens: 4_000, supportsImages: true, reasoning: true });
     expect(result.models[1]).toMatchObject({ id: "model-b", contextWindow: 128_000, maxTokens: 16_384 });
     expect(JSON.stringify(result)).not.toContain(connection.apiKey);
@@ -23,6 +25,46 @@ describe("provider model discovery", () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "qwen3:8b" }] }));
     await discoverProviderModels({ ...connection, baseUrl: "http://localhost:11434/v1", authentication: "none" }, request);
     expect(request.mock.calls[0]?.[1]?.headers).toEqual({ accept: "application/json" });
+  });
+
+  it("merges dedicated media catalogs by ID and keeps every declared use and limit", async () => {
+    const request = vi.fn<typeof fetch>(async (url) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/images/models")) return Response.json({ data: [{
+        id: "shared-alias", architecture: { input_modalities: ["image"], output_modalities: ["image"] },
+        supported_parameters: { resolution: { type: "enum", values: ["1K", "2K"] }, aspect_ratio: { type: "enum", values: ["1:1", "16:9"] }, input_references: { type: "range", max: 20 }, n: { type: "range", max: 4 } },
+      }] });
+      if (path.endsWith("/videos/models")) return Response.json({ data: [{
+        id: "shared-alias", supported_resolutions: ["720p"], supported_aspect_ratios: ["16:9"], supported_durations: [5, 10], supported_frame_images: ["first", "last"],
+      }, { id: "video-alias", description: "reference images", supported_resolutions: ["1080p"], supported_aspect_ratios: ["9:16"], supported_durations: [6] }] });
+      return Response.json({ data: [{ id: "shared-alias", name: "Multimodal", architecture: { output_modalities: ["text"] } }, { id: "unknown-alias" }] });
+    });
+    const result = await discoverProviderModels({ ...connection, preset: "openrouter" }, request);
+    expect(result.warnings).toBeUndefined();
+    expect(result.models).toHaveLength(3);
+    expect(result.models.find((model) => model.id === "shared-alias")).toMatchObject({ name: "Multimodal", usages: {
+      language: true,
+      image: { protocol: "openrouter-images", resolutions: ["1K", "2K"], aspectRatios: ["1:1", "16:9"], maxReferenceImages: 14, maxOutputs: 4 },
+      video: { protocol: "openrouter-videos", resolutions: ["720p"], durations: [5, 10], maxReferenceImages: 2, referenceModes: ["frame"] },
+    } });
+    expect(result.models.find((model) => model.id === "video-alias")?.usages?.video).toMatchObject({ maxReferenceImages: 9, referenceModes: ["reference"] });
+    expect(result.models.find((model) => model.id === "unknown-alias")?.usages).toEqual({});
+    expect(request.mock.calls).toHaveLength(3);
+    expect(request.mock.calls.every(([, options]) => new Headers(options?.headers).get("authorization") === `Bearer ${connection.apiKey}`)).toBe(true);
+  });
+
+  it("keeps successful catalogs when dedicated discovery fails and respects no-key authentication", async () => {
+    const request = vi.fn<typeof fetch>(async (url) => {
+      const path = new URL(String(url)).pathname;
+      if (path.endsWith("/images/models")) return new Response(connection.apiKey, { status: 503 });
+      if (path.endsWith("/videos/models")) return Response.json({ data: [{ id: "video-only", supported_resolutions: ["720p"], supported_aspect_ratios: ["16:9"], supported_durations: [5] }] });
+      return Response.json({ data: [{ id: "chat", architecture: { output_modalities: ["text"] } }] });
+    });
+    const result = await discoverProviderModels({ ...connection, preset: "openrouter", authentication: "none", apiKey: undefined }, request);
+    expect(result.models.map((model) => model.id)).toEqual(["chat", "video-only"]);
+    expect(result.warnings).toEqual(["Could not fetch image models. Add their IDs manually."]);
+    expect(JSON.stringify(result)).not.toContain(connection.apiKey);
+    expect(request.mock.calls.every(([, options]) => !new Headers(options?.headers).has("authorization"))).toBe(true);
   });
 
   it("reads explicit reasoning mappings and supported effort lists, including relay ultra", async () => {
@@ -51,14 +93,15 @@ describe("provider model discovery", () => {
     expect(result.models[0].name).toBe("Claude A");
   });
 
-  it("normalizes Google model IDs, follows page tokens and excludes embedding models", async () => {
+  it("normalizes Google model IDs, follows page tokens and leaves embedding models unassigned", async () => {
     const request = vi.fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ models: [{ name: "models/gemini-a", displayName: "Gemini A", inputTokenLimit: 100_000, outputTokenLimit: 8_000, supportedGenerationMethods: ["generateContent"] }, { name: "models/embedding", supportedGenerationMethods: ["embedContent"] }], nextPageToken: "next" }))
       .mockResolvedValueOnce(Response.json({ models: [{ name: "models/gemini-b", supportedGenerationMethods: ["generateContent"] }] }));
     const result = await discoverProviderModels({ ...connection, api: "google-generative-ai" }, request);
     expect(request.mock.calls[0]?.[1]?.headers).toMatchObject({ "x-goog-api-key": connection.apiKey });
     expect(request.mock.calls[1]?.[0].toString()).toContain("pageToken=next");
-    expect(result.models.map((model) => model.id)).toEqual(["gemini-a", "gemini-b"]);
+    expect(result.models.map((model) => model.id)).toEqual(["gemini-a", "embedding", "gemini-b"]);
+    expect(result.models[1].usages).toEqual({});
     expect(result.models[0]).toMatchObject({ contextWindow: 100_000, maxTokens: 8_000 });
   });
 

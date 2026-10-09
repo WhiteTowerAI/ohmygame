@@ -1,5 +1,5 @@
 import type { ImageModel } from "../shared/contracts.js";
-import { ImageGenerationError, type GeneratedImage, type ImageGenerationInput } from "./openai-image.js";
+import { ImageGenerationError, openAIImageSize, type GeneratedImage, type ImageGenerationInput } from "./openai-image.js";
 import { SEEDREAM_BASE_URL, seedreamRequestOptions } from "./seedream-models.js";
 
 const REQUEST_TIMEOUT_MS = 180_000;
@@ -8,6 +8,9 @@ export class SeedreamProvider {
   constructor(
     private readonly apiKey: () => string | undefined,
     private readonly request: typeof fetch = fetch,
+    private readonly baseUrl = SEEDREAM_BASE_URL,
+    private readonly headers: Record<string, string> = {},
+    private readonly authentication: "api_key" | "none" = "api_key",
   ) {}
 
   async generate(model: ImageModel, input: ImageGenerationInput, signal?: AbortSignal): Promise<GeneratedImage> {
@@ -16,7 +19,8 @@ export class SeedreamProvider {
     if (!input.resolution || !input.aspectRatio) {
       throw new ImageGenerationError("Image resolution and aspect ratio are required for Seedream", 400);
     }
-    const requestOptions = seedreamRequestOptions(model.id, input.resolution, input.aspectRatio);
+    const requestOptions = seedreamRequestOptions(model.id, input.resolution, input.aspectRatio)
+      ?? (model.generationOptions.some((option) => option.resolution === input.resolution && option.aspectRatio === input.aspectRatio) ? { size: openAIImageSize(input) } : undefined);
     if (!requestOptions) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
     const images = input.images ?? [];
     if (images.length > (model.maxReferenceImages ?? 0)) {
@@ -26,9 +30,9 @@ export class SeedreamProvider {
     const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
     let response: Response;
     try {
-      response = await this.request(`${SEEDREAM_BASE_URL}/images/generations`, {
+      response = await this.request(`${this.baseUrl.replace(/\/$/, "")}/images/generations`, {
         method: "POST",
-        headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+        headers: { ...this.headers, ...(this.authentication === "none" ? {} : { authorization: `Bearer ${key}` }), "content-type": "application/json" },
         body: JSON.stringify({
           model: model.id,
           prompt: input.prompt,

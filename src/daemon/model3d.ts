@@ -1,4 +1,4 @@
-import type { Model3DAnimationAction, Model3DModelRef, PromptImage } from "../shared/contracts.js";
+import type { Model3DAnimationAction, Model3DModel, Model3DModelRef, PromptImage } from "../shared/contracts.js";
 
 export type { Model3DAnimationAction };
 
@@ -28,6 +28,7 @@ export interface Model3DGenerator {
   /** Rigging and animation; providers without it cannot animate models. */
   animate?(input: Model3DAnimationInput, signal?: AbortSignal): Promise<Generated3DModel>;
   animations?(signal?: AbortSignal): Promise<Model3DAnimationAction[]>;
+  resolveModel?(model?: Model3DModelRef): Promise<Model3DModel | undefined>;
 }
 
 export class Model3DGenerationError extends Error {

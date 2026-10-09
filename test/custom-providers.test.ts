@@ -38,6 +38,55 @@ async function fixture(prompt = vi.fn(async () => {}), modelDiscoveryFetch?: typ
 }
 
 describe("custom providers", () => {
+  it("rejects duplicate custom names on creation and renaming without changing existing settings or credentials", async () => {
+    const { app, directory, runtime, create } = await fixture();
+    const first = await create();
+    const second = await create({ ...gateway, name: "Other gateway" });
+    const files = ["models.json", "model-visibility.json", "auth.json"];
+    const before = await Promise.all(files.map((file) => readFile(path.join(directory, file), "utf8")));
+    for (const name of [gateway.name, "  MY GATEWAY  "]) {
+      const result = await app.inject({ method: "POST", url: "/settings/models/providers/custom", payload: { ...gateway, name, apiKey: "different-key" } });
+      expect(result.statusCode, result.body).toBe(400);
+      expect(result.json().error).toContain("with this name already exists");
+    }
+    const rename = await app.inject({ method: "PUT", url: `/settings/models/providers/${second.id}/custom`, payload: { ...gateway, name: "my gateway", apiKey: "different-key" } });
+    expect(rename.statusCode, rename.body).toBe(400);
+    expect(rename.json().error).toContain("with this name already exists");
+    expect(await Promise.all(files.map((file) => readFile(path.join(directory, file), "utf8")))).toEqual(before);
+    expect((await runtime.getAuth(second.id))?.auth.apiKey).toBe(gateway.apiKey);
+    const sameName = await app.inject({ method: "PUT", url: `/settings/models/providers/${first.id}/custom`, payload: { ...gateway, apiKey: undefined } });
+    expect(sameName.statusCode, sameName.body).toBe(200);
+    const uniqueName = await app.inject({ method: "PUT", url: `/settings/models/providers/${second.id}/custom`, payload: { ...gateway, name: "Renamed gateway", apiKey: undefined } });
+    expect(uniqueName.statusCode, uniqueName.body).toBe(200);
+  });
+
+  it("serializes duplicate-name checks so simultaneous creates cannot save the same name", async () => {
+    const { app, directory } = await fixture();
+    const results = await Promise.all([gateway.name, "MY GATEWAY"].map((name) => app.inject({ method: "POST", url: "/settings/models/providers/custom", payload: { ...gateway, name } })));
+    expect(results.map((result) => result.statusCode).sort()).toEqual([201, 400]);
+    const store = new ProviderModelSettingsStore(directory, directory);
+    await store.load();
+    expect(await store.customProviderCatalog()).toHaveLength(1);
+  });
+
+  it("keeps existing duplicate names editable until the user chooses distinct names", async () => {
+    const { app, directory, runtime } = await fixture();
+    const ids = ["custom-legacy-first", "custom-legacy-second"];
+    await writeFile(path.join(directory, "models.json"), JSON.stringify({ providers: Object.fromEntries(ids.map((id) => [id, {
+      name: gateway.name, api: gateway.api, baseUrl: gateway.baseUrl, models: [{ ...firstModel, supportsImages: undefined, input: ["text"] }],
+    }])) }));
+    await writeFile(path.join(directory, "model-visibility.json"), JSON.stringify({ version: 1, hidden: {}, customProviders: Object.fromEntries(ids.map((id) => [id, { authentication: "api_key" }])) }));
+    await runtime.refresh({ allowNetwork: false });
+    for (const id of ids) await runtime.setRuntimeApiKey(id, gateway.apiKey);
+    const update = await app.inject({ method: "PUT", url: `/settings/models/providers/${ids[1]}/custom`, payload: { ...gateway, apiKey: undefined, baseUrl: "https://new-gateway.example/v1" } });
+    expect(update.statusCode, update.body).toBe(200);
+    expect(update.json()).toMatchObject({ name: gateway.name, baseUrl: "https://new-gateway.example/v1" });
+    const rename = await app.inject({ method: "PUT", url: `/settings/models/providers/${ids[1]}/custom`, payload: { ...gateway, apiKey: undefined, name: "Distinct gateway" } });
+    expect(rename.statusCode, rename.body).toBe(200);
+    const names = await Promise.all(ids.map(async (id) => (await app.inject({ method: "GET", url: `/settings/models/providers/${id}/custom` })).json().name));
+    expect(names).toEqual([gateway.name, "Distinct gateway"]);
+  });
+
   it("passes canvas text and document reasoning to the runtime, uses defaults, and rejects unsupported levels", async () => {
     const { runtime, app, create } = await fixture();
     const { id } = await create({ ...gateway, models: [{ ...firstModel, reasoning: true }] });
@@ -79,7 +128,8 @@ describe("custom providers", () => {
     const discovery = await app.inject({ method: "POST", url: "/settings/models/providers/discover", payload: gateway });
     expect(discovery.statusCode, discovery.body).toBe(200);
     const models = discovery.json().models;
-    expect(models.map((model: { id: string }) => model.id)).toEqual(["gpt-5.4", "gpt-4o"]);
+    expect(models.map((model: { id: string }) => model.id)).toEqual(["gpt-5.4", "gpt-4o", "gpt-image-2.5-flare"]);
+    expect(models[2].usages.image.protocol).toBe("openai-images");
     expect(models[0]).toMatchObject({ reasoning: true, supportsImages: true, reasoningCapabilities: { source: "catalog", thinkingLevelMap: { xhigh: "xhigh", max: null } } });
     expect(models[1].reasoning).toBe(false);
     const { id } = await create({ ...gateway, models });
@@ -284,7 +334,7 @@ describe("custom providers", () => {
     const { id } = await create();
     const store = new ProviderModelSettingsStore(directories.at(-1)!, directories.at(-1)!);
     await store.load();
-    const images = new ProviderImages(async () => runtime, request, undefined, (provider) => store.isEnabled(provider), { customProviders: () => store.customProviders() });
+    const images = new ProviderImages(async () => runtime, request, undefined, (provider) => store.isEnabled(provider), { customProviders: () => store.customProviderCatalog() });
     const input = { prompt: "Cover", imageModel: { provider: id, id: "gpt-image-2.5-flare" }, resolution: "2K" as const, aspectRatio: "16:9" as const, images: [{ mediaType: "image/png" as const, data: Buffer.from("reference").toString("base64") }] };
     await expect(images.generate(input)).resolves.toMatchObject({ bytes: Buffer.from("cover") });
     const generated = request.mock.calls.find(([url]) => String(url).endsWith("/images/edits"));
@@ -362,7 +412,7 @@ describe("custom providers", () => {
     expect(result.body).not.toContain(gateway.apiKey);
     expect(await readFile(authPath, "utf8").catch(() => undefined)).toBe(before);
     const models = result.json().models;
-    const saved = await app.inject({ method: "POST", url: "/settings/models/providers/custom", payload: { ...gateway, models: [models[0], models[2]] } });
+    const saved = await app.inject({ method: "POST", url: "/settings/models/providers/custom", payload: { ...gateway, models: [models[0], models[2]].map((model) => ({ ...model, usages: { language: true } })) } });
     expect(saved.statusCode, saved.body).toBe(201);
     const id = saved.json().id;
     expect(runtime.getModels(id).map((model) => model.id)).toEqual(["first", "third"]);

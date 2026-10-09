@@ -3,6 +3,7 @@ import { CUSTOM_MODEL_APIS, type CustomProviderModel, type ProviderModelSettings
 import { addCustomProviderModel, getProviderModels, removeCustomProviderModel, setProviderModelVisibility } from "./api.js";
 import { Check, ChevronDown, LoaderCircle, Pencil, Plus, Search, Trash2, X } from "./icons.js";
 import { SegmentedControl } from "./segmented-control.js";
+import { MODEL_USAGE_LABELS } from "../shared/custom-models.js";
 
 const MODEL_FILTER_OPTIONS = [
   { value: "all", label: "All" },
@@ -50,7 +51,7 @@ export function ProviderModels({ providerId, onEditModels }: { providerId: strin
 
   const search = query.trim().toLowerCase();
   const models = settings?.models.filter((model) => (
-    (editing ? filter === "all" || (filter === "shown" ? model.visible : model.custom) : model.visible)
+    (onEditModels ? true : editing ? filter === "all" || (filter === "shown" ? model.visible : model.custom) : model.visible)
     && (!search || `${model.name} ${model.id}`.toLowerCase().includes(search))
   )) ?? [];
   const shown = settings?.models.filter((model) => model.visible).length ?? 0;
@@ -69,9 +70,9 @@ export function ProviderModels({ providerId, onEditModels }: { providerId: strin
       models: settings.models.map((model) => selected.has(model.id) ? { ...model, visible } : model),
     } : undefined);
   }
-  return <section className={`settings-detail-section provider-models${editing ? " is-editing" : ""}`} aria-label="Language models">
+  return <section className={`settings-detail-section provider-models${editing ? " is-editing" : ""}`} aria-label="Models">
     <div className="provider-models-heading">
-      <h4>Language models <small>{settings ? shown : ""}</small></h4>
+      <h4>Models <small>{settings ? shown : ""}</small></h4>
       {settings ? <div className="provider-models-heading-actions">
         {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
           <Plus size={13} /><span>Add model</span>
@@ -99,18 +100,18 @@ export function ProviderModels({ providerId, onEditModels }: { providerId: strin
         {models.map((model) => {
           const copy = <span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{model.name !== model.id ? <small title={model.id}>{model.id}</small> : null}</span>;
           return <div className={`provider-model-row${model.visible ? "" : " is-hidden"}`} key={model.id} role="listitem">
-            {editing ? <label>
-              <input type="checkbox" checked={model.visible} disabled={busy} onChange={(event) => changeVisibility([model.id], event.target.checked)} aria-label={`Show ${model.name}`} />
+            {editing || onEditModels ? <label>
+              <input type="checkbox" checked={model.visible} disabled={busy || model.capabilities?.length === 0} onChange={(event) => changeVisibility([model.id], event.target.checked)} aria-label={`Enable ${model.name}`} />
               {copy}
             </label> : <div className="provider-model-readonly">{copy}</div>}
-            {model.custom ? <small className="provider-model-custom">Custom</small> : null}
+            {model.capabilities ? <span className="custom-model-usage-badges">{model.capabilities.length ? model.capabilities.map((usage) => <small key={usage}>{MODEL_USAGE_LABELS[usage]}</small>) : <small>Unassigned</small>}</span> : model.custom ? <small className="provider-model-custom">Custom</small> : null}
             {editing && model.custom ? deleting === model.id ? <div className="provider-model-delete-confirm">
               <button type="button" className="settings-danger-button" disabled={busy} onClick={() => void update(() => removeCustomProviderModel(providerId, model.id)).then((removed) => { if (removed) setDeleting(undefined); })}>Delete</button>
               <button type="button" className="icon-button" title="Cancel deletion" aria-label="Cancel deletion" disabled={busy} onClick={() => setDeleting(undefined)}><X size={13} /></button>
             </div> : <button className="icon-button provider-model-delete" type="button" disabled={busy} title={`Delete ${model.name}`} aria-label={`Delete ${model.name}`} onClick={() => setDeleting(model.id)}><Trash2 size={14} /></button> : null}
           </div>;
         })}
-        {!models.length ? <p className="settings-empty">{!settings.models.length ? "No language models are available." : !editing && !shown ? "No models shown." : "No models match these filters."}</p> : null}
+        {!models.length ? <p className="settings-empty">{!settings.models.length ? "No models are available." : !editing && !shown ? "No models shown." : "No models match these filters."}</p> : null}
       </div>
     </> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading models</div> : null}
   </section>;

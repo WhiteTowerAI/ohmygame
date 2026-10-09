@@ -19,6 +19,7 @@ export class SeedanceProvider {
     private readonly request: typeof fetch = fetch,
     private readonly pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
     private readonly maxWaitMs = DEFAULT_MAX_WAIT_MS,
+    private readonly connection?: { name: string; baseUrl: string; headers?: Record<string, string>; authentication?: "api_key" | "none" },
   ) {}
 
   async generate(model: VideoModel, input: VideoGenerationInput, signal?: AbortSignal): Promise<GeneratedVideo> {
@@ -27,11 +28,12 @@ export class SeedanceProvider {
     const duration = input.duration ?? model.durations[0]!;
     const resolution = input.resolution ?? model.resolutions[0]!;
     const references = input.references ?? [];
-    const referenceMode = input.referenceMode ?? "frame";
+    const referenceMode = input.referenceMode ?? (model.referenceModes?.includes("frame") ? "frame" : model.referenceModes?.[0] ?? "frame");
     if (referenceMode !== "frame" && referenceMode !== "reference") throw new VideoGenerationError("Unsupported video reference mode", 400);
+    if (model.referenceModes && !model.referenceModes.includes(referenceMode)) throw new VideoGenerationError("The selected video model does not support this reference mode", 400);
     const availableRatios = videoReferenceAspectRatios(model, references.length, referenceMode);
     const aspectRatio = input.aspectRatio ?? availableRatios[0]!;
-    validateInput(model, references, duration, resolution, aspectRatio, referenceMode === "frame" ? 2 : model.maxImageReferences, availableRatios);
+    validateInput(model, references, duration, resolution, aspectRatio, referenceMode === "frame" ? Math.min(2, model.maxImageReferences) : model.maxImageReferences, availableRatios);
 
     const content = await Promise.all([
       Promise.resolve({ type: "text" as const, text: input.prompt }),
@@ -76,7 +78,7 @@ export class SeedanceProvider {
   }
 
   get definition() {
-    return SEEDANCE_PROVIDERS[this.providerId];
+    return this.connection ?? SEEDANCE_PROVIDERS[this.providerId];
   }
 
   async #json(url: string, init: RequestInit, operation: string): Promise<Record<string, unknown>> {
@@ -97,7 +99,8 @@ export class SeedanceProvider {
 
   #headers(apiKey: string, json = false): Record<string, string> {
     return {
-      authorization: `Bearer ${apiKey}`,
+      ...this.connection?.headers,
+      ...(this.connection?.authentication === "none" ? {} : { authorization: `Bearer ${apiKey}` }),
       ...(json ? { "content-type": "application/json" } : {}),
     };
   }

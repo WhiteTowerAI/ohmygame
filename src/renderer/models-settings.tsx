@@ -13,7 +13,6 @@ import type {
   ProviderSummary,
   VideoModel,
 } from "../shared/contracts.js";
-import { CUSTOM_IMAGE_MODEL_APIS } from "../shared/contracts.js";
 import {
   getCustomProvider,
   removeCustomProvider,
@@ -35,6 +34,7 @@ import {
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
+import { ProviderModelDefaults } from "./provider-model-defaults.js";
 import { SegmentedControl } from "./segmented-control.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
@@ -365,7 +365,14 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
   const [error, setError] = useState<string>();
   useEffect(() => {
     let active = true;
-    void getCustomProvider(provider.id).then((value) => { if (active) setSettings(value); }).catch((cause) => { if (active) setError(errorMessage(cause)); });
+    void (async () => {
+      let value = await getCustomProvider(provider.id);
+      if (value.modelConfigurationVersion !== 2) {
+        await listImageModelCatalog().catch(() => undefined);
+        value = await getCustomProvider(provider.id);
+      }
+      if (active) { setSettings(value); setModelsRevision((revision) => revision + 1); }
+    })().catch((cause) => { if (active) setError(errorMessage(cause)); });
     return () => { active = false; };
   }, [provider.id]);
   async function openEditor(field: CustomProviderField): Promise<void> {
@@ -403,8 +410,8 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
       </div>)}
     </div> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />Loading configuration</div> : null}
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
-    <ProviderModels key={modelsRevision} providerId={provider.id} onEditModels={() => void openEditor("models")} />
-    {settings && CUSTOM_IMAGE_MODEL_APIS.some((api) => api === settings.api) ? <ProviderImageModels key={`images-${modelsRevision}`} providerId={provider.id} /> : null}
+    {settings ? <ProviderModels key={modelsRevision} providerId={provider.id} onEditModels={() => void openEditor("models")} /> : null}
+    {settings ? <ProviderModelDefaults providerId={provider.id} /> : null}
     {confirmingDelete ? <div className="settings-custom-provider-delete" role="group" aria-label="Delete provider confirmation">
       <span>Delete this provider, its key and model settings?</span><button className="settings-danger-button" type="button" disabled={deleting} onClick={() => void remove()}>{deleting ? "Deleting…" : "Delete provider"}</button><button className="settings-secondary-button" type="button" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Cancel</button>
     </div> : null}

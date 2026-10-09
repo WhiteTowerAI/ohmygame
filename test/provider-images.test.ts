@@ -1,5 +1,5 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import type { CustomProviderSettings } from "../src/shared/contracts.js";
+import type { CustomProviderDetails } from "../src/shared/contracts.js";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderImages } from "../src/daemon/provider-images.js";
 
@@ -217,7 +217,7 @@ describe("ProviderImages", () => {
   });
 
   it("automatically skips failed provider catalogs, while an explicit provider failure never changes routes", async () => {
-    const custom: CustomProviderSettings[] = ["failed-relay", "working-relay"].map((id) => ({ id: `custom-${id}`, name: id, api: "openai-completions", baseUrl: `https://${id}.test/v1`, authentication: "api_key" }));
+    const custom: CustomProviderDetails[] = ["failed-relay", "working-relay"].map((id) => ({ id: `custom-${id}`, name: id, api: "openai-completions", baseUrl: `https://${id}.test/v1`, authentication: "api_key", models: [], hiddenModelIds: [] }));
     const providers = [
       { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.test/v1" },
       { id: "openai", name: "OpenAI", baseUrl: "https://openai.test/v1" },
