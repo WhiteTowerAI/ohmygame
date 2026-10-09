@@ -47,6 +47,24 @@ jobs:
         run: bun --bun node_modules/electron-builder/cli.js --win nsis --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Check packaged Windows npm
+        shell: pwsh
+        run: |
+          $runtime = (Resolve-Path "release/win-unpacked/resources/runtime/node").Path
+          $env:PATH = "$runtime;$env:PATH"
+          $workspace = Join-Path $env:RUNNER_TEMP "ohmygame-packaged-npm"
+          New-Item -ItemType Directory -Force -Path "$workspace/dependency" | Out-Null
+          Set-Location $workspace
+          '{"name":"packaged-npm-check","private":true,"dependencies":{"runtime-fixture":"file:./dependency"},"scripts":{"check":"node check.cjs"}}' | Set-Content package.json
+          '{"name":"runtime-fixture","version":"1.0.0","main":"index.cjs"}' | Set-Content dependency/package.json
+          'module.exports = "ok";' | Set-Content dependency/index.cjs
+          'require("node:assert/strict").equal(require("runtime-fixture"), "ok");' | Set-Content check.cjs
+          & "$runtime/npm.cmd" --version
+          if ($LASTEXITCODE -ne 0) { throw "Packaged npm could not start" }
+          & "$runtime/npm.cmd" install --offline --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw "Packaged npm could not install dependencies" }
+          & "$runtime/npm.cmd" run check
+          if ($LASTEXITCODE -ne 0) { throw "Packaged npm could not run a project script" }
       - uses: actions/upload-artifact@v4
         with:
           name: OhMyGame-Windows-x64
