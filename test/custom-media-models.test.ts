@@ -4,6 +4,7 @@ import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
+import { ProjectManager } from "../src/daemon/projects.js";
 import { ProviderModelSettingsStore } from "../src/daemon/provider-model-settings.js";
 import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings } from "../src/shared/custom-models.js";
 import type { CustomProviderModel, SaveCustomProviderRequest, ToolId } from "../src/shared/contracts.js";
@@ -125,6 +126,49 @@ describe("unified custom media models", () => {
     await generate(app, "image-to-3d", { images: operation === "multi-image-to-3d" ? [reference, reference] : [reference], targetPolycount: 100_000, model: { provider: id, id: "my-mesh-v5" } });
     expect(request.mock.calls.map(([url]) => String(url))).toEqual([`https://meshes.test/openapi/v1/${operation}`, `https://meshes.test/openapi/v1/${operation}/mesh-job`, "https://files.test/model.glb"]);
     expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toMatchObject({ ai_model: "my-mesh-v5", target_polycount: 100_000, should_remesh: true });
+  });
+
+  it.each(["image", "video", "3d"] as const)("resolves %s node overrides, project defaults and global inheritance without switching unavailable selections", async (usage) => {
+    const request = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url) === "https://files.test/output.mp4" || String(url) === "https://files.test/model.glb") return new Response(Buffer.from("generated"));
+      if (String(url).endsWith("/images/generations")) return Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] });
+      if (init?.method === "POST") return Response.json({ id: "job", result: "job" });
+      return Response.json({ status: "completed", model_urls: { glb: "https://files.test/model.glb" }, unsigned_urls: ["https://files.test/output.mp4"] });
+    });
+    const { app, directory, save } = await fixture(request);
+    const config = usage === "image" ? { image: defaultImageSettings() } : usage === "video" ? { video: defaultVideoSettings() } : { "3d": defaultModel3DSettings() };
+    const { id } = await save(["global", "project", "node"].map((name) => model(name, config)));
+    const projectId = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas", name: "Test canvas" } })).json().id;
+    const ref = (name: string) => ({ provider: id, id: name });
+    const endpoint = usage === "3d" ? "model3d" : usage;
+    expect((await app.inject({ method: "PUT", url: `/${endpoint}-models/default`, payload: ref("global") })).statusCode).toBe(204);
+    const settingsUrl = `/projects/${projectId}/settings/generation-models`;
+    expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { [usage]: ref("project") } })).statusCode).toBe(200);
+    const restored = new ProjectManager(directory);
+    await restored.load();
+    expect(restored.get(projectId)?.mediaModelDefaults).toEqual({ [usage]: ref("project") });
+    const copied = (await app.inject({ method: "POST", url: `/projects/${projectId}/duplicate` })).json();
+    expect(copied.mediaModelDefaults).toEqual({ [usage]: ref("project") });
+    const tool = usage === "3d" ? "image-to-3d" : usage === "image" ? "generate-image" : "generate-video";
+    const key = usage === "image" ? "imageModel" : "model";
+    const input = usage === "3d" ? { images: [reference] } : usage === "image" ? { prompt: "Icon", resolution: "1K", aspectRatio: "1:1" } : { prompt: "Trailer" };
+    const sentModels = () => request.mock.calls.filter(([, init]) => init?.method === "POST").map(([, init]) => { const body = JSON.parse(String(init?.body)); return body.model ?? body.ai_model; });
+    await generate(app, tool, { ...input, projectId, nodeId: "node-1", [key]: ref("node") });
+    await generate(app, tool, { ...input, projectId, nodeId: "node-2" });
+    expect((await app.inject({ method: "PUT", url: settingsUrl, payload: {} })).statusCode).toBe(200);
+    await generate(app, tool, { ...input, projectId, nodeId: "node-3" });
+    expect(sentModels()).toEqual(["node", "project", "global"]);
+    expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { [usage]: ref("project") } })).statusCode).toBe(200);
+    await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/models/visibility`, payload: { ids: ["project"], visible: false } });
+    expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { [usage]: ref("project") } })).statusCode).toBe(200);
+    const unavailable = await app.inject({ method: "POST", url: `/tools/${tool}/jobs`, payload: { ...input, projectId, nodeId: "node-4" } });
+    await vi.waitFor(async () => {
+      const job = (await app.inject({ method: "GET", url: "/tool-jobs" })).json().find((job: { id: string }) => job.id === unavailable.json().id);
+      expect(job.status).toBe("failed");
+    });
+    expect(sentModels()).toEqual(["node", "project", "global"]);
+    expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { [usage]: ref("unknown") } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { language: ref("global") } })).statusCode).toBe(400);
   });
 
   it("supports native Google authentication and no-key local image services", async () => {

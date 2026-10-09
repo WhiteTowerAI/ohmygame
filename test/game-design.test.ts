@@ -10,7 +10,7 @@ import { ToolRunner } from "../src/daemon/tools.js";
 import { checkCanvasWorkspace } from "../src/daemon/canvas-check.js";
 import { readCanvasAssets } from "../src/daemon/canvas-assets.js";
 import { createAgentTools } from "../src/daemon/agent-tools.js";
-import type { ImageGenerator } from "../src/daemon/openai-image.js";
+import { ImageGenerationError, type ImageGenerator } from "../src/daemon/openai-image.js";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createCanvasDocument, canvasDocumentPath, mergeCanvasDocumentContent } from "../src/shared/canvas-document.js";
 import { createAssetGenerationNode } from "../src/shared/asset-canvas.js";
@@ -26,9 +26,9 @@ afterEach(async () => {
 });
 async function temp() { const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-design-")); directories.push(directory); return directory; }
 const fakeGenerator: ImageGenerator = { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/png" }) };
-async function runtime(generator: ImageGenerator = fakeGenerator, projectType: ProjectType = "web-game") {
+async function runtime(generator: ImageGenerator = fakeGenerator, projectType: ProjectType = "web-game", resolveInput?: ConstructorParameters<typeof ToolRunner>[5]) {
   const directory = await temp(), library = new AssetLibrary(directory), projects = new ProjectManager(directory, library);
-  const tools = new ToolRunner(directory, generator, undefined, undefined, library);
+  const tools = new ToolRunner(directory, generator, undefined, undefined, library, resolveInput);
   await Promise.all([library.load(), projects.load(), tools.load()]);
   const project = await projects.create("Sky garden", projectType), store = new CanvasStore(projects, library, tools);
   stores.push(store);
@@ -44,6 +44,27 @@ async function waitForJob(store: CanvasStore, projectId: string) {
   return (await store.jobs(projectId))[0]!;
 }
 describe("Markdown design workspace", () => {
+  it("records contextual defaults in canvas history and preserves them through retries and reloads", async () => {
+    let defaultId = "project-image";
+    const generate = vi.fn<ImageGenerator["generate"]>()
+      .mockRejectedValueOnce(new ImageGenerationError("Temporary service failure", 502))
+      .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const resolve = vi.fn(async (_tool: string, input: RunToolRequest, projectId?: string) => ({ ...input, imageModel: "imageModel" in input && input.imageModel ? input.imageModel : { provider: projectId!, id: defaultId } }));
+    const { store, project, projects, library, tools, boardId, node } = await runtime({ generate }, "asset-canvas", resolve);
+    const first = await store.generateNode(project.id, boardId, node.id);
+    expect(first.model).toEqual({ provider: project.id, id: "project-image" });
+    expect((await waitForJob(store, project.id)).status).toBe("failed");
+    defaultId = "changed-image";
+    const restored = new CanvasStore(projects, library, tools); stores.push(restored);
+    await restored.retry(project.id, first.id);
+    expect((await waitForJob(restored, project.id)).status).toBe("succeeded");
+    expect(generate.mock.calls.map(([input]) => input.imageModel)).toEqual([{ provider: project.id, id: "project-image" }, { provider: project.id, id: "project-image" }]);
+    const history = JSON.parse(await readFile(path.join(project.workspacePath, "canvas/jobs.json"), "utf8"));
+    expect(history[0].model).toEqual({ provider: project.id, id: "project-image" });
+    const saved = (await restored.board(project.id, boardId)).board.nodes[0]!;
+    expect("model" in saved.data ? saved.data.model : undefined).toBeUndefined();
+  });
+
   it("starts with one freely named empty board", async () => {
     const { store, projects } = await runtime();
     const other = await projects.create("New game");

@@ -9,6 +9,7 @@ import {
   TOOL_IDS,
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
+  type ModelRef,
   type ImageAspectRatio,
   type ImageOutputCount,
   type ImageResolution,
@@ -41,6 +42,7 @@ interface ToolJobRecord extends ToolJob {
   input?: RunToolRequest;
   metadata: ToolJobMetadata;
   controller: AbortController;
+  prepared: boolean;
 }
 
 interface StoredToolRun extends ToolRun {
@@ -70,6 +72,7 @@ export class ToolRunner {
     private readonly model3DGenerator?: Model3DGenerator,
     private readonly videoGenerator?: VideoGenerator,
     private readonly assetLibrary?: AssetLibrary,
+    private readonly resolveInput?: (toolId: string, input: RunToolRequest, projectId?: string) => Promise<RunToolRequest>,
   ) {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
   }
@@ -78,7 +81,7 @@ export class ToolRunner {
     await mkdir(this.#runsDirectory, { recursive: true });
   }
 
-  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}): ToolJob {
+  start(toolId: string, input: RunToolRequest, metadata: ToolJobMetadata = {}, prepared = false): ToolJob {
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
     const id = randomUUID();
     const controller = new AbortController();
@@ -89,7 +92,8 @@ export class ToolRunner {
       status: "running",
       title: promptTitle("prompt" in input ? input.prompt : undefined) ?? metadata.title ?? toolName(toolId),
       ...(metadata.context ? { context: metadata.context } : {}),
-      input,
+      input: structuredClone(input),
+      prepared,
       metadata,
       controller,
     };
@@ -121,7 +125,7 @@ export class ToolRunner {
     if (job.status !== "failed" && job.status !== "cancelled") throw new ToolRunError("Only failed or cancelled jobs can be retried", 409);
     if (!job.input) throw new ToolRunError("Generation job can no longer be retried", 409);
     this.#jobs.delete(jobId);
-    return this.start(job.toolId, job.input, job.metadata);
+    return this.start(job.toolId, job.input, job.metadata, job.prepared);
   }
 
   close(): void {
@@ -132,7 +136,12 @@ export class ToolRunner {
 
   async #execute(job: ToolJobRecord): Promise<void> {
     try {
-      job.run = await this.run(job.toolId, job.input!, job.controller.signal);
+      if (!job.prepared) {
+        job.input = await this.prepare(job.toolId, job.input!, job.context?.projectId);
+        job.prepared = true;
+      }
+      job.model = selectedModel(job.toolId, job.input!);
+      job.run = await this.#runPrepared(job.toolId, job.input!, job.controller.signal);
       if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
         await this.removeRun(job.run.id);
       }
@@ -169,7 +178,16 @@ export class ToolRunner {
     return this.#animationActions;
   }
 
-  async run(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
+  async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, projectId?: string): Promise<ToolRun> {
+    return this.#runPrepared(toolId, await this.prepare(toolId, input, projectId), signal);
+  }
+
+  async prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
+    if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
+    return this.resolveInput ? this.resolveInput(toolId, input, projectId) : input;
+  }
+
+  async #runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr"]);
       return this.#run3D(input as Run3DToolRequest, signal);
@@ -236,6 +254,7 @@ export class ToolRunner {
         version: 1,
         id,
         toolId: "generate-image",
+        ...(input.imageModel ? { model: input.imageModel } : {}),
         createdAt: new Date().toISOString(),
         files,
       };
@@ -280,7 +299,7 @@ export class ToolRunner {
       fileName: `preview.${primaryImage.mediaType === "image/png" ? "png" : "jpg"}`,
       mediaType: primaryImage.mediaType as "image/png" | "image/jpeg",
       bytes: Buffer.from(primaryImage.data, "base64"),
-    });
+    }, { provider: model.provider, id: model.id });
   }
 
   async #runAnimate3D(input: RunAnimate3DToolRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
@@ -309,6 +328,7 @@ export class ToolRunner {
     signal: AbortSignal | undefined,
     produce: () => Promise<Generated3DModel>,
     preview?: { fileName: string; mediaType: "image/png" | "image/jpeg"; bytes: Buffer },
+    model?: ModelRef,
   ): Promise<ToolRun> {
     const id = randomUUID();
     const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
@@ -328,6 +348,7 @@ export class ToolRunner {
         version: 1,
         id,
         toolId,
+        ...(model ? { model } : {}),
         createdAt: new Date().toISOString(),
         files: [{
           name: "model.glb",
@@ -387,6 +408,7 @@ export class ToolRunner {
         version: 1,
         id,
         toolId: "generate-video",
+        model,
         createdAt: new Date().toISOString(),
         files: [{
           name: "output.mp4",
@@ -495,7 +517,7 @@ function publicRun({ version: _, preview: __, ...run }: StoredToolRun): ToolRun 
   return { ...run, files: run.files.map((file) => ({ ...file })) };
 }
 
-function publicJob({ input: _, metadata: __, controller: ___, ...job }: ToolJobRecord): ToolJob {
+function publicJob({ input: _, metadata: __, controller: ___, prepared: ____, ...job }: ToolJobRecord): ToolJob {
   return { ...job, ...(job.run ? { run: { ...job.run, files: job.run.files.map((file) => ({ ...file })) } } : {}) };
 }
 
@@ -548,4 +570,10 @@ function isToolId(value: unknown): value is ToolId {
 function imageFileName(mediaType: string, index?: number): string {
   const suffix = index ? `-${index}` : "";
   return mediaType === "image/png" ? `output${suffix}.png` : mediaType === "image/jpeg" ? `output${suffix}.jpg` : `output${suffix}.webp`;
+}
+
+function selectedModel(toolId: string, input: RunToolRequest): ModelRef | undefined {
+  if (toolId === "generate-image") return (input as RunImageToolRequest).imageModel;
+  if (toolId === "generate-video" || toolId === "image-to-3d") return (input as RunVideoToolRequest | Run3DToolRequest).model;
+  return undefined;
 }

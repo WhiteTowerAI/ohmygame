@@ -10,7 +10,7 @@ import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
 import { ExpandedCanvasDocument, type CanvasDocuments } from "./canvas-document-node.js";
-import { Check, ChevronLeft, ChevronRight, Code2, House, Layers3, LoaderCircle, MoreHorizontal, PanelToggle, Pencil, Plus, Trash2, X } from "./icons.js";
+import { Check, ChevronLeft, ChevronRight, Code2, House, Layers3, LoaderCircle, MoreHorizontal, PanelToggle, Pencil, Settings, Plus, Trash2, X } from "./icons.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { CanvasContextMenu } from "./editor-canvas.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -18,8 +18,9 @@ import { CanvasAssetProvider, canvasAssetSources } from "./use-workspace-asset-u
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { WorkspaceTabs } from "./workspace-tabs.js";
 import "./game-design.css";
+import { ProjectMediaModelSettingsDialog } from "./media-model-defaults.js";
 
-export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, openFileRequest, chatOnRight, chatCollapsed, onHome, onToggleChat }: {
+export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, openFileRequest, chatOnRight, chatCollapsed, onHome, onToggleChat, onProjectUpdated }: {
   project: ProjectState; headerActionsTarget?: HTMLElement | null;
   onLeaveReady?: (leave: ((action: () => void) => void) | undefined) => void;
   onSaveReady?: (save: (() => Promise<void>) | undefined) => void;
@@ -32,7 +33,9 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   chatCollapsed?: boolean;
   onHome?: () => void;
   onToggleChat?: () => void;
+  onProjectUpdated?: (project: ProjectState) => void;
 }) {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const singleBoard = project.type === "asset-canvas";
   const docs = useCanvasDocuments(project.id), workspace = docs.workspace;
   const assetPaths = useMemo(() => canvasAssetSources(project.id, workspace?.assets ?? [], workspace?.unavailableAssets), [project.id, workspace?.assets, workspace?.unavailableAssets]);
@@ -122,6 +125,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
       optionAction={{ label: (option) => `Board options: ${option.label}`, icon: MoreHorizontal, onSelect: (id, anchor) => setBoardOptions({ id, x: anchor.left, y: anchor.bottom + 5 }) }}
       onChange={(id) => void run(async () => { await flush(); setActiveId(id); setBoardStatus("loading"); })} />
   </div>;
+  const settingsButton = <button className="icon-button pane-header-action" type="button" title="Project settings" aria-label="Project settings" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}><Settings size={14} /></button>;
   return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" data-active-tab={singleBoard ? workspaceView : undefined} aria-label={singleBoard ? "Asset Canvas workspace" : "Design workspace"}>
     {singleBoard ? <header className="pane-header viewer-header interactive-story-header window-drag-handle">
       <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
@@ -132,9 +136,11 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
       <div className="viewer-controls-slot" />
       <div className="viewer-publish design-header-actions">
         {saveStatus}
+        {settingsButton}
         {chatOnRight && chatCollapsed && onToggleChat ? <button className="icon-button pane-header-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}><PanelToggle size={14} /></button> : null}
       </div>
-    </header> : headerActionsTarget ? createPortal(saveStatus, headerActionsTarget) : null}
+    </header> : headerActionsTarget ? createPortal(<>{saveStatus}{settingsButton}</>, headerActionsTarget) : null}
+    {settingsOpen ? <ProjectMediaModelSettingsDialog key={project.id} project={project} onClose={() => setSettingsOpen(false)} onSaved={(updated) => onProjectUpdated?.(updated)} /> : null}
     {error ? <div className="design-notice" role="alert"><span>{error}</span><button type="button" onClick={() => setError(undefined)}>Dismiss</button></div> : null}
     {docs.loadError ? <div className="design-notice" role="alert"><span>{workspace ? "Could not sync workspace. Your canvas is kept open. " : "Could not load workspace. "}{docs.loadError}</span><button type="button" disabled={busy} onClick={() => void run(() => docsRef.current.refresh())}>Reload workspace</button></div> : null}
     {docs.error && !docs.conflict ? <div className="design-notice" role="alert"><span>{docs.error}</span><button type="button" disabled={busy} onClick={() => void run(() => docsRef.current.flush())}>Retry save</button></div> : null}

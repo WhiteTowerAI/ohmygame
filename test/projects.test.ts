@@ -12,6 +12,24 @@ describe("Web Game project codebase", () => {
     expect(await readdir(project.workspacePath)).toEqual([]);
   });
 
+  it("keeps project media defaults through unrelated saves and removes cleared overrides on disk", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-projects-"));
+    const manager = new ProjectManager(directory);
+    const project = await manager.create("Canvas", "asset-canvas");
+    await manager.setMediaModelDefaults(project.id, { image: { provider: "studio", id: "image" }, "3d": { provider: "meshy", id: "meshy-t2" } });
+    await Promise.all([manager.rename(project.id, "New name"), manager.setMediaModelDefaults(project.id, { image: { provider: "studio", id: "latest" } })]);
+    expect(project.name).toBe("New name");
+    expect(project.mediaModelDefaults).toEqual({ image: { provider: "studio", id: "latest" } });
+    const restored = new ProjectManager(directory);
+    await restored.load();
+    expect(restored.get(project.id)?.mediaModelDefaults).toEqual(project.mediaModelDefaults);
+    await restored.setMediaModelDefaults(project.id, {});
+    const cleared = new ProjectManager(directory);
+    await cleared.load();
+    expect(cleared.get(project.id)?.mediaModelDefaults).toBeUndefined();
+    expect(JSON.parse(await readFile(path.join(directory, "projects", project.id, "project.json"), "utf8"))).not.toHaveProperty("mediaModelDefaults");
+  });
+
   it("persists a runnable startup directory below the workspace root", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-projects-"));
     const manager = new ProjectManager(dataDirectory);

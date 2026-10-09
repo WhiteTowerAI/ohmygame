@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
@@ -623,6 +623,36 @@ export function createApp(options: AppOptions = {}) {
     options.model3DGenerator ?? providerModels3D,
     options.videoGenerator ?? providerVideos,
     library,
+    async (toolId, input, projectId) => {
+      if (toolId === "animate-3d") return input;
+      const project = projectId ? projects.get(projectId) : undefined;
+      if (projectId && !project) throw new ToolRunError("Project not found", 404);
+      const usage = toolId === "generate-image" ? "image" : toolId === "generate-video" ? "video" : "3d";
+      const key = usage === "image" ? "imageModel" : "model";
+      const explicit = (input as { imageModel?: AgentModelRef; model?: AgentModelRef })[key];
+      const globalDefault = usage === "image" ? providerModelSettings.defaultImageModel()
+        : usage === "video" ? providerModelSettings.defaultVideoModel() : providerModelSettings.defaultModel3D();
+      let selected = explicit ?? project?.mediaModelDefaults?.[usage] ?? globalDefault;
+      const videoCatalog = usage === "video" && !options.videoGenerator ? await providerVideos.catalog() : undefined;
+      if (!selected) {
+        const injected = usage === "image" ? options.imageGenerator : usage === "video" ? options.videoGenerator : options.model3DGenerator;
+        if (injected) return input;
+        const catalog = videoCatalog ?? await (usage === "image" ? providerImages : providerModels3D).catalog();
+        const first = catalog.models[0];
+        if (first) selected = { provider: first.provider, id: first.id };
+      }
+      if (!selected) throw new ToolRunError(`No ${usage === "3d" ? "3D" : usage} model is available. Connect a provider and choose a default model in Providers or Project settings.`, 503);
+      const videoModel = videoCatalog?.models.find((model) => model.provider === selected.provider && model.id === selected.id);
+      if (videoModel) {
+        const videoInput = input as RunVideoToolRequest;
+        return { ...videoInput, model: selected,
+          duration: videoInput.duration ?? videoModel.durations[0],
+          resolution: videoInput.resolution ?? videoModel.resolutions[0],
+          aspectRatio: videoInput.aspectRatio ?? videoModel.aspectRatios[0],
+        };
+      }
+      return { ...input, [key]: { ...selected } };
+    },
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
   const connections = new ConnectionManager(piAgentDirectory);
@@ -1007,6 +1037,7 @@ export function createApp(options: AppOptions = {}) {
         if (Boolean(projectId) !== Boolean(nodeId)) {
           throw new ToolRunError("Project and node context must be provided together", 400);
         }
+        if (projectId && !projects.get(projectId)) throw new ToolRunError("Project not found", 404);
         return reply.code(202).send(tools.start(request.params.toolId, input as RunToolRequest, {
           title: title?.trim(),
           ...(projectId && nodeId ? { context: { projectId, nodeId } } : {}),
@@ -1374,6 +1405,28 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
+    },
+  );
+
+  app.put<{ Params: { projectId: string }; Body: MediaModelDefaults }>(
+    "/projects/:projectId/settings/generation-models",
+    { schema: { body: { type: "object", additionalProperties: true, properties: {
+      image: modelRefSchema, video: modelRefSchema, "3d": modelRefSchema,
+    } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (Object.keys(request.body).some((key) => !["image", "video", "3d"].includes(key))) return reply.code(400).send({ error: "Unknown generation model setting" });
+      for (const [usage, generator] of [["image", providerImages], ["video", providerVideos], ["3d", providerModels3D]] as const) {
+        const ref = request.body[usage];
+        const previous = project.mediaModelDefaults?.[usage];
+        if (!ref || (ref.provider === previous?.provider && ref.id === previous.id)) continue;
+        const catalog = await generator.catalog();
+        if (!catalog.models.some((model) => model.provider === ref.provider && model.id === ref.id)) {
+          return reply.code(400).send({ error: `The selected ${usage === "3d" ? "3D" : usage} model is not available` });
+        }
+      }
+      return projects.setMediaModelDefaults(project.id, request.body);
     },
   );
 

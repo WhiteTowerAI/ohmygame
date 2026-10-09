@@ -12,6 +12,7 @@ import {
   type LibraryAssetPurpose,
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
+  type MediaModelDefaults,
   type ImageModel,
   type ImageModelCatalog,
   type ImageModelRef,
@@ -320,14 +321,14 @@ export async function listImageModelCatalog(): Promise<ImageModelCatalog> {
   return request("/image-models/catalog");
 }
 
-export async function setDefaultImageModel(model: ImageModelRef): Promise<void> {
-  await setDefaultMediaModel("image", model);
-}
-
 export async function setDefaultMediaModel(usage: "image" | "video" | "3d", model?: AgentModelRef): Promise<void> {
   const endpoint = usage === "image" ? "/image-models/default" : usage === "video" ? "/video-models/default" : "/model3d-models/default";
   await request(endpoint, model ? { method: "PUT", body: JSON.stringify(model) } : { method: "DELETE" });
   notifyAgentModelsChanged();
+}
+
+export async function updateProjectMediaModelDefaults(projectId: string, defaults: MediaModelDefaults): Promise<ProjectState> {
+  return request(`/projects/${encodeURIComponent(projectId)}/settings/generation-models`, { method: "PUT", body: JSON.stringify(defaults) });
 }
 
 export async function listVideoModelCatalog(): Promise<MediaModelCatalog<VideoModel>> {
