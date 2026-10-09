@@ -1,5 +1,5 @@
-import { FileText, Plus, Upload, X } from "./icons.js";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { FileText, X } from "./icons.js";
+import { Fragment, useEffect, useMemo } from "react";
 import { formatBytes } from "./format-bytes.js";
 import type { PromptAttachment } from "../shared/contracts.js";
 import { uploadProjectAttachment } from "./api.js";
@@ -52,87 +52,6 @@ export function attachmentFiles(files: AttachmentInput[]): ComposerAttachment[] 
     seen.add(relativePath);
     return [{ id: crypto.randomUUID(), file, relativePath }];
   });
-}
-
-export function AttachmentPickerButton({
-  disabled,
-  onFiles,
-  onDesignReference,
-}: {
-  disabled?: boolean;
-  onFiles: (files: ComposerAttachment[]) => void;
-  onDesignReference?: () => void;
-}) {
-  const filesInput = useRef<HTMLInputElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const select = (files: FileList | null) => {
-    const attachments = attachmentFiles([...(files ?? [])]);
-    if (attachments.length) onFiles(attachments);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
-    const close = (event: MouseEvent) => {
-      if (!menu.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setOpen(false); trigger.current?.focus(); }
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
-
-  return (
-    <div className="composer-attach-control" ref={menu}>
-      <button
-        className="icon-button composer-attach-button"
-        ref={trigger}
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen((value) => !value)}
-        title="Add context or attach files"
-        aria-label="Add context or attach files"
-        aria-expanded={open}
-        aria-haspopup="menu"
-      >
-        <Plus size={17} />
-      </button>
-      {open ? <div className="composer-attach-menu" role="menu" onKeyDown={(event) => {
-        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-        event.preventDefault();
-        const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
-        const index = items.indexOf(document.activeElement as HTMLButtonElement);
-        items[(index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
-      }}>
-        <button type="button" role="menuitem" onClick={() => { setOpen(false); filesInput.current?.click(); }}>
-          <Upload size={15} />
-          <span>Attach files</span>
-        </button>
-        {onDesignReference ? <button type="button" role="menuitem" onClick={() => { setOpen(false); onDesignReference(); }}>
-          <FileText size={15} />
-          <span>Reference game design</span>
-        </button> : null}
-      </div> : null}
-      <input
-        ref={filesInput}
-        className="visually-hidden"
-        type="file"
-        multiple
-        onChange={(event) => {
-          select(event.target.files);
-          event.target.value = "";
-        }}
-      />
-    </div>
-  );
 }
 
 export function AttachmentStrip({ items, onRemove }: { items: ComposerAttachment[]; onRemove: (id: string) => void }) {

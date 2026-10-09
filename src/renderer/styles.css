@@ -10828,15 +10828,6 @@ button {
   background: var(--menu-surface);
 }
 
-.composer-mention-menu {
-  box-sizing: border-box;
-  max-height: 360px;
-  overflow-y: auto;
-  background: color-mix(in srgb, var(--menu-surface) 94%, #fff);
-  scrollbar-color: var(--border) transparent;
-  scrollbar-width: thin;
-}
-
 .composer-command-menu button {
   display: grid;
   width: 100%;
@@ -10870,28 +10861,57 @@ button {
   white-space: nowrap;
 }
 
-.composer-mention-menu button > svg {
+.composer-context-menu {
+  box-sizing: border-box;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--menu-border);
+  border-radius: 16px;
+  background: var(--menu-surface);
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+.composer-context-menu-section {
+  padding: 9px 10px 6px;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.composer-context-menu button {
+  display: flex;
+  min-height: 36px;
+  gap: 9px;
+  padding: 7px 10px;
+  border-radius: 18px;
+}
+
+.composer-context-menu button > svg {
+  flex: none;
   color: var(--text-secondary);
 }
 
-.composer-mention-menu button > span {
+.composer-context-menu button > span {
   overflow: hidden;
-  color: #f1f2f4;
-  font-weight: 500;
+  flex: 0 1 auto;
+  color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.composer-mention-menu small {
-  color: var(--text-muted);
+.composer-context-menu small {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-faint);
   text-align: left;
 }
 
-.composer-mention-menu em {
+.composer-context-menu-empty {
+  padding: 16px 10px;
   color: var(--text-muted);
-  font-size: 11px;
-  font-style: normal;
-  white-space: nowrap;
+  font-size: 12px;
 }
 
 .composer-plan-mode,
@@ -11082,45 +11102,6 @@ button {
   border-color: transparent;
   background: transparent;
   color: #cdd0d5;
-}
-
-.composer-attach-control {
-  position: relative;
-}
-
-.composer-attach-menu {
-  position: absolute;
-  z-index: 20;
-  bottom: calc(100% + 8px);
-  left: 0;
-  display: grid;
-  min-width: 200px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-raised, var(--surface));
-  box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 18%));
-}
-
-.composer-attach-menu button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 6px 9px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.4;
-  text-align: left;
-}
-
-.composer-attach-menu button:hover,
-.composer-attach-menu button:focus-visible {
-  background: var(--surface-hover);
 }
 
 .composer-attach-button:hover:not(:disabled) {
@@ -14107,7 +14088,6 @@ button {
 
 :root[data-appearance="light"]
   :is(
-    .composer-mention-menu button > span,
     .prompt-box-home .model-selector-trigger,
     .model-selector-setting-value,
     .quiet-button,

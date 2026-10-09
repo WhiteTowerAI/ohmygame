@@ -78,14 +78,14 @@ export function mentionQuery(value: string, cursor: number): ComposerMentionQuer
 }
 
 export function matchingMentions(capabilities: ConversationCapabilities, query: ComposerMentionQuery): ComposerMention[] {
-  if (query.trigger === "@") {
-    return capabilities.plugins
+  const plugins: ComposerMention[] = query.trigger === "@"
+    ? capabilities.plugins
       .filter((plugin) => `${plugin.displayName} ${plugin.name} ${plugin.description}`.toLowerCase().includes(query.query))
-      .map((value) => ({ type: "plugin" as const, value }));
-  }
-  return capabilities.skills
-    .filter((skill) => `${skill.name} ${skill.description}`.toLowerCase().includes(query.query))
-    .map((value) => ({ type: "skill" as const, value }));
+      .map((value) => ({ type: "plugin" as const, value }))
+    : [];
+  return [...plugins, ...capabilities.skills
+    .filter((skill) => `${skill.name} ${skillDisplayName(skill.name)} ${skill.pluginDisplayName ?? ""} ${skill.description}`.toLowerCase().includes(query.query))
+    .map((value) => ({ type: "skill" as const, value }))];
 }
 
 export function insertMention(value: string, query: ComposerMentionQuery, mention: ComposerMention): { value: string; cursor: number } {

@@ -1,7 +1,7 @@
 import { FileText, SendArrow, Square, X } from "./icons.js";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference } from "../shared/contracts.js";
-import { AttachmentPickerButton, AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
+import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
 import { PromptBox, type DroppedFile } from "./prompt-box.js";
@@ -9,8 +9,8 @@ import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 import { PromptContextIcon, type ChatContextChip, type ChatReference } from "./chat-reference.js";
-import { ComposerMentionMenu } from "./composer-mention-menu.js";
-import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, toPluginMention, type ComposerMention } from "./composer-mentions.js";
+import { useComposerContextMenu } from "./composer-context-menu.js";
+import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
 import { getCanvasDocument } from "./canvas-api.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
@@ -117,19 +117,9 @@ export function Composer({
   const [selectedCommand, setSelectedCommand] = useState<"plan" | "compact">("plan");
   const [contextPercent, setContextPercent] = useState<number>();
   const [mentionCursor, setMentionCursor] = useState(0);
-  const [selectedMention, setSelectedMention] = useState(0);
-  const [dismissedMention, setDismissedMention] = useState<string>();
   const textarea = useRef<HTMLTextAreaElement>(null);
-  const candidateMention = mentionQuery(prompt, mentionCursor);
-  const mentionKey = candidateMention ? `${candidateMention.start}:${candidateMention.trigger}:${candidateMention.query}` : undefined;
-  const activeMention = mentionKey === dismissedMention ? undefined : candidateMention;
-  const mentions = activeMention ? matchingMentions(
-    planning ? { plugins: capabilities.plugins, skills: [] } : capabilities,
-    activeMention,
-  ) : [];
   const dirty = Boolean(prompt || selectedSkill || selectedPlugin || attachments.length || reference || designReference);
 
-  useEffect(() => setSelectedMention(0), [activeMention?.trigger, activeMention?.query]);
   useEffect(() => {
     onDirtyChange?.(dirty);
     return () => onDirtyChange?.(false);
@@ -154,9 +144,6 @@ export function Composer({
       textarea.current?.setSelectionRange(next.length, next.length);
     });
   }, [promptRequest?.id]);
-  useEffect(() => {
-    if (!mentionKey) setDismissedMention(undefined);
-  }, [mentionKey]);
 
   async function submit() {
     const value = formatComposerPrompt(selectedSkill, selectedPlugin, prompt.trim());
@@ -265,14 +252,15 @@ export function Composer({
     addAttachments(attachmentFiles(files));
   }
 
-  function selectMention(mention: ComposerMention) {
-    if (!activeMention) return;
+  function selectMention(mention: ComposerMention, query?: ComposerMentionQuery) {
+    const activeMention = query ?? { start: mentionCursor, end: mentionCursor, trigger: "@" as const, query: "" };
     if (mention.type === "skill") {
-      const suffix = prompt.slice(activeMention.end).replace(/^\s+/, "");
-      setPrompt(`${prompt.slice(0, activeMention.start)}${suffix}`);
+      if (query) {
+        const suffix = prompt.slice(activeMention.end).replace(/^\s+/, "");
+        setPrompt(`${prompt.slice(0, activeMention.start)}${suffix}`);
+      }
       setSelectedSkill(mention.value.name);
       setMentionCursor(activeMention.start);
-      setSelectedMention(0);
       requestAnimationFrame(() => {
         textarea.current?.focus();
         textarea.current?.setSelectionRange(activeMention.start, activeMention.start);
@@ -280,8 +268,8 @@ export function Composer({
       return;
     }
     const selected = toPluginMention(mention.value);
-    if (activeMention.start === 0 && !selectedPlugin) {
-      const nextPrompt = prompt.slice(activeMention.end).replace(/^\s+/, "");
+    if ((!query || activeMention.start === 0) && !selectedPlugin) {
+      const nextPrompt = query ? prompt.slice(activeMention.end).replace(/^\s+/, "") : prompt;
       const candidates = [
         ...pluginMentions.filter((item) => item.name !== selected.name || item.marketplaceId !== selected.marketplaceId),
         selected,
@@ -290,7 +278,6 @@ export function Composer({
       setSelectedPlugin(selected);
       setPluginMentions(activePluginMentions(formatComposerPrompt(selectedSkill, selected, nextPrompt), candidates));
       setMentionCursor(0);
-      setSelectedMention(0);
       requestAnimationFrame(() => {
         textarea.current?.focus();
         textarea.current?.setSelectionRange(0, 0);
@@ -304,7 +291,6 @@ export function Composer({
       selected,
     ]);
     setMentionCursor(inserted.cursor);
-    setSelectedMention(0);
     requestAnimationFrame(() => {
       textarea.current?.focus();
       textarea.current?.setSelectionRange(inserted.cursor, inserted.cursor);
@@ -322,6 +308,21 @@ export function Composer({
   // Backspace (delete the selected Node) would take the next keystrokes.
   const textareaReadOnly = submitting || referencingDesign;
   const inputDisabled = textareaDisabled || textareaReadOnly;
+  const contextMenu = useComposerContextMenu({
+    prompt,
+    cursor: mentionCursor,
+    textarea,
+    disabled: inputDisabled,
+    capabilities,
+    planning,
+    canTogglePlanning,
+    onFiles: addAttachments,
+    onDesignReference: supportsDesign ? () => { void referenceDesign(); } : undefined,
+    onTogglePlanning: () => { void togglePlanning(false); },
+    onMention: selectMention,
+    onChange: changePrompt,
+    onSelectionChange: setMentionCursor,
+  });
 
   useEffect(() => {
     if (showPlanCommand) setSelectedCommand("plan");
@@ -348,14 +349,17 @@ export function Composer({
     else if (planMode !== "normal") setPlanning(false);
   }, [planMode]);
 
-  async function togglePlanning() {
+  async function togglePlanning(clearDraft = true) {
     if (planning && planMode === "planning" && !await onCancelPlan()) return;
     setPlanning((value) => !value);
-    setPrompt("");
-    setSelectedSkill(undefined);
-    setSelectedPlugin(undefined);
-    setPluginMentions([]);
-    setMentionCursor(0);
+    if (clearDraft) {
+      setPrompt("");
+      setSelectedSkill(undefined);
+      setSelectedPlugin(undefined);
+      setPluginMentions([]);
+      setMentionCursor(0);
+    }
+    if (!planning) setSelectedSkill(undefined);
     textarea.current?.focus();
   }
 
@@ -409,6 +413,7 @@ export function Composer({
 
   function handleCommandKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
     setMentionCursor(event.currentTarget.selectionStart);
+    if (contextMenu.handleKeyDown(event)) return true;
     if (selectedSkill && event.key === "Backspace" && event.currentTarget.selectionStart === 0 && event.currentTarget.selectionEnd === 0) {
       event.preventDefault();
       setSelectedSkill(undefined);
@@ -418,24 +423,6 @@ export function Composer({
       event.preventDefault();
       clearSelectedPlugin();
       return true;
-    }
-    if (mentions.length > 0) {
-      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        const offset = event.key === "ArrowDown" ? 1 : -1;
-        setSelectedMention((current) => (current + offset + mentions.length) % mentions.length);
-        return true;
-      }
-      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
-        event.preventDefault();
-        selectMention(mentions[selectedMention] ?? mentions[0]);
-        return true;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setDismissedMention(mentionKey);
-        return true;
-      }
     }
     if (!showPlanCommand && !showCompactCommand) return false;
     const commands: Array<"plan" | "compact"> = [
@@ -536,11 +523,7 @@ export function Composer({
         />}
         leading={(
           <>
-            <AttachmentPickerButton
-              disabled={inputDisabled}
-              onFiles={addAttachments}
-              onDesignReference={supportsDesign ? () => { void referenceDesign(); } : undefined}
-            />
+            {contextMenu.button}
             {planning ? (
               <PlanModeIndicator disabled={running || stopping} onExit={() => { void togglePlanning(); }} />
             ) : null}
@@ -553,9 +536,8 @@ export function Composer({
         onDropFiles={inputDisabled ? undefined : addFiles}
         onDropError={(error) => setAttachmentError(`Could not read dropped folder: ${error.message}`)}
         onSubmit={submitOrRunCommand}
-        overlay={mentions.length ? (
-          <ComposerMentionMenu items={mentions} selected={selectedMention} onSelect={selectMention} />
-        ) : showPlanCommand || showCompactCommand ? (
+        suggestions={contextMenu.suggestions}
+        overlay={contextMenu.open ? contextMenu.overlay : showPlanCommand || showCompactCommand ? (
           <PlanCommandMenu
             planning={planning}
             onToggle={() => { void togglePlanning(); }}

@@ -21,6 +21,13 @@ describe("composer mentions", () => {
     expect(matchingMentions(capabilities, skillQuery)).toMatchObject([{ type: "skill", value: { name: "review" } }]);
   });
 
+  it("also finds skills with @, including their formatted names and plugin labels", () => {
+    const available = { ...capabilities, skills: [{ name: "game-design", pluginDisplayName: "Game Studio", description: "Write a brief" }] };
+    expect(matchingMentions(available, mentionQuery("@design", 7)!)).toMatchObject([{ type: "skill", value: { name: "game-design" } }]);
+    expect(matchingMentions(available, mentionQuery("@studio", 7)!)).toHaveLength(1);
+    expect(matchingMentions(available, mentionQuery("$image", 6)!)).toEqual([]);
+  });
+
   it("inserts a stable plugin or skill token and preserves surrounding text", () => {
     const query = mentionQuery("Use @im now", 7)!;
     expect(insertMention("Use @im now", query, { type: "plugin", value: capabilities.plugins[0] })).toEqual({

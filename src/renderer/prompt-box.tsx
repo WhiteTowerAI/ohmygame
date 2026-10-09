@@ -18,6 +18,7 @@ interface PromptBoxProps {
   variant: "home" | "project";
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   overlay?: ReactNode;
+  suggestions?: { id: string; activeId?: string };
   content?: ReactNode;
   prefix?: ReactNode;
   leading?: ReactNode;
@@ -40,6 +41,7 @@ export function PromptBox({
   variant,
   textareaRef,
   overlay,
+  suggestions,
   content,
   prefix,
   leading,
@@ -145,6 +147,9 @@ export function PromptBox({
         <textarea
           ref={inputRef}
           aria-label="Prompt"
+          aria-controls={suggestions?.id}
+          aria-activedescendant={suggestions?.activeId}
+          aria-autocomplete={suggestions ? "list" : undefined}
           disabled={disabled}
           readOnly={readOnly}
           onChange={(event) => {
