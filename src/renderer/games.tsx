@@ -1,5 +1,5 @@
-import { LoaderCircle, Maximize, RefreshCw, Share2, X } from "./icons.js";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Check, Copy, LoaderCircle, Maximize, RefreshCw, Share2, X } from "./icons.js";
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import {
   HOME_GAME_MOSAIC_SLOTS,
@@ -192,7 +192,7 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
             <button className="quiet-button" type="button" onClick={() => void load()}>Retry</button>
           </div>
         ) : null}
-        {game ? <GameDetail game={game} relatedGames={relatedGames} onOhMyGame={onOhMyGame} /> : null}
+        {game ? <GameDetail key={game.id} game={game} relatedGames={relatedGames} onOhMyGame={onOhMyGame} /> : null}
       </section>
     </SidebarPageLayout>
   );
@@ -205,24 +205,7 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
   const coverUrl = useGameCover(game);
-  const [shared, setShared] = useState(false);
-
-  useEffect(() => {
-    setShared(false);
-  }, [game.id]);
-
-  async function shareGame() {
-    const data = { title: game.title, text: game.description, url: game.playUrl };
-    try {
-      if (navigator.share) await navigator.share(data);
-      else {
-        await navigator.clipboard.writeText(data.url);
-        setShared(true);
-      }
-    } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError")) console.error(cause);
-    }
-  }
+  const [sharing, setSharing] = useState(false);
 
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -250,11 +233,13 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
             </div>
           </div>
           <div className="electron-game-toolbar-actions">
-            <button type="button" onClick={() => void shareGame()} title={shared ? "Link copied" : "Share game"} aria-label="Share game"><Share2 size={17} /></button>
+            <button type="button" onClick={() => setSharing(true)} title="Share game" aria-label="Share game" aria-haspopup="dialog"><Share2 size={17} /></button>
             <button type="button" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen"><Maximize size={17} /></button>
           </div>
         </div>
       </div>
+
+      {sharing ? <GameShareDialog game={game} onClose={() => setSharing(false)} /> : null}
 
       {relatedGames.length ? (
         <section className="electron-game-related" aria-label="More games">
@@ -272,6 +257,96 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
         </section>
       ) : null}
     </div>
+  );
+}
+
+function GameShareDialog({ game, onClose }: { game: CommunityGame; onClose: () => void }) {
+  const titleId = useId();
+  const linkId = useId();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const linkRef = useRef<HTMLInputElement>(null);
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const data = { title: game.title, text: game.description, url: game.playUrl };
+  const canShare = !window.ohMyGameDesktop && typeof navigator.share === "function"
+    && (!navigator.canShare || navigator.canShare(data));
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    linkRef.current?.select();
+    return () => {
+      dialog?.close();
+      previousFocus?.focus();
+    };
+  }, []);
+
+  async function copyLink() {
+    setBusy(true);
+    setCopied(false);
+    setError(undefined);
+    try {
+      await navigator.clipboard.writeText(game.playUrl);
+      setCopied(true);
+    } catch {
+      setError("Could not copy automatically. Select the link and copy it.");
+      linkRef.current?.focus();
+      linkRef.current?.select();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function shareGame() {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await navigator.share(data);
+      onClose();
+    } catch (cause) {
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) {
+        setError("Sharing is unavailable. Copy the game link instead.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDialogElement>) {
+    if (event.key !== "Tab") return;
+    const controls = [...event.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input")];
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
+
+  return (
+    <dialog ref={dialogRef} className="game-share-dialog" aria-labelledby={titleId} onKeyDown={handleKeyDown} onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="game-share-content">
+        <header>
+          <div><h2 id={titleId}>Share game</h2><p>{game.title}</p></div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label="Close share dialog"><X size={17} /></button>
+        </header>
+        <label htmlFor={linkId}>Game link</label>
+        <div className="game-share-link">
+          <input ref={linkRef} id={linkId} readOnly value={game.playUrl} onFocus={(event) => event.currentTarget.select()} />
+          <button className="game-share-copy" type="button" onClick={() => void copyLink()} disabled={busy}>
+            {busy ? <LoaderCircle className="spin" size={15} /> : copied ? <Check size={15} /> : <Copy size={15} />}
+            {copied ? "Copied" : "Copy link"}
+          </button>
+        </div>
+        {error ? <p className="game-share-error" role="alert">{error}</p> : null}
+        {canShare ? <button className="game-share-native" type="button" onClick={() => void shareGame()} disabled={busy}><Share2 size={15} />More sharing options</button> : null}
+      </div>
+    </dialog>
   );
 }
 

@@ -5,19 +5,9 @@ import { modelUsageList, modelUsages, MODEL_USAGE_LABELS } from "../shared/custo
 import { CustomModelUsageFields } from "./custom-model-usage-fields.js";
 import { reasoningLabel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { discoverCustomProviderModels, saveCustomProvider } from "./api.js";
-import { LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
+import { ChevronDown, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
 import { initialCustomThinkingLevelMap, invalidateCustomModelCapabilities, mergeDiscoveredProviderModels, modelError, type ModelRow } from "./custom-provider-models.js";
-
-const PRESETS = {
-  gateway: { name: "", baseUrl: "", api: "openai-completions", authentication: "api_key" },
-  ollama: { name: "Ollama", baseUrl: "http://localhost:11434/v1", api: "openai-completions", authentication: "none" },
-  lmstudio: { name: "LM Studio", baseUrl: "http://localhost:1234/v1", api: "openai-completions", authentication: "none" },
-  google: { name: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta", api: "google-generative-ai", authentication: "api_key" },
-  openrouter: { name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", api: "openai-completions", authentication: "api_key" },
-  seedance: { name: "Volcengine Ark", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", api: "openai-completions", authentication: "api_key" },
-  tripo: { name: "Tripo", baseUrl: "https://openapi.tripo3d.ai/v3", api: "openai-completions", authentication: "api_key" },
-  meshy: { name: "Meshy", baseUrl: "https://api.meshy.ai/openapi/v1", api: "openai-completions", authentication: "api_key" },
-} as const;
+import { isLocalModelProvider } from "./local-model-providers.js";
 
 export const PROVIDER_API_LABELS: Record<string, string> = {
   "openai-completions": "OpenAI Chat Completions",
@@ -27,12 +17,16 @@ export const PROVIDER_API_LABELS: Record<string, string> = {
   "google-vertex": "Google Vertex AI",
 };
 
-const emptyModel = (): CustomProviderModel => ({ id: "", name: "", api: "openai-completions", contextWindow: 128_000, maxTokens: 16_384, reasoning: false, supportsImages: false, usages: {} });
+const emptyModel = (provider: Pick<SaveCustomProviderRequest, "api" | "preset">): CustomProviderModel => ({
+  id: "", name: "", api: provider.api, contextWindow: 128_000, maxTokens: 16_384,
+  reasoning: false, supportsImages: false, usages: isLocalModelProvider(provider) ? { language: true } : {},
+});
 
 export type CustomProviderField = "name" | "baseUrl" | "api" | "apiKey" | "models";
 
-export function CustomProviderDialog({ settings, initialFocus = "name", onClose, onSaved }: {
+export function CustomProviderDialog({ settings, initialProvider, initialFocus = "name", onClose, onSaved }: {
   settings?: CustomProviderDetails;
+  initialProvider?: Pick<SaveCustomProviderRequest, "name" | "baseUrl" | "api" | "authentication" | "preset">;
   initialFocus?: CustomProviderField;
   onClose: () => void;
   onSaved: (settings: CustomProviderDetails) => void;
@@ -49,8 +43,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
   const closeRef = useRef(onClose);
   const savingRef = useRef(false);
   const discovery = useRef<AbortController | undefined>(undefined);
-  const [form, setForm] = useState<SaveCustomProviderRequest>(settings ? { name: settings.name, baseUrl: settings.baseUrl, api: settings.api, authentication: settings.authentication, preset: settings.preset } : { ...PRESETS.gateway, preset: "gateway" });
-  const preset = form.preset ?? "gateway";
+  const [form, setForm] = useState<SaveCustomProviderRequest>(settings ? { name: settings.name, baseUrl: settings.baseUrl, api: settings.api, authentication: settings.authentication, preset: settings.preset } : initialProvider ?? { name: "", baseUrl: "", api: "openai-completions", authentication: "api_key" });
   const [rows, setRows] = useState<ModelRow[]>(() => {
     const hidden = new Set(settings?.hiddenModelIds);
     return settings?.models.map((model) => ({ model, enabled: !hidden.has(model.id) })) ?? [];
@@ -63,7 +56,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
   const [truncated, setTruncated] = useState(false);
   const [fetchedCount, setFetchedCount] = useState<number>();
   const [manualOpen, setManualOpen] = useState(false);
-  const [manual, setManual] = useState<CustomProviderModel>(emptyModel);
+  const [manual, setManual] = useState<CustomProviderModel>(() => emptyModel(form));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>();
   closeRef.current = onClose;
@@ -148,7 +141,7 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
       return;
     }
     setRows((current) => [...current, { model, enabled: true }]);
-    setManual({ ...emptyModel(), api: form.api });
+    setManual(emptyModel(form));
     setManualOpen(false);
     setQuery("");
     setError(undefined);
@@ -190,30 +183,23 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
 
   return createPortal(<div className="project-settings-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !savingRef.current) onClose(); }}>
     <section ref={dialog} className="project-settings-dialog custom-provider-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
-      <header><h2 id={titleId}>{settings ? "Edit custom provider" : "Add provider"}</h2><button type="button" disabled={saving} aria-label="Close" onClick={onClose}><X size={16} /></button></header>
+      <header><h2 id={titleId}>{settings ? "Edit provider" : initialProvider ? `Connect ${initialProvider.name}` : "Add provider"}</h2><button type="button" disabled={saving} aria-label="Close" onClick={onClose}><X size={16} /></button></header>
       <form noValidate onSubmit={(event) => void submit(event)}>
         <div className="custom-provider-dialog-body">
-          <p className="custom-provider-intro">Connect a gateway or a local model service with its own endpoint and models.</p>
           <fieldset className="project-settings-section" disabled={saving}>
-            <div className={!settings ? "project-settings-field-row" : undefined}>
-              {!settings ? <label><span>Preset</span><select value={preset} onChange={(event) => { const next = event.target.value as keyof typeof PRESETS; cancelDiscovery(); setForm({ ...PRESETS[next], preset: next }); setRows((current) => current.map((row) => ({ ...row, model: invalidateCustomModelCapabilities(row.model, row.model.api === form.api ? PRESETS[next].api : row.model.api) }))); setManual((current) => invalidateCustomModelCapabilities(current, PRESETS[next].api)); setDiscoveryError(undefined); setDiscoveryWarnings([]); setFetchedCount(undefined); setTruncated(false); }}>
-                <option value="gateway">Custom gateway</option><option value="ollama">Ollama</option><option value="lmstudio">LM Studio</option><option value="google">Gemini</option><option value="openrouter">OpenRouter</option><option value="seedance">Seedance / Ark</option><option value="meshy">Meshy</option><option value="tripo">Tripo</option>
-              </select></label> : null}
-              <label><span>Display name</span><input ref={nameInput} value={form.name} onChange={(event) => field("name", event.target.value)} placeholder="My provider" maxLength={100} required autoComplete="off" /></label>
-            </div>
+            <label><span>Display name</span><input ref={nameInput} value={form.name} onChange={(event) => field("name", event.target.value)} placeholder="My provider" maxLength={100} required autoComplete="off" /></label>
             <label><span>Base URL</span><input ref={endpointInput} type="url" value={form.baseUrl} onChange={(event) => field("baseUrl", event.target.value)} placeholder="https://api.example.com/v1" required autoComplete="off" spellCheck={false} /><small>Use the API endpoint, including /v1 when your service requires it.</small></label>
             <div className="project-settings-field-row">
               <label><span>Default language protocol</span><select ref={apiInput} value={form.api} onChange={(event) => field("api", event.target.value)}>{CUSTOM_MODEL_APIS.map((api) => <option key={api} value={api}>{PROVIDER_API_LABELS[api]}</option>)}</select></label>
               <label><span>Authentication</span><select ref={authenticationInput} value={form.authentication} onChange={(event) => field("authentication", event.target.value as SaveCustomProviderRequest["authentication"])}><option value="api_key">API key</option><option value="none">No API key</option></select></label>
             </div>
-            {form.authentication === "api_key" ? <label><span>API key</span><input ref={keyInput} type="password" value={form.apiKey ?? ""} onChange={(event) => field("apiKey", event.target.value)} required={!settings || settings.authentication !== "api_key"} placeholder={settings?.authentication === "api_key" ? "Leave blank to keep the current key" : "Paste your API key"} autoComplete="new-password" spellCheck={false} /></label> : <p className="custom-provider-hint">For local services that do not require an API key.</p>}
+            {form.authentication === "api_key" ? <label><span>API key</span><input ref={keyInput} type="password" value={form.apiKey ?? ""} onChange={(event) => field("apiKey", event.target.value)} required={!settings || settings.authentication !== "api_key"} placeholder={settings?.authentication === "api_key" ? "Leave blank to keep the current key" : "Paste your API key"} autoComplete="new-password" spellCheck={false} /></label> : null}
           </fieldset>
           <section className="custom-provider-model-picker" aria-label="Model settings">
             <div className="custom-provider-model-heading">
               <h3>Models <small>{enabledCount} enabled</small></h3>
               <button ref={fetchButton} className="settings-secondary-button" type="button" disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? "Fetching…" : "Fetch"}</button>
             </div>
-            <p className="custom-provider-hint">Fetch all models or add an ID manually. Choose each model's uses and protocols, then enable it.</p>
             {discoveryWarnings.map((warning) => <p className="custom-provider-hint" role="status" key={warning}>{warning}</p>)}
             {discoveryError ? <p className="project-settings-error" role="alert">{discoveryError}</p> : null}
             {fetchedCount !== undefined ? <p className="custom-provider-hint" role="status">{truncated ? `Fetched the first ${fetchedCount} models. Other model IDs can be added manually.` : `Fetched ${fetchedCount} models.`}</p> : null}
@@ -232,17 +218,19 @@ export function CustomProviderDialog({ settings, initialFocus = "name", onClose,
                   </div>)}
                 </div>
               </> : <p className="custom-provider-hint">No models match your search.</p>}
-            </> : <p className="custom-provider-model-empty">No models added yet.</p>}
+            </> : !manualOpen ? <p className="custom-provider-model-empty">No models added yet.</p> : null}
             <details className="custom-provider-manual" open={manualOpen} onToggle={(event) => setManualOpen(event.currentTarget.open)}>
-              <summary>Add a model manually</summary>
-              <label><span>Model ID</span><input value={manual.id} onChange={(event) => setManual((current) => ({ ...current, id: event.target.value }))} placeholder={preset === "ollama" ? "qwen3:8b" : "Model ID from your provider"} maxLength={200} disabled={saving} autoComplete="off" spellCheck={false} /></label>
-              <ModelFields model={manual} preset={form.preset} onChange={setManual} disabled={saving || !manual.id.trim()} />
-              <button className="settings-secondary-button custom-provider-manual-add" type="button" disabled={saving || !manual.id.trim()} onClick={addManualModel}><Plus size={13} />Add model</button>
+              <summary><Plus size={14} aria-hidden="true" /><span>Add a model manually</span><ChevronDown size={14} aria-hidden="true" /></summary>
+              <div className="custom-provider-manual-fields">
+                <label><span>Model ID</span><input value={manual.id} onChange={(event) => setManual((current) => ({ ...current, id: event.target.value }))} placeholder={form.preset === "ollama" ? "qwen3:8b" : "Model ID from your provider"} maxLength={200} disabled={saving} autoComplete="off" spellCheck={false} /></label>
+                <ModelFields model={manual} preset={form.preset} onChange={setManual} disabled={saving || !manual.id.trim()} />
+                <button className="settings-secondary-button custom-provider-manual-add" type="button" disabled={saving || !manual.id.trim()} onClick={addManualModel}><Plus size={13} />Add model</button>
+              </div>
             </details>
           </section>
           {error ? <p className="project-settings-error" role="alert">{error}</p> : null}
         </div>
-        <footer><button type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="project-settings-submit" type="submit" disabled={saving}>{saving ? <LoaderCircle className="spin" size={14} /> : null}{saving ? "Saving…" : settings ? "Save changes" : "Add provider"}</button></footer>
+        <footer><button type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="project-settings-submit" type="submit" disabled={saving}>{saving ? <LoaderCircle className="spin" size={14} /> : null}{saving ? "Saving…" : settings ? "Save changes" : initialProvider ? "Connect" : "Add provider"}</button></footer>
       </form>
     </section>
   </div>, document.body);

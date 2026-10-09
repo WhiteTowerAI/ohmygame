@@ -35,6 +35,7 @@ import { ProviderModels } from "./provider-models.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
 import { MODEL_3D_MODELS } from "../shared/generation-config.js";
 import { SegmentedControl } from "./segmented-control.js";
+import { isLocalModelProvider, LOCAL_MODEL_PROVIDERS, withLocalModelProviders, type LocalModelProviderId } from "./local-model-providers.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
@@ -68,7 +69,7 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   const [error, setError] = useState<string>();
   const [query, setQuery] = useState("");
   const [moreOpen, setMoreOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<"custom" | LocalModelProviderId>();
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [capability, setCapability] = useState<"all" | ProviderCapability>("all");
   useEffect(() => {
@@ -97,22 +98,29 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
     }
   }
   const rowActions = { onToggle: (provider: ProviderSummary, enabled: boolean) => void toggleProvider(provider, enabled), pending };
+  const openProvider = (provider: ProviderSummary): void => {
+    if (!provider.custom && isLocalModelProvider(provider)) setAdding(provider.preset);
+    else onProvider(provider);
+  };
+  const availableProviders = loading ? providers : withLocalModelProviders(providers);
   const normalizedQuery = query.trim().toLowerCase();
-  const visibleProviders = providers.filter((provider) => (
+  const visibleProviders = availableProviders.filter((provider) => (
     (capability === "all" || provider.capabilities.includes(capability))
     && (!normalizedQuery || [
       provider.name,
+      ...(isLocalModelProvider(provider) ? [LOCAL_MODEL_PROVIDERS[provider.preset].name] : []),
       providerDescription(provider),
       ...provider.capabilities.map((item) => PROVIDER_CAPABILITY_LABELS[item]),
     ].some((value) => value.toLowerCase().includes(normalizedQuery)))
   ));
-  const connectedProviders = visibleProviders.filter((provider) => provider.status === "connected");
-  const remainingProviders = visibleProviders.filter((provider) => provider.status !== "connected");
+  const localProviders = visibleProviders.filter(isLocalModelProvider);
+  const connectedProviders = visibleProviders.filter((provider) => provider.status === "connected" && !isLocalModelProvider(provider));
+  const remainingProviders = visibleProviders.filter((provider) => provider.status !== "connected" && !isLocalModelProvider(provider));
   const popularProviders = remainingProviders
     .filter((provider) => POPULAR_PROVIDER_IDS.includes(provider.id))
     .sort((first, second) => POPULAR_PROVIDER_IDS.indexOf(first.id) - POPULAR_PROVIDER_IDS.indexOf(second.id));
   const moreProviders = remainingProviders.filter((provider) => !POPULAR_PROVIDER_IDS.includes(provider.id));
-  const filteredProviders = [...connectedProviders, ...popularProviders, ...moreProviders];
+  const filteredProviders = [...connectedProviders, ...popularProviders, ...localProviders, ...moreProviders];
   const filtering = capability !== "all" || Boolean(normalizedQuery);
   return (
     <section className="settings-panel settings-overview-panel">
@@ -123,8 +131,8 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search providers" aria-label="Search providers" />
         </label>
       </header>
-      {adding ? <CustomProviderDialog onClose={() => setAdding(false)} onSaved={() => {
-        setAdding(false);
+      {adding ? <CustomProviderDialog initialProvider={adding === "custom" ? undefined : LOCAL_MODEL_PROVIDERS[adding]} onClose={() => setAdding(undefined)} onSaved={() => {
+        setAdding(undefined);
         setQuery("");
         setCapability("all");
         void listProviders().then(setProviders).catch((cause) => setError(errorMessage(cause)));
@@ -132,22 +140,22 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
       <div className="settings-provider-list">
         <div className="settings-provider-toolbar">
           <SegmentedControl className="settings-provider-filters" label="Filter providers by capability" options={PROVIDER_CAPABILITY_FILTERS} value={capability} onChange={setCapability} />
-          <button className="settings-secondary-button settings-provider-add" type="button" onClick={() => setAdding(true)}><Plus size={13} />Add provider</button>
+          <button className="settings-secondary-button settings-provider-add" type="button" onClick={() => setAdding("custom")}><Plus size={13} />Add provider</button>
         </div>
         {capability !== "language" ? <GlobalMediaModelDefaults capability={capability} /> : null}
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
-        {!loading && providers.length === 0 && !error ? <p className="settings-empty">No configurable providers are available.</p> : null}
-        {!loading && providers.length > 0 && visibleProviders.length === 0 ? <p className="settings-empty">No providers match these filters.</p> : null}
-        {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title="Providers" providers={filteredProviders} onProvider={onProvider} /> : null}
-        {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title="Connected providers" providers={connectedProviders} onProvider={onProvider} /> : null}
-        {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title="Popular providers" providers={popularProviders} onProvider={onProvider} /> : null}
+        {!loading && visibleProviders.length === 0 ? <p className="settings-empty">No providers match these filters.</p> : null}
+        {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title="Providers" providers={filteredProviders} onProvider={openProvider} /> : null}
+        {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title="Connected providers" providers={connectedProviders} onProvider={openProvider} /> : null}
+        {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title="Popular providers" providers={popularProviders} onProvider={openProvider} /> : null}
+        {!filtering && localProviders.length ? <ProviderGroup {...rowActions} title="Local providers" providers={localProviders} onProvider={openProvider} /> : null}
         {!filtering && moreProviders.length ? (
           <section className="settings-provider-group">
             <button className="settings-provider-more" type="button" aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
               <span>More providers <small>({moreProviders.length})</small></span>
               <ChevronDown size={14} />
             </button>
-            {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={onProvider} key={provider.id} />) : null}
+            {moreOpen ? moreProviders.map((provider) => <ProviderRow {...rowActions} provider={provider} onProvider={openProvider} key={provider.id} />) : null}
           </section>
         ) : null}
         {error ? <p className="settings-error" role="alert">{error}</p> : null}
@@ -177,9 +185,9 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
         <strong className="settings-provider-name"><span>{provider.name}</span>{featured ? <small>Recommended</small> : null}</strong>
         <span className="settings-provider-details">
           <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
-          <span className="settings-provider-capabilities" aria-label={`Provider labels: ${[...provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]), ...(provider.custom ? ["Custom"] : [])].join(", ")}`}>
+          <span className="settings-provider-capabilities" aria-label={`Provider labels: ${[...provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]), ...(provider.custom && !isLocalModelProvider(provider) ? ["Custom"] : [])].join(", ")}`}>
             {provider.capabilities.map((capability) => <small key={capability}>{PROVIDER_CAPABILITY_LABELS[capability]}</small>)}
-            {provider.custom ? <small>Custom</small> : null}
+            {provider.custom && !isLocalModelProvider(provider) ? <small>Custom</small> : null}
           </span>
         </span>
       </span>
@@ -191,8 +199,8 @@ function ProviderRow({ detail, featured = false, onProvider, provider, onToggle,
   );
 }
 
-function ProviderMark({ provider }: { provider: Pick<ModelProviderSummary, "id"> }) {
-  const icon = PROVIDER_ICONS[provider.id];
+function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "preset"> }) {
+  const icon = PROVIDER_ICONS[isLocalModelProvider(provider) ? provider.preset : provider.id];
   if (!icon) return <span className="settings-provider-mark-slot" aria-hidden="true"><Server size={20} /></span>;
   return <span className={`settings-provider-mark is-${icon.tone}`} aria-hidden="true"><img src={icon.src} alt="" /></span>;
 }
@@ -822,7 +830,8 @@ function useProviderEndpoint(providerId: string) {
   return { supported, baseUrl, savedBaseUrl, setBaseUrl, reset: () => setBaseUrl(savedBaseUrl), dirty: baseUrl.trim() !== savedBaseUrl, loading, saving, error, save };
 }
 
-function providerDescription(provider: Pick<ModelProviderSummary, "methods"> & { custom?: boolean }): string {
+function providerDescription(provider: Pick<ProviderSummary, "methods" | "custom" | "preset">): string {
+  if (isLocalModelProvider(provider)) return "Local endpoint";
   if (provider.custom) return "Custom endpoint";
   const oauth = provider.methods.some((method) => method.type === "oauth");
   const apiKey = provider.methods.some((method) => method.type === "api_key");
