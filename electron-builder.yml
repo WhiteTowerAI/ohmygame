@@ -28,8 +28,11 @@ extraResources:
     to: preinstalled-plugins
   - from: .runtime/examples
     to: examples
-  - from: .runtime/node
-    to: runtime/node
+  # Match from the parent so electron-builder retains Node's root node_modules.
+  - from: .runtime
+    to: runtime
+    filter:
+      - node/**/*
   - from: .runtime/desktop-config.json
     to: desktop-config.json
 
