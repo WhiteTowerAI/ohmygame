@@ -1907,17 +1907,21 @@ export function createApp(options: AppOptions = {}) {
     const customImageProviders = new Set(customProviders
       .filter((provider) => CUSTOM_IMAGE_MODEL_APIS.some((api) => api === provider.api)).map((provider) => provider.id));
     const providers = piProviders
-      .map((provider) => ({
-        ...provider,
-        enabled: providerEnabled(provider.id),
-        custom: providerModelSettings.isCustom(provider.id),
-        status: provider.configured ? "connected" as const : "not_configured" as const,
-        capabilities: customModels.get(provider.id)?.modelConfigurationVersion === 2
-          ? [...new Set(customModels.get(provider.id)!.models.flatMap(modelUsageList))]
-          : provider.id === "openrouter"
-          ? ["language", "image", "video"] as const
-          : provider.id === "openai" || customImageProviders.has(provider.id) ? ["language", "image"] as const : ["language"] as const,
-      }))
+      .map((provider) => {
+        const custom = customModels.get(provider.id);
+        return {
+          ...provider,
+          enabled: providerEnabled(provider.id),
+          custom: providerModelSettings.isCustom(provider.id),
+          ...(custom?.preset ? { preset: custom.preset } : {}),
+          status: provider.configured ? "connected" as const : "not_configured" as const,
+          capabilities: custom?.modelConfigurationVersion === 2
+            ? [...new Set(custom.models.flatMap(modelUsageList))]
+            : provider.id === "openrouter"
+            ? ["language", "image", "video"] as const
+            : provider.id === "openai" || customImageProviders.has(provider.id) ? ["language", "image"] as const : ["language"] as const,
+        };
+      })
       .sort((left, right) => left.name.localeCompare(right.name));
     const directProviders = [...native3DProviders.map(([id, name, settings]) => ({
       id, name, enabled: providerEnabled(id), custom: false, configured: settings.get().configured,

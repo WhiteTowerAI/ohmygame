@@ -38,6 +38,19 @@ async function fixture(prompt = vi.fn(async () => {}), modelDiscoveryFetch?: typ
 }
 
 describe("custom providers", () => {
+  it("keeps the local service identity in provider summaries after renaming and disabling it", async () => {
+    const { app } = await fixture();
+    const payload = { name: "Home server", preset: "ollama", baseUrl: "http://localhost:11434/v1", api: "openai-completions", authentication: "none", modelConfigurationVersion: 2, models: [{ ...firstModel, usages: { language: true } }] };
+    const created = await app.inject({ method: "POST", url: "/settings/models/providers/custom", payload });
+    expect(created.statusCode, created.body).toBe(201);
+    const id = created.json().id;
+    const renamed = await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/custom`, payload: { ...payload, name: "Renamed local server" } });
+    expect(renamed.statusCode, renamed.body).toBe(200);
+    expect((await app.inject({ method: "PATCH", url: `/settings/models/providers/${id}/enabled`, payload: { enabled: false } })).statusCode).toBe(200);
+    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
+    expect(providers).toContainEqual(expect.objectContaining({ id, name: "Renamed local server", preset: "ollama", custom: true, configured: true, enabled: false, capabilities: ["language"] }));
+  });
+
   it("rejects duplicate custom names on creation and renaming without changing existing settings or credentials", async () => {
     const { app, directory, runtime, create } = await fixture();
     const first = await create();

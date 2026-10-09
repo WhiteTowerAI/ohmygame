@@ -17,6 +17,8 @@ import kimi from "@lobehub/icons-static-svg/icons/kimi-color.svg";
 import minimax from "@lobehub/icons-static-svg/icons/minimax-color.svg";
 import tripo from "@lobehub/icons-static-svg/icons/tripo-color.svg";
 import meshy from "@lobehub/icons-static-svg/icons/meshy-color.svg";
+import ollama from "@lobehub/icons-static-svg/icons/ollama.svg";
+import lmstudio from "@lobehub/icons-static-svg/icons/lmstudio.svg";
 import mistral from "@lobehub/icons-static-svg/icons/mistral-color.svg";
 import moonshot from "@lobehub/icons-static-svg/icons/moonshot.svg";
 import nvidia from "@lobehub/icons-static-svg/icons/nvidia-color.svg";
@@ -60,6 +62,8 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   minimax: color(minimax),
   "minimax-cn": color(minimax),
   meshy: color(meshy),
+  ollama: monochrome(ollama),
+  lmstudio: monochrome(lmstudio),
   tripo: color(tripo),
   mistral: color(mistral),
   moonshotai: monochrome(moonshot),

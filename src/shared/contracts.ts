@@ -62,6 +62,7 @@ export interface ProviderSummary extends ModelProviderSummary {
   capabilities: ProviderCapability[];
   enabled?: boolean;
   custom?: boolean;
+  preset?: CustomProviderPreset;
   error?: string;
 }
 
