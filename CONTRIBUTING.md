@@ -89,10 +89,26 @@ bun run test
 bun run typecheck
 bun run build
 bun run test:node-runtime
-bunx --bun --no-install prettier --check <changed files>
 ```
 
 Add or update tests in `test/` when you fix a bug or add behavior.
+
+## Formatting
+
+When editing an existing file, match the surrounding style and keep formatting
+changes limited to the code you touch. The repository has not been fully formatted
+with Prettier, so a whole-file `prettier --check` is not required for edits to
+existing files.
+
+Use the repository's Prettier configuration for new files that Prettier supports.
+Check those files before opening a PR:
+
+```bash
+bunx --bun --no-install prettier --check <new files>
+```
+
+Keep broad formatting cleanup in a separate PR. CI does not currently enforce
+repository-wide formatting.
 
 ## Pull requests
 
