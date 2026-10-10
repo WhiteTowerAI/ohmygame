@@ -11045,10 +11045,14 @@ button {
 
 .prompt-box-list-bullet::after {
   position: absolute;
-  inset: 0;
-  color: var(--text);
-  content: "\2022";
-  text-align: center;
+  top: 50%;
+  left: 50%;
+  width: 0.3em;
+  height: 0.3em;
+  border-radius: 50%;
+  background: var(--text);
+  content: "";
+  transform: translate(-50%, -50%);
 }
 
 .prompt-box-editor.has-list-mirror textarea {
