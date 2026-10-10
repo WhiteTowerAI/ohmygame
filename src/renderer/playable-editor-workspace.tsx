@@ -30,7 +30,7 @@ import {
 import { snapCanvasPosition } from "./canvas-alignment.js";
 import { EditorCanvas, isTextEntry, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
-import type { NodeCodebase, NodeCodebaseUpdate, NodeEditorLayout } from "../shared/playable-codebase.js";
+import { rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
   type NodeGraph,
   type PlayableNode,
@@ -51,6 +51,7 @@ import {
 } from "../shared/playable-editor.js";
 import {
   addPlayableNode,
+  ApiError,
   buildInteractiveStory,
   getNodeCodebase,
   getPlayableValidation,
@@ -75,6 +76,8 @@ const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 
 const HISTORY_LIMIT = 50;
+const SAVE_ATTEMPTS = 3;
+const PROJECT_CHANGED = "The project changed while you were editing, so its latest version was loaded. Make your last change again.";
 
 /** A step to undo or redo: the codebase, and the source files as they were, when the step wrote any. */
 interface HistoryEntry {
@@ -152,6 +155,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [playtesting, setPlaytesting] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
+  /** What the editor last read from or wrote to disk, and the revision a save has to start from. */
+  const diskCodebase = useRef<{ codebase: NodeCodebase; revision: string } | undefined>(undefined);
+  /** Counts the versions loaded from disk, so a save queued before a load is not written over it. */
+  const diskGeneration = useRef(0);
   const queuedCodebase = useRef<string | undefined>(undefined);
   const saveChain = useRef(Promise.resolve());
   const undoHistory = useRef<HistoryEntry[]>([]);
@@ -220,14 +227,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   useEffect(() => {
     let disposed = false;
     setPhase("loading");
-    window.clearTimeout(historyTimer.current);
-    undoHistory.current = [];
-    redoHistory.current = [];
-    writtenSources.current = {};
-    historyObserved.current = undefined;
-    historyObservedJson.current = undefined;
-    historyPendingBase.current = undefined;
-    historyGestureBase.current = undefined;
+    resetHistory();
     setCanvasContextMenu(undefined);
     setCopiedNode(undefined);
     void Promise.all([
@@ -235,7 +235,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       listPlayablePresets().catch(() => ({ presets: [] as PlayablePresetSummary[] })),
     ]).then(([loaded, catalog]) => {
       if (disposed) return;
-      applyCodebase(loaded, { fromDisk: true });
+      applyCodebase(loaded, { diskRevision: loaded.revision });
       setPresets(catalog.presets);
       setPhase("ready");
     }).catch((error) => {
@@ -294,11 +294,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }, [projectId, builtDefinition, thumbnails]);
 
   /**
-   * Adopts a whole codebase into the editor. `fromDisk` makes the serialized
-   * form the save baseline, so opening a project does not write it straight
-   * back; an undo has to save, so it passes nothing.
+   * Adopts a whole codebase into the editor. `diskRevision` says it is what
+   * the files hold, which makes the serialized form the save baseline, so
+   * opening a project does not write it straight back; an undo has to save,
+   * so it passes nothing.
    */
-  function applyCodebase(loaded: NodeCodebase, options: { fromDisk?: boolean } = {}): void {
+  function applyCodebase(loaded: NodeCodebase, options: { diskRevision?: string } = {}): NodeCodebase {
     const { nodes: graphNodes, edges: graphEdges, ...meta } = loaded.graph;
     const view = loaded.editorLayout.view === "code" ? "code" : "canvas";
     const flowNodes = graphNodes.map((node) => toFlowNode(node, loaded.editorLayout));
@@ -309,9 +310,96 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setEditorLayout(loaded.editorLayout);
     setWorkspaceView(view);
     const applied = buildCodebase(meta, flowNodes, flowEdges, loaded.editorLayout, view);
-    if (options.fromDisk) queuedCodebase.current = JSON.stringify(applied);
+    latestCodebase.current = applied;
+    if (options.diskRevision !== undefined) {
+      queuedCodebase.current = JSON.stringify(applied);
+      diskCodebase.current = { codebase: applied, revision: options.diskRevision };
+      diskGeneration.current += 1;
+    }
     observeHistory(applied);
     setSelectedEdgeId(undefined);
+    return applied;
+  }
+
+  /** History steps are whole codebases, so none may outlive the version on disk they were taken from. */
+  function resetHistory(): void {
+    window.clearTimeout(historyTimer.current);
+    undoHistory.current = [];
+    redoHistory.current = [];
+    writtenSources.current = {};
+    historyObserved.current = undefined;
+    historyObservedJson.current = undefined;
+    historyPendingBase.current = undefined;
+    historyGestureBase.current = undefined;
+  }
+
+  /** Loads a version that reached disk while the editor was open, as reopening the project would. */
+  function adoptDiskCodebase(loaded: NodeCodebase, revision: string): void {
+    resetHistory();
+    applyCodebase(loaded, { diskRevision: revision });
+    setCodeRevision((current) => current + 1);
+    updateHistoryControls();
+  }
+
+  /**
+   * Writes a codebase from the revision the editor last saw, and resolves
+   * with whether it was written. graph.json and editor/layout.json are not
+   * written over a version the editor has not seen: when the Agent changed
+   * the graph since, moved Scenes, the viewport, and edited source files are
+   * saved on its graph, and a change to the graph itself is given up for it.
+   */
+  async function writeCodebase(next: NodeCodebaseUpdate, queuedGeneration: number): Promise<boolean> {
+    let generation = queuedGeneration;
+    let outgoing = next;
+    /** The save baseline while a carried layout is on its way, to drop if it does not arrive. */
+    let carriedBaseline: string | undefined;
+    try {
+      for (let attempt = 1; ; attempt += 1) {
+        const disk = diskCodebase.current;
+        if (generation !== diskGeneration.current || !disk) {
+          // A newer version was loaded since this save was queued. Its graph is
+          // the one to keep; only a save that would not have changed it is let go quietly.
+          if (!outgoing.sources && !outgoing.sourceDeletions && disk && samePlayableGraph(outgoing.graph, disk.codebase.graph)) return false;
+          throw new Error(PROJECT_CHANGED);
+        }
+        try {
+          const saved = await updateNodeCodebase(projectId, { ...outgoing, revision: disk.revision });
+          if (generation === diskGeneration.current) {
+            diskCodebase.current = { codebase: { graph: outgoing.graph, editorLayout: outgoing.editorLayout }, revision: saved.revision };
+          }
+          return true;
+        } catch (cause) {
+          if (!(cause instanceof ApiError) || cause.status !== 409) throw cause;
+          if (attempt === SAVE_ATTEMPTS) throw new Error("The project keeps changing. Try again in a moment.");
+        }
+        const remote = await getNodeCodebase(projectId);
+        if (generation !== diskGeneration.current) continue;
+        if (samePlayableGraph(remote.graph, disk.codebase.graph)
+          && JSON.stringify(remote.editorLayout) === JSON.stringify(disk.codebase.editorLayout)) {
+          // Formatting changed, so retry without resetting the editor or its history.
+          diskCodebase.current = { codebase: disk.codebase, revision: remote.revision };
+          continue;
+        }
+        // Rebase the request first (a copy is not shown until its sources are saved),
+        // then carry edits made on the canvas while it waited.
+        const pending = rebasePlayableCodebase(disk.codebase, outgoing, remote);
+        const carried = pending
+          ? rebasePlayableCodebase(disk.codebase, latestCodebase.current ?? outgoing, pending)
+          : undefined;
+        adoptDiskCodebase(remote, remote.revision);
+        if (!carried) throw new Error(PROJECT_CHANGED);
+        // Shown before it is saved, so what the author does meanwhile is done to the graph from disk.
+        const shown = applyCodebase(carried);
+        carriedBaseline = JSON.stringify(shown);
+        queuedCodebase.current = carriedBaseline;
+        generation = diskGeneration.current;
+        outgoing = { ...outgoing, ...shown };
+      }
+    } catch (cause) {
+      // The carried layout is shown but not on disk; let the next change save it.
+      if (carriedBaseline !== undefined && queuedCodebase.current === carriedBaseline) queuedCodebase.current = undefined;
+      throw cause;
+    }
   }
 
   function updateHistoryControls(): void {
@@ -453,12 +541,19 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     const serialized = JSON.stringify(next);
     if (serialized === queuedCodebase.current) return saveChain.current;
     queuedCodebase.current = serialized;
-    const operation = saveChain.current
+    const generation = diskGeneration.current;
+    const written = saveChain.current
       .catch(() => undefined)
-      .then(() => updateNodeCodebase(projectId, next));
+      .then(() => writeCodebase(next, generation));
+    const operation = written.then(() => undefined);
     saveChain.current = operation;
-    void operation.then(
-      () => { setNotice(undefined); setCodeRevision((revision) => revision + 1); },
+    void written.then(
+      (saved) => {
+        // A save let go for a newer version on disk leaves that version's notice in place.
+        if (!saved) return;
+        setNotice(undefined);
+        setCodeRevision((revision) => revision + 1);
+      },
       (error) => {
         if (queuedCodebase.current === serialized) queuedCodebase.current = undefined;
         setNotice(`Could not save your changes: ${errorMessage(error)}`);
@@ -554,12 +649,15 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     // The base stops the graph change from being recorded as a separate step.
     const base = structuredClone(codebase);
     historyGestureBase.current = base;
+    const generation = diskGeneration.current;
     try {
       applyGraph(graph);
       await save({ graph, editorLayout: codebase.editorLayout, sources });
     } finally {
       if (historyGestureBase.current === base) historyGestureBase.current = undefined;
     }
+    // The save loaded the Agent's changes; undoing to `base` would take them back.
+    if (generation !== diskGeneration.current) return undefined;
     writtenSources.current = { ...writtenSources.current, ...sources };
     const entry = pushUndoSnapshot(base, before);
     redoHistory.current = [];
@@ -683,15 +781,18 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setWriting(true);
     try {
       commitPendingHistory();
+      const generation = diskGeneration.current;
       await save(codebase);
-      pushUndoSnapshot(codebase);
+      // After a save that loaded the Agent's changes, undoing to `codebase` would take them back.
+      if (generation === diskGeneration.current) pushUndoSnapshot(codebase);
       redoHistory.current = [];
       await addPlayableNode(projectId, {
         preset: presetId,
         id: uniqueNodeId(presetId, new Set(nodes.map((node) => node.id))),
         position: snapCanvasPosition(position),
       });
-      applyCodebase(await getNodeCodebase(projectId), { fromDisk: true });
+      const loaded = await getNodeCodebase(projectId);
+      applyCodebase(loaded, { diskRevision: loaded.revision });
       setCodeRevision((revision) => revision + 1);
       updateHistoryControls();
     } catch (cause) {
@@ -727,22 +828,23 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         createFlowNode({ ...structuredClone(copy.node), id, source }, snapCanvasPosition(position)),
       ];
       const next = buildCodebase(graphMeta, nextNodes, edges, editorLayout, workspaceView);
-      queuedCodebase.current = JSON.stringify(next);
-      await updateNodeCodebase(projectId, {
+      const update: NodeCodebaseUpdate = {
         ...next,
         sources: {
           [source.html]: copy.sources[copy.node.source.html] ?? "",
           [source.css]: copy.sources[copy.node.source.css] ?? "",
           [source.javascript]: copy.sources[copy.node.source.javascript] ?? "",
         },
-      });
+      };
+      await save(update);
+      // The sources are written, so the canvas state alone is what autosave compares next;
+      // unless an autosave of the canvas without the copy was queued meanwhile, which the next one has to put right.
+      if (queuedCodebase.current === JSON.stringify(update)) queuedCodebase.current = JSON.stringify(next);
       setNodes(nextNodes);
       observeHistory(next);
-      setCodeRevision((revision) => revision + 1);
       updateHistoryControls();
     } catch (cause) {
       undoHistory.current.pop();
-      queuedCodebase.current = undefined;
       setNotice(errorMessage(cause));
     } finally {
       setWriting(false);

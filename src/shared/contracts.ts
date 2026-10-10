@@ -296,16 +296,21 @@ export interface ProjectAgentActivity {
   status: Extract<AgentStatus, "running" | "cancelling">;
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "animate-3d" | "asset" | "document";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "animate-3d" | "asset" | "document" | "table";
 
 export interface AssetCanvasPosition {
   x: number;
   y: number;
 }
 
+export interface AssetCanvasNodeLayout extends AssetCanvasPosition {
+  width?: number;
+  height?: number;
+}
+
 export interface AssetCanvasEditorLayout {
   version: 1;
-  nodes: Record<string, AssetCanvasPosition>;
+  nodes: Record<string, AssetCanvasNodeLayout>;
   viewport: { x: number; y: number; zoom: number };
   /** Fit a remixed board once its nodes are measured, then save the new viewport. */
   fitView?: boolean;
@@ -333,6 +338,7 @@ export interface AssetCanvasTextGenerationResponse {
 }
 
 export type AssetCanvasNode = (
+  | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
   | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string } }
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
@@ -381,7 +387,7 @@ export type AssetCanvasNode = (
     actionIds: number[];
     assetId?: string;
   } }
-) & { title?: string; description?: string };
+) & { title?: string; description?: string; width?: number; height?: number };
 
 export interface AssetCanvasEdge {
   id: string;

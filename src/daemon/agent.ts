@@ -21,13 +21,14 @@ import type { RuntimeEventBus } from "../shared/events.js";
 import type { StoredConversation } from "./conversations.js";
 import {
   ensureOhMyGamePiEnvironment,
-  resolveBundledMcpAdapterPath,
-  withBundledMcpAdapter,
+  withoutOhMyGameManagedPiPackages,
 } from "./pi-agent.js";
 import { mcpToolInput, parseMcpToolIdentity } from "../shared/mcp.js";
 import type { PluginSkillRegistration } from "./plugin-runtime.js";
 import { appendSystemPromptForProject, type AgentPromptProject } from "./agent-prompts.js";
 import { openRouterAttributionExtension } from "./openrouter-attribution.js";
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import type { PluginMcpHost } from "./plugin-mcp-host.js";
 import { projectProcessEnvironment } from "./project-process.js";
 
 export interface CodingSession {
@@ -2152,11 +2153,13 @@ export async function createPiSession(
   model?: RuntimeModel,
   agentDir = process.env.PI_CODING_AGENT_DIR ?? path.resolve(process.cwd(), ".data", "pi-agent"),
   resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>,
+  mcp?: { factory: ExtensionFactory; host: PluginMcpHost },
 ): Promise<CodingSession> {
   // Trusted-local phase: cwd guides Pi but is not an OS security boundary.
   const { resourceLoader, sessionSettings, pluginSkills } = await createPiResourceLoader(project.workspacePath, agentDir, {
     resolvePluginSkills,
     appendSystemPrompt: appendSystemPromptForProject(project),
+    mcpFactory: mcp?.factory,
   });
   const { session } = await createAgentSession({
     cwd: project.workspacePath,
@@ -2172,7 +2175,8 @@ export async function createPiSession(
     sessionManager,
     settingsManager: sessionSettings,
   });
-  await session.bindExtensions({ mode: "rpc" });
+  mcp?.host.manage(session);
+  try { await session.bindExtensions({ mode: "rpc" }); } catch (cause) { session.dispose(); throw cause; }
   return Object.assign(session, {
     getSkills: () => skillCatalog(resourceLoader.getSkills().skills, pluginSkills),
   });
@@ -2208,22 +2212,24 @@ async function createPiResourceLoader(
   options: {
     resolvePluginSkills?: () => Promise<PluginSkillRegistration[]>;
     appendSystemPrompt?: readonly string[];
+    mcpFactory?: ExtensionFactory;
   } = {},
 ): Promise<{ resourceLoader: DefaultResourceLoader; sessionSettings: SettingsManager; pluginSkills: PluginSkillRegistration[] }> {
   await ensureOhMyGamePiEnvironment(agentDir);
   const persistedSettings = SettingsManager.create(workspacePath, agentDir);
   const sessionSettings = SettingsManager.inMemory(persistedSettings.getGlobalSettings());
   sessionSettings.applyOverrides(persistedSettings.getProjectSettings());
-  sessionSettings.setPackages(withBundledMcpAdapter(
-    sessionSettings.getPackages(),
-    resolveBundledMcpAdapterPath(),
-  ));
+  sessionSettings.setPackages(withoutOhMyGameManagedPiPackages(sessionSettings.getPackages()).filter(entry => {
+    const source = typeof entry === "string" ? entry : entry.source;
+    return !source.replace(/\\/g, "/").endsWith("/pi-mcp-adapter");
+  }));
   const pluginSkills = await options.resolvePluginSkills?.() ?? [];
   const resourceLoader = new DefaultResourceLoader({
     cwd: workspacePath,
     agentDir,
     settingsManager: sessionSettings,
-    extensionFactories: [{ name: "openrouter-attribution", factory: openRouterAttributionExtension, hidden: true }],
+    extensionFactories: [{ name: "openrouter-attribution", factory: openRouterAttributionExtension, hidden: true },
+      ...(options.mcpFactory ? [{ name: "plugin-mcp", factory: options.mcpFactory, hidden: true }] : [])],
     additionalSkillPaths: pluginSkills.map((skill) => skill.path),
     appendSystemPrompt: options.appendSystemPrompt
       ? [...options.appendSystemPrompt]

@@ -113,29 +113,6 @@ describe("plugin catalog API", () => {
     });
   });
 
-  it("creates a visible project for each plugin authoring session", async () => {
-    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-authoring-")) });
-    apps.push(app);
-    await app.ready();
-
-    const created = await app.inject({ method: "POST", url: "/plugins/authoring-session" });
-    const next = await app.inject({ method: "POST", url: "/plugins/authoring-session" });
-    const { projectId, conversationId } = created.json();
-    const [project, conversation, projects] = await Promise.all([
-      app.inject({ method: "GET", url: `/projects/${projectId}` }),
-      app.inject({ method: "GET", url: `/projects/${projectId}/conversations/${conversationId}` }),
-      app.inject({ method: "GET", url: "/projects" }),
-    ]);
-
-    expect(created.statusCode).toBe(201);
-    expect(next.json().projectId).not.toBe(projectId);
-    expect(next.json().conversationId).not.toBe(conversationId);
-    expect(project.statusCode).toBe(200);
-    expect(project.json()).toMatchObject({ id: projectId, name: "New Plugin", type: "web-game" });
-    expect(conversation.statusCode).toBe(200);
-    expect(projects.json()).toHaveLength(2);
-  });
-
   it("lists and reads OhMyGame plugins without exposing Pi runtime packages", async () => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")),
@@ -160,13 +137,13 @@ describe("plugin catalog API", () => {
     expect(detail.json()).toMatchObject({
       id: "ohmygame:godot",
       longDescription: expect.any(String),
-      connections: [{ id: "ohmygame-godot", name: "Godot" }],
+      mcpServers: [{ id: "godot", name: "Godot" }],
       defaultPrompts: expect.any(Array),
       projectTypes: ["godot-game"],
     });
   });
 
-  it("stores the Plugin switch without owning Connection access", async () => {
+  it("stores the Plugin switch together with MCP capabilities", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-api-"));
     const app = createApp({ dataDirectory });
     apps.push(app);
@@ -179,10 +156,10 @@ describe("plugin catalog API", () => {
     });
 
     expect(updated.statusCode).toBe(200);
-    expect(updated.json()).toMatchObject({ enabled: false, connections: [{ id: "ohmygame-godot", enabled: true }] });
+    expect(updated.json()).toMatchObject({ enabled: false, mcpServers: [{ id: "godot", status: "disabled" }] });
   });
 
-  it("does not turn an arbitrary Pi MCP configuration into a user Plugin", async () => {
+  it("migrates Pi MCP configuration into an installed plugin", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mcp-api-"));
     const piAgentDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mcp-agent-"));
     await writeFile(path.join(piAgentDirectory, "mcp.json"), JSON.stringify({
@@ -194,7 +171,7 @@ describe("plugin catalog API", () => {
 
     const listed = await app.inject({ method: "GET", url: "/plugins" });
 
-    expect(listed.json().plugins.filter((plugin: { marketplace: { id: string } }) => plugin.marketplace.id === "personal")).toEqual([]);
+    expect(listed.json().plugins.filter((plugin: { marketplace: { id: string } }) => plugin.marketplace.id === "personal")).toMatchObject([{ displayName: "figma", installed: true }]);
     expect(JSON.parse(await readFile(path.join(piAgentDirectory, "mcp.json"), "utf8"))).toMatchObject({
       mcpServers: { figma: { url: "https://example.com/mcp" } },
     });

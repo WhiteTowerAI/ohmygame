@@ -19,7 +19,8 @@ export function promptListLines(value: string): Array<{ text: string; list?: Pro
 }
 
 export function editPromptList(value: string, start: number, end: number, key: string, shift = false): { value: string; cursor: number } | undefined {
-  if ((key !== "Enter" && key !== "Backspace" && key !== "Tab") || (key === "Enter" && shift)) return undefined;
+  // Plain Enter must reach the composer's submit handler, including inside lists.
+  if ((key !== "Enter" && key !== "Backspace" && key !== "Tab") || (key === "Enter" && !shift)) return undefined;
   const lineStart = start === 0 ? 0 : value.lastIndexOf("\n", start - 1) + 1;
   const lineEnd = value.indexOf("\n", start);
   const currentEnd = lineEnd < 0 ? value.length : lineEnd;

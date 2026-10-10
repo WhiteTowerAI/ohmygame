@@ -11,6 +11,7 @@ import { useAgentModels } from "./model-selector.js";
 import type { DocumentGenerationState } from "./use-canvas-documents.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { CanvasNodeResizer, CanvasNodeSizeActions, type CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
 
 export interface CanvasDocuments {
   projectId: string;
@@ -30,7 +31,7 @@ export interface CanvasDocuments {
   applyGeneration(id: string): void;
 }
 export interface DocumentNodeRuntime extends CanvasTextModels { design: CanvasDocuments; document?: CanvasWorkspaceDetail["documents"][number] }
-export function CanvasDocumentNode({ data, selected }: { data: { documentId?: string; documentRuntime?: DocumentNodeRuntime; nodeDetails?: CanvasNodeDetails }; selected?: boolean }) {
+export function CanvasDocumentNode({ data, selected }: { data: { documentId?: string; documentRuntime?: DocumentNodeRuntime; nodeDetails?: CanvasNodeDetails; resizeRuntime?: CanvasNodeResizeRuntime }; selected?: boolean }) {
   const [editing, setEditing] = useState(() => !data.documentRuntime?.document?.markdown);
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrollProgress = useRef(0);
@@ -42,6 +43,7 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
     if (pane) pane.scrollTop = scrollProgress.current * Math.max(0, pane.scrollHeight - pane.clientHeight);
   }, [isEditing]);
   return <div className={`story-node story-text-node design-document-node${selected ? " is-selected" : ""}`}>
+    <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
     <div className="story-text-output">
       <div data-alignment-frame className="design-document-node-content">
         <CanvasNodeLabel icon={FileText} label={doc?.title ?? issue?.title ?? "Missing document"} details={data.nodeDetails} className="design-document-node-header"
@@ -63,18 +65,19 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
         <Handle type="target" position={Position.Left} id="image" />
         <Handle type="source" position={Position.Right} id="out" />
       </div>
-      {selected && doc ? <footer className="design-document-node-footer nodrag nowheel">
+      {doc ? <footer className={`design-document-node-footer nodrag nowheel${selected ? "" : " is-hidden"}`}>
         <div className="design-mode-control" role="group" aria-label="Document view">
           <button type="button" title="Edit Markdown" aria-label="Edit Markdown" aria-pressed={editing} onClick={() => setEditing(true)}><Pencil size={14} /></button>
           <button type="button" title="Preview document" aria-label="Preview document" aria-pressed={!editing} onClick={() => setEditing(false)}><Eye size={14} /></button>
         </div>
         <div className="design-document-node-actions">
+          <CanvasNodeSizeActions runtime={data.resizeRuntime} />
           <button type="button" title="Insert image from Library" aria-label="Insert image from Library" onClick={() => runtime?.design.pickImage(doc.id)}><ImageIcon size={14} /></button>
           <button type="button" title="Expand document" aria-label="Expand document" onClick={() => runtime?.design.open(doc.id)}><Maximize size={14} /></button>
         </div>
       </footer> : null}
     </div>
-    {selected && doc && runtime ? <CanvasDocumentAI design={runtime.design} document={doc} textModels={runtime} /> : null}
+    {selected && doc && runtime ? <div className="canvas-node-auxiliary"><CanvasDocumentAI design={runtime.design} document={doc} textModels={runtime} /></div> : null}
   </div>;
 }
 export function CanvasMarkdown({

@@ -22,13 +22,12 @@
 .design-board-switcher .canvas-chip { max-width: 180px; }
 .design-document-node-footer button, .design-expanded-toolbar button, .design-expanded-close, .design-ai-result button, .design-modal header button { display: inline-grid; place-items: center; width: 24px; height: 24px; flex-shrink: 0; padding: 0; background: transparent; border: 0; border-radius: 4px; color: var(--text-muted); cursor: pointer; transition: background-color 120ms ease, color 120ms ease; }
 :is(.design-document-node-footer, .design-expanded-toolbar, .design-ai-result) button:hover, .design-expanded-close:hover { background: var(--surface-hover); color: var(--text); }
-.story-text-node.design-document-node { width: 360px; }
 .design-document-node > .story-text-output { overflow: visible; }
-.design-document-node-content { position: relative; display: flow-root; }
+.design-document-node-content { position: relative; display: flex; flex: 1; min-height: 0; flex-direction: column; }
 .design-document-node-header input, .design-document-node-header > span { flex: 1; min-width: 0; height: 18px; padding: 0; font: inherit; line-height: 18px; }
 .design-document-node-header input { border: 0; outline: 0; background: transparent; color: inherit; }
 .design-document-node-header > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.design-document-node-body { width: calc(100% - 20px); height: 260px; overflow: hidden; margin: 0 10px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--story-editor-surface); color: var(--text); font-size: 12px; line-height: 1.6; letter-spacing: 0; overflow-wrap: anywhere; }
+.design-document-node-body { width: calc(100% - 20px); flex: 1; min-height: 0; overflow: hidden; margin: 0 10px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--story-editor-surface); color: var(--text); font-size: 12px; line-height: 1.6; letter-spacing: 0; overflow-wrap: anywhere; }
 .design-document-node-body.is-preview { cursor: grab; user-select: none; }
 .react-flow__node.dragging .design-document-node-body.is-preview { cursor: grabbing; }
 .design-document-node-body > textarea, .design-document-node-preview { display: block; width: 100%; height: 100%; overflow: auto; scrollbar-gutter: stable; padding: 9px 10px; font: inherit; letter-spacing: inherit; text-rendering: inherit; overflow-wrap: inherit; }
@@ -43,11 +42,12 @@
 .design-document-node-preview .markdown-content li > :is(ul, ol) { margin: 0; }
 .design-document-node-preview .markdown-content > :last-child { margin-bottom: 0; }
 .design-document-node-body img, .design-expanded-preview img { display: block; max-width: 100%; height: auto; margin: 8px 0; border-radius: 4px; }
-.design-document-node-footer { display: flex; justify-content: space-between; height: 28px; align-items: center; padding: 0 10px; margin: -5px 0 5px; }
+.design-document-node-footer { display: flex; justify-content: space-between; height: 28px; flex-shrink: 0; align-items: center; padding: 0 10px; margin: -5px 0 5px; }
 .design-mode-control, .design-document-node-actions { display: flex; align-items: center; gap: 2px; }
 .design-mode-control button[aria-pressed="true"], .design-document-node button[aria-pressed="true"] { color: var(--text); background: var(--surface-hover); }
 .design-image-placeholder { color: var(--text-muted); font-size: 11px; }
 .design-expanded-document { position: absolute; inset: 0; display: flex; flex-direction: column; z-index: 12; background: var(--surface); }
+.design-workspace[data-active-tab] > .design-expanded-document { top: 50px; }
 .design-expanded-toolbar { display: flex; gap: 6px; height: 40px; flex-shrink: 0; align-items: center; padding: 0 42px 0 12px; border-bottom: 1px solid var(--border); color: var(--text-muted); }
 .design-expanded-toolbar input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font-size: 12px; }
 .design-expanded-close { position: absolute; top: 8px; right: 10px; }
@@ -128,3 +128,50 @@
   color: var(--text);
   font: inherit;
 }
+
+/* The saved node frame covers reading content; selection tools sit below it. */
+.story-text-node { width: 100%; height: 100%; }
+.story-text-node > .story-text-output { display: flex; flex-direction: column; height: 100%; }
+.story-text-output > textarea { flex: 1; min-height: 0; }
+.design-document-node-footer.is-hidden { visibility: hidden; }
+.canvas-node-auxiliary { position: absolute; top: 100%; left: 0; width: 100%; }
+.canvas-node-resize-handle { width: 5px !important; height: 5px !important; border: 1px solid color-mix(in srgb, var(--theme-accent) 45%, var(--border)) !important; border-radius: 1px !important; background: var(--surface) !important; }
+.canvas-node-resize-handle:not(.top.left, .top.right, .bottom.left, .bottom.right) { opacity: 0; }
+.canvas-node-resize-handle:hover { border-color: var(--theme-accent) !important; }
+.canvas-node-resize-line { border-color: color-mix(in srgb, var(--theme-accent) 35%, transparent) !important; }
+.story-text-node.is-selected .story-text-output { border-color: color-mix(in srgb, var(--theme-accent) 45%, var(--border)); }
+.story-node > .story-text-output-handle { top: 50%; }
+
+.canvas-table-node .design-document-node-body { display: flex; flex-direction: column; }
+.canvas-table-preview { width: 100%; height: 100%; min-height: 0; }
+.canvas-table-empty { margin: 0; padding: 12px; color: var(--text-muted); }
+.canvas-table-ai-preview { height: 220px; margin: 6px 0; overflow: hidden; border: 1px solid var(--border); border-radius: 6px; }
+.canvas-expanded-table > .canvas-table-preview { width: auto; margin: 0 16px; }
+.canvas-table-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; color: var(--text); }
+.canvas-table-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+.canvas-table-toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 3px; min-height: 25px; padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font-size: 11px; cursor: pointer; }
+.canvas-table-editor button:hover { background: var(--surface-hover); }
+.canvas-table-editor button:disabled { opacity: .35; cursor: default; }
+.canvas-table-scroll { flex: 1; min-height: 0; overflow: auto; border-bottom: 1px solid var(--border); }
+.canvas-table-scroll table { table-layout: fixed; border-spacing: 0; font-size: 12px; }
+.canvas-table-scroll th, .canvas-table-scroll td { position: relative; padding: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); vertical-align: top; text-align: left; font-weight: normal; }
+.canvas-table-scroll thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); }
+.canvas-table-scroll tbody th { color: var(--text-muted); text-align: center; padding-top: 7px; font-size: 10px; }
+.canvas-table-preview :is(th, td) { padding: 7px 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.canvas-table-preview thead th { font-weight: 500; }
+.canvas-table-preview .canvas-table-row-number { width: 38px; padding: 7px 4px; }
+.canvas-table-scroll input, .canvas-table-scroll textarea { display: block; width: 100%; min-width: 0; margin: 0; border: 0; border-radius: 0; padding: 7px 8px; color: var(--text); background: transparent; font: inherit; }
+.canvas-table-scroll textarea { field-sizing: content; min-height: 32px; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.canvas-table-scroll input:focus, .canvas-table-scroll textarea:focus { outline: 1px solid var(--theme-accent); outline-offset: -1px; }
+.canvas-table-scroll textarea[aria-invalid=true] { outline: 1px solid var(--danger); outline-offset: -1px; }
+.canvas-table-column-tools { display: flex; justify-content: space-between; padding: 0 6px 5px; }
+.canvas-table-column-tools select { min-width: 0; border: 0; color: var(--text-muted); background: var(--surface); font-size: 10px; }
+.canvas-table-scroll button { border: 0; border-radius: 3px; background: transparent; color: var(--text-muted); cursor: pointer; padding: 3px; }
+.canvas-table-scroll tbody th button { display: block; margin: 2px auto; opacity: 0; }
+.canvas-table-scroll tbody tr:hover th button, .canvas-table-scroll tbody th button:focus-visible { opacity: 1; }
+.canvas-table-column-resize { position: absolute; right: -3px; top: 0; bottom: 0; width: 7px; z-index: 3; cursor: col-resize; touch-action: none; }
+.canvas-table-column-resize:hover { background: var(--theme-accent); }
+.canvas-table-notice, .canvas-table-hint { margin: 0; padding: 5px 8px; font-size: 11px; color: var(--text-muted); }
+.canvas-table-notice[role=alert], .canvas-table-scroll small { color: var(--danger); }
+.canvas-table-scroll small { display: block; padding: 3px 8px; font-size: 10px; }
+.canvas-table-editor > .canvas-table-scroll { margin: 0 16px; }

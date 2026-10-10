@@ -15,9 +15,17 @@ export interface NodeCodebase {
   editorLayout: NodeEditorLayout;
 }
 
+/** A codebase as read from disk. */
+export interface NodeCodebaseDetail extends NodeCodebase {
+  /** Identifies the graph.json and editor/layout.json this was read from. */
+  revision: string;
+}
+
 export interface NodeCodebaseUpdate extends NodeCodebase {
   sources?: Record<string, string>;
   sourceDeletions?: string[];
+  /** The revision the update was made from. The write is refused when the files changed since. */
+  revision?: string;
 }
 
 export function isNodeEditorLayout(
@@ -75,4 +83,55 @@ export function fitPlayableLayout(
     fitted.nodes[node.id] ??= freePlayablePosition(fitted);
   }
   return fitted;
+}
+
+/** Whether two graphs hold the same data, whatever order their keys are written in. */
+export function samePlayableGraph(left: NodeGraph, right: NodeGraph): boolean {
+  return sameJson(left, right);
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (typeof left !== "object" || typeof right !== "object" || left === null || right === null) return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const leftValues = left as Record<string, unknown>;
+  const rightValues = right as Record<string, unknown>;
+  // A key that holds undefined is not written to the file.
+  const leftKeys = Object.keys(leftValues).filter((key) => leftValues[key] !== undefined);
+  const rightKeys = Object.keys(rightValues).filter((key) => rightValues[key] !== undefined);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => sameJson(leftValues[key], rightValues[key]));
+}
+
+/**
+ * Carries the editor's unsaved change over to a codebase that changed on disk
+ * since `base` was read. Keeps the graph changed on either side and only the
+ * layout fields the editor changed. Refuses different graph edits on both sides.
+ */
+export function rebasePlayableCodebase(
+  base: NodeCodebase,
+  local: NodeCodebase,
+  remote: NodeCodebase,
+): NodeCodebase | undefined {
+  const localGraphChanged = !samePlayableGraph(local.graph, base.graph);
+  if (localGraphChanged && !samePlayableGraph(remote.graph, base.graph) && !samePlayableGraph(local.graph, remote.graph)) return undefined;
+  const graph = localGraphChanged ? local.graph : remote.graph;
+  const nodes: NodeEditorLayout["nodes"] = {};
+  for (const node of graph.nodes) {
+    const before = base.editorLayout.nodes[node.id];
+    const ours = local.editorLayout.nodes[node.id];
+    const theirs = remote.editorLayout.nodes[node.id];
+    const moved = ours && (!before || ours.x !== before.x || ours.y !== before.y);
+    const position = moved ? ours : theirs ?? ours;
+    if (position) nodes[node.id] = position;
+  }
+  return {
+    graph,
+    editorLayout: fitPlayableLayout(graph, {
+      ...remote.editorLayout,
+      nodes,
+      viewport: sameJson(local.editorLayout.viewport, base.editorLayout.viewport) ? remote.editorLayout.viewport : local.editorLayout.viewport,
+      view: local.editorLayout.view === base.editorLayout.view ? remote.editorLayout.view : local.editorLayout.view,
+    }),
+  };
 }

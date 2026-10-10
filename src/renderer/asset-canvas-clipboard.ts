@@ -1,6 +1,7 @@
 import type { AssetCanvasEdge, AssetCanvasNode, AssetCanvasReference } from "../shared/contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { snapCanvasPosition } from "./canvas-alignment.js";
+import { canvasNodeLayout } from "../shared/canvas-node-layout.js";
 
 export function duplicateAssetCanvasNode(
   node: AssetCanvasNode,
@@ -57,7 +58,7 @@ export function parseCanvasClipboard(text: string): CanvasClipboard | undefined 
     if (value.nodes.some((node) => !Number.isFinite(node?.position?.x) || !Number.isFinite(node?.position?.y))) return;
     const canvas = createAssetCanvasDocument();
     canvas.nodes = value.nodes; canvas.edges = value.edges;
-    canvas.editorLayout.nodes = Object.fromEntries(value.nodes.map((node) => [node.id, node.position]));
+    canvas.editorLayout.nodes = Object.fromEntries(value.nodes.map((node) => [node.id, canvasNodeLayout(node)]));
     return isAssetCanvasDocument(canvas) ? value : undefined;
   } catch { return undefined; }
 }
