@@ -30,6 +30,13 @@ describe("prompt lists", () => {
     expect(editPromptList("  - Item", 8, 8, "Tab", true)).toEqual({ value: "- Item", cursor: 6 });
   });
 
+  it("keeps the caret on the line when outdenting from inside the indentation", () => {
+    expect(editPromptList("- One\n  - Two", 6, 6, "Tab", true)).toEqual({ value: "- One\n- Two", cursor: 6 });
+    expect(editPromptList("- One\n  - Two", 7, 7, "Tab", true)).toEqual({ value: "- One\n- Two", cursor: 6 });
+    expect(editPromptList("  - Item", 0, 0, "Tab", true)).toEqual({ value: "- Item", cursor: 0 });
+    expect(editPromptList("\t- Item", 0, 0, "Tab", true)).toEqual({ value: "- Item", cursor: 0 });
+  });
+
   it("leaves prose, horizontal rules and fenced code unchanged", () => {
     for (const value of ["Plain text", "---", "```md\n- code", "~~~~\n1. code"]) expect(editPromptList(value, value.length, value.length, "Enter", true)).toBeUndefined();
     expect(promptListLines("```\n- code\n```\n- Item").map((line) => Boolean(line.list))).toEqual([false, false, false, true]);

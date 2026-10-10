@@ -40,7 +40,8 @@ export function editPromptList(value: string, start: number, end: number, key: s
   if (key === "Tab" && start === end) {
     if (!shift) return { value: value.slice(0, lineStart) + "  " + value.slice(lineStart), cursor: start + 2 };
     const removed = list.indent.startsWith("\t") ? 1 : Math.min(2, list.indent.length);
-    return { value: value.slice(0, lineStart) + value.slice(lineStart + removed), cursor: start - removed };
+    // A caret inside the removed indentation stays at the start of its line.
+    return { value: value.slice(0, lineStart) + value.slice(lineStart + removed), cursor: Math.max(lineStart, start - removed) };
   }
   return undefined;
 }
