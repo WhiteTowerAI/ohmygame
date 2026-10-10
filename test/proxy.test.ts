@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { applyNetworkProxyEnvironment, networkBypassList, proxyUrlsFromEnvironment, resolveNetworkProxy } from "../src/daemon/proxy.js";
+import { applyNetworkProxyEnvironment, networkBypassList, normalizeProxyUrl, proxyUrlsFromEnvironment, resolveNetworkProxy } from "../src/daemon/proxy.js";
 import { DEFAULT_NETWORK_SETTINGS } from "../src/shared/network-settings.js";
+
+describe("normalizeProxyUrl", () => {
+  it("accepts URLs with http:// scheme", () => {
+    expect(normalizeProxyUrl("http://127.0.0.1:7890")).toBe("http://127.0.0.1:7890");
+  });
+
+  it("accepts URLs with https:// scheme", () => {
+    expect(normalizeProxyUrl("https://proxy.example:8443")).toBe("https://proxy.example:8443");
+  });
+
+  it("adds http:// scheme when URL is missing a protocol", () => {
+    expect(normalizeProxyUrl("127.0.0.1:3067")).toBe("http://127.0.0.1:3067");
+  });
+
+  it("rejects completely invalid URLs", () => {
+    expect(() => normalizeProxyUrl("not a url at all :// broken")).toThrow("Enter a valid HTTP or HTTPS proxy URL");
+  });
+});
 
 describe("proxyUrlsFromEnvironment", () => {
   it("does nothing without an HTTP proxy", () => {
