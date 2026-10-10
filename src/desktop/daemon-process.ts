@@ -49,7 +49,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       DAEMON_HOST: "127.0.0.1",
       DAEMON_PORT: String(port),
       OHMYGAME_DATA_DIR: path.resolve(options.dataDirectory),
-      OHMYGAME_DAEMON_TOKEN: options.token,
+      OHMYGAME_DAEMON_TOKEN_STDIN: "1",
       OHMYGAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
@@ -58,8 +58,11 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.playerDirectory ? { OHMYGAME_PLAYER_DIR: path.resolve(options.playerDirectory) } : {}),
       ...(options.handlePlaytestRequest ? { OHMYGAME_PLAYTEST_IPC: "1" } : {}),
     },
-    stdio: options.handlePlaytestRequest || options.resolveSystemProxy ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
+    stdio: options.handlePlaytestRequest || options.resolveSystemProxy ? ["pipe", "pipe", "pipe", "ipc"] : ["pipe", "pipe", "pipe"],
   });
+  // The token goes over stdin: other processes of the same user can read the environment a process starts with.
+  child.stdin?.on("error", () => {});
+  child.stdin?.end(options.token);
   if (options.resolveSystemProxy) {
     child.on("message", (value: unknown) => {
       const message = value as { channel?: string; id?: string } | null;

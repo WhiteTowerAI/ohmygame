@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { takeAccessToken } from "./access-token.js";
 import { createApp } from "./app.js";
 import { ensureOhMyGamePiEnvironment } from "./pi-agent.js";
 import { activateNetworkProxy } from "./proxy.js";
@@ -14,8 +15,7 @@ const development = process.argv.includes("--dev");
 const mode = development ? "development" : "production";
 loadEnvironmentFiles(repositoryRoot, mode);
 // Processes the daemon starts inherit its environment, and none of them may call the daemon as the app.
-const accessToken = process.env.OHMYGAME_DAEMON_TOKEN;
-delete process.env.OHMYGAME_DAEMON_TOKEN;
+const accessToken = await takeAccessToken(process.env, process.stdin);
 const host = process.env.DAEMON_HOST ?? "127.0.0.1";
 const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(repositoryRoot, ".data");
 const piAgentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
