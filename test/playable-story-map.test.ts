@@ -73,7 +73,19 @@ describe("layoutPlayableStory", () => {
     );
 
     expect(rows(story)).toEqual([["a"], ["b"]]);
-    expect(layoutPlayableStory(story).links).toEqual([{ from: "a", to: "b", via: "a-next" }]);
+    expect(layoutPlayableStory(story).links).toEqual([{ from: "a", to: "b", via: ["a-next"] }]);
+  });
+
+  it("keeps one way between two Scenes, starting with every Exit that leads there", () => {
+    const parallel = graph([node("a", ["left", "right"]), node("b")], edges("a.left>b", "a.right>b"));
+    expect(layoutPlayableStory(parallel).links).toEqual([{ from: "a", to: "b", via: ["a-left", "a-right"] }]);
+
+    const bridge = node("bridge", ["next"], { story: { hidden: true } });
+    const direct = graph([node("a", ["left", "right"]), bridge, node("b")], edges("a.left>b", "a.right>bridge", "bridge.next>b"));
+    expect(layoutPlayableStory(direct).links).toEqual([{ from: "a", to: "b", via: ["a-left", "a-right"] }]);
+
+    const joined = graph([node("a", ["left", "right"]), bridge, node("b")], edges("a.left>bridge", "a.right>bridge", "bridge.next>b"));
+    expect(layoutPlayableStory(joined).links).toEqual([{ from: "a", to: "b", via: ["a-left", "a-right"] }]);
   });
 
   it("leaves out side screens, navigation Exits, and steps back up the story", () => {
@@ -110,6 +122,16 @@ describe("playableStoryMap", () => {
       { from: "a", to: "b", seen: true },
       { from: "a", to: "c", seen: false },
     ]);
+  });
+
+  it("marks a way as seen whichever of the Exits that lead there was taken", () => {
+    const story = graph([node("a", ["left", "right"]), node("b")], edges("a.left>b", "a.right>b"));
+    const layout = layoutPlayableStory(story);
+    const nodes = { a: "2026-10-06T00:00:00.000Z", b: "2026-10-06T00:01:00.000Z" };
+
+    expect(playableStoryMap(layout, { version: 1, nodes, edges: { "a-left": "2026-10-06T00:01:00.000Z" } }).edges).toEqual([{ from: "a", to: "b", seen: true }]);
+    expect(playableStoryMap(layout, { version: 1, nodes, edges: { "a-right": "2026-10-06T00:01:00.000Z" } }).edges).toEqual([{ from: "a", to: "b", seen: true }]);
+    expect(playableStoryMap(layout, { version: 1, nodes, edges: {} }).edges).toEqual([{ from: "a", to: "b", seen: false }]);
   });
 });
 
