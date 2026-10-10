@@ -40,6 +40,8 @@ import { ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, Projec
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
+import { NetworkSettingsService } from "./network-settings.js";
+import type { NetworkSettings } from "../shared/network-settings.js";
 import { normalizeCustomProvider, normalizeCustomProviderModel, ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
@@ -121,6 +123,7 @@ export interface AppOptions {
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
   webSearchFetch?: typeof fetch;
+  networkSettings?: NetworkSettingsService;
 }
 
 const createProjectSchema = {
@@ -509,6 +512,7 @@ export function createApp(options: AppOptions = {}) {
   });
   const previews = new PreviewManager(events);
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
+  const networkSettings = options.networkSettings ?? new NetworkSettingsService(dataDirectory);
   const meshySettings = new MediaProviderKeyStore(dataDirectory, "meshy", "Meshy");
   const tripoSettings = new MediaProviderKeyStore(dataDirectory, "tripo", "Tripo");
   const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings]] as const;
@@ -742,6 +746,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
+    await networkSettings.load();
     await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), tripoSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
@@ -777,6 +782,30 @@ export function createApp(options: AppOptions = {}) {
       .header("cache-control", "no-cache")
       .send(await readFile(path.join(playerDirectory, file))));
   }
+
+  const networkSettingsSchema = {
+    body: {
+      type: "object", additionalProperties: false, required: ["mode", "proxyUrl", "noProxy"],
+      properties: {
+        mode: { type: "string", enum: ["auto", "manual", "direct"] },
+        proxyUrl: { type: "string", maxLength: 2_000 },
+        noProxy: { type: "string", maxLength: 4_000 },
+      },
+    },
+  };
+  app.get("/settings/network", async () => networkSettings.get());
+  app.put<{ Body: NetworkSettings }>("/settings/network", { schema: networkSettingsSchema }, async (request, reply) => {
+    try { return await networkSettings.update(request.body); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.post("/settings/network/detect", async (_request, reply) => {
+    try { return await networkSettings.detect(); }
+    catch { return reply.code(502).send({ error: "Could not detect the system proxy. Check your system network settings." }); }
+  });
+  app.post<{ Body: NetworkSettings }>("/settings/network/test", { schema: networkSettingsSchema }, async (request, reply) => {
+    try { return await networkSettings.test(request.body); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
 
   app.get("/settings/web-search", async () => webSearchSettings.get());
 

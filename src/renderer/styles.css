@@ -1120,6 +1120,17 @@ body {
 }
 
 .settings-web-search-panel { max-width: 760px; gap: 20px; }
+.settings-network-panel { max-width: 620px; }
+.settings-network-fields { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.settings-network-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.settings-network-fields details { color: var(--text-secondary); font-size: 12px; }
+.settings-network-fields summary { width: fit-content; cursor: pointer; }
+.settings-network-advanced { display: grid; gap: 12px; padding-top: 12px; }
+.settings-network-advanced > button { justify-self: start; }
+.settings-network-status { display: grid; gap: 6px; min-width: 0; color: var(--text-secondary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+.settings-network-restart { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.settings-network-status p, .settings-network-panel > p { margin: 0; }
+.settings-network-panel .settings-form-actions { justify-content: flex-start; }
 .settings-search-row, .settings-checkbox-row { display: flex; align-items: center; }
 .settings-search-row { justify-content: space-between; gap: 24px; padding: 14px 2px 20px; border-bottom: 1px solid var(--border); }
 .settings-search-row strong, .settings-checkbox-row strong { color: var(--text); font-size: 13px; font-weight: 600; }

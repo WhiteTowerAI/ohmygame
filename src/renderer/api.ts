@@ -68,9 +68,26 @@ import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallIn
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
+import type { NetworkConnectionTest, NetworkSettings, NetworkSettingsState } from "../shared/network-settings.js";
 import { composerDrafts } from "./composer-drafts.js";
 
 const API_BASE = "/api";
+
+export function getNetworkSettings(): Promise<NetworkSettingsState> {
+  return request("/settings/network");
+}
+
+export function updateNetworkSettings(settings: NetworkSettings): Promise<NetworkSettingsState> {
+  return request("/settings/network", { method: "PUT", body: JSON.stringify(settings) });
+}
+
+export function detectNetworkProxy(): Promise<NetworkSettingsState> {
+  return request("/settings/network/detect", { method: "POST" });
+}
+
+export function testNetworkConnection(settings: NetworkSettings): Promise<NetworkConnectionTest> {
+  return request("/settings/network/test", { method: "POST", body: JSON.stringify(settings) });
+}
 
 interface DesktopRuntime {
   daemonUrl: string;
@@ -84,6 +101,7 @@ declare global {
       runtime: DesktopRuntime;
       openExternal: (url: string) => Promise<void>;
       setAppearance: (appearance: "system" | "light" | "dark") => Promise<void>;
+      restartApp?: () => Promise<void>;
       windowMenu?: {
         icon: () => Promise<string>;
         popup: (label: string, x: number, y: number) => Promise<void>;
