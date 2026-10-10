@@ -12,7 +12,7 @@ import {
   playableEdgeId,
   setPlayableSignalLabel,
 } from "../src/shared/playable-editor.js";
-import { rebasePlayableLayout, samePlayableGraph, type NodeCodebase } from "../src/shared/playable-codebase.js";
+import { rebasePlayableCodebase, samePlayableGraph, type NodeCodebase } from "../src/shared/playable-codebase.js";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
@@ -144,7 +144,7 @@ describe("Playable project editing", () => {
 
 });
 
-describe("rebasePlayableLayout", () => {
+describe("rebasePlayableCodebase", () => {
   function codebase(): NodeCodebase {
     const graph = createNodeGraphFixture();
     return {
@@ -174,7 +174,7 @@ describe("rebasePlayableLayout", () => {
     remote.editorLayout.nodes.added = { x: 900, y: 900 };
     remote.editorLayout.nodes.lobby = { x: 5, y: 5 };
 
-    const rebased = rebasePlayableLayout(base, local, remote);
+    const rebased = rebasePlayableCodebase(base, local, remote);
 
     expect(rebased?.graph).toEqual(remote.graph);
     expect(rebased?.editorLayout).toEqual({
@@ -202,7 +202,27 @@ describe("rebasePlayableLayout", () => {
     const remote = structuredClone(base);
     remote.graph.nodes[0] = { ...remote.graph.nodes[0]!, title: "Renamed by the Agent" };
 
-    expect(rebasePlayableLayout(base, local, remote)).toBeUndefined();
+    expect(rebasePlayableCodebase(base, local, remote)).toBeUndefined();
+  });
+
+  it("keeps remote layout changes when the editor only changes the graph", () => {
+    const base = codebase(), local = structuredClone(base), remote = structuredClone(base);
+    local.graph.title = "Local title";
+    remote.editorLayout.nodes.menu = { x: 900, y: 700 };
+    remote.editorLayout.viewport = { x: -40, y: 20, zoom: 0.5 };
+    remote.editorLayout.view = "code";
+    expect(rebasePlayableCodebase(base, local, remote)).toEqual({ graph: local.graph, editorLayout: remote.editorLayout });
+  });
+
+  it("combines independent layout changes even when the graph stays unchanged", () => {
+    const base = codebase(), local = structuredClone(base), remote = structuredClone(base);
+    local.editorLayout.nodes.menu = { x: 400, y: 400 };
+    remote.editorLayout.nodes.lobby = { x: 900, y: 700 };
+    remote.editorLayout.viewport = { x: -40, y: 20, zoom: 0.5 };
+    const rebased = rebasePlayableCodebase(base, local, remote)!;
+    expect(rebased.editorLayout.nodes.menu).toEqual(local.editorLayout.nodes.menu);
+    expect(rebased.editorLayout.nodes.lobby).toEqual(remote.editorLayout.nodes.lobby);
+    expect(rebased.editorLayout.viewport).toEqual(remote.editorLayout.viewport);
   });
 });
 

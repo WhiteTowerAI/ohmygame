@@ -105,18 +105,19 @@ function sameJson(left: unknown, right: unknown): boolean {
 
 /**
  * Carries the editor's unsaved change over to a codebase that changed on disk
- * since `base` was read. Only a layout change can be carried: the positions
- * the editor moved, its viewport, and its view are kept on the graph from
- * disk. Undefined when the editor changed the graph too.
+ * since `base` was read. Keeps the graph changed on either side and only the
+ * layout fields the editor changed. Refuses different graph edits on both sides.
  */
-export function rebasePlayableLayout(
+export function rebasePlayableCodebase(
   base: NodeCodebase,
   local: NodeCodebase,
   remote: NodeCodebase,
 ): NodeCodebase | undefined {
-  if (!samePlayableGraph(local.graph, base.graph)) return undefined;
+  const localGraphChanged = !samePlayableGraph(local.graph, base.graph);
+  if (localGraphChanged && !samePlayableGraph(remote.graph, base.graph) && !samePlayableGraph(local.graph, remote.graph)) return undefined;
+  const graph = localGraphChanged ? local.graph : remote.graph;
   const nodes: NodeEditorLayout["nodes"] = {};
-  for (const node of remote.graph.nodes) {
+  for (const node of graph.nodes) {
     const before = base.editorLayout.nodes[node.id];
     const ours = local.editorLayout.nodes[node.id];
     const theirs = remote.editorLayout.nodes[node.id];
@@ -125,7 +126,12 @@ export function rebasePlayableLayout(
     if (position) nodes[node.id] = position;
   }
   return {
-    graph: remote.graph,
-    editorLayout: fitPlayableLayout(remote.graph, { ...local.editorLayout, nodes }),
+    graph,
+    editorLayout: fitPlayableLayout(graph, {
+      ...remote.editorLayout,
+      nodes,
+      viewport: sameJson(local.editorLayout.viewport, base.editorLayout.viewport) ? remote.editorLayout.viewport : local.editorLayout.viewport,
+      view: local.editorLayout.view === base.editorLayout.view ? remote.editorLayout.view : local.editorLayout.view,
+    }),
   };
 }

@@ -620,21 +620,21 @@ export class ProjectManager {
         }
       }
       if (project.type === "interactive-story" && await exists(path.join(project.workspacePath, PLAYABLE_GRAPH_FILE))) {
-        const graph = await readNodeGraphForReferences(project.workspacePath);
-        const removedIds = new Set(Object.entries(graph.assets).flatMap(([id, asset]) => (
-          asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
-        )));
-        if (removedIds.size > 0) {
-          await changeNodeCodebase(project.workspacePath, (codebase) => {
-            for (const id of removedIds) delete codebase.graph.assets[id];
-            codebase.graph.nodes = codebase.graph.nodes.map((node) => ({
-              ...node,
-              assets: node.assets.filter((id) => !removedIds.has(id)),
-            }));
-            return codebase;
-          });
-          await this.touch(project.id);
-        }
+        let changed = false;
+        await changeNodeCodebase(project.workspacePath, (codebase) => {
+          const removedIds = new Set(Object.entries(codebase.graph.assets).flatMap(([id, asset]) => (
+            asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
+          )));
+          if (!removedIds.size) return;
+          for (const id of removedIds) delete codebase.graph.assets[id];
+          codebase.graph.nodes = codebase.graph.nodes.map((node) => ({
+            ...node,
+            assets: node.assets.filter((id) => !removedIds.has(id)),
+          }));
+          changed = true;
+          return codebase;
+        });
+        if (changed) await this.touch(project.id);
       }
     }
   }

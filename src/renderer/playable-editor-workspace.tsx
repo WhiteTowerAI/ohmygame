@@ -30,7 +30,7 @@ import {
 import { snapCanvasPosition } from "./canvas-alignment.js";
 import { EditorCanvas, isTextEntry, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
-import { rebasePlayableLayout, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
+import { rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
   type NodeGraph,
   type PlayableNode,
@@ -310,6 +310,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setEditorLayout(loaded.editorLayout);
     setWorkspaceView(view);
     const applied = buildCodebase(meta, flowNodes, flowEdges, loaded.editorLayout, view);
+    latestCodebase.current = applied;
     if (options.diskRevision !== undefined) {
       queuedCodebase.current = JSON.stringify(applied);
       diskCodebase.current = { codebase: applied, revision: options.diskRevision };
@@ -358,7 +359,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         if (generation !== diskGeneration.current || !disk) {
           // A newer version was loaded since this save was queued. Its graph is
           // the one to keep; only a save that would not have changed it is let go quietly.
-          if (!outgoing.sources && disk && samePlayableGraph(outgoing.graph, disk.codebase.graph)) return false;
+          if (!outgoing.sources && !outgoing.sourceDeletions && disk && samePlayableGraph(outgoing.graph, disk.codebase.graph)) return false;
           throw new Error(PROJECT_CHANGED);
         }
         try {
@@ -373,15 +374,17 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         }
         const remote = await getNodeCodebase(projectId);
         if (generation !== diskGeneration.current) continue;
-        if (samePlayableGraph(remote.graph, disk.codebase.graph)) {
-          // The graph is the one the editor knows: only the layout or the file's
-          // formatting changed, or a save of this editor was written without its answer arriving.
+        if (samePlayableGraph(remote.graph, disk.codebase.graph)
+          && JSON.stringify(remote.editorLayout) === JSON.stringify(disk.codebase.editorLayout)) {
+          // Formatting changed, so retry without resetting the editor or its history.
           diskCodebase.current = { codebase: disk.codebase, revision: remote.revision };
           continue;
         }
-        // The latest canvas state, so what was moved while this save waited is carried too.
-        const carried = samePlayableGraph(outgoing.graph, disk.codebase.graph)
-          ? rebasePlayableLayout(disk.codebase, latestCodebase.current ?? outgoing, remote)
+        // Rebase the request first (a copy is not shown until its sources are saved),
+        // then carry edits made on the canvas while it waited.
+        const pending = rebasePlayableCodebase(disk.codebase, outgoing, remote);
+        const carried = pending
+          ? rebasePlayableCodebase(disk.codebase, latestCodebase.current ?? outgoing, pending)
           : undefined;
         adoptDiskCodebase(remote, remote.revision);
         if (!carried) throw new Error(PROJECT_CHANGED);
@@ -390,7 +393,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         carriedBaseline = JSON.stringify(shown);
         queuedCodebase.current = carriedBaseline;
         generation = diskGeneration.current;
-        outgoing = { ...shown, ...(next.sources ? { sources: next.sources } : {}) };
+        outgoing = { ...outgoing, ...shown };
       }
     } catch (cause) {
       // The carried layout is shown but not on disk; let the next change save it.
