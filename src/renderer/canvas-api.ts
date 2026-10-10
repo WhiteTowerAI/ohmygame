@@ -1,5 +1,5 @@
 import type { CanvasTableDetail, CanvasTableGenerationRequest, CanvasTableGenerationResponse } from "../shared/canvas-table.js";
-import type { AgentModelRef, AgentReasoningLevel, AssetCanvasTextGenerationResponse, ToolJob } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel, AssetCanvasTextGenerationResponse, AssetCanvasTextGenerationSource, ToolJob } from "../shared/contracts.js";
 import type { CanvasDocumentDetail, CanvasDocumentGenerationRequest, CanvasDocumentGenerationResponse } from "../shared/canvas-document.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail, CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
 import { request } from "./api.js";
@@ -21,7 +21,7 @@ export const insertCanvasImage = (id: string, documentId: string, assetId: strin
 export const listCanvasJobs = (id: string): Promise<ToolJob[]> => request(`${base(id)}/jobs`);
 export const generateCanvasMedia = (id: string, boardId: string, nodeId: string): Promise<ToolJob> => request(`${base(id)}/boards/${encodeURIComponent(boardId)}/nodes/${encodeURIComponent(nodeId)}/generate`, { method: "POST" });
 export const cancelCanvasJob = (id: string, jobId: string): Promise<ToolJob> => request(`${base(id)}/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
-export const generateCanvasText = (id: string, instruction: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel): Promise<AssetCanvasTextGenerationResponse> => request(`${base(id)}/text/generate`, { method: "POST", body: JSON.stringify({ instruction, model, reasoningLevel }) });
+export const generateCanvasText = (id: string, instruction: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel, referenceSource?: AssetCanvasTextGenerationSource): Promise<AssetCanvasTextGenerationResponse> => request(`${base(id)}/text/generate`, { method: "POST", body: JSON.stringify({ instruction, model, reasoningLevel, referenceSource }) });
 export const generateCanvasDocument = (id: string, documentId: string, input: CanvasDocumentGenerationRequest): Promise<CanvasDocumentGenerationResponse> => request(`${base(id)}/documents/${encodeURIComponent(documentId)}/generate`, { method: "POST", body: JSON.stringify(input) });
 
 export const createCanvasTable = (id: string, title: string): Promise<CanvasTableDetail> => request(`${base(id)}/tables`, { method: "POST", body: JSON.stringify({ title }) });

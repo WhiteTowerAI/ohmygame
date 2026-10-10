@@ -786,7 +786,7 @@ function BaseUrlField({ endpoint }: { endpoint: ReturnType<typeof useProviderEnd
       <div className="settings-detail-inline">
         <input id="model-provider-base-url" className="settings-search-input" value={endpoint.baseUrl} onChange={(event) => endpoint.setBaseUrl(event.target.value)} disabled={endpoint.loading || endpoint.saving} spellCheck={false} />
       </div>
-      <small className="settings-detail-hint">Requests go to this OpenAI-compatible URL. Change it to use a proxy.</small>
+      <small className="settings-detail-hint">The OpenAI-compatible API address or relay URL. Configure a Clash network proxy in Settings → Network.</small>
     </div>
   );
 }

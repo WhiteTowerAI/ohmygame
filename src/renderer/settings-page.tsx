@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { ArrowLeft, Check, ExternalLink, Globe2, InfoCircle, Package, Palette, Plug, Server, UserRound } from "./icons.js";
+import { ArrowLeft, Check, ExternalLink, Globe2, InfoCircle, Package, Palette, Plug, Server, UserRound, Wifi } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
@@ -9,6 +9,7 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
+import { NetworkSettingsPanel } from "./network-settings.js";
 import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { PluginsSettings } from "./plugins.js";
@@ -25,6 +26,7 @@ const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: 
   { section: "account", label: "Account", icon: UserRound },
   { section: "appearance", label: "Appearance", icon: Palette },
   { section: "web-search", label: "Web Search", icon: Globe2 },
+  { section: "network", label: "Network", icon: Wifi },
   { section: "plugins", label: "Plugins", icon: Package },
   { section: "about", label: "About", icon: InfoCircle },
 ];
@@ -82,6 +84,7 @@ export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPlu
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
+          {section === "network" ? <NetworkSettingsPanel /> : null}
           {section === "plugins" ? <PluginsSettings pluginId={pluginId} onPluginChange={onPluginChange} onTryPlugin={onTryPlugin} /> : null}
           {section === "about" ? <AboutSettings /> : null}
         </div>

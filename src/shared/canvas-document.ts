@@ -1,10 +1,10 @@
-import type { AgentModelRef, AgentReasoningLevel } from "./contracts.js";
+import type { AgentModelRef, AssetCanvasTextGenerationRequest } from "./contracts.js";
 
 export const CANVAS_INDEX_FILE = "canvas/index.json";
 export const canvasDocumentPath = (id: string) => `canvas/documents/${id}.md`;
 export interface CanvasMarkdownDocument { id: string; title: string; markdown: string }
 export interface CanvasDocumentDetail { document: CanvasMarkdownDocument; revision: string }
-export interface CanvasDocumentGenerationRequest { instruction: string; model?: AgentModelRef; reasoningLevel?: AgentReasoningLevel; revision: string }
+export interface CanvasDocumentGenerationRequest extends AssetCanvasTextGenerationRequest { revision: string }
 export type CanvasDocumentGenerationResult =
   | { status: "complete"; markdown: string }
   | { status: "incomplete" | "empty"; markdown: string; error: string };
