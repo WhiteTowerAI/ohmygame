@@ -59,7 +59,7 @@ describe("plugin protocol", () => {
     expect(isPluginManifest({ ...base, homepage: "https://ohmygame.ai" })).toBe(false);
     expect(isPluginManifest({ ...base, version: "" })).toBe(false);
     expect(isPluginManifest({ ...base, enabled: true })).toBe(false);
-    expect(isPluginManifest({ ...base, mcpServers: "./mcp.json" })).toBe(false);
+    expect(isPluginManifest({ ...base, mcpServers: "../mcp.json" })).toBe(false);
     expect(isPluginManifest({ ...base, apps: "./apps.json" })).toBe(false);
     expect(isPluginManifest({ ...base, hooks: "./hooks.json" })).toBe(false);
     expect(isPluginManifest({ ...base, tools: ["generate-image"] })).toBe(false);

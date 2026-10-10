@@ -4,7 +4,7 @@ import { PluginsSettings } from "../src/renderer/plugins.js";
 
 describe("PluginsSettings", () => {
   it("renders the catalog within Settings", () => {
-    const html = renderToStaticMarkup(<PluginsSettings onPluginChange={() => undefined} onAddPlugin={async () => undefined} onTryPlugin={async () => undefined} />);
+    const html = renderToStaticMarkup(<PluginsSettings onPluginChange={() => undefined} onTryPlugin={async () => undefined} />);
 
     expect(html).toContain("<h1>Plugins</h1>");
     expect(html).toContain("Loading plugins");
@@ -12,7 +12,7 @@ describe("PluginsSettings", () => {
   });
 
   it("opens plugin details from the route without rendering catalog controls", () => {
-    const html = renderToStaticMarkup(<PluginsSettings pluginId="ohmygame:web-game-studio" onPluginChange={() => undefined} onAddPlugin={async () => undefined} onTryPlugin={async () => undefined} />);
+    const html = renderToStaticMarkup(<PluginsSettings pluginId="ohmygame:web-game-studio" onPluginChange={() => undefined} onTryPlugin={async () => undefined} />);
 
     expect(html).toContain('aria-label="Breadcrumb"');
     expect(html).toContain("Loading plugin");

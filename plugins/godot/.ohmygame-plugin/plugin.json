@@ -2,7 +2,6 @@
   "name": "godot",
   "version": "0.1.0",
   "description": "Connect OhMyGame to the Godot editor.",
-  "connections": ["ohmygame-godot"],
   "interface": {
     "displayName": "Godot",
     "shortDescription": "Connect the agent to the Godot editor.",
@@ -12,6 +11,9 @@
       "Inspect the current Godot project and suggest the next implementation step.",
       "Build a player controller for the current Godot scene."
     ],
-    "projectTypes": ["godot-game"]
-  }
+    "projectTypes": [
+      "godot-game"
+    ]
+  },
+  "mcpServers": "./mcp.json"
 }
