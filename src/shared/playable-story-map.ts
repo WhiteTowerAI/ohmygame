@@ -37,15 +37,18 @@ export interface PlayableStoryMapNode {
 export interface PlayableStoryMapEdge {
   from: string;
   to: string;
-  /** The player went this way: the edge it starts with was taken, and its target seen. */
+  /** The player went this way: an edge it starts with was taken, and its target seen. */
   seen: boolean;
 }
 
-/** A Map edge before the player's progress is applied: `via` is the graph edge it starts with. */
+/**
+ * A Map edge before the player's progress is applied. Every way from one Node
+ * to the other shares it: `via` is the graph edges they start with.
+ */
 interface StoryLink {
   from: string;
   to: string;
-  via: string;
+  via: string[];
 }
 
 /** The map's shape, which depends only on the graph. */
@@ -106,12 +109,16 @@ export function layoutPlayableStory(graph: NodeGraph): PlayableStoryLayout {
   /** The shown Nodes a Node's steps reach, walking through hidden ones. */
   const reach = (id: string): StoryLink[] => {
     const links: StoryLink[] = [];
-    const visited = new Set([id]);
+    let visited = new Set([id]);
     const walk = (nodeId: string, via: string | undefined) => {
       for (const edge of steps(byId.get(nodeId)!)) {
         const first = via ?? edge.id;
+        // Each first edge walks the hidden Nodes afresh, so one that two of them lead to counts for both.
+        if (via === undefined) visited = new Set([id]);
         if (shown(edge.targetNodeId)) {
-          if (!links.some((link) => link.to === edge.targetNodeId)) links.push({ from: id, to: edge.targetNodeId, via: first });
+          const link = links.find((entry) => entry.to === edge.targetNodeId);
+          if (!link) links.push({ from: id, to: edge.targetNodeId, via: [first] });
+          else if (!link.via.includes(first)) link.via.push(first);
         } else if (!visited.has(edge.targetNodeId)) {
           visited.add(edge.targetNodeId);
           walk(edge.targetNodeId, first);
@@ -196,7 +203,7 @@ export function playableStoryMap(layout: PlayableStoryLayout, seen: PlayableSeen
     edges: layout.links.map((link) => ({
       from: link.from,
       to: link.to,
-      seen: all || (Object.hasOwn(seen.edges, link.via) && Object.hasOwn(seen.nodes, link.to)),
+      seen: all || (link.via.some((edge) => Object.hasOwn(seen.edges, edge)) && Object.hasOwn(seen.nodes, link.to)),
     })),
   };
 }

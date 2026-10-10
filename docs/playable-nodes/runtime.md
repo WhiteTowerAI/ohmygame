@@ -374,8 +374,9 @@ holds at any screen size and arranging the canvas does not change it:
   its row of `rowSize` nodes.
 - A node is an ending when `story.ending` says so, or else when every Signal
   it declares is navigation.
-- An edge is seen when the first graph edge of its step was taken and its
-  target was seen.
+- Two nodes share one edge however many steps lead from one to the other.
+  It is seen when the first graph edge of any of those steps was taken and
+  its target was seen.
 
 The Story map Template draws the map. Which Scenes it shows, locked or not,
 is its own code.
