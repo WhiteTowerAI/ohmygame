@@ -1,0 +1,313 @@
+diff --git a/dist/api/anthropic-messages.js b/dist/api/anthropic-messages.js
+index 106f2b9617fa3b810261e067a3c965f209907af3..b297525040391f8d4c3da9a4aa893fa0c84ecf1e 100644
+--- a/dist/api/anthropic-messages.js
++++ b/dist/api/anthropic-messages.js
+@@ -1,3 +1,4 @@
++import { appendProviderFailureDiagnostic } from "../utils/provider-failure.js";
+ import Anthropic, {} from "@anthropic-ai/sdk";
+ import { ANTHROPIC_FEDERATION_RULE_ID_ENV, ANTHROPIC_IDENTITY_TOKEN_FILE_ENV, ANTHROPIC_ORGANIZATION_ID_ENV, ANTHROPIC_SERVICE_ACCOUNT_ID_ENV, ANTHROPIC_WORKSPACE_ID_ENV, } from "../env-api-keys.js";
+ import { calculateCost } from "../models.js";
+@@ -379,6 +380,7 @@ export const stream = (model, context, options) => {
+     const currentTools = getCurrentTools(normalizedContext.messages);
+     (async () => {
+         const providerThinkingLevel = model.compat?.supportsMidConvoEffort ? (options?.effort ?? "high") : undefined;
++        let failureResponse;
+         const output = {
+             role: "assistant",
+             content: [],
+@@ -440,6 +442,7 @@ export const stream = (model, context, options) => {
+                 maxRetryDelayMs: options?.maxRetryDelayMs,
+                 signal: options?.signal,
+             });
++            failureResponse = response;
+             await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
+             stream.push({ type: "start", partial: output });
+             const blocks = output.content;
+@@ -682,6 +685,7 @@ export const stream = (model, context, options) => {
+                 delete block.partialJson;
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
++            appendProviderFailureDiagnostic(output, error, model.baseUrl, failureResponse);
+             output.errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+             stream.push({ type: "error", reason: output.stopReason, error: output });
+             stream.end();
+diff --git a/dist/api/azure-openai-responses.js b/dist/api/azure-openai-responses.js
+index dc2d8f9be2f47dc73dde758c630fe12dd7749d5d..3778fdc8fa2da23d068fdd5d68be28d7c4c93674 100644
+--- a/dist/api/azure-openai-responses.js
++++ b/dist/api/azure-openai-responses.js
+@@ -1,3 +1,4 @@
++import { appendProviderFailureDiagnostic } from "../utils/provider-failure.js";
+ import { AzureOpenAI } from "openai";
+ import { clampThinkingLevel } from "../models.js";
+ import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
+@@ -49,6 +50,7 @@ export const stream = (model, context, options) => {
+     // Start async processing
+     (async () => {
+         const deploymentName = resolveDeploymentName(model, options);
++        let failureResponse;
+         const output = {
+             role: "assistant",
+             content: [],
+@@ -89,6 +91,7 @@ export const stream = (model, context, options) => {
+                 maxRetryDelayMs: options?.maxRetryDelayMs,
+                 signal: options?.signal,
+             });
++            failureResponse = response;
+             await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
+             stream.push({ type: "start", partial: output });
+             await processResponsesStream(openaiStream, output, stream, model, {
+@@ -115,6 +118,7 @@ export const stream = (model, context, options) => {
+                 delete block.customInput;
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
++            appendProviderFailureDiagnostic(output, error, model.baseUrl, failureResponse);
+             output.errorMessage = formatAzureOpenAIError(error);
+             stream.push({ type: "error", reason: output.stopReason, error: output });
+             stream.end();
+diff --git a/dist/api/google-generative-ai.js b/dist/api/google-generative-ai.js
+index a413006c758079d3b589d9425b33a947c4adbc47..799ad523a35e6dbe609107c73e3e64ff695948fd 100644
+--- a/dist/api/google-generative-ai.js
++++ b/dist/api/google-generative-ai.js
+@@ -1,3 +1,4 @@
++import { appendProviderFailureDiagnostic } from "../utils/provider-failure.js";
+ import { GoogleGenAI, } from "@google/genai";
+ import { calculateCost, clampThinkingLevel } from "../models.js";
+ import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
+@@ -226,6 +227,7 @@ export const stream = (model, context, options) => {
+                 }
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
++            appendProviderFailureDiagnostic(output, error, model.baseUrl);
+             output.errorMessage = formatProviderError(normalizeProviderError(error));
+             stream.push({ type: "error", reason: output.stopReason, error: output });
+             stream.end();
+diff --git a/dist/api/google-vertex.js b/dist/api/google-vertex.js
+index b51f64e88b2d7b5eb7a921f2fa6da246b6f3a084..4466ec0b4f2f4553b7d2f2e73e576d36f58d4073 100644
+--- a/dist/api/google-vertex.js
++++ b/dist/api/google-vertex.js
+@@ -1,3 +1,4 @@
++import { appendProviderFailureDiagnostic } from "../utils/provider-failure.js";
+ import { GoogleGenAI, ResourceScope, } from "@google/genai";
+ import { calculateCost, clampThinkingLevel } from "../models.js";
+ import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
+@@ -228,6 +229,7 @@ export const stream = (model, context, options) => {
+                 }
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
++            appendProviderFailureDiagnostic(output, error, model.baseUrl);
+             output.errorMessage = formatProviderError(normalizeProviderError(error));
+             stream.push({ type: "error", reason: output.stopReason, error: output });
+             stream.end();
+diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
+index 40014b3b7eacb3a8e5e43daac2cec6446e8810c2..4a7afa56616d7b4d288080700e04d6b077f7321b 100644
+--- a/dist/api/openai-codex-responses.js
++++ b/dist/api/openai-codex-responses.js
+@@ -1,3 +1,4 @@
++import { appendProviderFailureDiagnostic } from "../utils/provider-failure.js";
+ import { clampThinkingLevel } from "../models.js";
+ import { registerSessionResourceCleanup } from "../session-resources.js";
+ import { combineAbortSignals } from "../utils/abort-signals.js";
+@@ -144,6 +145,7 @@ export const stream = (model, context, options) => {
+     const stream = new AssistantMessageEventStream();
+     const normalizedContext = resolveTranscript(context, model.compat?.supportsMidConvoSystemMessages);
+     (async () => {
++        let failureResponse;
+         const output = {
+             role: "assistant",
+             content: [],
+@@ -257,6 +259,7 @@ export const stream = (model, context, options) => {
+             let lastError;
+             const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
+             for (let attempt = 0; attempt <= maxRetries; attempt++) {
++                failureResponse = undefined;
+                 if (options?.signal?.aborted) {
+                     throw new Error("Request was aborted");
+                 }
+@@ -280,6 +283,7 @@ export const stream = (model, context, options) => {
+                     finally {
+                         combinedSignal.cleanup();
+                     }
++                    failureResponse = response;
+                     await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
+                     if (response.ok) {
+                         break;
+@@ -344,6 +348,7 @@ export const stream = (model, context, options) => {
+                 delete block.customInput;
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
++            appendProviderFailureDiagnostic(output, error, model.baseUrl, failureResponse);
+             output.errorMessage = formatProviderError(normalizeProviderError(error));
+             stream.push({ type: "error", reason: output.stopReason, error: output });
+             stream.end();
+diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
+index eecd83c753e3b758b8e44628f560b862f8252839..cd6242ad5d16ef73fc232764d25f40447bc03d3e 100644
+--- a/dist/api/openai-completions.js
++++ b/dist/api/openai-completions.js
+@@ -1,3 +1,4 @@
++import { appendProviderFailureDiagnostic } from "../utils/provider-failure.js";
+ import OpenAI from "openai";
+ import { calculateCost, clampThinkingLevel } from "../models.js";
+ import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
+@@ -152,6 +153,7 @@ export const stream = (model, context, options) => {
+     const stream = new AssistantMessageEventStream();
+     const normalizedContext = resolveTranscript(context, getCompat(model).supportsMidConvoSystemMessages);
+     (async () => {
++        let failureResponse;
+         const output = {
+             role: "assistant",
+             content: [],
+@@ -199,6 +201,7 @@ export const stream = (model, context, options) => {
+                 maxRetryDelayMs: options?.maxRetryDelayMs,
+                 signal: options?.signal,
+             });
++            failureResponse = response;
+             await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
+             stream.push({ type: "start", partial: output });
+             let textBlock = null;
+@@ -500,6 +503,7 @@ export const stream = (model, context, options) => {
+                 delete block.streamIndex;
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
++            appendProviderFailureDiagnostic(output, error, model.baseUrl, failureResponse);
+             output.errorMessage = formatProviderError(normalizeProviderError(error));
+             // Some providers via OpenRouter give additional information in this field.
+             // normalizeProviderError already stringifies the parsed body (error.error)
+diff --git a/dist/api/openai-responses.js b/dist/api/openai-responses.js
+index 4d58c9772b49f0d40e31d42c251a6d993a4a673f..1713bddc4f106fad0ebc7b7f341fe40cc7d639c4 100644
+--- a/dist/api/openai-responses.js
++++ b/dist/api/openai-responses.js
+@@ -1,3 +1,4 @@
++import { appendProviderFailureDiagnostic } from "../utils/provider-failure.js";
+ import OpenAI from "openai";
+ import { clampThinkingLevel } from "../models.js";
+ import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
+@@ -95,6 +96,7 @@ export const stream = (model, context, options) => {
+     const normalizedContext = resolveTranscript(context, getCompat(model).supportsMidConvoSystemMessages);
+     // Start async processing
+     (async () => {
++        let failureResponse;
+         const output = {
+             role: "assistant",
+             content: [],
+@@ -135,6 +137,7 @@ export const stream = (model, context, options) => {
+                 maxRetryDelayMs: options?.maxRetryDelayMs,
+                 signal: options?.signal,
+             });
++            failureResponse = response;
+             await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
+             stream.push({ type: "start", partial: output });
+             await processResponsesStream(openaiStream, output, stream, model, {
+@@ -163,6 +166,7 @@ export const stream = (model, context, options) => {
+                 delete block.customInput;
+             }
+             output.stopReason = options?.signal?.aborted ? "aborted" : "error";
++            appendProviderFailureDiagnostic(output, error, model.baseUrl, failureResponse);
+             const errorMessage = formatProviderError(normalizeProviderError(error), `${model.provider === "openai" ? "OpenAI" : model.provider} API error`);
+             // Sign in with ChatGPT shares the subscription's usage limit with other apps.
+             output.errorMessage = errorMessage.includes("subscription_sharing_usage_limit_exceeded")
+diff --git a/dist/api/system-one-shared.js b/dist/api/system-one-shared.js
+index 5735aee8c487e5b11f94abf8db6b18c4f71184e2..69343a23abad907eb2bf9521dafcb30d0825c8b2 100644
+--- a/dist/api/system-one-shared.js
++++ b/dist/api/system-one-shared.js
+@@ -1,3 +1,4 @@
++import { appendProviderFailureDiagnostic } from "../utils/provider-failure.js";
+ import { calculateCost } from "../models.js";
+ import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
+ import { headersToRecord, providerHeadersToRecord } from "../utils/headers.js";
+@@ -176,6 +177,7 @@ export async function classifySystemOne(transport, model, context, options) {
+     }
+     catch (error) {
+         output.stopReason = options?.signal?.aborted ? "aborted" : "error";
++        appendProviderFailureDiagnostic(output, error, model.baseUrl);
+         output.errorMessage = formatProviderError(normalizeProviderError(error), `${transport.label} error`);
+         return output;
+     }
+diff --git a/node_modules/@earendil-works/pi-ai/dist/utils/provider-failure.d.ts b/dist/utils/provider-failure.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..6da4ff5c32329db4bb4ffb0ac9f1a4516eb36e61
+--- /dev/null
++++ b/dist/utils/provider-failure.d.ts
+@@ -0,0 +1,5 @@
++import type { AssistantMessageDiagnostic } from "./diagnostics.js";
++export declare function sanitizeDiagnosticUrl(value: unknown): string | undefined;
++export declare function sanitizeDiagnosticText(value: unknown, limit?: number): string | undefined;
++export declare function createProviderFailureDiagnostic(error: unknown, endpoint?: string, response?: { status: number; headers: Headers }): AssistantMessageDiagnostic;
++export declare function appendProviderFailureDiagnostic(output: { diagnostics?: AssistantMessageDiagnostic[] }, error: unknown, endpoint?: string, response?: { status: number; headers: Headers }): void;
+diff --git a/node_modules/@earendil-works/pi-ai/dist/utils/provider-failure.js b/dist/utils/provider-failure.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..e2c7d4f02f897d88d00f6146c67a1fb5556cf6df
+--- /dev/null
++++ b/dist/utils/provider-failure.js
+@@ -0,0 +1,72 @@
++// OhMyGame compatibility patch: preserve provider failure diagnostics without
++// changing errorMessage, which Pi uses for retry and recovery decisions.
++export function sanitizeDiagnosticUrl(value) {
++    if (typeof value !== "string") return undefined;
++    try {
++        const url = new URL(value);
++        if (!/^https?:$/.test(url.protocol)) return undefined;
++        url.username = ""; url.password = ""; url.search = ""; url.hash = "";
++        return url.toString().slice(0, 2000);
++    } catch { return undefined; }
++}
++export function sanitizeDiagnosticText(value, limit = 1000) {
++    if (typeof value !== "string" && typeof value !== "number") return undefined;
++    return String(value).slice(0, Math.max(4000, limit * 4))
++        .replace(/https?:\/\/[^\s<>"']+/gi, (text) => sanitizeDiagnosticUrl(text) ?? "[redacted URL]")
++        .replace(/\b(?:sk|pk)-(?:[a-z0-9_-]{8,})\b/gi, "[redacted]")
++        .replace(/\b(Bearer|Basic)\s+[a-z0-9._~+/=-]+/gi, "$1 [redacted]")
++        .replace(/((?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|authorization|password|secret|cookie)["']?\s*[:=]\s*["']?)[^\s,;"'}]+/gi, "$1[redacted]")
++        .slice(0, limit);
++}
++function field(object, key) {
++    try { return object && typeof object === "object" ? object[key] : undefined; }
++    catch { return undefined; }
++}
++function errorInfo(error) {
++    const info = {};
++    const name = sanitizeDiagnosticText(field(error, "name"), 100);
++    const message = sanitizeDiagnosticText(field(error, "message") ?? (typeof error === "string" ? error : undefined));
++    const code = sanitizeDiagnosticText(field(error, "code"), 100);
++    if (name) info.name = name;
++    if (message) info.message = message;
++    if (code) info.code = code;
++    return info;
++}
++export function createProviderFailureDiagnostic(error, endpoint, response) {
++    const details = {};
++    const status = field(error, "status") ?? field(error, "statusCode") ?? field(field(error, "$metadata"), "httpStatusCode") ?? field(response, "status");
++    if (typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599) details.status = status;
++    const body = field(error, "error");
++    const errorCode = sanitizeDiagnosticText(field(body, "code") ?? field(body, "type") ?? field(error, "code"), 100);
++    if (errorCode) details.errorCode = errorCode;
++    const headers = field(error, "headers") ?? field(response, "headers");
++    let headerRequestId;
++    try { headerRequestId = headers?.get?.("x-request-id") ?? headers?.get?.("request-id"); } catch { /* SDK headers are optional. */ }
++    const requestId = sanitizeDiagnosticText(field(error, "request_id") ?? field(field(error, "$metadata"), "requestId") ?? headerRequestId, 200);
++    if (requestId) details.requestId = requestId;
++    const safeEndpoint = sanitizeDiagnosticUrl(endpoint);
++    if (safeEndpoint) details.endpoint = safeEndpoint;
++    const causes = [];
++    const seen = new Set();
++    const visit = (value, depth) => {
++        if (depth > 6 || seen.size >= 24 || causes.length >= 12 || value == null || seen.has(value)) return;
++        seen.add(value);
++        const info = errorInfo(value);
++        if (value !== error && Object.keys(info).length) causes.push(info);
++        visit(field(value, "cause"), depth + 1);
++        const errors = field(value, "errors");
++        if (Array.isArray(errors)) for (const nested of errors.slice(0, 12)) visit(nested, depth + 1);
++    };
++    visit(error, 0);
++    if (causes.length) details.causes = causes;
++    const info = errorInfo(error);
++    return {
++        type: "provider_failure",
++        timestamp: Date.now(),
++        error: { ...info, message: info.message ?? "The model request failed" },
++        details,
++    };
++}
++export function appendProviderFailureDiagnostic(output, error, endpoint, response) {
++    output.diagnostics = [...(output.diagnostics ?? []), createProviderFailureDiagnostic(error, endpoint, response)];
++}

@@ -9787,23 +9787,8 @@ button {
   margin-top: 10px;
 }
 
-.connection-activity-details > summary {
-  cursor: pointer;
-  list-style: none;
-}
-
-.connection-activity.tool-row-expandable {
-  width: fit-content;
-  max-width: 100%;
-  grid-template-columns: 14px minmax(0, auto) 14px;
-}
-
-.connection-activity-details > summary::-webkit-details-marker {
-  display: none;
-}
-
-.connection-activity-details[open] .tool-detail-chevron {
-  transform: rotate(90deg);
+.connection-activity {
+  grid-template-columns: 14px minmax(0, 1fr);
 }
 
 .connection-activity-failed .connection-activity > svg:first-child {
@@ -9813,13 +9798,64 @@ button {
 .connection-activity-error {
   min-width: 0;
   max-width: 100%;
-  margin: 2px 0 0 21px;
+  margin: 2px 0 0;
   padding: 4px 0;
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.connection-activity-guidance {
+  margin: 3px 0 4px 21px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.connection-activity-diagnostics {
+  margin-left: 21px;
+}
+
+.connection-activity-diagnostics > summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.connection-activity-diagnostics > summary::-webkit-details-marker {
+  display: none;
+}
+
+.connection-activity-diagnostics[open] .tool-detail-chevron {
+  transform: rotate(90deg);
+}
+
+.connection-activity-error dt {
+  color: var(--text-faint);
+}
+
+.connection-activity-error dd {
+  margin: 0 0 5px;
+  white-space: pre-wrap;
+}
+
+.connection-activity-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
 }
 
 .tool-activity {
@@ -9902,7 +9938,7 @@ button {
   transition: transform 120ms ease;
 }
 
-:is(.tool-activity-details, .connection-activity-details, .image-read-details, .compaction-details) .tool-detail-chevron {
+:is(.tool-activity-details, .connection-activity-diagnostics, .image-read-details, .compaction-details) .tool-detail-chevron {
   opacity: 0;
   transition:
     color 120ms ease,
@@ -9910,13 +9946,13 @@ button {
     transform 120ms ease;
 }
 
-:is(.tool-activity-details, .connection-activity-details, .image-read-details, .compaction-details) > summary:hover .tool-detail-chevron,
-:is(.tool-activity-details, .connection-activity-details, .image-read-details, .compaction-details) > summary:focus-visible .tool-detail-chevron {
+:is(.tool-activity-details, .connection-activity-diagnostics, .image-read-details, .compaction-details) > summary:hover .tool-detail-chevron,
+:is(.tool-activity-details, .connection-activity-diagnostics, .image-read-details, .compaction-details) > summary:focus-visible .tool-detail-chevron {
   opacity: 1;
 }
 
-:is(.tool-activity-details, .connection-activity-details) > summary:hover .tool-label,
-:is(.tool-activity-details, .connection-activity-details) > summary:focus-visible .tool-label {
+.tool-activity-details > summary:hover .tool-label,
+.tool-activity-details > summary:focus-visible .tool-label {
   color: var(--text);
 }
 
