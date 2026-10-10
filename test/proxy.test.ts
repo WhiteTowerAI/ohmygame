@@ -48,12 +48,17 @@ describe("proxyOptionsFromEnvironment", () => {
       httpProxy: "https://proxy.example:8443",
     });
   });
+
+  it("rejects malformed proxy URLs that cannot be parsed", () => {
+    expect(proxyOptionsFromEnvironment({
+      HTTP_PROXY: "http://[invalid",
+      HTTPS_PROXY: "http://[invalid",
+    })).toBeUndefined();
+  });
 });
 
 describe("configureNetworkProxy", () => {
-  it("returns false and does not throw for an unparseable proxy URL", () => {
-    // After normalizeProxyUrl prepends http://, the value still contains
-    // characters that make EnvHttpProxyAgent reject it during construction.
+  it("returns false and does not throw for a malformed proxy URL", () => {
     expect(() => configureNetworkProxy({
       HTTP_PROXY: "http://[invalid",
       HTTPS_PROXY: "http://[invalid",

@@ -11,10 +11,26 @@ function normalizeProxyUrl(input: string): string {
   return `http://${input}`;
 }
 
+function isValidProxyUrl(input: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return false;
+  }
+  if (!url.hostname) return false;
+  if (url.hostname.startsWith("[") && !url.hostname.endsWith("]")) return false;
+  return true;
+}
+
 export function proxyOptionsFromEnvironment(env: NodeJS.ProcessEnv): ProxyOptions | undefined {
   const httpProxy = value(env.HTTP_PROXY) ?? value(env.http_proxy) ?? value(env.HTTPS_PROXY) ?? value(env.https_proxy);
   const httpsProxy = value(env.HTTPS_PROXY) ?? value(env.https_proxy) ?? httpProxy;
   if (!httpProxy || !httpsProxy) return undefined;
+
+  const normalizedHttp = normalizeProxyUrl(httpProxy);
+  const normalizedHttps = normalizeProxyUrl(httpsProxy);
+  if (!isValidProxyUrl(normalizedHttp) || !isValidProxyUrl(normalizedHttps)) return undefined;
 
   const exclusions = new Set(
     (value(env.NO_PROXY) ?? value(env.no_proxy) ?? "")
@@ -27,8 +43,8 @@ export function proxyOptionsFromEnvironment(env: NodeJS.ProcessEnv): ProxyOption
   exclusions.add(".localhost");
 
   return {
-    httpProxy: normalizeProxyUrl(httpProxy),
-    httpsProxy: normalizeProxyUrl(httpsProxy),
+    httpProxy: normalizedHttp,
+    httpsProxy: normalizedHttps,
     noProxy: [...exclusions].join(","),
   };
 }
