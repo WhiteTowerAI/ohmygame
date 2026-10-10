@@ -155,6 +155,7 @@ describe("Tripo V3 generation", () => {
   it("rejects unsupported versions, too many views and oversized references before upload", async () => {
     const request = service(), provider = new TripoProvider(() => "key", request, 0);
     await expect(provider.generate({ model: { ...model, id: "unknown" }, images: [image] })).rejects.toThrow("unavailable");
+    await expect(provider.generate({ model: { provider: "meshy", id: "meshy-t2" }, images: [image] })).rejects.toThrow("unavailable");
     await expect(provider.generate({ model, images: Array(5).fill(image) })).rejects.toThrow("1 to 4");
     await expect(provider.generate({ model, images: [{ ...image, data: Buffer.alloc(20 * 1024 * 1024 + 1).toString("base64") }] })).rejects.toThrow("20 MB");
     await expect(provider.generate({ model, images: [image], targetPolycount: 50_000 })).rejects.toThrow("100 and 20000");
@@ -215,6 +216,6 @@ describe("Tripo connection and custom models", () => {
     expect(request.mock.calls.at(-1)?.[1]).not.toHaveProperty("headers");
     expect(await readFile(path.join(directory, "model-visibility.json"), "utf8")).toContain('"protocol": "tripo"');
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models[0].referenceImageLabels).toEqual(["Front", "Left", "Back", "Right"]);
-    expect(() => normalizeModelUsages({ "3d": { ...config, modelType: "smart-topology" } })).toThrow("Tripo does not use Meshy");
+    expect(() => normalizeModelUsages({ "3d": { ...config, modelType: "smart-topology" } })).toThrow("Smart topology is only supported by Meshy");
   });
 });

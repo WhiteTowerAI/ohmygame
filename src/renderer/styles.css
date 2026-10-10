@@ -1948,6 +1948,41 @@ select.settings-search-input {
   padding-top: 2px;
 }
 
+.provider-model3d-form > fieldset,
+.custom-model-capability-fields {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.provider-model3d-form .custom-model-use-settings label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.provider-model3d-form .custom-model-use-settings input:not([type="checkbox"]),
+.provider-model3d-form .custom-model-use-settings select {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.provider-model3d-form .custom-provider-capabilities label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .provider-model-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -15125,3 +15160,20 @@ button {
   .plugin-mcp-row { grid-template-columns: 24px minmax(0, 1fr) auto; }
   .plugin-mcp-row .plugin-switch { grid-column: 3; }
 }
+
+.cloud-quota-details { display: grid; gap: 12px; }
+.cloud-quota-row { display: grid; min-width: 0; gap: 7px; }
+.cloud-quota-row-heading { display: flex; justify-content: space-between; gap: 12px; color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.cloud-quota-row-heading > span:last-child { color: var(--text); }
+.cloud-quota-meter { height: 3px; overflow: hidden; border-radius: 2px; background: var(--border); }
+.cloud-quota-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--text-secondary); }
+.cloud-quota-note { margin: 0; color: var(--text-faint); font-size: 10px; line-height: 15px; }
+
+.canvas-cloud-quota { padding: 2px 16px 12px; font-size: 11px; color: var(--text-secondary); display: grid; gap: 6px; }
+.canvas-cloud-quota-summary { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; font-variant-numeric: tabular-nums; }
+.canvas-cloud-cost { color: var(--text-faint); font-size: 10px; }
+.canvas-model-generation-label { padding: 0 16px 8px; font-size: 11px; color: var(--text-faint); }
+
+.provider-catalog-info summary { cursor: pointer; color: var(--text-faint); }
+.provider-catalog-info p { margin: 8px 0; }
+.provider-catalog-info a { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); }

@@ -1,9 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 import { discoverProviderModels } from "../src/daemon/provider-model-discovery.js";
+import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
 
 const connection = { baseUrl: "https://gateway.example/v1/", api: "openai-completions", authentication: "api_key", apiKey: "test-discovery-key" };
 
 describe("provider model discovery", () => {
+  it.each(["meshy", "tripo", "hyper3d"] as const)("loads official %s presets without probing a LLM endpoint or claiming key access", async (preset) => {
+    const request = vi.fn<typeof fetch>();
+    const result = await discoverProviderModels({ ...connection, preset, baseUrl: { meshy: "https://api.meshy.ai/openapi/v1", tripo: "https://openapi.tripo3d.ai/v3", hyper3d: "https://api.hyper3d.com/api/v2" }[preset] }, request);
+    expect(result.source).toBe("presets");
+    expect(result.models).toHaveLength(MODEL_3D_PRESETS[preset].length);
+    expect(result.models.every((model) => model.usages?.["3d"]?.protocol === preset && !model.usages?.language)).toBe(true);
+    expect(result.models[1]?.usages?.["3d"]?.maxReferenceImages).toBe(preset === "hyper3d" ? 5 : 4);
+    expect(result.warnings?.[0]).toContain("does not check API-key access");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("discovers versions from compatible 3D relays and uses known templates for official IDs", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "meshy-7.1" }, { id: "relay-future" }] }));
+    const result = await discoverProviderModels({ ...connection, preset: "meshy" }, request);
+    expect(request.mock.calls[0]?.[0].toString()).toBe("https://gateway.example/v1/models");
+    expect(result.models[0]?.usages?.["3d"]).toMatchObject({ operation: "multi-image-to-3d", maxReferenceImages: 4 });
+    expect(result.models[1]?.usages?.["3d"]?.protocol).toBe("meshy");
+  });
   it("reads an OpenAI-compatible list and uses reported limits and capabilities", async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({ data: [
       { id: "model-a", name: "Model A", context_length: 32_000, top_provider: { max_completion_tokens: 4_000 }, architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] }, supported_parameters: ["reasoning"], apiKey: connection.apiKey },

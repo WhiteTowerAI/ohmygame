@@ -47,11 +47,15 @@ import { normalizeCustomProvider, normalizeCustomProviderModel, ProviderModelSet
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
 import { CUSTOM_IMAGE_MODEL_APIS, type DiscoverProviderModelsRequest } from "../shared/contracts.js";
-import type { Model3DGenerator } from "./model3d.js";
+import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
+import { CloudModelsClient } from "./cloud-models.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
+import { isNative3DProvider, model3DPreset, normalizeNativeModel3D, MODEL_3D_CATALOG_DOCS, MODEL_3D_CATALOG_REVIEWED } from "../shared/model3d-presets.js";
+import type { ProviderModelSettings } from "../shared/contracts.js";
 import { MeshyProvider } from "./meshy-provider.js";
 import { MediaProviderKeyStore } from "./media-provider-settings.js";
 import { TripoProvider } from "./tripo-provider.js";
+import { Hyper3DProvider } from "./hyper3d-provider.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ProviderModels3D } from "./provider-models3d.js";
@@ -99,6 +103,8 @@ import {
 } from "./playable-thumbnails.js";
 
 export interface AppOptions {
+  cloudApiUrl?: string;
+  cloudFetch?: typeof fetch;
   dataDirectory?: string;
   piAgentDirectory?: string;
   logger?: boolean;
@@ -507,6 +513,7 @@ export function createApp(options: AppOptions = {}) {
   const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const examples = new ExampleStore(options.examplesDirectory, (workspacePath, exampleId) => artifacts.preparePlayableExample(workspacePath, exampleId));
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
+  const cloudModels = new CloudModelsClient(options.cloudApiUrl ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130", options.cloudFetch);
   const publisher = localPublisher ?? new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
@@ -516,7 +523,8 @@ export function createApp(options: AppOptions = {}) {
   const networkSettings = options.networkSettings ?? new NetworkSettingsService(dataDirectory);
   const meshySettings = new MediaProviderKeyStore(dataDirectory, "meshy", "Meshy");
   const tripoSettings = new MediaProviderKeyStore(dataDirectory, "tripo", "Tripo");
-  const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings]] as const;
+  const hyper3dSettings = new MediaProviderKeyStore(dataDirectory, "hyper3d", "Hyper3D");
+  const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings], ["hyper3d", "Hyper3D", hyper3dSettings]] as const;
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
@@ -578,7 +586,9 @@ export function createApp(options: AppOptions = {}) {
     getDeviceId: () => SettingsManager.create(piAgentDirectory, piAgentDirectory).getOrCreateDeviceId(),
     onCredentialsChanged: syncOpenAIEndpoint,
   });
-  const providerEnabled = (id: string) => providerModelSettings.isEnabled(id);
+  const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
+    ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
+    : providerModelSettings.isEnabled(id);
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(),
     migrateLegacyModels: (id, models) => providerModelSettings.migrateLegacyImageModels(id, models, async () => { await (await getModelRuntime()).refresh({ allowNetwork: false, providers: [id] }); }),
@@ -587,13 +597,15 @@ export function createApp(options: AppOptions = {}) {
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
   });
-  const providerModels3D = new ProviderModels3D(getModelRuntime,
-    new MeshyProvider(() => meshySettings.key(), options.model3DFetch, undefined, () => providerEnabled("meshy")),
-    () => meshySettings.get().configured, () => providerModelSettings.customProviderCatalog(), providerEnabled,
-    options.model3DFetch, () => providerModelSettings.defaultModel3D(), {
-      generator: new TripoProvider(() => tripoSettings.key(), options.model3DFetch, undefined, () => providerEnabled("tripo")),
-      configured: () => tripoSettings.get().configured,
-    });
+  const providerModels3D = new ProviderModels3D({
+    runtime: getModelRuntime,
+    meshy: { generator: new MeshyProvider(() => meshySettings.key(), options.model3DFetch, undefined, () => providerEnabled("meshy")), configured: () => meshySettings.get().configured },
+    tripo: { generator: new TripoProvider(() => tripoSettings.key(), options.model3DFetch, undefined, () => providerEnabled("tripo")), configured: () => tripoSettings.get().configured },
+    hyper3d: { generator: new Hyper3DProvider(() => hyper3dSettings.key(), options.model3DFetch, undefined, () => providerEnabled("hyper3d")), configured: () => hyper3dSettings.get().configured },
+    customProviders: () => providerModelSettings.customProviderCatalog(),
+    nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
+    isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
+  });
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -753,7 +765,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.addHook("onReady", async () => {
     await networkSettings.load();
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), tripoSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
@@ -1911,17 +1923,36 @@ export function createApp(options: AppOptions = {}) {
         capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
       };
     })];
-    return [...providers, ...directProviders].sort((left, right) => left.name.localeCompare(right.name));
+    return [...providers, ...directProviders, ...await cloudModels.providers(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
+  app.put<{ Body: { accessToken: string; userId: string } | null }>("/cloud/session", {
+    schema: { body: { anyOf: [{ type: "null" }, { type: "object", additionalProperties: false, required: ["accessToken", "userId"], properties: {
+      accessToken: { type: "string", minLength: 1, maxLength: 16_384 }, userId: { type: "string", minLength: 1, maxLength: 128 },
+    } }] } },
+  }, async (request, reply) => {
+    // Update identity immediately; cloud verification runs when catalogs are requested.
+    void cloudModels.setSession(options.localDebug ? null : request.body);
+    return reply.code(204).send();
+  });
+  app.get("/cloud/quotas", async () => cloudModels.quotas());
+  app.get("/cloud/jobs", async (_request, reply) => {
+    try { return await cloudModels.jobs(); }
+    catch (cause) { if (cause instanceof Model3DGenerationError) return reply.code(cause.statusCode).send({ error: cause.message }); throw cause; }
+  });
+  app.get<{ Params: { id: string } }>("/cloud/jobs/:id/result", async (request, reply) => {
+    try { return reply.type("model/gltf-binary").send(await cloudModels.result(request.params.id)); }
+    catch (cause) { if (cause instanceof Model3DGenerationError) return reply.code(cause.statusCode).send({ error: cause.message }); throw cause; }
+  });
 
   app.patch<{ Params: { providerId: string }; Body: { enabled: boolean } }>("/settings/models/providers/:providerId/enabled", {
     schema: { body: { type: "object", additionalProperties: false, required: ["enabled"], properties: { enabled: { type: "boolean" } } } },
   }, async (request, reply) => {
     const provider = (await providerSummaries()).find((item) => item.id === request.params.providerId);
     if (!provider) return reply.code(404).send({ error: "Provider not found" });
-    if (!provider.configured) return reply.code(400).send({ error: "Connect the provider before enabling it" });
-    await providerModelSettings.setEnabled(provider.id, request.body.enabled);
+    const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
+    if (!provider.configured && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
+    await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
     return { ...provider, enabled: request.body.enabled };
   });
 
@@ -2041,7 +2072,28 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/settings/models/providers/openai/endpoint", async () => openAIEndpoint.get());
 
-  const providerModels = async (runtime: ModelRuntime, providerId: string) => {
+  const hasModelProvider = async (runtime: ModelRuntime, id: string) => isNative3DProvider(id) || Boolean(runtime.getProvider(id))
+    || id.startsWith("cloud-") && (await cloudModels.cloudCatalog()).providers.some((provider) => provider.id === id);
+  const providerModels = async (runtime: ModelRuntime, providerId: string): Promise<ProviderModelSettings> => {
+    if (isNative3DProvider(providerId)) {
+      const native = native3DProviders.find(([id]) => id === providerId)!;
+      return { models: providerModelSettings.models3D(providerId).map((definition) => ({
+        provider: providerId, providerName: native[1], id: definition.id, name: definition.name, reasoningLevels: [], capabilities: ["3d"],
+        visible: providerModelSettings.isVisible({ provider: providerId, id: definition.id }), custom: !model3DPreset(providerId, definition.id),
+        source: model3DPreset(providerId, definition.id) ? "preset" : "custom", model3d: definition,
+      })), defaultApi: providerId, canAddCustomModel: native[2].get().configured, model3DProtocol: providerId,
+      catalogNotice: `Official presets · reviewed ${MODEL_3D_CATALOG_REVIEWED}. No model-list API; new versions arrive with app updates or can be added manually. Key access is determined by the provider.`,
+      catalogDocsUrl: MODEL_3D_CATALOG_DOCS[providerId] };
+    }
+    if (providerId.startsWith("cloud-")) {
+      const catalog = await cloudModels.cloudCatalog();
+      const provider = catalog.providers.find((provider) => provider.id === providerId);
+      return { models: catalog.models.filter((model) => model.provider === providerId).map((model) => ({
+        provider: providerId, providerName: provider?.name ?? providerId, id: model.id, name: model.name, reasoningLevels: [], capabilities: [model.capability],
+        visible: providerModelSettings.isVisible(model), custom: false, source: "cloud",
+        description: [model.estimatedCredits !== undefined && `${model.estimatedCredits} credits / generation`, model.maxReferenceImages && `up to ${model.maxReferenceImages} references`, model.polycount && `${model.polycount.min.toLocaleString()}–${model.polycount.max.toLocaleString()} faces`].filter(Boolean).join(" · "),
+      })), defaultApi: "cloud", canAddCustomModel: false, catalogNotice: "Models and generation options are managed by OhMyGame. You can choose which models to show." };
+    }
     const catalog = providerModelSettings.isCustom(providerId) ? customModelCatalog(runtime.getModels()) : new Map();
     const models = runtime.getModels(providerId).map((model) => providerModelSettings.resolveModel(model, catalog));
     const customProvider = await providerModelSettings.customProvider(providerId, catalog);
@@ -2064,7 +2116,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.get<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models", async (request, reply) => {
     const runtime = await getModelRuntime();
-    if (!runtime.getProvider(request.params.providerId)) return reply.code(404).send({ error: "Provider not found" });
+    if (!await hasModelProvider(runtime, request.params.providerId)) return reply.code(404).send({ error: "Provider not found" });
     return providerModels(runtime, request.params.providerId);
   });
 
@@ -2073,9 +2125,9 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     const runtime = await getModelRuntime();
     const { providerId } = request.params;
-    if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    if (!await hasModelProvider(runtime, providerId)) return reply.code(404).send({ error: "Provider not found" });
     const custom = await providerModelSettings.customProvider(providerId);
-    const known = new Set(custom ? custom.models.map((model) => model.id) : runtime.getModels(providerId).map((model) => model.id));
+    const known = new Set((await providerModels(runtime, providerId)).models.map((model) => model.id));
     if (request.body.ids.some((id) => !known.has(id))) return reply.code(400).send({ error: "Model not found" });
     if (request.body.visible && custom?.models.some((model) => request.body.ids.includes(model.id) && !modelUsageList(model).length)) return reply.code(400).send({ error: "Assign a use to the model before enabling it" });
     await providerModelSettings.setVisibility(providerId, request.body.ids, request.body.visible);
@@ -2085,26 +2137,54 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models/custom", async (request, reply) => {
     const runtime = await getModelRuntime();
     const { providerId } = request.params;
-    if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    if (!await hasModelProvider(runtime, providerId)) return reply.code(404).send({ error: "Provider not found" });
     try {
       const settings = await providerModels(runtime, providerId);
       if (!settings.canAddCustomModel) return reply.code(400).send({ error: "Custom models require an API key connection" });
-      const model = normalizeCustomProviderModel(request.body, settings.defaultApi, settings.defaultBaseUrl, customModelCatalog(runtime.getModels()));
-      if (runtime.getModel(providerId, model.id)) return reply.code(409).send({ error: "A model with this ID already exists" });
-      await providerModelSettings.addCustomModel(providerId, model);
-      await providerModelSettings.setVisibility(providerId, [model.id], true);
-      await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      if (isNative3DProvider(providerId)) {
+        const model = normalizeNativeModel3D(providerId, request.body);
+        if (settings.models.some((entry) => entry.id === model.id)) return reply.code(409).send({ error: "A model with this ID already exists" });
+        await providerModelSettings.saveModel3D(providerId, model, true);
+      } else {
+        const model = normalizeCustomProviderModel(request.body, settings.defaultApi, settings.defaultBaseUrl, customModelCatalog(runtime.getModels()));
+        if (runtime.getModel(providerId, model.id)) return reply.code(409).send({ error: "A model with this ID already exists" });
+        await providerModelSettings.addCustomModel(providerId, model);
+        await providerModelSettings.setVisibility(providerId, [model.id], true);
+        await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      }
       return reply.code(201).send(await providerModels(runtime, providerId));
     } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+
+  app.put<{ Params: { providerId: string; modelId: string } }>("/settings/models/providers/:providerId/models/:modelId", async (request, reply) => {
+    const { providerId, modelId } = request.params;
+    if (!isNative3DProvider(providerId)) return reply.code(400).send({ error: "Use the custom provider editor for this connection" });
+    if (!providerModelSettings.models3D(providerId).some((model) => model.id === modelId)) return reply.code(404).send({ error: "3D model not found" });
+    try {
+      const model = normalizeNativeModel3D(providerId, request.body);
+      if (model.id !== modelId) return reply.code(400).send({ error: "Model IDs cannot be renamed. Add a new version instead." });
+      await providerModelSettings.saveModel3D(providerId, model);
+      return providerModels(await getModelRuntime(), providerId);
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+
+  app.delete<{ Params: { providerId: string; modelId: string } }>("/settings/models/providers/:providerId/models/:modelId/overrides", async (request, reply) => {
+    const { providerId, modelId } = request.params;
+    if (!isNative3DProvider(providerId) || !model3DPreset(providerId, modelId)) return reply.code(404).send({ error: "Official model not found" });
+    await providerModelSettings.removeModel3D(providerId, modelId, true);
+    return providerModels(await getModelRuntime(), providerId);
   });
 
   app.delete<{ Params: { providerId: string; modelId: string } }>("/settings/models/providers/:providerId/models/custom/:modelId", async (request, reply) => {
     const runtime = await getModelRuntime();
     const { providerId, modelId } = request.params;
-    if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    if (!isNative3DProvider(providerId) && !runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
     try {
-      await providerModelSettings.removeCustomModel(providerId, modelId);
-      await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      if (isNative3DProvider(providerId)) await providerModelSettings.removeModel3D(providerId, modelId);
+      else {
+        await providerModelSettings.removeCustomModel(providerId, modelId);
+        await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      }
       return providerModels(runtime, providerId);
     } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
@@ -2856,6 +2936,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.addHook("onClose", async () => {
     await pluginCapabilities.host.close();
+    await cloudModels.setSession(null);
     await canvasStore.close();
     tools.close();
     modelAuth.close();
