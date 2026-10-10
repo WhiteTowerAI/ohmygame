@@ -13,7 +13,11 @@ export function networkBypassList(input: string): string {
 
 export function normalizeProxyUrl(input: string, allowCredentials = false): string {
   let url: URL;
-  try { url = new URL(input.trim()); } catch { throw new Error("Enter a valid HTTP or HTTPS proxy URL"); }
+  try {
+    url = new URL(input.trim());
+  } catch {
+    try { url = new URL(`http://${input.trim()}`); } catch { throw new Error("Enter a valid HTTP or HTTPS proxy URL"); }
+  }
   if (!/^https?:$/.test(url.protocol) || !url.hostname || (!allowCredentials && (url.username || url.password)) || url.pathname !== "/" || url.search || url.hash) {
     throw new Error("Use an HTTP or HTTPS proxy URL without credentials, a path, or query parameters");
   }

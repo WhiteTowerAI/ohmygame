@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { NetworkSettingsService } from "../src/daemon/network-settings.js";
 import {
@@ -35,6 +35,53 @@ async function setup(accessToken?: string) {
 }
 
 describe("network settings API", () => {
+  it.each(["environment", "system", "manual", "direct"] as const)(
+    "keeps the active %s configuration in agent failure diagnostics until restart",
+    async (source) => {
+      const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-network-agent-"));
+      directories.push(dataDirectory);
+      const networkSettings = new NetworkSettingsService(dataDirectory, {
+        environment: source === "environment" ? { HTTPS_PROXY: "http://user:secret@127.0.0.1:7890" } : {},
+        initialSystemProxy: source === "system" ? "PROXY 127.0.0.1:7890" : "DIRECT",
+      });
+      if (source === "manual") {
+        await networkSettings.store.update({ mode: "manual", proxyUrl: "http://127.0.0.1:7890", noProxy: "" });
+      }
+      const app = createApp({
+        dataDirectory, networkSettings,
+        createSession: async () => {
+          throw new Error("Connection error.", { cause: Object.assign(new Error("DNS failure"), { code: "ENOTFOUND" }) });
+        },
+      });
+      apps.push(app);
+      await app.ready();
+      const pending = await app.inject({
+        method: "PUT", url: "/settings/network",
+        payload: source === "direct"
+          ? { mode: "manual", proxyUrl: "http://127.0.0.1:7891", noProxy: "" }
+          : { ...DEFAULT_NETWORK_SETTINGS, mode: "direct" },
+      });
+      expect(pending.statusCode).toBe(200);
+      expect(pending.json()).toMatchObject({ active: { source }, requiresRestart: true });
+      const warn = vi.spyOn(app.log, "warn");
+      const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+      const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+      const turn = await app.inject({
+        method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+        payload: { prompt: "Build" },
+      });
+      expect(turn.statusCode).toBe(202);
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(expect.objectContaining({
+        agentError: expect.objectContaining({
+          code: "dns_error", diagnostics: expect.objectContaining({
+            network: { source, ...(source === "direct" ? {} : { proxyUrl: "http://127.0.0.1:7890/" }) },
+          }),
+        }),
+      }), "Agent model request failed"));
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("secret");
+    },
+  );
+
   it("saves configuration, detects the system proxy, and tests drafts while keeping the active connection", async () => {
     const app = await setup();
     const get = await app.inject({ method: "GET", url: "/settings/network" });

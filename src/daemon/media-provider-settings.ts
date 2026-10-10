@@ -1,11 +1,12 @@
 import { mkdir, readFile, rm, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { Native3DProviderId } from "../shared/model3d-presets.js";
 
 export class MediaProviderKeyStore {
   readonly #filePath: string;
   #apiKey: string | undefined;
 
-  constructor(dataDirectory: string, providerId: "meshy" | "tripo", private readonly providerName: string) {
+  constructor(dataDirectory: string, providerId: Native3DProviderId, private readonly providerName: string) {
     this.#filePath = path.join(dataDirectory, `${providerId}.json`);
   }
 

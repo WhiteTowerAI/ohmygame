@@ -33,6 +33,7 @@ import byteDance from "@lobehub/icons-static-svg/icons/bytedance-color.svg";
 import xAI from "@lobehub/icons-static-svg/icons/xai.svg";
 import xiaomi from "@lobehub/icons-static-svg/icons/xiaomimimo.svg";
 import zai from "@lobehub/icons-static-svg/icons/zai.svg";
+import hyper3d from "./assets/providers/hyper3d.png";
 
 export interface ProviderIcon {
   src: string;
@@ -41,6 +42,7 @@ export interface ProviderIcon {
 
 const color = (src: string): ProviderIcon => ({ src, tone: "color" });
 const monochrome = (src: string): ProviderIcon => ({ src, tone: "monochrome" });
+const hyper3dIcon = monochrome(hyper3d);
 
 export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "amazon-bedrock": color(amazonBedrock),
@@ -58,6 +60,8 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "google-vertex": color(googleVertex),
   groq: monochrome(groq),
   huggingface: color(huggingFace),
+  hyper3d: hyper3dIcon,
+  "cloud-hyper3d": hyper3dIcon,
   "kimi-coding": color(kimi),
   minimax: color(minimax),
   "minimax-cn": color(minimax),

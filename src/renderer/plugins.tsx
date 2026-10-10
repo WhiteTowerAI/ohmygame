@@ -502,7 +502,9 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
       <SkillSection pluginId={plugin.id} items={plugin.skills} installed={plugin.installed} disabled={updating || !plugin.enabled} onBrowse={onBrowseSkill} onToggle={onToggleComponent} />
       <PluginConfigurationPanel plugin={plugin} onChanged={onCapabilitiesChanged} />
       <PluginMcpPanel plugin={plugin} onToggle={onMcpToggle} onAssist={onAssist} onChanged={onCapabilitiesChanged} />
-      {!plugin.mcpServers?.length && !plugin.connections.length ? <button type="button" onClick={onAssist}>Configure with AI</button> : null}
+      {!plugin.mcpServers?.length && !plugin.connections.length ? <div className="plugin-section-actions">
+        <button className="plugin-detail-secondary" type="button" aria-haspopup="dialog" onClick={onAssist}><WandSparkles size={13} aria-hidden="true" />Configure with AI</button>
+      </div> : null}
     </> : null}
   </section>;
 }

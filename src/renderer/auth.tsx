@@ -1,6 +1,7 @@
 import { createClient, type User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SignInDialog, type SignInProvider } from "./sign-in-dialog.js";
+import { syncCloudSession } from "./api.js";
 import { isLocalDebugEnabled, isLoopbackHostname, LOCAL_DEBUG_ACCESS_TOKEN, LOCAL_DEBUG_USER } from "../shared/local-debug.js";
 
 export type AuthState =
@@ -50,21 +51,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [pendingProvider, setPendingProvider] = useState<SignInProvider>();
   const [oauthBrowserOpen, setOAuthBrowserOpen] = useState(false);
   const pendingAccessToken = useRef<((token: string | undefined) => void) | undefined>(undefined);
+  const cloudSync = useRef(Promise.resolve());
+  const cloudSyncRevision = useRef(0);
+  function synchronizeCloud(session: { access_token: string; user: User } | null): void {
+    const revision = ++cloudSyncRevision.current;
+    cloudSync.current = cloudSync.current.catch(() => {}).then(async () => {
+      if (revision !== cloudSyncRevision.current) return;
+      await syncCloudSession(session ? { accessToken: session.access_token, userId: session.user.id } : null);
+    }).catch(() => { /* Login remains available if the local daemon is restarting. */ });
+  }
 
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase) { synchronizeCloud(null); return; }
     const client = supabase;
     let active = true;
-    void restoreAuthState(client).then((restored) => {
-      if (!active) return;
-      setState(restored);
-    });
+    let authRevision = 0;
+    const restoreRevision = authRevision;
+    const restoreCloudRevision = cloudSyncRevision.current;
+    void client.auth.getSession().then(({ data }) => {
+      if (!active || restoreRevision !== authRevision || restoreCloudRevision !== cloudSyncRevision.current) return;
+      setState(authState(data.session?.user));
+      synchronizeCloud(data.session);
+    }).catch(() => { if (active && restoreRevision === authRevision && restoreCloudRevision === cloudSyncRevision.current) { setState({ status: "signed-out" }); synchronizeCloud(null); } });
     const { data } = client.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
+      authRevision++;
       setState(authState(session?.user));
+      // Defer API work outside Supabase's auth callback lock.
+      queueMicrotask(() => { if (active) synchronizeCloud(session); });
     });
+    const timer = setInterval(() => {
+      const revision = authRevision, cloudRevision = cloudSyncRevision.current;
+      void client.auth.getSession().then(({ data }) => {
+        if (active && revision === authRevision && cloudRevision === cloudSyncRevision.current) synchronizeCloud(data.session);
+      }).catch(() => {});
+    }, 60_000);
     return () => {
       active = false;
+      clearInterval(timer);
       data.subscription.unsubscribe();
     };
   }, []);
@@ -116,6 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     requestAccessToken,
     signOut: async () => {
       settleAccessTokenRequest(undefined);
+      synchronizeCloud(null);
       if (localDebug) {
         try { localStorage.removeItem(LOCAL_SESSION_KEY); } catch { /* Keep sign-out available without storage. */ }
         setState({ status: "signed-out" });
@@ -144,6 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError("Your session expired. Sign in again.");
     }
     setState({ status: "signed-out" });
+    synchronizeCloud(null);
     setPendingProvider(undefined);
     setOAuthBrowserOpen(false);
     setDialogOpen(true);
