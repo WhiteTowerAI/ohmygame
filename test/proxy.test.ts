@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { proxyOptionsFromEnvironment } from "../src/daemon/proxy.js";
+import { configureNetworkProxy, proxyOptionsFromEnvironment } from "../src/daemon/proxy.js";
 import { applySystemProxy, proxyUrlFromElectron } from "../src/desktop/system-proxy.js";
 
 describe("proxyOptionsFromEnvironment", () => {
@@ -28,6 +28,45 @@ describe("proxyOptionsFromEnvironment", () => {
       httpProxy: "http://upper-http.test",
       httpsProxy: "http://upper-https.test",
     });
+  });
+
+  it("adds http:// scheme when proxy URL is missing a protocol", () => {
+    expect(proxyOptionsFromEnvironment({
+      HTTP_PROXY: "127.0.0.1:3067",
+      HTTPS_PROXY: "127.0.0.1:3067",
+    })).toEqual({
+      httpProxy: "http://127.0.0.1:3067",
+      httpsProxy: "http://127.0.0.1:3067",
+      noProxy: "127.0.0.1,localhost,.localhost",
+    });
+  });
+
+  it("preserves https:// scheme when already present", () => {
+    expect(proxyOptionsFromEnvironment({
+      HTTP_PROXY: "https://proxy.example:8443",
+    })).toMatchObject({
+      httpProxy: "https://proxy.example:8443",
+    });
+  });
+});
+
+describe("configureNetworkProxy", () => {
+  it("returns false and does not throw for an unparseable proxy URL", () => {
+    expect(() => configureNetworkProxy({
+      HTTP_PROXY: "not a url at all :// broken",
+      HTTPS_PROXY: "not a url at all :// broken",
+    })).not.toThrow();
+    expect(configureNetworkProxy({
+      HTTP_PROXY: "not a url at all :// broken",
+      HTTPS_PROXY: "not a url at all :// broken",
+    })).toBe(false);
+  });
+
+  it("returns true and configures dispatcher for a valid proxy", () => {
+    expect(configureNetworkProxy({
+      HTTP_PROXY: "http://127.0.0.1:7890",
+      HTTPS_PROXY: "http://127.0.0.1:7890",
+    })).toBe(true);
   });
 });
 

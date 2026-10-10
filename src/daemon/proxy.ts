@@ -6,6 +6,11 @@ export interface ProxyOptions {
   noProxy: string;
 }
 
+function normalizeProxyUrl(input: string): string {
+  if (/^https?:\/\//i.test(input)) return input;
+  return `http://${input}`;
+}
+
 export function proxyOptionsFromEnvironment(env: NodeJS.ProcessEnv): ProxyOptions | undefined {
   const httpProxy = value(env.HTTP_PROXY) ?? value(env.http_proxy) ?? value(env.HTTPS_PROXY) ?? value(env.https_proxy);
   const httpsProxy = value(env.HTTPS_PROXY) ?? value(env.https_proxy) ?? httpProxy;
@@ -21,13 +26,21 @@ export function proxyOptionsFromEnvironment(env: NodeJS.ProcessEnv): ProxyOption
   exclusions.add("localhost");
   exclusions.add(".localhost");
 
-  return { httpProxy, httpsProxy, noProxy: [...exclusions].join(",") };
+  return {
+    httpProxy: normalizeProxyUrl(httpProxy),
+    httpsProxy: normalizeProxyUrl(httpsProxy),
+    noProxy: [...exclusions].join(","),
+  };
 }
 
 export function configureNetworkProxy(env: NodeJS.ProcessEnv = process.env): boolean {
   const options = proxyOptionsFromEnvironment(env);
   if (!options) return false;
-  setGlobalDispatcher(new EnvHttpProxyAgent(options));
+  try {
+    setGlobalDispatcher(new EnvHttpProxyAgent(options));
+  } catch {
+    return false;
+  }
   return true;
 }
 
