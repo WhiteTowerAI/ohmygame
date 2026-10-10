@@ -1,5 +1,5 @@
 import { type Model3DGenerationConfig, type Model3DModel, type PromptImage, type Run3DToolRequest } from "./contracts.js";
-import { BUILTIN_CLOUD_CATALOG } from "./cloud-models.js";
+import { BUILTIN_CLOUD_CATALOG, cloudModelId } from "./cloud-models.js";
 import { model3DModel } from "./custom-models.js";
 import { MODEL_3D_PRESETS, NATIVE_3D_PROVIDER_NAMES, type Native3DProviderId } from "./model3d-presets.js";
 
@@ -21,7 +21,10 @@ export function resolveModel3D(model: unknown, models: readonly Model3DModel[] =
   if (model === undefined) return models[0];
   if (!model || typeof model !== "object") return undefined;
   const { provider, id } = model as Record<string, unknown>;
-  return models.find((candidate) => candidate.provider === provider && candidate.id === id);
+  if (typeof provider !== "string" || typeof id !== "string") return undefined;
+  const canonicalId = cloudModelId(provider, id);
+  return models.find((candidate) => candidate.provider === provider && candidate.id === id)
+    ?? (canonicalId !== id ? models.find((candidate) => candidate.provider === provider && candidate.id === canonicalId) : undefined);
 }
 
 /** Meshy rejects animation requests with more library actions than this; larger sets are split across requests. */

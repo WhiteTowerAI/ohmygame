@@ -1,5 +1,6 @@
 import type { CustomProviderPreset, Model3DDefinition } from "./contracts.js";
 import { defaultModel3DSettings, normalizeModelUsages } from "./custom-models.js";
+import { HYPER3D_MODELS } from "./cloud-models.js";
 
 export type Native3DProviderId = "meshy" | "tripo" | "hyper3d";
 export const NATIVE_3D_PROVIDER_NAMES: Record<Native3DProviderId, string> = { meshy: "Meshy", tripo: "Tripo", hyper3d: "Hyper3D" };
@@ -30,12 +31,8 @@ export const MODEL_3D_PRESETS: Record<Native3DProviderId, readonly Model3DDefini
     ...[{ id: "v3.0-20250812", name: "Tripo V3.0", max: 1_000_000 }, { id: "v2.5-20250123", name: "Tripo V2.5", max: 500_000 }].map(({ id, name, max }) => ({ id, name,
       settings: { ...defaultModel3DSettings("standard", "tripo"), polycount: { min: 100, max, default: 30_000, presets: [10_000, 30_000, 100_000, 300_000] } } })),
   ],
-  hyper3d: ["Gen-2.5-Medium", "Gen-2.5-Low", "Gen-2.5-High", "Gen-2.5-Extreme-Low", "Gen-2.5-Extreme-High", "Gen-2", "Sketch", "Regular", "Detail", "Smooth"].map((tier) => {
-    const settings = defaultModel3DSettings("standard", "hyper3d");
-    const max = tier === "Gen-2" ? 20_000 : !tier.startsWith("Gen-") ? 200_000 : ["Gen-2.5-High", "Gen-2.5-Extreme-High"].includes(tier) ? 2_000_000 : 1_000_000;
-    return { id: tier, name: tier.startsWith("Gen-") ? tier.replace("Gen-", "Rodin Gen ").replaceAll("-", " ") : `Rodin Gen 1/1.5 ${tier}`, settings: { ...settings,
-      polycount: { ...settings.polycount, max, presets: settings.polycount.presets.filter((count) => count <= max) } } };
-  }),
+  hyper3d: HYPER3D_MODELS.map((model) => ({ id: model.id, name: model.name,
+    settings: { ...defaultModel3DSettings("standard", "hyper3d"), polycount: model.polycount! } })),
 };
 
 export function model3DPreset(provider: string, id: string): Model3DDefinition | undefined {

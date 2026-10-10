@@ -2048,7 +2048,7 @@ export function createApp(options: AppOptions = {}) {
       return { models: catalog.models.filter((model) => model.provider === providerId).map((model) => ({
         provider: providerId, providerName: provider?.name ?? providerId, id: model.id, name: model.name, reasoningLevels: [], capabilities: [model.capability],
         visible: providerModelSettings.isVisible(model), custom: false, source: "cloud",
-        description: [model.generationLabel, model.maxReferenceImages && `up to ${model.maxReferenceImages} references`, model.polycount && `${model.polycount.min.toLocaleString()}–${model.polycount.max.toLocaleString()} faces`].filter(Boolean).join(" · "),
+        description: [model.estimatedCredits !== undefined && `${model.estimatedCredits} credits / generation`, model.maxReferenceImages && `up to ${model.maxReferenceImages} references`, model.polycount && `${model.polycount.min.toLocaleString()}–${model.polycount.max.toLocaleString()} faces`].filter(Boolean).join(" · "),
       })), defaultApi: "cloud", canAddCustomModel: false, catalogNotice: "Models and generation options are managed by OhMyGame. You can choose which models to show." };
     }
     const catalog = providerModelSettings.isCustom(providerId) ? customModelCatalog(runtime.getModels()) : new Map();

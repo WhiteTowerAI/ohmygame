@@ -5,6 +5,7 @@ import { ProviderModel3DForm } from "./provider-model3d-form.js";
 import { Check, ChevronDown, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { MODEL_USAGE_LABELS } from "../shared/custom-models.js";
+import { hyper3DCredits } from "../shared/cloud-models.js";
 
 const MODEL_FILTER_OPTIONS = [
   { value: "all", label: "All" },
@@ -140,7 +141,8 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
       </div> : null}
       <div className="provider-models-list" role="list" aria-label={editing ? "Provider models" : "Shown provider models"} aria-busy={busy}>
         {models.map((model) => {
-          const description = model.model3d ? `${model.id} · up to ${model.model3d.settings.maxReferenceImages} ${model.model3d.settings.maxReferenceImages === 1 ? "reference" : "references"} · ${model.model3d.settings.polycount.min.toLocaleString()}–${model.model3d.settings.polycount.max.toLocaleString()} faces` : model.description ? `${model.id} · ${model.description}` : model.name !== model.id ? model.id : undefined;
+          const credits = model.model3d?.settings.protocol === "hyper3d" ? hyper3DCredits(model.id) : undefined;
+          const description = model.model3d ? `${model.id}${credits !== undefined ? ` · ${credits} credits / generation` : ""} · up to ${model.model3d.settings.maxReferenceImages} ${model.model3d.settings.maxReferenceImages === 1 ? "reference" : "references"} · ${model.model3d.settings.polycount.min.toLocaleString()}–${model.model3d.settings.polycount.max.toLocaleString()} faces` : model.description ? `${model.id} · ${model.description}` : model.name !== model.id ? model.id : undefined;
           const copy = <span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{description ? <small title={description}>{description}</small> : null}</span>;
           const selected = (ref?: ModelRef) => ref?.provider === model.provider && ref.id === model.id;
           return <div className={`provider-model-row${model.visible ? "" : " is-hidden"}`} key={`${model.provider}/${model.id}`} role="listitem">

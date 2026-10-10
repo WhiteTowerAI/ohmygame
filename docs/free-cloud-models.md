@@ -2,8 +2,8 @@
 
 Free connections belong to the OhMyGame account. They use the trusted Cloud API
 configured by `CLOUD_API_URL`, independently of the user's provider credentials
-and the paid account wallet. Hyper3D is the first integration (`cloud-hyper3d`,
-model `rodin`); users keep their existing default models and provider preferences.
+and the paid account wallet. Hyper3D is the first integration (`cloud-hyper3d`),
+with all ten Rodin tiers. Existing default models and provider preferences are kept.
 
 The desktop offers free access before sign-in. Hyper3D has one settings entry
 in **Free cloud**, with account sign-in, daily credits, and an optional API key on one page. A verified Supabase
@@ -19,13 +19,17 @@ successful results are saved to Library through the normal generation flow. The 
 
 Free cloud models use the common model list's search and visibility controls.
 Users can hide models or select defaults; the server owns the permitted catalog
-and generation options. Hyper3D reports its configured Rodin generation and
-quality in the catalog, keeping `rodin` as the stable model ID. Neither the
-provider key nor an editable tier is returned to desktop clients.
+and generation options. Both allowance sources include all ten documented tiers,
+using their tier IDs as model IDs, with Gen 2.5 Medium as the free default.
+Saved `rodin` references resolve to Medium without adding a duplicate catalog entry.
+The shared key stays on the server; users choose a tier through the model picker.
 
 The Canvas generation entry shows remaining daily credits, estimated cost, one
 progress bar, and a line for reset time/shared allowance. Held credits appear
-when a submission is pending. The server checks the allowance again on submission.
+when a submission is pending. Each model row includes its credit price. The
+generation action also checks the selected model's cost: 0.5 credits remaining
+allows a basic tier but disables Extreme High with a suggestion to choose a
+cheaper tier. The server checks the allowance again on submission.
 
 Within **Hyper3D** settings, **Your API key** accepts a user's own key and runs
 through the local daemon, without OhMyGame sign-in or free-cloud limits.
@@ -49,17 +53,21 @@ daily free model requests. Unknown allowances are displayed as unavailable.
 ## Cloud configuration
 
 In `ohmygame-cloud`, apply
-`database/migrations/20261010000000_create_cloud_model_quotas.sql` and then
-`database/migrations/20261010010000_meter_cloud_credits.sql` to Supabase and
+`database/migrations/20261010000000_create_cloud_model_quotas.sql`,
+`database/migrations/20261010010000_meter_cloud_credits.sql`, then
+`database/migrations/20261010020000_fix_cloud_credit_allocation.sql` to Supabase and
 configure the server as described in its `docs/free-cloud-models.md`. The key,
-permitted tier, confirmed pool allowance and concurrency limit belong exclusively
+confirmed pool allowance and concurrency limit belong exclusively
 to that service. Each account defaults to **20 credits/day**, configurable through
 `HYPER3D_USER_DAILY_CREDITS`. The old `HYPER3D_USER_DAILY_LIMIT` is no longer read.
 Gen 1/1.5/2/2.5 basic generation costs 0.5 credits (up to 40 at the default allowance);
 Gen 2.5 Extreme High costs 1. Shared pool exhaustion can stop generation earlier.
-The server reserves the estimated cost, then settles confirmed `consumed` credits;
-if billing is absent it retains the estimate. The new migration preserves historical
-usage and pending reservations rather than resetting today's allowance.
+The server reserves and charges the selected catalog price to the daily allocation;
+upstream `consumed` is stored independently for audit. A grant returning zero
+consumption still uses the account's daily credits. The migrations preserve
+historical usage and pending reservations. `HYPER3D_TIER` is no longer read;
+clients select the tier through `modelId`. Key permissions still depend on Hyper3D;
+a definite rejection releases the full hold.
 The integration stays unavailable until required settings exist.
 No generation or paid fallback happens during configuration.
 

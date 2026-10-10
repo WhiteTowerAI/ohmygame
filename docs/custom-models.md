@@ -79,7 +79,7 @@ The built-in **Hyper3D** provider uses your own API key and requires no OhMyGame
 login. The same **Hyper3D** settings page also offers **Free account credits**.
 The generation picker labels this account connection **Hyper3D · Free**; its
 daily credits and model settings are managed separately from your API key.
-Own-key presets include all five Gen 2.5 tiers, Gen 2, and the four Gen 1/1.5 tiers; the exact tier ID is
+Both sources include all five Gen 2.5 tiers, Gen 2, and the four Gen 1/1.5 tiers; the exact tier ID is
 sent with the request. A preset does not guarantee that a key can access that
 tier. Rodin accepts one to five PNG/JPEG images of the same object, without a
 required Front/Side/Back sequence. Canvas shows neutral **Reference 1…5** labels.

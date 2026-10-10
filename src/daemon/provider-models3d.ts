@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { CustomProviderDetails, MediaModelCatalog, Model3DDefinition, Model3DModel, Model3DModelRef } from "../shared/contracts.js";
 import { customModel3D, model3DModel } from "../shared/custom-models.js";
+import { resolveModel3D } from "../shared/generation-config.js";
 import { isNative3DProvider, NATIVE_3D_PROVIDER_NAMES, type Native3DProviderId } from "../shared/model3d-presets.js";
 import { customMediaSource } from "./custom-media-source.js";
 import { TripoProvider } from "./tripo-provider.js";
@@ -54,7 +55,8 @@ export class ProviderModels3D implements Model3DGenerator {
           ? { ...provider, state: "empty" as const, message: "Enable 3D models in Models." } : provider));
     }
     const defaultModel = this.options.defaultModel();
-    const index = models.findIndex((model) => model.provider === defaultModel?.provider && model.id === defaultModel.id);
+    const resolvedDefault = defaultModel && resolveModel3D(defaultModel, models);
+    const index = resolvedDefault ? models.indexOf(resolvedDefault) : -1;
     if (index > 0) models.unshift(...models.splice(index, 1));
     return { models, providers, ...(defaultModel ? { defaultModel } : {}) };
   }
@@ -62,7 +64,7 @@ export class ProviderModels3D implements Model3DGenerator {
   async resolveModel(ref?: Model3DModelRef): Promise<Model3DModel | undefined> {
     const catalog = await this.catalog();
     const selected = ref ?? catalog.defaultModel;
-    return selected ? catalog.models.find((model) => model.provider === selected.provider && model.id === selected.id) : catalog.models[0];
+    return resolveModel3D(selected, catalog.models);
   }
 
   async generate(input: Model3DGenerationInput, signal?: AbortSignal) {

@@ -5,13 +5,14 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { CloudModelsClient } from "../src/daemon/cloud-models.js";
-import { BUILTIN_CLOUD_CATALOG, HYPER3D_CONNECTION_ID, type CloudQuotaSnapshot } from "../src/shared/cloud-models.js";
-import { accountCloudState, cloudQuotaSummary, quotaResetTime } from "../src/renderer/cloud-quota.js";
+import { BUILTIN_CLOUD_CATALOG, HYPER3D_CONNECTION_ID, HYPER3D_DEFAULT_TIER, type CloudQuotaSnapshot } from "../src/shared/cloud-models.js";
+import { accountCloudState, canAffordCloudModel, cloudQuotaSummary, quotaResetTime } from "../src/renderer/cloud-quota.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { createAgentTools } from "../src/daemon/agent-tools.js";
 
-const MODEL = { provider: HYPER3D_CONNECTION_ID, id: "rodin" };
+const MODEL = { provider: HYPER3D_CONNECTION_ID, id: HYPER3D_DEFAULT_TIER };
+const CLOUD_MODEL_IDS = BUILTIN_CLOUD_CATALOG.models.map((model) => model.id);
 const generation = { model: MODEL, images: [{ mediaType: "image/png" as const, data: "aW1hZ2U=" }] };
 function quotas(userId = "user-1", remaining = 5): CloudQuotaSnapshot {
   const balance = { limit: 5, used: 5 - remaining, reserved: 0, remaining, resetsAt: "2026-10-11T16:00:00.000Z" };
@@ -27,8 +28,8 @@ function remote(remaining = 5) {
     const userId = authorization?.endsWith("token-2") ? "user-2" : "user-1";
     if (route === "/v1/cloud/catalog") return Response.json(BUILTIN_CLOUD_CATALOG);
     if (route === "/v1/me/quotas") return Response.json(quotas(userId, remaining));
-    if (route === "/v1/cloud/3d/jobs") return Response.json({ id: "job-1", provider: HYPER3D_CONNECTION_ID, modelId: "rodin", status: "running", pollAfterMs: 1 });
-    if (route === "/v1/cloud/jobs/job-1") return Response.json({ id: "job-1", provider: HYPER3D_CONNECTION_ID, modelId: "rodin", status: "succeeded", pollAfterMs: 5000 });
+    if (route === "/v1/cloud/3d/jobs") return Response.json({ id: "job-1", provider: HYPER3D_CONNECTION_ID, modelId: MODEL.id, status: "running", pollAfterMs: 1 });
+    if (route === "/v1/cloud/jobs/job-1") return Response.json({ id: "job-1", provider: HYPER3D_CONNECTION_ID, modelId: MODEL.id, status: "succeeded", pollAfterMs: 5000 });
     if (route === "/v1/cloud/jobs/job-1/result") return new Response("GLB-result");
     if (route === "/v1/cloud/jobs") return Response.json([]);
     throw new Error(`Unexpected route ${route}`);
@@ -62,9 +63,9 @@ describe("desktop free cloud connection", () => {
     expect(models).toContainEqual(expect.objectContaining({ ...MODEL, providerName: "Hyper3D · Free" }));
     expect(models).toContainEqual(expect.objectContaining({ provider: "hyper3d", id: "Gen-2.5-Medium", providerName: "Hyper3D · API key" }));
     // A visibility change belongs only to the selected allowance source.
-    await request(`/settings/models/providers/${MODEL.provider}/models/visibility`, "PUT", { ids: [MODEL.id], visible: false });
+    await request(`/settings/models/providers/${MODEL.provider}/models/visibility`, "PUT", { ids: CLOUD_MODEL_IDS, visible: false });
     expect((await request("/model3d-models/catalog")).json().models.every((model: { provider: string }) => model.provider === "hyper3d")).toBe(true);
-    await request(`/settings/models/providers/${MODEL.provider}/models/visibility`, "PUT", { ids: [MODEL.id], visible: true });
+    await request(`/settings/models/providers/${MODEL.provider}/models/visibility`, "PUT", { ids: CLOUD_MODEL_IDS, visible: true });
     await request(`/settings/models/providers/${MODEL.provider}/enabled`, "PATCH", { enabled: false });
     expect((await request("/settings/providers")).json().filter((provider: { id: string }) => ["hyper3d", MODEL.provider].includes(provider.id)).every((provider: { enabled: boolean }) => !provider.enabled)).toBe(true);
     cloudFetch.mockClear();
@@ -80,7 +81,8 @@ describe("desktop free cloud connection", () => {
     expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/hyper3d", headers: { authorization: "Bearer daemon-token" } })).statusCode).toBe(204);
     expect((await request("/model3d-models/catalog")).json().models).toEqual([]);
     await request(enabledUrl, "PATCH", { enabled: true });
-    expect((await request("/model3d-models/catalog")).json().models).toEqual([expect.objectContaining(MODEL)]);
+    expect((await request("/model3d-models/catalog")).json().models).toHaveLength(10);
+    expect((await request("/model3d-models/catalog")).json().models).toContainEqual(expect.objectContaining(MODEL));
   });
   it("shows the cloud's disabled-provider explanation in the account's connection", async () => {
     const base = remote();
@@ -155,11 +157,11 @@ describe("desktop free cloud connection", () => {
     expect(catalog.providers[0].cloud.availability).toBe("personal_exhausted");
     expect((await request("/model3d-models/default", "PUT", MODEL)).statusCode).toBe(204);
     const modelsPath = `/settings/models/providers/${MODEL.provider}/models`;
-    expect((await request(modelsPath)).json()).toMatchObject({ canAddCustomModel: false, models: [expect.objectContaining({ id: MODEL.id, source: "cloud", custom: false })] });
+    expect((await request(modelsPath)).json()).toMatchObject({ canAddCustomModel: false, models: expect.arrayContaining([expect.objectContaining({ id: MODEL.id, source: "cloud", custom: false, description: expect.stringContaining("0.5 credits") })]) });
     expect((await request(`${modelsPath}/${MODEL.id}`, "PUT", { id: MODEL.id, settings: { tier: "Gen-2.5-High" } })).statusCode).toBe(400);
-    expect((await request(`${modelsPath}/visibility`, "PUT", { ids: [MODEL.id], visible: false })).statusCode).toBe(200);
+    expect((await request(`${modelsPath}/visibility`, "PUT", { ids: CLOUD_MODEL_IDS, visible: false })).statusCode).toBe(200);
     expect((await request("/model3d-models/catalog")).json().models).toEqual([]);
-    expect((await request(`${modelsPath}/visibility`, "PUT", { ids: [MODEL.id], visible: true })).statusCode).toBe(200);
+    expect((await request(`${modelsPath}/visibility`, "PUT", { ids: CLOUD_MODEL_IDS, visible: true })).statusCode).toBe(200);
     expect((await request(`/settings/models/providers/${MODEL.provider}/enabled`, "PATCH", { enabled: false })).statusCode).toBe(200);
     expect((await request("/model3d-models/catalog")).json()).toMatchObject({ models: [], defaultModel: MODEL });
     await request("/cloud/session", "PUT", null);
@@ -281,6 +283,32 @@ describe("desktop free cloud connection", () => {
     expect(cloudQuotaSummary({ availability: "ready", quota: { ...quota, personal: { ...quota.personal, limit: null } } })).toBe("5 models left today");
     expect(quotaResetTime({ ...quota, availability: "pool_exhausted", pool: { ...quota.pool, resetsAt: "2026-10-12T16:00:00.000Z" } }))
       .not.toBe(quotaResetTime(quota));
+  });
+  it("allows a cheaper tier at 0.5 credits remaining and disables an expensive tier", () => {
+    const quota = { ...quotas().quotas[0]!, unit: "credits" as const,
+      personal: { limit: 20, used: 19.5, reserved: 0, remaining: 0.5, resetsAt: "2026-10-11T16:00:00.000Z" } };
+    const cloud = { availability: "ready" as const, quota };
+    expect(canAffordCloudModel(cloud, 0.5)).toBe(true);
+    expect(canAffordCloudModel(cloud, 1)).toBe(false);
+    expect(canAffordCloudModel({ ...cloud, quota: { ...quota, personal: { ...quota.personal, remaining: 0.5 - Number.EPSILON } } }, 0.5)).toBe(true);
+    expect(canAffordCloudModel({ ...cloud, availability: "pool_exhausted" }, 0.5)).toBe(false);
+    expect(canAffordCloudModel({ ...cloud, availability: "sign_in_required" }, 0.5)).toBe(false);
+    expect(canAffordCloudModel({ availability: "ready" }, 0.5)).toBe(false);
+    expect(canAffordCloudModel({ ...cloud, quota: { ...quota, personal: { ...quota.personal, remaining: null } } }, 0.5)).toBe(false);
+  });
+  it("resolves a saved legacy rodin reference through the live free model catalog", async () => {
+    const base = remote();
+    const fast = vi.fn<typeof fetch>(async (url, init) => String(url).endsWith("/3d/jobs")
+      ? Response.json({ id: "job-1", provider: MODEL.provider, modelId: MODEL.id, status: "succeeded", pollAfterMs: 5000 }) : base(url, init));
+    const { app, request, cloudFetch } = await fixture(fast);
+    await request("/cloud/session", "PUT", { accessToken: "account-token-1", userId: "user-1" });
+    const response = await app.inject({ method: "POST", url: "/tools/image-to-3d/jobs", headers: { authorization: "Bearer daemon-token" }, payload: { ...generation, model: { ...MODEL, id: "rodin" } } });
+    expect(response.statusCode).toBe(202);
+    await vi.waitFor(async () => {
+      expect((await request("/tool-jobs")).json().find((job: { id: string }) => job.id === response.json().id)).toMatchObject({ status: "succeeded" });
+    });
+    const submission = cloudFetch.mock.calls.find(([url]) => String(url).endsWith("/3d/jobs"));
+    expect(JSON.parse(submission![1]!.body as string).modelId).toBe(HYPER3D_DEFAULT_TIER);
   });
   it("hides another account's cached quota immediately on logout or account switch", () => {
     const cloud = { availability: "ready" as const, userId: "user-1", quota: quotas().quotas[0] };
