@@ -12,7 +12,7 @@ import {
   playableEdgeId,
   setPlayableSignalLabel,
 } from "../src/shared/playable-editor.js";
-import { rebasePlayableLayout, type NodeCodebase } from "../src/shared/playable-codebase.js";
+import { rebasePlayableLayout, samePlayableGraph, type NodeCodebase } from "../src/shared/playable-codebase.js";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
@@ -183,6 +183,18 @@ describe("rebasePlayableLayout", () => {
     });
   });
 
+  it("compares graphs by what they hold, not by how the file is written", () => {
+    const graph = createNodeGraphFixture();
+    const reordered = JSON.parse(JSON.stringify(graph, Object.keys(flattenKeys(graph)).sort().reverse()));
+    const renamed = { ...graph, title: `${graph.title}!` };
+
+    expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(graph));
+    expect(samePlayableGraph(graph, reordered)).toBe(true);
+    expect(samePlayableGraph(graph, { ...graph, variables: undefined })).toBe(true);
+    expect(samePlayableGraph(graph, renamed)).toBe(false);
+    expect(samePlayableGraph(graph, { ...graph, nodes: graph.nodes.slice(1) })).toBe(false);
+  });
+
   it("carries nothing when the editor changed the graph too", () => {
     const base = codebase();
     const local = structuredClone(base);
@@ -193,6 +205,16 @@ describe("rebasePlayableLayout", () => {
     expect(rebasePlayableLayout(base, local, remote)).toBeUndefined();
   });
 });
+
+/** Every key used anywhere in a JSON value. */
+function flattenKeys(value: unknown, keys: Record<string, true> = {}): Record<string, true> {
+  if (typeof value !== "object" || value === null) return keys;
+  for (const [key, child] of Object.entries(value)) {
+    if (!Array.isArray(value)) keys[key] = true;
+    flattenKeys(child, keys);
+  }
+  return keys;
+}
 
 describe("describePlayableValue", () => {
   it("shows starting values in author words", () => {

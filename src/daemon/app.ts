@@ -1284,7 +1284,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       result = await addPlayableNode(project.workspacePath, request.body);
     } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      return reply.code(cause instanceof NodeCodebaseConflictError ? 409 : 400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
     try {
       await projects.touch(project.id);

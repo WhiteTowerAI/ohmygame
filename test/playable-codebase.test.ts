@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
+  changeNodeCodebase,
   createNodeCodebase,
   createPlayableStarterCodebase,
   NodeCodebaseConflictError,
@@ -218,6 +220,44 @@ describe("Playable codebase", () => {
       editorLayout: stale.editorLayout,
       revision,
     });
+  });
+
+  it("changes the codebase in one step that no other save lands inside", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
+    );
+    const editor = await readNodeCodebaseDetail(workspace);
+    const moved = { ...editor.editorLayout, nodes: { start: { x: 400, y: 400 } } };
+
+    // The Agent adds a Scene while the editor autosaves a move made on the graph it loaded.
+    const [added, autosaved] = await Promise.allSettled([
+      addPlayableNode(workspace, { preset: "blank", id: "second" }),
+      writeNodeCodebase(workspace, { ...editor, editorLayout: moved }),
+    ]);
+
+    // The Scene is added whole, and the autosave is the one told to start again from it.
+    expect(added.status).toBe("fulfilled");
+    expect(autosaved).toMatchObject({ status: "rejected", reason: expect.any(NodeCodebaseConflictError) });
+    const latest = await readNodeCodebaseDetail(workspace);
+    expect(latest.graph.nodes.map((node) => node.id)).toEqual(["start", "second"]);
+
+    // A save queued first is what the change is made from.
+    await Promise.all([
+      writeNodeCodebase(workspace, { ...latest, graph: { ...latest.graph, title: "Saved first" } }),
+      changeNodeCodebase(workspace, (codebase) => ({
+        ...codebase,
+        editorLayout: { ...codebase.editorLayout, nodes: { ...codebase.editorLayout.nodes, start: { x: 400, y: 400 } } },
+      })),
+    ]);
+    const saved = await readNodeCodebase(workspace);
+    expect(saved.graph.title).toBe("Saved first");
+    expect(saved.editorLayout.nodes.start).toEqual({ x: 400, y: 400 });
+
+    const before = await readNodeCodebaseDetail(workspace);
+    await changeNodeCodebase(workspace, () => undefined);
+    expect((await readNodeCodebaseDetail(workspace)).revision).toBe(before.revision);
   });
 
   it("writes without a revision whatever the files hold", async () => {

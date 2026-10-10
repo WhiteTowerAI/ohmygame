@@ -10,7 +10,7 @@ import type { AssetLibrary } from "./asset-library.js";
 import { isProjectPackageManager } from "./package-manager.js";
 import { validateNodeGraph } from "../shared/playable-graph-validation.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
-import { readNodeCodebaseDetail, writeNodeCodebase } from "./playable-codebase.js";
+import { changeNodeCodebase } from "./playable-codebase.js";
 import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetReferences, renameCanvasAssetPaths } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { ProjectCovers } from "./project-covers.js";
@@ -625,13 +625,14 @@ export class ProjectManager {
           asset.source.kind === "library" && asset.source.assetId === assetId ? [id] : []
         )));
         if (removedIds.size > 0) {
-          const codebase = await readNodeCodebaseDetail(project.workspacePath);
-          for (const id of removedIds) delete codebase.graph.assets[id];
-          codebase.graph.nodes = codebase.graph.nodes.map((node) => ({
-            ...node,
-            assets: node.assets.filter((id) => !removedIds.has(id)),
-          }));
-          await writeNodeCodebase(project.workspacePath, codebase);
+          await changeNodeCodebase(project.workspacePath, (codebase) => {
+            for (const id of removedIds) delete codebase.graph.assets[id];
+            codebase.graph.nodes = codebase.graph.nodes.map((node) => ({
+              ...node,
+              assets: node.assets.filter((id) => !removedIds.has(id)),
+            }));
+            return codebase;
+          });
           await this.touch(project.id);
         }
       }

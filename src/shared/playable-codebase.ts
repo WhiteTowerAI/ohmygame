@@ -85,6 +85,24 @@ export function fitPlayableLayout(
   return fitted;
 }
 
+/** Whether two graphs hold the same data, whatever order their keys are written in. */
+export function samePlayableGraph(left: NodeGraph, right: NodeGraph): boolean {
+  return sameJson(left, right);
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (typeof left !== "object" || typeof right !== "object" || left === null || right === null) return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const leftValues = left as Record<string, unknown>;
+  const rightValues = right as Record<string, unknown>;
+  // A key that holds undefined is not written to the file.
+  const leftKeys = Object.keys(leftValues).filter((key) => leftValues[key] !== undefined);
+  const rightKeys = Object.keys(rightValues).filter((key) => rightValues[key] !== undefined);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => sameJson(leftValues[key], rightValues[key]));
+}
+
 /**
  * Carries the editor's unsaved change over to a codebase that changed on disk
  * since `base` was read. Only a layout change can be carried: the positions
@@ -96,7 +114,7 @@ export function rebasePlayableLayout(
   local: NodeCodebase,
   remote: NodeCodebase,
 ): NodeCodebase | undefined {
-  if (JSON.stringify(local.graph) !== JSON.stringify(base.graph)) return undefined;
+  if (!samePlayableGraph(local.graph, base.graph)) return undefined;
   const nodes: NodeEditorLayout["nodes"] = {};
   for (const node of remote.graph.nodes) {
     const before = base.editorLayout.nodes[node.id];

@@ -1,7 +1,6 @@
 import {
+  changeNodeCodebase,
   NodeCodebaseError,
-  readNodeCodebaseDetail,
-  writeNodeCodebase,
 } from "./playable-codebase.js";
 import { playablePreset, PLAYABLE_PRESET_IDS } from "./playable-presets.js";
 import { freePlayablePosition, type NodeEditorLayout } from "../shared/playable-codebase.js";
@@ -49,53 +48,54 @@ export async function addPlayableNode(
       `Invalid Node ID "${request.id}". Use letters, digits, dots, dashes, and underscores, starting with a letter or digit.`,
     );
   }
-  const codebase = await readNodeCodebaseDetail(workspacePath);
-  // Nodes are named in order, not after their Preset: a Preset is only a starting point.
-  const title = (request.title ?? nextNodeTitle(codebase.graph.nodes)).trim().slice(0, MAX_TITLE_LENGTH);
-  if (!title) throw new NodeCodebaseError("A Node title is required.");
-
-  if (codebase.graph.nodes.some((node) => node.id === request.id)) {
-    throw new NodeCodebaseError(`Node "${request.id}" already exists.`);
-  }
   const source = {
     html: `nodes/${request.id}/index.html`,
     css: `nodes/${request.id}/style.css`,
     javascript: `nodes/${request.id}/node.js`,
   };
-  // Without a title the starter text keeps the Preset's own wording.
-  const starter = preset.source(request.title ? title : preset.label);
-  // The first Node of an empty project becomes its Start.
-  const graph = withPlayableEntry({
-    ...codebase.graph,
-    nodes: [
-      ...codebase.graph.nodes,
-      {
-        id: request.id,
-        title,
-        source,
-        assets: [],
-        signals: preset.signals.map((signal) => ({ ...signal })),
-        ...(preset.story ? { story: { ...preset.story } } : {}),
+  let title = "";
+  // Read and written as one step, so a save from the editor cannot land in between and be lost.
+  await changeNodeCodebase(workspacePath, (codebase) => {
+    // Nodes are named in order, not after their Preset: a Preset is only a starting point.
+    title = (request.title ?? nextNodeTitle(codebase.graph.nodes)).trim().slice(0, MAX_TITLE_LENGTH);
+    if (!title) throw new NodeCodebaseError("A Node title is required.");
+
+    if (codebase.graph.nodes.some((node) => node.id === request.id)) {
+      throw new NodeCodebaseError(`Node "${request.id}" already exists.`);
+    }
+    // Without a title the starter text keeps the Preset's own wording.
+    const starter = preset.source(request.title ? title : preset.label);
+    // The first Node of an empty project becomes its Start.
+    const graph = withPlayableEntry({
+      ...codebase.graph,
+      nodes: [
+        ...codebase.graph.nodes,
+        {
+          id: request.id,
+          title,
+          source,
+          assets: [],
+          signals: preset.signals.map((signal) => ({ ...signal })),
+          ...(preset.story ? { story: { ...preset.story } } : {}),
+        },
+      ],
+    });
+    const editorLayout: NodeEditorLayout = {
+      ...codebase.editorLayout,
+      nodes: {
+        ...codebase.editorLayout.nodes,
+        [request.id]: request.position ?? freePlayablePosition(codebase.editorLayout),
       },
-    ],
-  });
-  const editorLayout: NodeEditorLayout = {
-    ...codebase.editorLayout,
-    nodes: {
-      ...codebase.editorLayout.nodes,
-      [request.id]: request.position ?? freePlayablePosition(codebase.editorLayout),
-    },
-  };
-  await writeNodeCodebase(workspacePath, {
-    graph,
-    editorLayout,
-    // Refuses to drop a change saved since the graph was read above.
-    revision: codebase.revision,
-    sources: {
-      [source.html]: starter.html,
-      [source.css]: starter.css,
-      [source.javascript]: starter.javascript,
-    },
+    };
+    return {
+      graph,
+      editorLayout,
+      sources: {
+        [source.html]: starter.html,
+        [source.css]: starter.css,
+        [source.javascript]: starter.javascript,
+      },
+    };
   });
   return {
     id: request.id,
