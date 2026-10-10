@@ -342,6 +342,12 @@ export interface AssetCanvasTextGenerationRequest {
   instruction: string;
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+  referenceSource?: AssetCanvasTextGenerationSource;
+}
+
+export interface AssetCanvasTextGenerationSource {
+  boardId: string;
+  nodeId: string;
 }
 
 export interface AssetCanvasTextGenerationResponse {
@@ -351,7 +357,7 @@ export interface AssetCanvasTextGenerationResponse {
 
 export type AssetCanvasNode = (
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
-  | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string } }
+  | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string; references?: AssetCanvasTextReference[] } }
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
     mediaType: "image" | "video" | "audio" | "model";
@@ -361,6 +367,7 @@ export type AssetCanvasNode = (
     instruction: string;
     model?: AgentModelRef;
     reasoningLevel?: AgentReasoningLevel;
+    references?: AssetCanvasTextReference[];
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;

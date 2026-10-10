@@ -7356,13 +7356,13 @@ button {
   line-height: 1.4;
 }
 
-.story-text-composer > div {
+.canvas-text-composer-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.story-text-composer button:not(.canvas-chip) {
+.canvas-text-composer-actions > button {
   display: grid;
   width: 30px;
   height: 30px;
@@ -7377,11 +7377,11 @@ button {
   cursor: pointer;
 }
 
-.story-text-composer button:not(.canvas-chip):hover:not(:disabled) {
+.canvas-text-composer-actions > button:hover:not(:disabled) {
   background: var(--theme-accent-hover);
 }
 
-.story-text-composer button:not(.canvas-chip):disabled {
+.canvas-text-composer-actions > button:disabled {
   cursor: default;
   opacity: 0.45;
 }
@@ -7585,16 +7585,21 @@ button {
   position: absolute;
   right: 3px;
   bottom: 3px;
-  display: grid;
+  display: block;
   min-width: 16px;
+  max-width: calc(100% - 6px);
   height: 14px;
-  place-items: center;
+  overflow: hidden;
   padding: 0 3px;
   border-radius: 3px;
   background: rgb(12 13 15 / 82%);
   color: #fff;
   font-size: 8px;
   font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .story-media-reference > button {

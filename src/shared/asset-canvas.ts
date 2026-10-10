@@ -101,6 +101,15 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
   }
   const nodes = new Map(document.nodes.map((node) => [node.id, node]));
   for (const node of document.nodes) {
+    if (node.type === "text" || node.type === "document") {
+      for (const reference of node.data.references ?? []) {
+        const source = nodes.get(reference.nodeId);
+        if (!source || source.id === node.id || !isTextGenerationReferenceNode(source) ||
+          (node.type === "document" && source.type === "document" && source.data.documentId === node.data.documentId)) {
+          throw new Error(`Node ${node.id} has an invalid generation reference`);
+        }
+      }
+    }
     if (node.type === "image" || node.type === "model-3d") {
       for (const reference of node.data.images) validateReference(node.id, reference, nodes, ["image", "asset"]);
     }
@@ -113,6 +122,10 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
       if (!source || (source.type !== "text" && source.type !== "document") || source.id === node.id) throw new Error(`Node ${node.id} has an invalid Text reference`);
     }
   }
+}
+
+export function isTextGenerationReferenceNode(node: { type?: AssetCanvasNode["type"]; data: object }): boolean {
+  return node.type === "text" || node.type === "document" || node.type === "image" || (node.type === "asset" && "mediaType" in node.data && node.data.mediaType === "image");
 }
 
 export function isAssetCanvasDocument(value: unknown): value is AssetCanvasDocument {
