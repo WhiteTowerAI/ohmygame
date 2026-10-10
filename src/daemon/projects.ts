@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
+import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { isProjectType, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
@@ -14,6 +14,7 @@ import type { NodeGraph } from "../shared/playable-nodes.js";
 import { changeNodeCodebase } from "./playable-codebase.js";
 import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetReferences, renameCanvasAssetPaths } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
+import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { ProjectCovers } from "./project-covers.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
@@ -268,6 +269,7 @@ export class ProjectManager {
           return path.basename(sourcePath) !== "node_modules" && relative !== ".data/agent-attachments";
         },
       });
+      await bindCanvasHistory(path.join(duplicateDirectory, "workspace"), duplicateId);
       await this.#covers.copy(this.#projectDirectory(source.id), duplicateDirectory);
       await writeMetadata(duplicateDirectory, metadata);
     } catch (error) {
@@ -949,6 +951,28 @@ async function writeMetadata(projectDirectory: string, metadata: ProjectMetadata
   } finally {
     await rm(temporary, { force: true });
   }
+}
+
+/**
+ * Binds copied Canvas generation history to the project that now owns it.
+ * Canvas rejects history recorded for another project; node IDs, status,
+ * settings and outputs stay intact.
+ */
+async function bindCanvasHistory(workspacePath: string, projectId: string): Promise<void> {
+  let jobs: unknown;
+  try {
+    // Retry inputs can contain inline images, exceeding the board-file limit.
+    const history = await readCanvasFile(workspacePath, "jobs.json", Infinity);
+    if (history === undefined) return;
+    jobs = JSON.parse(history) as unknown;
+  } catch {
+    // History that cannot be read stays as copied; Canvas reports it when opened.
+    return;
+  }
+  if (!Array.isArray(jobs)) return;
+  await writeCanvasJson(workspacePath, "jobs.json", (jobs as (ToolJob | null)[]).map((job) => (
+    job?.context && typeof job.context === "object" ? { ...job, context: { ...job.context, projectId } } : job
+  )));
 }
 
 async function exists(target: string): Promise<boolean> {
