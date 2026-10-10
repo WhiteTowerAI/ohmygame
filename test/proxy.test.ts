@@ -52,13 +52,15 @@ describe("proxyOptionsFromEnvironment", () => {
 
 describe("configureNetworkProxy", () => {
   it("returns false and does not throw for an unparseable proxy URL", () => {
+    // After normalizeProxyUrl prepends http://, the value still contains
+    // characters that make EnvHttpProxyAgent reject it during construction.
     expect(() => configureNetworkProxy({
-      HTTP_PROXY: "not a url at all :// broken",
-      HTTPS_PROXY: "not a url at all :// broken",
+      HTTP_PROXY: "http://[invalid",
+      HTTPS_PROXY: "http://[invalid",
     })).not.toThrow();
     expect(configureNetworkProxy({
-      HTTP_PROXY: "not a url at all :// broken",
-      HTTPS_PROXY: "not a url at all :// broken",
+      HTTP_PROXY: "http://[invalid",
+      HTTPS_PROXY: "http://[invalid",
     })).toBe(false);
   });
 
