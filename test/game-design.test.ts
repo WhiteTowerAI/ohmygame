@@ -44,6 +44,69 @@ async function waitForJob(store: CanvasStore, projectId: string) {
   return (await store.jobs(projectId))[0]!;
 }
 describe("Markdown design workspace", () => {
+  it("persists node sizes in layout files and merges resizing with content edits", async () => {
+    const { store, project, boardId } = await runtime();
+    const detail = await store.board(project.id, boardId);
+    const node: AssetCanvasNode = { id: "notes", type: "text", position: { x: 10, y: 20 }, width: 700, height: 500, data: { text: "Rules", instruction: "" } };
+    detail.board.nodes.push(node); detail.board.editorLayout.nodes.notes = { ...node.position, width: node.width, height: node.height };
+    const saved = await store.saveBoard(project.id, detail.board, detail.revision);
+    expect(saved.board.nodes.find((node) => node.id === "notes")).toMatchObject({ width: 700, height: 500 });
+    const file = JSON.parse(await readFile(path.join(project.workspacePath, `canvas/boards/${boardId}.json`), "utf8"));
+    expect(file.nodes.find((node: AssetCanvasNode) => node.id === "notes")).not.toHaveProperty("width");
+    const local = structuredClone(saved.board), remote = structuredClone(saved.board);
+    local.nodes.at(-1)!.width = 900;
+    if (remote.nodes.at(-1)!.type === "text") (remote.nodes.at(-1)!.data as { text: string }).text = "Edited elsewhere";
+    const merged = mergeCanvasDocument(saved.board, local, remote)!;
+    expect(merged.nodes.at(-1)).toMatchObject({ width: 900, data: { text: "Edited elsewhere" } });
+    expect(merged.editorLayout.nodes.notes).toMatchObject({ width: 900, height: 500 });
+    delete local.nodes.at(-1)!.width; delete local.nodes.at(-1)!.height;
+    local.editorLayout.nodes.notes = node.position;
+    const reset = await store.saveBoard(project.id, local, saved.revision);
+    expect(reset.board.nodes.at(-1)).not.toHaveProperty("width");
+  });
+
+  it("shares canonical table files across boards and reports damaged files without breaking the canvas", async () => {
+    const { store, project, boardId } = await runtime();
+    const created = await store.createTable(project.id, "Items");
+    const next = await store.changeBoards(project.id, { type: "create", name: "Balance" });
+    for (const id of [boardId, next.boards.at(-1)!.id]) {
+      const detail = await store.board(project.id, id);
+      detail.board.nodes.push({ id: "items", type: "table", position: { x: 0, y: 0 }, data: { tableId: created.table.id } });
+      detail.board.editorLayout.nodes.items = { x: 0, y: 0 };
+      await store.saveBoard(project.id, detail.board, detail.revision);
+    }
+    const updated = structuredClone(created.table);
+    updated.columns[1]!.type = "number"; updated.rows[0]!.cells[updated.columns[1]!.id] = 15;
+    await store.saveTable(project.id, updated, created.revision);
+    await expect(store.saveTable(project.id, created.table, created.revision)).rejects.toMatchObject({ statusCode: 409 });
+    expect((await store.workspace(project.id)).tables?.[0]?.rows[0]?.cells).toEqual(updated.rows[0]!.cells);
+    expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
+    await store.changeBoards(project.id, { type: "delete", boardId: next.boards.at(-1)!.id });
+    expect((await store.table(project.id, updated.id)).table).toEqual(updated);
+    await writeFile(path.join(project.workspacePath, `canvas/tables/${updated.id}.json`), "broken");
+    const workspace = await store.workspace(project.id);
+    expect(workspace.tables).toEqual([]); expect(workspace.tableIssues?.[0]?.id).toBe(updated.id);
+    expect((await store.board(project.id, boardId)).board.nodes.at(-1)?.type).toBe("table");
+    expect((await checkCanvasWorkspace(project.workspacePath)).issues.some((issue) => issue.file.endsWith(`${updated.id}.json`))).toBe(true);
+  });
+
+  it("validates table routes, revisions, identities and unknown board references", async () => {
+    const app = createApp({ dataDirectory: await temp() }); apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json(), base = `/projects/${project.id}/canvas`;
+    const workspace = (await app.inject(`${base}/workspace`)).json();
+    const created = await app.inject({ method: "POST", url: `${base}/tables`, payload: { title: "Balance" } });
+    expect(created.statusCode).toBe(201);
+    const detail = created.json(), url = `${base}/tables/${detail.table.id}`;
+    detail.table.columns[0].type = "number"; detail.table.rows[0].cells[detail.table.columns[0].id] = "wrong";
+    expect((await app.inject({ method: "PUT", url, payload: detail })).statusCode).toBe(400);
+    detail.table.rows[0].cells[detail.table.columns[0].id] = 42;
+    expect((await app.inject({ method: "PUT", url, payload: detail })).statusCode).toBe(200);
+    expect((await app.inject({ method: "PUT", url, payload: detail })).statusCode).toBe(409);
+    expect((await app.inject({ method: "PUT", url: `${base}/tables/other`, payload: detail })).statusCode).toBe(400);
+    const board = (await app.inject(`${base}/boards/${workspace.boards[0].id}`)).json();
+    board.board.nodes.push({ id: "missing", type: "table", position: { x: 0, y: 0 }, data: { tableId: "unknown" } }); board.board.editorLayout.nodes.missing = { x: 0, y: 0 };
+    expect((await app.inject({ method: "PUT", url: `${base}/boards/${board.board.id}`, payload: board })).statusCode).toBe(404);
+  });
   it("records contextual defaults in canvas history and preserves them through retries and reloads", async () => {
     let defaultId = "project-image";
     const generate = vi.fn<ImageGenerator["generate"]>()
@@ -612,6 +675,34 @@ describe("Markdown design workspace", () => {
     expect(incomplete.statusCode).toBe(200);
     expect(incomplete.json()).toMatchObject({ status: "incomplete", markdown: "Partial rules", error: expect.stringContaining("output limit"), revision: saved.revision });
     expect((await app.inject(`${base}?documentId=${saved.document.id}`)).json()).toEqual(saved);
+  });
+  it("generates tables from a saved snapshot and never saves invalid or truncated AI output", async () => {
+    const model = { provider: "test-provider", id: "test-model" };
+    const response = vi.fn(() => ({ content: [{ type: "text", text: "" }], stopReason: "stop" }));
+    const streamSimple = vi.fn((_model, _context, _options) => ({ async *[Symbol.asyncIterator]() {
+      const message = response();
+      yield { type: "done", reason: message.stopReason, message };
+    } }));
+    const modelRuntime = { getModel: () => model, getAvailable: async () => [model], hasConfiguredAuth: () => true, streamSimple } as unknown as ModelRuntime;
+    const app = createApp({ dataDirectory: await temp(), createModelRuntime: async () => modelRuntime }); apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json(), base = `/projects/${project.id}/canvas`;
+    const original = (await app.inject({ method: "POST", url: `${base}/tables`, payload: { title: "Equipment" } })).json();
+    const saved = (await app.inject({ method: "PUT", url: `${base}/tables/${original.table.id}`, payload: { ...original, table: { ...original.table, title: "Current equipment" } } })).json();
+    const url = `${base}/tables/${saved.table.id}/generate`, payload = { instruction: "Add a weapon", model, revision: saved.revision };
+    expect((await app.inject({ method: "POST", url, payload: { ...payload, revision: original.revision } })).statusCode).toBe(409);
+    expect((await app.inject({ method: "POST", url: `${base}/tables/missing/generate`, payload })).statusCode).toBe(404);
+    expect(streamSimple).not.toHaveBeenCalled();
+    const candidate = { ...saved.table, title: "Generated equipment" };
+    response.mockReturnValue({ content: [{ type: "text", text: JSON.stringify(candidate) }], stopReason: "stop" });
+    const generated = await app.inject({ method: "POST", url, payload });
+    expect(generated.statusCode).toBe(200);
+    expect(generated.json()).toEqual({ status: "complete", table: candidate, model, revision: saved.revision });
+    expect(JSON.parse(streamSimple.mock.calls[0]![1].messages[0].content).table).toEqual(saved.table);
+    response.mockReturnValueOnce({ content: [{ type: "text", text: "invalid table" }], stopReason: "stop" });
+    expect((await app.inject({ method: "POST", url, payload })).json()).toMatchObject({ status: "invalid", revision: saved.revision });
+    response.mockReturnValueOnce({ content: [{ type: "text", text: JSON.stringify(candidate) }], stopReason: "length" });
+    expect((await app.inject({ method: "POST", url, payload })).json()).toMatchObject({ status: "incomplete", error: expect.stringContaining("output limit") });
+    expect((await app.inject(`${base}/tables/${saved.table.id}`)).json()).toEqual(saved);
   });
 });
 describe("design merge and validation", () => {

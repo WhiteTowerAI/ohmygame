@@ -19,8 +19,9 @@ import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
-import { generateCreativeText, generateDesignDocumentMarkdown } from "./text-generation.js";
+import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "./text-generation.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
+import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
 import { registerCanvasRoutes } from "./canvas-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
@@ -1312,15 +1313,21 @@ export function createApp(options: AppOptions = {}) {
     bodyLimit: 32_000,
   };
 
-  const generateText = async (request: FastifyRequest<{ Params: { projectId: string; documentId?: string }; Body: AssetCanvasTextGenerationRequest & { revision?: string } }>, reply: FastifyReply) => {
+  const generateText = async (request: FastifyRequest<{ Params: { projectId: string; documentId?: string; tableId?: string }; Body: AssetCanvasTextGenerationRequest & { revision?: string } }>, reply: FastifyReply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     let document: CanvasDocumentDetail | undefined;
+    let table: CanvasTableDetail | undefined;
     if (request.params.documentId) {
       try { document = await canvasStore.read(project.id, request.params.documentId); }
       catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
       if (!document) return reply.code(404).send({ error: "Document not found" });
       if (document.revision !== request.body.revision) return reply.code(409).send({ error: "The document changed. Retry with the latest version." });
+    }
+    if (request.params.tableId) {
+      try { table = await canvasStore.table(project.id, request.params.tableId); }
+      catch (cause) { return reply.code(cause instanceof CanvasError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+      if (table.revision !== request.body.revision) return reply.code(409).send({ error: "The table changed. Retry with the latest version." });
     }
     const runtime = await getModelRuntime();
     const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
@@ -1340,6 +1347,10 @@ export function createApp(options: AppOptions = {}) {
         const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel);
         return { ...result, model: selected, revision: document.revision };
       }
+      if (table) {
+        const result = await generateDesignTable(runtime, model, table.table, request.body.instruction, reasoningLevel);
+        return { ...result, model: selected, revision: table.revision };
+      }
       const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel);
       if (!text) return reply.code(502).send({ error: "The language model returned no text" });
       return { text, model: selected };
@@ -1353,10 +1364,14 @@ export function createApp(options: AppOptions = {}) {
     generateText,
   );
 
+  const resourceGenerationOptions = { ...textGenerationOptions, schema: { body: { ...textGenerationOptions.schema.body, required: ["instruction", "revision"], properties: { ...textGenerationOptions.schema.body.properties, revision: { type: "string", minLength: 1, maxLength: 100 } } } } };
   app.post<{ Params: { projectId: string; documentId: string }; Body: CanvasDocumentGenerationRequest }>(
     "/projects/:projectId/canvas/documents/:documentId/generate",
-    { ...textGenerationOptions, schema: { body: { ...textGenerationOptions.schema.body, required: ["instruction", "revision"], properties: { ...textGenerationOptions.schema.body.properties, revision: { type: "string", minLength: 1, maxLength: 100 } } } } },
+    resourceGenerationOptions,
     generateText,
+  );
+  app.post<{ Params: { projectId: string; tableId: string }; Body: CanvasTableGenerationRequest }>(
+    "/projects/:projectId/canvas/tables/:tableId/generate", resourceGenerationOptions, generateText,
   );
 
   app.patch<{ Params: { projectId: string }; Body: { name: string } }>(

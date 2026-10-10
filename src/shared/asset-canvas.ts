@@ -12,6 +12,7 @@ import {
   DEFAULT_VIDEO_NODE_CONFIG,
 } from "./generation-config.js";
 import { Check } from "typebox/value";
+import { canvasNodeContent, canvasNodeLayout } from "./canvas-node-layout.js";
 import { ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA, ASSET_CANVAS_SCHEMA } from "./asset-canvas-schema.js";
 
 export type AssetCanvasStarter = "image" | "video" | "model-3d";
@@ -119,8 +120,9 @@ export function isAssetCanvasDocument(value: unknown): value is AssetCanvasDocum
   const document = value as AssetCanvasDocument;
   try {
     const { editorLayout, ...rest } = document;
-    const persisted = { ...rest, nodes: rest.nodes.map(({ position: _position, ...node }) => node) };
+    const persisted = { ...rest, nodes: rest.nodes.map(canvasNodeContent) };
     if (!Check(ASSET_CANVAS_SCHEMA, persisted) || !Check(ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA, editorLayout)) return false;
+    if (!document.nodes.every((node) => Check(ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA.properties.nodes.additionalProperties, canvasNodeLayout(node)))) return false;
     validateAssetCanvasDocument(document);
     return true;
   } catch {

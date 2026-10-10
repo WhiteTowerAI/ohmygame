@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateCanvasDocument, generateCanvasText } from "../src/renderer/canvas-api.js";
+import { generateCanvasDocument, generateCanvasText, generateCanvasTable } from "../src/renderer/canvas-api.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -11,7 +11,9 @@ describe("canvas generation API", () => {
     const model = { provider: "openai", id: "test" };
     await generateCanvasText("project", "Write", model, "high");
     await generateCanvasDocument("project", "rules", { instruction: "Revise", model, reasoningLevel: "max", revision: "1" });
+    await generateCanvasTable("project", "items", { instruction: "Balance damage", model, reasoningLevel: "high", revision: "2" });
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/projects/project/canvas/text/generate", expect.objectContaining({ body: JSON.stringify({ instruction: "Write", model, reasoningLevel: "high" }) }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project/canvas/documents/rules/generate", expect.objectContaining({ body: JSON.stringify({ instruction: "Revise", model, reasoningLevel: "max", revision: "1" }) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project/canvas/tables/items/generate", expect.objectContaining({ body: JSON.stringify({ instruction: "Balance damage", model, reasoningLevel: "high", revision: "2" }) }));
   });
 });

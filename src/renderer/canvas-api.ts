@@ -1,3 +1,4 @@
+import type { CanvasTableDetail, CanvasTableGenerationRequest, CanvasTableGenerationResponse } from "../shared/canvas-table.js";
 import type { AgentModelRef, AgentReasoningLevel, AssetCanvasTextGenerationResponse, ToolJob } from "../shared/contracts.js";
 import type { CanvasDocumentDetail, CanvasDocumentGenerationRequest, CanvasDocumentGenerationResponse } from "../shared/canvas-document.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail, CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
@@ -22,3 +23,8 @@ export const generateCanvasMedia = (id: string, boardId: string, nodeId: string)
 export const cancelCanvasJob = (id: string, jobId: string): Promise<ToolJob> => request(`${base(id)}/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
 export const generateCanvasText = (id: string, instruction: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel): Promise<AssetCanvasTextGenerationResponse> => request(`${base(id)}/text/generate`, { method: "POST", body: JSON.stringify({ instruction, model, reasoningLevel }) });
 export const generateCanvasDocument = (id: string, documentId: string, input: CanvasDocumentGenerationRequest): Promise<CanvasDocumentGenerationResponse> => request(`${base(id)}/documents/${encodeURIComponent(documentId)}/generate`, { method: "POST", body: JSON.stringify(input) });
+
+export const createCanvasTable = (id: string, title: string): Promise<CanvasTableDetail> => request(`${base(id)}/tables`, { method: "POST", body: JSON.stringify({ title }) });
+export const getCanvasTable = (id: string, tableId: string): Promise<CanvasTableDetail> => request(`${base(id)}/tables/${encodeURIComponent(tableId)}`);
+export const saveCanvasTable = (id: string, detail: CanvasTableDetail): Promise<CanvasTableDetail> => request(`${base(id)}/tables/${encodeURIComponent(detail.table.id)}`, { method: "PUT", body: JSON.stringify(detail) });
+export const generateCanvasTable = (id: string, tableId: string, input: CanvasTableGenerationRequest): Promise<CanvasTableGenerationResponse> => request(`${base(id)}/tables/${encodeURIComponent(tableId)}/generate`, { method: "POST", body: JSON.stringify(input) });

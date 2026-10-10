@@ -1,3 +1,7 @@
+import { useCanvasTables } from "./use-canvas-tables.js";
+import { Equal } from "typebox/value";
+import { CanvasTableConflictNotice, ExpandedCanvasTable, type CanvasTables } from "./canvas-table-node.js";
+import { canvasTablePath } from "../shared/canvas-table.js";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AssetCanvasNode, ProjectState, PromptContext } from "../shared/contracts.js";
@@ -37,6 +41,9 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
 }) {
   const singleBoard = project.type === "asset-canvas";
   const docs = useCanvasDocuments(project.id), workspace = docs.workspace;
+  const tableStorage = useCanvasTables(project.id, workspace);
+  const tablesRef = useRef(tableStorage); tablesRef.current = tableStorage;
+  const [expandedTable, setExpandedTable] = useState<{ id: string; mode: "edit" | "preview" }>();
   const assetPaths = useMemo(() => canvasAssetSources(project.id, workspace?.assets ?? [], workspace?.unavailableAssets), [project.id, workspace?.assets, workspace?.unavailableAssets]);
   const docsRef = useRef(docs); docsRef.current = docs;
   const [activeId, setActiveId] = useState<string | undefined>(() => { try { return localStorage.getItem(`canvas-active:${project.id}`) ?? undefined; } catch { return undefined; } });
@@ -57,7 +64,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const boardResolve = useRef<((version: "local" | "remote") => Promise<void>) | undefined>(undefined);
   const registerSave = useCallback((save: (() => Promise<void>) | undefined) => { boardSave.current = save; }, []);
   const registerResolve = useCallback((resolve: typeof boardResolve.current) => { boardResolve.current = resolve; }, []);
-  const flush = useCallback(async () => { await boardSave.current?.(); await docsRef.current.flush(); }, []);
+  const flush = useCallback(async () => { await boardSave.current?.(); await docsRef.current.flush(); await tablesRef.current.flush(); }, []);
   const changeView = useCallback((view: "canvas" | "code") => {
     setWorkspaceView(view);
     // Keep the canvas session and drafts alive; Code stays accessible if saving fails.
@@ -69,13 +76,17 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
     setBusy(true); setError(undefined);
     try { return await operation(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); } finally { setBusy(false); }
   }, []);
+  const tables: CanvasTables = { storage: tableStorage, issues: workspace?.tableIssues, open: (id, mode = "edit") => setExpandedTable({ id, mode }), add: () => run(async () => {
+    const id = await tableStorage.create(); await docsRef.current.refresh(); return id;
+  }) };
+  const tableContents = [...tableStorage.sessions.values()].map((session) => session.local);
   const leave = useCallback((action: () => void) => { void run(async () => { await flush(); action(); }); }, [run, flush]);
   useEffect(() => { onLeaveReady?.(leave); return () => onLeaveReady?.(undefined); }, [leave, onLeaveReady]);
   useEffect(() => { onSaveReady?.(flush); return () => onSaveReady?.(undefined); }, [flush, onSaveReady]);
   useEffect(() => { if (workspace && (singleBoard || !workspace.boards.some((board) => board.id === activeId))) setActiveId(workspace.boards[0]?.id); }, [workspace, activeId, singleBoard]);
   useEffect(() => { if (activeId) { try { localStorage.setItem(`canvas-active:${project.id}`, activeId); } catch { /* Board selection remains usable without storage. */ } } }, [project.id, activeId]);
   const boardName = workspace?.boards.find((board) => board.id === activeId)?.name;
-  const selectionContext = JSON.stringify({ total: selectedNodes.length, nodes: selectedNodes.slice(0, 25).map((node) => ({ id: node.id, name: canvasNodeTitle(node, workspace?.documents, workspace?.assets).slice(0, 80), type: node.type, ...(node.type === "document" ? { source: canvasDocumentPath(node.data.documentId) } : {}) })) });
+  const selectionContext = JSON.stringify({ total: selectedNodes.length, nodes: selectedNodes.slice(0, 25).map((node) => ({ id: node.id, name: canvasNodeTitle(node, workspace?.documents, workspace?.assets, tableContents).slice(0, 80), type: node.type, ...(node.type === "document" ? { source: canvasDocumentPath(node.data.documentId) } : node.type === "table" ? { source: canvasTablePath(node.data.tableId) } : {}) })) });
   useEffect(() => {
     if (singleBoard && workspaceView === "code") { onContextChange?.(undefined); return; }
     if (!activeId || !boardName) return;
@@ -90,7 +101,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const adapterKey = activeId ? `${project.id}:${activeId}` : undefined;
   if (adapterRef.current?.key !== adapterKey) adapterRef.current = activeId ? createCanvasBoardStorage({
     projectId: project.id, boardId: activeId,
-    onConflict: (conflict) => { if (adapterRef.current?.key === adapterKey) setBoardConflict(conflict); }, flushDocuments: () => docsRef.current.flush(),
+    onConflict: (conflict) => { if (adapterRef.current?.key === adapterKey) setBoardConflict(conflict); }, flushDocuments: async () => { await docsRef.current.flush(); await tablesRef.current.flush(); },
   }) : undefined;
   const adapter = adapterRef.current;
   const design: CanvasDocuments = {
@@ -115,7 +126,9 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const optionsBoard = workspace?.boards.find((board) => board.id === boardOptions?.id);
   const expanded = workspace?.documents.find((doc) => doc.id === documentId);
   const hasDocumentDraft = workspace?.documentIssues?.some((issue) => workspace.documents.some((doc) => doc.id === issue.id));
-  const status = docs.conflict || boardConflict ? "conflict" : docs.error || boardStatus === "error" ? "error" : docs.saving || boardStatus === "saving" ? "saving" : hasDocumentDraft ? "draft" : docs.loadError ? "sync-error" : boardStatus;
+  const tableConflicts = [...tableStorage.sessions.values()].flatMap((session) => session.conflict ? [session.conflict] : []);
+  const hasTableDraft = [...tableStorage.sessions.values()].some((session) => session.issue && !Equal(session.local, session.base.table));
+  const status = docs.conflict || boardConflict || tableConflicts.length ? "conflict" : docs.error || tableStorage.error || boardStatus === "error" ? "error" : docs.saving || tableStorage.saving || boardStatus === "saving" ? "saving" : hasDocumentDraft || hasTableDraft ? "draft" : docs.loadError ? "sync-error" : boardStatus;
   const saveStatus = <span className={`design-save-status is-${status}`} role="status">{status === "saving" ? <LoaderCircle size={12} className="spin" /> : status === "saved" ? <Check size={12} /> : null}{status === "saved" ? "Saved" : status === "saving" ? "Saving" : status === "error" ? "Save failed" : status === "sync-error" ? "Sync paused" : status === "load-error" ? "Could not load" : status === "conflict" ? "Review changes" : status === "draft" ? "Draft kept locally" : "Loading"}</span>;
   const floating = <div className="design-board-switcher">
     <Layers3 size={13} aria-hidden="true" />
@@ -143,19 +156,25 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
     {docs.loadError ? <div className="design-notice" role="alert"><span>{workspace ? "Could not sync workspace. Your canvas is kept open. " : "Could not load workspace. "}{docs.loadError}</span><button type="button" disabled={busy} onClick={() => void run(() => docsRef.current.refresh())}>Reload workspace</button></div> : null}
     {docs.error && !docs.conflict ? <div className="design-notice" role="alert"><span>{docs.error}</span><button type="button" disabled={busy} onClick={() => void run(() => docsRef.current.flush())}>Retry save</button></div> : null}
     {docs.conflict ? <div className="design-notice" role="alert"><span>Document “{docs.conflict.local.title}” changed elsewhere. Your draft is kept; choose a version to resume saving.</span><button type="button" onClick={() => docs.resolve("remote")}>Use disk version</button><button type="button" onClick={() => docs.resolve("local")}>Keep my version</button></div> : null}
+    {tableStorage.error && !tableConflicts.length ? <div className="design-notice" role="alert"><span>{tableStorage.error}</span><button type="button" onClick={() => void run(() => tableStorage.flush())}>Retry save</button></div> : null}
+    {tableConflicts.map((conflict) => <CanvasTableConflictNotice key={conflict.local.id} conflict={conflict} storage={tableStorage} />)}
     {boardConflict ? <div className="design-notice" role="alert"><span>The board changed elsewhere. Your draft is kept; choose a version to resume saving.</span>{(["remote", "local"] as const).map((version) => <button type="button" key={version} disabled={busy || boardStatus === "loading" || boardStatus === "load-error"} onClick={() => void run(async () => {
       const resolve = boardResolve.current;
       if (!resolve) throw new Error("Load the canvas before resolving its changes.");
       await resolve(version);
       setBoardConflict(undefined);
     })}>{version === "remote" ? "Use disk version" : "Keep my version"}</button>)}</div> : null}
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={singleBoard && workspaceView === "code"} storage={adapter} documents={design} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : singleBoard && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>Restore the workspace files, then reload.</span> : <LoaderCircle size={22} className="spin" />}</div>}
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={singleBoard && workspaceView === "code"} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : singleBoard && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>Restore the workspace files, then reload.</span> : <LoaderCircle size={22} className="spin" />}</div>}
     {singleBoard && workspaceView === "code" ? <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + codeRevision} openFileRequest={openFileRequest} /> : null}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={`Board options: ${optionsBoard.name}`} onClose={() => setBoardOptions(undefined)}>
       <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>Rename</span></button>
       {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}<span>{direction === -1 ? "Move up" : "Move down"}</span></button>)}
       <button type="button" role="menuitem" disabled={workspace.boards.length === 1} onClick={() => { setBoardOptions(undefined); setDialog({ type: "delete", id: optionsBoard.id }); }}><Trash2 size={14} /><span>Delete board</span></button>
     </CanvasContextMenu> : null}
+    {expandedTable && tableStorage.sessions.get(expandedTable.id) && workspaceView !== "code" ? <div className="design-expanded-document canvas-expanded-table" role="dialog" aria-modal="true" aria-label="Expanded table">
+      <ExpandedCanvasTable key={expandedTable.id} table={tableStorage.sessions.get(expandedTable.id)!.local} tables={tables} initialMode={expandedTable.mode} />
+      <button className="design-expanded-close" type="button" title="Back to canvas" aria-label="Back to canvas" onClick={() => setExpandedTable(undefined)}><X size={16} /></button>
+    </div> : null}
     {expanded && workspaceView !== "code" ? <div className="design-expanded-document" role="dialog" aria-modal="true" aria-label={expanded.title}>
       <ExpandedCanvasDocument design={design} document={expanded} />
       <button className="design-expanded-close" type="button" title="Back to canvas" aria-label="Back to canvas" disabled={busy} onClick={() => void run(async () => { await docsRef.current.flush(); setDocumentId(undefined); })}><X size={16} /></button>

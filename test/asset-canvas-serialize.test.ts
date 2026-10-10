@@ -3,6 +3,15 @@ import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/
 import { canvasHistoryKey, toAssetCanvasNode } from "../src/renderer/asset-canvas-workspace.js";
 
 describe("Asset Canvas node serialization", () => {
+  it("keeps resize history and serialization while rejecting invalid node dimensions", () => {
+    const canvas = createAssetCanvasDocument();
+    const node = toAssetCanvasNode({ id: "notes", type: "text", position: { x: 0, y: 0 }, width: 600, height: 400, data: { text: "Notes" } });
+    canvas.nodes = [node]; canvas.editorLayout.nodes.notes = { x: 0, y: 0, width: 600, height: 400 };
+    expect(isAssetCanvasDocument(canvas)).toBe(true);
+    const resized = structuredClone(canvas); resized.nodes[0]!.width = 800;
+    expect(canvasHistoryKey(resized)).not.toBe(canvasHistoryKey(canvas));
+    resized.nodes[0]!.width = Infinity; expect(isAssetCanvasDocument(resized)).toBe(false);
+  });
   it("records node changes in history independently of viewport movement and JSON key order", () => {
     const canvas = createAssetCanvasDocument();
     canvas.nodes = [{ id: "rules", type: "text", position: { x: 0, y: 0 }, data: { text: "Rules", instruction: "" } }];

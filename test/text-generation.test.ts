@@ -1,6 +1,7 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { generateCreativeText, generateDesignDocumentMarkdown } from "../src/daemon/text-generation.js";
+import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "../src/daemon/text-generation.js";
+import { createCanvasTable } from "../src/shared/canvas-table.js";
 import type { RuntimeModel } from "../src/daemon/agent.js";
 
 const model: RuntimeModel = {
@@ -96,6 +97,31 @@ describe("text generation", () => {
   it("requires review when the model asks for a tool instead of finishing", async () => {
     const { runtime } = fixture({ ...assistant("Draft"), stopReason: "toolUse" });
     await expect(generateDesignDocumentMarkdown(runtime, model, document, "Revise")).resolves.toMatchObject({ status: "incomplete", markdown: "Draft" });
+  });
+
+  it("generates a validated table from the complete snapshot with selected reasoning", async () => {
+    const table = createCanvasTable("装备数值", "items"), candidate = structuredClone(table);
+    candidate.rows[0]!.cells[candidate.columns[0]!.id] = "001";
+    const { runtime, streamSimple } = fixture(assistant("```json\n" + JSON.stringify(candidate) + "\n```"));
+    await expect(generateDesignTable(runtime, model, table, "添加装备", "high")).resolves.toEqual({ status: "complete", table: candidate });
+    expect(JSON.parse(streamSimple.mock.calls[0]![1].messages[0].content as string)).toEqual({ instruction: "添加装备", table });
+    expect(streamSimple.mock.calls[0]![2]).toMatchObject({ reasoning: "high", maxRetries: 0 });
+    expect(table.rows[0]!.cells).toEqual({});
+  });
+
+  it.each(["malformed", "wrong-id", "wrong-type", "duplicate-row"])("rejects %s generated table data", async (problem) => {
+    const table = createCanvasTable("Items", "items"), candidate = structuredClone(table);
+    if (problem === "wrong-id") candidate.id = "other";
+    if (problem === "wrong-type") candidate.rows[0]!.cells[candidate.columns[0]!.id] = 12;
+    if (problem === "duplicate-row") candidate.rows[1]!.id = candidate.rows[0]!.id;
+    const { runtime } = fixture(assistant(problem === "malformed" ? '{"rows":[' : JSON.stringify(candidate)));
+    await expect(generateDesignTable(runtime, model, table, "Revise")).resolves.toMatchObject({ status: "invalid", error: expect.stringContaining("invalid table") });
+  });
+
+  it("never treats a truncated table as complete, even if its JSON is valid", async () => {
+    const table = createCanvasTable("Items", "items");
+    const { runtime } = fixture({ ...assistant(JSON.stringify(table)), stopReason: "length" });
+    await expect(generateDesignTable(runtime, model, table, "Revise")).resolves.toMatchObject({ status: "incomplete", error: expect.stringContaining("output limit") });
   });
 });
 

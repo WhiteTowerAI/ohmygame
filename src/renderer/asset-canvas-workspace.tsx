@@ -1,3 +1,4 @@
+import { CanvasTableNode, type CanvasTables, type TableNodeRuntime } from "./canvas-table-node.js";
 import {
   ArrowUp,
   Box,
@@ -47,6 +48,8 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { CANVAS_GRID_SIZE, snapCanvasPosition } from "./canvas-alignment.js";
+import { canvasNodeLayout } from "../shared/canvas-node-layout.js";
+import { CANVAS_READABLE_SIZES, CanvasNodeResizer, CanvasNodeSizeActions, type CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
 import { MAX_ASSET_CANVAS_NODES } from "../shared/asset-canvas-schema.js";
 import { createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, rememberCanvasClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
@@ -114,7 +117,7 @@ const MEDIA_NODE_MIN_WIDTH = 300;
 const MEDIA_NODE_MAX_HEIGHT = 360;
 const MEDIA_NODE_MIN_HEIGHT = 200;
 const IMAGE_REFERENCE_LIMIT = 14;
-type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset">; documentId?: string };
+type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset">; documentId?: string; tableId?: string };
 interface CanvasNodeCreationLeaf {
   label: string;
   description: string;
@@ -154,14 +157,20 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
   return "action" in item;
 }
 
-function canvasCreationGroups(documents: CanvasDocuments): CanvasNodeCreationGroup[] {
+function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables): CanvasNodeCreationGroup[] {
   const items: CanvasNodeCreationItem[] = [{ label: "Document", description: "Markdown document", icon: FileText, action: { kind: "node", type: "document" } }];
   if (documents.documents.length) items.push({ label: "Existing document", description: "Add a document reference", icon: FileText, children: documents.documents.map((document) => ({ label: document.title || "Untitled document", description: "Markdown document", icon: FileText, action: { kind: "node", type: "document", documentId: document.id } })) });
+  items.push({ label: "Table", description: "Editable game data", icon: FileText, action: { kind: "node", type: "table" } });
+  const existingTables = [...tables.storage.sessions.values()].filter((session) => !session.issue);
+  if (existingTables.length) items.push({ label: "Existing table", description: "Add a shared table reference", icon: FileText, children: existingTables.map(({ local: table }) => ({ label: table.title || "Untitled table", description: "Shared table", icon: FileText, action: { kind: "node", type: "table", tableId: table.id } })) });
   return [{ label: "Documents", items }, ...CANVAS_NODE_CREATION_GROUPS];
 }
 
 type AssetCanvasFlowData = {
+  resizeRuntime?: CanvasNodeResizeRuntime;
   nodeDetails?: CanvasNodeDetails;
+  tableId?: string;
+  tableRuntime?: TableNodeRuntime;
   documentId?: string;
   documentRuntime?: DocumentNodeRuntime;
   prompt?: string;
@@ -271,6 +280,7 @@ interface MediaReferenceView {
 }
 
 const STORY_NODE_TYPES: NodeTypes = {
+  table: CanvasTableNode,
   document: CanvasDocumentNode,
   text: TextNode,
   image: ImageNode,
@@ -280,13 +290,14 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, assets: localAssets, conflicted = false, overlay, onSaveReady, onResolveReady, onStatusChange, onSelectionChange }: {
+export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onResolveReady, onStatusChange, onSelectionChange }: {
   project: ProjectState;
   initialNodeId?: string;
   onInitialNodeHandled?: () => void;
   hidden?: boolean;
   storage: CanvasBoardStorage;
   documents: CanvasDocuments;
+  tables: CanvasTables;
   assets: CanvasAssetCatalogEntry[];
   conflicted?: boolean;
   overlay?: ReactNode;
@@ -321,6 +332,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }, []);
   const [selectedAssetEdgeId, setSelectedAssetEdgeId] = useState<string>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
+  const [expandedTextId, setExpandedTextId] = useState<string>();
   const [copiedSelection, setCopiedSelection] = useState(lastCanvasClipboard);
   const canvasElement = useRef<HTMLDivElement>(null);
   const flowInstance = useRef<ReactFlowInstance<AssetCanvasFlowNode, Edge>>(null);
@@ -522,7 +534,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     () => assetCanvasDocument(viewport, nodes, edges, {
       ...editorLayout,
       nodes: {
-        ...Object.fromEntries(nodes.map((node) => [node.id, node.position])),
+        ...Object.fromEntries(nodes.map((node) => [node.id, canvasNodeLayout(node)])),
       },
       view: "canvas",
     }),
@@ -878,12 +890,12 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const canUndo = Boolean(historyPendingBase.current || editorUndoHistory.current.length);
   const canRedo = !historyPendingBase.current && editorRedoHistory.current.length > 0;
 
-  function addNode(type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }, existingDocumentId?: string): void {
-    if (type === "document") {
-      void (existingDocumentId ? Promise.resolve(existingDocumentId) : documents.add()).then((documentId) => {
-        if (!documentId) return;
-        setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), { id: crypto.randomUUID(), type: "document", position, selected: true, data: { documentId } }]);
-      });
+  function addNode(type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }, existingResourceId?: string): void {
+    if (type === "document" || type === "table") {
+      void (existingResourceId ? Promise.resolve(existingResourceId) : type === "document" ? documents.add() : tables.add()).then((id) => {
+        if (!id || !mounted.current) return;
+        setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), { id: crypto.randomUUID(), type, position, selected: true, data: type === "document" ? { documentId: id } : { tableId: id } }]);
+      }).catch((cause) => setNotice({ kind: "action", message: errorMessage(cause) }));
       return;
     }
     const created = createFlowNode(type, position, imageModels, videoModels, defaultTextModel);
@@ -986,8 +998,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (nodesRef.current.length + value.nodes.length > MAX_ASSET_CANVAS_NODES) {
       setTransferError("A canvas can contain at most 2,000 nodes."); return;
     }
-    if (value.nodes.some((node) => node.type === "document") && value.projectId !== projectId) {
-      setTransferError("Document references can only be pasted into boards in the same project."); return;
+    if (value.nodes.some((node) => (node.type === "document" || node.type === "table")) && value.projectId !== projectId) {
+      setTransferError("Document and table references can only be pasted into boards in the same project."); return;
     }
     commitPendingHistory();
     setTransferError(undefined);
@@ -1021,7 +1033,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }
 
   function addCanvasNode(item: CanvasNodeCreationLeaf, position: { x: number; y: number }): void {
-    addNode(item.action.type, position, item.action.documentId);
+    addNode(item.action.type, position, item.action.documentId ?? item.action.tableId);
   }
 
   function insertNodeCopy(source: AssetCanvasNode, position: { x: number; y: number }): void {
@@ -1211,11 +1223,22 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     rememberedSettings.current[node.type] = next;
   }
 
+  const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
   const renderedNodes = nodes.map((original) => {
-    const node = { ...original, data: { ...original.data, nodeDetails: {
-      title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original), documents.documents, libraryAssets), description: original.description,
+    const size = CANVAS_READABLE_SIZES[original.type as keyof typeof CANVAS_READABLE_SIZES];
+    const node = { ...original, ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: original.height ?? size.height } } : {}), data: { ...original.data,
+      ...(size ? { resizeRuntime: {
+        start: beginHistoryGesture, end: finishHistoryGesture,
+        reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id) return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
+        ...(original.type === "text" ? { open: () => setExpandedTextId(original.id) } : {}),
+      } } : {}), nodeDetails: {
+      title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original), documents.documents, libraryAssets, tableContents), description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: original.title ?? "", description: original.description ?? "" }),
     } } };
+    if (node.type === "table") {
+      const session = tables.storage.sessions.get(node.data.tableId ?? "");
+      return { ...node, data: { ...node.data, tableRuntime: { tables, table: session?.local, issue: session?.issue ?? tables.issues?.find((issue) => issue.id === node.data.tableId)?.message, models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
+    }
     if (node.type === "document") return { ...node, data: { ...node.data, documentRuntime: { design: documents, document: documents.documents.find((doc) => doc.id === node.data.documentId), models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
     if (node.type === "asset") return {
       ...node,
@@ -1383,6 +1406,11 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   return (
     <section className="viewer-pane interactive-story-workspace" hidden={hidden} aria-label="Asset Canvas workspace">
+      {expandedTextId && nodes.find((node) => node.id === expandedTextId)?.type === "text" ? <div className="design-expanded-document" role="dialog" aria-modal="true" aria-label="Expanded text">
+        <header className="design-expanded-toolbar"><FileText size={16} /><strong>Text</strong></header>
+        <div className="design-expanded-body"><CanvasTextarea autoFocus aria-label="Expanded text" value={nodes.find((node) => node.id === expandedTextId)?.data.text ?? ""} onChange={(text) => setNodes((current) => current.map((node) => node.id === expandedTextId ? { ...node, data: { ...node.data, text } } : node))} /></div>
+        <button type="button" className="design-expanded-close" title="Back to canvas" aria-label="Back to canvas" onClick={() => setExpandedTextId(undefined)}><X size={16} /></button>
+      </div> : null}
       <div className="interactive-story-body">
         <div ref={canvasElement} tabIndex={0} inert={resolving || undefined} aria-busy={resolving || undefined} className={`interactive-story-canvas${fileDropActive ? " is-file-drop-active" : ""}`} onPointerMoveCapture={(event) => { pointer.current = { x: event.clientX, y: event.clientY }; }}
           onPointerDownCapture={(event) => { if (!isTextEntry(event.target) && !eventWithin(event, "button, a, .nokey")) event.currentTarget.focus({ preventScroll: true }); }}
@@ -1412,7 +1440,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               nodeTypes={STORY_NODE_TYPES}
               onInit={(instance) => { flowInstance.current = instance; }}
               addControl={<AssetCanvasAddControl
-                documents={documents}
+                documents={documents} tables={tables}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
                 importing={importingAssets}
                 onAdd={addNode}
@@ -1456,7 +1484,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             />
           ) : null}
           {canvasContextMenu ? <AssetCanvasContextMenu
-            documents={documents}
+            documents={documents} tables={tables}
             onUseInDocument={contextMenuNode?.type === "text" && contextMenuNode.data.text ? () => documents.appendText(contextMenuNode.data.text!) : contextMenuNode?.data.assetId && (contextMenuNode.type === "image" || contextMenuNode.data.mediaType === "image") ? () => documents.appendImage(contextMenuNode.data.assetId!) : undefined}
             menu={canvasContextMenu}
             canUndo={canUndo}
@@ -1519,6 +1547,7 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
   const runtime = data.textRuntime;
   return (
     <div className={`story-node story-text-node${selected ? " is-selected" : ""}`}>
+      <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
       <div data-alignment-frame className="story-text-output">
         <CanvasNodeLabel icon={FileText} label="Text" details={data.nodeDetails} />
         <CanvasTextarea
@@ -1531,14 +1560,17 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
           placeholder="Generated or manually written text"
           onChange={(text) => runtime?.onChange({ ...data, textRuntime: undefined, text })}
         />
+        <footer className={`design-document-node-footer nodrag nowheel${selected ? "" : " is-hidden"}`}><span /><div className="design-document-node-actions"><CanvasNodeSizeActions runtime={data.resizeRuntime} /></div></footer>
       </div>
       {selected ? (
+        <div className="canvas-node-auxiliary">
         <CanvasTextComposer models={runtime?.models ?? []} modelStatus={runtime?.modelStatus ?? "loading"} defaultModel={runtime?.defaultModel} defaultReasoningLevel={runtime?.defaultReasoningLevel}
           model={data.textModel} reasoningLevel={data.reasoningLevel} instruction={data.instruction ?? ""} generating={runtime?.generating} busy={runtime?.busy} error={runtime?.error}
           onInstruction={(instruction) => runtime?.onChange({ ...data, textRuntime: undefined, instruction })}
           onModel={(textModel, reasoningLevel) => runtime?.onChange({ ...data, textRuntime: undefined, textModel, reasoningLevel })}
           onReasoningChange={(reasoningLevel) => runtime?.onChange({ ...data, textRuntime: undefined, textModel: data.textModel ?? runtime.defaultModel, reasoningLevel })}
           onGenerate={(model, reasoningLevel) => runtime?.onGenerate(model, reasoningLevel)} />
+        </div>
       ) : null}
       <Handle className="story-text-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
@@ -2258,6 +2290,7 @@ function formatPreviewTime(timeMs: number): string {
 
 function AssetCanvasAddControl({
   documents,
+  tables,
   libraryAssets,
   importing,
   onAdd,
@@ -2265,13 +2298,14 @@ function AssetCanvasAddControl({
   onUpload,
 }: {
   documents: CanvasDocuments;
+  tables: CanvasTables;
   libraryAssets: LibraryAsset[];
   importing: boolean;
   onAdd: (type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }, documentId?: string) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (file: File, position: { x: number; y: number }) => void;
 }) {
-  const creationGroups = canvasCreationGroups(documents);
+  const creationGroups = canvasCreationGroups(documents, tables);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -2300,7 +2334,7 @@ function AssetCanvasAddControl({
   function addItem(item: CanvasNodeCreationLeaf): void {
     const position = placementPosition();
     if (!position) return;
-    onAdd(item.action.type, position, item.action.documentId);
+    onAdd(item.action.type, position, item.action.documentId ?? item.action.tableId);
     setAddOpen(false);
   }
 
@@ -2414,6 +2448,7 @@ function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose }
 
 function AssetCanvasContextMenu({
   documents,
+  tables,
   onUseInDocument,
   menu,
   canUndo,
@@ -2440,6 +2475,7 @@ function AssetCanvasContextMenu({
   onDetails,
 }: {
   documents: CanvasDocuments;
+  tables: CanvasTables;
   onUseInDocument?: () => void;
   menu: CanvasContextMenuState;
   canUndo: boolean;
@@ -2465,7 +2501,7 @@ function AssetCanvasContextMenu({
   onDelete: () => void;
   onDetails?: () => void;
 }) {
-  const creationGroups = canvasCreationGroups(documents);
+  const creationGroups = canvasCreationGroups(documents, tables);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
@@ -2545,7 +2581,7 @@ function AssetCanvasContextMenu({
 }
 
 function toFlowNode(node: AssetCanvasNode, imageModels: ImageModel[], videoModels: VideoModel[]): AssetCanvasFlowNode {
-  return { ...flowNodeData(node, imageModels, videoModels), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
+  return { ...flowNodeData(node, imageModels, videoModels), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
 }
 function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoModels: VideoModel[]): AssetCanvasFlowNode {
   if (node.type === "asset") return { ...node, deletable: true };
@@ -2731,7 +2767,7 @@ function assetCanvasDocument(
 }
 
 export function toAssetCanvasNode(node: AssetCanvasFlowNode): AssetCanvasNode {
-  return { ...assetCanvasNodeData(node), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
+  return { ...assetCanvasNodeData(node), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
 }
 function assetCanvasNodeData(node: AssetCanvasFlowNode): AssetCanvasNode {
   if (node.type === "animate-3d") {
@@ -2748,6 +2784,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode): AssetCanvasNode {
       },
     };
   }
+  if (node.type === "table") return { id: node.id, type: "table", position: node.position, data: { tableId: node.data.tableId ?? "" } };
   if (node.type === "document") return { id: node.id, type: "document", position: node.position, data: { documentId: node.data.documentId ?? "" } };
   if (node.type === "asset") return {
     id: node.id,

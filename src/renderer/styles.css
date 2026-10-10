@@ -8326,6 +8326,8 @@ button {
 
 .story-canvas-zoom {
   display: flex;
+  -webkit-user-select: none;
+  user-select: none;
   align-items: center;
   height: 32px;
   margin: 0 0 16px 16px;
