@@ -1,4 +1,4 @@
-import { Clapperboard, Globe2, Image } from "./icons.js";
+import { Clapperboard, Gamepad2, Globe2, Image } from "./icons.js";
 import type { ProjectType } from "../shared/contracts.js";
 export { defaultProjectName } from "../shared/project-names.js";
 
@@ -8,6 +8,7 @@ export interface ProjectTypeOption {
 }
 
 export const PROJECT_TYPES = [
+  { label: "General Game", value: "general" },
   { label: "Web Game", value: "web-game" },
   { label: "Interactive Story", value: "interactive-story" },
   { label: "Asset Canvas", value: "asset-canvas" },
@@ -17,6 +18,7 @@ export const PROJECT_TYPES = [
 export const GAME_PROJECT_TYPES: readonly ProjectTypeOption[] = PROJECT_TYPES.filter(({ value }) => value !== "asset-canvas");
 
 export function ProjectTypeIcon({ type, size = 14 }: { type: ProjectType; size?: number }) {
+  if (type === "general") return <Gamepad2 size={size} aria-hidden="true" />;
   if (type === "web-game") return <Globe2 size={size} aria-hidden="true" />;
   if (type === "interactive-story") return <Clapperboard size={size} aria-hidden="true" />;
   if (type === "asset-canvas") return <Image size={size} aria-hidden="true" />;

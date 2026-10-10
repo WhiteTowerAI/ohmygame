@@ -1,0 +1,17 @@
+{
+  "name": "game-studio",
+  "version": "0.1.0",
+  "description": "Design, build, extend, and verify games across engines with coordinated design, art, and gameplay workflows.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Game Studio",
+    "shortDescription": "Create and improve games across engines.",
+    "longDescription": "An engine-independent game production workflow covering game design, architecture, visual direction, production assets, and player-focused verification. Preserves your chosen engine and existing project.",
+    "defaultPrompt": [
+      "Create a playable game from this idea using a suitable engine.",
+      "Add a feature to the current game without regressing existing play.",
+      "Diagnose and fix a gameplay bug, then verify the affected flow."
+    ],
+    "projectTypes": ["general", "godot-game", "interactive-story"]
+  }
+}

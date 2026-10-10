@@ -7,7 +7,7 @@ function prompt(project: Parameters<typeof appendSystemPromptForProject>[0]): st
 
 describe("OhMyGame system prompt", () => {
   it("preserves shared interaction guidance for every project type", () => {
-    for (const type of ["web-game", "godot-game", "interactive-story", "asset-canvas"] as const) {
+    for (const type of ["general", "web-game", "godot-game", "interactive-story", "asset-canvas"] as const) {
       const text = prompt({ type });
 
       expect(text).toContain("brief commentary update before the first tool call");
@@ -35,6 +35,18 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("missing from the published build");
     expect(text).not.toContain("playable_check");
     expect(text).not.toContain("existing folder as the workspace");
+  });
+
+  it("uses Game Studio for general games and keeps the Web contract conditional", () => {
+    const text = prompt({ type: "general", startupDirectory: "client", startupScript: "start", packageManager: "pnpm", workspaceLocation: "external" });
+
+    expect(text).toContain("use game-studio when available");
+    expect(text).toContain("Applications, tools, and content");
+    expect(text).toContain("Only when the chosen target is a browser game or application");
+    expect(text).toContain("the client/ folder of the workspace, run with pnpm");
+    expect(text).toContain('a "start" script');
+    expect(text).not.toContain("use web-game-studio");
+    expect(text).not.toContain("playable_add_node");
   });
 
   it("explains how an explicitly referenced design revision should be used", () => {

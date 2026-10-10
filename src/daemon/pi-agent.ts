@@ -34,7 +34,7 @@ Every plugin must contain \`.ohmygame-plugin/plugin.json\`:
 }
 \`\`\`
 
-Only include fields the plugin uses. Supported project types are \`web-game\`, \`godot-game\`, \`interactive-story\`, and \`asset-canvas\`. The built-in Godot connection is \`ohmygame-godot\`. OhMyGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
+Only include fields the plugin uses. Supported project types are \`general\`, \`web-game\`, \`godot-game\`, \`interactive-story\`, and \`asset-canvas\`. Use \`general\` for engine-independent game projects and workflows. The built-in Godot connection is \`ohmygame-godot\`. OhMyGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
 
 Put each bundled skill at \`skills/<skill-name>/SKILL.md\`. Skills may include their own \`scripts/\`, \`references/\`, and \`assets/\` directories. Prefer skills and scripts for local workflows. Do not create a Pi extension, custom in-process tool, or MCP server.
 

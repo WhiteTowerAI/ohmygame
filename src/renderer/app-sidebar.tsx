@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Globe2, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
+import { ArrowDownToLine, Gamepad2, Globe2, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAuth } from "./auth.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
@@ -126,6 +126,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <NavigationItem active={active === "library"} icon="library" label="Library" onClick={() => onNavigate("library")} />
         <NavigationItem active={active === "community"} icon="community" label="Community" onClick={() => onNavigate("community")} />
         <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
+        <NavigationItem active={active === "general"} icon="general" label="General Game" onClick={() => onNavigate("general")} />
         <NavigationItem active={active === "web-game"} icon="web-game" label="Web Game" onClick={() => onNavigate("web-game")} />
         <NavigationItem active={active === "interactive-story"} icon="interactive-story" label="Interactive Story" onClick={() => onNavigate("interactive-story")} />
         <NavigationItem active={active === "godot"} icon="godot" label="Godot" onClick={() => onNavigate("godot")} />
@@ -222,11 +223,11 @@ function NavigationItem({
   onClick,
 }: {
   active: boolean;
-  icon: "home" | "project" | "library" | "web-game" | "interactive-story" | "godot" | "asset-canvas" | "community";
+  icon: "home" | "project" | "library" | "general" | "web-game" | "interactive-story" | "godot" | "asset-canvas" | "community";
   label: string;
   onClick: () => void;
 }) {
-  const content = <>{icon === "web-game" ? <span className="home-nav-symbol" aria-hidden="true"><Globe2 size={16} /></span> : <span className={`home-nav-icon home-nav-icon-${icon}`} aria-hidden="true" />}<span>{label}</span></>;
+  const content = <>{icon === "web-game" || icon === "general" ? <span className="home-nav-symbol" aria-hidden="true">{icon === "general" ? <Gamepad2 size={16} /> : <Globe2 size={16} />}</span> : <span className={`home-nav-icon home-nav-icon-${icon}`} aria-hidden="true" />}<span>{label}</span></>;
   return (
     <button
       className={`home-nav-item${active ? " home-nav-item-active" : ""}`}

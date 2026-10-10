@@ -58,11 +58,11 @@ describe("agent tools", () => {
     ]);
   });
 
-  it("registers game use only when a matching runtime adapter is available", async () => {
+  it.each(["web-game", "general"] as const)("registers game use for %s only when a matching runtime adapter is available", async (type) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playtest-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
-    const project = await projects.create("Browser Game");
+    const project = await projects.create("Browser Game", type);
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
     const driver: GameRuntimeAdapter = {

@@ -173,6 +173,7 @@ const InterfaceSchema = Type.Object({
   longDescription: Type.Optional(Type.String({ minLength: 1 })),
   defaultPrompt: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
   projectTypes: Type.Optional(Type.Array(Type.Union([
+    Type.Literal("general"),
     Type.Literal("web-game"),
     Type.Literal("godot-game"),
     Type.Literal("interactive-story"),

@@ -191,6 +191,26 @@ describe("coding workspace", () => {
     expect(html).toContain('src="http://127.0.0.1:43121/play"');
   });
 
+  it("starts general projects in Code and exposes Web controls only for a runnable preview", () => {
+    const props = {
+      agentBusy: false, publishing: false, workspaceRevision: 0,
+      onPublish: async () => false, onOpenPublish: () => undefined,
+      onClosePublish: () => undefined, onRestart: () => undefined,
+    };
+    const project = { ...previewProject, type: "general" as const, preview: { status: "waiting" as const } };
+    const blank = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project }));
+    expect(blank).toContain('aria-label="Configure Web preview"');
+    expect(blank).not.toContain(">Preview<");
+    expect(blank).not.toContain("<iframe");
+    expect(blank).toContain('disabled="" title="Publishing requires a Web build"');
+
+    const runnable = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project: { ...project, preview: previewProject.preview } }));
+    expect(runnable).toContain(">Preview<");
+    expect(runnable).toContain(`src="${previewProject.preview.url}/"`);
+    expect(runnable).toContain('aria-label="Play"');
+    expect(runnable).not.toContain("Publishing requires a Web build");
+  });
+
   it("keeps the preview panel mounted while the workspace is rendered", () => {
     const html = renderToStaticMarkup(
       createElement(CodingWorkspace, {

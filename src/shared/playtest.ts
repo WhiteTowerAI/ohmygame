@@ -22,7 +22,7 @@ export interface GameUseCapabilities {
 
 export const WEB_GAME_USE_CAPABILITIES: GameUseCapabilities = {
   runtime: "web",
-  projectTypes: ["web-game", "interactive-story"],
+  projectTypes: ["web-game", "interactive-story", "general"],
   input: ["pointer", "keyboard", "text", "touch", "resize"],
   observation: ["screenshot", "dom", "canvas", "console", "network"],
   deterministic: [],

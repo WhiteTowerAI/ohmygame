@@ -22,6 +22,27 @@ afterEach(async () => {
   );
 });
 
+describe("Web output", () => {
+  it.each(["web-game", "general"] as const)("publishes %s from its configured startup directory", async (type) => {
+    const workspace = await temporary("ohmygame-web-publish-");
+    const client = path.join(workspace, "client");
+    await mkdir(client);
+    await writeFile(path.join(workspace, "index.html"), "Wrong root output");
+    await writeFile(path.join(client, "index.html"), "Configured game output");
+    await writeFile(path.join(client, "game.js"), "window.ready = true;");
+    const builder = new ArtifactBuilder();
+    try {
+      const files = await unzip(await builder.create({
+        id: "web-output", name: "Game", type, updatedAt: new Date(0).toISOString(),
+        workspacePath: workspace, startupDirectory: "client", preview: { status: "stopped" },
+      }));
+      expect(files.get("index.html")?.toString()).toBe("Configured game output");
+      expect(files.get("game.js")?.toString()).toBe("window.ready = true;");
+      expect(files.has("client/index.html")).toBe(false);
+    } finally { await builder.close(); }
+  });
+});
+
 describe("Published Player", () => {
   it("validates the strict published manifest contract", () => {
     const manifest = {

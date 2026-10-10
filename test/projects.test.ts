@@ -5,6 +5,20 @@ import { describe, expect, it } from "vitest";
 import { ProjectManager } from "../src/daemon/projects.js";
 
 describe("Web Game project codebase", () => {
+  it("keeps an engine-independent General Game workspace through reload and duplication", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-general-projects-"));
+    const manager = new ProjectManager(directory);
+    const project = await manager.create("Native game", "general");
+    expect(await readdir(project.workspacePath)).toEqual([]);
+    await writeFile(path.join(project.workspacePath, "project.godot"), "config_version=5\n");
+
+    const restored = new ProjectManager(directory);
+    await restored.load();
+    expect(restored.get(project.id)).toMatchObject({ type: "general", preview: { status: "waiting" } });
+    const copy = await restored.duplicate(project.id);
+    expect(copy.type).toBe("general");
+    expect(await readdir(copy.workspacePath)).toEqual(["project.godot"]);
+  });
   it("starts with an empty workspace; the platform contract lives in the system prompt", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Game", "web-game");
@@ -30,10 +44,10 @@ describe("Web Game project codebase", () => {
     expect(JSON.parse(await readFile(path.join(directory, "projects", project.id, "project.json"), "utf8"))).not.toHaveProperty("mediaModelDefaults");
   });
 
-  it("persists a runnable startup directory below the workspace root", async () => {
+  it.each(["web-game", "general"] as const)("persists a runnable startup directory for %s below the workspace root", async (type) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-projects-"));
     const manager = new ProjectManager(dataDirectory);
-    const project = await manager.create("Game", "web-game");
+    const project = await manager.create("Game", type);
     const gameDirectory = path.join(project.workspacePath, "apps", "game");
     await mkdir(gameDirectory, { recursive: true });
     await writeFile(path.join(gameDirectory, "package.json"), JSON.stringify({ scripts: { dev: "vite", start: "vite" } }));
@@ -52,7 +66,7 @@ describe("Web Game project codebase", () => {
       previewPath: "/play",
       previewViewport: "mobile",
     });
-    expect(updated.preview).toEqual({ status: "waiting" });
+    expect(updated.preview).toEqual({ status: type === "general" ? "stopped" : "waiting" });
     expect(JSON.parse(await readFile(path.join(dataDirectory, "projects", project.id, "project.json"), "utf8"))).toMatchObject({
       startupDirectory: "apps/game",
       startupScript: "start",

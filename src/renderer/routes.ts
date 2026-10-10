@@ -4,6 +4,7 @@ export type SidebarPage =
   | "home"
   | "projects"
   | "library"
+  | "general"
   | "web-game"
   | "interactive-story"
   | "godot"
@@ -17,10 +18,10 @@ type SidebarRoutePage = Exclude<SidebarPage, "community" | "projects">;
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "providers";
 
 const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
-  "home", "library", "web-game", "interactive-story", "godot", "asset-canvas",
+  "home", "library", "general", "web-game", "interactive-story", "godot", "asset-canvas",
 ]);
 
-const PROJECT_TYPES = new Set<ProjectType>(["web-game", "interactive-story", "godot-game", "asset-canvas"]);
+const PROJECT_TYPES = new Set<ProjectType>(["general", "web-game", "interactive-story", "godot-game", "asset-canvas"]);
 
 export type AppRoute =
   | { page: SidebarRoutePage }

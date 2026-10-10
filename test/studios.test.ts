@@ -9,6 +9,7 @@ describe("studio project lists", () => {
       project("story", "interactive-story", "2026-10-01T00:00:00Z"),
       project("web-new", "web-game", "2026-09-01T00:00:00Z"),
       project("godot", "godot-game", "2026-09-02T00:00:00Z"),
+      project("general", "general", "2026-10-01T00:00:00Z"),
     ];
     expect(
       recentStudioProjects(projects, "web-game", 1).map(({ id }) => id),
@@ -16,11 +17,13 @@ describe("studio project lists", () => {
     expect(
       recentStudioProjects(projects, "godot-game").map(({ id }) => id),
     ).toEqual(["godot"]);
+    expect(recentStudioProjects(projects, "general").map(({ id }) => id)).toEqual(["general"]);
     expect(projects.map(({ id }) => id)).toEqual([
       "web-old",
       "story",
       "web-new",
       "godot",
+      "general",
     ]);
   });
 

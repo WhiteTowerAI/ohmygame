@@ -4,6 +4,7 @@ import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename
 import path from "node:path";
 import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
+import { isWebRuntimeProjectType } from "../shared/project-runtime.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { getWorkspaceMedia, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
@@ -195,7 +196,7 @@ export class ProjectManager {
   async setRunSettings(id: string, input: ProjectRunSettings): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    if (project.type !== "web-game") throw new ProjectWorkspaceError("Run settings are only available for Web Game projects");
+    if (!isWebRuntimeProjectType(project.type)) throw new ProjectWorkspaceError("Run settings require a Web Game or General Game project");
 
     const directory = await resolveStartupDirectory(project.workspacePath, input.startupDirectory);
     const startupScript = normalizeStartupScript(input.startupScript);
@@ -219,6 +220,7 @@ export class ProjectManager {
       previewViewport: previewViewport === "fit" ? undefined : previewViewport,
       updatedAt: new Date().toISOString(),
     });
+    if (project.type === "general" && project.preview.status === "waiting") project.preview = { status: "stopped" };
     return project;
   }
 
@@ -858,7 +860,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
-      (parsed.type === undefined || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-story" || parsed.type === "asset-canvas") &&
+      (parsed.type === undefined || parsed.type === "general" || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-story" || parsed.type === "asset-canvas") &&
       (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
       (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
       (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&

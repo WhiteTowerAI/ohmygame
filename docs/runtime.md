@@ -70,6 +70,21 @@ and are never written to workspaces or returned to the renderer.
 
 ## Agent game use
 
+General Game projects start as engine-independent workspaces with Code,
+Design, and Assets. The bundled Game Studio plugin provides game production,
+architecture, and verification Skills for General Game, Godot, and Interactive
+Story projects. Web Game keeps its independent Web Game Studio plugin and
+existing creation instructions. Plugins are enabled by default; a saved disabled
+setting is respected when creating a project or agent session. Compatible
+Skills are listed for the agent, which reads the relevant ones for its task.
+
+When a General Game workspace has a runnable Web startup script, it can use
+the existing Web preview, player, run settings, and static publishing. A nested
+Web project can be selected with **Configure Web preview**. Until then, the
+workspace stays in Code and does not expose a Preview tab or enable publishing.
+Native engines use their existing tools or Connections; creating a General
+Game does not install an engine or initialize a Web wrapper.
+
 Web Game's **Play** button opens one human-controlled game window per project.
 Repeated clicks focus the existing game without reloading it. While that window
 is opening or running, the editor unloads its Preview iframe and shows the last
@@ -137,7 +152,8 @@ runtime, supported project types, input methods, observations, deterministic
 operations, and whether it can be shown in watch mode. The daemon registers
 the tool only when the current project's type is included in those capabilities.
 
-The shipped adapter is `web` for `web-game` and `interactive-story` projects
+The shipped adapter is `web` for `web-game`, `interactive-story`, and configured
+Web previews in `general` projects
 and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. When
 their runtime bridges are added, they should implement the same adapter
 contract for launch or attach, input, screenshots, state, reset or stepping,

@@ -236,7 +236,7 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
-  it("sets a Web Game startup directory when its dev server is nested", async () => {
+  it.each(["web-game", "general"] as const)("sets a %s startup directory when its dev server is nested", async (type) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-nested-preview-"));
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-nested-workspace-"));
     const startupDirectory = path.join(workspacePath, "apps", "game");
@@ -245,7 +245,7 @@ describe("daemon", () => {
     const app = createApp({ dataDirectory });
     apps.push(app);
 
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Nested workspace", workspacePath } })).json();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Nested workspace", type, workspacePath } })).json();
     expect(project.preview).toEqual({ status: "waiting" });
 
     const configured = await app.inject({
@@ -285,16 +285,23 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
-  it("creates a Godot project and rejects the removed general type", async () => {
+  it("creates General Game and Godot projects and rejects unknown types", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
 
     const godot = await app.inject({ method: "POST", url: "/projects", payload: { name: "Platformer", type: "godot-game" } });
     const general = await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } });
+    const unknown = await app.inject({ method: "POST", url: "/projects", payload: { type: "unknown" } });
 
     expect(godot.statusCode).toBe(201);
     expect(godot.json()).toMatchObject({ name: "Platformer", type: "godot-game" });
-    expect(general.statusCode).toBe(400);
+    expect(general.statusCode).toBe(201);
+    expect(general.json()).toMatchObject({ type: "general", preview: { status: "waiting" } });
+    expect(await readdir(general.json().workspacePath)).toEqual([]);
+    expect(unknown.statusCode).toBe(400);
+    const preview = await app.inject({ method: "POST", url: `/projects/${general.json().id}/preview?reuse=1` });
+    expect(preview.statusCode).toBe(409);
+    expect(preview.json().error).toContain("no package.json");
   });
 
   it("lists projects", async () => {

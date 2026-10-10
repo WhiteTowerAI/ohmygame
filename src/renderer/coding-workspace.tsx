@@ -37,6 +37,7 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
+import { supportsWebPreview } from "../shared/project-runtime.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
@@ -106,10 +107,11 @@ export function CodingWorkspace({
   onHome,
   onToggleChat,
 }: CodingWorkspaceProps) {
-  const supportsPreview = project?.type === "web-game";
-  const publishingUnavailable = project?.type === "godot-game";
-  const publishLabel = publishingUnavailable
+  const supportsPreview = supportsWebPreview(project);
+  const publishingUnavailable = project?.type === "godot-game" || (project?.type === "general" && !supportsPreview && !project.publication);
+  const publishLabel = project?.type === "godot-game"
     ? "Godot publishing is not available yet"
+    : publishingUnavailable ? "Publishing requires a Web build"
     : publishing ? "Publishing" : "Publish";
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
   const shownTab = designOpen ? "design" : activeTab;
@@ -299,6 +301,13 @@ export function CodingWorkspace({
         </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
           {!designOpen ? <>
+          {project?.type === "general" && !supportsPreview ? <button
+            className="icon-button pane-header-action"
+            type="button"
+            aria-label="Configure Web preview"
+            data-tooltip="Configure Web preview"
+            onClick={() => setProjectSettingsOpen(true)}
+          ><Wrench size={14} /></button> : null}
           {supportsPreview ? <button
             className={`icon-button pane-header-action preview-play-button${player.open ? " is-active" : ""}`}
             type="button"

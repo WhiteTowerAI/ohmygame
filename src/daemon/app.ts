@@ -8,6 +8,7 @@ import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
+import { isWebRuntimeProjectType } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
@@ -125,7 +126,7 @@ const createProjectSchema = {
     additionalProperties: false,
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
-      type: { type: "string", enum: ["web-game", "godot-game", "interactive-story", "asset-canvas"] },
+      type: { type: "string", enum: ["general", "web-game", "godot-game", "interactive-story", "asset-canvas"] },
       exampleId: { type: "string", pattern: EXAMPLE_ID_PATTERN, maxLength: 80 },
       viewport: {
         type: "object",
@@ -729,12 +730,19 @@ export function createApp(options: AppOptions = {}) {
           },
           playtest ? {
             driver: playtest,
-            resolveOpenTarget: async () => ({
-              runtime: "web",
-              url: project.type === "interactive-story"
-                ? await playableDrafts.open(project)
-                : await previews.ensureStarted(project),
-            }),
+            resolveOpenTarget: async () => {
+              if (project.type === "general") {
+                const startup = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
+                const workspace = await previewWorkspaceStatus(startup.absolutePath, project.startupScript ?? "dev");
+                if (!workspace.runnable) throw new Error("This project has no configured Web preview. Use the engine's own tools to verify it.");
+              }
+              return {
+                runtime: "web",
+                url: project.type === "interactive-story"
+                  ? await playableDrafts.open(project)
+                  : await previews.ensureStarted(project),
+              };
+            },
           } : undefined,
           webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
           canvasStore,
@@ -2430,7 +2438,7 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const reuse = request.query.reuse === "1";
-    if (reuse && project.type !== "web-game") return reply.code(409).send({ error: "Play requires a Web Game project." });
+    if (reuse && !isWebRuntimeProjectType(project.type)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     if (!reuse || (project.preview.status !== "ready" && project.preview.status !== "starting")) {
       try {
         const startup = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
