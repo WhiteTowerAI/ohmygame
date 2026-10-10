@@ -1,3 +1,4 @@
+import { isCanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
@@ -29,6 +30,18 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
     schema: { body: { type: "object", additionalProperties: false, required: ["title"], properties: { title: { type: "string", maxLength: 200 } } } },
   }, async (request, reply) => {
     try { return reply.code(201).send(await store.createDocument(request.params.projectId, request.body.title)); } catch (cause) { return failure(cause, reply); }
+  });
+  app.post<{ Params: { projectId: string }; Body: { title: string } }>(`${base}/tables`, {
+    schema: { body: { type: "object", additionalProperties: false, required: ["title"], properties: { title: { type: "string", maxLength: 200 } } } },
+  }, async (request, reply) => {
+    try { return reply.code(201).send(await store.createTable(request.params.projectId, request.body.title)); } catch (cause) { return failure(cause, reply); }
+  });
+  app.get<{ Params: { projectId: string; tableId: string } }>(`${base}/tables/:tableId`, async (request, reply) => {
+    try { return await store.table(request.params.projectId, request.params.tableId); } catch (cause) { return failure(cause, reply); }
+  });
+  app.put<{ Params: { projectId: string; tableId: string }; Body: CanvasTableDetail }>(`${base}/tables/:tableId`, { bodyLimit: 4 * 1024 * 1024 }, async (request, reply) => {
+    if (!isCanvasTable(request.body?.table) || request.body.table.id !== request.params.tableId || typeof request.body.revision !== "string") return reply.code(400).send({ error: "Invalid canvas table update" });
+    try { return await store.saveTable(request.params.projectId, request.body.table, request.body.revision); } catch (cause) { return failure(cause, reply); }
   });
   app.put<{ Params: { projectId: string }; Body: { documentId: string } }>(`${base}/main-document`, {
     schema: { body: { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } } },
