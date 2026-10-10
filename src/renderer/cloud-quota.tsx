@@ -13,25 +13,21 @@ export function accountCloudState(cloud: CloudConnectionState | undefined, userI
 export function cloudQuotaSummary(cloud?: CloudConnectionState): string {
   if (!cloud || cloud.availability === "sign_in_required") return "Sign in for free daily quota";
   if (cloud.availability === "unavailable") return cloud.message ?? "Temporarily unavailable";
-  if (cloud.availability === "pool_exhausted") return "Shared daily quota exhausted";
   const quota = cloud.quota;
   if (!quota || quota.personal.remaining === null) return "Quota unavailable";
   const limit = quota.personal.limit === null ? "" : ` / ${number(quota.personal.limit)}`;
-  return `${number(quota.personal.remaining)}${limit} ${units[quota.personal.unit ?? quota.unit]} left today`;
+  return `${number(quota.personal.remaining)}${limit} ${units[quota.unit]} left today`;
 }
 /** Provider readiness uses the cheapest model; the selected model may cost more. */
 export function canAffordCloudModel(cloud: CloudConnectionState, estimatedCredits?: number): boolean {
   if (cloud.availability !== "ready") return false;
   if (estimatedCredits === undefined) return true;
   const quota = cloud.quota;
-  if (!quota || (quota.personal.unit ?? quota.unit) !== "credits" || quota.personal.remaining === null) return false;
+  if (!quota || quota.unit !== "credits" || quota.personal.remaining === null) return false;
   return quota.personal.remaining + Number.EPSILON * Math.max(1, quota.personal.limit ?? 1) >= estimatedCredits;
 }
 export function quotaResetTime(quota: CloudQuota): string {
-  return formatResetTime(quota.availability === "pool_exhausted" ? quota.pool.resetsAt : quota.personal.resetsAt);
-}
-function formatResetTime(resetsAt: string): string {
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(resetsAt));
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(quota.personal.resetsAt));
 }
 function QuotaMeter({ balance, label }: { balance: QuotaBalance; label: string }) {
   if (balance.limit === null || balance.limit <= 0 || balance.remaining === null) return null;
@@ -41,16 +37,16 @@ function QuotaMeter({ balance, label }: { balance: QuotaBalance; label: string }
   </div>;
 }
 export function CloudQuotaDetails({ quota }: { quota: CloudQuota }) {
-  const personalUnit = quota.personal.unit ?? quota.unit;
+  const label = quota.unit === "credits" ? "Your daily credits" : "Your daily quota";
+  const balance = quota.personal;
   return <div className="cloud-quota-details">
-    {[{ label: personalUnit === "credits" ? "Your daily credits" : "Your daily quota", balance: quota.personal, unit: personalUnit },
-      { label: "Shared pool", balance: quota.pool, unit: quota.pool.unit ?? quota.unit }].map(({ label, balance, unit }) => <div className="cloud-quota-row" key={label}>
+    <div className="cloud-quota-row">
       <div className="cloud-quota-row-heading"><span>{label}</span>
-        <span>{number(balance.remaining)}{balance.limit !== null ? ` / ${number(balance.limit)}` : ""} {units[unit]}</span>
+        <span>{number(balance.remaining)}{balance.limit !== null ? ` / ${number(balance.limit)}` : ""} {units[quota.unit]}</span>
       </div>
       <QuotaMeter balance={balance} label={`${label} remaining`} />
-    </div>)}
-    <p className="cloud-quota-note">Resets {quotaResetTime(quota)}{quota.personal.reserved > 0 ? ` · ${number(quota.personal.reserved)} ${units[quota.personal.unit ?? quota.unit]} held` : ""}</p>
+    </div>
+    <p className="cloud-quota-note">Resets {quotaResetTime(quota)}{balance.reserved > 0 ? ` · ${number(balance.reserved)} ${units[quota.unit]} held` : ""}</p>
   </div>;
 }
 export function CloudQuotaStatus({ cloud, estimatedCredits, onSignIn }: { cloud: CloudConnectionState; estimatedCredits?: number; onSignIn: () => void }) {
@@ -62,7 +58,7 @@ export function CloudQuotaStatus({ cloud, estimatedCredits, onSignIn }: { cloud:
     </div>
     {cloud.availability === "ready" && !canAffordCloudModel(cloud, estimatedCredits) ? <div className="cloud-quota-note" role="status">Not enough daily credits for this model. Choose a lower-cost tier.</div> : null}
     {quota ? <><QuotaMeter balance={quota.personal} label="Your daily allowance remaining" />
-      <div className="cloud-quota-note">Resets {quotaResetTime(quota)} · Shared {number(quota.pool.remaining)} {units[quota.pool.unit ?? quota.unit]}{quota.personal.reserved > 0 ? ` · ${number(quota.personal.reserved)} held` : ""}</div>
+      <div className="cloud-quota-note">Resets {quotaResetTime(quota)}{quota.personal.reserved > 0 ? ` · ${number(quota.personal.reserved)} ${units[quota.unit]} held` : ""}</div>
     </> : null}
   </div>;
 }

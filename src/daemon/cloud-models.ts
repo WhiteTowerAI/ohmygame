@@ -152,5 +152,5 @@ export class CloudModelsClient implements Model3DGenerator {
 export function cloudMessage(cloud: CloudConnectionState): string {
   if (cloud.message) return cloud.message;
   return { ready: "Free cloud generation", sign_in_required: "Sign in to use free cloud models", unavailable: "Free cloud generation is temporarily unavailable",
-    personal_exhausted: "Your daily free quota is exhausted", pool_exhausted: "Today's shared free quota is exhausted" }[cloud.availability];
+    personal_exhausted: "Your daily free quota is exhausted" }[cloud.availability];
 }

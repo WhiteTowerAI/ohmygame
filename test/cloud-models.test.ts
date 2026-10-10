@@ -1,12 +1,14 @@
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { CloudModelsClient } from "../src/daemon/cloud-models.js";
 import { BUILTIN_CLOUD_CATALOG, HYPER3D_CONNECTION_ID, HYPER3D_DEFAULT_TIER, type CloudQuotaSnapshot } from "../src/shared/cloud-models.js";
-import { accountCloudState, canAffordCloudModel, cloudQuotaSummary, quotaResetTime } from "../src/renderer/cloud-quota.js";
+import { accountCloudState, canAffordCloudModel, cloudQuotaSummary, quotaResetTime, CloudQuotaDetails, CloudQuotaStatus } from "../src/renderer/cloud-quota.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { createAgentTools } from "../src/daemon/agent-tools.js";
@@ -17,7 +19,7 @@ const generation = { model: MODEL, images: [{ mediaType: "image/png" as const, d
 function quotas(userId = "user-1", remaining = 5): CloudQuotaSnapshot {
   const balance = { limit: 5, used: 5 - remaining, reserved: 0, remaining, resetsAt: "2026-10-11T16:00:00.000Z" };
   return { userId, fetchedAt: new Date().toISOString(), quotas: [{ key: "hyper3d-models", provider: HYPER3D_CONNECTION_ID, capability: "3d", unit: "models",
-    availability: remaining === 0 ? "personal_exhausted" : "ready", personal: balance, pool: { ...balance, limit: 2000, remaining: 2000 } }] };
+    availability: remaining === 0 ? "personal_exhausted" : "ready", personal: balance }] };
 }
 function remote(remaining = 5) {
   return vi.fn<typeof fetch>(async (url, init) => {
@@ -92,7 +94,7 @@ describe("desktop free cloud connection", () => {
         const snapshot = quotas();
         const quota = snapshot.quotas[0]!;
         return Response.json({ ...snapshot, quotas: [{ ...quota, availability: "unavailable", message,
-          personal: { ...quota.personal, limit: null, remaining: null }, pool: { ...quota.pool, limit: null, remaining: null } }] });
+          personal: { ...quota.personal, limit: null, remaining: null } }] });
       }
       return base(url, init);
     });
@@ -281,8 +283,28 @@ describe("desktop free cloud connection", () => {
     expect(cloudQuotaSummary({ availability: "ready", quota: { ...quota, unit: "tokens" } })).toBe("5 / 5 tokens left today");
     expect(cloudQuotaSummary({ availability: "ready", quota: { ...quota, personal: { ...quota.personal, remaining: null } } })).toBe("Quota unavailable");
     expect(cloudQuotaSummary({ availability: "ready", quota: { ...quota, personal: { ...quota.personal, limit: null } } })).toBe("5 models left today");
-    expect(quotaResetTime({ ...quota, availability: "pool_exhausted", pool: { ...quota.pool, resetsAt: "2026-10-12T16:00:00.000Z" } }))
+    expect(quotaResetTime({ ...quota, personal: { ...quota.personal, resetsAt: "2026-10-12T16:00:00.000Z" } }))
       .not.toBe(quotaResetTime(quota));
+  });
+  it("renders personal-only quota responses in settings and generation with one meter and held credits", () => {
+    const quota = { ...quotas().quotas[0]!, unit: "credits" as const,
+      personal: { limit: 20, used: 2, reserved: 1, remaining: 17, resetsAt: "2026-10-11T16:00:00.000Z" } };
+    const details = renderToStaticMarkup(createElement(CloudQuotaDetails, { quota }));
+    expect(details).toContain("Your daily credits");
+    expect(details).toContain("17 / 20");
+    const status = renderToStaticMarkup(createElement(CloudQuotaStatus, { cloud: { availability: "ready", quota }, estimatedCredits: 0.5, onSignIn: () => {} }));
+    expect(status).toContain("17 / 20 credits left today");
+    expect(status).toContain("0.5");
+    expect(status).toContain("credits / generation");
+    for (const html of [details, status]) {
+      expect(html.match(/role="meter"/g)).toHaveLength(1);
+      expect(html).toContain('aria-valuemax="20"');
+      expect(html).toContain('aria-valuenow="17"');
+      expect(html).toContain("85%");
+      expect(html).toContain(quotaResetTime(quota));
+      expect(html).toContain("1 credits held");
+      expect(html).not.toContain("Shared");
+    }
   });
   it("allows a cheaper tier at 0.5 credits remaining and disables an expensive tier", () => {
     const quota = { ...quotas().quotas[0]!, unit: "credits" as const,
@@ -291,7 +313,7 @@ describe("desktop free cloud connection", () => {
     expect(canAffordCloudModel(cloud, 0.5)).toBe(true);
     expect(canAffordCloudModel(cloud, 1)).toBe(false);
     expect(canAffordCloudModel({ ...cloud, quota: { ...quota, personal: { ...quota.personal, remaining: 0.5 - Number.EPSILON } } }, 0.5)).toBe(true);
-    expect(canAffordCloudModel({ ...cloud, availability: "pool_exhausted" }, 0.5)).toBe(false);
+    expect(canAffordCloudModel({ ...cloud, availability: "personal_exhausted" }, 0.5)).toBe(false);
     expect(canAffordCloudModel({ ...cloud, availability: "sign_in_required" }, 0.5)).toBe(false);
     expect(canAffordCloudModel({ availability: "ready" }, 0.5)).toBe(false);
     expect(canAffordCloudModel({ ...cloud, quota: { ...quota, personal: { ...quota.personal, remaining: null } } }, 0.5)).toBe(false);
