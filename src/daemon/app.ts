@@ -75,8 +75,9 @@ import { buildPlayableProject, validatePlayableProject } from "./playable-projec
 import {
   createNodeCodebase,
   createPlayableStarterCodebase,
+  NodeCodebaseConflictError,
   NodeCodebaseError,
-  readNodeCodebase,
+  readNodeCodebaseDetail,
   writeNodeCodebase,
 } from "./playable-codebase.js";
 import type { NodeCodebaseUpdate } from "../shared/playable-codebase.js";
@@ -1171,7 +1172,7 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable codebases require an Interactive Story project" });
     try {
-      return await readNodeCodebase(project.workspacePath);
+      return await readNodeCodebaseDetail(project.workspacePath);
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
@@ -1184,17 +1185,19 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable codebases require an Interactive Story project" });
+    if (typeof request.body.revision !== "string") return reply.code(400).send({ error: "Playable codebase updates require the revision they were made from" });
+    let revision: string;
     try {
-      await writeNodeCodebase(project.workspacePath, request.body);
+      revision = await writeNodeCodebase(project.workspacePath, request.body);
     } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      return reply.code(cause instanceof NodeCodebaseConflictError ? 409 : 400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
     try {
       await projects.touch(project.id);
     } catch {
       return reply.code(500).send({ error: "Playable codebase was saved, but project metadata could not be updated" });
     }
-    return reply.code(204).send();
+    return { revision };
   });
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/thumbnails", async (request, reply) => {
@@ -1281,7 +1284,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       result = await addPlayableNode(project.workspacePath, request.body);
     } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      return reply.code(cause instanceof NodeCodebaseConflictError ? 409 : 400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
     try {
       await projects.touch(project.id);

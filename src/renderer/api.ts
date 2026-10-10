@@ -63,7 +63,7 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { ExampleSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
-import type { NodeCodebase, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
+import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
@@ -484,7 +484,7 @@ export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResp
   return request(`/projects/${projectId}/playable`);
 }
 
-export async function getNodeCodebase(projectId: string): Promise<NodeCodebase> {
+export async function getNodeCodebase(projectId: string): Promise<NodeCodebaseDetail> {
   return request(`/projects/${projectId}/playable/codebase`);
 }
 
@@ -530,11 +530,12 @@ export async function setPlayableThumbnail(projectId: string, nodeId: string, ha
   if (!response.ok) throw await responseError(response);
 }
 
+/** Rejects with status 409 when the project changed since `codebase.revision` was read. */
 export async function updateNodeCodebase(
   projectId: string,
-  codebase: NodeCodebaseUpdate,
-): Promise<void> {
-  await request(`/projects/${projectId}/playable/codebase`, {
+  codebase: NodeCodebaseUpdate & { revision: string },
+): Promise<{ revision: string }> {
+  return request(`/projects/${projectId}/playable/codebase`, {
     method: "PUT",
     body: JSON.stringify(codebase),
   });

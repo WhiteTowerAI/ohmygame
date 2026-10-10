@@ -2,10 +2,14 @@ import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
+  changeNodeCodebase,
   createNodeCodebase,
   createPlayableStarterCodebase,
+  NodeCodebaseConflictError,
   readNodeCodebase,
+  readNodeCodebaseDetail,
   writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
@@ -168,7 +172,7 @@ describe("Playable codebase", () => {
       const version = structuredClone(initial);
       version.graph.title = `Version ${index}`;
       version.editorLayout.nodes.start = { x: index, y: 0 };
-      operations.push(writeNodeCodebase(workspace, version));
+      operations.push(writeNodeCodebase(workspace, version).then(() => undefined));
       operations.push(readNodeCodebase(workspace).then((codebase) => ({
         title: codebase.graph.title,
         x: codebase.editorLayout.nodes.start!.x,
@@ -186,6 +190,88 @@ describe("Playable codebase", () => {
       editorLayout: { nodes: { start: { x: 20, y: 0 } } },
     });
     expect((await tree(workspace)).some((file) => file.includes(".tmp-"))).toBe(false);
+  });
+
+  it("refuses to write over a graph that changed on disk since it was read", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
+    );
+    const loaded = await readNodeCodebaseDetail(workspace);
+
+    // The Agent edits graph.json with its file tools, which the daemon never sees.
+    const agentGraph = structuredClone(loaded.graph);
+    agentGraph.title = "Changed by the Agent";
+    await writeFile(path.join(workspace, "graph.json"), `${JSON.stringify(agentGraph, null, 2)}\n`);
+    const layoutBefore = await readFile(path.join(workspace, "editor/layout.json"), "utf8");
+
+    const stale = structuredClone(loaded);
+    stale.editorLayout.nodes.start = { x: 400, y: 400 };
+    await expect(writeNodeCodebase(workspace, stale)).rejects.toBeInstanceOf(NodeCodebaseConflictError);
+    expect(await readJson(workspace, "graph.json")).toEqual(agentGraph);
+    expect(await readFile(path.join(workspace, "editor/layout.json"), "utf8")).toBe(layoutBefore);
+
+    const latest = await readNodeCodebaseDetail(workspace);
+    expect(latest.revision).not.toBe(loaded.revision);
+    const revision = await writeNodeCodebase(workspace, { ...latest, editorLayout: stale.editorLayout });
+    await expect(readNodeCodebaseDetail(workspace)).resolves.toEqual({
+      graph: agentGraph,
+      editorLayout: stale.editorLayout,
+      revision,
+    });
+  });
+
+  it("changes the codebase in one step that no other save lands inside", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
+    );
+    const editor = await readNodeCodebaseDetail(workspace);
+    const moved = { ...editor.editorLayout, nodes: { start: { x: 400, y: 400 } } };
+
+    // The Agent adds a Scene while the editor autosaves a move made on the graph it loaded.
+    const [added, autosaved] = await Promise.allSettled([
+      addPlayableNode(workspace, { preset: "blank", id: "second" }),
+      writeNodeCodebase(workspace, { ...editor, editorLayout: moved }),
+    ]);
+
+    // The Scene is added whole, and the autosave is the one told to start again from it.
+    expect(added.status).toBe("fulfilled");
+    expect(autosaved).toMatchObject({ status: "rejected", reason: expect.any(NodeCodebaseConflictError) });
+    const latest = await readNodeCodebaseDetail(workspace);
+    expect(latest.graph.nodes.map((node) => node.id)).toEqual(["start", "second"]);
+
+    // A save queued first is what the change is made from.
+    await Promise.all([
+      writeNodeCodebase(workspace, { ...latest, graph: { ...latest.graph, title: "Saved first" } }),
+      changeNodeCodebase(workspace, (codebase) => ({
+        ...codebase,
+        editorLayout: { ...codebase.editorLayout, nodes: { ...codebase.editorLayout.nodes, start: { x: 400, y: 400 } } },
+      })),
+    ]);
+    const saved = await readNodeCodebase(workspace);
+    expect(saved.graph.title).toBe("Saved first");
+    expect(saved.editorLayout.nodes.start).toEqual({ x: 400, y: 400 });
+
+    const before = await readNodeCodebaseDetail(workspace);
+    await changeNodeCodebase(workspace, () => undefined);
+    expect((await readNodeCodebaseDetail(workspace)).revision).toBe(before.revision);
+  });
+
+  it("writes without a revision whatever the files hold", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
+    );
+    const codebase = await readNodeCodebase(workspace);
+    await writeNodeCodebase(workspace, { ...codebase, graph: { ...codebase.graph, title: "First" } });
+
+    await writeNodeCodebase(workspace, { ...codebase, graph: { ...codebase.graph, title: "Second" } });
+
+    expect((await readNodeCodebase(workspace)).graph.title).toBe("Second");
   });
 
   it("creates declared Node source files in the same codebase update", async () => {

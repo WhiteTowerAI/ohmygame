@@ -400,13 +400,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setPhase("loading");
     setLoadError(undefined);
     onStatusChange?.("loading");
-    window.clearTimeout(historyTimer.current);
-    editorUndoHistory.current = [];
-    editorRedoHistory.current = [];
-    historyObserved.current = undefined;
-    historyObservedJson.current = undefined;
-    historyPendingBase.current = undefined;
-    historyGestureBase.current = undefined;
+    resetHistory();
     setCanvasContextMenu(undefined);
     const emptyCatalog = { models: [], providers: [], defaultModel: undefined };
     void Promise.all([storage.load(), loadLibraryAssets().catch(() => []), listImageModelCatalog().catch(() => emptyCatalog), listVideoModelCatalog().catch(() => emptyCatalog), listModel3DCatalog().catch(() => emptyCatalog)]).then(([story, assets, imageCatalog, videoCatalog, model3DCatalog]) => {
@@ -544,6 +538,17 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   function updateHistoryControls(): void {
     setHistoryRevision((revision) => revision + 1);
+  }
+
+  // Whole-board snapshots must not restore a version from before an external edit.
+  function resetHistory(): void {
+    window.clearTimeout(historyTimer.current);
+    editorUndoHistory.current = [];
+    editorRedoHistory.current = [];
+    historyObserved.current = undefined;
+    historyObservedJson.current = undefined;
+    historyPendingBase.current = undefined;
+    historyGestureBase.current = undefined;
   }
 
   function pushUndoSnapshot(snapshot: AssetCanvasDocument): void {
@@ -712,14 +717,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const videoModelsRef = useRef(videoModels); videoModelsRef.current = videoModels;
   function reconcileCanvas(submitted: AssetCanvasDocument, saved: AssetCanvasDocument) {
     const current = latestCanvas.current ?? submitted;
-    const merged = mergeCanvasDocument(submitted, current, saved);
-    if (!merged) throw new Error("The canvas changed while saving. Review the current board before saving again.");
+    const merged = storage.reconcile(submitted, current, saved);
     if (JSON.stringify(current) === JSON.stringify(merged)) return;
-    if (canvasHistoryKey(current) !== canvasHistoryKey(merged)) {
-      commitPendingHistory();
-      pushUndoSnapshot(current);
-      editorRedoHistory.current = [];
-    }
+    if (canvasHistoryKey(current) !== canvasHistoryKey(merged)) resetHistory();
     if (historyGestureBase.current) historyGestureBase.current = mergeCanvasDocument(submitted, historyGestureBase.current, saved);
     const selected = new Set(nodesRef.current.filter((node) => node.selected).map((node) => node.id));
     latestCanvas.current = merged;
@@ -749,7 +749,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const selected = await operation;
       if (version === "local") reconcileCanvas(submitted, selected);
       else {
-        commitPendingHistory(); pushUndoSnapshot(submitted); editorRedoHistory.current = [];
+        resetHistory();
         latestCanvas.current = selected; observeHistoryDocument(selected); applyEditorCanvas(selected); updateHistoryControls();
       }
       queuedCanvas.current = JSON.stringify(selected);

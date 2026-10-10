@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, readFile, realpath, rename, rm, rmdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { EDITOR_LAYOUT_SCHEMA } from "../shared/editor-layout-schema.js";
@@ -9,6 +9,7 @@ import {
   isNodeEditorLayout,
   playableLayoutMatchesGraph,
   type NodeCodebase,
+  type NodeCodebaseDetail,
   type NodeCodebaseUpdate,
   type NodeEditorLayout,
 } from "../shared/playable-codebase.js";
@@ -24,7 +25,12 @@ const LAYOUT_SCHEMA_FILE = "schemas/editor-layout.schema.json";
 const codebaseOperations = new Map<string, Promise<void>>();
 
 export class NodeCodebaseError extends Error {
-  override readonly name = "NodeCodebaseError";
+  override readonly name: string = "NodeCodebaseError";
+}
+
+/** The files changed since the revision an update was made from. */
+export class NodeCodebaseConflictError extends NodeCodebaseError {
+  override readonly name = "NodeCodebaseConflictError";
 }
 
 const AGENT_INSTRUCTIONS = `# Playable Nodes Project
@@ -158,64 +164,109 @@ export async function createNodeCodebase(
 export async function readNodeCodebase(
   workspacePath: string,
 ): Promise<NodeCodebase> {
-  return withCodebaseLock(workspacePath, async () => {
-    const [graphValue, layoutValue] = await Promise.all([
-      readJson(path.join(workspacePath, GRAPH_FILE), GRAPH_FILE),
-      readJson(path.join(workspacePath, LAYOUT_FILE), LAYOUT_FILE),
-    ]);
-    const graph = graphValue as NodeGraph;
-    const layout = layoutValue as NodeEditorLayout;
-    if (!isNodeEditorLayout(layout)) throw new Error("Invalid editor/layout.json.");
-    const codebase = { graph, editorLayout: fitPlayableLayout(graph, layout) };
-    await validateCodebase(workspacePath, codebase, true);
-    return codebase;
-  });
+  const { revision: _revision, ...codebase } = await readNodeCodebaseDetail(workspacePath);
+  return codebase;
 }
 
+/**
+ * Reads the codebase with the revision of its files. Writing that revision
+ * back with a change refuses to overwrite what the Agent, the editor, or
+ * anything else wrote to graph.json or editor/layout.json in the meantime.
+ */
+export async function readNodeCodebaseDetail(
+  workspacePath: string,
+): Promise<NodeCodebaseDetail> {
+  return withCodebaseLock(workspacePath, () => readCodebase(workspacePath));
+}
+
+/** Resolves with the revision of the written files. */
 export async function writeNodeCodebase(
   workspacePath: string,
   update: NodeCodebaseUpdate,
+): Promise<string> {
+  return withCodebaseLock(workspacePath, () => writeCodebase(workspacePath, update));
+}
+
+/**
+ * Reads the codebase, lets `change` make an update from it, and writes that
+ * update, all in one step that no other read or write through the daemon can
+ * land inside. `change` returns undefined to write nothing.
+ */
+export async function changeNodeCodebase(
+  workspacePath: string,
+  change: (codebase: NodeCodebaseDetail) => NodeCodebaseUpdate | undefined,
 ): Promise<void> {
   await withCodebaseLock(workspacePath, async () => {
-    const codebase: NodeCodebase = {
-      graph: update.graph,
-      editorLayout: update.editorLayout,
-    };
-    const sources = validateSourceUpdates(codebase.graph, update.sources);
-    const sourceDeletions = await validateSourceDeletions(
-      workspacePath,
-      codebase.graph,
-      update.sourceDeletions,
-      Object.keys(sources),
-    );
-    await validateCodebase(workspacePath, codebase, true, Object.keys(sources));
-    const touchedFiles = [
-      GRAPH_FILE,
-      LAYOUT_FILE,
-      ...Object.keys(sources),
-      ...sourceDeletions,
-      "AGENTS.md",
-      "README.md",
-      GRAPH_SCHEMA_FILE,
-      LAYOUT_SCHEMA_FILE,
-    ];
-    const snapshot = await snapshotFiles(workspacePath, touchedFiles);
-    try {
-      for (const [relative, content] of Object.entries(sources)) {
-        await writeTextAtomic(workspacePath, relative, content);
-      }
-      for (const relative of sourceDeletions) {
-        await rm(await resolveWorkspaceMutationPath(workspacePath, relative), { force: true });
-      }
-      await writeJsonAtomic(workspacePath, GRAPH_FILE, codebase.graph);
-      await writeJsonAtomic(workspacePath, LAYOUT_FILE, codebase.editorLayout);
-      await ensureNodeCodebaseContract(workspacePath);
-      await removeEmptySourceDirectories(workspacePath, sourceDeletions);
-    } catch (cause) {
-      await restoreFiles(workspacePath, snapshot);
-      throw cause;
-    }
+    const current = await readCodebase(workspacePath);
+    const update = change(current);
+    // The revision still refuses to write over a file the Agent edited in the meantime.
+    if (update) await writeCodebase(workspacePath, { ...update, revision: current.revision });
   });
+}
+
+async function readCodebase(workspacePath: string): Promise<NodeCodebaseDetail> {
+  const [graphText, layoutText] = await readCodebaseTexts(workspacePath);
+  const graph = parseJson(graphText, GRAPH_FILE) as NodeGraph;
+  const layout = parseJson(layoutText, LAYOUT_FILE) as NodeEditorLayout;
+  if (!isNodeEditorLayout(layout)) throw new Error("Invalid editor/layout.json.");
+  const codebase = { graph, editorLayout: fitPlayableLayout(graph, layout) };
+  await validateCodebase(workspacePath, codebase, true);
+  return { ...codebase, revision: codebaseRevision(graphText, layoutText) };
+}
+
+async function writeCodebase(
+  workspacePath: string,
+  update: NodeCodebaseUpdate,
+): Promise<string> {
+  if (update.revision !== undefined) {
+    const [graphText, layoutText] = await readCodebaseTexts(workspacePath);
+    if (codebaseRevision(graphText, layoutText) !== update.revision) {
+      throw new NodeCodebaseConflictError(
+        "The project changed. Reload the latest version before saving.",
+      );
+    }
+  }
+  const codebase: NodeCodebase = {
+    graph: update.graph,
+    editorLayout: update.editorLayout,
+  };
+  const sources = validateSourceUpdates(codebase.graph, update.sources);
+  const sourceDeletions = await validateSourceDeletions(
+    workspacePath,
+    codebase.graph,
+    update.sourceDeletions,
+    Object.keys(sources),
+  );
+  await validateCodebase(workspacePath, codebase, true, Object.keys(sources));
+  const touchedFiles = [
+    GRAPH_FILE,
+    LAYOUT_FILE,
+    ...Object.keys(sources),
+    ...sourceDeletions,
+    "AGENTS.md",
+    "README.md",
+    GRAPH_SCHEMA_FILE,
+    LAYOUT_SCHEMA_FILE,
+  ];
+  const snapshot = await snapshotFiles(workspacePath, touchedFiles);
+  try {
+    for (const [relative, content] of Object.entries(sources)) {
+      await writeTextAtomic(workspacePath, relative, content);
+    }
+    for (const relative of sourceDeletions) {
+      await rm(await resolveWorkspaceMutationPath(workspacePath, relative), { force: true });
+    }
+    const graphText = jsonText(codebase.graph);
+    const layoutText = jsonText(codebase.editorLayout);
+    await writeTextAtomic(workspacePath, GRAPH_FILE, graphText);
+    await writeTextAtomic(workspacePath, LAYOUT_FILE, layoutText);
+    await ensureNodeCodebaseContract(workspacePath);
+    await removeEmptySourceDirectories(workspacePath, sourceDeletions);
+    return codebaseRevision(graphText, layoutText);
+  } catch (cause) {
+    await restoreFiles(workspacePath, snapshot);
+    throw cause;
+  }
 }
 
 export async function ensureNodeCodebaseContract(
@@ -319,12 +370,32 @@ function starterSources(graph: NodeGraph): Record<string, string> {
 }
 
 async function readJson(file: string, label: string): Promise<unknown> {
+  return parseJson(await readFile(file, "utf8"), label);
+}
+
+function parseJson(text: string, label: string): unknown {
   try {
-    return JSON.parse(await readFile(file, "utf8")) as unknown;
+    return JSON.parse(text) as unknown;
   } catch (cause) {
     if (cause instanceof SyntaxError) throw new Error(`${label} is not valid JSON.`);
     throw cause;
   }
+}
+
+function readCodebaseTexts(workspacePath: string): Promise<[string, string]> {
+  return Promise.all([
+    readFile(path.join(workspacePath, GRAPH_FILE), "utf8"),
+    readFile(path.join(workspacePath, LAYOUT_FILE), "utf8"),
+  ]);
+}
+
+// The files' own text, so an edit made outside the daemon changes it too.
+function codebaseRevision(graphText: string, layoutText: string): string {
+  return createHash("sha256").update(JSON.stringify([graphText, layoutText])).digest("hex");
+}
+
+function jsonText(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 async function existingGeneratedFiles(
@@ -348,7 +419,7 @@ async function ensureFile(file: string, content: string): Promise<void> {
 }
 
 async function writeJsonIfChanged(file: string, value: unknown): Promise<void> {
-  const expected = `${JSON.stringify(value, null, 2)}\n`;
+  const expected = jsonText(value);
   await mkdir(path.dirname(file), { recursive: true });
   try {
     if (await readFile(file, "utf8") === expected) return;
@@ -363,26 +434,10 @@ async function writeJson(
   value: unknown,
   flag?: "wx",
 ): Promise<void> {
-  await writeFile(file, `${JSON.stringify(value, null, 2)}\n`, {
+  await writeFile(file, jsonText(value), {
     encoding: "utf8",
     ...(flag ? { flag } : {}),
   });
-}
-
-async function writeJsonAtomic(
-  workspacePath: string,
-  relative: string,
-  value: unknown,
-): Promise<void> {
-  const destination = await resolveWorkspaceMutationPath(workspacePath, relative);
-  const temporary = `${destination}.tmp-${process.pid}-${randomUUID()}`;
-  await mkdir(path.dirname(destination), { recursive: true });
-  try {
-    await writeJson(temporary, value);
-    await rename(temporary, destination);
-  } finally {
-    await rm(temporary, { force: true });
-  }
 }
 
 async function writeTextAtomic(

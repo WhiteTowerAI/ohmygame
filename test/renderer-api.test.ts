@@ -64,15 +64,18 @@ describe("renderer event stream", () => {
     const codebase = {
       graph: { version: 1, title: "Story" },
       editorLayout: { version: 1, nodes: {} },
+      revision: "revision-1",
     } as Awaited<ReturnType<typeof getNodeCodebase>>;
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(Response.json(codebase))
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      .mockResolvedValueOnce(Response.json({ revision: "revision-2" }))
+      .mockResolvedValueOnce(Response.json({ error: "The project changed. Reload the latest version before saving." }, { status: 409 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(getNodeCodebase("project-1")).resolves.toEqual(codebase);
     const update = { ...codebase, sources: { "nodes/start/node.js": "export function mount() {}\n" } };
-    await expect(updateNodeCodebase("project-1", update)).resolves.toBeUndefined();
+    await expect(updateNodeCodebase("project-1", update)).resolves.toEqual({ revision: "revision-2" });
+    await expect(updateNodeCodebase("project-1", update)).rejects.toMatchObject({ status: 409 });
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       "/api/projects/project-1/playable/codebase",
