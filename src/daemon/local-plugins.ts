@@ -9,6 +9,7 @@ import {
   PLUGIN_MANIFEST_PATH,
   isPluginManifest,
   isPluginVersion,
+  type McpServerDefinition,
   type PluginComponentSummary,
   type PluginDetail,
   type PluginMarketplaceRef,
@@ -33,10 +34,6 @@ interface LocalPluginRecord {
   marketplace: PluginMarketplaceRef;
 }
 
-export interface PluginCapabilityRegistry {
-  connections(): Promise<readonly string[]>;
-}
-
 export interface PluginBundleIdentity {
   idPrefix: string;
   marketplace: PluginMarketplaceRef;
@@ -56,7 +53,7 @@ export class LocalPluginStore {
   readonly #loaded = new Map<string, PluginDetail>();
   #mutations: Promise<void> = Promise.resolve();
 
-  constructor(dataDirectory: string, private readonly capabilities?: PluginCapabilityRegistry) {
+  constructor(dataDirectory: string) {
     this.#pluginsDirectory = path.join(dataDirectory, "plugins", "installed");
     this.#indexPath = path.join(dataDirectory, "plugins", "installed-plugins.json");
   }
@@ -120,7 +117,7 @@ export class LocalPluginStore {
     }
     validateMarketplace(marketplace, trustedMarketplace);
     const identity = pluginIdentity(marketplace, publicSource(provenance));
-    const inspected = await inspectPluginBundle(source, identity, this.capabilities, normalizedManifest);
+    const inspected = await inspectPluginBundle(source, identity, normalizedManifest);
     const manifest = normalizedManifest ?? await readPluginManifest(source);
     const currentRecords = await this.#readIndex();
     const previousRecord = currentRecords.find((record) => pluginRecordId(record) === inspected.id);
@@ -141,7 +138,7 @@ export class LocalPluginStore {
     let committed = false;
     try {
       await cp(source, temporary, { recursive: true, errorOnExist: true, force: false });
-      await inspectPluginBundle(temporary, identity, this.capabilities, manifest);
+      await inspectPluginBundle(temporary, identity, manifest);
       await mkdir(path.dirname(destination), { recursive: true });
       try {
         await rename(destination, backup);
@@ -225,7 +222,6 @@ export class LocalPluginStore {
       const plugin = await inspectPluginBundle(
         this.#installedPath(record.marketplace.id, record.name, record.version),
         pluginIdentity(record.marketplace, publicSource(record.provenance)),
-        this.capabilities,
         record.manifest,
       );
       return plugin;
@@ -277,7 +273,6 @@ function pluginIdentity(marketplace: PluginMarketplaceRef, source: PluginSource)
 export async function inspectPluginBundle(
   pluginRoot: string,
   identity: PluginBundleIdentity,
-  capabilities?: PluginCapabilityRegistry,
   normalizedManifest?: ResolvedPluginManifest,
 ): Promise<PluginDetail> {
   await validatePluginBundle(pluginRoot);
@@ -285,7 +280,10 @@ export async function inspectPluginBundle(
   const skills = manifest.skills
     ? (await Promise.all((Array.isArray(manifest.skills) ? manifest.skills : [manifest.skills]).map((skillPath) => skillComponents(pluginRoot, skillPath)))).flat()
     : [];
-  const connections = await referencedComponents(manifest.connections, await capabilities?.connections(), "Connection");
+  const connections = (manifest.connections ?? []).map((id) => ({
+    id, name: displayName(id.replace(/^ohmygame-/, "")), enabled: true,
+  }));
+  const definitions = manifest.mcpServers ? await readPluginMcpServers(pluginRoot, manifest.mcpServers) : {};
   return {
     id: `${identity.idPrefix}${manifest.name}`,
     name: manifest.name,
@@ -299,6 +297,9 @@ export async function inspectPluginBundle(
     enabled: true,
     skills,
     connections,
+    mcpServers: Object.entries(definitions).map(([id, definition]) => ({ id, name: displayName(id), enabled: definition.disabled !== true, transport: definition.url ? "http" as const : "stdio" as const })),
+    mcpConfigPath: manifest.mcpServers,
+    configuration: manifest.configuration,
     defaultPrompts: manifest.interface?.defaultPrompt,
     projectTypes: manifest.interface?.projectTypes,
   };
@@ -368,14 +369,6 @@ async function skillComponents(root: string, relativePath: string): Promise<Plug
   await visit(target);
   if (!files.length) throw new LocalPluginError("The skills directory does not contain a SKILL.md file");
   return Promise.all(files.sort().map((file) => component(root, file, "Skill")));
-}
-
-async function referencedComponents(ids: string[] | undefined, available: readonly string[] | undefined, label: string): Promise<PluginComponentSummary[]> {
-  const known = available ? new Set(available) : undefined;
-  for (const id of ids ?? []) {
-    if (known && !known.has(id)) throw new LocalPluginError(`${label} is not available: ${id}`);
-  }
-  return (ids ?? []).map((id) => ({ id, name: displayName(id.replace(/^ohmygame-/, "")), enabled: true }));
 }
 
 async function declaredPath(root: string, relativePath: string): Promise<string> {
@@ -489,4 +482,29 @@ function containsPath(parent: string, child: string): boolean {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+export async function readPluginMcpServers(root: string, relativePath = "./mcp.json"): Promise<Record<string, McpServerDefinition>> {
+  const file = await declaredPath(root, relativePath);
+  let value: unknown;
+  try { value = JSON.parse(await readFile(file, "utf8")); }
+  catch { throw new LocalPluginError("Plugin MCP file must contain valid JSON"); }
+  const servers = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>).mcpServers : undefined;
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) throw new LocalPluginError("Plugin MCP file requires mcpServers");
+  for (const [id, definition] of Object.entries(servers)) {
+    if (!/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/.test(id) || !isMcpServerDefinition(definition)) throw new LocalPluginError(`Invalid MCP server: ${id}`);
+  }
+  return servers as Record<string, McpServerDefinition>;
+}
+
+export function isMcpServerDefinition(value: unknown): value is McpServerDefinition {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const d = value as Record<string, unknown>;
+  if ((typeof d.command === "string" && Boolean(d.command.trim())) === (typeof d.url === "string" && Boolean(d.url.trim()))) return false;
+  if (d.args !== undefined && (!Array.isArray(d.args) || !d.args.every(a => typeof a === "string"))) return false;
+  for (const key of ["env", "headers"]) if (d[key] !== undefined && (!d[key] || typeof d[key] !== "object" || Array.isArray(d[key]) || !Object.values(d[key] as object).every(v => typeof v === "string"))) return false;
+  if (typeof d.url === "string" && !d.url.includes("${config.")) {
+    try { if (!["http:", "https:"].includes(new URL(d.url).protocol)) return false; } catch { return false; }
+  }
+  return true;
 }

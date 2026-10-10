@@ -12,7 +12,7 @@ import { SettingsPage } from "./settings-page.js";
 import type { PluginMention, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { pluginMentionToken } from "../shared/plugins.js";
-import { createConversation, createPluginAuthoringSession, createProject, MODELS_CHANGED_EVENT } from "./api.js";
+import { createConversation, createProject, MODELS_CHANGED_EVENT } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
 
 export function App() {
@@ -47,7 +47,7 @@ export function App() {
   }, []);
 
   if (route.page === "settings") {
-    return <SettingsPage section={route.section} pluginId={route.pluginId} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onPluginChange={navigateToPlugin} onAddPlugin={addPlugin} onTryPlugin={tryPlugin} />;
+    return <SettingsPage section={route.section} pluginId={route.pluginId} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} />;
   }
   if (route.page === "home") {
     return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
@@ -103,13 +103,6 @@ export function App() {
     setInitialDraft(undefined);
     setInitialCanvasNode(nodeId ? { projectId, nodeId } : undefined);
     navigateToProject(projectId);
-  }
-
-  async function addPlugin(): Promise<void> {
-    const session = await createPluginAuthoringSession();
-    setInitialPrompt(undefined);
-    setInitialDraft({ conversationId: session.conversationId, draft: { prompt: "$plugin-creator Create an OhMyGame plugin that ", mentions: [] } });
-    navigateToConversation(session.projectId, session.conversationId);
   }
 
   async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {

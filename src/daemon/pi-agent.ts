@@ -1,11 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
-import { ConnectionManager } from "./connections.js";
 
-const require = createRequire(import.meta.url);
 const PLUGIN_CREATOR_SKILL = `---
 name: plugin-creator
 description: Create or update an OhMyGame plugin from a natural-language request, validate it, and install it for the user.
@@ -23,7 +20,10 @@ Every plugin must contain \`.ohmygame-plugin/plugin.json\`:
   "version": "0.1.0",
   "description": "What the plugin does.",
   "skills": "./skills/",
-  "connections": ["ohmygame-godot"],
+  "mcpServers": "./mcp.json",
+  "configuration": {
+    "api-key": { "type": "secret", "label": "API key", "required": true }
+  },
   "interface": {
     "displayName": "My Plugin",
     "shortDescription": "A short user-facing description.",
@@ -34,20 +34,15 @@ Every plugin must contain \`.ohmygame-plugin/plugin.json\`:
 }
 \`\`\`
 
-Only include fields the plugin uses. Supported project types are \`web-game\`, \`godot-game\`, \`interactive-story\`, and \`asset-canvas\`. The built-in Godot connection is \`ohmygame-godot\`. OhMyGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
+Only include fields the plugin uses. Supported project types are \`web-game\`, \`godot-game\`, \`interactive-story\`, and \`asset-canvas\`. For legacy shared providers, the built-in Godot connection ID is \`ohmygame-godot\`. OhMyGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
 
-Put each bundled skill at \`skills/<skill-name>/SKILL.md\`. Skills may include their own \`scripts/\`, \`references/\`, and \`assets/\` directories. Prefer skills and scripts for local workflows. Do not create a Pi extension, custom in-process tool, or MCP server.
+Put each bundled skill at \`skills/<skill-name>/SKILL.md\`. Skills may include their own \`scripts/\`, \`references/\`, and \`assets/\` directories. Prefer skills and scripts for local workflows. You may declare an existing STDIO or HTTP MCP service in a mcp.json file containing { "mcpServers": { "service": { "url": "https://service.example/mcp", "headers": { "Authorization": "Bearer \${config.api-key}" } } } }. Configuration fields support text, secret, path, boolean and select. Never embed credentials in a package or ask the user to paste them into chat; direct them to the Plugin configuration form. Do not generate a new MCP server, Pi extension or custom in-process tool.
 
 After creating the files, call \`install_plugin\` with the plugin directory relative to the workspace. Installation is part of the requested workflow and does not require another confirmation. Fix validation errors and call it again if necessary.
 
-In the final response, state that the plugin was created and installed, summarize its Skills and Connections, and include its source directory.
+In the final response, state that the plugin was created and installed, summarize its Skills and MCP services, and include its source directory.
 `;
 const pendingConfiguration = new Map<string, Promise<void>>();
-
-export interface PiMcpServer {
-  id: string;
-  enabled: boolean;
-}
 
 export function isOhMyGameManagedPiPackage(source: string): boolean {
   return source === "npm:pi-mcp-adapter" || source.startsWith("npm:pi-mcp-adapter@");
@@ -61,23 +56,6 @@ export function withoutOhMyGameManagedPiPackages(
     return !isOhMyGameManagedPiPackage(source);
   });
   return retained.length === packages.length ? packages : retained;
-}
-
-export function withBundledMcpAdapter(
-  packages: ReturnType<SettingsManager["getPackages"]>,
-  adapterPath: string,
-): ReturnType<SettingsManager["getPackages"]> {
-  const resolvedAdapterPath = path.resolve(adapterPath);
-  const retained = packages.filter((entry) => {
-    const source = typeof entry === "string" ? entry : entry.source;
-    if (isOhMyGameManagedPiPackage(source)) return false;
-    return !path.isAbsolute(source) || path.resolve(source) !== resolvedAdapterPath;
-  });
-  return [...retained, resolvedAdapterPath];
-}
-
-export function resolveBundledMcpAdapterPath(): string {
-  return path.dirname(require.resolve("pi-mcp-adapter"));
 }
 
 export function ensureOhMyGamePiEnvironment(agentDir: string): Promise<void> {
@@ -100,7 +78,6 @@ async function configure(agentDir: string): Promise<void> {
     settings.setPackages(migratedPackages);
     await settings.flush();
   }
-  await new ConnectionManager(agentDir).ensurePresets();
   await ensurePluginCreatorSkill(agentDir);
 }
 
@@ -114,11 +91,6 @@ async function ensurePluginCreatorSkill(agentDir: string): Promise<void> {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
   }
   await writeConfig(filePath, PLUGIN_CREATOR_SKILL);
-}
-
-export async function listMcpServers(agentDir: string): Promise<PiMcpServer[]> {
-  await ensureOhMyGamePiEnvironment(agentDir);
-  return (await new ConnectionManager(agentDir).list()).map(({ id, enabled }) => ({ id, enabled }));
 }
 
 async function writeConfig(filePath: string, contents: string): Promise<void> {

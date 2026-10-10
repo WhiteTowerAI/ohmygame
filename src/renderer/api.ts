@@ -66,7 +66,6 @@ import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js"
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
-import type { Connection, SaveConnectionRequest } from "../shared/connections.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
@@ -381,10 +380,6 @@ export async function getHomeComposerCapabilities(): Promise<ConversationCapabil
   return request("/composer/capabilities");
 }
 
-export async function createPluginAuthoringSession(): Promise<{ projectId: string; conversationId: string }> {
-  return request("/plugins/authoring-session", { method: "POST" });
-}
-
 export async function installPlugin(input: InstallPluginRequest): Promise<PluginDetail> {
   return request("/plugins/install", { method: "POST", body: JSON.stringify(input) });
 }
@@ -409,25 +404,6 @@ export async function uninstallPlugin(id: string): Promise<void> {
   await request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function listConnections(): Promise<Connection[]> {
-  return request("/settings/connections");
-}
-
-export async function createConnection(input: SaveConnectionRequest): Promise<Connection> {
-  return request("/settings/connections", { method: "POST", body: JSON.stringify(input) });
-}
-
-export async function updateConnection(id: string, input: SaveConnectionRequest): Promise<Connection> {
-  return request(`/settings/connections/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) });
-}
-
-export async function setConnectionEnabled(id: string, enabled: boolean): Promise<void> {
-  await request(`/settings/connections/${encodeURIComponent(id)}/enabled`, { method: "PATCH", body: JSON.stringify({ enabled }) });
-}
-
-export async function removeConnection(id: string): Promise<void> {
-  await request(`/settings/connections/${encodeURIComponent(id)}`, { method: "DELETE" });
-}
 
 export async function startToolJob(toolId: ToolId, input: RunToolRequest, title?: string, context?: ToolJobContext): Promise<ToolJob> {
   return request(`/tools/${toolId}/jobs`, { method: "POST", body: JSON.stringify({ ...input, ...(title ? { title } : {}), ...(context ? { projectId: context.projectId, nodeId: context.nodeId } : {}) }) });
@@ -1059,4 +1035,35 @@ function reconnectDelay(signal: AbortSignal): Promise<void> {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+export async function createMcpPlugin(input: import("../shared/plugins.js").CreateMcpPluginRequest): Promise<PluginDetail> {
+  return request("/plugins/mcp", { method: "POST", body: JSON.stringify(input) });
+}
+export async function readPluginConfiguration(id: string): Promise<import("../shared/plugins.js").PluginConfigurationView> {
+  return request(`/plugins/${encodeURIComponent(id)}/configuration`);
+}
+export async function savePluginConfiguration(id: string, values: import("../shared/plugins.js").PluginConfigurationValues): Promise<import("../shared/plugins.js").PluginConfigurationView> {
+  return request(`/plugins/${encodeURIComponent(id)}/configuration`, { method: "PUT", body: JSON.stringify({ values }) });
+}
+export async function testPluginMcp(id: string, server: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
+  return request(`/plugins/${encodeURIComponent(id)}/mcp/${encodeURIComponent(server)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
+}
+export async function createPluginSetup(pluginId?: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+  return request("/plugins/setup-sessions", { method: "POST", body: JSON.stringify({ pluginId }) });
+}
+export async function readPluginSetup(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}`);
+}
+export async function promptPluginSetup(id: string, prompt: string, model: AgentModelRef): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/prompt`, { method: "POST", body: JSON.stringify({ prompt, model }) });
+}
+export async function abortPluginSetup(id: string): Promise<void> {
+  await request(`/plugins/setup-sessions/${encodeURIComponent(id)}/abort`, { method: "POST" });
+}
+export async function readPluginMcpDefinition(id: string, server: string): Promise<{ definition: import("../shared/plugins.js").McpServerDefinition }> {
+  return request(`/plugins/${encodeURIComponent(id)}/mcp/${encodeURIComponent(server)}/definition`);
+}
+export async function savePluginMcpDefinition(id: string, server: string, definition: import("../shared/plugins.js").McpServerDefinition): Promise<PluginDetail> {
+  return request(`/plugins/${encodeURIComponent(id)}/mcp/${encodeURIComponent(server)}/definition`, { method: "PUT", body: JSON.stringify({ definition }) });
 }

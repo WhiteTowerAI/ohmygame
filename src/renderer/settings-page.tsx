@@ -7,7 +7,6 @@ import type { SettingsSection } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
-import { ConnectionsSettings } from "./connections-settings.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
@@ -27,17 +26,15 @@ const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: 
   { section: "appearance", label: "Appearance", icon: Palette },
   { section: "web-search", label: "Web Search", icon: Globe2 },
   { section: "plugins", label: "Plugins", icon: Package },
-  { section: "connections", label: "Connections", icon: Plug },
   { section: "about", label: "About", icon: InfoCircle },
 ];
 
-export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPluginChange, onAddPlugin, onTryPlugin }: {
+export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPluginChange, onTryPlugin }: {
   section: SettingsSection;
   pluginId?: string;
   onBack: () => void;
   onSectionChange: (section: SettingsSection) => void;
   onPluginChange: (pluginId?: string) => void;
-  onAddPlugin: () => Promise<void>;
   onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }) {
   const [modelsView, setModelsView] = useState<ModelsView>({ page: "providers" });
@@ -85,8 +82,7 @@ export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPlu
           {section === "appearance" ? <AppearanceSettings /> : null}
           {section === "providers" ? <ModelsSettings view={modelsView} onViewChange={setModelsView} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
-          {section === "plugins" ? <PluginsSettings pluginId={pluginId} onPluginChange={onPluginChange} onAddPlugin={onAddPlugin} onTryPlugin={onTryPlugin} /> : null}
-          {section === "connections" ? <ConnectionsSettings /> : null}
+          {section === "plugins" ? <PluginsSettings pluginId={pluginId} onPluginChange={onPluginChange} onTryPlugin={onTryPlugin} /> : null}
           {section === "about" ? <AboutSettings /> : null}
         </div>
       </section>

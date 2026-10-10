@@ -1,3 +1,4 @@
+import { AddMcpPluginDialog, PluginAssistantDialog, PluginConfigurationPanel, PluginMcpPanel } from "./plugin-controls.js";
 import {
   ChevronRight,
   ExternalLink,
@@ -16,7 +17,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   pluginComponentKey,
   type PluginComponentSummary,
-  type PluginConnectionSummary,
   type PluginDetail,
   type InstallPluginRequest,
   type PluginInstallCandidate,
@@ -30,19 +30,21 @@ import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { GodotIcon } from "./godot-icon.js";
 import { MarkdownContent } from "./markdown-content.js";
 
-export function PluginsSettings({ pluginId, onPluginChange, onAddPlugin, onTryPlugin }: {
+export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   pluginId?: string;
   onPluginChange: (pluginId?: string) => void;
-  onAddPlugin: () => Promise<void>;
   onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }) {
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [detailResult, setDetailResult] = useState<{ pluginId: string; plugin?: PluginDetail; error?: string }>();
   const [detailRetry, setDetailRetry] = useState(0);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [mcpOpen, setMcpOpen] = useState(false);
+  const [catalogRetry, setCatalogRetry] = useState(0);
   const [query, setQuery] = useState("");
   const [updating, setUpdating] = useState<string>();
-  const [adding, setAdding] = useState<"create" | "install">();
+  const [adding, setAdding] = useState<"install">();
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [gitDialogOpen, setGitDialogOpen] = useState(false);
   const [gitUrl, setGitUrl] = useState("");
@@ -69,7 +71,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onAddPlugin, onTryPl
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [catalogRetry]);
   useEffect(() => {
     setDetailResult(undefined);
     setError(undefined);
@@ -134,17 +136,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onAddPlugin, onTryPl
     }
   }
 
-  async function addPlugin(): Promise<void> {
-    if (adding) return;
-    setAdding("create");
-    setError(undefined);
-    try {
-      await onAddPlugin();
-    } catch (cause) {
-      setError(errorMessage(cause));
-      setAdding(undefined);
-    }
-  }
+  function capabilitiesChanged(): void { setCatalogRetry(v => v + 1); setDetailRetry(v => v + 1); }
 
   async function installFromFolder(): Promise<void> {
     setAddMenuOpen(false);
@@ -243,9 +235,10 @@ export function PluginsSettings({ pluginId, onPluginChange, onAddPlugin, onTryPl
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins..." aria-label="Search plugins" />
           </label>
           <div className="plugins-add" ref={addMenu}>
-            <button className="settings-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding === "create" ? "Opening..." : adding === "install" ? "Installing..." : "Add plugin"}</button>
+            <button className="settings-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding ? "Installing..." : "Add plugin"}</button>
             {addMenuOpen ? <div className="plugins-add-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); void addPlugin(); }}><Package size={14} /><span><strong>Create with AI</strong><small>Build a plugin with the agent</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setAssistantOpen(true); }}><Package size={14} /><span><strong>Create with AI</strong><small>Build a plugin with the agent</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setMcpOpen(true); }}><Plug size={14} /><span><strong>Add MCP service...</strong><small>Connect tools through a plugin</small></span></button>
               {window.ohMyGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>Install from folder...</strong><small>Choose a local plugin directory</small></span></button> : null}
               <button type="button" role="menuitem" onClick={openGitInstallDialog}><GitBranch size={14} /><span><strong>Install from Git...</strong><small>Clone a public HTTPS repository</small></span></button>
             </div> : null}
@@ -268,6 +261,9 @@ export function PluginsSettings({ pluginId, onPluginChange, onAddPlugin, onTryPl
       onBrowse={() => detail && void browsePlugin(detail)}
       onBrowseSkill={(skillId) => detail && void browsePluginSkill(detail.id, skillId)}
       onRemove={() => detail && void removePlugin(detail)}
+      onCapabilitiesChanged={capabilitiesChanged}
+      onAssist={() => setAssistantOpen(true)}
+      onMcpToggle={(id, enabled) => detail && void updatePlugin(detail, { enabled: detail.enabled, components: { ...componentSettings(detail).components, [pluginComponentKey("mcp", id)]: enabled } })}
       onTry={onTryPlugin}
     /> : <>
       {phase === "ready" && ((!gitDialogOpen && error) || catalogWarning) ? <p className="plugins-inline-error" role="alert">{!gitDialogOpen && error ? error : catalogWarning}</p> : null}
@@ -281,6 +277,8 @@ export function PluginsSettings({ pluginId, onPluginChange, onAddPlugin, onTryPl
         />
       </> : null}
     </>}
+    {assistantOpen ? <PluginAssistantDialog pluginId={pluginId} onClose={() => { setAssistantOpen(false); capabilitiesChanged(); }} onChanged={capabilitiesChanged} /> : null}
+    {mcpOpen ? <AddMcpPluginDialog onClose={() => setMcpOpen(false)} onInstalled={id => { setMcpOpen(false); capabilitiesChanged(); onPluginChange(id); }} /> : null}
     {gitDialogOpen ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !adding) closeInstallDialog();
     }}>
@@ -347,14 +345,14 @@ function PluginCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: () => v
     <button className="plugin-card-open" type="button" onClick={onOpen}>
       <PluginIcon plugin={plugin} />
       <span className="plugin-card-copy">
-        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.installed && !plugin.enabled ? <small className="plugin-status">Disabled</small> : null}</span>
+        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.configurationStatus === "needs-configuration" ? <small className="plugin-status">Needs configuration</small> : null}{plugin.installed && !plugin.enabled ? <small className="plugin-status">Disabled</small> : null}</span>
         <span className="plugin-card-description">{plugin.description}</span>
       </span>
     </button>
   </article>;
 }
 
-function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onBrowseSkill, onRemove, onTry }: {
+function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlugin, onToggleComponent, onBrowse, onBrowseSkill, onRemove, onTry, onCapabilitiesChanged, onMcpToggle, onAssist }: {
   phase: "loading" | "ready" | "error";
   plugin?: PluginDetail;
   updating: boolean;
@@ -365,6 +363,9 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
   onBrowse: () => void;
   onBrowseSkill: (skillId: string) => void;
   onRemove: () => void;
+  onCapabilitiesChanged: () => void;
+  onMcpToggle: (id: string, enabled: boolean) => void;
+  onAssist: () => void;
   onTry: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }): ReactNode {
   const [tryPrompt, setTryPrompt] = useState<string>();
@@ -499,18 +500,11 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         {tryNotice ? <p role="status">{tryNotice}</p> : null}
       </section> : null}
       <SkillSection pluginId={plugin.id} items={plugin.skills} installed={plugin.installed} disabled={updating || !plugin.enabled} onBrowse={onBrowseSkill} onToggle={onToggleComponent} />
-      <ConnectionSection items={plugin.connections} />
+      <PluginConfigurationPanel plugin={plugin} onChanged={onCapabilitiesChanged} />
+      <PluginMcpPanel plugin={plugin} onToggle={onMcpToggle} onAssist={onAssist} onChanged={onCapabilitiesChanged} />
+      {!plugin.mcpServers?.length && !plugin.connections.length ? <button type="button" onClick={onAssist}>Configure with AI</button> : null}
     </> : null}
   </section>;
-}
-
-function ConnectionSection({ items }: { items: PluginConnectionSummary[] }): ReactNode {
-  if (!items.length) return null;
-  return <section className="plugin-components"><h2>Connections</h2><div>{items.map((item) => <div className="plugin-component-row" key={item.id}>
-    <span className="plugin-component-icon"><Plug size={15} /></span>
-    <span className="plugin-row-copy"><strong>{item.name}</strong><span>{item.status === "not-configured" ? "Not configured" : item.status === "disabled" ? "Disabled in Settings" : "Available"}</span></span>
-    <button className={`plugin-connection-status is-${item.status ?? "enabled"}`} type="button" onClick={() => { window.location.hash = "#/settings/connections" }}>{item.status === "not-configured" ? "Set up in Settings" : "Manage in Settings"}</button>
-  </div>)}</div></section>;
 }
 
 function SkillSection({ pluginId, items, installed, disabled, onBrowse, onToggle }: {
@@ -588,12 +582,13 @@ function componentSettings(plugin: PluginDetail): PluginSettings {
     enabled: plugin.enabled,
     components: Object.fromEntries([
       ...plugin.skills.map((item) => [pluginComponentKey("skill", item.id), item.enabled]),
+      ...(plugin.mcpServers ?? []).map(item => [pluginComponentKey("mcp", item.id), item.enabled]),
     ]),
   };
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, ...summary } = plugin;
+  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, mcpServers: _mcpServers, mcpConfigPath: _mcpConfigPath, configuration: _configuration, ...summary } = plugin;
   return summary;
 }
 

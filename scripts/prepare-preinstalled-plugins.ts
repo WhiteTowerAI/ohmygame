@@ -57,16 +57,16 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
       const candidates = await discoverPlugins(source);
       const selected = candidates.find((candidate) => candidate.key === entry.candidate);
       if (!selected) throw new Error(`Plugin candidate ${entry.candidate} was not found in ${entry.repository}`);
-      const manifest: ResolvedPluginManifest = {
+      const manifest = {
         ...selected.manifest,
         version: entry.version,
         interface: { ...selected.manifest.interface, ...entry.interface },
-      };
+      } satisfies ResolvedPluginManifest;
       await inspectPluginBundle(source, {
         idPrefix: "ohmygame:",
         marketplace: { id: "ohmygame", displayName: "OhMyGame" },
         source: { type: "preinstalled", pluginId: entry.pluginId, releaseId: entry.releaseId },
-      }, undefined, manifest);
+      }, manifest);
       const archive = await createPluginArchive(source);
       const artifactSha256 = createHash("sha256").update(archive).digest("hex");
       if (artifactSha256 !== entry.artifactSha256) {

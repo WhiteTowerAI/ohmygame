@@ -86,11 +86,14 @@ export interface LocalPluginCatalogReader {
 export class LocalPluginAdapter implements PluginCatalogAdapter {
   readonly marketplace = PERSONAL_MARKETPLACE;
 
-  constructor(private readonly plugins: LocalPluginCatalogReader) {}
+  constructor(
+    private readonly plugins: LocalPluginCatalogReader,
+    private readonly summarize: (plugin: PluginDetail) => PluginSummary = pluginSummary,
+  ) {}
 
   async list(): Promise<PluginCatalogResult> {
     const result = await this.plugins.list();
-    return { plugins: result.plugins.map(pluginSummary), errors: result.errors };
+    return { plugins: result.plugins.map(this.summarize), errors: result.errors };
   }
 
   async read(id: string): Promise<PluginDetail | undefined> {
@@ -101,10 +104,13 @@ export class LocalPluginAdapter implements PluginCatalogAdapter {
 export class BundledPluginAdapter implements PluginCatalogAdapter {
   readonly marketplace = OHMYGAME_MARKETPLACE;
 
-  constructor(private readonly plugins: { list(): PluginDetail[]; read(id: string): PluginDetail | undefined }) {}
+  constructor(
+    private readonly plugins: { list(): PluginDetail[]; read(id: string): PluginDetail | undefined },
+    private readonly summarize: (plugin: PluginDetail) => PluginSummary = pluginSummary,
+  ) {}
 
   async list(): Promise<PluginCatalogResult> {
-    return { plugins: this.plugins.list().map(pluginSummary) };
+    return { plugins: this.plugins.list().map(this.summarize) };
   }
 
   async read(id: string): Promise<PluginDetail | undefined> {
@@ -112,8 +118,8 @@ export class BundledPluginAdapter implements PluginCatalogAdapter {
   }
 }
 
-function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, ...summary } = plugin;
+export function pluginSummary(plugin: PluginDetail): PluginSummary {
+  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, mcpServers: _mcpServers, mcpConfigPath: _mcpConfigPath, configuration: _configuration, ...summary } = plugin;
   return summary;
 }
 
