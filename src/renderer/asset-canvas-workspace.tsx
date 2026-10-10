@@ -717,8 +717,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const videoModelsRef = useRef(videoModels); videoModelsRef.current = videoModels;
   function reconcileCanvas(submitted: AssetCanvasDocument, saved: AssetCanvasDocument) {
     const current = latestCanvas.current ?? submitted;
-    const merged = mergeCanvasDocument(submitted, current, saved);
-    if (!merged) throw new Error("The canvas changed while saving. Review the current board before saving again.");
+    const merged = storage.reconcile(submitted, current, saved);
     if (JSON.stringify(current) === JSON.stringify(merged)) return;
     if (canvasHistoryKey(current) !== canvasHistoryKey(merged)) resetHistory();
     if (historyGestureBase.current) historyGestureBase.current = mergeCanvasDocument(submitted, historyGestureBase.current, saved);

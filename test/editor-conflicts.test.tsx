@@ -188,16 +188,14 @@ async function move(id: string) {
 }
 async function undo(redo = false) {
   await act(async () =>
-    container
-      .querySelector(".interactive-story-canvas")!
-      .dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "z",
-          metaKey: true,
-          shiftKey: redo,
-          bubbles: true,
-        }),
-      ),
+    container.querySelector(".interactive-story-canvas")!.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "z",
+        metaKey: true,
+        shiftKey: redo,
+        bubbles: true,
+      }),
+    ),
   );
 }
 
@@ -326,4 +324,35 @@ it("keeps a duplicated Scene and its sources when only the disk layout changed",
     y: 20,
     zoom: 0.5,
   });
+});
+
+it("keeps the Agent version when the canvas changes the same field during a save retry", async () => {
+  await openCanvas("web-game");
+  boardDisk.board.nodes[0]!.title = "Agent title";
+  boardDisk.revision = "agent-edit";
+  let rejectSave!: (cause: Error) => void;
+  api.saveBoard.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectSave = reject;
+      }),
+  );
+  await move("n");
+  await advance(400);
+  expect(api.saveBoard).toHaveBeenCalledTimes(1);
+  await act(async () =>
+    captured.props!.onNodesChange!([
+      {
+        id: "n",
+        type: "replace",
+        item: { ...captured.props!.nodes[0]!, title: "Local title" },
+      },
+    ]),
+  );
+  await act(async () => rejectSave(new ApiError("The board changed", 409)));
+  await advance(400);
+  expect(boardDisk.board.nodes[0]!.title).toBe("Agent title");
+  expect(
+    JSON.parse(localStorage.getItem("canvas-board:p:b")!).local.nodes[0].title,
+  ).toBe("Local title");
 });
