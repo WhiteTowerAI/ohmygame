@@ -19,6 +19,38 @@ describe("Web Game project codebase", () => {
     expect(copy.type).toBe("general");
     expect(await readdir(copy.workspacePath)).toEqual(["project.godot"]);
   });
+  it("binds copied Canvas generation history to the duplicate", async () => {
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-duplicate-history-")));
+    const project = await manager.create("Sky garden", "asset-canvas");
+    const canvas = path.join(project.workspacePath, "canvas");
+    await mkdir(canvas);
+    const history = ["succeeded", "failed"].map((status, index) => ({
+      id: `historical-${index}`,
+      toolId: "generate-image",
+      createdAt: "2026-10-07T12:00:00.000Z",
+      status,
+      title: "Original concept",
+      context: { projectId: project.id, boardId: "design", nodeId: "concept" },
+      // Retry inputs can hold inline images larger than a board file may be.
+      input: { prompt: "Original prompt", images: status === "failed" ? [`data:image/png;base64,${"A".repeat(4 * 1024 * 1024)}`] : [] },
+    }));
+    await writeFile(path.join(canvas, "jobs.json"), JSON.stringify(history));
+    const copy = await manager.duplicate(project.id);
+    expect(JSON.parse(await readFile(path.join(copy.workspacePath, "canvas/jobs.json"), "utf8"))).toEqual(history.map((job) => ({ ...job, context: { ...job.context, projectId: copy.id } })));
+    expect(JSON.parse(await readFile(path.join(canvas, "jobs.json"), "utf8"))).toEqual(history);
+  });
+  it.each([
+    ["invalid JSON", "not JSON"],
+    ["no job list", "{}\n"],
+    ["entries without a project", '[\n  null,\n  "job"\n]\n'],
+  ])("duplicates a project whose Canvas generation history has %s", async (_case, history) => {
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-duplicate-history-")));
+    const project = await manager.create("Sky garden", "asset-canvas");
+    await mkdir(path.join(project.workspacePath, "canvas"));
+    await writeFile(path.join(project.workspacePath, "canvas/jobs.json"), history);
+    const copy = await manager.duplicate(project.id);
+    expect(await readFile(path.join(copy.workspacePath, "canvas/jobs.json"), "utf8")).toBe(history);
+  });
   it.each(["electron .", "tauri dev"])("keeps General Game preview off for a native dev script: %s", async (dev) => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-native-project-"));
     const manager = new ProjectManager(directory);
