@@ -220,9 +220,10 @@ drawing adds one more. The message carries their descriptions and one
 screenshot of the preview with the picks outlined and the drawing on it.
 Removing a chip leaves it out of the message; the chips clear once sent. The
 conversation shows only the chip labels; the Agent receives the full context.
-The Agent edits the Scene's files; the preview reloads when the change is
-saved; new or removed Exits appear on the canvas immediately, and an Exit
-that goes nowhere shows up under the issues badge.
+The Agent edits the Scene's files. When its turn completes, the editor
+reloads the project: the preview shows the change, new or removed Exits
+appear on the canvas, and an Exit that goes nowhere shows up under the
+issues badge.
 
 Typical requests:
 
@@ -234,8 +235,8 @@ Typical requests:
 - Picking a title and saying "use the pixel typeface from the main
   menu".
 
-Small edits use the same loop. Direct text editing inside the preview is a
-possible later improvement, not a v1 requirement.
+Small edits use the same loop, or the **Text** and **Move** tools
+([Preview tools](#preview-tools)) for an element's words or place.
 
 ### Code, when it is really needed
 
@@ -489,8 +490,12 @@ the Published Player.
    belongs to. Shift-, ⌘- or Ctrl-click adds it to the picks.
 3. Preview builds add an inert `data-ohmygame-source="index.html:12:5"`
    attribute to every element written in the node's HTML. Elements created by
-   JavaScript have no such attribute; the description then relies on text,
-   path, and screenshot, and the Agent finds the element in source.
+   JavaScript have no such attribute; the description then gives the source
+   location of the nearest element around it that was written in the HTML,
+   and the Agent finds the element from there. An element with none, such as
+   one a script adds straight to the node's root, cannot be picked with
+   **Select** or edited with **Text**: **Select** shows no hover outline for
+   it and a click does nothing.
 4. With **Text**, clicking makes the element editable. On Enter the host
    reports the text before and after, and whether the element holds only text
    and came from the node's HTML. The editor then replaces that element's
