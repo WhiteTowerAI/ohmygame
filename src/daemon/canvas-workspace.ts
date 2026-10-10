@@ -243,8 +243,9 @@ export async function removeCanvasAssetReferences(workspace: string, assetIds: s
     }));
     const removedLinks = new Set([...ids].flatMap((assetId) => manifest.assets[assetId] ? [`../../${manifest.assets[assetId]!.path.split("/").map(encodeURIComponent).join("/")}`] : []));
     if (index && removedLinks.size) {
+      const removedImages = new RegExp(`!\\[[^\\]\\n]*\\]\\((?:${[...removedLinks].map((link) => link.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\)`, "g");
       for (const detail of await readCanvasDocuments(workspace, index)) {
-        const markdown = detail.document.markdown.replace(/!\[[^\]\n]*\]\(([^)\s]+)\)/g, (image, link: string) => removedLinks.has(link) ? "" : image);
+        const markdown = detail.document.markdown.replace(removedImages, "");
         if (markdown !== detail.document.markdown) await writeAtomic(workspace, `documents/${detail.document.id}.md`, markdown);
       }
     }

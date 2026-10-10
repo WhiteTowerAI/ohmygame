@@ -267,6 +267,13 @@ describe("Markdown design workspace", () => {
     const link = inserted.document.markdown.match(/\]\(([^)]+)\)/)![1]!;
     expect(await readFile(path.resolve(project.workspacePath, "canvas/documents", link), "utf8")).toBe("image");
   });
+  it("removes a deleted image's embed when the file name has parentheses", async () => {
+    const { store, project, library, projects } = await runtime();
+    const doc = await store.createDocument(project.id, "Art"), asset = await library.add("hero (1).png", Buffer.from("image"));
+    expect((await store.insertAsset(project.id, doc.document.id, asset.id)).document.markdown).toContain("/hero%20(1).png)");
+    await projects.deleteWorkspaceEntry(project.id, (await store.workspace(project.id)).assets[0]!.path);
+    expect((await store.read(project.id, doc.document.id))!.document.markdown).not.toContain("![");
+  });
   it("reads direct semantic edits, fits new nodes and reports malformed fields without rewriting them", async () => {
     const { store, project, boardId, node } = await runtime();
     const filePath = path.join(project.workspacePath, `canvas/boards/${boardId}.json`);
