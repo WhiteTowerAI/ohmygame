@@ -5,6 +5,27 @@ import { describe, expect, it, vi } from "vitest";
 import { startDaemon } from "../src/desktop/daemon-process.js";
 
 describe("desktop daemon process", () => {
+  it("resolves the system proxy over private child IPC", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-proxy-ipc-"));
+    const entry = path.join(directory, "daemon.mjs");
+    const resultFile = path.join(directory, "result.json");
+    await writeFile(entry, `
+      import { writeFileSync } from "node:fs";
+      import { createServer } from "node:http";
+      process.on("message", (message) => {
+        if (message.channel === "ohmygame:system-proxy:result") writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(message));
+      });
+      process.send({ channel: "ohmygame:system-proxy:resolve", id: "test-proxy" });
+      const server = createServer((_request, response) => response.end());
+      server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.once("SIGTERM", () => server.close(() => process.exit(0)));
+    `);
+    const daemon = await startDaemon({ daemonEntry: entry, dataDirectory: directory, token: "test-token", allowedOrigins: [], executable: process.execPath, environment: {}, resolveSystemProxy: async () => "PROXY 127.0.0.1:7890" });
+    try {
+      await vi.waitFor(async () => expect(JSON.parse(await readFile(resultFile, "utf8"))).toEqual({ channel: "ohmygame:system-proxy:result", id: "test-proxy", result: "PROXY 127.0.0.1:7890" }));
+    } finally { await daemon.stop(); await import("node:fs/promises").then(({ rm }) => rm(directory, { recursive: true, force: true })); }
+  });
+
   it("includes daemon output when the child exits before becoming healthy", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-desktop-error-"));
     const entry = path.join(directory, "daemon.mjs");

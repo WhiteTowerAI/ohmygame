@@ -2,22 +2,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
 import { ensureOhMyGamePiEnvironment } from "./pi-agent.js";
-import { configureNetworkProxy } from "./proxy.js";
+import { activateNetworkProxy } from "./proxy.js";
+import { loadEnvironmentFiles } from "./environment.js";
+import { NetworkSettingsService } from "./network-settings.js";
+import { requestSystemProxy } from "./system-proxy-resolver.js";
 import { ProcessPlaytestDriver } from "./playtest-driver.js";
 import { isLocalDebugEnabled, isLoopbackHostname } from "../shared/local-debug.js";
 
-configureNetworkProxy();
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const development = process.argv.includes("--dev");
 const mode = development ? "development" : "production";
-// Match Vite's precedence; loadEnvFile preserves values already in process.env.
-for (const file of [`.env.${mode}.local`, `.env.${mode}`, ".env.local", ".env"]) {
-  try {
-    process.loadEnvFile(path.join(repositoryRoot, file));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-}
+loadEnvironmentFiles(repositoryRoot, mode);
 const host = process.env.DAEMON_HOST ?? "127.0.0.1";
 const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(repositoryRoot, ".data");
 const piAgentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
@@ -37,6 +32,13 @@ process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
 
 try {
+  const networkSettings = new NetworkSettingsService(dataDirectory, {
+    environment: process.env,
+    initialSystemProxy: process.env.OHMYGAME_SYSTEM_PROXY,
+    resolveSystemProxy: process.connected ? requestSystemProxy : undefined,
+  });
+  await networkSettings.load();
+  activateNetworkProxy(networkSettings.runtime());
   try {
     await ensureOhMyGamePiEnvironment(piAgentDirectory);
   } catch (error) {
@@ -44,6 +46,7 @@ try {
   }
   app = createApp({
     dataDirectory,
+    networkSettings,
     piAgentDirectory,
     bundledPluginsDirectory: process.env.OHMYGAME_BUNDLED_PLUGINS_DIR,
     preinstalledPluginsDirectory: process.env.OHMYGAME_PREINSTALLED_PLUGINS_DIR
@@ -66,7 +69,7 @@ try {
   });
   await app.listen({ host, port: Number(process.env.DAEMON_PORT ?? 43110) });
 } catch (error) {
-  app?.log.error(error);
+  if (app) app.log.error(error); else console.error(error);
   await app?.close();
   process.exit(1);
 }

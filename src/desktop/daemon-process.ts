@@ -31,6 +31,7 @@ interface StartDaemonOptions {
   development?: boolean;
   healthTimeoutMs?: number;
   handlePlaytestRequest?: (request: PlaytestRequest, signal: AbortSignal) => Promise<PlaytestResult>;
+  resolveSystemProxy?: () => Promise<string>;
 }
 
 export async function startDaemon(options: StartDaemonOptions): Promise<ManagedDaemon> {
@@ -57,8 +58,18 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.playerDirectory ? { OHMYGAME_PLAYER_DIR: path.resolve(options.playerDirectory) } : {}),
       ...(options.handlePlaytestRequest ? { OHMYGAME_PLAYTEST_IPC: "1" } : {}),
     },
-    stdio: options.handlePlaytestRequest ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
+    stdio: options.handlePlaytestRequest || options.resolveSystemProxy ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
   });
+  if (options.resolveSystemProxy) {
+    child.on("message", (value: unknown) => {
+      const message = value as { channel?: string; id?: string } | null;
+      if (message?.channel !== "ohmygame:system-proxy:resolve" || typeof message.id !== "string" || message.id.length > 100) return;
+      const send = (result: { result: string } | { error: string }) => {
+        if (child.connected) child.send({ channel: "ohmygame:system-proxy:result", id: message.id, ...result }, () => {});
+      };
+      void options.resolveSystemProxy!().then((result) => send({ result }), () => send({ error: "Could not detect the system proxy" }));
+    });
+  }
   const playtestRequests = options.handlePlaytestRequest
     ? bindPlaytestRequests(child, options.handlePlaytestRequest)
     : undefined;

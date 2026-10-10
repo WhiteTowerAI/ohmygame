@@ -8,11 +8,11 @@ have distinct presentations. Unknown failures remain explicitly unclassified.
 The details can be copied and include the provider, model, endpoint, HTTP status,
 provider request ID, available underlying error codes and causes, and the number
 of agent retries in the turn. Missing fields are omitted. The network field is
-the proxy configuration applied by the daemon at startup, when available. The
-current startup layer passes both inherited and detected system proxies through
-environment variables, so this field labels them as an environment proxy. It
-does not prove whether a particular request bypassed the proxy or how a VPN
-routed it. Missing proxy metadata is omitted rather than assumed to be direct.
+the active startup configuration from the network settings service, including
+whether it uses an environment, system or manual proxy, or direct connections.
+Saved changes that require a restart do not replace that active snapshot. The
+field does not prove whether a particular request bypassed the proxy or how a
+VPN routed it.
 
 The application converts Pi messages and thrown errors into the same
 `ThreadItemError` directly. Only the daemon classifies failures; the renderer
