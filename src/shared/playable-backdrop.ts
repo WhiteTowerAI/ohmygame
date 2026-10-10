@@ -1,7 +1,11 @@
 import type { PlayableAssetType } from "./playable-nodes.js";
 
-/** Opening tags that mark the Node's background with `data-media="backdrop"`. */
-const BACKDROP_TAG = /<[a-zA-Z][\w-]*\b[^>]*\sdata-media\s*=\s*(?:"backdrop"|'backdrop')[^>]*>/g;
+/**
+ * Opening tags that mark the Node's background with `data-media="backdrop"`.
+ * A quoted attribute value is skipped whole, so a `>` inside it does not end
+ * the tag.
+ */
+const BACKDROP_TAG = /<[a-zA-Z][\w-]*\b(?:[^>"']|"[^"]*"|'[^']*')*\sdata-media\s*=\s*(?:"backdrop"|'backdrop')(?:[^>"']|"[^"]*"|'[^']*')*>/g;
 const ASSET_ATTRIBUTE = /\sdata-(?:asset|type)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>/]+)/g;
 
 /** The Node's one background tag, or undefined when there is none or more than one. */
