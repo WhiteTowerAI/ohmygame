@@ -13,6 +13,9 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const development = process.argv.includes("--dev");
 const mode = development ? "development" : "production";
 loadEnvironmentFiles(repositoryRoot, mode);
+// Processes the daemon starts inherit its environment, and none of them may call the daemon as the app.
+const accessToken = process.env.OHMYGAME_DAEMON_TOKEN;
+delete process.env.OHMYGAME_DAEMON_TOKEN;
 const host = process.env.DAEMON_HOST ?? "127.0.0.1";
 const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(repositoryRoot, ".data");
 const piAgentDirectory = process.env.PI_CODING_AGENT_DIR ?? path.join(dataDirectory, "pi-agent");
@@ -53,7 +56,7 @@ try {
       ?? path.join(repositoryRoot, ".runtime", "preinstalled-plugins"),
     examplesDirectory: process.env.OHMYGAME_EXAMPLES_DIR ?? path.join(repositoryRoot, ".runtime", "examples"),
     interactiveStoryPlayerDirectory: process.env.OHMYGAME_PLAYER_DIR,
-    accessToken: process.env.OHMYGAME_DAEMON_TOKEN,
+    accessToken,
     allowedOrigins: (process.env.OHMYGAME_ALLOWED_ORIGINS ?? "")
       .split(",")
       .map((origin) => origin.trim())

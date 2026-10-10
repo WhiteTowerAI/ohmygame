@@ -123,6 +123,12 @@ Pi runs in trusted-local mode. The workspace is Pi's working directory, but
 without an OhMyGame approval prompt. Provider credentials stay in the daemon
 and are never written to workspaces or returned to the renderer.
 
+The daemon removes its access token from its environment at startup, so no
+process it starts inherits it: preview servers, dependency installs, publish
+builds, the Agent's shell, stdio MCP servers, and Git. Project processes also
+run without the daemon's other settings (`OHMYGAME_*`, `DAEMON_HOST`,
+`DAEMON_PORT`).
+
 ## Agent game use
 
 General Game projects start as engine-independent workspaces with Code,
