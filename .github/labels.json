@@ -1,0 +1,127 @@
+[
+  {
+    "name": "type: bug",
+    "color": "d73a4a",
+    "description": "Unexpected behavior, or a PR that fixes it."
+  },
+  {
+    "name": "type: feature",
+    "color": "0e8a16",
+    "description": "New functionality or an improvement to the user experience."
+  },
+  {
+    "name": "type: docs",
+    "color": "0075ca",
+    "description": "Documentation changes."
+  },
+  {
+    "name": "type: refactor",
+    "color": "a371f7",
+    "description": "Code restructuring that preserves existing behavior."
+  },
+  {
+    "name": "type: chore",
+    "color": "6e7781",
+    "description": "Dependencies, builds, CI, and repository maintenance."
+  },
+  {
+    "name": "status: triage",
+    "color": "fbca04",
+    "description": "New feedback awaiting evaluation and confirmation."
+  },
+  {
+    "name": "status: backlog",
+    "color": "cfd3d7",
+    "description": "Accepted work that is not yet scheduled."
+  },
+  {
+    "name": "status: todo",
+    "color": "bfd4f2",
+    "description": "Planned for the near term, but not yet started."
+  },
+  {
+    "name": "status: in-progress",
+    "color": "1d76db",
+    "description": "Work has started, including implementation, verification, and PR review."
+  },
+  {
+    "name": "area: agent",
+    "color": "c5def5",
+    "description": "Conversations, prompt input, agent execution, context, and tools."
+  },
+  {
+    "name": "area: canvas",
+    "color": "c5def5",
+    "description": "Design and Asset Canvas, documents, nodes, and the Asset Library."
+  },
+  {
+    "name": "area: models",
+    "color": "c5def5",
+    "description": "Providers, model configuration and authentication, and media generation."
+  },
+  {
+    "name": "area: story",
+    "color": "c5def5",
+    "description": "Interactive Story editing, scene graphs, state, and navigation."
+  },
+  {
+    "name": "area: runtime",
+    "color": "c5def5",
+    "description": "Game execution, previews, playtesting, and project processes."
+  },
+  {
+    "name": "area: desktop",
+    "color": "c5def5",
+    "description": "Desktop windows, installation, startup, and updates."
+  },
+  {
+    "name": "area: publish",
+    "color": "c5def5",
+    "description": "Publishing, sharing, and Community integration."
+  },
+  {
+    "name": "area: plugins",
+    "color": "c5def5",
+    "description": "Plugins, Skills, and MCP installation and management."
+  },
+  {
+    "name": "area: ui",
+    "color": "c5def5",
+    "description": "General interface, project navigation, themes, and internationalization."
+  },
+  {
+    "name": "priority: urgent",
+    "color": "b60205",
+    "description": "Requires immediate attention: severe data loss or widespread inability to run."
+  },
+  {
+    "name": "priority: high",
+    "color": "d93f0b",
+    "description": "Prioritize this work because a core workflow is significantly affected."
+  },
+  {
+    "name": "good first issue",
+    "color": "7057ff",
+    "description": "A well-defined task suitable for a first-time contributor."
+  },
+  {
+    "name": "help wanted",
+    "color": "008672",
+    "description": "Maintainers welcome community contributions to this work."
+  },
+  {
+    "name": "duplicate",
+    "color": "cfd3d7",
+    "description": "Already tracked elsewhere; link the original issue or PR before closing."
+  },
+  {
+    "name": "flag: needs-info",
+    "color": "fbca04",
+    "description": "More information or a reproducible example is needed."
+  },
+  {
+    "name": "flag: blocked",
+    "color": "d93f0b",
+    "description": "A concrete dependency or obstacle prevents progress; explain it in a comment."
+  }
+]

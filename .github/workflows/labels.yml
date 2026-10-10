@@ -1,0 +1,113 @@
+name: Labels
+
+on:
+  issues:
+    types: [opened, reopened, labeled, unlabeled, closed]
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: labels-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  issues:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const target = { ...context.repo, issue_number: context.payload.issue.number };
+            const { data: issue } = await github.rest.issues.get(target);
+            const labels = issue.labels.map(label => label.name);
+            const statuses = [
+              'status: triage', 'status: backlog',
+              'status: todo', 'status: in-progress',
+            ];
+            const types = [
+              'type: bug', 'type: feature', 'type: docs',
+              'type: refactor', 'type: chore',
+            ];
+            const priorities = ['priority: urgent', 'priority: high'];
+            const added = context.payload.label?.name;
+            const remove = new Set();
+
+            if (issue.state === 'closed') {
+              statuses.filter(label => labels.includes(label)).forEach(label => remove.add(label));
+            } else if (context.payload.action === 'reopened') {
+              await github.rest.issues.addLabels({ ...target, labels: ['status: triage'] });
+              statuses.filter(label => label !== 'status: triage' && labels.includes(label))
+                .forEach(label => remove.add(label));
+            } else if (!statuses.some(label => labels.includes(label))) {
+              await github.rest.issues.addLabels({ ...target, labels: ['status: triage'] });
+            }
+
+            if (context.payload.action === 'labeled' && labels.includes(added)) {
+              for (const group of [statuses, types, priorities]) {
+                if (group.includes(added)) {
+                  group.filter(label => label !== added && labels.includes(label))
+                    .forEach(label => remove.add(label));
+                }
+              }
+            }
+
+            for (const name of remove) {
+              await github.rest.issues.removeLabel({ ...target, name });
+            }
+
+  pull-requests:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # Read metadata only; never check out the pull request's code.
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        id: metadata
+        with:
+          script: |
+            const target = { ...context.repo, issue_number: context.payload.pull_request.number };
+            const { data: pr } = await github.rest.pulls.get({
+              ...context.repo, pull_number: target.issue_number,
+            });
+            const types = {
+              fix: 'type: bug', feat: 'type: feature', docs: 'type: docs',
+              refactor: 'type: refactor', chore: 'type: chore',
+            };
+            const areas = {
+              agent: 'agent', composer: 'agent',
+              canvas: 'canvas', assets: 'canvas',
+              models: 'models', providers: 'models', generation: 'models',
+              story: 'story', runtime: 'runtime',
+              desktop: 'desktop', release: 'desktop',
+              publish: 'publish', plugins: 'plugins',
+              ui: 'ui', i18n: 'ui', studio: 'ui', projects: 'ui', examples: 'ui',
+            };
+            const match = pr.title.match(/^(feat|fix|docs|refactor|chore)(?:\(([^)]+)\))?!?:\s/);
+            const type = match ? types[match[1]] : undefined;
+            const area = match && Object.hasOwn(areas, match[2]) ? areas[match[2]] : undefined;
+
+            if (type) {
+              await github.rest.issues.addLabels({ ...target, labels: [type] });
+              for (const label of pr.labels) {
+                if (Object.values(types).includes(label.name) && label.name !== type) {
+                  await github.rest.issues.removeLabel({ ...target, name: label.name });
+                }
+              }
+            }
+            if (area) {
+              await github.rest.issues.addLabels({ ...target, labels: [`area: ${area}`] });
+            }
+            core.setOutput('infer-areas-from-files', !area);
+
+      - uses: actions/labeler@b8dd2d9be0f68b860e7dae5dae7d772984eacd6d # v6
+        if: steps.metadata.outputs.infer-areas-from-files == 'true'
+        with:
+          sync-labels: false
