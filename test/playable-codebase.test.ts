@@ -14,6 +14,7 @@ import {
 } from "../src/daemon/playable-codebase.js";
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
 import { EDITOR_LAYOUT_SCHEMA } from "../src/shared/editor-layout-schema.js";
+import { fitPlayableLayout, freePlayablePosition, type NodeCodebase, type NodeEditorLayout } from "../src/shared/playable-codebase.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../src/shared/playable-graph-schema.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
@@ -134,6 +135,22 @@ describe("Playable codebase", () => {
       editorLayout: { nodes: { start: { x: 80, y: 180 } } },
     });
     expect((await readNodeCodebase(mismatchedLayout)).editorLayout.nodes).not.toHaveProperty("other");
+  });
+
+  it("reports a graph without a screen when a Scene has no position yet", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
+    );
+    const graph = await readJson(workspace, "graph.json") as { viewport?: unknown };
+    delete graph.viewport;
+    await writeFile(path.join(workspace, "graph.json"), `${JSON.stringify(graph)}\n`);
+    const layout = await readJson(workspace, "editor/layout.json") as { nodes: Record<string, unknown> };
+    layout.nodes = {};
+    await writeFile(path.join(workspace, "editor/layout.json"), `${JSON.stringify(layout)}\n`);
+
+    await expect(readNodeCodebase(workspace)).rejects.toThrow("must have required properties viewport");
   });
 
   it("updates graph and layout together and rejects invalid changes without writing", async () => {
@@ -406,6 +423,69 @@ describe("Playable codebase", () => {
       .toContain('data-media="backdrop"');
   });
 });
+
+describe("Playable Scene placement", () => {
+  const scenes = ["menu", "platform", "carriage", "good-ending", "bad-ending"];
+
+  it("places Scenes without a position clear of each other on a landscape screen", () => {
+    const { graph, editorLayout } = codebaseWithScenes({ width: 1920, height: 1080 }, scenes);
+
+    expect(overlappingCards(fitPlayableLayout(graph, editorLayout), graph.viewport)).toEqual([]);
+  });
+
+  it("places Scenes without a position clear of each other on a portrait screen", () => {
+    const { graph, editorLayout } = codebaseWithScenes({ width: 1080, height: 1920 }, scenes);
+
+    expect(overlappingCards(fitPlayableLayout(graph, editorLayout), graph.viewport)).toEqual([]);
+  });
+
+  it("places a new Scene clear of one the author moved off the grid, which stays where it is", () => {
+    const { graph, editorLayout } = codebaseWithScenes({ width: 1920, height: 1080 }, ["start", "added"]);
+    const layout = { ...editorLayout, nodes: { start: { x: 120, y: 200 } } };
+
+    const fitted = fitPlayableLayout(graph, layout);
+
+    expect(fitted.nodes.start).toEqual({ x: 120, y: 200 });
+    expect(fitted.nodes.added).toEqual(freePlayablePosition(layout, graph.viewport));
+    expect(overlappingCards(fitted, graph.viewport)).toEqual([]);
+  });
+});
+
+/** A project with these Scenes in graph.json and no canvas positions. */
+function codebaseWithScenes(viewport: { width: number; height: number }, ids: string[]): NodeCodebase {
+  const codebase = createPlayableStarterCodebase("Story", viewport);
+  return {
+    ...codebase,
+    graph: {
+      ...codebase.graph,
+      nodes: ids.map((id) => ({
+        id,
+        title: id,
+        source: { html: `nodes/${id}/index.html`, css: `nodes/${id}/style.css`, javascript: `nodes/${id}/node.js` },
+        assets: [],
+        signals: [{ id: "next", label: "Next" }],
+      })),
+    },
+  };
+}
+
+/**
+ * The pairs of Scenes whose cards cover each other. The canvas draws a card
+ * as a 28px title above a stage that fits the screen's shape into 440 by 440.
+ */
+function overlappingCards(layout: NodeEditorLayout, viewport: { width: number; height: number }): string[] {
+  const aspect = viewport.width / viewport.height;
+  const width = 440 * Math.min(1, aspect);
+  const height = 28 + 440 / Math.max(1, aspect);
+  const pairs: string[] = [];
+  const cards = Object.entries(layout.nodes);
+  for (const [index, [left, a]] of cards.entries()) {
+    for (const [right, b] of cards.slice(index + 1)) {
+      if (Math.abs(a.x - b.x) < width && Math.abs(a.y - b.y) < height) pairs.push(`${left}+${right}`);
+    }
+  }
+  return pairs;
+}
 
 async function temporaryWorkspace(): Promise<string> {
   const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-playable-codebase-"));
