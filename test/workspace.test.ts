@@ -55,6 +55,24 @@ describe("workspace inspection", () => {
     await expect(readWorkspaceFile(workspace, "image.bin")).resolves.toMatchObject({ binary: true, size: 3 });
   });
 
+  it("keeps bounded text readable when the limit splits a multi-byte character", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
+    // The 256 KB limit falls inside a character in both text files.
+    await writeFile(path.join(workspace, "story.md"), "中".repeat(100_000));
+    await writeFile(path.join(workspace, "emoji.md"), `xx${"😀".repeat(80_000)}`);
+    await writeFile(path.join(workspace, "noise.bin"), Buffer.alloc(300 * 1024, 0xff));
+    await writeFile(path.join(workspace, "cut.txt"), Buffer.from([0x78, 0xe4, 0xb8]));
+
+    const text = await readWorkspaceFile(workspace, "story.md");
+    expect(text).toMatchObject({ binary: false, truncated: true, size: 300_000 });
+    expect(text.content).toBe("中".repeat(Math.floor((256 * 1024) / 3)));
+    const emoji = await readWorkspaceFile(workspace, "emoji.md");
+    expect(emoji).toMatchObject({ binary: false, truncated: true, size: 320_002 });
+    expect(emoji.content).toBe(`xx${"😀".repeat(Math.floor((256 * 1024 - 2) / 4))}`);
+    await expect(readWorkspaceFile(workspace, "noise.bin")).resolves.toEqual({ path: "noise.bin", binary: true, truncated: true, size: 300 * 1024 });
+    await expect(readWorkspaceFile(workspace, "cut.txt")).resolves.toEqual({ path: "cut.txt", binary: true, size: 3 });
+  });
+
   it("rejects traversal and symbolic links", async () => {
     const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-"));
     const outside = path.join(await mkdtemp(path.join(tmpdir(), "ohmygame-outside-")), "secret.txt");

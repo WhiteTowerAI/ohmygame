@@ -58,7 +58,7 @@ export async function readWorkspaceFile(workspacePath: string, requestedPath: st
     const { bytesRead } = await handle.read(bytes, 0, length, 0);
     const content = bytes.subarray(0, bytesRead);
     const truncated = fileStat.size > MAX_FILE_BYTES;
-    const visible = truncated ? content.subarray(0, MAX_FILE_BYTES) : content;
+    const visible = truncated ? withoutPartialCharacter(content.subarray(0, MAX_FILE_BYTES)) : content;
     const binary = visible.includes(0) || !isUtf8(visible);
     return {
       path: relativePath,
@@ -157,4 +157,15 @@ async function resolveWorkspaceFile(workspacePath: string, requestedPath: string
   const resolved = await resolveWorkspaceEntry(workspacePath, requestedPath);
   if (!(await stat(resolved.absolutePath)).isFile()) throw new WorkspaceError("Path is not a file");
   return resolved;
+}
+
+// Drops a UTF-8 character that the end of the buffer cuts short, so bounded text still decodes.
+function withoutPartialCharacter(bytes: Buffer): Buffer {
+  for (let index = bytes.length - 1; index >= Math.max(0, bytes.length - 3); index -= 1) {
+    const byte = bytes[index];
+    if ((byte & 0xc0) === 0x80) continue;
+    const length = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : byte >= 0xc0 ? 2 : 1;
+    return index + length > bytes.length ? bytes.subarray(0, index) : bytes;
+  }
+  return bytes;
 }
