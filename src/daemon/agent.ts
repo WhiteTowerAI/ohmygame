@@ -30,6 +30,7 @@ import { openRouterAttributionExtension } from "./openrouter-attribution.js";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { PluginMcpHost } from "./plugin-mcp-host.js";
 import { projectProcessEnvironment } from "./project-process.js";
+import { createProviderImageReadTool, installDeepSeekImageFiles } from "./deepseek-image-files.js";
 import { AGENT_ERROR_ENTRY, assistantMessageError, normalizeAgentError, thrownAgentError } from "./agent-errors.js";
 
 export interface CodingSession {
@@ -2212,7 +2213,7 @@ export async function createPiSession(
   const { session } = await createAgentSession({
     cwd: project.workspacePath,
     agentDir,
-    customTools: [createBashToolDefinition(project.workspacePath, {
+    customTools: [createProviderImageReadTool(project.workspacePath, sessionSettings) as ToolDefinition, createBashToolDefinition(project.workspacePath, {
       shellPath: sessionSettings.getShellPath(),
       commandPrefix: sessionSettings.getShellCommandPrefix(),
       spawnHook: (context) => ({ ...context, env: projectProcessEnvironment(context.env) }),
@@ -2223,6 +2224,7 @@ export async function createPiSession(
     sessionManager,
     settingsManager: sessionSettings,
   });
+  installDeepSeekImageFiles(session, agentDir);
   mcp?.host.manage(session);
   try { await session.bindExtensions({ mode: "rpc" }); } catch (cause) { session.dispose(); throw cause; }
   return Object.assign(session, {
