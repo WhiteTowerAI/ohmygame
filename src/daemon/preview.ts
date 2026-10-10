@@ -84,7 +84,13 @@ export class PreviewManager {
       this.#running.set(project.id, child);
       const stderr = captureOutput(child.stderr);
       const url = `http://127.0.0.1:${port}`;
+      let failure: Error | undefined;
 
+      child.on("error", (error) => {
+        failure = error;
+        // A command that could not be spawned never emits "exit".
+        if (child.pid === undefined) this.#untrack(project.id, child);
+      });
       child.once("exit", (code, signal) => {
         this.#untrack(project.id, child);
         if (this.#running.get(project.id) !== child) return;
@@ -94,7 +100,7 @@ export class PreviewManager {
         this.events.publish(project.id, "preview.error", { error });
       });
 
-      await waitUntilReady(url, child, this.#readinessTimeoutMs, stderr);
+      await waitUntilReady(url, child, this.#readinessTimeoutMs, stderr, () => failure);
       this.#assertCurrent(project.id, operation);
       project.preview = { status: "ready", url };
       this.events.publish(project.id, "preview.ready", { url });
@@ -186,9 +192,11 @@ async function availablePort(): Promise<number> {
   });
 }
 
-async function waitUntilReady(url: string, child: ChildProcess, timeoutMs: number, stderr: () => string): Promise<void> {
+async function waitUntilReady(url: string, child: ChildProcess, timeoutMs: number, stderr: () => string, failure: () => Error | undefined): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    const error = failure();
+    if (error) throw error;
     if (child.exitCode !== null) throw new Error(withOutput(`Preview exited before ready (${child.exitCode})`, stderr()));
     try {
       if ((await fetch(url, { signal: AbortSignal.timeout(1_000) })).ok) return;

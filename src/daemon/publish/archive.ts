@@ -344,6 +344,8 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
       chunks.push(chunk);
     });
     output.once("error", reject);
+    // yazl reports a file it cannot stat or read on the ZipFile, possibly once per file, and then never ends the output.
+    zip.on("error", reject);
     output.once("end", () => resolve(Buffer.concat(chunks)));
   });
   zip.end();
