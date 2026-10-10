@@ -1,0 +1,61 @@
+"area: agent":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/**/{agent*,pi-agent*,composer*,prompt-box*,prompt-lists*,prompt-history*,prompt-context*,conversation*,chat-*,message-queue*,reasoning*,turns*}.{ts,tsx}"
+
+"area: canvas":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/**/{canvas*,asset-canvas*,asset-library*,asset-metadata*}.{ts,tsx}"
+          - "src/renderer/{asset-browser,library,library-filters,node-workbench}.{ts,tsx}"
+          - "docs/canvas-agent.md"
+
+"area: models":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/**/{*provider*,*model*,*generation*,seedream*,seedance*,meshy*,tripo*,openai-image,openrouter-media,media-*,merge-animations,cloud-quota}.{ts,tsx}"
+          - "docs/{custom-models,free-cloud-models}.md"
+
+"area: story":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/**/playable-*.{ts,tsx,css}"
+          - "docs/playable-nodes/**"
+
+"area: runtime":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/**/{*playtest*,web-game-player*,use-web-game-player*,project-runtime*,project-process*,project-dependencies*,preview*}.{ts,tsx}"
+
+"area: desktop":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/desktop/{bootstrap,main,preload,daemon-process,window,updater,oauth,system-proxy,file-clipboard}.*"
+          - "src/shared/desktop-update.ts"
+          - "src/renderer/{desktop-window-frame,window-drag-region,use-desktop-update}.{ts,tsx}"
+          - "scripts/*desktop*"
+          - "scripts/build-*-icon.*"
+          - ".github/workflows/release-desktop.yml"
+          - "docs/desktop-releases.md"
+
+"area: publish":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/daemon/publish/**"
+          - "src/**/{publish*,pending-publish}.{ts,tsx}"
+          - "src/renderer/games.tsx"
+
+"area: plugins":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "plugins/**"
+          - "src/**/{*plugin*,*mcp*,skill-metadata,connections*}.{ts,tsx}"
+          - "scripts/prepare-preinstalled-plugins.ts"
+          - "docs/plugins.md"
+
+"area: ui":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "src/renderer/i18n/**"
+          - "src/renderer/{app-sidebar,home,game-studio-home,project-*,settings-page,appearance*,theme*,routes,icons}.{ts,tsx}"
+          - "docs/i18n.md"
