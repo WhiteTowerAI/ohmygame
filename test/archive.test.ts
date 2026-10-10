@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import yauzl, { type Entry } from "yauzl";
 import {
   ArtifactBuilder,
   createPluginArchive,
@@ -54,6 +56,24 @@ describe("publish archives", () => {
     );
   });
 
+  it("stores Plugin ZIP entries so the bytes do not depend on zlib", async () => {
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-stored-"));
+    await mkdir(path.join(source, "skills"));
+    await writeFile(path.join(source, "example.txt"), "same content ".repeat(4096));
+    await writeFile(path.join(source, "skills", "SKILL.md"), "# Skill\n".repeat(4096));
+
+    const archive = await createPluginArchive(source);
+    const entries = await zipEntries(archive);
+
+    expect(entries.map((entry) => entry.fileName)).toEqual(["example.txt", "skills/SKILL.md"]);
+    for (const entry of entries) {
+      expect(entry.compressionMethod).toBe(0);
+      expect(entry.compressedSize).toBe(entry.uncompressedSize);
+    }
+    expect(createHash("sha256").update(archive).digest("hex"))
+      .toBe("6ec94c765105d7eea3633546bc65955e30c9eaab10579ab12ba8a3b7d00952ff");
+  });
+
   it("uses a Web Game's configured startup directory as its publish source", async () => {
     const workspacePath = await mkdtemp(
       path.join(tmpdir(), "ohmygame-archive-web-game-"),
@@ -96,4 +116,23 @@ async function archiveWithMode(source: string, mode: number): Promise<Buffer> {
   } finally {
     mocked.mockRestore();
   }
+}
+
+function zipEntries(archive: Buffer): Promise<Entry[]> {
+  return new Promise((resolve, reject) => {
+    yauzl.fromBuffer(archive, { lazyEntries: true }, (error, zip) => {
+      if (error || !zip) {
+        reject(error ?? new Error("ZIP could not be opened."));
+        return;
+      }
+      const entries: Entry[] = [];
+      zip.once("error", reject);
+      zip.once("end", () => resolve(entries));
+      zip.on("entry", (entry: Entry) => {
+        entries.push(entry);
+        zip.readEntry();
+      });
+      zip.readEntry();
+    });
+  });
 }

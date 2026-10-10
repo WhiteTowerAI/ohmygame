@@ -31,7 +31,8 @@ the daemon address plus a random process-scoped token through the isolated
 preload bridge. The renderer has no Node.js access.
 
 Bun 1.4.2 installs dependencies and executes builds, tests, and most preparation
-scripts. Pinned Plugin archives use Node to preserve their locked ZIP checksums;
+scripts. Pinned Plugin archives are prepared with Node and store their entries
+uncompressed, so their locked ZIP checksums do not depend on the zlib build;
 desktop runtime preparation uses Node and its built-in environment-file loader.
 Standalone daemon development and `bun run start` use Node.js 22.19+
 explicitly; desktop development and packaged apps run the daemon with

@@ -322,7 +322,9 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
   const zipOptions = {
     mtime: new Date(1980, 0, 2),
     forceDosTimestamp: true,
-    ...(plugin ? { mode: 0o100644 } : {}),
+    // Deflate output differs between zlib builds, so Plugin entries are stored
+    // to keep the archive's checksum the same on every runtime.
+    ...(plugin ? { mode: 0o100644, compress: false } : {}),
   } as const;
   if (cover !== undefined && files.includes(PUBLISH_GAME_COVER_PATH)) {
     throw new PublishError(`Publish output uses reserved path: ${PUBLISH_GAME_COVER_PATH}`);
