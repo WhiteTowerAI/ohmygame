@@ -31,7 +31,7 @@ export interface CanvasDocuments {
   applyGeneration(id: string): void;
 }
 export interface DocumentNodeRuntime extends CanvasTextModels { design: CanvasDocuments; document?: CanvasWorkspaceDetail["documents"][number] }
-export function CanvasDocumentNode({ data, selected }: { data: { documentId?: string; documentRuntime?: DocumentNodeRuntime; nodeDetails?: CanvasNodeDetails; resizeRuntime?: CanvasNodeResizeRuntime }; selected?: boolean }) {
+export function CanvasDocumentNode({ data, selected }: { data: { documentId?: string; documentRuntime?: DocumentNodeRuntime; nodeDetails?: CanvasNodeDetails; resizeRuntime?: CanvasNodeResizeRuntime; panelOpen?: boolean }; selected?: boolean }) {
   const [editing, setEditing] = useState(() => !data.documentRuntime?.document?.markdown);
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrollProgress = useRef(0);
@@ -77,7 +77,7 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
         </div>
       </footer> : null}
     </div>
-    {selected && doc && runtime ? <div className="canvas-node-auxiliary"><CanvasDocumentAI design={runtime.design} document={doc} textModels={runtime} /></div> : null}
+    {data.panelOpen && doc && runtime ? <div className="canvas-node-auxiliary"><CanvasDocumentAI design={runtime.design} document={doc} textModels={runtime} /></div> : null}
   </div>;
 }
 export function CanvasMarkdown({
