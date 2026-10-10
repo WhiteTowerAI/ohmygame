@@ -8,6 +8,7 @@ export interface CanvasBoardStorage {
   load(): Promise<AssetCanvasDocument>;
   save(canvas: AssetCanvasDocument): Promise<AssetCanvasDocument>;
   refresh(canvas: AssetCanvasDocument): Promise<AssetCanvasDocument | undefined>;
+  reconcile(submitted: AssetCanvasDocument, current: AssetCanvasDocument, saved: AssetCanvasDocument): AssetCanvasDocument;
   resolveConflict(version: "local" | "remote", canvas: AssetCanvasDocument): Promise<AssetCanvasDocument>;
   jobs(): Promise<ToolJob[]>;
   generate(nodeId: string): Promise<ToolJob>;
@@ -116,6 +117,12 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
       loading = Promise.resolve(merged);
       return merged;
     }),
+    reconcile: (submitted, current, saved) => {
+      const merged = mergeCanvasDocument(submitted, current, saved);
+      if (merged) return merged;
+      conflict(current, base!, submitted);
+      throw new Error(conflictMessage);
+    },
     resolveConflict: (version, local) => enqueue(async () => {
       await ready();
       const remote = await getCanvasBoard(projectId, boardId);

@@ -1,4 +1,6 @@
+import type { CanvasTable } from "./canvas-table.js";
 import { Type } from "typebox";
+import { canvasNodeLayout } from "./canvas-node-layout.js";
 import { Check } from "typebox/value";
 import type { AssetCanvasDocument, AssetCanvasNode } from "./contracts.js";
 import { createAssetCanvasDocument, isAssetCanvasDocument } from "./asset-canvas.js";
@@ -13,9 +15,12 @@ export interface CanvasWorkspaceIndex {
   mainDocumentId?: string;
   boards: Array<{ id: string; name: string }>;
   documents: Array<{ id: string; title: string }>;
+  tables?: Array<{ id: string; title: string }>;
 }
-export interface CanvasWorkspaceDetail extends Omit<CanvasWorkspaceIndex, "documents"> {
+export interface CanvasWorkspaceDetail extends Omit<CanvasWorkspaceIndex, "documents" | "tables"> {
   documents: Array<CanvasMarkdownDocument & { revision: string; source: string; main: boolean }>;
+  tables?: Array<CanvasTable & { revision: string; source: string }>;
+  tableIssues?: Array<{ id: string; title: string; source: string; message: string }>;
   assets: CanvasAssetCatalogEntry[];
   unavailableAssets?: UnavailableCanvasAsset[];
   documentIssues?: Array<{ id: string; title: string; source: string; message: string }>;
@@ -25,6 +30,7 @@ export const CANVAS_INDEX_SCHEMA = Type.Object({
   version: Type.Literal(1), mainDocumentId: Type.Optional(id),
   boards: Type.Array(Type.Object({ id, name: Type.String({ minLength: 1, maxLength: 120 }) }, { additionalProperties: false }), { minItems: 1, maxItems: 100 }),
   documents: Type.Array(Type.Object({ id, title: Type.String({ maxLength: 200 }) }, { additionalProperties: false }), { maxItems: 200 }),
+  tables: Type.Optional(Type.Array(Type.Object({ id, title: Type.String({ maxLength: 200 }) }, { additionalProperties: false }), { maxItems: 200 })),
 }, { additionalProperties: false });
 export const CANVAS_BOARD_SCHEMA = { ...ASSET_CANVAS_SCHEMA, required: [...ASSET_CANVAS_SCHEMA.required, "id"], properties: { ...ASSET_CANVAS_SCHEMA.properties, id: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } };
 export const CANVAS_LAYOUT_SCHEMA = ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA;
@@ -41,7 +47,7 @@ export function fitCanvasLayout(nodes: readonly Pick<AssetCanvasNode, "id">[], l
 export function isCanvasIndex(value: unknown): value is CanvasWorkspaceIndex {
   if (!Check(CANVAS_INDEX_SCHEMA, value)) return false;
   const index = value as CanvasWorkspaceIndex;
-  return new Set(index.boards.map((board) => board.id)).size === index.boards.length && new Set(index.documents.map((document) => document.id)).size === index.documents.length && (!index.mainDocumentId || index.documents.some((document) => document.id === index.mainDocumentId));
+  return new Set((index.tables ?? []).map((table) => table.id)).size === (index.tables ?? []).length && new Set(index.boards.map((board) => board.id)).size === index.boards.length && new Set(index.documents.map((document) => document.id)).size === index.documents.length && (!index.mainDocumentId || index.documents.some((document) => document.id === index.mainDocumentId));
 }
 export function isCanvasBoard(value: unknown): value is CanvasBoard {
   if (!value || typeof value !== "object") return false;
@@ -61,6 +67,11 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     if (before.type !== ours.type || ours.type !== theirs.type) return undefined;
     const position = merge(before.position, ours.position, theirs.position);
     if (!position) return undefined;
+    const dimensions: { width?: number; height?: number } = {};
+    for (const key of ["width", "height"] as const) {
+      if (!equal(before[key], ours[key]) && !equal(before[key], theirs[key]) && !equal(ours[key], theirs[key])) return undefined;
+      dimensions[key] = merge(before[key], ours[key], theirs[key]);
+    }
     const metadata: { title?: string; description?: string } = {};
     for (const key of ["title", "description"] as const) {
       if (!equal(before[key], ours[key]) && !equal(before[key], theirs[key]) && !equal(ours[key], theirs[key])) return undefined;
@@ -73,7 +84,7 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
       const value = merge(a, b, c);
       if (value !== undefined) data[key] = value;
     }
-    nodes.push({ ...ours, ...metadata, position, data } as AssetCanvasNode);
+    nodes.push({ ...ours, ...metadata, ...dimensions, position, data } as AssetCanvasNode);
   }
   const edges = [];
   for (const id of new Set([...local.edges, ...remote.edges].map((edge) => edge.id))) {
@@ -101,7 +112,7 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
       ...local.editorLayout,
       fitView: merge(base.editorLayout.fitView, local.editorLayout.fitView, remote.editorLayout.fitView),
       viewport: merge(base.editorLayout.viewport, local.editorLayout.viewport, remote.editorLayout.viewport) ?? local.editorLayout.viewport,
-      nodes: Object.fromEntries(nodes.map((node) => [node.id, node.position])),
+      nodes: Object.fromEntries(nodes.map((node) => [node.id, canvasNodeLayout(node)])),
     },
   };
 }

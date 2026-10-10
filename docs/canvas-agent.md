@@ -12,21 +12,46 @@ canvas/
   index.json
   boards/<board-id>.json
   documents/<document-id>.md
+  tables/<table-id>.json
   assets.json
   editor/<board-id>.json
-  schemas/{index,board,layout,assets}.schema.json
+  schemas/{index,board,layout,assets,table}.schema.json
   jobs.json
 assets/
 ```
 
-`index.json` names boards and documents. A board contains stable node IDs,
+`index.json` names boards, documents and optional tables. A board contains stable node IDs,
 optional `title` and `description`, content, and references. Markdown bodies
 are shared between document nodes. Connections for prompts and media are
 derived from `promptSource`, `images`, `references`, and `source`.
 
-Positions and zoom live in `editor/`. New nodes get positions automatically.
+Positions, optional node width/height and zoom live in `editor/`. New nodes get positions automatically.
 The agent usually edits only the semantic files. Deleting a board or node
-keeps its documents and media.
+keeps its documents, tables and media.
+
+Table nodes reference `tableId`; the JSON table is shared across boards. Each
+column has a stable ID, title, type (`text`, `number`, `boolean`) and optional
+width. Each row has a stable ID and `cells` keyed by column ID. Missing cells
+and `null` mean empty. Keep IDs stable when changing data. Tables support up to
+1,000 rows and 100 columns. Different cells merge independently; competing
+cell edits, deletion versus editing, or incompatible type changes require a
+version choice. Invalid or removed files preserve unsaved local table drafts.
+
+The editor supports wrapping cells, fixed headers, column resizing, table
+undo/redo, CSV import/export and rectangular TSV paste from spreadsheets. CSV
+imports replace the contents and keep values as text to preserve leading zeros;
+change column types explicitly when needed. Table undo is separate from board
+layout undo. Text, document and table nodes can be resized in pointer mode,
+reset to their default size, or opened for expanded editing.
+
+Table cards show a read-only preview with the same header, reading frame and
+footer as document nodes. Edit opens the expanded spreadsheet; Expand opens a
+larger preview with an edit toggle. Selected nodes and expanded tables share an
+AI instruction composer and model settings. Complete, validated AI output is
+applied only when the saved source is unchanged. Otherwise it remains a candidate
+for explicit adoption. Invalid or incomplete output preserves the table, and AI
+instructions and valid candidates survive reloads. Adopting an AI draft is one
+table undo step.
 
 `assets.json` maps asset IDs to readable names and project-relative paths.
 Descriptions describe purpose; prompts record generation instructions.
@@ -78,7 +103,7 @@ Three tools supplement ordinary file editing:
 
 - `canvas_initialize` creates the file contract and an empty board on demand,
   preserving existing content. It is unavailable in planning mode.
-- `canvas_check` validates schemas, document references, asset paths and media
+- `canvas_check` validates schemas, document/table references, asset paths and media
   types. It is read-only and available in planning mode.
 - `generate_canvas_media(boardId, nodeId)` executes the saved node settings
   when generation is requested, including necessary media for a game-creation

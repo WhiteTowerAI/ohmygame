@@ -135,9 +135,7 @@ describe("local plugins", () => {
     await writePluginManifest(reserved, {
       name: "reserved-plugin", version: "1.0.0", description: "Reserved", interface: { displayName: "Godot" },
     });
-    const store = new LocalPluginStore(dataDirectory, {
-      connections: async () => [],
-    });
+    const store = new LocalPluginStore(dataDirectory);
 
     await store.install(first);
     await expect(store.install(second)).resolves.toMatchObject({ id: "personal:second-plugin" });

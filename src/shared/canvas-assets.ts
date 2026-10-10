@@ -39,9 +39,10 @@ export function canvasNodeAssetIds(nodes: readonly AssetCanvasNode[]): string[] 
   return [...ids];
 }
 
-export function canvasNodeTitle(node: AssetCanvasNode, documents: readonly { id: string; title: string }[] = [], assets: readonly { id: string; name: string }[] = []): string {
+export function canvasNodeTitle(node: AssetCanvasNode, documents: readonly { id: string; title: string }[] = [], assets: readonly { id: string; name: string }[] = [], tables: readonly { id: string; title: string }[] = []): string {
   if (node.title?.trim()) return node.title.trim();
   if (node.type === "document") return documents.find((doc) => doc.id === node.data.documentId)?.title || "Untitled document";
+  if (node.type === "table") return tables.find((table) => table.id === node.data.tableId)?.title || "Table";
   if (node.type === "asset") return assets.find((asset) => asset.id === node.data.assetId)?.name || "Asset";
   if (node.type === "text") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Text";
   return { image: "Image", video: "Video", "model-3d": "3D model", "animate-3d": "Animation" }[node.type];

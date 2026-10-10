@@ -14,6 +14,17 @@ export const ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA = {
   ...EDITOR_LAYOUT_SCHEMA,
   properties: {
     ...EDITOR_LAYOUT_SCHEMA.properties,
+    nodes: {
+      ...EDITOR_LAYOUT_SCHEMA.properties.nodes,
+      additionalProperties: {
+        ...EDITOR_LAYOUT_SCHEMA.properties.nodes.additionalProperties,
+        properties: {
+          ...EDITOR_LAYOUT_SCHEMA.properties.nodes.additionalProperties.properties,
+          width: { type: "number", minimum: 100, maximum: 4096 },
+          height: { type: "number", minimum: 100, maximum: 4096 },
+        },
+      },
+    },
     fitView: { type: "boolean" },
     view: { const: "canvas" },
   },
@@ -39,6 +50,7 @@ const node = (type: string, data: object) => ({
   properties: { id, type: { const: type }, title: { type: "string", maxLength: 200 }, description: { type: "string", maxLength: 2000 }, data },
 });
 const nodes = [
+  node("table", { type: "object", additionalProperties: false, required: ["tableId"], properties: { tableId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } }),
   node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id } }),
   node("text", {
     type: "object",

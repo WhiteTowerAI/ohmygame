@@ -11,6 +11,8 @@ feedback from making real games with it.
 - For a new feature or a large change, open an issue to discuss it before
   writing code so implementation and product direction stay aligned.
 - Issues labeled `good first issue` or `help wanted` are good places to start.
+- Maintainers classify issues and PRs with shared type and area labels. See
+  [.github/LABELS.md](.github/LABELS.md) for the workflow and label definitions.
 
 ## Development setup
 

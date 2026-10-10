@@ -1831,7 +1831,7 @@ async function useLibraryAssetInGraph(
   codebase.graph.assets[id] = { type, source: { kind: "library", assetId } };
   codebase.graph.nodes[0].assets.push(id);
   const saved = await app.inject({ method: "PUT", url: `/projects/${projectId}/playable/codebase`, payload: codebase });
-  expect(saved.statusCode, saved.body).toBe(204);
+  expect(saved.statusCode, saved.body).toBe(200);
 }
 
 function sessionEntry(id: string, parentId: string | null, timestamp: string, message: object): string {
@@ -1960,8 +1960,9 @@ describe("Playable Nodes projects", () => {
     });
 
     expect(loaded.statusCode).toBe(200);
-    expect(updated.statusCode).toBe(204);
-    const { sources: _sources, ...persistedCodebase } = codebase;
+    expect(updated.statusCode).toBe(200);
+    const { sources: _sources, ...persistedCodebase } = { ...codebase, revision: updated.json().revision };
+    expect(persistedCodebase.revision).not.toBe(loaded.json().revision);
     expect(afterUpdate).toEqual(persistedCodebase);
     expect(await readFile(path.join(project.workspacePath, "nodes/start/node.js"), "utf8"))
       .toBe(codebase.sources["nodes/start/node.js"]);
@@ -1971,6 +1972,45 @@ describe("Playable Nodes projects", () => {
       method: "GET",
       url: `/projects/${project.id}/playable/codebase`,
     })).json()).toEqual(persistedCodebase);
+  });
+
+  it("refuses a Playable codebase update made from an older revision", async () => {
+    const app = await createPlayableApp("ohmygame-codebase-revision-");
+    const project = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-story" },
+    })).json();
+    await addStartScene(app, project.id);
+    const url = `/projects/${project.id}/playable/codebase`;
+    const editor = (await app.inject({ method: "GET", url })).json();
+
+    // The Agent renames the Scene in graph.json with its file tools while the editor is open.
+    const graphFile = path.join(project.workspacePath, "graph.json");
+    const agentGraph = JSON.parse(await readFile(graphFile, "utf8"));
+    agentGraph.nodes[0].title = "Renamed by the Agent";
+    await writeFile(graphFile, `${JSON.stringify(agentGraph, null, 2)}\n`);
+
+    // The editor autosaves a moved Scene together with the graph it loaded.
+    editor.editorLayout.nodes.start = { x: 480, y: 320 };
+    const { revision: _revision, ...unversioned } = editor;
+    const missing = await app.inject({ method: "PUT", url, payload: unversioned });
+    const stale = await app.inject({ method: "PUT", url, payload: editor });
+    const latest = (await app.inject({ method: "GET", url })).json();
+    const carried = await app.inject({
+      method: "PUT",
+      url,
+      payload: { ...latest, editorLayout: editor.editorLayout },
+    });
+    const saved = (await app.inject({ method: "GET", url })).json();
+
+    expect(missing.statusCode).toBe(400);
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error).toContain("The project changed");
+    expect(latest.graph.nodes[0].title).toBe("Renamed by the Agent");
+    expect(latest.editorLayout.nodes.start).not.toEqual({ x: 480, y: 320 });
+    expect(carried.statusCode).toBe(200);
+    expect(saved).toEqual({ ...latest, editorLayout: editor.editorLayout, revision: carried.json().revision });
   });
 
   it("rejects Playable codebase access for other project types", async () => {
@@ -2046,7 +2086,7 @@ describe("Playable Nodes projects", () => {
       method: "PUT",
       url: `/projects/${project.id}/playable/codebase`,
       payload: codebase,
-    })).statusCode).toBe(204);
+    })).statusCode).toBe(200);
 
     const blocked = await app.inject({ method: "DELETE", url: `/library/assets/${asset.id}` });
     expect(blocked.statusCode).toBe(409);

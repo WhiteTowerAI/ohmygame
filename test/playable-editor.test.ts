@@ -12,6 +12,7 @@ import {
   playableEdgeId,
   setPlayableSignalLabel,
 } from "../src/shared/playable-editor.js";
+import { rebasePlayableCodebase, samePlayableGraph, type NodeCodebase } from "../src/shared/playable-codebase.js";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
@@ -142,6 +143,98 @@ describe("Playable project editing", () => {
   });
 
 });
+
+describe("rebasePlayableCodebase", () => {
+  function codebase(): NodeCodebase {
+    const graph = createNodeGraphFixture();
+    return {
+      graph,
+      editorLayout: {
+        version: 1,
+        nodes: Object.fromEntries(graph.nodes.map((node, index) => [node.id, { x: index * 100, y: 0 }])),
+        viewport: { x: 0, y: 0, zoom: 1 },
+        view: "canvas",
+      },
+    };
+  }
+
+  it("keeps what the editor moved on the graph that changed on disk", () => {
+    const base = codebase();
+    const local = structuredClone(base);
+    local.editorLayout.nodes.menu = { x: 640, y: 480 };
+    local.editorLayout.viewport = { x: -200, y: 40, zoom: 0.5 };
+    // The Agent renamed a Scene, removed one, and added one with its own position.
+    const remote = structuredClone(base);
+    const removed = remote.graph.nodes.at(-1)!;
+    remote.graph.nodes = remote.graph.nodes.filter((node) => node !== removed);
+    remote.graph.edges = remote.graph.edges.filter((edge) => edge.source.nodeId !== removed.id && edge.targetNodeId !== removed.id);
+    delete remote.editorLayout.nodes[removed.id];
+    remote.graph.nodes[0] = { ...remote.graph.nodes[0]!, title: "Renamed by the Agent" };
+    remote.graph.nodes.push({ ...removed, id: "added", title: "Added by the Agent" });
+    remote.editorLayout.nodes.added = { x: 900, y: 900 };
+    remote.editorLayout.nodes.lobby = { x: 5, y: 5 };
+
+    const rebased = rebasePlayableCodebase(base, local, remote);
+
+    expect(rebased?.graph).toEqual(remote.graph);
+    expect(rebased?.editorLayout).toEqual({
+      ...local.editorLayout,
+      nodes: { ...remote.editorLayout.nodes, menu: { x: 640, y: 480 } },
+    });
+  });
+
+  it("compares graphs by what they hold, not by how the file is written", () => {
+    const graph = createNodeGraphFixture();
+    const reordered = JSON.parse(JSON.stringify(graph, Object.keys(flattenKeys(graph)).sort().reverse()));
+    const renamed = { ...graph, title: `${graph.title}!` };
+
+    expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(graph));
+    expect(samePlayableGraph(graph, reordered)).toBe(true);
+    expect(samePlayableGraph(graph, { ...graph, variables: undefined })).toBe(true);
+    expect(samePlayableGraph(graph, renamed)).toBe(false);
+    expect(samePlayableGraph(graph, { ...graph, nodes: graph.nodes.slice(1) })).toBe(false);
+  });
+
+  it("carries nothing when the editor changed the graph too", () => {
+    const base = codebase();
+    const local = structuredClone(base);
+    local.graph.title = "Renamed in the editor";
+    const remote = structuredClone(base);
+    remote.graph.nodes[0] = { ...remote.graph.nodes[0]!, title: "Renamed by the Agent" };
+
+    expect(rebasePlayableCodebase(base, local, remote)).toBeUndefined();
+  });
+
+  it("keeps remote layout changes when the editor only changes the graph", () => {
+    const base = codebase(), local = structuredClone(base), remote = structuredClone(base);
+    local.graph.title = "Local title";
+    remote.editorLayout.nodes.menu = { x: 900, y: 700 };
+    remote.editorLayout.viewport = { x: -40, y: 20, zoom: 0.5 };
+    remote.editorLayout.view = "code";
+    expect(rebasePlayableCodebase(base, local, remote)).toEqual({ graph: local.graph, editorLayout: remote.editorLayout });
+  });
+
+  it("combines independent layout changes even when the graph stays unchanged", () => {
+    const base = codebase(), local = structuredClone(base), remote = structuredClone(base);
+    local.editorLayout.nodes.menu = { x: 400, y: 400 };
+    remote.editorLayout.nodes.lobby = { x: 900, y: 700 };
+    remote.editorLayout.viewport = { x: -40, y: 20, zoom: 0.5 };
+    const rebased = rebasePlayableCodebase(base, local, remote)!;
+    expect(rebased.editorLayout.nodes.menu).toEqual(local.editorLayout.nodes.menu);
+    expect(rebased.editorLayout.nodes.lobby).toEqual(remote.editorLayout.nodes.lobby);
+    expect(rebased.editorLayout.viewport).toEqual(remote.editorLayout.viewport);
+  });
+});
+
+/** Every key used anywhere in a JSON value. */
+function flattenKeys(value: unknown, keys: Record<string, true> = {}): Record<string, true> {
+  if (typeof value !== "object" || value === null) return keys;
+  for (const [key, child] of Object.entries(value)) {
+    if (!Array.isArray(value)) keys[key] = true;
+    flattenKeys(child, keys);
+  }
+  return keys;
+}
 
 describe("describePlayableValue", () => {
   it("shows starting values in author words", () => {

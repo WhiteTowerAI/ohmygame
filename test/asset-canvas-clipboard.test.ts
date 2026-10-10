@@ -3,6 +3,13 @@ import type { AssetCanvasNode } from "../src/shared/contracts.js";
 import { createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, parseCanvasClipboard } from "../src/renderer/asset-canvas-clipboard.js";
 
 describe("Asset Canvas clipboard", () => {
+  it("preserves readable node sizes and shared table references through copy/paste", () => {
+    const node: AssetCanvasNode = { id: "table", type: "table", position: { x: 10, y: 20 }, width: 900, height: 500, data: { tableId: "balance" } };
+    const copied = parseCanvasClipboard(JSON.stringify(createCanvasClipboard("project", [node], [])))!;
+    expect(duplicateAssetCanvasNode(copied.nodes[0]!, { x: 200, y: 100 }, "copy")).toMatchObject({ id: "copy", width: 900, height: 500, data: { tableId: "balance" } });
+    copied.nodes[0]!.width = -1;
+    expect(parseCanvasClipboard(JSON.stringify(copied))).toBeUndefined();
+  });
   it("duplicates canonical node data with a new identity and position", () => {
     const source: AssetCanvasNode = {
       id: "text",

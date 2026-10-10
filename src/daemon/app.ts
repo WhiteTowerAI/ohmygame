@@ -1,3 +1,6 @@
+import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
+import { PluginCapabilities } from "./plugin-capabilities.js";
+import { registerPluginCapabilityRoutes } from "./plugin-capability-routes.js";
 import { isUtf8 } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -20,8 +23,9 @@ import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
-import { generateCreativeText, generateDesignDocumentMarkdown } from "./text-generation.js";
+import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "./text-generation.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
+import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
 import { registerCanvasRoutes } from "./canvas-routes.js";
 import { CanvasError, canvasLibraryAssetUsage } from "./canvas-workspace.js";
 import { gameDesignReference } from "./game-design-context.js";
@@ -54,17 +58,15 @@ import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
 import { isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
-import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "./plugin-catalog.js";
+import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService, pluginSummary } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
 import { inspectPluginSource, installPlugin } from "./plugin-installer.js";
 import { InvalidPluginSettingsError, PluginSettingsStore } from "./plugin-settings.js";
 import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
-import { listMcpServers } from "./pi-agent.js";
-import { ConnectionError, ConnectionManager } from "./connections.js";
-import type { SaveConnectionRequest } from "../shared/connections.js";
-import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary } from "../shared/plugins.js";
+import { LegacyMcpConfiguration } from "./legacy-mcp.js";
+import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
@@ -76,8 +78,9 @@ import { buildPlayableProject, validatePlayableProject } from "./playable-projec
 import {
   createNodeCodebase,
   createPlayableStarterCodebase,
+  NodeCodebaseConflictError,
   NodeCodebaseError,
-  readNodeCodebase,
+  readNodeCodebaseDetail,
   writeNodeCodebase,
 } from "./playable-codebase.js";
 import type { NodeCodebaseUpdate } from "../shared/playable-codebase.js";
@@ -190,45 +193,6 @@ const renameAssetSchema = {
     additionalProperties: false,
     required: ["name"],
     properties: { name: { type: "string", minLength: 1, maxLength: 200 } },
-  },
-} as const;
-
-const connectionTransportSchema = {
-  oneOf: [
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["type", "command", "args"],
-      properties: {
-        type: { const: "stdio" },
-        command: { type: "string", minLength: 1 },
-        args: { type: "array", items: { type: "string" } },
-        env: { type: "object", additionalProperties: { type: "string" } },
-        cwd: { type: "string", minLength: 1 },
-      },
-    },
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["type", "url"],
-      properties: {
-        type: { const: "http" },
-        url: { type: "string", minLength: 1 },
-        headers: { type: "object", additionalProperties: { type: "string" } },
-      },
-    },
-  ],
-} as const;
-
-const saveConnectionSchema = {
-  body: {
-    type: "object",
-    additionalProperties: false,
-    required: ["id", "transport"],
-    properties: {
-      id: { type: "string", minLength: 1 },
-      transport: connectionTransportSchema,
-    },
   },
 } as const;
 
@@ -663,35 +627,24 @@ export function createApp(options: AppOptions = {}) {
     },
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
-  const connections = new ConnectionManager(piAgentDirectory);
+  const legacyMcp = new LegacyMcpConfiguration(piAgentDirectory);
   const bundledPlugins = new BundledPluginStore(options.bundledPluginsDirectory ?? path.join(repositoryRoot, "plugins"));
   const preinstalledPlugins = new PreinstalledPluginManager(
     options.preinstalledPluginsDirectory,
     dataDirectory,
   );
-  const mcpServers = { list: () => listMcpServers(piAgentDirectory) };
-  const localPlugins = new LocalPluginStore(dataDirectory, {
-    connections: async () => (await mcpServers.list()).map((server) => server.id),
+  const localPlugins = new LocalPluginStore(dataDirectory);
+  const pluginCapabilities = new PluginCapabilities(dataDirectory, piAgentDirectory, [bundledPlugins, localPlugins], localPlugins, pluginSettings);
+  const summarizePlugin = (plugin: PluginDetail): PluginSummary => ({
+    ...pluginSummary(plugin),
+    mcpServerCount: plugin.mcpServers?.length ?? 0,
+    configurationStatus: pluginCapabilities.configuration.view(plugin).missing.length ? "needs-configuration" : "ready",
   });
   const plugins = new PluginCatalogService([
-    new BundledPluginAdapter(bundledPlugins),
-    new LocalPluginAdapter(localPlugins),
+    new BundledPluginAdapter(bundledPlugins, summarizePlugin),
+    new LocalPluginAdapter(localPlugins, summarizePlugin),
   ], pluginSettings, (plugin) => preinstalledPlugins.decorate(plugin));
-  const withConnectionStatus = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => {
-    if (!plugin) return plugin;
-    const configured = new Map((await connections.list()).map((connection) => [connection.id, connection.enabled]));
-    return {
-      ...plugin,
-      connections: plugin.connections.map((connection) => {
-        const enabled = configured.get(connection.id);
-        return {
-          ...connection,
-          enabled: enabled ?? false,
-          status: enabled === undefined ? "not-configured" as const : enabled ? "enabled" as const : "disabled" as const,
-        };
-      }),
-    };
-  };
+  const withPluginCapabilities = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => plugin ? pluginCapabilities.decorate(plugin) : plugin;
   let agents: AgentManager;
   agents = new AgentManager(events, {
     ...(options.createSession ? {} : {
@@ -716,6 +669,7 @@ export function createApp(options: AppOptions = {}) {
         playtest = new OwnedPlaytestDriver(options.playtestDriver);
         agentPlaytests.set(playtestKey, playtest);
       }
+      const effectiveMcp = await pluginCapabilities.effective(project.type);
       return createPiSession(
         project,
         conversations.open(project, conversation),
@@ -745,6 +699,7 @@ export function createApp(options: AppOptions = {}) {
         model,
         piAgentDirectory,
         () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
+        Object.keys(effectiveMcp.mcpServers).length ? { factory: await pluginCapabilities.host.extension(effectiveMcp), host: pluginCapabilities.host } : undefined,
       );
     }),
     activeToolNames: (project, mode, session) => {
@@ -767,6 +722,14 @@ export function createApp(options: AppOptions = {}) {
     ajv: { customOptions: { coerceTypes: false } },
   });
   const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
+  registerPluginCapabilityRoutes(app, { capabilities: pluginCapabilities, plugins, invalidate: invalidatePluginSessions });
+  const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginCapabilities, plugins, localPlugins, invalidatePluginSessions, async ref => {
+    const runtime = await getModelRuntime();
+    const model = await availableModel(ref.provider, ref.id);
+    if (!model) throw new Error("Select an available model in Providers & Models");
+    return { runtime, model };
+  });
+  registerPluginSetupRoutes(app, pluginSetup);
 
   app.addContentTypeParser("image/webp", { parseAs: "buffer", bodyLimit: MAX_PROJECT_COVER_BYTES }, (_request, body, done) => {
     done(null, body);
@@ -779,11 +742,12 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), tripoSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
+    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), tripoSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
     await localPlugins.list();
+    await pluginCapabilities.migrate(legacyMcp);
   });
 
   const allowedOrigins = new Set(options.allowedOrigins ?? []);
@@ -814,8 +778,6 @@ export function createApp(options: AppOptions = {}) {
       .send(await readFile(path.join(playerDirectory, file))));
   }
 
-  app.get("/settings/connections", async () => connections.list());
-
   app.get("/settings/web-search", async () => webSearchSettings.get());
 
   app.put<{ Body: UpdateWebSearchSettings }>("/settings/web-search", { schema: webSearchSettingsSchema }, async (request, reply) => {
@@ -826,65 +788,6 @@ export function createApp(options: AppOptions = {}) {
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
-  });
-
-  app.post<{ Body: SaveConnectionRequest }>("/settings/connections", { schema: saveConnectionSchema }, async (request, reply) => {
-    try {
-      const connection = await connections.save(request.body);
-      invalidatePluginSessions();
-      return reply.code(201).send(connection);
-    } catch (cause) {
-      if (cause instanceof ConnectionError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
-    }
-  });
-
-  app.put<{ Params: { connectionId: string }; Body: SaveConnectionRequest }>("/settings/connections/:connectionId", { schema: saveConnectionSchema }, async (request, reply) => {
-    try {
-      const connection = await connections.save(request.body, request.params.connectionId);
-      invalidatePluginSessions();
-      return connection;
-    } catch (cause) {
-      if (cause instanceof ConnectionError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
-    }
-  });
-
-  app.patch<{ Params: { connectionId: string }; Body: { enabled: boolean } }>("/settings/connections/:connectionId/enabled", {
-    schema: {
-      body: {
-        type: "object",
-        additionalProperties: false,
-        required: ["enabled"],
-        properties: { enabled: { type: "boolean" } },
-      },
-    },
-  }, async (request, reply) => {
-    try {
-      await connections.setEnabled(request.params.connectionId, request.body.enabled);
-      invalidatePluginSessions();
-      return reply.code(204).send();
-    } catch (cause) {
-      if (cause instanceof ConnectionError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
-    }
-  });
-
-  app.delete<{ Params: { connectionId: string } }>("/settings/connections/:connectionId", async (request, reply) => {
-    try {
-      await connections.remove(request.params.connectionId);
-      invalidatePluginSessions();
-      return reply.code(204).send();
-    } catch (cause) {
-      if (cause instanceof ConnectionError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
-    }
-  });
-
-  app.post("/plugins/authoring-session", async (_request, reply) => {
-    const project = await projects.create("New Plugin", "web-game");
-    const conversation = await conversations.create(project);
-    return reply.code(201).send({ projectId: project.id, conversationId: conversation.summary.id });
   });
 
   const pluginInstallRequestSchema = {
@@ -927,7 +830,10 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.get("/plugins", async () => plugins.list());
+  app.get("/plugins", async () => {
+    const catalog = await plugins.list();
+    return catalog;
+  });
 
   app.get("/composer/capabilities", async () => {
     const [catalog, skills] = await Promise.all([
@@ -945,7 +851,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get<{ Params: { pluginId: string } }>("/plugins/:pluginId", async (request, reply) => {
-    const plugin = await withConnectionStatus(await plugins.read(request.params.pluginId));
+    const plugin = await withPluginCapabilities(await plugins.read(request.params.pluginId));
     return plugin ?? reply.code(404).send({ error: "Plugin not found" });
   });
 
@@ -1005,7 +911,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       await pluginSettings.update(plugin, request.body);
       invalidatePluginSessions();
-      return withConnectionStatus(await plugins.read(plugin.id));
+      return withPluginCapabilities(await plugins.read(plugin.id));
     } catch (cause) {
       if (cause instanceof InvalidPluginSettingsError) return reply.code(400).send({ error: cause.message });
       throw cause;
@@ -1168,7 +1074,7 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable codebases require an Interactive Story project" });
     try {
-      return await readNodeCodebase(project.workspacePath);
+      return await readNodeCodebaseDetail(project.workspacePath);
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
@@ -1181,17 +1087,19 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable codebases require an Interactive Story project" });
+    if (typeof request.body.revision !== "string") return reply.code(400).send({ error: "Playable codebase updates require the revision they were made from" });
+    let revision: string;
     try {
-      await writeNodeCodebase(project.workspacePath, request.body);
+      revision = await writeNodeCodebase(project.workspacePath, request.body);
     } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      return reply.code(cause instanceof NodeCodebaseConflictError ? 409 : 400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
     try {
       await projects.touch(project.id);
     } catch {
       return reply.code(500).send({ error: "Playable codebase was saved, but project metadata could not be updated" });
     }
-    return reply.code(204).send();
+    return { revision };
   });
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/playable/thumbnails", async (request, reply) => {
@@ -1278,7 +1186,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       result = await addPlayableNode(project.workspacePath, request.body);
     } catch (cause) {
-      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      return reply.code(cause instanceof NodeCodebaseConflictError ? 409 : 400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
     try {
       await projects.touch(project.id);
@@ -1309,15 +1217,21 @@ export function createApp(options: AppOptions = {}) {
     bodyLimit: 32_000,
   };
 
-  const generateText = async (request: FastifyRequest<{ Params: { projectId: string; documentId?: string }; Body: AssetCanvasTextGenerationRequest & { revision?: string } }>, reply: FastifyReply) => {
+  const generateText = async (request: FastifyRequest<{ Params: { projectId: string; documentId?: string; tableId?: string }; Body: AssetCanvasTextGenerationRequest & { revision?: string } }>, reply: FastifyReply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     let document: CanvasDocumentDetail | undefined;
+    let table: CanvasTableDetail | undefined;
     if (request.params.documentId) {
       try { document = await canvasStore.read(project.id, request.params.documentId); }
       catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
       if (!document) return reply.code(404).send({ error: "Document not found" });
       if (document.revision !== request.body.revision) return reply.code(409).send({ error: "The document changed. Retry with the latest version." });
+    }
+    if (request.params.tableId) {
+      try { table = await canvasStore.table(project.id, request.params.tableId); }
+      catch (cause) { return reply.code(cause instanceof CanvasError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+      if (table.revision !== request.body.revision) return reply.code(409).send({ error: "The table changed. Retry with the latest version." });
     }
     const runtime = await getModelRuntime();
     const settings = SettingsManager.create(project.workspacePath, piAgentDirectory);
@@ -1337,6 +1251,10 @@ export function createApp(options: AppOptions = {}) {
         const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel);
         return { ...result, model: selected, revision: document.revision };
       }
+      if (table) {
+        const result = await generateDesignTable(runtime, model, table.table, request.body.instruction, reasoningLevel);
+        return { ...result, model: selected, revision: table.revision };
+      }
       const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel);
       if (!text) return reply.code(502).send({ error: "The language model returned no text" });
       return { text, model: selected };
@@ -1350,10 +1268,14 @@ export function createApp(options: AppOptions = {}) {
     generateText,
   );
 
+  const resourceGenerationOptions = { ...textGenerationOptions, schema: { body: { ...textGenerationOptions.schema.body, required: ["instruction", "revision"], properties: { ...textGenerationOptions.schema.body.properties, revision: { type: "string", minLength: 1, maxLength: 100 } } } } };
   app.post<{ Params: { projectId: string; documentId: string }; Body: CanvasDocumentGenerationRequest }>(
     "/projects/:projectId/canvas/documents/:documentId/generate",
-    { ...textGenerationOptions, schema: { body: { ...textGenerationOptions.schema.body, required: ["instruction", "revision"], properties: { ...textGenerationOptions.schema.body.properties, revision: { type: "string", minLength: 1, maxLength: 100 } } } } },
+    resourceGenerationOptions,
     generateText,
+  );
+  app.post<{ Params: { projectId: string; tableId: string }; Body: CanvasTableGenerationRequest }>(
+    "/projects/:projectId/canvas/tables/:tableId/generate", resourceGenerationOptions, generateText,
   );
 
   app.patch<{ Params: { projectId: string }; Body: { name: string } }>(
@@ -2890,6 +2812,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    await pluginCapabilities.host.close();
     await canvasStore.close();
     tools.close();
     modelAuth.close();

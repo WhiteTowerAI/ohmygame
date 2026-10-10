@@ -66,6 +66,7 @@ export class PluginSettingsStore {
       ...plugin,
       enabled: settings.enabled,
       skills,
+      mcpServers: plugin.mcpServers?.map(item => ({ ...item, enabled: settings.components[pluginComponentKey("mcp", item.id)] ?? item.enabled })),
     };
   }
 
@@ -83,6 +84,18 @@ export class PluginSettingsStore {
       await this.#write(updated);
       this.#settings = updated;
       return cloneSettings(settings);
+    });
+  }
+
+  async updateComponent(plugin: PluginDetail, key: string, enabled: boolean): Promise<void> {
+    if (!componentEntries(plugin).some(([valid]) => valid === key)) throw new InvalidPluginSettingsError("Invalid plugin component");
+    await this.#enqueueMutation(async () => {
+      const settings = this.resolve(plugin);
+      settings.components[key] = enabled;
+      const updated = new Map(this.#settings);
+      updated.set(plugin.id, settings);
+      await this.#write(updated);
+      this.#settings = updated;
     });
   }
 
@@ -118,7 +131,10 @@ export class PluginSettingsStore {
 }
 
 export function componentEntries(plugin: PluginDetail): Array<[string, PluginComponentSummary]> {
-  return plugin.skills.map((item) => [pluginComponentKey("skill", item.id), item]);
+  return [
+    ...plugin.skills.map((item) => [pluginComponentKey("skill", item.id), item] as [string, PluginComponentSummary]),
+    ...(plugin.mcpServers ?? []).map((item) => [pluginComponentKey("mcp", item.id), item] as [string, PluginComponentSummary]),
+  ];
 }
 
 function cloneSettings(settings: PluginSettings): PluginSettings {

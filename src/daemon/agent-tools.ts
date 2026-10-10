@@ -413,7 +413,7 @@ export function createAgentTools(
   })] : []), defineTool({
     name: "canvas_check",
     label: "Check Canvas",
-    description: "Validate the canvas workspace files, node/document references and local media paths. Run after editing canvas files and fix every reported issue. This tool only reads files.",
+    description: "Validate the canvas workspace files, node/document/table references and local media paths. Run after editing canvas files and fix every reported issue. This tool only reads files.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _input, signal) => {
       signal?.throwIfAborted();
@@ -423,7 +423,7 @@ export function createAgentTools(
   }), ...(canvasStore ? [defineTool({
     name: "canvas_initialize",
     label: "Initialize Canvas",
-    description: "Initialize the canvas file contract and an empty board when the requested design or asset work needs a canvas. Preserves existing boards, documents and assets. Read canvas/AGENTS.md, index.json and schemas/ afterwards. Do not use for casual conversation or planning-only requests.",
+    description: "Initialize the canvas file contract and an empty board when the requested design or asset work needs a canvas. Preserves existing boards, documents, tables and assets. Read canvas/AGENTS.md, index.json and schemas/ afterwards. Do not use for casual conversation or planning-only requests.",
     parameters: Type.Object({}),
     execute: async (_toolCallId, _input, signal) => {
       signal?.throwIfAborted();
