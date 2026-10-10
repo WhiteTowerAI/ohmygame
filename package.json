@@ -93,5 +93,8 @@
   "engines": {
     "node": ">=22.19.0",
     "bun": ">=1.4.2"
+  },
+  "patchedDependencies": {
+    "@earendil-works/pi-ai@0.99.2": "patches/@earendil-works%2Fpi-ai@0.99.2.patch"
   }
 }

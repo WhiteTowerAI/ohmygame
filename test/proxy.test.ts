@@ -1,8 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { proxyOptionsFromEnvironment } from "../src/daemon/proxy.js";
+import { configureNetworkProxy, getConfiguredNetworkProxy, proxyOptionsFromEnvironment } from "../src/daemon/proxy.js";
+import { getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { applySystemProxy, proxyUrlFromElectron } from "../src/desktop/system-proxy.js";
 
 describe("proxyOptionsFromEnvironment", () => {
+  it("reports the applied startup proxy even when environment values later change", async () => {
+    const previousDispatcher = getGlobalDispatcher();
+    const environment = { HTTPS_PROXY: "http://startup.test:7890" };
+    let configuredDispatcher: ReturnType<typeof getGlobalDispatcher> | undefined;
+    try {
+      expect(configureNetworkProxy(environment)).toBe(true);
+      configuredDispatcher = getGlobalDispatcher();
+      environment.HTTPS_PROXY = "http://changed.test:7890";
+      const snapshot = getConfiguredNetworkProxy()!;
+      expect(snapshot.httpsProxy).toBe("http://startup.test:7890");
+      snapshot.httpsProxy = "http://mutated.test:7890";
+      expect(configureNetworkProxy({})).toBe(false);
+      expect(getConfiguredNetworkProxy()?.httpsProxy).toBe("http://startup.test:7890");
+    } finally {
+      setGlobalDispatcher(previousDispatcher);
+      await configuredDispatcher?.close?.();
+    }
+  });
+
   it("does nothing without an HTTP proxy", () => {
     expect(proxyOptionsFromEnvironment({})).toBeUndefined();
   });

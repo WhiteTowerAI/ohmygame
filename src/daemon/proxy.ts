@@ -6,6 +6,12 @@ export interface ProxyOptions {
   noProxy: string;
 }
 
+let configuredProxy: ProxyOptions | undefined;
+
+export function getConfiguredNetworkProxy(): ProxyOptions | undefined {
+  return configuredProxy ? { ...configuredProxy } : undefined;
+}
+
 export function proxyOptionsFromEnvironment(env: NodeJS.ProcessEnv): ProxyOptions | undefined {
   const httpProxy = value(env.HTTP_PROXY) ?? value(env.http_proxy) ?? value(env.HTTPS_PROXY) ?? value(env.https_proxy);
   const httpsProxy = value(env.HTTPS_PROXY) ?? value(env.https_proxy) ?? httpProxy;
@@ -28,6 +34,7 @@ export function configureNetworkProxy(env: NodeJS.ProcessEnv = process.env): boo
   const options = proxyOptionsFromEnvironment(env);
   if (!options) return false;
   setGlobalDispatcher(new EnvHttpProxyAgent(options));
+  configuredProxy = options;
   return true;
 }
 
