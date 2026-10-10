@@ -33,8 +33,11 @@ import { PROVIDER_ICONS } from "./provider-icons.js";
 import { CustomProviderDialog, PROVIDER_API_LABELS, type CustomProviderField } from "./custom-provider-dialog.js";
 import { ProviderModels } from "./provider-models.js";
 import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
-import { MODEL_3D_MODELS } from "../shared/generation-config.js";
 import { SegmentedControl } from "./segmented-control.js";
+import { useAuth } from "./auth.js";
+import { accountCloudState, cloudQuotaSummary, CloudQuotaDetails } from "./cloud-quota.js";
+import { getCloudQuotas, MODELS_CHANGED_EVENT } from "./api.js";
+import { HYPER3D_CONNECTION_ID } from "../shared/cloud-models.js";
 import { isLocalModelProvider, LOCAL_MODEL_PROVIDERS, withLocalModelProviders, type LocalModelProviderId } from "./local-model-providers.js";
 
 export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
@@ -64,6 +67,8 @@ export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onVie
 }
 
 function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
+  const auth = useAuth();
+  const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
@@ -73,16 +78,23 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [capability, setCapability] = useState<"all" | ProviderCapability>("all");
   useEffect(() => {
-    let active = true;
-    void listProviders().then((loaded) => {
-      if (active) setProviders(loaded);
-    }).catch((cause) => {
-      if (active) setError(errorMessage(cause));
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    return () => { active = false; };
-  }, []);
+    let active = true, sequence = 0;
+    const load = () => {
+      const revision = ++sequence;
+      void listProviders().then((loaded) => {
+        if (active && revision === sequence) { setProviders(loaded); setError(undefined); }
+      }).catch((cause) => {
+        if (active && revision === sequence) setError(errorMessage(cause));
+      }).finally(() => {
+        if (active && revision === sequence) setLoading(false);
+      });
+    };
+    load();
+    window.addEventListener(MODELS_CHANGED_EVENT, load);
+    window.addEventListener("focus", load);
+    const timer = setInterval(load, 30_000);
+    return () => { active = false; clearInterval(timer); window.removeEventListener(MODELS_CHANGED_EVENT, load); window.removeEventListener("focus", load); };
+  }, [userId]);
   async function toggleProvider(provider: ProviderSummary, enabled: boolean): Promise<void> {
     setPending((current) => new Set(current).add(provider.id));
     setError(undefined);
@@ -102,10 +114,16 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
     if (!provider.custom && isLocalModelProvider(provider)) setAdding(provider.preset);
     else onProvider(provider);
   };
-  const availableProviders = loading ? providers : withLocalModelProviders(providers);
+  const availableProviders = (loading ? providers : withLocalModelProviders(providers)).map((provider) => {
+    if (!provider.managed) return provider;
+    const cloud = accountCloudState(provider.cloud, userId);
+    return { ...provider, cloud, ...(provider.cloud?.userId !== userId || !userId ? { configured: false, status: "not_configured" as const } : {}) };
+  });
   const normalizedQuery = query.trim().toLowerCase();
   const visibleProviders = availableProviders.filter((provider) => (
-    (capability === "all" || provider.capabilities.includes(capability))
+    // Hyper3D's account and key connections share one settings entry.
+    (provider.id !== HYPER3D_CONNECTION_ID || !availableProviders.some((item) => item.id === "hyper3d"))
+    && (capability === "all" || provider.capabilities.includes(capability))
     && (!normalizedQuery || [
       provider.name,
       ...(isLocalModelProvider(provider) ? [LOCAL_MODEL_PROVIDERS[provider.preset].name] : []),
@@ -114,13 +132,14 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
     ].some((value) => value.toLowerCase().includes(normalizedQuery)))
   ));
   const localProviders = visibleProviders.filter(isLocalModelProvider);
-  const connectedProviders = visibleProviders.filter((provider) => provider.status === "connected" && !isLocalModelProvider(provider));
-  const remainingProviders = visibleProviders.filter((provider) => provider.status !== "connected" && !isLocalModelProvider(provider));
+  const freeProviders = visibleProviders.filter((provider) => provider.managed === "free_cloud" || provider.id === "hyper3d");
+  const connectedProviders = visibleProviders.filter((provider) => !freeProviders.includes(provider) && provider.status === "connected" && !isLocalModelProvider(provider));
+  const remainingProviders = visibleProviders.filter((provider) => !freeProviders.includes(provider) && provider.status !== "connected" && !isLocalModelProvider(provider));
   const popularProviders = remainingProviders
     .filter((provider) => POPULAR_PROVIDER_IDS.includes(provider.id))
     .sort((first, second) => POPULAR_PROVIDER_IDS.indexOf(first.id) - POPULAR_PROVIDER_IDS.indexOf(second.id));
   const moreProviders = remainingProviders.filter((provider) => !POPULAR_PROVIDER_IDS.includes(provider.id));
-  const filteredProviders = [...connectedProviders, ...popularProviders, ...localProviders, ...moreProviders];
+  const filteredProviders = [...freeProviders, ...connectedProviders, ...popularProviders, ...localProviders, ...moreProviders];
   const filtering = capability !== "all" || Boolean(normalizedQuery);
   return (
     <section className="settings-panel settings-overview-panel">
@@ -146,6 +165,7 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />Loading providers</div> : null}
         {!loading && visibleProviders.length === 0 ? <p className="settings-empty">No providers match these filters.</p> : null}
         {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title="Providers" providers={filteredProviders} onProvider={openProvider} /> : null}
+        {!filtering && freeProviders.length ? <ProviderGroup {...rowActions} title="Free cloud" providers={freeProviders} onProvider={openProvider} /> : null}
         {!filtering && connectedProviders.length ? <ProviderGroup {...rowActions} title="Connected providers" providers={connectedProviders} onProvider={openProvider} /> : null}
         {!filtering && popularProviders.length ? <ProviderGroup {...rowActions} title="Popular providers" providers={popularProviders} onProvider={openProvider} /> : null}
         {!filtering && localProviders.length ? <ProviderGroup {...rowActions} title="Local providers" providers={localProviders} onProvider={openProvider} /> : null}
@@ -176,22 +196,23 @@ function ProviderGroup({ detail, onProvider, providers, title, ...actions }: { d
 }
 
 function ProviderRow({ detail, featured = false, onProvider, provider, onToggle, pending }: { detail?: string; featured?: boolean; onProvider: (provider: ProviderSummary) => void; provider: ProviderSummary } & ProviderRowActions) {
-  const ActionIcon = provider.status === "connecting" ? LoaderCircle : provider.status === "error" ? RefreshCw : provider.configured ? Settings : Plug;
-  const actionLabel = `${providerAction(provider)} ${provider.name}`;
+  const combined = provider.id === "hyper3d";
+  const ActionIcon = combined ? Settings : provider.status === "connecting" ? LoaderCircle : provider.status === "error" ? RefreshCw : provider.configured ? Settings : Plug;
+  const actionLabel = combined ? "Manage Hyper3D" : `${providerAction(provider)} ${provider.name}`;
   return (
     <div className={`settings-provider-row${featured ? " is-featured" : ""}`}>
       <ProviderMark provider={provider} />
       <span className="settings-provider-copy">
         <strong className="settings-provider-name"><span>{provider.name}</span>{featured ? <small>Recommended</small> : null}</strong>
         <span className="settings-provider-details">
-          <span className="settings-provider-description">{providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
+          <span className="settings-provider-description">{provider.managed ? cloudQuotaSummary(provider.cloud) : providerDescription(provider)}{detail ? <><i>·</i>{detail}</> : null}</span>
           <span className="settings-provider-capabilities" aria-label={`Provider labels: ${[...provider.capabilities.map((capability) => PROVIDER_CAPABILITY_LABELS[capability]), ...(provider.custom && !isLocalModelProvider(provider) ? ["Custom"] : [])].join(", ")}`}>
             {provider.capabilities.map((capability) => <small key={capability}>{PROVIDER_CAPABILITY_LABELS[capability]}</small>)}
             {provider.custom && !isLocalModelProvider(provider) ? <small>Custom</small> : null}
           </span>
         </span>
       </span>
-      {provider.configured ? <label className="settings-toggle settings-provider-toggle" title={provider.enabled !== false ? "Enabled" : "Disabled"}>
+      {combined || provider.configured ? <label className="settings-toggle settings-provider-toggle" title={provider.enabled !== false ? "Enabled" : "Disabled"}>
         <input type="checkbox" role="switch" aria-label={`Enable ${provider.name}`} checked={provider.enabled !== false} disabled={pending.has(provider.id)} onChange={(event) => onToggle(provider, event.target.checked)} /><span aria-hidden="true" />
       </label> : provider.status === "not_configured" ? null : <em className={`settings-provider-status is-${provider.status}`}><i />{providerStatus(provider)}</em>}
       <button className="icon-button settings-provider-action" type="button" data-tooltip={actionLabel} aria-label={actionLabel} disabled={provider.status === "connecting" || pending.has(provider.id)} onClick={() => onProvider(provider)}><ActionIcon size={17} className={provider.status === "connecting" ? "spin" : undefined} aria-hidden="true" /></button>
@@ -206,6 +227,8 @@ function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "pr
 }
 
 function ProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  if (provider.id === "hyper3d" || provider.id === HYPER3D_CONNECTION_ID) return <Hyper3DProviderDetail provider={provider} onBack={onBack} />;
+  if (provider.managed === "free_cloud") return <FreeCloudProviderDetail provider={provider} onBack={onBack} />;
   if (provider.custom) return <CustomProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (provider.id === "meshy" || provider.id === "tripo") return <Native3DProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
@@ -213,6 +236,112 @@ function ProviderAuthView({ provider, onBack, onCompleted }: { provider: Provide
   if (provider.configured) return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
   return <ActiveProviderAuth provider={provider} method={method} onBack={onBack} onCompleted={onCompleted} />;
+}
+
+function Hyper3DProviderDetail({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
+  const auth = useAuth();
+  const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
+  const [providers, setProviders] = useState([provider]);
+  const [error, setError] = useState<string>();
+  const [refreshing, setRefreshing] = useState(false);
+  const [modelsRevision, setModelsRevision] = useState(0);
+  const refreshRef = useRef<(force?: boolean) => Promise<void>>(async () => {});
+  useEffect(() => {
+    let active = true, sequence = 0;
+    const load = async (force = false) => {
+      const revision = ++sequence;
+      setRefreshing(true);
+      try {
+        if (force) await getCloudQuotas();
+        const loaded = await listProviders();
+        if (active && revision === sequence) { setProviders(loaded); setError(undefined); if (force) setModelsRevision((value) => value + 1); }
+      } catch (cause) { if (active && revision === sequence) setError(errorMessage(cause)); }
+      finally { if (active && revision === sequence) setRefreshing(false); }
+    };
+    refreshRef.current = load;
+    const refresh = () => { void load(); };
+    refresh();
+    window.addEventListener("focus", refresh);
+    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
+    const timer = setInterval(refresh, 30_000);
+    return () => { active = false; clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener(MODELS_CHANGED_EVENT, refresh); };
+  }, [userId]);
+  const keyProvider = providers.find((item) => item.id === "hyper3d");
+  const account = providers.find((item) => item.id === HYPER3D_CONNECTION_ID);
+  const current = keyProvider ?? { ...provider, id: "hyper3d", name: "Hyper3D" };
+  return <section className="settings-panel settings-provider-detail">
+    <ProviderDetailHeader provider={current} description="Free account credits and your API key" onBack={onBack}>
+      <ProviderEnableControl provider={current} onChanged={() => void refreshRef.current()} />
+    </ProviderDetailHeader>
+    <FreeCloudAccount provider={account} refreshing={refreshing} onRefresh={() => void refreshRef.current(true)} />
+    {keyProvider ? <Native3DProviderKeyForm key={String(keyProvider.configured)} provider={keyProvider} /> : null}
+    {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    <ProviderModels key={`${userId}-${keyProvider?.configured}-${modelsRevision}`} providerId="hyper3d" additionalProviderId={account?.id}
+      sourceLabels={{ hyper3d: keyProvider?.configured ? "Your API key" : "API key required", [HYPER3D_CONNECTION_ID]: "Free account" }} />
+  </section>;
+}
+
+function FreeCloudAccount({ provider, refreshing, onRefresh }: { provider?: ProviderSummary; refreshing: boolean; onRefresh: () => void }) {
+  const auth = useAuth();
+  const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
+  const cloud = accountCloudState(provider?.cloud, userId);
+  const needsSignIn = !userId || cloud?.availability === "sign_in_required";
+  const quota = cloud?.quota;
+  return <>
+    <div className="settings-provider-connection">
+      <div className="settings-provider-setting-row settings-provider-auth-row">
+        <span className="settings-search-field-label">Account</span>
+        <span className="settings-provider-setting-value" title={auth.state.status === "signed-in" ? auth.state.user.email : undefined}>{auth.state.status === "signed-in" ? auth.state.user.email ?? auth.state.user.name : "OhMyGame account"}</span>
+        {needsSignIn ? <button type="button" className="settings-secondary-button" onClick={auth.openSignIn}>Sign in</button> : null}
+      </div>
+    </div>
+    <section className="settings-detail-section provider-models" aria-label="Daily quota">
+      <div className="provider-models-heading">
+        <h4>Daily quota</h4>
+        {userId ? <button type="button" className="settings-secondary-button" disabled={refreshing} onClick={onRefresh} aria-label="Refresh quota"><RefreshCw size={13} className={refreshing ? "spin" : undefined} /><span>Refresh</span></button> : null}
+      </div>
+      {quota ? <CloudQuotaDetails quota={quota} /> : <p className="settings-detail-hint" role="status">{needsSignIn ? "Sign in for free daily credits." : refreshing ? "Checking your daily allowance…" : cloudQuotaSummary(cloud)}</p>}
+      {quota && cloud?.availability !== "ready" ? <p className="settings-detail-hint" role="status">{cloud?.availability === "personal_exhausted" ? "Your daily quota is used up. More becomes available after the reset." : cloudQuotaSummary(cloud)}</p> : null}
+    </section>
+  </>;
+}
+
+function FreeCloudProviderDetail({ provider, onBack }: { provider: ProviderSummary; onBack: () => void }) {
+  const auth = useAuth();
+  const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
+  const [current, setCurrent] = useState(provider);
+  const [modelsRevision, setModelsRevision] = useState(0);
+  const [error, setError] = useState<string>();
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshRef = useRef<(force?: boolean) => void>(() => {});
+  useEffect(() => {
+    let active = true, sequence = 0;
+    const load = (force = false) => {
+      const revision = ++sequence;
+      setRefreshing(true);
+      void (force ? getCloudQuotas() : Promise.resolve()).then(listProviders).then((providers) => {
+        if (!active || revision !== sequence) return;
+        setCurrent(providers.find((item) => item.id === provider.id) ?? provider);
+        setError(undefined);
+        if (force) setModelsRevision((value) => value + 1);
+      }).catch((cause) => { if (active && revision === sequence) setError(errorMessage(cause)); })
+        .finally(() => { if (active && revision === sequence) setRefreshing(false); });
+    };
+    refreshRef.current = load;
+    const refresh = () => load();
+    refresh();
+    window.addEventListener(MODELS_CHANGED_EVENT, refresh);
+    const timer = setInterval(refresh, 30_000);
+    return () => { active = false; clearInterval(timer); window.removeEventListener(MODELS_CHANGED_EVENT, refresh); };
+  }, [provider.id, userId]);
+  return <section className="settings-panel settings-provider-detail">
+    <ProviderDetailHeader provider={current} onBack={onBack}>
+      <ProviderEnableControl provider={current} onChanged={() => refreshRef.current()} />
+    </ProviderDetailHeader>
+    <FreeCloudAccount provider={current} refreshing={refreshing} onRefresh={() => refreshRef.current(true)} />
+    {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    <ProviderModels key={`${provider.id}-${userId}-${modelsRevision}`} providerId={provider.id} />
+  </section>;
 }
 
 function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
@@ -346,7 +475,7 @@ function SeedanceModels({ providerId }: { providerId: string }) {
   );
 }
 
-function useProviderDeletion(providerId: string, onRemoved: () => void) {
+function useProviderDeletion(providerId: string, onRemoved?: () => void) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -354,22 +483,22 @@ function useProviderDeletion(providerId: string, onRemoved: () => void) {
     if (busy) return;
     setBusy(true);
     setError(undefined);
-    try { await removeProvider(providerId); onRemoved(); }
+    try { await removeProvider(providerId); onRemoved?.(); }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
   return { confirming, setConfirming, busy, error, remove };
 }
 
-function ProviderDeleteButton({ deletion, disabled = false }: { deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean }) {
-  return <button className="icon-button settings-provider-setting-edit settings-provider-delete" type="button" aria-label="Delete provider" data-tooltip="Delete provider" aria-expanded={deletion.confirming} disabled={deletion.busy || disabled} onClick={() => deletion.setConfirming((value) => !value)}><Trash2 size={15} aria-hidden="true" /></button>;
+function ProviderDeleteButton({ deletion, disabled = false, label = "Delete provider" }: { deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean; label?: string }) {
+  return <button className="icon-button settings-provider-setting-edit settings-provider-delete" type="button" aria-label={label} data-tooltip={label} aria-expanded={deletion.confirming} disabled={deletion.busy || disabled} onClick={() => deletion.setConfirming((value) => !value)}><Trash2 size={15} aria-hidden="true" /></button>;
 }
 
 function ProviderDeleteConfirmation({ provider, deletion, disabled = false }: { provider: ProviderSummary; deletion: ReturnType<typeof useProviderDeletion>; disabled?: boolean }) {
   if (!deletion.confirming) return null;
   return <div className="settings-provider-delete-confirmation" role="group" aria-label="Delete provider confirmation">
-    <span>{provider.custom ? "Delete this provider, its key and model settings?" : "Delete this provider's saved connection and settings?"}{!provider.custom && provider.credentialType === "oauth" ? " Your subscription stays active." : null}</span>
-    <button className="settings-danger-button" type="button" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? "Deleting…" : "Delete provider"}</button>
+    <span>{provider.id === "hyper3d" ? "Remove your saved Hyper3D API key and its model settings?" : provider.custom ? "Delete this provider, its key and model settings?" : "Delete this provider's saved connection and settings?"}{!provider.custom && provider.credentialType === "oauth" ? " Your subscription stays active." : null}</span>
+    <button className="settings-danger-button" type="button" disabled={deletion.busy || disabled} onClick={() => void deletion.remove()}>{deletion.busy ? "Deleting…" : provider.id === "hyper3d" ? "Remove API key" : "Delete provider"}</button>
     <button className="settings-secondary-button" type="button" disabled={deletion.busy} onClick={() => deletion.setConfirming(false)}>Cancel</button>
   </div>;
 }
@@ -430,6 +559,16 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
 }
 
 function Native3DProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  return <section className="settings-panel settings-provider-detail">
+    <ProviderDetailHeader provider={provider} description="API key" onBack={onBack}>
+      {provider.configured ? <ProviderEnableControl provider={provider} /> : null}
+    </ProviderDetailHeader>
+    <Native3DProviderKeyForm provider={provider} onCompleted={onCompleted} />
+    {provider.configured ? <ProviderModels providerId={provider.id} /> : null}
+  </section>;
+}
+
+function Native3DProviderKeyForm({ provider, onCompleted }: { provider: ProviderSummary; onCompleted?: () => void }) {
   const deletion = useProviderDeletion(provider.id, onCompleted);
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string>();
@@ -440,7 +579,8 @@ function Native3DProviderAuthView({ provider, onBack, onCompleted }: { provider:
     setError(undefined);
     try {
       await updateModel3DProviderApiKey(provider.id, apiKey);
-      onCompleted();
+      setApiKey("");
+      onCompleted?.();
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -448,39 +588,22 @@ function Native3DProviderAuthView({ provider, onBack, onCompleted }: { provider:
     }
   }
 
-  return (
-    <section className="settings-panel settings-provider-detail">
-      <ProviderDetailHeader provider={provider} onBack={onBack}>
-        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} /></> : null}
-      </ProviderDetailHeader>
-      <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
-      <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
-        <label className="settings-search-field-label" htmlFor={`${provider.id}-api-key`}>API key</label>
-        <div className="settings-detail-inline">
-          <input
-            id={`${provider.id}-api-key`}
-            className="settings-search-input"
-            type="password"
-            value={apiKey}
-            onChange={(event) => setApiKey(event.target.value)}
-            placeholder={provider.configured ? "Paste a new key to replace the current one" : `Paste your ${provider.name} API key`}
-            disabled={saving || deletion.busy}
-          />
-          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </div>
-      </form>
-      {provider.configured ? <section className="settings-detail-section provider-models" aria-label="3D models">
-        <div className="provider-models-heading"><h4>Models</h4></div>
-        <div className="provider-models-list" role="list" aria-label="3D models">
-          {MODEL_3D_MODELS.filter((model) => model.provider === provider.id).map((model) => <div key={model.id} className="provider-model-row" role="listitem"><span className="provider-model-copy"><strong>{model.name}</strong><small>{model.id} · {model.maxReferenceImages} views · {model.polycount.min.toLocaleString()}–{model.polycount.max.toLocaleString()} faces</small></span></div>)}
-        </div>
-        <p className="settings-detail-hint">{provider.id === "tripo" ? "P1 creates low-poly game assets. V3.1 creates detailed geometry. Both support textures and PBR." : "T2 creates low-poly assets from one image. 7.1 accepts up to four views."}</p>
-      </section> : null}
-      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
-    </section>
-  );
+  return <>
+    <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
+    <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
+      <div className="provider-models-heading">
+        <label className="settings-search-field-label" htmlFor={`${provider.id}-api-key`}>{provider.id === "hyper3d" ? "Your API key" : "API key"}</label>
+        {provider.configured ? <ProviderDeleteButton deletion={deletion} disabled={saving} label="Remove API key" /> : null}
+      </div>
+      <div className="settings-detail-inline">
+        <input id={`${provider.id}-api-key`} className="settings-search-input" type="password" autoComplete="off" spellCheck={false} value={apiKey} onChange={(event) => setApiKey(event.target.value)}
+          placeholder={provider.configured ? "Paste a new key to replace the current one" : `Paste your ${provider.name} API key`} disabled={saving || deletion.busy} />
+        <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>{saving ? "Saving…" : "Save"}</button>
+      </div>
+    </form>
+    {provider.id === "hyper3d" ? <p className="settings-detail-hint">API key models use your Hyper3D balance. Free account models remain available.</p> : null}
+    {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
+  </>;
 }
 
 function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProviderSummary; onBack: () => void; onChoose: (method: ModelAuthMethod) => void }) {
@@ -738,24 +861,25 @@ function ActiveProviderAuth({ provider, method, inline = false, onBack, onComple
   );
 }
 
-function ProviderDetailHeader({ provider, onBack, children }: { provider: ModelProviderSummary; onBack: () => void; children?: ReactNode }) {
+function ProviderDetailHeader({ provider, onBack, children, title, description }: { provider: ModelProviderSummary; onBack: () => void; children?: ReactNode; title?: string; description?: string }) {
   return (
     <header className="settings-provider-detail-header">
       <button type="button" onClick={onBack} aria-label="Back"><ArrowLeft size={16} /></button>
       <ProviderMark provider={provider} />
       <span className="settings-provider-heading">
-        <h3>{provider.name}</h3>
-        <small>{providerDescription(provider)}</small>
+        <h3>{title ?? provider.name}</h3>
+        <small>{description ?? providerDescription(provider)}</small>
       </span>
       {children}
     </header>
   );
 }
 
-function ProviderEnableControl({ provider, onChanged, disabled = false }: { provider: ProviderSummary; onChanged?: () => void; disabled?: boolean }) {
+function ProviderEnableControl({ provider, onChanged, disabled = false, label }: { provider: ProviderSummary; onChanged?: () => void; disabled?: boolean; label?: string }) {
   const [enabled, setEnabled] = useState(provider.enabled !== false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  useEffect(() => { setEnabled(provider.enabled !== false); }, [provider.id, provider.enabled]);
   async function toggle(next: boolean): Promise<void> {
     if (busy) return;
     const previous = enabled;
@@ -769,7 +893,7 @@ function ProviderEnableControl({ provider, onChanged, disabled = false }: { prov
   return <div className="settings-provider-enable-control">
     <label className="settings-provider-enable-label" title={enabled ? "Available for new requests" : "Disabled · Your credentials and models are kept"}>
       <small>{enabled ? "Enabled" : "Disabled"}</small>
-      <span className="settings-toggle"><input type="checkbox" role="switch" aria-label={`Enable ${provider.name}`} checked={enabled} disabled={busy || disabled} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></span>
+      <span className="settings-toggle"><input type="checkbox" role="switch" aria-label={label ?? `Enable ${provider.name}`} checked={enabled} disabled={busy || disabled} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></span>
     </label>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
   </div>;
@@ -830,7 +954,9 @@ function useProviderEndpoint(providerId: string) {
   return { supported, baseUrl, savedBaseUrl, setBaseUrl, reset: () => setBaseUrl(savedBaseUrl), dirty: baseUrl.trim() !== savedBaseUrl, loading, saving, error, save };
 }
 
-function providerDescription(provider: Pick<ProviderSummary, "methods" | "custom" | "preset">): string {
+function providerDescription(provider: Pick<ProviderSummary, "id" | "methods" | "custom" | "preset" | "managed">): string {
+  if (provider.id === "hyper3d") return "Free daily credits or your API key";
+  if (provider.managed) return "Free cloud";
   if (isLocalModelProvider(provider)) return "Local endpoint";
   if (provider.custom) return "Custom endpoint";
   const oauth = provider.methods.some((method) => method.type === "oauth");

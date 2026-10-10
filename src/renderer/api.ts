@@ -20,6 +20,7 @@ import {
   type ModelAuthMethod,
   type ModelProviderEndpointSettings,
   type ProviderModelSettings,
+  type Model3DDefinition,
   type CustomProviderModel,
   type CustomProviderDetails,
   type SaveCustomProviderRequest,
@@ -197,6 +198,11 @@ export async function updateAgentDefaults(input: UpdateAgentDefaultsRequest): Pr
 }
 
 export const MODELS_CHANGED_EVENT = "ohmygame-models-changed";
+export async function syncCloudSession(session: { accessToken: string; userId: string } | null): Promise<void> {
+  await request("/cloud/session", { method: "PUT", body: JSON.stringify(session) });
+  notifyAgentModelsChanged();
+}
+export async function getCloudQuotas(): Promise<import("../shared/cloud-models.js").CloudQuotaSnapshot | null> { return request("/cloud/quotas"); }
 
 export function notifyAgentModelsChanged(): void {
   window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
@@ -241,8 +247,20 @@ export async function setProviderModelVisibility(providerId: string, ids: string
   return result;
 }
 
-export async function addCustomProviderModel(providerId: string, model: CustomProviderModel): Promise<ProviderModelSettings> {
+export async function addCustomProviderModel(providerId: string, model: CustomProviderModel | Model3DDefinition): Promise<ProviderModelSettings> {
   const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/custom`, { method: "POST", body: JSON.stringify(model) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function updateProviderModel3D(providerId: string, model: Model3DDefinition): Promise<ProviderModelSettings> {
+  const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(model.id)}`, { method: "PUT", body: JSON.stringify(model) });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function resetProviderModel3D(providerId: string, modelId: string): Promise<ProviderModelSettings> {
+  const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/${encodeURIComponent(modelId)}/overrides`, { method: "DELETE" });
   notifyAgentModelsChanged();
   return result;
 }

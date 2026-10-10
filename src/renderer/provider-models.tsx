@@ -1,7 +1,8 @@
-import { useEffect, useId, useState, type FormEvent } from "react";
-import { CUSTOM_MODEL_APIS, type CustomProviderModel, type ProviderModelSettings } from "../shared/contracts.js";
-import { addCustomProviderModel, getProviderModels, removeCustomProviderModel, setProviderModelVisibility } from "./api.js";
-import { Check, ChevronDown, LoaderCircle, Pencil, Plus, Search, Trash2, X } from "./icons.js";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { CUSTOM_MODEL_APIS, type CustomProviderModel, type ProviderModelSettings, type ModelRef } from "../shared/contracts.js";
+import { addCustomProviderModel, getCloudQuotas, getProviderModels, notifyAgentModelsChanged, removeCustomProviderModel, resetProviderModel3D, setProviderModelVisibility, updateProviderModel3D } from "./api.js";
+import { ProviderModel3DForm } from "./provider-model3d-form.js";
+import { Check, ChevronDown, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { MODEL_USAGE_LABELS } from "../shared/custom-models.js";
 
@@ -11,7 +12,7 @@ const MODEL_FILTER_OPTIONS = [
   { value: "custom", label: "Custom" },
 ] as const;
 
-export function ProviderModels({ providerId, onEditModels }: { providerId: string; onEditModels?: () => void }) {
+export function ProviderModels({ providerId, additionalProviderId, sourceLabels, onEditModels }: { providerId: string; additionalProviderId?: string; sourceLabels?: Record<string, string>; onEditModels?: () => void }) {
   const [settings, setSettings] = useState<ProviderModelSettings>();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "shown" | "custom">("all");
@@ -19,40 +20,64 @@ export function ProviderModels({ providerId, onEditModels }: { providerId: strin
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const [deleting, setDeleting] = useState<string>();
+  const [deleting, setDeleting] = useState<ModelRef>();
+  const [editingModel, setEditingModel] = useState<ModelRef>();
+  const providerRef = useRef(providerId);
+  const reloadRef = useRef<(force?: boolean) => void>(() => {});
+  providerRef.current = providerId;
   useEffect(() => {
-    let active = true;
+    let active = true, sequence = 0;
     setSettings(undefined);
     setEditing(false);
     setAdding(false);
     setDeleting(undefined);
+    setEditingModel(undefined);
+    setBusy(false);
     setQuery("");
     setFilter("all");
     setError(undefined);
-    void getProviderModels(providerId).then((loaded) => { if (active) setSettings(loaded); })
-      .catch((cause) => { if (active) setError(errorMessage(cause)); });
+    const load = async (force = false) => {
+      const revision = ++sequence;
+      setBusy(true);
+      try {
+        if (force && additionalProviderId?.startsWith("cloud-")) { await getCloudQuotas(); notifyAgentModelsChanged(); }
+        const results = await Promise.allSettled([providerId, ...(additionalProviderId ? [additionalProviderId] : [])].map(getProviderModels));
+        if (!active || revision !== sequence) return;
+        const loaded = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+        const failure = results.find((result) => result.status === "rejected");
+        if (loaded.length) setSettings({ ...loaded[0]!, models: loaded.slice().reverse().flatMap((item) => item.models) });
+        setError(failure?.status === "rejected" ? errorMessage(failure.reason) : undefined);
+      } catch (cause) { if (active && revision === sequence) setError(errorMessage(cause)); }
+      finally { if (active && revision === sequence) setBusy(false); }
+    };
+    reloadRef.current = (force) => { void load(force); };
+    void load();
     return () => { active = false; };
-  }, [providerId]);
+  }, [providerId, additionalProviderId]);
 
-  async function update(operation: () => Promise<ProviderModelSettings>, optimistic?: ProviderModelSettings): Promise<boolean> {
-    const previous = settings;
-    if (optimistic) setSettings(optimistic);
+  async function update(operation: () => Promise<ProviderModelSettings>, owner: string | null = providerId): Promise<boolean> {
+    const id = providerId;
     setBusy(true);
     setError(undefined);
     try {
-      setSettings(await operation());
+      const loaded = await operation();
+      if (providerRef.current !== id) return false;
+      setSettings((current) => owner && additionalProviderId && current ? { ...current,
+        models: owner === providerId ? [...current.models.filter((model) => model.provider !== owner), ...loaded.models]
+          : [...loaded.models, ...current.models.filter((model) => model.provider !== owner)],
+      } : loaded);
       return true;
     } catch (cause) {
-      if (optimistic) setSettings(previous);
+      if (providerRef.current !== id) return false;
       setError(errorMessage(cause));
       return false;
-    } finally { setBusy(false); }
+    } finally { if (providerRef.current === id) setBusy(false); }
   }
 
   const search = query.trim().toLowerCase();
   const models = settings?.models.filter((model) => (
     (onEditModels ? true : editing ? filter === "all" || (filter === "shown" ? model.visible : model.custom) : model.visible)
-    && (!search || `${model.name} ${model.id}`.toLowerCase().includes(search))
+    && (!search || `${model.name} ${model.id} ${sourceLabels?.[model.provider] ?? ""}`.toLowerCase().includes(search))
   )) ?? [];
   const shown = settings?.models.filter((model) => model.visible).length ?? 0;
   function toggleEditing(): void {
@@ -60,21 +85,32 @@ export function ProviderModels({ providerId, onEditModels }: { providerId: strin
     setError(undefined);
     setAdding(false);
     setDeleting(undefined);
+    setEditingModel(undefined);
     setQuery("");
     setFilter("all");
   }
-  function changeVisibility(ids: string[], visible: boolean): void {
-    const selected = new Set(ids);
-    void update(() => setProviderModelVisibility(providerId, ids, visible), settings ? {
-      ...settings,
-      models: settings.models.map((model) => selected.has(model.id) ? { ...model, visible } : model),
-    } : undefined);
+  function changeVisibility(models: ProviderModelSettings["models"], visible: boolean): void {
+    const owners = [...new Set(models.map((model) => model.provider))];
+    if (owners.length === 1) {
+      const owner = owners[0]!;
+      void update(() => setProviderModelVisibility(owner, models.map((model) => model.id), visible), owner);
+      return;
+    }
+    void update(async () => {
+      const changes = await Promise.allSettled(owners.map((owner) => setProviderModelVisibility(owner, models.filter((model) => model.provider === owner).map((model) => model.id), visible)));
+      // Reload both sources even after a partial failure, so the displayed switches stay accurate.
+      const loaded = await Promise.all([providerId, ...(additionalProviderId ? [additionalProviderId] : [])].map(getProviderModels));
+      const failure = changes.find((change) => change.status === "rejected");
+      if (failure?.status === "rejected") setError(errorMessage(failure.reason));
+      return { ...loaded[0]!, models: loaded.slice().reverse().flatMap((item) => item.models) };
+    }, null);
   }
   return <section className={`settings-detail-section provider-models${editing ? " is-editing" : ""}`} aria-label="Models">
     <div className="provider-models-heading">
       <h4>Models <small>{settings ? shown : ""}</small></h4>
       {settings ? <div className="provider-models-heading-actions">
-        {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
+        {settings.model3DProtocol ? <button className="settings-secondary-button" type="button" disabled={busy || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)} title="Reload the bundled official presets and account catalog" aria-label="Reload model catalog"><RefreshCw size={13} className={busy ? "spin" : undefined} /><span>Reload</span></button> : null}
+        {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setEditingModel(undefined); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
           <Plus size={13} /><span>Add model</span>
         </button> : null}
         <button className="settings-secondary-button" type="button" disabled={busy} onClick={onEditModels ?? toggleEditing} aria-label={editing ? "Done editing models" : "Edit models"} aria-pressed={onEditModels ? undefined : editing}>
@@ -83,9 +119,15 @@ export function ProviderModels({ providerId, onEditModels }: { providerId: strin
       </div> : null}
     </div>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
-    {adding && settings ? <CustomModelForm key={providerId} settings={settings} busy={busy} onCancel={() => { setAdding(false); setError(undefined); }} onAdd={async (model) => {
+    {settings?.catalogNotice ? <details className="settings-detail-hint provider-catalog-info"><summary>Model catalog info</summary><p>{settings.catalogNotice}</p>{settings.catalogDocsUrl ? <a href={settings.catalogDocsUrl} target="_blank" rel="noreferrer">Official model versions <ExternalLink size={11} /></a> : null}</details> : null}
+    {adding && settings?.model3DProtocol ? <ProviderModel3DForm key={`${providerId}-new`} protocol={settings.model3DProtocol} busy={busy} onCancel={() => { setAdding(false); setError(undefined); }} onSave={async (model) => {
+      if (await update(() => addCustomProviderModel(providerId, model))) { setAdding(false); setQuery(""); setFilter("all"); }
+    }} /> : adding && settings ? <CustomModelForm key={providerId} settings={settings} busy={busy} onCancel={() => { setAdding(false); setError(undefined); }} onAdd={async (model) => {
       if (await update(() => addCustomProviderModel(providerId, model))) { setAdding(false); setQuery(""); setFilter("all"); }
     }} /> : null}
+    {editingModel && settings?.model3DProtocol ? <ProviderModel3DForm key={`${editingModel.provider}-${editingModel.id}`} protocol={settings.model3DProtocol} initial={settings.models.find((model) => model.provider === editingModel.provider && model.id === editingModel.id)?.model3d} busy={busy} onCancel={() => { setEditingModel(undefined); setError(undefined); }} onSave={async (model) => {
+      if (await update(() => updateProviderModel3D(editingModel.provider, model), editingModel.provider)) setEditingModel(undefined);
+    }} onReset={() => void update(() => resetProviderModel3D(editingModel.provider, editingModel.id), editingModel.provider).then((saved) => { if (saved) setEditingModel(undefined); })} /> : null}
     {settings ? <>
       <div className="provider-models-controls">
         <label className="settings-provider-search"><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search models" aria-label="Search models" /></label>
@@ -93,22 +135,26 @@ export function ProviderModels({ providerId, onEditModels }: { providerId: strin
       </div>
       {editing ? <div className="provider-models-list-actions">
         <span>{shown} shown <i aria-hidden="true">/</i> {settings.models.length} total</span>
-        <button type="button" disabled={busy || !models.some((model) => !model.visible)} onClick={() => changeVisibility(models.map((model) => model.id), true)}>Show all</button>
-        <button type="button" disabled={busy || !models.some((model) => model.visible)} onClick={() => changeVisibility(models.map((model) => model.id), false)}>Hide all</button>
+        <button type="button" disabled={busy || !models.some((model) => !model.visible)} onClick={() => changeVisibility(models, true)}>Show all</button>
+        <button type="button" disabled={busy || !models.some((model) => model.visible)} onClick={() => changeVisibility(models, false)}>Hide all</button>
       </div> : null}
       <div className="provider-models-list" role="list" aria-label={editing ? "Provider models" : "Shown provider models"} aria-busy={busy}>
         {models.map((model) => {
-          const copy = <span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{model.name !== model.id ? <small title={model.id}>{model.id}</small> : null}</span>;
-          return <div className={`provider-model-row${model.visible ? "" : " is-hidden"}`} key={model.id} role="listitem">
+          const description = model.model3d ? `${model.id} · up to ${model.model3d.settings.maxReferenceImages} ${model.model3d.settings.maxReferenceImages === 1 ? "reference" : "references"} · ${model.model3d.settings.polycount.min.toLocaleString()}–${model.model3d.settings.polycount.max.toLocaleString()} faces` : model.description ? `${model.id} · ${model.description}` : model.name !== model.id ? model.id : undefined;
+          const copy = <span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{description ? <small title={description}>{description}</small> : null}</span>;
+          const selected = (ref?: ModelRef) => ref?.provider === model.provider && ref.id === model.id;
+          return <div className={`provider-model-row${model.visible ? "" : " is-hidden"}`} key={`${model.provider}/${model.id}`} role="listitem">
             {editing || onEditModels ? <label>
-              <input type="checkbox" checked={model.visible} disabled={busy || model.capabilities?.length === 0} onChange={(event) => changeVisibility([model.id], event.target.checked)} aria-label={`Enable ${model.name}`} />
+              <input type="checkbox" checked={model.visible} disabled={busy || model.capabilities?.length === 0} onChange={(event) => changeVisibility([model], event.target.checked)} aria-label={`Enable ${model.name}`} />
               {copy}
             </label> : <div className="provider-model-readonly">{copy}</div>}
             {model.capabilities ? <span className="custom-model-usage-badges">{model.capabilities.length ? model.capabilities.map((usage) => <small key={usage}>{MODEL_USAGE_LABELS[usage]}</small>) : <small>Unassigned</small>}</span> : model.custom ? <small className="provider-model-custom">Custom</small> : null}
-            {editing && model.custom ? deleting === model.id ? <div className="provider-model-delete-confirm">
-              <button type="button" className="settings-danger-button" disabled={busy} onClick={() => void update(() => removeCustomProviderModel(providerId, model.id)).then((removed) => { if (removed) setDeleting(undefined); })}>Delete</button>
+            {sourceLabels?.[model.provider] || model.source ? <small className="provider-model-custom">{sourceLabels?.[model.provider] ?? (model.source === "preset" ? "Official" : model.source === "cloud" ? "Cloud" : "Custom")}</small> : null}
+            {editing && model.model3d ? <button className="icon-button" type="button" disabled={busy || adding} aria-label={`Edit ${model.name}`} title={`Edit ${model.name}`} aria-expanded={selected(editingModel)} onClick={() => { setEditingModel((ref) => selected(ref) ? undefined : model); setError(undefined); setDeleting(undefined); }}><Pencil size={14} /></button> : null}
+            {editing && model.custom ? selected(deleting) ? <div className="provider-model-delete-confirm">
+              <button type="button" className="settings-danger-button" disabled={busy} onClick={() => void update(() => removeCustomProviderModel(model.provider, model.id), model.provider).then((removed) => { if (removed) setDeleting(undefined); })}>Delete</button>
               <button type="button" className="icon-button" title="Cancel deletion" aria-label="Cancel deletion" disabled={busy} onClick={() => setDeleting(undefined)}><X size={13} /></button>
-            </div> : <button className="icon-button provider-model-delete" type="button" disabled={busy} title={`Delete ${model.name}`} aria-label={`Delete ${model.name}`} onClick={() => setDeleting(model.id)}><Trash2 size={14} /></button> : null}
+            </div> : <button className="icon-button provider-model-delete" type="button" disabled={busy} title={`Delete ${model.name}`} aria-label={`Delete ${model.name}`} onClick={() => setDeleting(model)}><Trash2 size={14} /></button> : null}
           </div>;
         })}
         {!models.length ? <p className="settings-empty">{!settings.models.length ? "No models are available." : !editing && !shown ? "No models shown." : "No models match these filters."}</p> : null}

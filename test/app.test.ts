@@ -1558,11 +1558,11 @@ describe("daemon", () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model3d-catalog-")) });
     apps.push(app);
 
-    expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({ models: [], providers: [] });
+    expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({ models: [], providers: [expect.objectContaining({ provider: "cloud-hyper3d", cloud: { availability: "sign_in_required" } })] });
     await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: { apiKey: "meshy-key" } });
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({
       models: MODEL_3D_MODELS.filter((model) => model.provider === "meshy"),
-      providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }],
+      providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }, expect.objectContaining({ provider: "cloud-hyper3d", cloud: { availability: "sign_in_required" } })],
     });
   });
 

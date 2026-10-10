@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   IMAGE_ASPECT_RATIOS, IMAGE_RESOLUTIONS, IMAGE_OUTPUT_COUNTS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS,
-  type CustomModelUsages, type CustomProviderPreset, type ImageProtocol, type VideoProtocol,
+  type CustomModel3DSettings, type CustomModelUsages, type CustomProviderPreset, type ImageProtocol, type VideoProtocol,
 } from "../shared/contracts.js";
 import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings, IMAGE_PROTOCOL_LABELS, MODEL_USAGE_LABELS, VIDEO_PROTOCOL_LABELS } from "../shared/custom-models.js";
 
@@ -14,13 +14,12 @@ export function CustomModelUsageFields({ usages, preset, onChange }: {
     else if (usage === "language") next.language = true;
     else if (usage === "image") next.image = defaultImageSettings(preset === "google" ? "gemini-generate-content" : preset === "openrouter" ? "openrouter-images" : preset === "seedance" ? "volcengine-images" : "openai-images");
     else if (usage === "video") next.video = defaultVideoSettings(preset === "seedance" ? "seedance" : "openrouter-videos");
-    else next["3d"] = defaultModel3DSettings("standard", preset === "tripo" ? "tripo" : "meshy");
+    else next["3d"] = defaultModel3DSettings("standard", preset === "tripo" ? "tripo" : preset === "hyper3d" ? "hyper3d" : "meshy");
     onChange(next);
   }
   const image = usages.image;
   const video = usages.video;
   const model3d = usages["3d"];
-  const polycountLimit = model3d?.protocol === "tripo" ? 1_500_000 : 300_000;
   return <>
     <fieldset className="custom-model-uses"><legend>Use this model for</legend>
       <div className="custom-provider-capabilities">{(["language", "image", "video", "3d"] as const).map((usage) => <label key={usage}>
@@ -59,36 +58,56 @@ export function CustomModelUsageFields({ usages, preset, onChange }: {
         <ChoiceFields label="Video reference modes" options={["frame", "reference"] as const} value={video.referenceModes} onChange={(referenceModes) => onChange({ ...usages, video: { ...video, referenceModes } })} />
       </details>
     </div> : null}
-    {model3d ? <div className="custom-model-use-settings">
-      <label><span>3D protocol</span><select value={model3d.protocol} onChange={(event) => onChange({ ...usages, "3d": { ...defaultModel3DSettings("standard", event.target.value as typeof model3d.protocol), baseUrl: model3d.baseUrl } })}><option value="meshy">Meshy</option><option value="tripo">Tripo V3</option></select></label>
-      <details className="custom-provider-advanced"><summary>3D settings</summary>
-        <EndpointField value={model3d.baseUrl} onChange={(baseUrl) => onChange({ ...usages, "3d": { ...model3d, baseUrl } })} />
-        <label><span>Generation template</span><select value={model3d.operation} onChange={(event) => onChange({ ...usages, "3d": { ...model3d,
-          operation: event.target.value as typeof model3d.operation, maxReferenceImages: event.target.value === "image-to-3d" ? 1 : 4,
-          modelType: event.target.value === "multi-image-to-3d" ? "standard" : model3d.modelType } })}>
-          <option value="image-to-3d">Single image to 3D</option><option value="multi-image-to-3d">Multiple images to 3D</option>
-        </select></label>
-        {model3d.protocol === "meshy" ? <label><span>Topology mode</span><select value={model3d.modelType} onChange={(event) => {
-          const defaults = defaultModel3DSettings(event.target.value as typeof model3d.modelType);
-          onChange({ ...usages, "3d": { ...model3d, modelType: defaults.modelType, polycount: defaults.polycount,
-            ...(defaults.modelType === "smart-topology" ? { operation: defaults.operation, maxReferenceImages: 1 } : {}) } });
-        }}>
-          <option value="standard">Standard</option><option value="smart-topology">Smart topology</option>
-        </select></label> : <p className="custom-provider-hint">Tripo uses the single-image endpoint for one view and multiview for two or more, ordered Front / Left / Back / Right. Set the face-count range for your model version.</p>}
-        <NumberField label="Max 3D reference images" value={model3d.maxReferenceImages} min={1} max={model3d.operation === "image-to-3d" ? 1 : 4} onChange={(maxReferenceImages) => onChange({ ...usages, "3d": { ...model3d, maxReferenceImages } })} />
-        <div className="project-settings-field-row">
-          <NumberField label="Minimum polycount" value={model3d.polycount.min} min={100} max={polycountLimit} onChange={(min) => onChange({ ...usages, "3d": { ...model3d, polycount: { ...model3d.polycount, min } } })} />
-          <NumberField label="Maximum polycount" value={model3d.polycount.max} min={100} max={polycountLimit} onChange={(max) => onChange({ ...usages, "3d": { ...model3d, polycount: { ...model3d.polycount, max } } })} />
-        </div>
-        <NumberField label="Default polycount" value={model3d.polycount.default} min={100} max={polycountLimit} onChange={(value) => onChange({ ...usages, "3d": { ...model3d, polycount: { ...model3d.polycount, default: value } } })} />
-        <NumberListField label="Polycount presets" value={model3d.polycount.presets} onChange={(presets) => onChange({ ...usages, "3d": { ...model3d, polycount: { ...model3d.polycount, presets } } })} />
-        <div className="custom-provider-capabilities">
-          <label><input type="checkbox" checked={model3d.supportsTexture} onChange={(event) => onChange({ ...usages, "3d": { ...model3d, supportsTexture: event.target.checked, supportsPbr: event.target.checked && model3d.supportsPbr } })} />Texture</label>
-          <label><input type="checkbox" checked={model3d.supportsPbr} disabled={!model3d.supportsTexture} onChange={(event) => onChange({ ...usages, "3d": { ...model3d, supportsPbr: event.target.checked } })} />PBR</label>
-        </div>
-      </details>
-    </div> : null}
+    {model3d ? <Model3DSettingsFields value={model3d} onChange={(settings) => onChange({ ...usages, "3d": settings })} /> : null}
   </>;
+}
+
+export function Model3DSettingsFields({ value, onChange, lockCapabilities = false, lockProtocol = false, showEndpoint = true }: {
+  value: CustomModel3DSettings; onChange: (value: CustomModel3DSettings) => void;
+  lockCapabilities?: boolean; lockProtocol?: boolean; showEndpoint?: boolean;
+}) {
+  const limit = value.protocol === "hyper3d" ? 2_000_000 : value.protocol === "tripo" ? 1_500_000 : 300_000;
+  const minimum = value.protocol === "hyper3d" ? 500 : 100;
+  const defaults = value.defaults ?? { texture: value.supportsTexture, pbr: false };
+  function update(patch: Partial<CustomModel3DSettings>) {
+    const next = { ...value, ...patch };
+    const texture = next.supportsTexture && (next.defaults?.texture ?? next.supportsTexture);
+    onChange({ ...next, defaults: { texture, pbr: texture && next.supportsPbr && (next.defaults?.pbr ?? false) } });
+  }
+  return <div className="custom-model-use-settings">
+    {!lockProtocol ? <label><span>3D protocol</span><select value={value.protocol} onChange={(event) => onChange({ ...defaultModel3DSettings("standard", event.target.value as typeof value.protocol), baseUrl: value.baseUrl })}><option value="meshy">Meshy</option><option value="tripo">Tripo V3</option><option value="hyper3d">Hyper3D Rodin</option></select></label> : null}
+    <NumberField label="Default polycount" value={value.polycount.default} min={value.polycount.min} max={value.polycount.max} onChange={(count) => update({ polycount: { ...value.polycount, default: count } })} />
+    <NumberListField label="Polycount presets" value={value.polycount.presets} onChange={(presets) => update({ polycount: { ...value.polycount, presets } })} />
+    <fieldset className="custom-model-choices"><legend>Generation defaults</legend><div className="custom-provider-capabilities">
+      <label><input type="checkbox" checked={defaults.texture} disabled={!value.supportsTexture} onChange={(event) => update({ defaults: { texture: event.target.checked, pbr: event.target.checked && defaults.pbr } })} />Texture</label>
+      <label><input type="checkbox" checked={defaults.pbr} disabled={!defaults.texture || !value.supportsPbr} onChange={(event) => update({ defaults: { ...defaults, pbr: event.target.checked } })} />PBR</label>
+    </div></fieldset>
+    <details className="custom-provider-advanced"><summary>Model capabilities</summary>
+      {lockCapabilities ? <p className="custom-provider-hint">Official capabilities are fixed. Add a custom version to configure a different model.</p> : <p className="custom-provider-hint">Match these limits to your provider's documentation. Local settings do not change upstream capabilities.</p>}
+      {showEndpoint ? <EndpointField value={value.baseUrl} onChange={(baseUrl) => update({ baseUrl })} /> : null}
+      <fieldset disabled={lockCapabilities} className="custom-model-capability-fields">
+        {value.protocol === "meshy" ? <label><span>Generation template</span><select value={value.operation} onChange={(event) => update({
+          operation: event.target.value as typeof value.operation, maxReferenceImages: event.target.value === "image-to-3d" ? 1 : 4,
+          modelType: event.target.value === "multi-image-to-3d" ? "standard" : value.modelType })}>
+          <option value="image-to-3d">Single image to 3D</option><option value="multi-image-to-3d">Multiple images to 3D</option>
+        </select></label> : null}
+        {value.protocol === "meshy" ? <label><span>Topology mode</span><select value={value.modelType} onChange={(event) => {
+          const settings = defaultModel3DSettings(event.target.value as typeof value.modelType);
+          update({ modelType: settings.modelType, polycount: settings.polycount,
+            ...(settings.modelType === "smart-topology" ? { operation: settings.operation, maxReferenceImages: 1 } : {}) });
+        }}><option value="standard">Standard</option><option value="smart-topology">Smart topology</option></select></label> : <p className="custom-provider-hint">{value.protocol === "tripo" ? "Views are ordered Front / Left / Back / Right. One image uses single-view generation." : "Rodin accepts up to five reference images. No fixed view order is required."}</p>}
+        <NumberField label="Max 3D reference images" value={value.maxReferenceImages} min={1} max={value.operation === "image-to-3d" ? 1 : value.protocol === "hyper3d" ? 5 : 4} onChange={(maxReferenceImages) => update({ maxReferenceImages })} />
+        <div className="project-settings-field-row">
+          <NumberField label="Minimum polycount" value={value.polycount.min} min={minimum} max={limit} onChange={(min) => update({ polycount: { ...value.polycount, min } })} />
+          <NumberField label="Maximum polycount" value={value.polycount.max} min={value.polycount.min} max={limit} onChange={(max) => update({ polycount: { ...value.polycount, max } })} />
+        </div>
+        <div className="custom-provider-capabilities">
+          <label><input type="checkbox" checked={value.supportsTexture} onChange={(event) => update({ supportsTexture: event.target.checked, supportsPbr: event.target.checked && value.supportsPbr })} />Texture support</label>
+          <label><input type="checkbox" checked={value.supportsPbr} disabled={!value.supportsTexture} onChange={(event) => update({ supportsPbr: event.target.checked })} />PBR support</label>
+        </div>
+      </fieldset>
+    </details>
+  </div>;
 }
 
 function EndpointField({ value, onChange }: { value?: string; onChange: (value: string | undefined) => void }) {

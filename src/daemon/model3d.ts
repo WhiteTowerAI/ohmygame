@@ -36,3 +36,30 @@ export class Model3DGenerationError extends Error {
     super(message);
   }
 }
+
+/** Bound downloaded artifacts while streaming, before allocating a complete GLB. */
+export async function readModel3DResult(response: Response): Promise<Buffer> {
+  const maximum = 100 * 1024 * 1024;
+  if (!response.body) throw new Model3DGenerationError("Generated model download is empty");
+  if (Number(response.headers.get("content-length")) > maximum) {
+    await response.body.cancel().catch(() => {});
+    throw new Model3DGenerationError("Generated model is too large", 413);
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maximum) throw new Model3DGenerationError("Generated model is too large", 413);
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  if (!size) throw new Model3DGenerationError("Generated model download is empty");
+  return Buffer.concat(chunks);
+}
