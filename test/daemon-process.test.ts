@@ -55,9 +55,11 @@ describe("desktop daemon process", () => {
       import { writeFileSync } from "node:fs";
       import { createServer } from "node:http";
       writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+      let token = "";
+      for await (const chunk of process.stdin) token += chunk;
       const server = createServer((request, response) => {
-        response.statusCode = request.url === "/health" && request.headers.authorization === "Bearer test-token" ? 200 : 401;
-        response.end(JSON.stringify({ development: process.argv.includes("--dev") }));
+        response.statusCode = request.url === "/health" && request.headers.authorization === "Bearer " + token ? 200 : 401;
+        response.end(JSON.stringify({ development: process.argv.includes("--dev"), tokenInEnvironment: Object.values(process.env).includes(token) }));
       });
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
@@ -82,7 +84,7 @@ describe("desktop daemon process", () => {
     expect(daemon.runtime.token).toBe("test-token");
     expect(await (await fetch(`${daemon.runtime.url}/health`, {
       headers: { authorization: "Bearer test-token" },
-    })).json()).toEqual({ development });
+    })).json()).toEqual({ development, tokenInEnvironment: false });
     await daemon.stop();
     await vi.waitFor(() => expect(isRunning(pid)).toBe(false));
   });
