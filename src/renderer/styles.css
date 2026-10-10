@@ -8392,6 +8392,19 @@ button {
   cursor: grabbing;
 }
 
+.story-canvas .react-flow__node.draggable {
+  cursor: default;
+}
+
+.story-canvas .react-flow__node.draggable.dragging {
+  cursor: grabbing;
+}
+
+.story-canvas .react-flow__nodesselection-rect:active,
+.story-canvas:has(.react-flow__node.dragging) .react-flow__nodesselection-rect {
+  cursor: grabbing;
+}
+
 .story-canvas-zoom {
   display: flex;
   -webkit-user-select: none;

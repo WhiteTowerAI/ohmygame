@@ -37,6 +37,7 @@ describe("table display and editing", () => {
           data={{
             tableId: table.id,
             tableRuntime: { ...models, tables, table },
+            panelOpen: true,
           }}
         />
       </ReactFlowProvider>,
@@ -52,6 +53,22 @@ describe("table display and editing", () => {
     expect(html).not.toContain('aria-label="Add row"');
     expect(html).not.toContain('aria-label="Column 1 type"');
     expect(html).not.toContain('aria-label="Row 1, Name"');
+  });
+
+  it("keeps the AI panel closed for a selected node whose panel is not open", () => {
+    const html = renderToStaticMarkup(
+      <ReactFlowProvider>
+        <CanvasTableNode
+          selected
+          data={{
+            tableId: table.id,
+            tableRuntime: { ...models, tables, table },
+          }}
+        />
+      </ReactFlowProvider>,
+    );
+    expect(html).toContain('aria-label="Edit table"');
+    expect(html).not.toContain('aria-label="Table generation instruction"');
   });
 
   it("offers spreadsheet controls only in the expanded edit mode", () => {

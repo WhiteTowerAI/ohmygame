@@ -172,6 +172,7 @@ function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables):
 type AssetCanvasFlowData = {
   resizeRuntime?: CanvasNodeResizeRuntime;
   nodeDetails?: CanvasNodeDetails;
+  panelOpen?: boolean;
   tableId?: string;
   tableRuntime?: TableNodeRuntime;
   documentId?: string;
@@ -338,6 +339,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [selectedAssetEdgeId, setSelectedAssetEdgeId] = useState<string>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
   const [expandedTextId, setExpandedTextId] = useState<string>();
+  // Marquee-selected nodes keep their panels closed until clicked: a marquee arranges nodes, a click edits one.
+  const [marqueeActive, setMarqueeActive] = useState(false);
+  const [marqueeSelectedIds, setMarqueeSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [copiedSelection, setCopiedSelection] = useState(lastCanvasClipboard);
   const canvasElement = useRef<HTMLDivElement>(null);
   const flowInstance = useRef<ReactFlowInstance<AssetCanvasFlowNode, Edge>>(null);
@@ -737,6 +741,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }, [storage, onStatusChange]);
 
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
+  useEffect(() => {
+    const selected = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
+    setMarqueeSelectedIds((current) => [...current].every((id) => selected.has(id)) ? current : new Set([...current].filter((id) => selected.has(id))));
+  }, [nodes]);
   const imageModelsRef = useRef(imageModels); imageModelsRef.current = imageModels;
   const videoModelsRef = useRef(videoModels); videoModelsRef.current = videoModels;
   function reconcileCanvas(submitted: AssetCanvasDocument, saved: AssetCanvasDocument) {
@@ -1264,7 +1272,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         start: beginHistoryGesture, end: finishHistoryGesture,
         reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id) return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
         ...(original.type === "text" ? { open: () => setExpandedTextId(original.id) } : {}),
-      } } : {}), nodeDetails: {
+      } } : {}), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
       title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original, model3DModels), documents.documents, libraryAssets, tableContents), description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: original.title ?? "", description: original.description ?? "" }),
     } } };
@@ -1493,8 +1501,14 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               onConnect={onConnect}
               onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
               onEdgeClick={(_event, edge) => setSelectedAssetEdgeId(edge.id.startsWith(ASSET_EDGE_PREFIX) ? edge.id : undefined)}
+              onSelectionStart={() => setMarqueeActive(true)}
+              onSelectionEnd={() => {
+                setMarqueeActive(false);
+                setMarqueeSelectedIds(new Set(nodesRef.current.filter((node) => node.selected).map((node) => node.id)));
+              }}
               onNodeClick={(event, node) => {
                 setCanvasContextMenu(undefined);
+                setMarqueeSelectedIds((current) => current.has(node.id) ? new Set([...current].filter((id) => id !== node.id)) : current);
                 setSelectedAssetEdgeId(undefined);
                 if (eventWithin(event, ".story-media-view-button")) openViewer(node);
               }}
@@ -1603,7 +1617,7 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
         />
         <footer className={`design-document-node-footer nodrag nowheel${selected ? "" : " is-hidden"}`}><span /><div className="design-document-node-actions"><CanvasNodeSizeActions runtime={data.resizeRuntime} /></div></footer>
       </div>
-      {selected ? (
+      {data.panelOpen ? (
         <div className="canvas-node-auxiliary">
         <CanvasTextComposer models={runtime?.models ?? []} modelStatus={runtime?.modelStatus ?? "loading"} defaultModel={runtime?.defaultModel} defaultReasoningLevel={runtime?.defaultReasoningLevel}
           references={runtime ? <CanvasNodeReferenceStrip {...runtime} /> : null}
@@ -1645,7 +1659,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   }
 
   return (
-    <MediaNodeShell kind="image" selected={selected} assetId={data.assetId} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="image"
@@ -1728,7 +1742,7 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   }
 
   return (
-    <MediaNodeShell kind="video" selected={selected} assetId={data.assetId} aspectRatio={data.videoAspectRatio} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="video" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} aspectRatio={data.videoAspectRatio} runtime={runtime} details={data.nodeDetails}>
       <MediaReferenceStrip runtime={runtime ? { ...runtime, slotLabels: mode === "frame" ? ["First frame", "Last frame"] : mentionOptions.map((option) => `@${option.alias}`) } : undefined} />
       <VideoReferencePrompt
         value={data.prompt ?? ""}
@@ -1806,6 +1820,7 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
     <MediaNodeShell
       kind="model"
       selected={selected}
+      panelOpen={data.panelOpen}
       assetId={data.assetId}
       runtime={runtime}
       details={data.nodeDetails}
@@ -1876,7 +1891,7 @@ function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, 
   const heights = CHARACTER_HEIGHTS.includes(height) ? CHARACTER_HEIGHTS : [...CHARACTER_HEIGHTS, height].sort((a, b) => a - b);
   const update = (next: Partial<AssetCanvasFlowData>) => runtime?.onChange({ ...data, animateRuntime: undefined, ...next });
   return (
-    <MediaNodeShell kind="animation" selected={selected} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="animation" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
       <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
@@ -2080,9 +2095,10 @@ function TextReferenceThumbnail({ runtime }: { runtime: MediaNodeRuntime }) {
   );
 }
 
-function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, details, children }: {
+function MediaNodeShell({ kind, selected, panelOpen, assetId, aspectRatio, runtime, details, children }: {
   kind: "image" | "video" | "model" | "animation";
   selected: boolean;
+  panelOpen?: boolean;
   assetId?: string;
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
   runtime?: MediaNodeRuntime;
@@ -2121,7 +2137,7 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, details
       </div>
       <Handle className="story-media-input-handle" type="target" position={Position.Left} />
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
-      {selected ? <div className="story-media-composer nodrag nowheel">{children}</div> : null}
+      {panelOpen ? <div className="canvas-node-auxiliary"><div className="story-media-composer nodrag nowheel">{children}</div></div> : null}
     </div>
   );
 }
