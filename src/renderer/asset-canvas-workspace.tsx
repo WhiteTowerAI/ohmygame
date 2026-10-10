@@ -2096,7 +2096,7 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, details
       </div>
       <Handle className="story-media-input-handle" type="target" position={Position.Left} />
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
-      {selected ? <div className="story-media-composer nodrag nowheel">{children}</div> : null}
+      {selected ? <div className="canvas-node-auxiliary"><div className="story-media-composer nodrag nowheel">{children}</div></div> : null}
     </div>
   );
 }
