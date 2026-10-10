@@ -50,7 +50,7 @@ import {
 import { CANVAS_GRID_SIZE, snapCanvasPosition } from "./canvas-alignment.js";
 import { canvasNodeLayout } from "../shared/canvas-node-layout.js";
 import { CANVAS_READABLE_SIZES, CanvasNodeResizer, CanvasNodeSizeActions, type CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
-import { MAX_ASSET_CANVAS_NODES } from "../shared/asset-canvas-schema.js";
+import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
 import { createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, rememberCanvasClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { CanvasContextMenu, EditorCanvas, isTextEntry, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
@@ -83,7 +83,7 @@ import {
   type VideoGenerationReference,
   type VideoResolution,
 } from "../shared/contracts.js";
-import { combineAssetCanvasPrompt, createAssetGenerationNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { combineAssetCanvasPrompt, createAssetGenerationNode, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listImageModelCatalog, listModel3DAnimations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset } from "./api.js";
 import { downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
@@ -101,13 +101,14 @@ import { LibraryAssetPicker } from "./node-workbench.js";
 import { AssetDialogShell, AssetMedia, type AssetMediaType } from "./asset-gallery.js";
 import { DEFAULT_IMAGE_NODE_CONFIG, DEFAULT_MODEL_3D_CONFIG, DEFAULT_ANIMATION_ACTION_IDS, DEFAULT_CHARACTER_HEIGHT_METERS, DEFAULT_MODEL_3D, DEFAULT_VIDEO_NODE_CONFIG, MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_REFERENCE_IMAGES, normalizeModel3DConfig, resolveModel3D } from "../shared/generation-config.js";
 import { mergeCanvasDocument } from "../shared/canvas-workspace.js";
-import { CanvasDocumentNode, type CanvasDocuments, type DocumentNodeRuntime } from "./canvas-document-node.js";
+import { CanvasDocumentNode, ExpandedCanvasDocument, type CanvasDocuments, type DocumentNodeRuntime } from "./canvas-document-node.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
 import { exportCanvasAsset, generateCanvasText } from "./canvas-api.js";
 import type { CanvasBoardStorage } from "./canvas-board-storage.js";
 import { CanvasTextarea, CanvasTextComposer } from "./canvas-text-composer.js";
 import { VideoReferencePrompt } from "./video-reference-prompt.js";
 import { resolveVideoMentions, sameVideoReference, videoReferenceAliases, videoReferenceAspectRatios, videoReferenceLimit, videoReferenceMode } from "../shared/video-references.js";
+import { CanvasNodeReferenceStrip, CanvasReferenceThumbnail, type CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 
 const ASSET_EDGE_PREFIX = "asset:";
 const OUTPUT_HANDLE = "out";
@@ -219,7 +220,7 @@ interface MediaNodeRuntime {
   onDisconnectPrompt?: () => void;
 }
 
-interface TextNodeRuntime {
+interface TextNodeRuntime extends CanvasNodeReferencesRuntime {
   models: AgentModel[];
   modelStatus: AgentModelCatalogStatus;
   defaultModel?: AgentModelRef;
@@ -290,7 +291,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onResolveReady, onStatusChange, onSelectionChange }: {
+export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onResolveReady, onStatusChange, onSelectionChange, expandedDocument }: {
   project: ProjectState;
   initialNodeId?: string;
   onInitialNodeHandled?: () => void;
@@ -305,6 +306,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   onResolveReady?: (resolve: ((version: "local" | "remote") => Promise<void>) | undefined) => void;
   onStatusChange?: (status: "loading" | "saved" | "saving" | "error" | "sync-error" | "load-error") => void;
   onSelectionChange?: (nodes: AssetCanvasNode[]) => void;
+  expandedDocument?: { id: string; nodeId?: string; busy?: boolean; onClose(): void };
 }) {
   const projectId = project.id;
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -679,13 +681,14 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       selected: selectedAssetEdgeId === assetEdgeId("image", node.id, image.nodeId),
       data: { relation: "media-image", referenceId: image.nodeId },
     }] : []));
-    if (node.type === "video") derived.push(...(node.data.references ?? []).flatMap((reference) => reference.type === "node" ? [{
+    if (node.type === "video" || node.type === "text" || node.type === "document") derived.push(...(node.data.references ?? []).flatMap((reference) => reference.type === "node" ? [{
       id: assetEdgeId("reference", node.id, reference.nodeId),
       source: reference.nodeId,
       target: node.id,
       sourceHandle: OUTPUT_HANDLE,
+      ...((node.type === "text" || node.type === "document") ? { targetHandle: "references" } : {}),
       selected: selectedAssetEdgeId === assetEdgeId("reference", node.id, reference.nodeId),
-      data: { relation: "video-reference", referenceId: reference.nodeId },
+      data: { relation: node.type === "video" ? "video-reference" : "text-reference", referenceId: reference.nodeId },
     }] : []));
     if ((node.type === "image" || node.type === "video") && node.data.promptSource) derived.push({
       id: assetEdgeId("prompt", node.id, node.data.promptSource.nodeId),
@@ -832,7 +835,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           if (relation === "media-image" && node.id === edge.target && (node.type === "image" || node.type === "model-3d" || node.type === "animate-3d")) {
             return { ...node, data: { ...node.data, images: (node.data.images ?? []).filter((image) => image.type !== "node" || image.nodeId !== referenceId) } };
           }
-          if (relation === "video-reference" && node.id === edge.target && node.type === "video") {
+          if (node.id === edge.target && ((relation === "video-reference" && node.type === "video") || (relation === "text-reference" && (node.type === "text" || node.type === "document")))) {
             return { ...node, data: { ...node.data, references: (node.data.references ?? []).filter((reference) => reference.type !== "node" || reference.nodeId !== referenceId) } };
           }
           if (relation === "media-prompt" && node.id === edge.target && (node.type === "image" || node.type === "video")) {
@@ -853,10 +856,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const source = nodes.find((node) => node.id === connection.source);
     if (!source || !target) return;
     const relation = connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels, model3DModels);
-    if (relation === "document-image" && target.data.documentId && source.data.assetId) {
-      documents.insertImage(target.data.documentId, source.data.assetId);
-      return;
-    }
     if (relation === "image-reference" && (target.type === "image" || target.type === "model-3d")) {
       setNodes((current) => current.map((node) => node.id === target.id && (node.type === "image" || node.type === "model-3d")
         ? { ...node, data: { ...node.data, images: [...(node.data.images ?? []), { type: "node", nodeId: source.id }] } }
@@ -870,8 +869,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         : node));
       return;
     }
-    if (relation === "video-reference" && target.type === "video") {
-      setNodes((current) => current.map((node) => node.id === target.id && node.type === "video"
+    if ((relation === "video-reference" && target.type === "video") || (relation === "text-reference" && (target.type === "text" || target.type === "document"))) {
+      setNodes((current) => current.map((node) => node.id === target.id
         ? { ...node, data: { ...node.data, references: [...(node.data.references ?? []), { type: "node", nodeId: source.id }] } }
         : node));
       return;
@@ -1104,7 +1103,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setGeneratingTextNodeId(node.id);
     setGenerationError(undefined);
     try {
-      const result = await generateCanvasText(projectId, instruction, model, reasoningLevel);
+      const referenceSource = { boardId: storage.boardId, nodeId: node.id };
+      await documents.flush();
+      const result = await generateCanvasText(projectId, instruction, model, reasoningLevel, referenceSource);
       setNodes((current) => current.map((candidate) => candidate.id === node.id
         ? { ...candidate, data: { ...candidate.data, text: result.text, textModel: result.model, reasoningLevel } }
         : candidate));
@@ -1223,6 +1224,29 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     rememberedSettings.current[node.type] = next;
   }
 
+  function nodeReferencesRuntime(node: AssetCanvasFlowNode): CanvasNodeReferencesRuntime {
+    return {
+      references: (node.data.references ?? []).flatMap((reference) => {
+        if (reference.type !== "node") return [];
+        const source = nodes.find((candidate) => candidate.id === reference.nodeId);
+        const doc = source?.type === "document" ? documents.documents.find((document) => document.id === source.data.documentId) : undefined;
+        return [{
+          nodeId: reference.nodeId,
+          name: source ? canvasNodeTitle(toAssetCanvasNode(source), documents.documents, libraryAssets) : "Missing node",
+          type: source?.type === "text" ? "text" as const : source?.type === "document" ? "document" as const : "image" as const,
+          text: source?.type === "text" ? source.data.text : doc?.markdown,
+          assetId: source?.data.assetId,
+        }];
+      }),
+      onRemoveReference: (index) => setNodes((current) => current.map((candidate) => candidate.id === node.id
+        ? { ...candidate, data: { ...candidate.data, references: (candidate.data.references ?? []).filter((_, candidateIndex) => candidateIndex !== index) } }
+        : candidate)),
+    };
+  }
+
+  const expanded = documents.documents.find((doc) => doc.id === expandedDocument?.id);
+  const expandedNode = nodes.find((node) => node.id === expandedDocument?.nodeId && node.type === "document");
+
   const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
   const renderedNodes = nodes.map((original) => {
     const size = CANVAS_READABLE_SIZES[original.type as keyof typeof CANVAS_READABLE_SIZES];
@@ -1239,7 +1263,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const session = tables.storage.sessions.get(node.data.tableId ?? "");
       return { ...node, data: { ...node.data, tableRuntime: { tables, table: session?.local, issue: session?.issue ?? tables.issues?.find((issue) => issue.id === node.data.tableId)?.message, models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
     }
-    if (node.type === "document") return { ...node, data: { ...node.data, documentRuntime: { design: documents, document: documents.documents.find((doc) => doc.id === node.data.documentId), models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
+    if (node.type === "document") return { ...node, data: { ...node.data, documentRuntime: { ...nodeReferencesRuntime(node), referenceSource: { boardId: storage.boardId, nodeId: node.id }, design: documents, document: documents.documents.find((doc) => doc.id === node.data.documentId), models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
     if (node.type === "asset") return {
       ...node,
       data: (() => {
@@ -1260,6 +1284,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       data: {
           ...node.data,
         textRuntime: {
+          ...nodeReferencesRuntime(node),
           models: textModelCatalog.models,
           modelStatus: textModelCatalog.status,
           ...(defaultTextModel ? { defaultModel: defaultTextModel } : {}),
@@ -1517,6 +1542,12 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           {!notice && transferError && phase === "ready" ? <div className="story-save-notice canvas-transfer-error" role="alert"><span>{transferError}</span><button type="button" title="Dismiss error" aria-label="Dismiss error" onClick={() => setTransferError(undefined)}><X size={13} /></button></div> : null}
         </div>
       </div>
+      {expanded && expandedDocument ? <div className="design-expanded-document" role="dialog" aria-modal="true" aria-label={expanded.title}>
+        <ExpandedCanvasDocument design={documents} document={expanded}
+          references={expandedNode ? nodeReferencesRuntime(expandedNode) : undefined}
+          referenceSource={expandedNode ? { boardId: storage.boardId, nodeId: expandedNode.id } : undefined} />
+        <button className="design-expanded-close" type="button" title="Back to canvas" aria-label="Back to canvas" disabled={expandedDocument.busy} onClick={expandedDocument.onClose}><X size={16} /></button>
+      </div> : null}
       {viewedAsset ? <CanvasAssetViewer
         asset={viewedAsset}
         name={libraryAssets.find((candidate) => candidate.id === viewedAsset.assetId)?.name ?? titleCase(viewedAsset.mediaType)}
@@ -1565,6 +1596,7 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
       {selected ? (
         <div className="canvas-node-auxiliary">
         <CanvasTextComposer models={runtime?.models ?? []} modelStatus={runtime?.modelStatus ?? "loading"} defaultModel={runtime?.defaultModel} defaultReasoningLevel={runtime?.defaultReasoningLevel}
+          references={runtime ? <CanvasNodeReferenceStrip {...runtime} /> : null}
           model={data.textModel} reasoningLevel={data.reasoningLevel} instruction={data.instruction ?? ""} generating={runtime?.generating} busy={runtime?.busy} error={runtime?.error}
           onInstruction={(instruction) => runtime?.onChange({ ...data, textRuntime: undefined, instruction })}
           onModel={(textModel, reasoningLevel) => runtime?.onChange({ ...data, textRuntime: undefined, textModel, reasoningLevel })}
@@ -1572,6 +1604,7 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
           onGenerate={(model, reasoningLevel) => runtime?.onGenerate(model, reasoningLevel)} />
         </div>
       ) : null}
+      <Handle className="story-text-output-handle" id="references" type="target" position={Position.Left} />
       <Handle className="story-text-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
     </div>
   );
@@ -1969,7 +2002,7 @@ function MediaReferenceStrip({ runtime, large = false }: { runtime?: ReferenceMe
     <div className={`story-media-references${large ? " is-large" : ""}`} aria-label="References">
       {runtime?.linkedPrompt !== undefined ? <TextReferenceThumbnail runtime={runtime} /> : null}
       {references.map((reference, index) => (
-        <MediaReferenceThumbnail
+        <CanvasReferenceThumbnail
           key={reference.key}
           reference={reference}
           caption={runtime.slotLabels?.[index]}
@@ -2028,29 +2061,6 @@ function TextReferenceThumbnail({ runtime }: { runtime: MediaNodeRuntime }) {
     <div className="story-media-reference story-text-reference" title={text || "Connected Text node is empty"}>
       <FileText size={19} />
       <button type="button" title="Disconnect text" aria-label="Disconnect text" disabled={runtime.busy} onClick={() => runtime.onDisconnectPrompt?.()}><X size={11} /></button>
-    </div>
-  );
-}
-
-function MediaReferenceThumbnail({ reference, caption, disabled, onRemove }: {
-  reference: MediaReferenceView;
-  caption?: string;
-  disabled?: boolean;
-  onRemove: () => void;
-}) {
-  const preview = useWorkspaceAssetUrl(undefined, "", 0, reference.type === "audio" || reference.type === "model" ? undefined : reference.assetId);
-  return (
-    <div className={`story-media-reference${preview.error ? " is-unavailable" : ""}`} title={preview.error ?? `${reference.label}: ${reference.name}`}>
-      {preview.url && reference.type === "image" ? <img src={preview.url} alt={reference.name} /> : null}
-      {preview.url && reference.type === "video" ? <video src={preview.url} muted playsInline preload="metadata" /> : null}
-      {reference.type === "audio" || reference.type === "model" || !preview.url
-        ? reference.type === "audio" ? <Music2 size={18} /> : reference.type === "model" ? <Box size={18} /> : reference.type === "video" ? <Film size={18} /> : <ImageIcon size={18} />
-        : null}
-      {caption ? <small>{caption}</small> : null}
-      {preview.error ? <button className="canvas-reference-retry" type="button" title={`Recheck ${reference.name}: ${preview.error}`} aria-label={`Recheck ${reference.name}`} disabled={preview.loading} onClick={preview.retry}>↻</button> : null}
-      <button type="button" title={`Remove ${reference.name}`} aria-label={`Remove ${reference.name}`} disabled={disabled} onClick={onRemove}>
-        <X size={11} />
-      </button>
     </div>
   );
 }
@@ -2593,6 +2603,7 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
     data: {
       text: node.data.text,
       instruction: node.data.instruction,
+      ...(node.data.references ? { references: node.data.references } : {}),
       ...(node.data.model ? { textModel: node.data.model } : {}),
       ...(node.data.reasoningLevel ? { reasoningLevel: node.data.reasoningLevel } : {}),
     },
@@ -2785,7 +2796,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode): AssetCanvasNode {
     };
   }
   if (node.type === "table") return { id: node.id, type: "table", position: node.position, data: { tableId: node.data.tableId ?? "" } };
-  if (node.type === "document") return { id: node.id, type: "document", position: node.position, data: { documentId: node.data.documentId ?? "" } };
+  if (node.type === "document") return { id: node.id, type: "document", position: node.position, data: { documentId: node.data.documentId ?? "", ...(node.data.references ? { references: textNodeReferences(node) } : {}) } };
   if (node.type === "asset") return {
     id: node.id,
     type: "asset",
@@ -2799,6 +2810,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode): AssetCanvasNode {
     data: {
       text: node.data.text ?? "",
       instruction: node.data.instruction ?? "",
+      ...(node.data.references ? { references: textNodeReferences(node) } : {}),
       ...(node.data.textModel ? { model: modelRef(node.data.textModel) } : {}),
       ...(node.data.reasoningLevel ? { reasoningLevel: node.data.reasoningLevel } : {}),
     },
@@ -2854,6 +2866,10 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode): AssetCanvasNode {
 }
 
 /** Keeps only the reference fields accepted by the persisted board schema. */
+function textNodeReferences(node: AssetCanvasFlowNode): AssetCanvasTextReference[] {
+  return (node.data.references ?? []).flatMap((reference) => reference.type === "node" ? [{ type: "node" as const, nodeId: reference.nodeId }] : []);
+}
+
 function modelRef<T extends { provider: string; id: string }>(model: T): { provider: string; id: string } {
   return { provider: model.provider, id: model.id };
 }
@@ -2968,9 +2984,9 @@ function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data">): Mo
   return normalizeModel3DConfig(node.data.model3DConfig);
 }
 
-type ConnectionRelation = "image-reference" | "video-reference" | "model-reference" | "prompt" | "document-image";
+type ConnectionRelation = "image-reference" | "video-reference" | "model-reference" | "prompt" | "text-reference";
 
-function connectionRelation(
+export function connectionRelation(
   source: AssetCanvasFlowNode,
   target: AssetCanvasFlowNode,
   _sourceHandle: string | null | undefined,
@@ -2980,7 +2996,13 @@ function connectionRelation(
   model3DModels: readonly Model3DModel[] = [],
 ): ConnectionRelation | undefined {
   if (source.id === target.id) return undefined;
-  if (target.type === "document" && source.data.assetId && isSupportedImageReferenceSource(source, libraryAssets)) return "document-image";
+  if (target.type === "text" || target.type === "document") {
+    if (source.type === "asset" && !["image/png", "image/jpeg", "image/webp", "image/gif"].includes(libraryAssets.find((asset) => asset.id === source.data.assetId)?.contentType ?? "")) return undefined;
+    if (!isTextGenerationReferenceNode(source) || (target.data.references?.length ?? 0) >= MAX_TEXT_NODE_REFERENCES ||
+      target.data.references?.some((reference) => reference.type === "node" && reference.nodeId === source.id) ||
+      (source.type === "document" && target.type === "document" && source.data.documentId === target.data.documentId)) return undefined;
+    return "text-reference";
+  }
   if (isSupportedImageReferenceSource(source, libraryAssets) && target.type === "image") {
     return (target.data.images?.length ?? 0) < imageReferenceLimit(target, imageModels) &&
       !(target.data.images ?? []).some((image) => image.type === "node" && image.nodeId === source.id)
@@ -3047,7 +3069,7 @@ function assetEdgeId(relation: "scene" | "image" | "reference" | "prompt" | "pre
   return `${ASSET_EDGE_PREFIX}${relation}:${targetId}:${referenceId}`;
 }
 
-function removeNodesAndReferences(nodes: AssetCanvasFlowNode[], removedIds: ReadonlySet<string>): AssetCanvasFlowNode[] {
+export function removeNodesAndReferences(nodes: AssetCanvasFlowNode[], removedIds: ReadonlySet<string>): AssetCanvasFlowNode[] {
   return nodes
     .filter((node) => !removedIds.has(node.id))
     .map((node) => node.type === "image" || node.type === "model-3d" || node.type === "animate-3d"
@@ -3059,7 +3081,7 @@ function removeNodesAndReferences(nodes: AssetCanvasFlowNode[], removedIds: Read
               ...(node.data.promptSource && removedIds.has(node.data.promptSource.nodeId) ? { promptSource: undefined } : {}),
             },
           }
-      : node.type === "video"
+      : node.type === "video" || node.type === "text" || node.type === "document"
         ? {
             ...node,
             data: {

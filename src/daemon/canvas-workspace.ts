@@ -41,7 +41,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - editor/<board-id>.json stores positions, optional node width/height, and zoom. fitView requests a one-time fit when a remixed board is first opened; the editor clears it after saving the new viewport. New nodes are placed automatically; layout edits are only needed when the user asks to arrange the canvas.
 - assets.json maps asset IDs to names, workspace-relative paths, optional descriptions and generation prompts. Use the same ID for the same asset across boards. References with type "library" resolve through this manifest. libraryAssetId records provenance; local files remain usable without the Library.
 - Read actual image files with read when judging their appearance. A name, description, or generation prompt is not proof of what the image shows.
-- promptSource references a text or document node. images, references, and source declare media dependencies; their canvas lines are derived. Do not duplicate these relationships in edges.
+- promptSource references a text or document node. Text and document nodes accept references to text, document, image, or image asset nodes as AI source material. images, references, and source declare dependencies; their canvas lines are derived. Do not duplicate these relationships in edges.
 - To add a local image, place it under assets/, add its path to assets.json, and reference its ID from an asset node or a generation node.
 - Do not trigger generation merely by editing a prompt or adding a reference. A game-creation request includes its needed media unless the user narrows the scope. Use generate_canvas_media with the saved boardId and nodeId for generation; it uses the node settings and shared generation history.
 - Removing a node or board keeps its documents, tables, and assets. Remove references to a deleted node from the same board.
@@ -255,7 +255,7 @@ export async function removeCanvasAssetReferences(workspace: string, assetIds: s
         const data = { ...node.data };
         if ("assetId" in data && data.assetId && ids.has(data.assetId)) delete data.assetId;
         if ("images" in data) data.images = data.images.filter((reference) => reference.type === "library" ? !ids.has(reference.assetId) : !removed.has(reference.nodeId));
-        if ("references" in data) data.references = data.references.filter((reference) => reference.type === "library" ? !ids.has(reference.assetId) : !removed.has(reference.nodeId));
+        if ("references" in data && data.references) data.references = data.references.filter((reference) => reference.type === "library" ? !ids.has(reference.assetId) : !removed.has(reference.nodeId));
         if ("source" in data && data.source && (data.source.type === "library" ? ids.has(data.source.assetId) : removed.has(data.source.nodeId))) delete data.source;
         return { ...node, data } as AssetCanvasNode;
       });

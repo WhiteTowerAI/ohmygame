@@ -9,6 +9,7 @@ import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
 
 export const MAX_ASSET_CANVAS_NODES = 2_000;
+export const MAX_TEXT_NODE_REFERENCES = 14;
 
 export const ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA = {
   ...EDITOR_LAYOUT_SCHEMA,
@@ -43,6 +44,7 @@ const reference = {
     { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
   ],
 } as const;
+const nodeReferences = { type: "array", maxItems: MAX_TEXT_NODE_REFERENCES, uniqueItems: true, items: reference.oneOf[1] } as const;
 const node = (type: string, data: object) => ({
   type: "object",
   additionalProperties: false,
@@ -51,12 +53,12 @@ const node = (type: string, data: object) => ({
 });
 const nodes = [
   node("table", { type: "object", additionalProperties: false, required: ["tableId"], properties: { tableId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } }),
-  node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id } }),
+  node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id, references: nodeReferences } }),
   node("text", {
     type: "object",
     additionalProperties: false,
     required: ["text", "instruction"],
-    properties: { text: { type: "string" }, instruction: { type: "string" }, model, reasoningLevel: { enum: AGENT_REASONING_LEVELS } },
+    properties: { text: { type: "string" }, instruction: { type: "string" }, model, reasoningLevel: { enum: AGENT_REASONING_LEVELS }, references: nodeReferences },
   }),
   node("image", {
     type: "object",

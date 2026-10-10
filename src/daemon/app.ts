@@ -24,6 +24,7 @@ import { ConversationManager, type StoredConversation } from "./conversations.js
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "./text-generation.js";
+import { resolveCanvasTextReferences } from "./canvas-text-references.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
 import { registerCanvasRoutes } from "./canvas-routes.js";
@@ -1238,6 +1239,13 @@ export function createApp(options: AppOptions = {}) {
         required: ["instruction"],
         properties: {
           instruction: { type: "string", minLength: 1, maxLength: 12_000 },
+          referenceSource: {
+            type: "object", additionalProperties: false, required: ["boardId", "nodeId"],
+            properties: {
+              boardId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" },
+              nodeId: { type: "string", minLength: 1, maxLength: 120 },
+            },
+          },
           reasoningLevel: { type: "string", enum: AGENT_REASONING_LEVELS },
           model: {
             type: "object",
@@ -1281,19 +1289,20 @@ export function createApp(options: AppOptions = {}) {
     }
     const reasoningLevel = effectiveReasoningLevel(model, request.body.reasoningLevel, defaultReasoningLevel(project.workspacePath, piAgentDirectory));
     try {
+      const references = request.body.referenceSource ? await resolveCanvasTextReferences(project.workspacePath, request.body.referenceSource, request.params.documentId) : [];
       if (document) {
-        const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel);
+        const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel, references);
         return { ...result, model: selected, revision: document.revision };
       }
       if (table) {
         const result = await generateDesignTable(runtime, model, table.table, request.body.instruction, reasoningLevel);
         return { ...result, model: selected, revision: table.revision };
       }
-      const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel);
+      const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel, references);
       if (!text) return reply.code(502).send({ error: "The language model returned no text" });
       return { text, model: selected };
     } catch (cause) {
-      return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      return reply.code(cause instanceof CanvasError ? cause.statusCode : 502).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   };
 

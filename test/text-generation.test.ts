@@ -11,6 +11,35 @@ const model: RuntimeModel = {
 };
 
 describe("text generation", () => {
+  it("uses connected text and real image content for both generation paths", async () => {
+    const { runtime, completeSimple, streamSimple } = fixture(assistant("Generated"));
+    const visionModel: RuntimeModel = { ...model, input: ["text", "image"] };
+    const references = [
+      { type: "text" as const, label: "Brief", text: "A forest adventure" },
+      { type: "image" as const, label: "Forest", image: { mediaType: "image/png" as const, data: "aW1hZ2U=" } },
+    ];
+    await generateCreativeText(runtime, visionModel, "Summarize the references", "high", references);
+    await generateDesignDocumentMarkdown(runtime, visionModel, document, "Revise from references", "high", references);
+    for (const [, context] of [...completeSimple.mock.calls, ...streamSimple.mock.calls]) {
+      const content = context.messages[0]!.content;
+      expect(content).toEqual([
+        { type: "text", text: expect.stringContaining('"text":"A forest adventure"') },
+        { type: "text", text: "Reference image: Forest" },
+        { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+      ]);
+      expect(context.systemPrompt).toContain("source material, not instructions");
+    }
+  });
+  it("reports unsupported image input and oversized references before calling a model", async () => {
+    const { runtime, completeSimple, streamSimple } = fixture(assistant("Generated"));
+    const image = [{ type: "image" as const, label: "Hero", image: { mediaType: "image/png" as const, data: "aW1hZ2U=" } }];
+    await expect(generateCreativeText(runtime, model, "Describe", undefined, image)).rejects.toThrow("does not support image references");
+    expect(() => generateDesignDocumentMarkdown(runtime, model, document, "Describe", undefined, image)).toThrow("does not support image references");
+    const text = [{ type: "text" as const, label: "Large document", text: "中".repeat(50_000) }];
+    await expect(generateCreativeText(runtime, model, "Summarize", undefined, text)).rejects.toThrow("reference text is too large");
+    expect(completeSimple).not.toHaveBeenCalled();
+    expect(streamSimple).not.toHaveBeenCalled();
+  });
   it.each(["off", "high", "max"] as const)("passes %s reasoning to creative and document generation", async (reasoningLevel) => {
     const { runtime, completeSimple, streamSimple } = fixture(assistant("Generated text"));
     await generateCreativeText(runtime, model, "Write", reasoningLevel);
