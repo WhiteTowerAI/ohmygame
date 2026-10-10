@@ -179,7 +179,8 @@ describe("addPlayableNode", () => {
       signals: [{ id: "option-a" }, { id: "option-b" }],
       source: { html: "nodes/carriage/index.html" },
     });
-    expect(codebase.editorLayout.nodes.carriage).toEqual({ x: 80, y: 180 });
+    // The first slot is under the Scene at (120, 180), so the new one goes beside it.
+    expect(codebase.editorLayout.nodes.carriage).toEqual({ x: 560, y: 180 });
     expect(await readFile(path.join(workspacePath, "nodes/carriage/index.html"), "utf8"))
       .toContain("The carriage");
     // The new Node compiles alongside the rest of the project.

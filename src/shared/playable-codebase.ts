@@ -47,21 +47,42 @@ export function playableLayoutMatchesGraph(
   );
 }
 
-const COLUMN_WIDTH = 340;
-const ROW_HEIGHT = 260;
+const CARD_STAGE_SIZE = 440;
+const CARD_TITLE_HEIGHT = 28;
+const SLOT_GAP = 40;
 const COLUMNS = 4;
 
-/** The next grid slot that no Node occupies. */
-export function freePlayablePosition(layout: NodeEditorLayout): { x: number; y: number } {
-  const taken = new Set(
-    Object.values(layout.nodes).map((position) => `${position.x}:${position.y}`),
-  );
+/**
+ * The space a Scene card takes on the canvas: its title above a stage that
+ * fits the screen's shape into 440 by 440, as the editor draws it.
+ */
+function playableCardSize(viewport: NodeGraph["viewport"] | undefined): { width: number; height: number } {
+  // A graph read from disk is fitted before it is checked, so it may have no screen yet.
+  const aspect = viewport ? viewport.width / viewport.height : 1;
+  return {
+    width: CARD_STAGE_SIZE * Math.min(1, aspect),
+    height: CARD_TITLE_HEIGHT + CARD_STAGE_SIZE / Math.max(1, aspect),
+  };
+}
+
+/** The next grid slot where a Scene card covers no other one, for a project with this screen. */
+export function freePlayablePosition(
+  layout: NodeEditorLayout,
+  viewport: NodeGraph["viewport"],
+): { x: number; y: number } {
+  const card = playableCardSize(viewport);
+  // Slots leave a gap between cards and stay on the canvas's 10px grid.
+  const columnWidth = Math.ceil((card.width + SLOT_GAP) / 10) * 10;
+  const rowHeight = Math.ceil((card.height + SLOT_GAP) / 10) * 10;
+  const positions = Object.values(layout.nodes);
   for (let slot = 0; ; slot += 1) {
     const candidate = {
-      x: 80 + (slot % COLUMNS) * COLUMN_WIDTH,
-      y: 180 + Math.floor(slot / COLUMNS) * ROW_HEIGHT,
+      x: 80 + (slot % COLUMNS) * columnWidth,
+      y: 180 + Math.floor(slot / COLUMNS) * rowHeight,
     };
-    if (!taken.has(`${candidate.x}:${candidate.y}`)) return candidate;
+    const covered = positions.some((position) =>
+      Math.abs(position.x - candidate.x) < card.width && Math.abs(position.y - candidate.y) < card.height);
+    if (!covered) return candidate;
   }
 }
 
@@ -80,7 +101,7 @@ export function fitPlayableLayout(
     if (position) fitted.nodes[node.id] = position;
   }
   for (const node of graph.nodes) {
-    fitted.nodes[node.id] ??= freePlayablePosition(fitted);
+    fitted.nodes[node.id] ??= freePlayablePosition(fitted, graph.viewport);
   }
   return fitted;
 }
