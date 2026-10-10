@@ -124,7 +124,9 @@ Node.
 
 A Signal may have `"role": "navigation"` when it is a way around the game,
 such as Home, rather than a step in the story. The editor names its target
-instead of drawing a line. The Runtime, routing, and compiler ignore it.
+instead of drawing a line. Routing and the compiler ignore it; the Runtime
+reads it only for the [save](#save-and-session) and the
+[Story Map](#story-map).
 
 A Signal may also have a `when`, one sentence saying when the node emits it,
 such as `"if trust is 3 or more"`, and the graph may have `variables`, a map
@@ -332,6 +334,10 @@ One save slot:
 
 - The Runtime checkpoints after every successful navigation and committed
   state change; writes may be debounced. `session.save()` flushes.
+- A navigation Signal is a way around the game, so following one does not
+  checkpoint, and neither does going Back to where the player took it: the
+  save keeps where they left the story. Home then Continue returns there,
+  and looking at the Story map from a menu leaves a saved game as it was.
 - `reset()` restores `initialState` and clears the back stack without
   leaving the current node. A menu starts a new game with `reset()` then its
   `start` Signal.

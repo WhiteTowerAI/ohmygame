@@ -3,7 +3,7 @@ import type {
   CompiledNodeGraph,
   CompiledPlayableSurface,
 } from "../src/shared/playable-compiled.js";
-import type { PlayableNodeContext } from "../src/shared/playable-nodes.js";
+import type { NodeGraph, PlayableNodeContext } from "../src/shared/playable-nodes.js";
 import {
   MemoryPlayableSaveStore,
   MemoryPlayableSeenStore,
@@ -413,6 +413,75 @@ describe("Node Runtime", () => {
     ).rejects.toMatchObject({ code: "no-save" });
   });
 
+  it("keeps the save where the player left the story when they go Home", async () => {
+    const { runtime, host } = createRuntime();
+    await runtime.start();
+    await nodeContext(host, "menu").navigation.emit("start");
+    await nodeContext(host, "lobby").state.set("hasKey", true);
+
+    await nodeContext(host, "lobby").navigation.emit("home");
+    expect(runtime.snapshot()).toMatchObject({ currentNodeId: "menu", state: { hasKey: true } });
+    await nodeContext(host, "menu").session.continue();
+
+    expect(runtime.snapshot()).toMatchObject({
+      currentNodeId: "lobby",
+      backStack: [],
+      state: { hasKey: true },
+    });
+  });
+
+  it("keeps a saved game when the player goes around the game from the menu and Back", async () => {
+    const saved = createSave({
+      currentNodeId: "lobby",
+      state: { hasKey: true, clues: ["ledger"], profile: { name: "Ada" } },
+    });
+    const saveStore = new MemoryPlayableSaveStore(saved);
+    // The archive is a side screen of the menu, as a Story map is.
+    const { runtime, host } = createRuntime({ saveStore, graph: createGraphWithArchiveAside() });
+    await runtime.start();
+
+    await nodeContext(host, "menu").navigation.emit("inspect");
+    await nodeContext(host, "archive").navigation.back();
+    expect(await saveStore.load()).toEqual(saved);
+    expect(nodeContext(host, "menu").session.hasSave()).toBe(true);
+    await nodeContext(host, "menu").session.continue();
+
+    expect(runtime.snapshot()).toMatchObject({
+      currentNodeId: "lobby",
+      backStack: [],
+      state: saved.state,
+    });
+  });
+
+  it("offers nothing to continue after only going around the game", async () => {
+    const { runtime, host } = createRuntime({ graph: createGraphWithArchiveAside() });
+    await runtime.start();
+
+    await nodeContext(host, "menu").navigation.emit("inspect");
+    await nodeContext(host, "archive").navigation.back();
+
+    expect(nodeContext(host, "menu").session.hasSave()).toBe(false);
+    expect(runtime.snapshot().save).toEqual({ present: false });
+  });
+
+  it("checkpoints Back from a step in the story, and Back past where the player left it", async () => {
+    const saveStore = new MemoryPlayableSaveStore();
+    const { runtime, host } = createRuntime({ saveStore });
+    await runtime.start();
+
+    await nodeContext(host, "menu").navigation.emit("inspect");
+    await nodeContext(host, "archive").navigation.back();
+    expect(await saveStore.load()).toMatchObject({ currentNodeId: "menu", backStack: [] });
+
+    await nodeContext(host, "menu").navigation.emit("inspect");
+    await nodeContext(host, "archive").navigation.emit("home");
+    expect(await saveStore.load()).toMatchObject({ currentNodeId: "archive", backStack: ["menu"] });
+    await nodeContext(host, "menu").navigation.back();
+
+    expect(runtime.snapshot()).toMatchObject({ currentNodeId: "menu", backStack: [] });
+    expect(await saveStore.load()).toMatchObject({ currentNodeId: "menu", backStack: [] });
+  });
+
   it("resets in place and restarts at the Entry Node", async () => {
     const { runtime, host } = createRuntime();
     await runtime.start();
@@ -660,6 +729,7 @@ describe("NodeRuntime preview tooling", () => {
 
 function createRuntime(
   options: {
+    graph?: NodeGraph;
     host?: FakeSurfaceHost;
     saveStore?: PlayableSaveStore;
     seenStore?: PlayableSeenStore;
@@ -673,7 +743,7 @@ function createRuntime(
   runtime: NodeRuntime;
   host: FakeSurfaceHost;
 } {
-  const graph = createNodeGraphFixture();
+  const graph = options.graph ?? createNodeGraphFixture();
   const host = options.host ?? new FakeSurfaceHost();
   return {
     host,
@@ -713,6 +783,14 @@ function createCompiledGraph(): CompiledNodeGraph {
       archive: surface("archive"),
     },
   };
+}
+
+/** The fixture with the menu's archive entry as a navigation Signal instead of a step in the story. */
+function createGraphWithArchiveAside(): NodeGraph {
+  const graph = createNodeGraphFixture();
+  const inspect = graph.nodes.find((node) => node.id === "menu")!.signals.find((signal) => signal.id === "inspect")!;
+  inspect.role = "navigation";
+  return graph;
 }
 
 function nodeContext(host: FakeSurfaceHost, id: string): NodeContext {
