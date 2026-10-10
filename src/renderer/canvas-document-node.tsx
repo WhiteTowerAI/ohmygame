@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
 import type { AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
@@ -80,8 +80,25 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
     {selected && doc && runtime ? <div className="canvas-node-auxiliary"><CanvasDocumentAI design={runtime.design} document={doc} textModels={runtime} /></div> : null}
   </div>;
 }
-export function CanvasMarkdown({ projectId, document }: { projectId: string; document: CanvasMarkdownDocument }) {
-  return <MarkdownContent text={document.markdown} renderImage={(src, alt) => <CanvasImage projectId={projectId} documentId={document.id} src={src} alt={alt} />} />;
+export function CanvasMarkdown({
+  projectId,
+  document,
+}: {
+  projectId: string;
+  document: CanvasMarkdownDocument;
+}) {
+  const renderImage = useCallback(
+    (src: string | undefined, alt: string | undefined) => (
+      <CanvasImage
+        projectId={projectId}
+        documentId={document.id}
+        src={src}
+        alt={alt}
+      />
+    ),
+    [projectId, document.id],
+  );
+  return <MarkdownContent text={document.markdown} renderImage={renderImage} />;
 }
 export function canvasImagePath(documentId: string, src?: string): string | undefined {
   if (!src || /^[a-z][a-z\d+.-]*:|^\/\//i.test(src)) return undefined;
