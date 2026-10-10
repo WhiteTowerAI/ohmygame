@@ -1,4 +1,5 @@
 import type { ProjectType } from "../shared/contracts.js";
+import { isProjectType } from "../shared/project-runtime.js";
 
 export type SidebarPage =
   | "home"
@@ -20,8 +21,6 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSection = "providers";
 const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
   "home", "library", "general", "web-game", "interactive-story", "godot", "asset-canvas",
 ]);
-
-const PROJECT_TYPES = new Set<ProjectType>(["general", "web-game", "interactive-story", "godot-game", "asset-canvas"]);
 
 export type AppRoute =
   | { page: SidebarRoutePage }
@@ -49,8 +48,8 @@ export function parseAppRoute(hash: string): AppRoute {
   if (communityMatch) return { page: "community" };
   const projectsMatch = /^#\/projects(?:\?([^#]*))?$/.exec(hash);
   if (projectsMatch) {
-    const projectType = new URLSearchParams(projectsMatch[1]).get("type") as ProjectType | null;
-    return { page: "projects", ...(projectType && PROJECT_TYPES.has(projectType) ? { projectType } : {}) };
+    const projectType = new URLSearchParams(projectsMatch[1]).get("type");
+    return { page: "projects", ...(isProjectType(projectType) ? { projectType } : {}) };
   }
   const sidebarMatch = /^#\/([^/]+)$/.exec(hash);
   if (sidebarMatch?.[1] && SIDEBAR_PAGES.has(sidebarMatch[1] as SidebarRoutePage)) {

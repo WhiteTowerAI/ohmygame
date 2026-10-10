@@ -6,9 +6,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
-import { isWebRuntimeProjectType } from "../shared/project-runtime.js";
+import { isWebRuntimeProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
@@ -32,7 +32,7 @@ import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { LocalPublisher } from "./publish/local.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager } from "./preview.js";
-import { isRunnableWorkspace, previewWorkspaceStatus, ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError, resolveStartupDirectory } from "./projects.js";
+import { ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError } from "./projects.js";
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
@@ -126,7 +126,7 @@ const createProjectSchema = {
     additionalProperties: false,
     properties: {
       name: { type: "string", maxLength: PUBLISH_GAME_TITLE_MAX_LENGTH },
-      type: { type: "string", enum: ["general", "web-game", "godot-game", "interactive-story", "asset-canvas"] },
+      type: { type: "string", enum: PROJECT_TYPE_IDS },
       exampleId: { type: "string", pattern: EXAMPLE_ID_PATTERN, maxLength: 80 },
       viewport: {
         type: "object",
@@ -171,6 +171,7 @@ const runSettingsSchema = {
       packageManager: { enum: ["npm", "pnpm", "yarn", "bun"] },
       previewPath: { type: "string", maxLength: 1_000 },
       previewViewport: { enum: ["fit", "tablet", "mobile"] },
+      webPreviewEnabled: { type: "boolean" },
     },
   },
 } as const;
@@ -730,19 +731,12 @@ export function createApp(options: AppOptions = {}) {
           },
           playtest ? {
             driver: playtest,
-            resolveOpenTarget: async () => {
-              if (project.type === "general") {
-                const startup = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
-                const workspace = await previewWorkspaceStatus(startup.absolutePath, project.startupScript ?? "dev");
-                if (!workspace.runnable) throw new Error("This project has no configured Web preview. Use the engine's own tools to verify it.");
-              }
-              return {
-                runtime: "web",
-                url: project.type === "interactive-story"
-                  ? await playableDrafts.open(project)
-                  : await previews.ensureStarted(project),
-              };
-            },
+            resolveOpenTarget: async () => ({
+              runtime: "web",
+              url: project.type === "interactive-story"
+                ? await playableDrafts.open(project)
+                : await previews.ensureStarted(project),
+            }),
           } : undefined,
           webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
           canvasStore,
@@ -761,13 +755,8 @@ export function createApp(options: AppOptions = {}) {
       await agentPlaytests.get(`${project.id}:${conversationId}`)?.cleanup();
     },
     onRunCompleted: (project) => {
-      if (project.preview.status === "ready" || project.preview.status === "starting") return;
-      void resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")
-        .then(({ absolutePath }) => isRunnableWorkspace(absolutePath, project.startupScript ?? "dev"))
-        .then((runnable) => {
-          if (runnable) return previews.ensureStarted(project).catch(() => {});
-        })
-        .catch(() => {});
+      if (!supportsWebPreview(project) || project.preview.status === "ready" || project.preview.status === "starting") return;
+      void previews.ensureStarted(project).catch(() => {});
     },
   });
   const invalidatePluginSessions = () => {
@@ -1381,14 +1370,27 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  const syncRunSettings = async (before: ProjectState, project: ProjectState) => {
+    if (webPreviewSettingsChanged(before, project)) {
+      await previews.stop(project);
+      await projects.refreshPreviewReadiness(project.id);
+      // Preview capability and run settings affect both agent tools and its prompt.
+      agents.invalidateProjectSessions(project.id);
+    }
+    events.publish(project.id, "project.updated", { project: structuredClone(project) });
+    return project;
+  };
+
   app.put<{ Params: { projectId: string }; Body: { startupDirectory: string } }>(
     "/projects/:projectId/settings/startup-directory",
     { schema: startupDirectorySchema },
     async (request, reply) => {
+      const existing = projects.get(request.params.projectId);
+      if (!existing) return reply.code(404).send({ error: "Project not found" });
+      const before = { ...existing };
       try {
         const project = await projects.setStartupDirectory(request.params.projectId, request.body.startupDirectory);
-        await previews.stop(project);
-        return project;
+        return await syncRunSettings(before, project);
       } catch (cause) {
         const statusCode = (cause as Error).message.startsWith("Project not found") ? 404 : 400;
         return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -1398,24 +1400,17 @@ export function createApp(options: AppOptions = {}) {
 
   app.put<{
     Params: { projectId: string };
-    Body: { startupDirectory: string; startupScript: string; packageManager?: "npm" | "pnpm" | "yarn" | "bun"; previewPath: string; previewViewport: "fit" | "tablet" | "mobile" };
+    Body: ProjectRunSettings;
   }>(
     "/projects/:projectId/settings/run",
     { schema: runSettingsSchema },
     async (request, reply) => {
       const existing = projects.get(request.params.projectId);
       if (!existing) return reply.code(404).send({ error: "Project not found" });
-      const restartRequired = existing.startupDirectory !== (request.body.startupDirectory === "." ? undefined : request.body.startupDirectory) ||
-        existing.startupScript !== (request.body.startupScript === "dev" ? undefined : request.body.startupScript) ||
-        existing.packageManager !== request.body.packageManager;
+      const before = { ...existing };
       try {
         const project = await projects.setRunSettings(request.params.projectId, request.body);
-        if (restartRequired) {
-          await previews.stop(project);
-          // The agent's system prompt names the startup directory, script, and package manager.
-          agents.invalidateProjectSessions(project.id);
-        }
-        return project;
+        return await syncRunSettings(before, project);
       } catch (cause) {
         return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -2439,17 +2434,13 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const reuse = request.query.reuse === "1";
     if (reuse && !isWebRuntimeProjectType(project.type)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
-    if (!reuse || (project.preview.status !== "ready" && project.preview.status !== "starting")) {
-      try {
-        const startup = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
-        const workspace = await previewWorkspaceStatus(startup.absolutePath, project.startupScript ?? "dev");
-        if (!workspace.runnable) return reply.code(409).send({ error: workspace.error ?? "Workspace is not runnable yet" });
-      } catch (error) {
-        return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
-      }
+    try {
+      const url = await (reuse ? previews.ensureStarted(project) : previews.start(project));
+      return { url, title: project.name };
+    } catch (cause) {
+      if (cause instanceof ProjectWorkspaceError) return reply.code(409).send({ error: cause.message });
+      throw cause;
     }
-    const url = await (reuse ? previews.ensureStarted(project) : previews.start(project));
-    return { url, title: project.name };
   });
 
   app.post<{ Params: { projectId: string }; Querystring: { batchId: string; name: string; relativePath?: string }; Body: AsyncIterable<Buffer | string> }>(

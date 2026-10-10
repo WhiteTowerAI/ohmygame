@@ -254,7 +254,7 @@ describe("daemon", () => {
       payload: { startupDirectory: "apps/game" },
     });
     expect(configured.statusCode).toBe(200);
-    expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
+    expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: type === "general" ? "waiting" : "stopped" } });
 
     const runSettings = await app.inject({
       method: "PUT",
@@ -265,6 +265,7 @@ describe("daemon", () => {
         packageManager: "pnpm",
         previewPath: "/play",
         previewViewport: "mobile",
+        ...(type === "general" ? { webPreviewEnabled: true } : {}),
       },
     });
     expect(runSettings.statusCode).toBe(200);
@@ -285,6 +286,62 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
+  it.each([false, true])("starts newly generated General browser output only with explicit preview opt-in: %s", async (webPreviewEnabled) => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-general-auto-preview-")),
+      createSession: async (project) => ({
+        messages: [], abort: async () => {}, dispose: () => {}, subscribe: () => () => {},
+        prompt: async () => {
+          await mkdir(path.join(project.workspacePath, "node_modules"), { recursive: true });
+          await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { dev: "node server.mjs" } }));
+          await writeFile(path.join(project.workspacePath, "server.mjs"), `
+            import { createServer } from "node:http";
+            const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+            createServer((_req, res) => res.end("General ready")).listen(port, "127.0.0.1");
+          `);
+        },
+      }),
+    });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
+    const settingsUrl = `/projects/${project.id}/settings/run`;
+    const settings = { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled };
+    const configured = await app.inject({ method: "PUT", url: settingsUrl, payload: settings });
+    expect(configured.statusCode, configured.body).toBe(200);
+    expect(configured.json()).toMatchObject({ webPreviewEnabled, preview: { status: "waiting" } });
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+    const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Build browser output" } });
+    expect(turn.statusCode).toBe(202);
+    const readProject = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json();
+    await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json()).toEqual([]));
+    if (webPreviewEnabled) {
+      await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"));
+      const url = (await readProject()).preview.url;
+      expect(await (await fetch(url)).text()).toBe("General ready");
+      const disabled = await app.inject({ method: "PUT", url: settingsUrl, payload: { ...settings, webPreviewEnabled: false } });
+      expect(disabled.json()).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
+      await expect(fetch(url, { signal: AbortSignal.timeout(200) })).rejects.toThrow();
+      for (const reuse of ["", "?reuse=1"]) {
+        expect((await app.inject({ method: "POST", url: `/projects/${project.id}/preview${reuse}` })).statusCode).toBe(409);
+      }
+    } else {
+      expect(await readProject()).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
+      const enabled = await app.inject({ method: "PUT", url: settingsUrl, payload: { ...settings, webPreviewEnabled: true } });
+      // The root directory/dev/Auto defaults do not change on first activation.
+      expect(enabled.json()).toMatchObject({ webPreviewEnabled: true, preview: { status: "stopped" } });
+    }
+    expect((await app.inject({ method: "PUT", url: settingsUrl, payload: { ...settings, webPreviewEnabled: "true" } })).statusCode).toBe(400);
+  });
+
+  it("rejects a Web preview switch on a Web Game project", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-web-switch-")) });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const response = await app.inject({ method: "PUT", url: `/projects/${project.id}/settings/run`, payload: { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: false } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain("Only General Game");
+  });
+
   it("creates General Game and Godot projects and rejects unknown types", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-test-")) });
     apps.push(app);
@@ -301,7 +358,7 @@ describe("daemon", () => {
     expect(unknown.statusCode).toBe(400);
     const preview = await app.inject({ method: "POST", url: `/projects/${general.json().id}/preview?reuse=1` });
     expect(preview.statusCode).toBe(409);
-    expect(preview.json().error).toContain("no package.json");
+    expect(preview.json().error).toContain("Enable Web preview");
   });
 
   it("lists projects", async () => {

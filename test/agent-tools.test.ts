@@ -73,14 +73,12 @@ describe("agent tools", () => {
     };
 
     expect(createAgentTools(project, runner, projects).some(({ name }) => name === "game_use")).toBe(false);
-    expect(createAgentTools(
-      project,
-      runner,
-      projects,
-      undefined,
-      undefined,
-      { driver, resolveOpenTarget: async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }) },
-    ).some(({ name }) => name === "game_use")).toBe(true);
+    const playtest = { driver, resolveOpenTarget: async () => ({ runtime: "web" as const, url: "http://127.0.0.1:43210/" }) };
+    if (type === "general") {
+      expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(false);
+      await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: true });
+    }
+    expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
   });
 
   it("returns provider metadata from the built-in web search tool", async () => {

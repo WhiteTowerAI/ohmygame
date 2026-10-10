@@ -13,6 +13,7 @@ import type {
   ProjectState,
 } from "../shared/contracts.js";
 import { updateProjectRunSettings } from "./api.js";
+import { supportsWebPreview } from "../shared/project-runtime.js";
 
 export function ProjectSettingsDialogFrame({
   children,
@@ -117,6 +118,8 @@ export function ProjectSettingsDialog({
   onSaved: (project: ProjectState) => Promise<void> | void;
 }) {
   const directoryInput = useRef<HTMLInputElement>(null);
+  const previewToggle = useRef<HTMLInputElement>(null);
+  const [webPreviewEnabled, setWebPreviewEnabled] = useState(supportsWebPreview(project));
   const [startupDirectory, setStartupDirectory] = useState(
     project.startupDirectory ?? ".",
   );
@@ -148,6 +151,7 @@ export function ProjectSettingsDialog({
         ...(packageManager === "auto" ? {} : { packageManager }),
         previewPath: previewPath.trim() || "/",
         previewViewport,
+        ...(project.type === "general" ? { webPreviewEnabled } : {}),
       });
       await onSaved(nextProject);
       onClose();
@@ -160,7 +164,7 @@ export function ProjectSettingsDialog({
   return (
     <ProjectSettingsDialogFrame
       busy={saving}
-      initialFocusRef={directoryInput}
+      initialFocusRef={project.type === "general" ? previewToggle : directoryInput}
       onClose={onClose}
     >
       <form onSubmit={(event) => void submit(event)}>
@@ -168,6 +172,26 @@ export function ProjectSettingsDialog({
           <span>Project</span>
           <strong title={project.name}>{project.name}</strong>
         </section>
+        {project.type === "general" ? (
+          <div className="project-settings-preview-toggle">
+            <div>
+              <strong>Web preview</strong>
+              <p>Enable browser preview and AI playtesting for this project.</p>
+            </div>
+            <label className="settings-toggle">
+              <input
+                ref={previewToggle}
+                type="checkbox"
+                role="switch"
+                aria-label="Web preview"
+                checked={webPreviewEnabled}
+                disabled={saving}
+                onChange={(event) => setWebPreviewEnabled(event.target.checked)}
+              />
+              <span aria-hidden="true" />
+            </label>
+          </div>
+        ) : null}
         <fieldset className="project-settings-section">
           <legend>Run</legend>
           <label>
@@ -186,7 +210,7 @@ export function ProjectSettingsDialog({
               <span>Startup script</span>
               <input
                 value={startupScript}
-                disabled={saving}
+                disabled={saving || !webPreviewEnabled}
                 spellCheck={false}
                 onChange={(event) => setStartupScript(event.target.value)}
               />
@@ -211,7 +235,7 @@ export function ProjectSettingsDialog({
             </label>
           </div>
         </fieldset>
-        <fieldset className="project-settings-section">
+        <fieldset className="project-settings-section" disabled={!webPreviewEnabled}>
           <legend>Playtest</legend>
           <div className="project-settings-field-row">
             <label>
@@ -242,7 +266,7 @@ export function ProjectSettingsDialog({
         <button
           className="project-settings-browser"
           type="button"
-          disabled={!previewUrl || saving}
+          disabled={!webPreviewEnabled || !previewUrl || saving}
           onClick={() =>
             previewUrl &&
             window.open(previewUrl, "_blank", "noopener,noreferrer")

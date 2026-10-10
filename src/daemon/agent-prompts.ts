@@ -2,7 +2,7 @@ import type { ProjectState } from "../shared/contracts.js";
 
 /** The parts of a project that change what the agent is told. */
 export type AgentPromptProject = Pick<ProjectState, "type"> &
-  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation">>;
+  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled">>;
 
 const COMMON_AGENT_INSTRUCTIONS = [
   "Do not create or change files for casual conversation or for questions that need no code.",
@@ -45,7 +45,14 @@ const INTERACTIVE_STORY_INSTRUCTIONS = [
 ] as const;
 
 export function appendSystemPromptForProject(project: AgentPromptProject): string[] {
-  if (project.type === "general") return [...COMMON_AGENT_INSTRUCTIONS, ...GENERAL_GAME_INSTRUCTIONS, `Only when the chosen target is a browser game or application, apply the following Web runtime contract. Do not create a Web wrapper or change engines just to satisfy it. ${webGameRunContract(project)}`];
+  if (project.type === "general") return [
+    ...COMMON_AGENT_INSTRUCTIONS,
+    ...GENERAL_GAME_INSTRUCTIONS,
+    project.webPreviewEnabled === true
+      ? `Web preview is enabled by the user. OhMyGame starts it after your turn and game_use can open it when available. For the browser target, follow this preview contract: ${webGameRunContract(project)}`
+      : "Web preview is disabled. Do not start a persistent dev server or enable the capability yourself. You can create browser output and run builds or other one-off checks; when the user wants to preview it here, direct them to the Web preview switch in Project settings. Native engine checks do not require this switch.",
+    "Web publishing is independent of the preview switch. It accepts a static index.html in the configured startup directory, or a package.json build script that produces dist/, build/, or out/index.html with relative asset URLs. Do not change engines or add a Web wrapper just to satisfy preview or publishing.",
+  ];
   if (project.type === "web-game") return [...COMMON_AGENT_INSTRUCTIONS, ...WEB_GAME_INSTRUCTIONS, webGameRunContract(project)];
   if (project.type === "interactive-story") return [...COMMON_AGENT_INSTRUCTIONS, ...INTERACTIVE_STORY_INSTRUCTIONS];
   if (project.type === "asset-canvas") return [...COMMON_AGENT_INSTRUCTIONS, "This is an Asset Canvas production workspace with one default board. Documents describe creative briefs, prompts and asset requirements. Use canvas/index.json to locate the board and canvas/AGENTS.md for the file contract. There is no game runtime or main game design document. Do not create a game loop or game runtime unless the user requests it."];

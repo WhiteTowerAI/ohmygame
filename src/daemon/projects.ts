@@ -2,9 +2,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
+import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
-import { isWebRuntimeProjectType } from "../shared/project-runtime.js";
+import { isProjectType, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import { deleteAssetMetadata, readAssetMetadata, renameAssetMetadata, writeAssetMetadata } from "./asset-metadata.js";
 import { getWorkspaceMedia, resolveWorkspaceDirectory, resolveWorkspaceEntry, WorkspaceError } from "./workspace.js";
 import type { AssetLibrary } from "./asset-library.js";
@@ -24,6 +24,7 @@ interface ProjectMetadata {
   name: string;
   type: ProjectType;
   updatedAt: string;
+  webPreviewEnabled?: boolean;
   /** Present only when a Web Game starts from a directory below its workspace root. */
   startupDirectory?: string;
   /** Present only when a Web Game starts with a script other than `dev`. */
@@ -53,14 +54,6 @@ export class ProjectAssetError extends Error {
 interface LoadedMetadata {
   metadata: ProjectMetadata;
   missing: boolean;
-}
-
-export interface ProjectRunSettings {
-  startupDirectory: string;
-  startupScript: string;
-  packageManager?: ProjectPackageManager;
-  previewPath: string;
-  previewViewport: PreviewViewport;
 }
 
 const PLAYABLE_GRAPH_FILE = "graph.json";
@@ -109,7 +102,7 @@ export class ProjectManager {
         const project = projectState(
           workspacePath,
           metadata,
-          await isRunnableStartupWorkspace(workspacePath, metadata.startupDirectory, metadata.startupScript),
+          await isRunnableStartupWorkspace({ ...metadata, workspacePath }),
           projectDirectory,
           workspaceAvailable,
         );
@@ -134,6 +127,7 @@ export class ProjectManager {
       id,
       name: name?.trim() || defaultProjectName(type),
       type,
+      ...(type === "general" ? { webPreviewEnabled: false } : {}),
       updatedAt: new Date().toISOString(),
       ...(hasExternalWorkspace ? { workspacePath } : {}),
     };
@@ -142,7 +136,7 @@ export class ProjectManager {
       await mkdir(workspacePath, { recursive: true });
     }
     await writeMetadata(projectDirectory, metadata);
-    const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace(workspacePath, metadata.startupDirectory, metadata.startupScript), projectDirectory, true);
+    const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath }), projectDirectory, true);
     this.#projects.set(id, project);
     return project;
   }
@@ -198,7 +192,11 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!isWebRuntimeProjectType(project.type)) throw new ProjectWorkspaceError("Run settings require a Web Game or General Game project");
 
-    const directory = await resolveStartupDirectory(project.workspacePath, input.startupDirectory);
+    if (project.type !== "general" && input.webPreviewEnabled !== undefined) throw new ProjectWorkspaceError("Only General Game projects have a Web preview switch");
+    if (input.webPreviewEnabled !== undefined && typeof input.webPreviewEnabled !== "boolean") throw new ProjectWorkspaceError("Web preview enabled must be a boolean");
+    const webPreviewEnabled = project.type === "general" ? input.webPreviewEnabled ?? project.webPreviewEnabled ?? false : true;
+    if (!isValidStartupDirectory(input.startupDirectory)) throw new ProjectWorkspaceError("Startup directory must be a relative path inside the project workspace");
+    const startupDirectory = normalizeStartupDirectory(input.startupDirectory) ?? ".";
     const startupScript = normalizeStartupScript(input.startupScript);
     if (!startupScript) throw new ProjectWorkspaceError("Startup script must be a package.json script name");
     const previewPath = normalizePreviewPath(input.previewPath);
@@ -209,18 +207,24 @@ export class ProjectManager {
     if (packageManager !== undefined && !isProjectPackageManager(packageManager)) {
       throw new ProjectWorkspaceError("Package manager is not supported");
     }
-    const status = await previewWorkspaceStatus(directory.absolutePath, startupScript);
-    if (!status.runnable) throw new ProjectWorkspaceError(status.error ?? "The startup directory is not runnable");
+    const status = webPreviewEnabled
+      ? await resolvePreviewWorkspace({ workspacePath: project.workspacePath, startupDirectory, startupScript })
+      : undefined;
+    if (project.type === "web-game" && !status?.runnable) throw new ProjectWorkspaceError(status?.error ?? "The startup directory is not runnable");
+    const configuredDirectory = status?.relativePath ?? startupDirectory;
 
     await this.#save(project, {
-      startupDirectory: directory.relativePath === "." ? undefined : directory.relativePath,
+      startupDirectory: configuredDirectory === "." ? undefined : configuredDirectory,
       startupScript: startupScript === "dev" ? undefined : startupScript,
       packageManager,
       previewPath: previewPath === "/" ? undefined : previewPath,
       previewViewport: previewViewport === "fit" ? undefined : previewViewport,
+      ...(project.type === "general" ? { webPreviewEnabled } : {}),
       updatedAt: new Date().toISOString(),
     });
-    if (project.type === "general" && project.preview.status === "waiting") project.preview = { status: "stopped" };
+    if (project.type === "general" && (!webPreviewEnabled || ["waiting", "stopped", "error"].includes(project.preview.status))) {
+      project.preview = { status: status?.runnable ? "stopped" : "waiting" };
+    }
     return project;
   }
 
@@ -246,6 +250,7 @@ export class ProjectManager {
       id: duplicateId,
       name: `${source.name} copy`,
       type: source.type,
+      ...(source.type === "general" ? { webPreviewEnabled: source.webPreviewEnabled ?? false } : {}),
       updatedAt,
       ...(source.startupDirectory ? { startupDirectory: source.startupDirectory } : {}),
       ...(source.startupScript ? { startupScript: source.startupScript } : {}),
@@ -270,7 +275,7 @@ export class ProjectManager {
       throw error;
     }
     const workspacePath = path.join(duplicateDirectory, "workspace");
-    const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace(workspacePath, metadata.startupDirectory, metadata.startupScript), duplicateDirectory, true);
+    const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath }), duplicateDirectory, true);
     this.#projects.set(project.id, project);
     return project;
   }
@@ -291,7 +296,7 @@ export class ProjectManager {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (project.preview.status !== "waiting" && project.preview.status !== "stopped") return project;
-    const runnable = await isRunnableStartupWorkspace(project.workspacePath, project.startupDirectory, project.startupScript);
+    const runnable = await isRunnableStartupWorkspace(project);
     project.preview = { status: runnable ? "stopped" : "waiting" };
     return project;
   }
@@ -648,13 +653,14 @@ export class ProjectManager {
 
   async #save(
     project: ProjectState,
-    changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults">>,
+    changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults">>,
   ): Promise<void> {
     const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       const metadata = { ...metadataFor(project), ...changes };
       await writeMetadata(this.#projectDirectory(project.id), metadata);
       project.name = metadata.name;
       project.updatedAt = metadata.updatedAt;
+      if (project.type === "general") project.webPreviewEnabled = metadata.webPreviewEnabled ?? false;
       if (metadata.startupDirectory) project.startupDirectory = metadata.startupDirectory;
       else delete project.startupDirectory;
       if (metadata.startupScript) project.startupScript = metadata.startupScript;
@@ -720,6 +726,7 @@ function projectState(
     id: metadata.id,
     name: metadata.name,
     type: metadata.type,
+    ...(metadata.type === "general" ? { webPreviewEnabled: metadata.webPreviewEnabled ?? false } : {}),
     updatedAt: metadata.updatedAt,
     workspacePath,
     ...(metadata.startupDirectory ? { startupDirectory: metadata.startupDirectory } : {}),
@@ -736,14 +743,10 @@ function projectState(
   };
 }
 
-export async function isRunnableWorkspace(workspacePath: string, startupScript = "dev"): Promise<boolean> {
-  return (await previewWorkspaceStatus(workspacePath, startupScript)).runnable;
-}
-
-async function isRunnableStartupWorkspace(workspacePath: string, startupDirectory?: string, startupScript?: string): Promise<boolean> {
+async function isRunnableStartupWorkspace(project: Pick<ProjectState, "type" | "webPreviewEnabled" | "workspacePath" | "startupDirectory" | "startupScript">): Promise<boolean> {
+  if (project.type === "general" && !supportsWebPreview(project)) return false;
   try {
-    const directory = await resolveStartupDirectory(workspacePath, startupDirectory ?? ".");
-    return await isRunnableWorkspace(directory.absolutePath, startupScript ?? "dev");
+    return (await resolvePreviewWorkspace(project)).runnable;
   } catch {
     return false;
   }
@@ -752,6 +755,12 @@ async function isRunnableStartupWorkspace(workspacePath: string, startupDirector
 export interface PreviewWorkspaceStatus {
   runnable: boolean;
   error?: string;
+}
+
+/** Resolve the configured directory and inspect its preview script in one place. */
+export async function resolvePreviewWorkspace(project: Pick<ProjectState, "workspacePath" | "startupDirectory" | "startupScript">): Promise<PreviewWorkspaceStatus & { absolutePath: string; relativePath: string }> {
+  const directory = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
+  return { ...directory, ...await previewWorkspaceStatus(directory.absolutePath, project.startupScript ?? "dev") };
 }
 
 export async function previewWorkspaceStatus(workspacePath: string, startupScript = "dev"): Promise<PreviewWorkspaceStatus> {
@@ -847,6 +856,7 @@ function isPreviewViewport(value: unknown): value is PreviewViewport {
 
 function projectRunSettings(project: ProjectState): ProjectRunSettings {
   return {
+    ...(project.type === "general" ? { webPreviewEnabled: project.webPreviewEnabled ?? false } : {}),
     startupDirectory: project.startupDirectory ?? ".",
     startupScript: project.startupScript ?? "dev",
     ...(project.packageManager ? { packageManager: project.packageManager } : {}),
@@ -860,7 +870,8 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
     if (
       parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
-      (parsed.type === undefined || parsed.type === "general" || parsed.type === "web-game" || parsed.type === "godot-game" || parsed.type === "interactive-story" || parsed.type === "asset-canvas") &&
+      (parsed.type === undefined || isProjectType(parsed.type)) &&
+      (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
       (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
       (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
       (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&
@@ -886,6 +897,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
           id,
           name: parsed.name.trim(),
           type,
+          ...(type === "general" ? { webPreviewEnabled: parsed.webPreviewEnabled ?? false } : {}),
           updatedAt,
           ...(startupDirectory ? { startupDirectory } : {}),
           ...(startupScript && startupScript !== "dev" ? { startupScript } : {}),
@@ -914,6 +926,7 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     id: project.id,
     name: project.name,
     type: project.type,
+    ...(project.type === "general" ? { webPreviewEnabled: project.webPreviewEnabled ?? false } : {}),
     updatedAt: project.updatedAt,
     ...(project.startupDirectory ? { startupDirectory: project.startupDirectory } : {}),
     ...(project.startupScript ? { startupScript: project.startupScript } : {}),

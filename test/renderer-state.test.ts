@@ -27,6 +27,14 @@ describe("rendererReducer", () => {
     expect(rendererReducer(state, { type: "publication-updated", projectId: "another-project", publication })).toBe(state);
   });
 
+  it("syncs project settings and capability changes from project.updated events", () => {
+    const state = initialized();
+    const updated: ProjectState = { ...state.project!, type: "general", webPreviewEnabled: true, preview: { status: "waiting" } };
+    const next = event(state, runtimeEvent(1, "project.updated", { project: updated }));
+    expect(next.project).toEqual(updated);
+    expect(next.turns).toBe(state.turns);
+  });
+
   it("loads shared turns without deriving a parallel item list", () => {
     const turns = [turn("turn-1", "completed", [user("turn-1", "Hi")])];
     const state = rendererReducer(initialRendererState, { type: "initialized", project: project(), detail: detail({ turns }) });

@@ -78,12 +78,17 @@ existing creation instructions. Plugins are enabled by default; a saved disabled
 setting is respected when creating a project or agent session. Compatible
 Skills are listed for the agent, which reads the relevant ones for its task.
 
-When a General Game workspace has a runnable Web startup script, it can use
-the existing Web preview, player, run settings, and static publishing. A nested
-Web project can be selected with **Configure Web preview**. Until then, the
-workspace stays in Code and does not expose a Preview tab or enable publishing.
-Native engines use their existing tools or Connections; creating a General
-Game does not install an engine or initialize a Web wrapper.
+General Game's **Web preview** switch in **Project settings** is off by default.
+The user controls this capability; adding a dev script does not enable it.
+Enabling it exposes Preview, Play, and the available Web `game_use` tool. It can
+be enabled before browser output exists; the preview starts when the configured
+startup script becomes runnable. Disabling it stops the preview server and returns
+the workspace to Code if Preview was selected. The switch survives reload and
+duplication. Web Game keeps its existing preview behavior.
+
+Web publishing is independent of the switch: it validates a static `index.html`
+or the configured build's static output. Native engines use their own tools or
+Connections; General Game does not install an engine or initialize a Web wrapper.
 
 Web Game's **Play** button opens one human-controlled game window per project.
 Repeated clicks focus the existing game without reloading it. While that window
@@ -150,7 +155,8 @@ a system Chrome dependency to generated games.
 `game_use` is backed by a typed runtime adapter. The adapter advertises its
 runtime, supported project types, input methods, observations, deterministic
 operations, and whether it can be shown in watch mode. The daemon registers
-the tool only when the current project's type is included in those capabilities.
+the tool only when the current project's type is included in those capabilities
+and, for General Game, its Web preview switch is enabled.
 
 The shipped adapter is `web` for `web-game`, `interactive-story`, and configured
 Web previews in `general` projects

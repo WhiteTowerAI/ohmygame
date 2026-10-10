@@ -37,7 +37,7 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { supportsWebPreview } from "../shared/project-runtime.js";
+import { supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
@@ -71,7 +71,7 @@ interface CodingWorkspaceProps {
   publishDialog?: "open" | "success";
   onOpenPublish: () => void;
   onClosePublish: () => void;
-  onRestart: () => void;
+  onRestart: (project?: ProjectState) => void;
   designOpen?: boolean;
   onDesignOpenChange?: (open: boolean) => void;
   onDesignSaveReady?: (save: (() => Promise<void>) | undefined) => void;
@@ -108,12 +108,12 @@ export function CodingWorkspace({
   onToggleChat,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
-  const publishingUnavailable = project?.type === "godot-game" || (project?.type === "general" && !supportsPreview && !project.publication);
+  const publishingUnavailable = project?.type === "godot-game";
   const publishLabel = project?.type === "godot-game"
     ? "Godot publishing is not available yet"
-    : publishingUnavailable ? "Publishing requires a Web build"
     : publishing ? "Publishing" : "Publish";
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
+  const [selectedTab, setSelectedTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
+  const activeTab = selectedTab === "preview" && !supportsPreview ? "code" : selectedTab;
   const shownTab = designOpen ? "design" : activeTab;
   const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
   const designLeave = useRef<((action: () => void) => void) | undefined>(undefined);
@@ -219,7 +219,7 @@ export function CodingWorkspace({
       void selectFile(openFileRequest.path);
     } else {
       setSelectedCodePath(openFileRequest.path);
-      setActiveTab("code");
+      setSelectedTab("code");
     }
   }, [openFileRequest?.id]);
 
@@ -267,7 +267,7 @@ export function CodingWorkspace({
     ) : null}
     <WorkspaceTabs tabs={tabs} active={shownTab} onChange={(tab) => {
       const navigate = () => {
-        if (tab !== "design") setActiveTab(tab);
+        if (tab !== "design") setSelectedTab(tab);
         onDesignOpenChange?.(tab === "design");
       };
       if (designOpen && designLeave.current) designLeave.current(navigate);
@@ -301,11 +301,11 @@ export function CodingWorkspace({
         </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
           {!designOpen ? <>
-          {project?.type === "general" && !supportsPreview ? <button
+          {project?.type === "general" && shownTab !== "preview" ? <button
             className="icon-button pane-header-action"
             type="button"
-            aria-label="Configure Web preview"
-            data-tooltip="Configure Web preview"
+            aria-label="Project settings"
+            data-tooltip="Project settings"
             onClick={() => setProjectSettingsOpen(true)}
           ><Wrench size={14} /></button> : null}
           {supportsPreview ? <button
@@ -399,16 +399,15 @@ export function CodingWorkspace({
           revision={workspaceRevision + filesRevision}
           onShowInCode={(path) => {
             setSelectedCodePath(path);
-            setActiveTab("code");
+            setSelectedTab("code");
           }}
         />
       ) : null}
       {project && publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={onPublish} /> : null}
       {project && projectSettingsOpen ? <ProjectSettingsDialog project={project} previewUrl={previewPageUrl} onClose={() => setProjectSettingsOpen(false)} onSaved={async (updated) => {
-        const restartRequired = updated.startupDirectory !== project.startupDirectory ||
-          updated.startupScript !== project.startupScript || updated.packageManager !== project.packageManager;
         onProjectUpdated?.(updated);
-        if (restartRequired) onRestart();
+        if (supportsWebPreview(updated) && updated.preview.status !== "waiting" &&
+          (webPreviewSettingsChanged(project, updated) || updated.preview.status === "stopped")) onRestart(updated);
       }} /> : null}
     </section>
   );

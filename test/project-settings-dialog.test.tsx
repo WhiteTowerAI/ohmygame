@@ -4,6 +4,16 @@ import { describe, expect, it } from "vitest";
 import { ProjectSettingsDialog } from "../src/renderer/project-settings-dialog.js";
 
 describe("ProjectSettingsDialog", () => {
+  it.each([false, true])("shows the saved General Web preview switch: %s", (webPreviewEnabled) => {
+    const html = renderToStaticMarkup(createElement(ProjectSettingsDialog, {
+      project: { id: "general", name: "General", type: "general", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/general", webPreviewEnabled, preview: { status: "waiting" } },
+      onClose: () => {}, onSaved: () => {},
+    }));
+    expect(html).toContain('role="switch" aria-label="Web preview"');
+    expect(html.includes('checked=""')).toBe(webPreviewEnabled);
+    expect(html.includes('fieldset class="project-settings-section" disabled=""')).toBe(!webPreviewEnabled);
+  });
+
   it("keeps the project identity in the form and restores the browser-preview action", () => {
     const html = renderToStaticMarkup(
       createElement(ProjectSettingsDialog, {

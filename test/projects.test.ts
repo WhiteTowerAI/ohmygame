@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -19,6 +19,50 @@ describe("Web Game project codebase", () => {
     expect(copy.type).toBe("general");
     expect(await readdir(copy.workspacePath)).toEqual(["project.godot"]);
   });
+  it.each(["electron .", "tauri dev"])("keeps General Game preview off for a native dev script: %s", async (dev) => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-native-project-"));
+    const manager = new ProjectManager(directory);
+    const project = await manager.create("Native", "general");
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { dev } }));
+    expect(await manager.refreshPreviewReadiness(project.id)).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
+    // Projects created before the switch existed must also remain opt-in.
+    const metadataPath = path.join(directory, "projects", project.id, "project.json");
+    const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+    delete metadata.webPreviewEnabled;
+    await writeFile(metadataPath, JSON.stringify(metadata));
+    const restored = new ProjectManager(directory);
+    await restored.load();
+    expect(restored.get(project.id)).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
+  });
+
+  it("persists explicit preview opt-in before output exists, through reload and duplication", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-preview-opt-in-"));
+    const manager = new ProjectManager(directory);
+    const project = await manager.create("Browser output", "general");
+    const settings = { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit" as const, webPreviewEnabled: true };
+    expect(await manager.setRunSettings(project.id, settings)).toMatchObject({ webPreviewEnabled: true, preview: { status: "waiting" } });
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    expect(await manager.refreshPreviewReadiness(project.id)).toMatchObject({ preview: { status: "stopped" } });
+    const restored = new ProjectManager(directory);
+    await restored.load();
+    expect(restored.get(project.id)).toMatchObject({ webPreviewEnabled: true, preview: { status: "stopped" } });
+    expect(await restored.duplicate(project.id)).toMatchObject({ webPreviewEnabled: true, preview: { status: "stopped" } });
+    await manager.setRunSettings(project.id, { ...settings, webPreviewEnabled: false });
+    expect(await manager.duplicate(project.id)).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
+  });
+
+  it("allows disabling preview when its configured directory has been removed", async () => {
+    const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-preview-disable-")));
+    const project = await manager.create("Browser", "general");
+    const client = path.join(project.workspacePath, "client");
+    await mkdir(client);
+    await writeFile(path.join(client, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    const settings = { startupDirectory: "client", startupScript: "dev", previewPath: "/", previewViewport: "fit" as const, webPreviewEnabled: true };
+    await manager.setRunSettings(project.id, settings);
+    await rm(client, { recursive: true });
+    expect(await manager.setRunSettings(project.id, { ...settings, webPreviewEnabled: false })).toMatchObject({ startupDirectory: "client", webPreviewEnabled: false, preview: { status: "waiting" } });
+  });
+
   it("starts with an empty workspace; the platform contract lives in the system prompt", async () => {
     const manager = new ProjectManager(await mkdtemp(path.join(tmpdir(), "ohmygame-projects-")));
     const project = await manager.create("Game", "web-game");
@@ -58,6 +102,7 @@ describe("Web Game project codebase", () => {
       packageManager: "pnpm",
       previewPath: "/play",
       previewViewport: "mobile",
+      ...(type === "general" ? { webPreviewEnabled: true } : {}),
     });
     expect(updated).toMatchObject({
       startupDirectory: "apps/game",
