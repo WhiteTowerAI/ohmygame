@@ -58,11 +58,11 @@ describe("agent tools", () => {
     ]);
   });
 
-  it("registers game use only when a matching runtime adapter is available", async () => {
+  it.each(["web-game", "general"] as const)("registers game use for %s only when a matching runtime adapter is available", async (type) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playtest-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
-    const project = await projects.create("Browser Game");
+    const project = await projects.create("Browser Game", type);
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
     const driver: GameRuntimeAdapter = {
@@ -73,14 +73,12 @@ describe("agent tools", () => {
     };
 
     expect(createAgentTools(project, runner, projects).some(({ name }) => name === "game_use")).toBe(false);
-    expect(createAgentTools(
-      project,
-      runner,
-      projects,
-      undefined,
-      undefined,
-      { driver, resolveOpenTarget: async () => ({ runtime: "web", url: "http://127.0.0.1:43210/" }) },
-    ).some(({ name }) => name === "game_use")).toBe(true);
+    const playtest = { driver, resolveOpenTarget: async () => ({ runtime: "web" as const, url: "http://127.0.0.1:43210/" }) };
+    if (type === "general") {
+      expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(false);
+      await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: true });
+    }
+    expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
   });
 
   it("returns provider metadata from the built-in web search tool", async () => {

@@ -2,10 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import type { ProjectState } from "../shared/contracts.js";
 import type { RuntimeEventBus } from "../shared/events.js";
+import { supportsWebPreview } from "../shared/project-runtime.js";
 import { packageManagerCommand, packageManagerRunArguments, resolvePackageManager } from "./package-manager.js";
 import { ensureProjectDependencies } from "./project-dependencies.js";
 import { projectProcessEnvironment } from "./project-process.js";
-import { resolveStartupDirectory } from "./projects.js";
+import { ProjectWorkspaceError, resolvePreviewWorkspace } from "./projects.js";
 
 interface PreviewOptions {
   readinessTimeoutMs?: number;
@@ -29,8 +30,11 @@ export class PreviewManager {
 
   /** Reuses a ready server or an in-flight launch; only an explicit start restarts it. */
   ensureStarted(project: ProjectState): Promise<string> {
+    if (project.type === "general" && !supportsWebPreview(project)) return Promise.reject(new ProjectWorkspaceError("Enable Web preview in project settings first."));
+    const starting = this.#starting.get(project.id);
+    if (starting) return starting;
     if (project.preview.status === "ready" && project.preview.url) return Promise.resolve(project.preview.url);
-    return this.#starting.get(project.id) ?? this.start(project);
+    return this.start(project);
   }
 
   start(project: ProjectState): Promise<string> {
@@ -44,15 +48,19 @@ export class PreviewManager {
   }
 
   async #start(project: ProjectState): Promise<string> {
+    if (project.type === "general" && !supportsWebPreview(project)) throw new ProjectWorkspaceError("Enable Web preview in project settings first.");
     const operation = Symbol(project.id);
     this.#operations.set(project.id, operation);
-    project.preview = { status: "starting" };
-    this.events.publish(project.id, "preview.starting", {});
-    await this.#terminateProject(project.id);
-
+    let began = false;
     try {
+      const startupDirectory = await resolvePreviewWorkspace(project);
+      if (!startupDirectory.runnable) throw new ProjectWorkspaceError(startupDirectory.error ?? "Workspace is not runnable yet");
       this.#assertCurrent(project.id, operation);
-      const startupDirectory = await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".");
+      began = true;
+      project.preview = { status: "starting" };
+      this.events.publish(project.id, "preview.starting", {});
+      await this.#terminateProject(project.id);
+      this.#assertCurrent(project.id, operation);
       const packageManager = await resolvePackageManager(startupDirectory.absolutePath, project.packageManager);
       const command = packageManagerCommand(packageManager);
       await ensureProjectDependencies(startupDirectory.absolutePath, packageManager,
@@ -63,6 +71,7 @@ export class PreviewManager {
       this.#assertCurrent(project.id, operation);
 
       const port = await availablePort();
+      this.#assertCurrent(project.id, operation);
       const child = spawn(command, packageManagerRunArguments(project.startupScript ?? "dev", ["--host", "127.0.0.1", "--port", String(port), "--strictPort"]), {
         cwd: startupDirectory.absolutePath,
         env: { ...projectProcessEnvironment(), BROWSER: "none" },
@@ -92,11 +101,16 @@ export class PreviewManager {
       return url;
     } catch (cause) {
       if (this.#operations.get(project.id) === operation) {
-        this.#operations.delete(project.id);
-        await this.#terminateProject(project.id);
-        const error = cause instanceof Error ? cause.message : String(cause);
-        project.preview = { status: "error", error };
-        this.events.publish(project.id, "preview.error", { error });
+        // A failed replacement must also cancel the launch it superseded.
+        if (began || project.preview.status === "starting") {
+          await this.#terminateProject(project.id);
+          if (this.#operations.get(project.id) === operation) {
+            const error = cause instanceof Error ? cause.message : String(cause);
+            project.preview = { status: "error", error };
+            this.events.publish(project.id, "preview.error", { error });
+          }
+        }
+        if (this.#operations.get(project.id) === operation) this.#operations.delete(project.id);
       }
       throw cause;
     }

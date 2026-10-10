@@ -54,6 +54,23 @@ describe("bundled plugins", () => {
     });
   });
 
+  it("loads Game Studio independently of the Web Game Studio suite", async () => {
+    const store = new BundledPluginStore(path.resolve("plugins"));
+    await store.load();
+
+    expect(store.read("ohmygame:game-studio")).toMatchObject({
+      displayName: "Game Studio",
+      enabled: true,
+      projectTypes: ["general", "godot-game", "interactive-story"],
+      skills: [
+        { id: "skills/game-foundations/SKILL.md", name: "Game Foundations" },
+        { id: "skills/game-qa/SKILL.md", name: "Game Qa" },
+        { id: "skills/game-studio/SKILL.md", name: "Game Studio" },
+      ],
+      connections: [],
+    });
+  });
+
   it("loads the built-in Three.js World skill", async () => {
     const store = new BundledPluginStore(path.resolve("plugins"));
 

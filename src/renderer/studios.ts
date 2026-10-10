@@ -3,6 +3,12 @@ import type { ProjectState, ProjectType } from "../shared/contracts.js";
 export type GameStudioType = Exclude<ProjectType, "asset-canvas">;
 
 export const GAME_STUDIOS = {
+  general: {
+    page: "general",
+    title: "What do you want to create?",
+    placeholder: "Describe your game idea or what you want to build...",
+    newLabel: "New game project",
+  },
   "web-game": {
     page: "web-game",
     title: "What game are we making today?",

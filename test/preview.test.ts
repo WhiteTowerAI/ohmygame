@@ -60,6 +60,81 @@ describe("PreviewManager", () => {
     expect(await readFile(path.join(workspacePath, "server.pid"), "utf8")).not.toBe(pid);
   });
 
+  it("rejects disabled General previews, including cached ready servers, and stops their process", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project: ProjectState = { ...createProject(workspacePath), type: "general", webPreviewEnabled: false, preview: { status: "waiting" } };
+    const events = new RuntimeEventBus();
+    const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000 });
+    managers.push(manager);
+    await expect(manager.start(project)).rejects.toThrow("Enable Web preview");
+    expect(project.preview).toEqual({ status: "waiting" });
+    project.webPreviewEnabled = true;
+    const url = await manager.ensureStarted(project);
+    const pid = Number(await readFile(path.join(workspacePath, "server.pid"), "utf8"));
+    project.webPreviewEnabled = false;
+    await expect(manager.ensureStarted(project)).rejects.toThrow("Enable Web preview");
+    await expect(manager.start(project)).rejects.toThrow("Enable Web preview");
+    await manager.stop(project);
+    await vi.waitFor(() => expect(isProcessRunning(pid)).toBe(false));
+    await expect(fetch(url, { signal: AbortSignal.timeout(200) })).rejects.toThrow();
+  });
+
+  it("keeps a pending workspace waiting and preserves a ready server on preflight failure", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = createProject(workspacePath);
+    const manager = new PreviewManager(new RuntimeEventBus(), { readinessTimeoutMs: 2_000 });
+    managers.push(manager);
+    const url = await manager.start(project);
+    const pid = Number(await readFile(path.join(workspacePath, "server.pid"), "utf8"));
+    await writeFile(path.join(workspacePath, "package.json"), JSON.stringify({ scripts: { dev: "bun format" } }));
+    await expect(manager.start(project)).rejects.toThrow("non-server task");
+    expect(project.preview).toEqual({ status: "ready", url });
+    expect(isProcessRunning(pid)).toBe(true);
+    await manager.stop(project);
+    project.preview = { status: "waiting" };
+    await expect(manager.start(project)).rejects.toThrow("non-server task");
+    expect(project.preview).toEqual({ status: "waiting" });
+  });
+
+  it("shares explicit restarts and cancels a startup during preflight without late errors", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = createProject(workspacePath);
+    const manager = new PreviewManager(new RuntimeEventBus(), { readinessTimeoutMs: 2_000 });
+    managers.push(manager);
+    await manager.start(project);
+    const originalPid = await readFile(path.join(workspacePath, "server.pid"), "utf8");
+    const restarting = manager.start(project);
+    expect(manager.ensureStarted(project)).toBe(restarting);
+    await restarting;
+    expect(await readFile(path.join(workspacePath, "server.pid"), "utf8")).not.toBe(originalPid);
+    await manager.stop(project);
+    const cancelled = manager.start(project);
+    const rejection = expect(cancelled).rejects.toThrow("superseded");
+    await manager.stop(project);
+    await rejection;
+    expect(project.preview).toEqual({ status: "stopped" });
+  });
+
+  it("cleans up a launch superseded by invalid configuration instead of leaving it starting", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = createProject(workspacePath);
+    const events = new RuntimeEventBus();
+    const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000 });
+    managers.push(manager);
+    let replacement: Promise<string> | undefined;
+    const unsubscribe = events.subscribe(project.id, (event) => {
+      if (event.type !== "preview.starting") return;
+      project.startupScript = "missing";
+      replacement = manager.start(project);
+      void replacement.catch(() => {});
+    });
+    await expect(manager.start(project)).rejects.toThrow("superseded");
+    await expect(replacement).rejects.toThrow("no missing script");
+    expect(project.preview.status).toBe("error");
+    unsubscribe();
+    await expect(readFile(path.join(workspacePath, "server.pid"))).rejects.toThrow();
+  });
+
   it("starts and stops a preview process tree", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);

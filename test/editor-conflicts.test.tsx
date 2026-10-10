@@ -79,6 +79,8 @@ vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
 
 const { createCanvasBoardStorage } =
   await import("../src/renderer/canvas-board-storage.js");
+const { CanvasTableStorage } =
+  await import("../src/renderer/canvas-table-storage.js");
 const { CanvasBoardEditor } =
   await import("../src/renderer/asset-canvas-workspace.js");
 const { PlayableEditorWorkspace } =
@@ -157,6 +159,11 @@ async function openCanvas(type: "web-game" | "asset-canvas") {
         project={{ id: "p", type } as ProjectState}
         storage={storage}
         documents={{ documents: [] } as unknown as CanvasDocuments}
+        tables={{
+          storage: new CanvasTableStorage("p"),
+          open: vi.fn(),
+          add: vi.fn(),
+        }}
         assets={[]}
       />,
     ),

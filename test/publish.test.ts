@@ -88,6 +88,17 @@ describePublishContract("remote publish", () => {
     expect((await runtime.daemon.inject({ method: "POST", url: `/community/game/${published.game.id}/use`, payload: { accessToken: token } })).statusCode).toBe(404);
   });
 
+  it("publishes General static output with Web preview disabled and no dev script", async () => {
+    const runtime = await testRuntime();
+    const project = await createProject(runtime.daemon, "General static", "general");
+    await writeFile(path.join(project.workspacePath, "index.html"), "<h1>Static General</h1>");
+    expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json()).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
+    const response = await publishProject(runtime.daemon, project.id);
+    expect(response.statusCode, response.body).toBe(201);
+    expect(await readFile(path.join(runtime.publishData, "artifacts", response.json().deployment.id, "index.html"), "utf8")).toContain("Static General");
+    expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json()).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
+  });
+
   it("builds and publishes an Interactive Story as a static game", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Story", "interactive-story");
@@ -474,7 +485,7 @@ async function testRuntime(dataDirectory = undefined as string | undefined, publ
   return { apiUrl, daemon, playerDirectory, publishData, publishServer };
 }
 
-async function createProject(app: FastifyInstance, name: string, type?: "web-game" | "interactive-story") {
+async function createProject(app: FastifyInstance, name: string, type?: "general" | "web-game" | "interactive-story") {
   return (await app.inject({ method: "POST", url: "/projects", payload: { name, ...(type ? { type } : {}) } })).json();
 }
 

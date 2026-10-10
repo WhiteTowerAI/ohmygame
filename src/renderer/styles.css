@@ -4113,6 +4113,23 @@ button.home-nav-item-active:hover {
   font-size: 11px;
   line-height: 1.5;
 }
+.project-settings-preview-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+}
+.project-settings-preview-toggle p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.project-settings-preview-toggle input:focus-visible + span {
+  outline: 2px solid var(--theme-accent);
+  outline-offset: 3px;
+}
 .project-settings-dialog .playable-variables {
   max-height: 180px;
   overflow-y: auto;

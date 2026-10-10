@@ -7,7 +7,7 @@ function prompt(project: Parameters<typeof appendSystemPromptForProject>[0]): st
 
 describe("OhMyGame system prompt", () => {
   it("preserves shared interaction guidance for every project type", () => {
-    for (const type of ["web-game", "godot-game", "interactive-story", "asset-canvas"] as const) {
+    for (const type of ["general", "web-game", "godot-game", "interactive-story", "asset-canvas"] as const) {
       const text = prompt({ type });
 
       expect(text).toContain("brief commentary update before the first tool call");
@@ -35,6 +35,27 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("missing from the published build");
     expect(text).not.toContain("playable_check");
     expect(text).not.toContain("existing folder as the workspace");
+  });
+
+  it("uses Game Studio for general games and keeps the Web contract conditional", () => {
+    const text = prompt({ type: "general", webPreviewEnabled: true, startupDirectory: "client", startupScript: "start", packageManager: "pnpm", workspaceLocation: "external" });
+
+    expect(text).toContain("use game-studio when available");
+    expect(text).toContain("Applications, tools, and content");
+    expect(text).toContain("Web preview is enabled by the user");
+    expect(text).toContain("the client/ folder of the workspace, run with pnpm");
+    expect(text).toContain('a "start" script');
+    expect(text).not.toContain("use web-game-studio");
+    expect(text).not.toContain("playable_add_node");
+  });
+
+  it("keeps disabled General previews under user control without requiring a Node stack", () => {
+    const text = prompt({ type: "general" });
+    expect(text).toContain("Web preview is disabled");
+    expect(text).toContain("Do not start a persistent dev server or enable the capability yourself");
+    expect(text).toContain("Web publishing is independent of the preview switch");
+    expect(text).not.toContain("The game is a Node project");
+    expect(text).not.toContain("starts it after your turn");
   });
 
   it("explains how an explicitly referenced design revision should be used", () => {

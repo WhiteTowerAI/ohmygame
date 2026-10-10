@@ -21,6 +21,7 @@ import {
 } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
+import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
   approvePlan,
   answerQuestionnaire,
@@ -278,7 +279,7 @@ export function ProjectShell({
         });
         subscribe(detail.cursor, selected.id);
 
-        if (project.type === "web-game" && project.preview.status === "stopped") {
+        if (supportsWebPreview(project) && project.preview.status === "stopped") {
           void startPreview(project.id).catch((error) => {
             if (!disposed) dispatch({ type: "notice", message: errorMessage(error) });
           });
@@ -388,7 +389,7 @@ export function ProjectShell({
     const project = state.project;
     const busy = sendingInitialPrompt ||
       state.agent.status === "running" || state.agent.status === "cancelling";
-    if ((project?.type !== "web-game" && project?.type !== "interactive-story") || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
+    if (!project || (!isWebRuntimeProjectType(project.type) && project.type !== "interactive-story") || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
     const pending = takePendingPublish(sessionStorage, project.id);
     if (pending) void publish(pending).catch(() => undefined);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
@@ -578,11 +579,11 @@ export function ProjectShell({
     return removeFollowUp(item.turnId);
   }
 
-  async function restartPreview() {
-    if (!project || project.preview.status === "starting") return;
+  async function restartPreview(updated = project) {
+    if (!updated || updated.preview.status === "starting") return;
     dispatch({ type: "notice", message: undefined });
     try {
-      await startPreview(project.id);
+      await startPreview(updated.id);
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
     }

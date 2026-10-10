@@ -6,7 +6,7 @@ describe("renderer routes", () => {
     expect(parseAppRoute("")).toEqual({ page: "home" });
     expect(parseAppRoute("#/")).toEqual({ page: "home" });
     expect(parseAppRoute("#/unknown")).toEqual({ page: "home" });
-    for (const page of ["projects", "library", "web-game", "interactive-story", "godot", "asset-canvas"] as const) {
+    for (const page of ["projects", "library", "general", "web-game", "interactive-story", "godot", "asset-canvas"] as const) {
       expect(parseAppRoute(`#/${page}`)).toEqual({ page });
       expect(sidebarHash(page)).toBe(`#/${page}`);
     }
@@ -20,7 +20,7 @@ describe("renderer routes", () => {
   });
 
   it("opens a Studio's project list with its type selected", () => {
-    for (const type of ["web-game", "interactive-story", "godot-game", "asset-canvas"] as const) {
+    for (const type of ["general", "web-game", "interactive-story", "godot-game", "asset-canvas"] as const) {
       expect(parseAppRoute(projectsHash(type))).toEqual({ page: "projects", projectType: type });
     }
     expect(parseAppRoute(projectsHash())).toEqual({ page: "projects" });

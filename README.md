@@ -98,6 +98,15 @@ Three games our team made with OhMyGame:
   </tr>
 </table>
 
+### 🎲 General games
+
+Start without choosing an engine, or bring an existing game project. The
+Game Studio plugin coordinates design, production art, implementation, and
+verification across engines. The same workspace can support applications,
+tools, and content through other workflows. Enable **Web preview** in Project
+settings to use browser preview and playtesting; it is off by default. Static
+Web publishing works independently. Native games use their engine's tools.
+
 ### 🎮 Web games
 
 2D and 3D games for the browser, built with Three.js, React Three Fiber, or

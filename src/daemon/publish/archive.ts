@@ -6,6 +6,7 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
 import type { ProjectState } from "../../shared/contracts.js";
+import { isWebRuntimeProjectType } from "../../shared/project-runtime.js";
 import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES } from "../../shared/plugins.js";
 import { PUBLISH_ARTIFACT_MAX_BYTES, PUBLISH_GAME_COVER_PATH } from "../../shared/publish-v1.js";
 import type { AssetLibrary } from "../asset-library.js";
@@ -54,7 +55,7 @@ export class ArtifactBuilder {
         temporary = await prepareInteractiveStory(project, this.library, this.playerDirectory);
         source = temporary;
       } else {
-        const workspacePath = project.type === "web-game"
+        const workspacePath = isWebRuntimeProjectType(project.type)
           ? await publishStartupDirectory(project)
           : project.workspacePath;
         source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);

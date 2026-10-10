@@ -93,6 +93,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
         }],
       };
     case "project.renamed":
+    case "project.updated":
       return project?.id === event.data.project.id
         ? { ...next, project: event.data.project }
         : next;

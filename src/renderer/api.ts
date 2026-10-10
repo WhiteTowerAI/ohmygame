@@ -30,8 +30,7 @@ import {
   type CommunityGame,
   type ConversationDetail,
   type ConversationSummary,
-  type PreviewViewport,
-  type ProjectPackageManager,
+  type ProjectRunSettings,
   type ProjectFileOpenMode,
   type ProjectAgentActivity,
   type ProjectCoverMode,
@@ -170,13 +169,7 @@ export async function updateProjectStartupDirectory(projectId: string, startupDi
   });
 }
 
-export async function updateProjectRunSettings(projectId: string, input: {
-  startupDirectory: string;
-  startupScript: string;
-  packageManager?: ProjectPackageManager;
-  previewPath: string;
-  previewViewport: PreviewViewport;
-}): Promise<ProjectState> {
+export async function updateProjectRunSettings(projectId: string, input: ProjectRunSettings): Promise<ProjectState> {
   return request(`/projects/${projectId}/settings/run`, {
     method: "PUT",
     body: JSON.stringify(input),

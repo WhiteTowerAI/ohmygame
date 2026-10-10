@@ -1,6 +1,6 @@
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
-import type { PluginMention, ProjectType } from "./contracts.js";
+import { PROJECT_TYPE_IDS, type PluginMention, type ProjectType } from "./contracts.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
@@ -180,12 +180,7 @@ const InterfaceSchema = Type.Object({
   shortDescription: Type.Optional(Type.String({ minLength: 1 })),
   longDescription: Type.Optional(Type.String({ minLength: 1 })),
   defaultPrompt: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
-  projectTypes: Type.Optional(Type.Array(Type.Union([
-    Type.Literal("web-game"),
-    Type.Literal("godot-game"),
-    Type.Literal("interactive-story"),
-    Type.Literal("asset-canvas"),
-  ]), { minItems: 1, uniqueItems: true })),
+  projectTypes: Type.Optional(Type.Array(Type.Union(PROJECT_TYPE_IDS.map((type) => Type.Literal(type))), { minItems: 1, uniqueItems: true })),
 }, { additionalProperties: false });
 
 const ConfigurationFieldSchema = Type.Object({

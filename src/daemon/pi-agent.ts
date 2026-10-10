@@ -34,7 +34,7 @@ Every plugin must contain \`.ohmygame-plugin/plugin.json\`:
 }
 \`\`\`
 
-Only include fields the plugin uses. Supported project types are \`web-game\`, \`godot-game\`, \`interactive-story\`, and \`asset-canvas\`. For legacy shared providers, the built-in Godot connection ID is \`ohmygame-godot\`. OhMyGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
+Only include fields the plugin uses. Supported project types are \`general\`, \`web-game\`, \`godot-game\`, \`interactive-story\`, and \`asset-canvas\`. Use \`general\` for engine-independent game projects and workflows. For legacy shared providers, the built-in Godot connection ID is \`ohmygame-godot\`. OhMyGame's built-in media generation capabilities are available to skills automatically and are not declared in the plugin manifest.
 
 Put each bundled skill at \`skills/<skill-name>/SKILL.md\`. Skills may include their own \`scripts/\`, \`references/\`, and \`assets/\` directories. Prefer skills and scripts for local workflows. You may declare an existing STDIO or HTTP MCP service in a mcp.json file containing { "mcpServers": { "service": { "url": "https://service.example/mcp", "headers": { "Authorization": "Bearer \${config.api-key}" } } } }. Configuration fields support text, secret, path, boolean and select. Never embed credentials in a package or ask the user to paste them into chat; direct them to the Plugin configuration form. Do not generate a new MCP server, Pi extension or custom in-process tool.
 

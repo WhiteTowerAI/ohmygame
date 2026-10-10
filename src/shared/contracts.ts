@@ -3,7 +3,8 @@ import type { WebSearchToolMetadata } from "./web-search.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
-export type ProjectType = "web-game" | "godot-game" | "interactive-story" | "asset-canvas";
+export const PROJECT_TYPE_IDS = ["general", "web-game", "interactive-story", "asset-canvas", "godot-game"] as const;
+export type ProjectType = (typeof PROJECT_TYPE_IDS)[number];
 export const PROJECT_PACKAGE_MANAGERS = ["npm", "pnpm", "yarn", "bun"] as const;
 export type ProjectPackageManager = (typeof PROJECT_PACKAGE_MANAGERS)[number];
 export const PREVIEW_VIEWPORTS = ["fit", "tablet", "mobile"] as const;
@@ -270,6 +271,8 @@ export interface ProjectState {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
+  /** General Game's explicit Web preview opt-in; missing means disabled. */
+  webPreviewEnabled?: boolean;
   /** Directory, relative to the workspace root, in which the Web Game preview starts. */
   startupDirectory?: string;
   /** Package script that starts the Web Game preview. Defaults to `dev`. */
@@ -289,6 +292,15 @@ export interface ProjectState {
   workspaceAvailable?: boolean;
   preview: { status: PreviewStatus; url?: string; error?: string };
   publication?: PublicationState;
+}
+
+export interface ProjectRunSettings {
+  startupDirectory: string;
+  startupScript: string;
+  packageManager?: ProjectPackageManager;
+  previewPath: string;
+  previewViewport: PreviewViewport;
+  webPreviewEnabled?: boolean;
 }
 
 export interface ProjectAgentActivity {
@@ -932,6 +944,7 @@ export interface RuntimeEventData {
   "conversation.renamed": { conversation: ConversationSummary };
   "conversation.model.changed": { item: Extract<ThreadItem, { type: "modelChange" }> };
   "project.renamed": { project: ProjectState };
+  "project.updated": { project: ProjectState };
   "preview.starting": Record<string, never>;
   "preview.ready": { url: string };
   "preview.error": { error: string };
@@ -960,6 +973,7 @@ export const RUNTIME_EVENT_TYPES = [
   "conversation.renamed",
   "conversation.model.changed",
   "project.renamed",
+  "project.updated",
   "preview.starting",
   "preview.ready",
   "preview.error",
