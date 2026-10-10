@@ -1,7 +1,7 @@
 /** Consumer copy of ohmygame-cloud/packages/contracts/src/cloud-models.ts. */
 export type CloudCapability = "language" | "image" | "video" | "3d";
 export type QuotaUnit = "requests" | "tokens" | "images" | "models" | "credits";
-export type CloudAvailability = "ready" | "sign_in_required" | "unavailable" | "personal_exhausted" | "pool_exhausted";
+export type CloudAvailability = "ready" | "sign_in_required" | "unavailable" | "personal_exhausted";
 
 export interface CloudProvider {
   /** Connection ID is distinct from a user's own-key provider. */
@@ -27,8 +27,6 @@ export interface CloudModel {
 
 export interface CloudCatalog { providers: CloudProvider[]; models: CloudModel[] }
 export interface QuotaBalance {
-  /** Overrides the quota's unit when personal and shared limits use different meters. */
-  unit?: QuotaUnit;
   limit: number | null;
   used: number;
   reserved: number;
@@ -43,8 +41,6 @@ export interface CloudQuota {
   availability: CloudAvailability;
   message?: string;
   personal: QuotaBalance;
-  /** Our configured allocation pool, not a claim about upstream free balance. */
-  pool: QuotaBalance;
 }
 export interface CloudQuotaSnapshot { userId: string; quotas: CloudQuota[]; fetchedAt: string }
 export interface CloudConnectionState { availability: CloudAvailability; userId?: string; quota?: CloudQuota; message?: string }

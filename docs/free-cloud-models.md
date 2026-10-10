@@ -13,7 +13,7 @@ sign-in does not authorize free cloud generation. Provider keys are never sent
 to the desktop, project files, the agent, or model inputs.
 
 Providers show the user's remaining daily allowance. The detail page shows
-personal credits and platform shared generation counts with compact progress bars and reset time. Models remain selectable when exhausted; their generation action
+personal credits with one compact progress bar and reset time. Models remain selectable when exhausted; their generation action
 is temporarily unavailable. Cancelling desktop waiting keeps the remote job;
 successful results are saved to Library through the normal generation flow. The server retains remote jobs for reconciliation, including when desktop waiting is cancelled.
 
@@ -25,7 +25,7 @@ Saved `rodin` references resolve to Medium without adding a duplicate catalog en
 The shared key stays on the server; users choose a tier through the model picker.
 
 The Canvas generation entry shows remaining daily credits, estimated cost, one
-progress bar, and a line for reset time/shared allowance. Held credits appear
+progress bar, and a line for reset time. Held credits appear
 when a submission is pending. Each model row includes its credit price. The
 generation action also checks the selected model's cost: 0.5 credits remaining
 allows a basic tier but disables Extreme High with a suggestion to choose a
@@ -46,9 +46,9 @@ Canvas labels them **Reference 1…5**, showing supplied images and the next slo
 Tripo keeps its protocol's **Front / Left / Back / Right** order. Meshy uses
 neutral reference labels and the selected version's image limit.
 
-The platform shared pool is a configured allocation, not an upstream balance
-claim. Hyper3D's `check_balance` reports credits and does not document remaining
-daily free model requests. Unknown allowances are displayed as unavailable.
+Hyper3D's `check_balance` reports upstream credits and does not document remaining
+daily free model requests. The desktop displays only the account's daily allocation;
+there is no platform daily quota. Unknown personal allowances are displayed as unavailable.
 
 ## Cloud configuration
 
@@ -57,18 +57,21 @@ In `ohmygame-cloud`, apply
 `database/migrations/20261010010000_meter_cloud_credits.sql`, then
 `database/migrations/20261010020000_fix_cloud_credit_allocation.sql` to Supabase and
 configure the server as described in its `docs/free-cloud-models.md`. The key,
-confirmed pool allowance and concurrency limit belong exclusively
+personal allocation and provider concurrency limit belong exclusively
 to that service. Each account defaults to **20 credits/day**, configurable through
 `HYPER3D_USER_DAILY_CREDITS`. The old `HYPER3D_USER_DAILY_LIMIT` is no longer read.
 Gen 1/1.5/2/2.5 basic generation costs 0.5 credits (up to 40 at the default allowance);
-Gen 2.5 Extreme High costs 1. Shared pool exhaustion can stop generation earlier.
+Gen 2.5 Extreme High costs 1. Hyper3D still enforces the key's upstream limits.
 The server reserves and charges the selected catalog price to the daily allocation;
 upstream `consumed` is stored independently for audit. A grant returning zero
 consumption still uses the account's daily credits. The migrations preserve
 historical usage and pending reservations. `HYPER3D_TIER` is no longer read;
 clients select the tier through `modelId`. Key permissions still depend on Hyper3D;
 a definite rejection releases the full hold.
-The integration stays unavailable until required settings exist.
+Configuring `HYPER3D_API_KEY` enables generation with the default personal credits
+and concurrency limits. `HYPER3D_POOL_DAILY_LIMIT` is no longer read.
+This removal requires no additional database migration. Historical pool counters
+are ignored for new jobs; existing jobs still settle their stored reservations.
 No generation or paid fallback happens during configuration.
 
 ## Extending the foundation
@@ -76,8 +79,10 @@ No generation or paid fallback happens during configuration.
 The catalog and quota contracts in `src/shared/cloud-models.ts` mirror
 `ohmygame-cloud/packages/contracts/src/cloud-models.ts`. Keep their changes in
 sync. Capabilities and quota units include language/image/video/3D and
-requests/tokens/images/models/credits. Personal and shared balances can use
-different units. The cloud owns admission, durable jobs, atomic
+requests/tokens/images/models/credits. Quota responses contain only `personal`,
+using the top-level quota unit; `pool` and `pool_exhausted` have been removed.
+Update desktop clients before deploying the matching cloud API, since older
+desktop versions require the removed field. The cloud owns admission, durable jobs, atomic
 reservations, reconciliation and credentials. Execution remains capability
 specific: future LLMs need streaming and token settlement, image models need
 their own adapter and result format. Those providers have not been configured
