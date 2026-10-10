@@ -8479,6 +8479,7 @@ button {
   text-transform: uppercase;
 }
 
+.story-canvas-context-menu > .story-canvas-context-menu-label:first-child,
 .story-canvas-context-submenu > .story-canvas-context-menu-label:first-child {
   margin-top: 0;
   border-top: 0;
