@@ -15,9 +15,17 @@ export interface NodeCodebase {
   editorLayout: NodeEditorLayout;
 }
 
+/** A codebase as read from disk. */
+export interface NodeCodebaseDetail extends NodeCodebase {
+  /** Identifies the graph.json and editor/layout.json this was read from. */
+  revision: string;
+}
+
 export interface NodeCodebaseUpdate extends NodeCodebase {
   sources?: Record<string, string>;
   sourceDeletions?: string[];
+  /** The revision the update was made from. The write is refused when the files changed since. */
+  revision?: string;
 }
 
 export function isNodeEditorLayout(
@@ -75,4 +83,31 @@ export function fitPlayableLayout(
     fitted.nodes[node.id] ??= freePlayablePosition(fitted);
   }
   return fitted;
+}
+
+/**
+ * Carries the editor's unsaved change over to a codebase that changed on disk
+ * since `base` was read. Only a layout change can be carried: the positions
+ * the editor moved, its viewport, and its view are kept on the graph from
+ * disk. Undefined when the editor changed the graph too.
+ */
+export function rebasePlayableLayout(
+  base: NodeCodebase,
+  local: NodeCodebase,
+  remote: NodeCodebase,
+): NodeCodebase | undefined {
+  if (JSON.stringify(local.graph) !== JSON.stringify(base.graph)) return undefined;
+  const nodes: NodeEditorLayout["nodes"] = {};
+  for (const node of remote.graph.nodes) {
+    const before = base.editorLayout.nodes[node.id];
+    const ours = local.editorLayout.nodes[node.id];
+    const theirs = remote.editorLayout.nodes[node.id];
+    const moved = ours && (!before || ours.x !== before.x || ours.y !== before.y);
+    const position = moved ? ours : theirs ?? ours;
+    if (position) nodes[node.id] = position;
+  }
+  return {
+    graph: remote.graph,
+    editorLayout: fitPlayableLayout(remote.graph, { ...local.editorLayout, nodes }),
+  };
 }

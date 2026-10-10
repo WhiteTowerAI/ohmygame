@@ -12,6 +12,7 @@ import {
   playableEdgeId,
   setPlayableSignalLabel,
 } from "../src/shared/playable-editor.js";
+import { rebasePlayableLayout, type NodeCodebase } from "../src/shared/playable-codebase.js";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
 import { createNodeGraphFixture } from "./playable-fixture.js";
 
@@ -141,6 +142,56 @@ describe("Playable project editing", () => {
     expect(renamed.nodes.find((node) => node.id === "archive")?.signals.find((signal) => signal.id === "home")?.label).toBe("Home");
   });
 
+});
+
+describe("rebasePlayableLayout", () => {
+  function codebase(): NodeCodebase {
+    const graph = createNodeGraphFixture();
+    return {
+      graph,
+      editorLayout: {
+        version: 1,
+        nodes: Object.fromEntries(graph.nodes.map((node, index) => [node.id, { x: index * 100, y: 0 }])),
+        viewport: { x: 0, y: 0, zoom: 1 },
+        view: "canvas",
+      },
+    };
+  }
+
+  it("keeps what the editor moved on the graph that changed on disk", () => {
+    const base = codebase();
+    const local = structuredClone(base);
+    local.editorLayout.nodes.menu = { x: 640, y: 480 };
+    local.editorLayout.viewport = { x: -200, y: 40, zoom: 0.5 };
+    // The Agent renamed a Scene, removed one, and added one with its own position.
+    const remote = structuredClone(base);
+    const removed = remote.graph.nodes.at(-1)!;
+    remote.graph.nodes = remote.graph.nodes.filter((node) => node !== removed);
+    remote.graph.edges = remote.graph.edges.filter((edge) => edge.source.nodeId !== removed.id && edge.targetNodeId !== removed.id);
+    delete remote.editorLayout.nodes[removed.id];
+    remote.graph.nodes[0] = { ...remote.graph.nodes[0]!, title: "Renamed by the Agent" };
+    remote.graph.nodes.push({ ...removed, id: "added", title: "Added by the Agent" });
+    remote.editorLayout.nodes.added = { x: 900, y: 900 };
+    remote.editorLayout.nodes.lobby = { x: 5, y: 5 };
+
+    const rebased = rebasePlayableLayout(base, local, remote);
+
+    expect(rebased?.graph).toEqual(remote.graph);
+    expect(rebased?.editorLayout).toEqual({
+      ...local.editorLayout,
+      nodes: { ...remote.editorLayout.nodes, menu: { x: 640, y: 480 } },
+    });
+  });
+
+  it("carries nothing when the editor changed the graph too", () => {
+    const base = codebase();
+    const local = structuredClone(base);
+    local.graph.title = "Renamed in the editor";
+    const remote = structuredClone(base);
+    remote.graph.nodes[0] = { ...remote.graph.nodes[0]!, title: "Renamed by the Agent" };
+
+    expect(rebasePlayableLayout(base, local, remote)).toBeUndefined();
+  });
 });
 
 describe("describePlayableValue", () => {

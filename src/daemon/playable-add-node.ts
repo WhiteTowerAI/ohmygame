@@ -1,6 +1,6 @@
 import {
   NodeCodebaseError,
-  readNodeCodebase,
+  readNodeCodebaseDetail,
   writeNodeCodebase,
 } from "./playable-codebase.js";
 import { playablePreset, PLAYABLE_PRESET_IDS } from "./playable-presets.js";
@@ -49,7 +49,7 @@ export async function addPlayableNode(
       `Invalid Node ID "${request.id}". Use letters, digits, dots, dashes, and underscores, starting with a letter or digit.`,
     );
   }
-  const codebase = await readNodeCodebase(workspacePath);
+  const codebase = await readNodeCodebaseDetail(workspacePath);
   // Nodes are named in order, not after their Preset: a Preset is only a starting point.
   const title = (request.title ?? nextNodeTitle(codebase.graph.nodes)).trim().slice(0, MAX_TITLE_LENGTH);
   if (!title) throw new NodeCodebaseError("A Node title is required.");
@@ -89,6 +89,8 @@ export async function addPlayableNode(
   await writeNodeCodebase(workspacePath, {
     graph,
     editorLayout,
+    // Refuses to drop a change saved since the graph was read above.
+    revision: codebase.revision,
     sources: {
       [source.html]: starter.html,
       [source.css]: starter.css,
