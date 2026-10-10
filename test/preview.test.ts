@@ -161,6 +161,23 @@ describe("PreviewManager", () => {
     expect(project.preview.error).toContain("server error");
   });
 
+  it.skipIf(process.platform === "win32")("fails the start when the package manager is not installed and starts once it is", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = createProject(workspacePath);
+    const events = new RuntimeEventBus();
+    const manager = new PreviewManager(events, { readinessTimeoutMs: 2_000 });
+    managers.push(manager);
+    vi.stubEnv("PATH", await mkdtemp(path.join(tmpdir(), "ohmygame-preview-path-")));
+
+    await expect(manager.start(project)).rejects.toMatchObject({ code: "ENOENT", path: "npm" });
+    expect(project.preview.status).toBe("error");
+    expect(project.preview.error).toContain("npm");
+    expect(events.since(project.id).filter((event) => event.type === "preview.error").map((event) => event.data)).toEqual([{ error: project.preview.error }]);
+    vi.unstubAllEnvs();
+    const url = await manager.start(project);
+    expect(await (await fetch(url)).text()).toBe("ready");
+  });
+
   it("starts the preview from the configured startup directory", async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-preview-root-"));
     const startupDirectory = path.join(workspacePath, "apps", "game");

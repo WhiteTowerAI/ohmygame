@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -73,6 +73,34 @@ describe("publish archives", () => {
         preview: { status: "stopped" },
       }),
     ).resolves.toBeInstanceOf(Buffer);
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("rejects when a file in the publish output cannot be read", async () => {
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-unreadable-"));
+    await writeFile(path.join(workspacePath, "index.html"), "game");
+    await writeFile(path.join(workspacePath, "save.dat"), "locked");
+    await chmod(path.join(workspacePath, "save.dat"), 0o000);
+
+    await expect(new ArtifactBuilder().create({
+      id: "unreadable-test", name: "Game", type: "web-game", updatedAt: new Date(0).toISOString(),
+      workspacePath, preview: { status: "stopped" },
+    })).rejects.toMatchObject({ code: "EACCES" });
+  });
+
+  it("rejects when files are removed after they are listed", async () => {
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-removed-"));
+    await writeFile(path.join(source, "first.txt"), "first");
+    await writeFile(path.join(source, "second.txt"), "second");
+    const mocked = vi.spyOn(fs, "stat").mockImplementation(((...args: unknown[]) => {
+      const callback = args.at(-1) as (error: NodeJS.ErrnoException) => void;
+      queueMicrotask(() => callback(Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" })));
+    }) as typeof fs.stat);
+
+    try {
+      await expect(createPluginArchive(source)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      mocked.mockRestore();
+    }
   });
 });
 
