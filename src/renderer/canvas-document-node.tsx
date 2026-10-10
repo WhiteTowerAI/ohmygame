@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
-import type { AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
+import type { AgentModelRef, AgentReasoningLevel, AssetCanvasTextGenerationSource } from "../shared/contracts.js";
 import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { Check, Columns2, Copy, Download, Eye, FileText, Image as ImageIcon, Maximize, MoreHorizontal, Pencil, X } from "./icons.js";
 import { CanvasTextarea, CanvasTextInput, CanvasTextComposer, type CanvasTextModels } from "./canvas-text-composer.js";
@@ -12,6 +12,7 @@ import type { DocumentGenerationState } from "./use-canvas-documents.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions, type CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
+import { CanvasNodeReferenceStrip, type CanvasNodeReferencesRuntime } from "./canvas-node-references.js";
 
 export interface CanvasDocuments {
   projectId: string;
@@ -19,7 +20,8 @@ export interface CanvasDocuments {
   documentIssues?: CanvasWorkspaceDetail["documentIssues"];
   add(): Promise<string | undefined>;
   update(id: string, patch: Partial<Pick<CanvasMarkdownDocument, "title" | "markdown">>): void;
-  open(id: string): void;
+  open(id: string, nodeId?: string): void;
+  flush(): Promise<void>;
   setMain?: (id: string) => void;
   insertImage(id: string, assetId: string): void;
   pickImage(id: string): void;
@@ -27,10 +29,10 @@ export interface CanvasDocuments {
   appendText(text: string): void;
   generations: Record<string, DocumentGenerationState>;
   changeGeneration(id: string, patch: Partial<DocumentGenerationState>): void;
-  generate(id: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel): void;
+  generate(id: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel, referenceSource?: AssetCanvasTextGenerationSource): void;
   applyGeneration(id: string): void;
 }
-export interface DocumentNodeRuntime extends CanvasTextModels { design: CanvasDocuments; document?: CanvasWorkspaceDetail["documents"][number] }
+export interface DocumentNodeRuntime extends CanvasTextModels, CanvasNodeReferencesRuntime { design: CanvasDocuments; document?: CanvasWorkspaceDetail["documents"][number]; referenceSource: AssetCanvasTextGenerationSource }
 export function CanvasDocumentNode({ data, selected }: { data: { documentId?: string; documentRuntime?: DocumentNodeRuntime; nodeDetails?: CanvasNodeDetails; resizeRuntime?: CanvasNodeResizeRuntime }; selected?: boolean }) {
   const [editing, setEditing] = useState(() => !data.documentRuntime?.document?.markdown);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -62,7 +64,7 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
           <CanvasTextarea hidden={!isEditing} spellCheck={false} aria-label="Document Markdown" value={doc.markdown} onChange={(markdown) => runtime?.design.update(doc.id, { markdown })} />
           <div hidden={isEditing} className="design-document-node-preview"><CanvasMarkdown projectId={runtime!.design.projectId} document={doc} /></div>
         </div> : <div className="design-document-node-body">Document not found</div>}
-        <Handle type="target" position={Position.Left} id="image" />
+        <Handle type="target" position={Position.Left} id="references" />
         <Handle type="source" position={Position.Right} id="out" />
       </div>
       {doc ? <footer className={`design-document-node-footer nodrag nowheel${selected ? "" : " is-hidden"}`}>
@@ -73,11 +75,11 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
         <div className="design-document-node-actions">
           <CanvasNodeSizeActions runtime={data.resizeRuntime} />
           <button type="button" title="Insert image from Library" aria-label="Insert image from Library" onClick={() => runtime?.design.pickImage(doc.id)}><ImageIcon size={14} /></button>
-          <button type="button" title="Expand document" aria-label="Expand document" onClick={() => runtime?.design.open(doc.id)}><Maximize size={14} /></button>
+          <button type="button" title="Expand document" aria-label="Expand document" onClick={() => runtime?.design.open(doc.id, runtime.referenceSource.nodeId)}><Maximize size={14} /></button>
         </div>
       </footer> : null}
     </div>
-    {selected && doc && runtime ? <div className="canvas-node-auxiliary"><CanvasDocumentAI design={runtime.design} document={doc} textModels={runtime} /></div> : null}
+    {selected && doc && runtime ? <div className="canvas-node-auxiliary"><CanvasDocumentAI design={runtime.design} document={doc} textModels={runtime} references={runtime} referenceSource={runtime.referenceSource} /></div> : null}
   </div>;
 }
 export function CanvasMarkdown({
@@ -115,18 +117,19 @@ function CanvasImage({ projectId, documentId, src, alt }: { projectId: string; d
   const remote = src && /^https?:\/\//i.test(src) ? src : undefined;
   return url || remote ? <img src={url ?? remote} alt={alt ?? ""} loading="lazy" draggable={false} /> : <span className="design-image-placeholder" title={error}>{error ? `Image unavailable: ${file}` : alt || "Image"}{error ? <button className="nodrag" type="button" disabled={loading} onClick={retry}>Check again</button> : null}</span>;
 }
-export function CanvasDocumentAI({ design, document, textModels }: { design: CanvasDocuments; document: CanvasMarkdownDocument; textModels: CanvasTextModels }) {
+export function CanvasDocumentAI({ design, document, textModels, references, referenceSource }: { design: CanvasDocuments; document: CanvasMarkdownDocument; textModels: CanvasTextModels; references?: CanvasNodeReferencesRuntime; referenceSource?: AssetCanvasTextGenerationSource }) {
   const state = design.generations[document.id];
   const [preview, setPreview] = useState(false);
   const [copyResult, setCopyResult] = useState<{ draft: string; message: string }>();
   const busy = state?.generating || state?.applying;
   return <>
     <CanvasTextComposer {...textModels} instruction={state?.instruction ?? ""} model={state?.model} reasoningLevel={state?.reasoningLevel} generating={state?.generating}
+      references={references ? <CanvasNodeReferenceStrip {...references} busy={!!busy} /> : null}
       busy={busy} error={state?.error} label="Document generation instruction" placeholder="Describe what to write or change" generateLabel={state?.error || state?.proposal !== undefined ? "Retry document generation" : "Generate document"}
       onInstruction={(instruction) => design.changeGeneration(document.id, { instruction, error: undefined })}
       onModel={(model, reasoningLevel) => design.changeGeneration(document.id, { model, reasoningLevel, error: undefined })}
       onReasoningChange={(reasoningLevel) => design.changeGeneration(document.id, { model: state?.model ?? textModels.defaultModel, reasoningLevel, error: undefined })}
-      onGenerate={(model, reasoningLevel) => design.generate(document.id, model, reasoningLevel)} />
+      onGenerate={(model, reasoningLevel) => design.generate(document.id, model, reasoningLevel, referenceSource)} />
     {state?.proposal !== undefined ? <section className="design-ai-result nodrag nowheel" aria-label="AI candidate draft">
       <p className="design-ai-result-status" role="status">{state.proposalStatus === "incomplete" ? "Incomplete draft — review before replacing the document." : "Candidate draft — review before replacing the document."}</p>
       <div className="design-mode-control" role="group" aria-label="Candidate draft view">
@@ -148,7 +151,7 @@ export function CanvasDocumentAI({ design, document, textModels }: { design: Can
     </section> : null}
   </>;
 }
-export function ExpandedCanvasDocument({ design, document }: { design: CanvasDocuments; document: CanvasWorkspaceDetail["documents"][number] }) {
+export function ExpandedCanvasDocument({ design, document, references, referenceSource }: { design: CanvasDocuments; document: CanvasWorkspaceDetail["documents"][number]; references?: CanvasNodeReferencesRuntime; referenceSource?: AssetCanvasTextGenerationSource }) {
   const [mode, setMode] = useState<"edit" | "split" | "preview">("split");
   const [menu, setMenu] = useState<{ x: number; y: number }>();
   const catalog = useAgentModels();
@@ -170,7 +173,7 @@ export function ExpandedCanvasDocument({ design, document }: { design: CanvasDoc
       {mode !== "preview" ? <CanvasTextarea spellCheck={false} aria-label="Expanded document Markdown" value={document.markdown} onChange={(markdown) => design.update(document.id, { markdown })} /> : null}
       {mode !== "edit" ? <div className="design-expanded-preview"><CanvasMarkdown projectId={design.projectId} document={document} /></div> : null}
     </div>
-    <div className="design-expanded-ai"><CanvasDocumentAI design={design} document={document} textModels={{ models: catalog.models, modelStatus: catalog.status, defaultModel: catalog.defaultModel ?? catalog.models[0], defaultReasoningLevel: catalog.defaultReasoningLevel }} /></div>
+    <div className="design-expanded-ai"><CanvasDocumentAI design={design} document={document} references={references} referenceSource={referenceSource} textModels={{ models: catalog.models, modelStatus: catalog.status, defaultModel: catalog.defaultModel ?? catalog.models[0], defaultReasoningLevel: catalog.defaultReasoningLevel }} /></div>
     {menu ? <CanvasContextMenu screenPosition={menu} label="Document options" onClose={() => setMenu(undefined)}>
       <button type="button" role="menuitem" disabled={document.main} onClick={() => { design.setMain?.(document.id); setMenu(undefined); }}><Check size={14} /><span>{document.main ? "Main design document" : "Set as main design document"}</span></button>
     </CanvasContextMenu> : null}

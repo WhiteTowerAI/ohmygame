@@ -61,6 +61,61 @@ The renderer receives a small runtime event stream over SSE rather than Pi's
 internal event objects. Reconnects replay recent events, and conversations are
 restored from Pi's session files, so a reload does not lose or duplicate turns.
 
+## Network proxy
+
+**Settings → Network** configures the application's network connection. Pi's
+agent sessions and model requests run in the local daemon, so proxying only the
+renderer would not cover the agent.
+
+![Network settings with a manual proxy and Restart now](assets/network-settings.webp)
+
+- **Automatic** uses `HTTP_PROXY` / `HTTPS_PROXY` (including lowercase variants)
+  first, then a system HTTP/HTTPS proxy detected by Electron, then a direct
+  connection. Both desktop development and packaged apps detect the system
+  proxy. Browser-only development uses environment variables.
+- **Manual proxy** uses one HTTP/HTTPS proxy URL for both request schemes. For
+  Clash, enter its HTTP or Mixed port, such as `http://127.0.0.1:7890`.
+- **Direct** clears inherited application proxy variables. System TUN and VPN
+  routing still apply.
+
+Settings are stored in `network-settings.json` under the daemon data directory.
+Saving or detecting a new proxy does not change active connections. When the
+effective proxy URLs or bypass list change, restart the desktop app (or the
+standalone daemon) to apply them. Changing an inactive proxy draft or selecting
+another mode with the same effective route does not require a restart.
+The desktop panel offers
+**Restart now**, which stops the daemon and relaunches the app. A full restart
+also refreshes existing MCP child-process environments and long-lived network
+connections; changing only the fetch dispatcher would not cover them. Environment
+files load before proxy initialization, with parent variables taking precedence.
+
+The daemon fetch dispatcher, Electron sessions (including account requests and
+the updater), and new tool/MCP child-process environments share the startup
+policy. Tools such as Python and npm must still support the proxy variables
+they inherit. `localhost`, `.localhost`, `127.0.0.1`, and IPv6 `::1` always bypass
+the proxy; advanced settings add more hosts. Automatic mode also preserves
+inherited `NO_PROXY` exclusions. Proxy credentials supplied through environment
+variables stay in the host processes and are removed from settings/diagnostics
+returned to the renderer.
+
+**Test connection** tests the current form, including unsaved settings, through
+an isolated connection. It makes a bounded HTTPS HEAD request to
+`https://api.openai.com/v1/models` without model credentials or redirects. An
+HTTP response, including 401 or 403, confirms transport reachability, not model
+access or successful inference. It neither saves the draft nor changes the
+global dispatcher or the next-startup configuration. Automatic tests refresh
+system detection only for the test when no environment proxy is set.
+**Detect system proxy** asks Electron over private
+child-process IPC and leaves the active connection unchanged.
+
+This first version accepts HTTP/HTTPS proxies. Manual SOCKS proxies, proxy
+authentication fields, and `ALL_PROXY` are not supported. System detection
+selects the first supported route for `https://api.openai.com` at startup; it
+does not reproduce PAC rules for each destination or retry a PAC fallback list.
+Use a fixed HTTP/Mixed proxy or TUN when destination-specific PAC rules are
+required. Model **Base URL** fields describe API service/relay endpoints and
+must not contain a Clash forward-proxy address.
+
 ## Trust boundary
 
 Pi runs in trusted-local mode. The workspace is Pi's working directory, but

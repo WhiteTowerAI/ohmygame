@@ -101,7 +101,7 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
   const cleaned = nodes.map((node) => {
     const data = { ...node.data };
     if ("images" in data) data.images = data.images.filter((ref) => ref.type === "library" || ids.has(ref.nodeId));
-    if ("references" in data) data.references = data.references.filter((ref) => ref.type === "library" || ids.has(ref.nodeId));
+    if ("references" in data && data.references) data.references = data.references.filter((ref) => ref.type === "library" || ids.has(ref.nodeId));
     if ("source" in data && data.source?.type === "node" && !ids.has(data.source.nodeId)) delete data.source;
     if ("promptSource" in data && data.promptSource && !ids.has(data.promptSource.nodeId)) delete data.promptSource;
     return { ...node, data } as AssetCanvasNode;

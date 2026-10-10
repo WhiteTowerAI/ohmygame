@@ -24,6 +24,7 @@ import { ConversationManager, type StoredConversation } from "./conversations.js
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "./text-generation.js";
+import { resolveCanvasTextReferences } from "./canvas-text-references.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
 import { registerCanvasRoutes } from "./canvas-routes.js";
@@ -40,6 +41,8 @@ import { ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, Projec
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
+import { NetworkSettingsService } from "./network-settings.js";
+import type { NetworkSettings } from "../shared/network-settings.js";
 import { normalizeCustomProvider, normalizeCustomProviderModel, ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
@@ -127,6 +130,7 @@ export interface AppOptions {
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
   webSearchFetch?: typeof fetch;
+  networkSettings?: NetworkSettingsService;
 }
 
 const createProjectSchema = {
@@ -516,6 +520,7 @@ export function createApp(options: AppOptions = {}) {
   });
   const previews = new PreviewManager(events);
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
+  const networkSettings = options.networkSettings ?? new NetworkSettingsService(dataDirectory);
   const meshySettings = new MediaProviderKeyStore(dataDirectory, "meshy", "Meshy");
   const tripoSettings = new MediaProviderKeyStore(dataDirectory, "tripo", "Tripo");
   const hyper3dSettings = new MediaProviderKeyStore(dataDirectory, "hyper3d", "Hyper3D");
@@ -659,6 +664,11 @@ export function createApp(options: AppOptions = {}) {
   const withPluginCapabilities = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => plugin ? pluginCapabilities.decorate(plugin) : plugin;
   let agents: AgentManager;
   agents = new AgentManager(events, {
+    errorDiagnostics: () => {
+      const route = networkSettings.get().active;
+      return { network: { source: route.source, ...(route.httpsProxy ? { proxyUrl: route.httpsProxy } : {}) } };
+    },
+    onRunFailed: (error, scope) => app.log.warn({ agentError: error, ...scope }, "Agent model request failed"),
     ...(options.createSession ? {} : {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
@@ -754,6 +764,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
+    await networkSettings.load();
     await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
@@ -789,6 +800,30 @@ export function createApp(options: AppOptions = {}) {
       .header("cache-control", "no-cache")
       .send(await readFile(path.join(playerDirectory, file))));
   }
+
+  const networkSettingsSchema = {
+    body: {
+      type: "object", additionalProperties: false, required: ["mode", "proxyUrl", "noProxy"],
+      properties: {
+        mode: { type: "string", enum: ["auto", "manual", "direct"] },
+        proxyUrl: { type: "string", maxLength: 2_000 },
+        noProxy: { type: "string", maxLength: 4_000 },
+      },
+    },
+  };
+  app.get("/settings/network", async () => networkSettings.get());
+  app.put<{ Body: NetworkSettings }>("/settings/network", { schema: networkSettingsSchema }, async (request, reply) => {
+    try { return await networkSettings.update(request.body); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.post("/settings/network/detect", async (_request, reply) => {
+    try { return await networkSettings.detect(); }
+    catch { return reply.code(502).send({ error: "Could not detect the system proxy. Check your system network settings." }); }
+  });
+  app.post<{ Body: NetworkSettings }>("/settings/network/test", { schema: networkSettingsSchema }, async (request, reply) => {
+    try { return await networkSettings.test(request.body); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
 
   app.get("/settings/web-search", async () => webSearchSettings.get());
 
@@ -1216,6 +1251,13 @@ export function createApp(options: AppOptions = {}) {
         required: ["instruction"],
         properties: {
           instruction: { type: "string", minLength: 1, maxLength: 12_000 },
+          referenceSource: {
+            type: "object", additionalProperties: false, required: ["boardId", "nodeId"],
+            properties: {
+              boardId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" },
+              nodeId: { type: "string", minLength: 1, maxLength: 120 },
+            },
+          },
           reasoningLevel: { type: "string", enum: AGENT_REASONING_LEVELS },
           model: {
             type: "object",
@@ -1259,19 +1301,20 @@ export function createApp(options: AppOptions = {}) {
     }
     const reasoningLevel = effectiveReasoningLevel(model, request.body.reasoningLevel, defaultReasoningLevel(project.workspacePath, piAgentDirectory));
     try {
+      const references = request.body.referenceSource ? await resolveCanvasTextReferences(project.workspacePath, request.body.referenceSource, request.params.documentId) : [];
       if (document) {
-        const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel);
+        const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel, references);
         return { ...result, model: selected, revision: document.revision };
       }
       if (table) {
         const result = await generateDesignTable(runtime, model, table.table, request.body.instruction, reasoningLevel);
         return { ...result, model: selected, revision: table.revision };
       }
-      const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel);
+      const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel, references);
       if (!text) return reply.code(502).send({ error: "The language model returned no text" });
       return { text, model: selected };
     } catch (cause) {
-      return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      return reply.code(cause instanceof CanvasError ? cause.statusCode : 502).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   };
 

@@ -360,6 +360,12 @@ export interface AssetCanvasTextGenerationRequest {
   instruction: string;
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+  referenceSource?: AssetCanvasTextGenerationSource;
+}
+
+export interface AssetCanvasTextGenerationSource {
+  boardId: string;
+  nodeId: string;
 }
 
 export interface AssetCanvasTextGenerationResponse {
@@ -369,7 +375,7 @@ export interface AssetCanvasTextGenerationResponse {
 
 export type AssetCanvasNode = (
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
-  | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string } }
+  | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string; references?: AssetCanvasTextReference[] } }
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
     mediaType: "image" | "video" | "audio" | "model";
@@ -379,6 +385,7 @@ export type AssetCanvasNode = (
     instruction: string;
     model?: AgentModelRef;
     reasoningLevel?: AgentReasoningLevel;
+    references?: AssetCanvasTextReference[];
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;
@@ -458,11 +465,33 @@ export interface ConversationAgentState {
 export type ItemStatus = "preparing" | "inProgress" | "completed" | "cancelled" | "interrupted" | "failed";
 export type TurnStatus = Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "interrupted" | "failed">;
 
-export type ThreadItemErrorCode = "model_not_configured";
+export type ThreadItemErrorCode = "model_not_configured" | "authentication_failed" | "access_denied" |
+  "quota_exceeded" | "rate_limited" | "invalid_request" | "model_unavailable" | "provider_unavailable" |
+  "dns_error" | "connection_refused" | "connection_reset" | "timeout" | "tls_error" |
+  "stream_error" | "network_error";
+
+export interface AgentErrorCause {
+  name?: string;
+  message?: string;
+  code?: string;
+}
+
+export interface AgentErrorDiagnostics {
+  provider?: string;
+  model?: string;
+  endpoint?: string;
+  statusCode?: number;
+  requestId?: string;
+  errorCode?: string;
+  causes?: AgentErrorCause[];
+  network?: { source: "environment" | "system" | "manual" | "direct"; proxyUrl?: string };
+  retryAttempts?: number;
+}
 
 export interface ThreadItemError {
   message: string;
   code?: ThreadItemErrorCode;
+  diagnostics?: AgentErrorDiagnostics;
 }
 
 export interface PromptReference {
