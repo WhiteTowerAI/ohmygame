@@ -72,6 +72,7 @@
     "concurrently": "10.0.4",
     "electron": "43.3.0",
     "electron-builder": "26.15.3",
+    "happy-dom": "^20.14.6",
     "posthog-js": "^1.434.11",
     "prettier": "3.9.7",
     "react": "19.2.8",

@@ -1,5 +1,5 @@
-import { isValidElement, memo, useState, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import { isValidElement, memo, useMemo, useState, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Box, Check, Copy, FileCode2, FileText, Film, Image, Music2, type IconComponent } from "./icons.js";
 
@@ -31,27 +31,27 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
   onOpenWorkspaceFile?: (path: string) => void;
   renderImage?: (src: string | undefined, alt: string | undefined) => ReactNode;
 }) {
+  // Stable component types keep loaded images mounted when only Markdown text changes.
+  const components = useMemo<Components>(() => ({
+    ...(renderImage ? { img: ({ src, alt }: { src?: string; alt?: string }) => renderImage(src, alt) } : {}),
+    a: ({ href, children }) => {
+      const filePath = onOpenWorkspaceFile ? workspaceLinkPath(href, workspacePath) : undefined;
+      if (filePath) {
+        const iconKind = workspaceFileIconKind(filePath);
+        const FileIcon = FILE_ICON_COMPONENTS[iconKind];
+        return <a className="workspace-file-link" data-file-kind={iconKind} href={href} title={`Open ${filePath} in Code`} onClick={(event) => {
+          event.preventDefault();
+          onOpenWorkspaceFile?.(filePath);
+        }}><FileIcon size={13} aria-hidden="true" />{children}</a>;
+      }
+      return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+    },
+    pre: MarkdownCodeBlock,
+  }), [workspacePath, onOpenWorkspaceFile, renderImage]);
+
   return (
     <div className={`markdown-content${className ? ` ${className}` : ""}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          ...(renderImage ? { img: ({ src, alt }: { src?: string; alt?: string }) => renderImage(src, alt) } : {}),
-          a: ({ href, children }) => {
-            const filePath = onOpenWorkspaceFile ? workspaceLinkPath(href, workspacePath) : undefined;
-            if (filePath) {
-              const iconKind = workspaceFileIconKind(filePath);
-              const FileIcon = FILE_ICON_COMPONENTS[iconKind];
-              return <a className="workspace-file-link" data-file-kind={iconKind} href={href} title={`Open ${filePath} in Code`} onClick={(event) => {
-                event.preventDefault();
-                onOpenWorkspaceFile?.(filePath);
-              }}><FileIcon size={13} aria-hidden="true" />{children}</a>;
-            }
-            return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
-          },
-          pre: ({ children }) => <MarkdownCodeBlock>{children}</MarkdownCodeBlock>,
-        }}
-      >
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </ReactMarkdown>
     </div>
@@ -122,8 +122,9 @@ function pathWithinRoot(value: string, root: string): boolean {
 }
 
 function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
-  const [copied, setCopied] = useState(false);
+  const [copiedCode, setCopiedCode] = useState<string>();
   const code = nodeText(children).replace(/\n$/, "");
+  const copied = copiedCode === code;
   const language = isValidElement<{ className?: string }>(children)
     ? children.props.className?.match(/language-([^\s]+)/)?.[1]
     : undefined;
@@ -133,7 +134,7 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
       <div className="markdown-code-header">
         <span>{language ?? "Code"}</span>
         <button type="button" onClick={() => {
-          void navigator.clipboard.writeText(code).then(() => setCopied(true));
+          void navigator.clipboard.writeText(code).then(() => setCopiedCode(code));
         }}>
           {copied ? <Check size={12} /> : <Copy size={12} />}
           <span>{copied ? "Copied" : "Copy"}</span>
