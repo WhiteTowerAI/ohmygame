@@ -13,7 +13,7 @@ import { createCanvasBoardStorage, type CanvasBoardConflict, type CanvasBoardSto
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
-import { ExpandedCanvasDocument, type CanvasDocuments } from "./canvas-document-node.js";
+import type { CanvasDocuments } from "./canvas-document-node.js";
 import { Check, ChevronLeft, ChevronRight, Code2, House, Layers3, LoaderCircle, MoreHorizontal, PanelToggle, Pencil, Plus, Trash2, X } from "./icons.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { CanvasContextMenu } from "./editor-canvas.js";
@@ -50,7 +50,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const [selectedNodes, setSelectedNodes] = useState<AssetCanvasNode[]>([]);
   const [boardConflict, setBoardConflict] = useState<CanvasBoardConflict>();
   const [boardOptions, setBoardOptions] = useState<{ id: string; x: number; y: number }>();
-  const [documentId, setDocumentId] = useState<string>();
+  const [documentView, setDocumentView] = useState<{ id: string; nodeId?: string }>();
   const [dialog, setDialog] = useState<{ type: "create" | "rename" | "delete"; id?: string }>();
   const [name, setName] = useState("");
   const [insertion, setInsertion] = useState<{ documentId?: string; assetId?: string; text?: string }>();
@@ -107,9 +107,11 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const design: CanvasDocuments = {
     projectId: project.id, documents: workspace?.documents ?? [], documentIssues: workspace?.documentIssues,
     add: () => run(() => docsRef.current.create()),
-    update: docs.update, open: setDocumentId,
+    update: docs.update, open: (id, nodeId) => setDocumentView({ id, nodeId }), flush,
     generations: docs.generations, changeGeneration: docs.changeGeneration,
-    generate: (id, model, reasoningLevel) => { void docsRef.current.generate(id, model, reasoningLevel); }, applyGeneration: docs.applyGeneration,
+    generate: (id, model, reasoningLevel, referenceSource) => {
+      void docsRef.current.generate(id, model, reasoningLevel, referenceSource, () => boardSave.current?.() ?? Promise.resolve());
+    }, applyGeneration: docs.applyGeneration,
     setMain: singleBoard ? undefined : (id) => { void run(() => docsRef.current.setMain(id)); },
     insertImage: (id, assetId) => { void run(() => docsRef.current.insertImage(id, assetId)); },
     pickImage: (id) => {
@@ -124,7 +126,6 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
     appendText: (text) => setInsertion({ text, documentId: workspace?.mainDocumentId ?? workspace?.documents[0]?.id }),
   };
   const optionsBoard = workspace?.boards.find((board) => board.id === boardOptions?.id);
-  const expanded = workspace?.documents.find((doc) => doc.id === documentId);
   const hasDocumentDraft = workspace?.documentIssues?.some((issue) => workspace.documents.some((doc) => doc.id === issue.id));
   const tableConflicts = [...tableStorage.sessions.values()].flatMap((session) => session.conflict ? [session.conflict] : []);
   const hasTableDraft = [...tableStorage.sessions.values()].some((session) => session.issue && !Equal(session.local, session.base.table));
@@ -164,7 +165,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
       await resolve(version);
       setBoardConflict(undefined);
     })}>{version === "remote" ? "Use disk version" : "Keep my version"}</button>)}</div> : null}
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={singleBoard && workspaceView === "code"} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : singleBoard && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>Restore the workspace files, then reload.</span> : <LoaderCircle size={22} className="spin" />}</div>}
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={singleBoard && workspaceView === "code"} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : singleBoard && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>Restore the workspace files, then reload.</span> : <LoaderCircle size={22} className="spin" />}</div>}
     {singleBoard && workspaceView === "code" ? <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + codeRevision} openFileRequest={openFileRequest} /> : null}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={`Board options: ${optionsBoard.name}`} onClose={() => setBoardOptions(undefined)}>
       <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>Rename</span></button>
@@ -174,10 +175,6 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
     {expandedTable && tableStorage.sessions.get(expandedTable.id) && workspaceView !== "code" ? <div className="design-expanded-document canvas-expanded-table" role="dialog" aria-modal="true" aria-label="Expanded table">
       <ExpandedCanvasTable key={expandedTable.id} table={tableStorage.sessions.get(expandedTable.id)!.local} tables={tables} initialMode={expandedTable.mode} />
       <button className="design-expanded-close" type="button" title="Back to canvas" aria-label="Back to canvas" onClick={() => setExpandedTable(undefined)}><X size={16} /></button>
-    </div> : null}
-    {expanded && workspaceView !== "code" ? <div className="design-expanded-document" role="dialog" aria-modal="true" aria-label={expanded.title}>
-      <ExpandedCanvasDocument design={design} document={expanded} />
-      <button className="design-expanded-close" type="button" title="Back to canvas" aria-label="Back to canvas" disabled={busy} onClick={() => void run(async () => { await docsRef.current.flush(); setDocumentId(undefined); })}><X size={16} /></button>
     </div> : null}
     {dialog ? <DesignModal title={dialog.type === "create" ? "New board" : dialog.type === "rename" ? "Rename board" : "Delete board"} onClose={() => { if (!busy) setDialog(undefined); }}>
       <form onSubmit={(event) => { event.preventDefault(); void run(async () => {

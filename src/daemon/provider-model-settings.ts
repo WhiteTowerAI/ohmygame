@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { applyEdits, format, modify, parse, type JSONPath, type ParseError } from "jsonc-parser";
-import { CUSTOM_MODEL_APIS, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, type ModelRef, type ImageModel, type ProviderCapability } from "../shared/contracts.js";
+import { CUSTOM_MODEL_APIS, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, type ModelRef, type ImageModel, type ProviderCapability, type Model3DDefinition } from "../shared/contracts.js";
+import { isNative3DProvider, MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DProviderId } from "../shared/model3d-presets.js";
 import { modelUsageList, modelUsages, normalizeEndpoint, normalizeModelUsages } from "../shared/custom-models.js";
 import type { RuntimeModel } from "./agent.js";
 import { automaticCustomReasoning, normalizeThinkingLevelMap, resolveCustomModelCapabilities, type CustomModelCatalog } from "./custom-model-capabilities.js";
@@ -20,6 +21,7 @@ export class ProviderModelSettingsStore {
   #hidden: Record<string, string[]> = {};
   #disabled: string[] = [];
   #customProviders: CustomProviderRegistry = {};
+  #nativeModels3D: Partial<Record<Native3DProviderId, Model3DDefinition[]>> = {};
   #defaultImageModel?: ModelRef;
   #defaultVideoModel?: ModelRef;
   #defaultModel3D?: ModelRef;
@@ -33,13 +35,22 @@ export class ProviderModelSettingsStore {
   async load(): Promise<void> {
     const text = await readOptional(this.#preferencesPath);
     if (!text) return;
-    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; customProviders?: unknown; defaultImageModel?: unknown; defaultVideoModel?: unknown; defaultModel3D?: unknown };
+    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; customProviders?: unknown; nativeModels3D?: unknown; defaultImageModel?: unknown; defaultVideoModel?: unknown; defaultModel3D?: unknown };
     if (stored.version !== 1 || !isObject(stored.hidden) || Object.values(stored.hidden).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) throw new Error("Invalid model visibility settings");
     this.#hidden = stored.hidden as Record<string, string[]>;
     if (stored.disabled !== undefined && (!Array.isArray(stored.disabled) || stored.disabled.some((id) => typeof id !== "string"))) throw new Error("Invalid disabled providers");
     if (stored.customProviders !== undefined && (!isObject(stored.customProviders) || Object.values(stored.customProviders).some((item) => !isObject(item) || !["api_key", "none"].includes(String(item.authentication))))) throw new Error("Invalid custom providers");
     this.#disabled = (stored.disabled ?? []) as string[];
     this.#customProviders = (stored.customProviders ?? {}) as CustomProviderRegistry;
+    if (stored.nativeModels3D !== undefined) {
+      if (!isObject(stored.nativeModels3D)) throw new Error("Invalid native 3D models");
+      for (const [provider, entries] of Object.entries(stored.nativeModels3D)) {
+        if (!isNative3DProvider(provider) || !Array.isArray(entries) || entries.length > 2_000) throw new Error("Invalid native 3D models");
+        const models = entries.map((entry) => normalizeNativeModel3D(provider, entry, "restore"));
+        if (new Set(models.map((model) => model.id)).size !== models.length) throw new Error("Duplicate 3D model IDs");
+        this.#nativeModels3D[provider] = models;
+      }
+    }
     for (const provider of Object.values(this.#customProviders)) {
       if (provider.reasoningCapabilities === undefined) continue;
       if (!isObject(provider.reasoningCapabilities)) throw new Error("Invalid provider reasoning capabilities");
@@ -57,6 +68,38 @@ export class ProviderModelSettingsStore {
 
   isEnabled(provider: string): boolean { return !this.#disabled.includes(provider); }
   isCustom(provider: string): boolean { return Object.hasOwn(this.#customProviders, provider); }
+
+  models3D(provider: Native3DProviderId): Model3DDefinition[] {
+    return [...new Map([...MODEL_3D_PRESETS[provider], ...(this.#nativeModels3D[provider] ?? [])].map((model) => [model.id, model])).values()];
+  }
+
+  saveModel3D(provider: Native3DProviderId, value: unknown, create = false): Promise<void> {
+    const model = normalizeNativeModel3D(provider, value);
+    return this.#enqueue(async () => {
+      const exists = this.models3D(provider).some((entry) => entry.id === model.id);
+      if (create && exists) throw new Error("A model with this ID already exists");
+      if (!create && !exists) throw new Error("3D model not found");
+      const entries = this.#nativeModels3D[provider] ?? [];
+      if (create && entries.length >= 2_000) throw new Error("Provide up to 2,000 models");
+      const nativeModels3D = { ...this.#nativeModels3D, [provider]: [...entries.filter((entry) => entry.id !== model.id), model] };
+      const hidden = create ? { ...this.#hidden, [provider]: (this.#hidden[provider] ?? []).filter((id) => id !== model.id) } : this.#hidden;
+      await this.#writePreferences({ nativeModels3D, hidden });
+      this.#nativeModels3D = nativeModels3D;
+      this.#hidden = hidden;
+    });
+  }
+
+  removeModel3D(provider: Native3DProviderId, id: string, reset = false): Promise<void> {
+    return this.#enqueue(async () => {
+      const preset = model3DPreset(provider, id);
+      if (reset ? !preset : preset || !this.models3D(provider).some((model) => model.id === id)) throw new Error(reset ? "Official model not found" : "Only custom versions can be deleted");
+      const nativeModels3D = { ...this.#nativeModels3D, [provider]: (this.#nativeModels3D[provider] ?? []).filter((model) => model.id !== id) };
+      const hidden = reset ? this.#hidden : { ...this.#hidden, [provider]: (this.#hidden[provider] ?? []).filter((modelId) => modelId !== id) };
+      await this.#writePreferences({ nativeModels3D, hidden });
+      this.#nativeModels3D = nativeModels3D;
+      this.#hidden = hidden;
+    });
+  }
 
   resolveModel(model: RuntimeModel, catalog: CustomModelCatalog): RuntimeModel {
     return this.isCustom(model.provider) ? resolveCustomModelCapabilities(model, catalog, this.#customProviders[model.provider].reasoningCapabilities?.[model.id]) : model;
@@ -81,10 +124,10 @@ export class ProviderModelSettingsStore {
     return this.setDefaultMediaModel("image", model);
   }
 
-  setEnabled(provider: string, enabled: boolean): Promise<void> {
+  setEnabled(provider: string | readonly string[], enabled: boolean): Promise<void> {
     return this.#enqueue(async () => {
       const disabled = new Set(this.#disabled);
-      enabled ? disabled.delete(provider) : disabled.add(provider);
+      for (const id of typeof provider === "string" ? [provider] : provider) enabled ? disabled.delete(id) : disabled.add(id);
       await this.#writePreferences({ disabled: [...disabled] });
       this.#disabled = [...disabled];
     });
@@ -212,9 +255,11 @@ export class ProviderModelSettingsStore {
       const contents = isObject(config.providers) && Object.hasOwn(config.providers, id)
         ? modifyFormattedJsonc(text, ["providers", id], undefined) : text;
       const customProviders = { ...this.#customProviders };
+      const nativeModels3D = { ...this.#nativeModels3D };
       const hidden = { ...this.#hidden };
       delete customProviders[id];
       delete hidden[id];
+      if (isNative3DProvider(id)) delete nativeModels3D[id];
       const disabled = this.#disabled.filter((provider) => provider !== id);
       const defaultImageModel = this.#defaultImageModel?.provider === id ? undefined : this.#defaultImageModel;
       const defaultVideoModel = this.#defaultVideoModel?.provider === id ? undefined : this.#defaultVideoModel;
@@ -222,9 +267,10 @@ export class ProviderModelSettingsStore {
       const oldPreferences = this.#preferences();
       try {
         if (contents !== text) await writeAtomic(this.#modelsPath, contents);
-        await this.#writePreferences({ customProviders, hidden, disabled, defaultImageModel, defaultVideoModel, defaultModel3D });
+        await this.#writePreferences({ customProviders, nativeModels3D, hidden, disabled, defaultImageModel, defaultVideoModel, defaultModel3D });
         await apply();
         this.#customProviders = customProviders;
+        this.#nativeModels3D = nativeModels3D;
         this.#hidden = hidden;
         this.#disabled = disabled;
         this.#defaultImageModel = defaultImageModel;
@@ -239,7 +285,7 @@ export class ProviderModelSettingsStore {
   }
 
   #preferences(overrides: JsonObject = {}): string {
-    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, customProviders: this.#customProviders, defaultImageModel: this.#defaultImageModel, defaultVideoModel: this.#defaultVideoModel, defaultModel3D: this.#defaultModel3D, ...overrides }, null, 2)}\n`;
+    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, customProviders: this.#customProviders, nativeModels3D: this.#nativeModels3D, defaultImageModel: this.#defaultImageModel, defaultVideoModel: this.#defaultVideoModel, defaultModel3D: this.#defaultModel3D, ...overrides }, null, 2)}\n`;
   }
 
   #writePreferences(overrides: JsonObject): Promise<void> {
@@ -359,7 +405,7 @@ export function normalizeCustomProvider(value: unknown, catalog: CustomModelCata
   if (!CUSTOM_MODEL_APIS.some((known) => known === api)) throw new Error("Unsupported provider API");
   const baseUrl = normalizeEndpoint(value.baseUrl);
   if (value.authentication !== "api_key" && value.authentication !== "none") throw new Error("Invalid authentication method");
-  if (value.preset !== undefined && !["gateway", "ollama", "lmstudio", "google", "openrouter", "seedance", "meshy", "tripo"].includes(String(value.preset))) throw new Error("Invalid provider preset");
+  if (value.preset !== undefined && !["gateway", "ollama", "lmstudio", "google", "openrouter", "seedance", "meshy", "tripo", "hyper3d"].includes(String(value.preset))) throw new Error("Invalid provider preset");
   if (value.modelConfigurationVersion !== undefined && value.modelConfigurationVersion !== 2) throw new Error("Unsupported model configuration version");
   const apiKey = typeof value.apiKey === "string" ? value.apiKey.trim() : undefined;
   if (apiKey && /[^\x20-\x7e]/.test(apiKey)) throw new Error("API key must contain printable ASCII characters");
@@ -388,20 +434,23 @@ export function normalizeCustomProviderModel(value: unknown, defaultApi: string,
   if (!id || id.length > 200 || /[\s\x00-\x1f]/.test(id) || !name || name.length > 200) throw new Error("Model ID and name are required (up to 200 characters)");
   const api = typeof value.api === "string" ? value.api : defaultApi;
   if (api !== defaultApi && !CUSTOM_MODEL_APIS.some((known) => known === api)) throw new Error("Unsupported model API");
-  const contextWindow = value.contextWindow;
-  const maxTokens = value.maxTokens;
-  if (typeof contextWindow !== "number" || !Number.isSafeInteger(contextWindow) || contextWindow < 1 || contextWindow > 100_000_000 || typeof maxTokens !== "number" || !Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > contextWindow) throw new Error("Token limits must be positive integers, with output tokens no greater than context size");
-  if (typeof value.reasoning !== "boolean" || typeof value.supportsImages !== "boolean") throw new Error("Invalid model capabilities");
-  const thinkingLevelMap = normalizeThinkingLevelMap(value.thinkingLevelMap);
   const usages = normalizeModelUsages(value.usages);
-  const detected = value.reasoningCapabilities;
+  const language = usages === undefined || Boolean(usages.language);
+  const contextWindow = language ? value.contextWindow : typeof value.contextWindow === "number" && Number.isSafeInteger(value.contextWindow) && value.contextWindow > 0 && value.contextWindow <= 100_000_000 ? value.contextWindow : 128_000;
+  const maxTokens = language ? value.maxTokens : typeof value.maxTokens === "number" && Number.isSafeInteger(value.maxTokens) && value.maxTokens > 0 && value.maxTokens <= Number(contextWindow) ? value.maxTokens : Math.min(16_384, Number(contextWindow));
+  if (typeof contextWindow !== "number" || !Number.isSafeInteger(contextWindow) || contextWindow < 1 || contextWindow > 100_000_000 || typeof maxTokens !== "number" || !Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > contextWindow) throw new Error("Token limits must be positive integers, with output tokens no greater than context size");
+  if (language && (typeof value.reasoning !== "boolean" || typeof value.supportsImages !== "boolean")) throw new Error("Invalid model capabilities");
+  const reasoning = value.reasoning === true;
+  const supportsImages = value.supportsImages === true;
+  const thinkingLevelMap = normalizeThinkingLevelMap(value.thinkingLevelMap);
+  const detected = language ? value.reasoningCapabilities : undefined;
   if (detected !== undefined && (!isObject(detected) || !["provider", "catalog"].includes(String(detected.source)) || detected.thinkingLevelMap === undefined)) throw new Error("Invalid reasoning capabilities");
   const reported = isObject(detected) && detected.source === "provider" ? normalizeThinkingLevelMap(detected.thinkingLevelMap) : undefined;
-  const reasoningCapabilities = automaticCustomReasoning(id, api, catalog, reported);
-  if (!supportedReasoningLevels({ reasoning: value.reasoning, thinkingLevelMap: { ...reasoningCapabilities?.thinkingLevelMap, ...thinkingLevelMap } }).length) throw new Error("Enable at least one reasoning level");
+  const reasoningCapabilities = language ? automaticCustomReasoning(id, api, catalog, reported) : undefined;
+  if (!supportedReasoningLevels({ reasoning, thinkingLevelMap: { ...reasoningCapabilities?.thinkingLevelMap, ...thinkingLevelMap } }).length) throw new Error("Enable at least one reasoning level");
   const baseUrl = typeof value.baseUrl === "string" && value.baseUrl.trim() ? normalizeEndpoint(value.baseUrl) : undefined;
   if (!baseUrl && !defaultBaseUrl) throw new Error("Model Base URL is required for this provider");
-  return { id, name, api, ...(baseUrl ? { baseUrl } : {}), contextWindow, maxTokens, reasoning: value.reasoning, ...(thinkingLevelMap ? { thinkingLevelMap } : {}), ...(reasoningCapabilities ? { reasoningCapabilities } : {}), supportsImages: value.supportsImages, ...(usages ? { usages } : {}) };
+  return { id, name, api, ...(baseUrl ? { baseUrl } : {}), contextWindow, maxTokens, reasoning, ...(thinkingLevelMap ? { thinkingLevelMap } : {}), ...(reasoningCapabilities ? { reasoningCapabilities } : {}), supportsImages, ...(usages ? { usages } : {}) };
 }
 
 function customProviderNameKey(name: string): string { return name.trim().toLowerCase(); }

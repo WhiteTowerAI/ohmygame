@@ -77,4 +77,22 @@ describe("project process environment", () => {
     expect(projectProcessEnvironment(environment)).toEqual({ PATH: "/runtime/bin", HTTPS_PROXY: "http://localhost:8080" });
     expect(environment.ESBUILD_BINARY_PATH).toBe("/app/esbuild");
   });
+
+  it("removes the daemon's own settings and keeps everything else", () => {
+    const environment = {
+      OHMYGAME_DAEMON_TOKEN: "secret",
+      OHMYGAME_DATA_DIR: "/data",
+      OHMYGAME_ALLOWED_ORIGINS: "app://ohmygame",
+      ohmygame_daemon_token: "stale-secret",
+      OhMyGame_Daemon_Token_Stdin: "1",
+      DAEMON_HOST: "127.0.0.1",
+      DAEMON_PORT: "43110",
+      Daemon_Port: "43111",
+      PATH: "/runtime/bin",
+      HOME: "/home/player",
+      MY_OHMYGAME_LEVEL: "3",
+    };
+    expect(projectProcessEnvironment(environment)).toEqual({ PATH: "/runtime/bin", HOME: "/home/player", MY_OHMYGAME_LEVEL: "3" });
+    expect(environment.OHMYGAME_DAEMON_TOKEN).toBe("secret");
+  });
 });

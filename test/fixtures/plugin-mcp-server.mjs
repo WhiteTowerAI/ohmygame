@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline";
 import { writeFileSync } from "node:fs";
 if (process.argv[2]) writeFileSync(process.argv[2], String(process.pid));
+// A server the daemon starts must not be able to call the daemon as the app.
+if (process.env.OHMYGAME_DAEMON_TOKEN) throw new Error("The daemon access token reached an MCP server");
 const input = createInterface({ input: process.stdin });
 input.on("line", (line) => {
   const message = JSON.parse(line);

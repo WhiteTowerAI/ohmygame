@@ -8,7 +8,11 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, sess
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
 import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
-import { applySystemProxy } from "./system-proxy.js";
+import { setGlobalDispatcher } from "undici/index.js";
+import { SYSTEM_PROXY_TARGET } from "../shared/network-settings.js";
+import { createNetworkDispatcher } from "../daemon/proxy.js";
+import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
+import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdater } from "./updater.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
@@ -19,6 +23,7 @@ import type { WebGamePlayerRequest } from "../shared/web-game-player.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
+loadEnvironmentFiles(repositoryRoot, app.isPackaged ? "production" : "development");
 const developmentRendererUrl = process.env.OHMYGAME_RENDERER_URL ?? "http://127.0.0.1:43120";
 const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-renderer");
 let daemon: ManagedDaemon | undefined;
@@ -304,6 +309,12 @@ handle("ohmygame:update-state", () => updater?.state() ?? null);
 handle("ohmygame:check-for-update", () => updater?.check());
 handle("ohmygame:download-update", () => updater?.download());
 handle("ohmygame:install-update", () => updater?.install());
+handle("ohmygame:restart-app", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid restart source");
+  if (quitting) return;
+  app.relaunch();
+  app.quit();
+});
 
 // On macOS, closing the last window keeps the app and its services running
 // until Quit, and clicking the Dock icon opens the main window again.
@@ -328,9 +339,32 @@ try {
   await app.whenReady();
   nativeTheme.themeSource = "system";
   const rendererOrigin = useBuiltRenderer ? "null" : new URL(developmentRendererUrl).origin;
+  const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(app.getPath("userData"), "data");
+  const systemProxySession = session.fromPartition("ohmygame-system-proxy", { cache: false });
+  await systemProxySession.setProxy({ mode: "system" });
+  const network = await prepareDesktopNetwork({
+    dataDirectory,
+    environment: app.isPackaged ? await packagedEnvironment() : { ...process.env },
+    resolveProxy: (url) => systemProxySession.resolveProxy(url),
+  });
+  // Main uses the same local bypasses; preserve the original environment for daemon policy resolution.
+  setGlobalDispatcher(createNetworkDispatcher(network.active));
+  const proxyConfig = electronProxyConfig(network.active);
+  const startupSessions = [session.defaultSession, session.fromPartition("electron-updater", { cache: false })];
+  app.on("login", (event, _contents, _request, authInfo, callback) => {
+    if (!authInfo.isProxy) return;
+    const credentials = proxyCredentials(network.active, authInfo.host, authInfo.port);
+    if (!credentials) return;
+    event.preventDefault();
+    callback(credentials.username, credentials.password);
+  });
+  app.on("session-created", (createdSession) => {
+    void createdSession.setProxy(proxyConfig).catch((error) => console.warn("Could not configure session proxy", error));
+  });
+  await Promise.all(startupSessions.map((startupSession) => startupSession.setProxy(proxyConfig)));
   daemon = await startDaemon({
     daemonEntry: path.join(moduleDirectory, "../daemon/server.js"),
-    dataDirectory: process.env.OHMYGAME_DATA_DIR ?? path.join(app.getPath("userData"), "data"),
+    dataDirectory,
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
     piAgentDirectory: process.env.PI_CODING_AGENT_DIR ?? path.join(app.getPath("userData"), "pi-agent"),
@@ -349,7 +383,12 @@ try {
         ? path.join(process.resourcesPath, "runtime", "node")
         : path.join(process.resourcesPath, "runtime", "node", "bin")
       : undefined,
-    environment: app.isPackaged ? await packagedEnvironment() : undefined,
+    environment: network.environment,
+    resolveSystemProxy: async () => {
+      // A separate system-configured session keeps detection independent of a manual app proxy.
+      await systemProxySession.forceReloadProxyConfig();
+      return systemProxySession.resolveProxy(SYSTEM_PROXY_TARGET);
+    },
     development: !useBuiltRenderer,
     healthTimeoutMs: 60_000,
     handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
@@ -400,11 +439,6 @@ async function packagedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const environment = { ...process.env };
   // esbuild spawns a native binary, which cannot run from inside app.asar.
   environment.ESBUILD_BINARY_PATH ??= packagedEsbuildBinary();
-  try {
-    await applySystemProxy(environment, (url) => session.defaultSession.resolveProxy(url));
-  } catch (error) {
-    console.warn("Could not resolve the system proxy", error);
-  }
   if (!environment.CLOUD_API_URL && !environment.PUBLISH_API_URL) {
     const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
       cloudApiUrl?: unknown;

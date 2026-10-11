@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
 import type { Generated3DModel, Model3DAnimationAction, Model3DAnimationInput, Model3DGenerationInput, Model3DGenerator } from "./model3d.js";
-import { Model3DGenerationError } from "./model3d.js";
+import { Model3DGenerationError, readModel3DResult } from "./model3d.js";
 import { mergeAnimationClips } from "./merge-animations.js";
 import { ANIMATION_ACTIONS_PER_REQUEST, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
 import type { CustomModel3DSettings } from "../shared/contracts.js";
+import { model3DPreset } from "../shared/model3d-presets.js";
 
 // Image to 3D lives under v1; v2 only serves text-to-3D and answers this path with 404 "Not found".
 const BASE_URL = "https://api.meshy.ai/openapi/v1";
 const POLL_INTERVAL_MS = 2_000;
 const MAX_WAIT_MS = 15 * 60_000;
-const MAX_GLB_BYTES = 100 * 1024 * 1024;
 /** Consecutive status polls that may fail to connect before the job gives up; one dropped request should not lose a paid task. */
 const MAX_POLL_NETWORK_FAILURES = 3;
 
@@ -25,8 +25,8 @@ export class MeshyProvider implements Model3DGenerator {
     private readonly connection?: { baseUrl: string; headers?: Record<string, string>; authentication?: "api_key" | "none"; settings?: CustomModel3DSettings },
   ) {}
 
-  async generate(input: Model3DGenerationInput, signal?: AbortSignal): Promise<Generated3DModel> {
-    const meshy = meshyTask(input, this.connection?.settings);
+  async generate(input: Model3DGenerationInput, signal?: AbortSignal, settings?: CustomModel3DSettings): Promise<Generated3DModel> {
+    const meshy = meshyTask(input, settings ?? this.connection?.settings ?? model3DPreset(input.model.provider, input.model.id)?.settings);
     return this.#session(signal, "Meshy generation timed out", async (apiKey, requestSignal) => {
       const { taskId, task } = await this.#runTask(apiKey, meshy.endpoint, meshy.body, requestSignal, "Meshy generation request failed");
       return { bytes: await this.#downloadGlb(record(task.model_urls).glb, requestSignal), mediaType: "model/gltf-binary", requestId: taskId };
@@ -155,9 +155,7 @@ export class MeshyProvider implements Model3DGenerator {
     if (!httpUrl(url)) throw new Model3DGenerationError("Meshy task completed without a GLB artifact");
     const content = await this.request(url, { signal });
     if (!content.ok) throw new Model3DGenerationError(`Meshy GLB download failed (${content.status})`, content.status);
-    const bytes = Buffer.from(await content.arrayBuffer());
-    if (bytes.length > MAX_GLB_BYTES) throw new Model3DGenerationError("Meshy GLB output is too large", 413);
-    return bytes;
+    return readModel3DResult(content);
   }
 
   private async json(url: string, init: RequestInit, apiKey: string, message: string): Promise<Record<string, unknown>> {
@@ -194,37 +192,22 @@ function networkErrorDetail(cause: unknown): string {
 
 /** Meshy runs T2 and 7.1 on different endpoints with different polycount controls. */
 function meshyTask(input: Model3DGenerationInput, settings?: CustomModel3DSettings): { endpoint: string; body: Record<string, unknown> } {
-  const texture = {
-    should_texture: input.texture ?? true,
-    enable_pbr: input.texture === false ? false : input.pbr ?? false,
-  };
+  if (!settings || settings.protocol !== "meshy") throw new Model3DGenerationError(`Meshy does not offer ${input.model.provider}/${input.model.id}`, 400);
   const images = input.images.map((image) => `data:${image.mediaType};base64,${image.data}`);
-  if (settings) {
-    if (images.length < 1 || images.length > settings.maxReferenceImages) throw new Model3DGenerationError(`Provide 1 to ${settings.maxReferenceImages} reference images`, 400);
-    return { endpoint: settings.operation, body: {
-      ...(settings.operation === "image-to-3d" ? { image_url: images[0] } : { image_urls: images }),
-      ai_model: input.model.id, ...texture, target_polycount: input.targetPolycount ?? settings.polycount.default,
-      ...(settings.modelType === "smart-topology" ? { model_type: "smart-topology" } : { should_remesh: true, topology: "triangle" }),
-    } };
+  if (images.length < 1 || images.length > settings.maxReferenceImages) {
+    const name = model3DPreset(input.model.provider, input.model.id)?.name ?? input.model.id;
+    throw new Model3DGenerationError(settings.maxReferenceImages === 1 ? `${name} requires exactly one reference image` : `${name} takes 1 to ${settings.maxReferenceImages} reference images`, 400);
   }
-  if (input.model.provider === "meshy" && input.model.id === "meshy-t2") {
-    if (images.length !== 1) throw new Model3DGenerationError("Meshy T2 requires exactly one reference image", 400);
-    return {
-      endpoint: "image-to-3d",
-      // Smart Topology generates straight at the target face count, so no remesh pass is involved.
-      body: { image_url: images[0], model_type: "smart-topology", ai_model: "meshy-t2", ...texture, target_polycount: input.targetPolycount ?? 4_000 },
-    };
-  }
-  if (input.model.provider === "meshy" && input.model.id === "meshy-7.1") {
-    if (images.length < 1 || images.length > 4) throw new Model3DGenerationError("Meshy 7.1 takes 1 to 4 reference images", 400);
-    return {
-      // The multi-image endpoint accepts a single view too, so one endpoint covers 7.1; the first image is the front.
-      endpoint: "multi-image-to-3d",
-      // Standard models only honour target_polycount through the remesh pass.
-      body: { image_urls: images, ai_model: "meshy-7.1", ...texture, should_remesh: true, topology: "triangle", target_polycount: input.targetPolycount ?? 30_000 },
-    };
-  }
-  throw new Model3DGenerationError(`Meshy does not offer ${input.model.provider}/${input.model.id}`, 400);
+  const polycount = input.targetPolycount ?? settings.polycount.default;
+  if (!Number.isInteger(polycount) || polycount < settings.polycount.min || polycount > settings.polycount.max) throw new Model3DGenerationError(`Meshy face count must be between ${settings.polycount.min} and ${settings.polycount.max}`, 400);
+  const texture = input.texture ?? settings.defaults?.texture ?? settings.supportsTexture;
+  const pbr = texture && (input.pbr ?? settings.defaults?.pbr ?? false);
+  if (texture && !settings.supportsTexture || pbr && !settings.supportsPbr) throw new Model3DGenerationError("The selected 3D model does not support these texture options", 400);
+  return { endpoint: settings.operation, body: {
+    ...(settings.operation === "image-to-3d" ? { image_url: images[0] } : { image_urls: images }),
+    ai_model: input.model.id, should_texture: texture, enable_pbr: pbr, target_polycount: polycount,
+    ...(settings.modelType === "smart-topology" ? { model_type: "smart-topology" } : { should_remesh: true, topology: "triangle" }),
+  } };
 }
 
 function chunks<T>(values: T[], size: number): T[][] {
