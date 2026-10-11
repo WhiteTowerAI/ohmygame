@@ -172,6 +172,7 @@ function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables):
 type AssetCanvasFlowData = {
   resizeRuntime?: CanvasNodeResizeRuntime;
   nodeDetails?: CanvasNodeDetails;
+  panelOpen?: boolean;
   tableId?: string;
   tableRuntime?: TableNodeRuntime;
   documentId?: string;
@@ -338,6 +339,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [selectedAssetEdgeId, setSelectedAssetEdgeId] = useState<string>();
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState>();
   const [expandedTextId, setExpandedTextId] = useState<string>();
+  // A marquee arranges nodes; explicitly activating a node opens its panel.
+  const [marqueeActive, setMarqueeActive] = useState(false);
+  const [marqueeSelectedIds, setMarqueeSelectedIds] = useState<ReadonlySet<string>>(() => new Set());
   const [copiedSelection, setCopiedSelection] = useState(lastCanvasClipboard);
   const canvasElement = useRef<HTMLDivElement>(null);
   const flowInstance = useRef<ReactFlowInstance<AssetCanvasFlowNode, Edge>>(null);
@@ -409,7 +413,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const historyTimer = useRef<number | undefined>(undefined);
   const historyGestureBase = useRef<AssetCanvasDocument | undefined>(undefined);
   const [, setHistoryRevision] = useState(0);
-  const selection = JSON.stringify(nodes.filter((node) => node.selected).map((node) => toAssetCanvasNode(node, model3DModels)));
+  const selectedNodes = nodes.filter((node) => node.selected);
+  const selectedNodeIdsJson = JSON.stringify(selectedNodes.map((node) => node.id));
+  const selection = JSON.stringify(selectedNodes.map((node) => toAssetCanvasNode(node, model3DModels)));
   useEffect(() => { onSelectionChange?.(JSON.parse(selection) as AssetCanvasNode[]); }, [selection, onSelectionChange]);
 
   useEffect(() => {
@@ -737,6 +743,14 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   }, [storage, onStatusChange]);
 
   const nodesRef = useRef(nodes); nodesRef.current = nodes;
+  useEffect(() => {
+    const selected = new Set<string>(JSON.parse(selectedNodeIdsJson));
+    setMarqueeSelectedIds((current) => {
+      if (!current.size) return current;
+      const next = new Set([...current].filter((id) => selected.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [selectedNodeIdsJson]);
   const imageModelsRef = useRef(imageModels); imageModelsRef.current = imageModels;
   const videoModelsRef = useRef(videoModels); videoModelsRef.current = videoModels;
   function reconcileCanvas(submitted: AssetCanvasDocument, saved: AssetCanvasDocument) {
@@ -1102,6 +1116,17 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setNodes((current) => current.map((node) => node.selected ? { ...node, selected: false } : node));
   }
 
+  function activateNode(nodeId: string): void {
+    setCanvasContextMenu(undefined);
+    setSelectedAssetEdgeId(undefined);
+    setMarqueeSelectedIds((current) => {
+      if (!current.has(nodeId)) return current;
+      const next = new Set(current);
+      next.delete(nodeId);
+      return next;
+    });
+  }
+
   async function generateTextNode(node: AssetCanvasFlowNode, model: AgentModelRef, reasoningLevel: AgentReasoningLevel): Promise<void> {
     if (node.type !== "text" || generatingTextNodeId) return;
     const instruction = node.data.instruction?.trim();
@@ -1264,7 +1289,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         start: beginHistoryGesture, end: finishHistoryGesture,
         reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id) return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
         ...(original.type === "text" ? { open: () => setExpandedTextId(original.id) } : {}),
-      } } : {}), nodeDetails: {
+      } } : {}), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
       title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original, model3DModels), documents.documents, libraryAssets, tableContents), description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: original.title ?? "", description: original.description ?? "" }),
     } } };
@@ -1447,11 +1472,16 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         <button type="button" className="design-expanded-close" title="Back to canvas" aria-label="Back to canvas" onClick={() => setExpandedTextId(undefined)}><X size={16} /></button>
       </div> : null}
       <div className="interactive-story-body">
-        <div ref={canvasElement} tabIndex={0} inert={resolving || undefined} aria-busy={resolving || undefined} className={`interactive-story-canvas${fileDropActive ? " is-file-drop-active" : ""}`} onPointerMoveCapture={(event) => { pointer.current = { x: event.clientX, y: event.clientY }; }}
+        <div ref={canvasElement} tabIndex={0} inert={resolving || undefined} aria-busy={resolving || undefined} className={`interactive-story-canvas${selectedNodes.length === 1 ? " has-single-selection" : ""}${fileDropActive ? " is-file-drop-active" : ""}`} onPointerMoveCapture={(event) => { pointer.current = { x: event.clientX, y: event.clientY }; }}
           onPointerDownCapture={(event) => { if (!isTextEntry(event.target) && !eventWithin(event, "button, a, .nokey")) event.currentTarget.focus({ preventScroll: true }); }}
           onCopy={copySelection} onCut={(event) => copySelection(event, true)} onPaste={pasteFromClipboard}
           onKeyDown={(event) => {
             if (phase !== "ready" || isTextEntry(event.target) || eventWithin(event, ".nokey")) return;
+            // React Flow's keyboard activation does not emit onNodeClick.
+            if ((event.key === "Enter" || event.key === " ") && event.target instanceof HTMLElement && event.target.matches(".react-flow__node")) {
+              const nodeId = event.target.dataset.id;
+              if (nodeId) activateNode(nodeId);
+            }
             pasteNativeFiles(event, (files) => { void importCanvasFiles(files, transferPosition()); }, (cause) => setTransferError(errorMessage(cause)));
           }}
           onDragEnter={(event) => { if (!hasTransferredFiles(event.dataTransfer)) return; event.preventDefault(); dragDepth.current++; setFileDropActive(true); }}
@@ -1493,16 +1523,20 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               onConnect={onConnect}
               onMoveEnd={(_event, viewport) => setEditorLayout((current) => ({ ...current, viewport }))}
               onEdgeClick={(_event, edge) => setSelectedAssetEdgeId(edge.id.startsWith(ASSET_EDGE_PREFIX) ? edge.id : undefined)}
+              onSelectionStart={() => setMarqueeActive(true)}
+              onSelectionEnd={() => {
+                setMarqueeActive(false);
+                setMarqueeSelectedIds(new Set(nodesRef.current.filter((node) => node.selected).map((node) => node.id)));
+              }}
               onNodeClick={(event, node) => {
-                setCanvasContextMenu(undefined);
-                setSelectedAssetEdgeId(undefined);
+                activateNode(node.id);
                 if (eventWithin(event, ".story-media-view-button")) openViewer(node);
               }}
               // Only the preview opens the viewer; the prompt, chips, and video controls below keep their own double-click.
               onNodeDoubleClick={(event, node) => { if (eventWithin(event, ".story-media-stage")) openViewer(node); }}
               onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
               onNodeContextMenu={(_event, node) => {
-                setSelectedAssetEdgeId(undefined);
+                activateNode(node.id);
                 setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
               }}
               onNodesDelete={(deleted) => {
@@ -1603,7 +1637,7 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
         />
         <footer className={`design-document-node-footer nodrag nowheel${selected ? "" : " is-hidden"}`}><span /><div className="design-document-node-actions"><CanvasNodeSizeActions runtime={data.resizeRuntime} /></div></footer>
       </div>
-      {selected ? (
+      {data.panelOpen ? (
         <div className="canvas-node-auxiliary">
         <CanvasTextComposer models={runtime?.models ?? []} modelStatus={runtime?.modelStatus ?? "loading"} defaultModel={runtime?.defaultModel} defaultReasoningLevel={runtime?.defaultReasoningLevel}
           references={runtime ? <CanvasNodeReferenceStrip {...runtime} /> : null}
@@ -1645,7 +1679,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   }
 
   return (
-    <MediaNodeShell kind="image" selected={selected} assetId={data.assetId} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails}>
       <MediaReferenceStrip runtime={runtime} />
       <MediaPrompt
         kind="image"
@@ -1728,7 +1762,7 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   }
 
   return (
-    <MediaNodeShell kind="video" selected={selected} assetId={data.assetId} aspectRatio={data.videoAspectRatio} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="video" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} aspectRatio={data.videoAspectRatio} runtime={runtime} details={data.nodeDetails}>
       <MediaReferenceStrip runtime={runtime ? { ...runtime, slotLabels: mode === "frame" ? ["First frame", "Last frame"] : mentionOptions.map((option) => `@${option.alias}`) } : undefined} />
       <VideoReferencePrompt
         value={data.prompt ?? ""}
@@ -1806,6 +1840,7 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
     <MediaNodeShell
       kind="model"
       selected={selected}
+      panelOpen={data.panelOpen}
       assetId={data.assetId}
       runtime={runtime}
       details={data.nodeDetails}
@@ -1876,7 +1911,7 @@ function Animate3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, 
   const heights = CHARACTER_HEIGHTS.includes(height) ? CHARACTER_HEIGHTS : [...CHARACTER_HEIGHTS, height].sort((a, b) => a - b);
   const update = (next: Partial<AssetCanvasFlowData>) => runtime?.onChange({ ...data, animateRuntime: undefined, ...next });
   return (
-    <MediaNodeShell kind="animation" selected={selected} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
+    <MediaNodeShell kind="animation" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
       <MediaReferenceStrip runtime={runtime} large />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
@@ -2080,9 +2115,10 @@ function TextReferenceThumbnail({ runtime }: { runtime: MediaNodeRuntime }) {
   );
 }
 
-function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, details, children }: {
+function MediaNodeShell({ kind, selected, panelOpen, assetId, aspectRatio, runtime, details, children }: {
   kind: "image" | "video" | "model" | "animation";
   selected: boolean;
+  panelOpen?: boolean;
   assetId?: string;
   aspectRatio?: ImageAspectRatio | VideoAspectRatio;
   runtime?: MediaNodeRuntime;
@@ -2121,7 +2157,7 @@ function MediaNodeShell({ kind, selected, assetId, aspectRatio, runtime, details
       </div>
       <Handle className="story-media-input-handle" type="target" position={Position.Left} />
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
-      {selected ? <div className="story-media-composer nodrag nowheel">{children}</div> : null}
+      {panelOpen ? <div className="canvas-node-auxiliary"><div className="story-media-composer nodrag nowheel">{children}</div></div> : null}
     </div>
   );
 }

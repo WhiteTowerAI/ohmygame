@@ -8392,6 +8392,24 @@ button {
   cursor: grabbing;
 }
 
+.story-canvas .react-flow__node.draggable {
+  cursor: default;
+}
+
+.story-canvas .react-flow__node.draggable.dragging {
+  cursor: grabbing;
+}
+
+/* A single marquee node stays clickable; the overlay is for moving groups. */
+.interactive-story-canvas.has-single-selection .react-flow__nodesselection {
+  display: none;
+}
+
+.story-canvas .react-flow__nodesselection-rect:active,
+.story-canvas:has(.react-flow__node.dragging) .react-flow__nodesselection-rect {
+  cursor: grabbing;
+}
+
 .story-canvas-zoom {
   display: flex;
   -webkit-user-select: none;
