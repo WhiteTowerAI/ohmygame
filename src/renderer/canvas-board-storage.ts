@@ -5,6 +5,7 @@ import { cancelCanvasJob, generateCanvasMedia, getCanvasBoard, listCanvasJobs, s
 
 export interface CanvasBoardStorage {
   key: string;
+  boardId: string;
   load(): Promise<AssetCanvasDocument>;
   save(canvas: AssetCanvasDocument): Promise<AssetCanvasDocument>;
   refresh(canvas: AssetCanvasDocument): Promise<AssetCanvasDocument | undefined>;
@@ -60,6 +61,7 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
   };
   return {
     key: `${projectId}:${boardId}`,
+    boardId,
     load: () => {
       // Strict Mode and repeated renders must share one initialized storage session.
       loading ??= (async () => {

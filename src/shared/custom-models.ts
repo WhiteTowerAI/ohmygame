@@ -2,8 +2,9 @@ import {
   IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS,
   type CustomImageModelSettings, type CustomModel3DSettings, type CustomModelUsages, type CustomProviderModel,
   type CustomProviderSettings, type CustomVideoModelSettings, type ImageModel, type ImageProtocol,
-  type Model3DModel, type ProviderCapability, type VideoModel, type VideoProtocol,
+  type Model3DDefinition, type Model3DModel, type ProviderCapability, type VideoModel, type VideoProtocol,
 } from "./contracts.js";
+import { hyper3DCredits } from "./cloud-models.js";
 
 export const MODEL_USAGE_LABELS: Record<ProviderCapability, string> = { language: "Language", image: "Image", video: "Video", "3d": "3D" };
 export const IMAGE_PROTOCOL_LABELS: Record<ImageProtocol, string> = {
@@ -26,6 +27,8 @@ export function defaultVideoSettings(protocol: VideoProtocol = "openrouter-video
   return { protocol, resolutions: ["720p"], aspectRatios: ["16:9", "9:16", "1:1"], durations: [6], maxReferenceImages: 1, referenceModes: ["reference"] };
 }
 export function defaultModel3DSettings(modelType: CustomModel3DSettings["modelType"] = "standard", protocol: CustomModel3DSettings["protocol"] = "meshy"): CustomModel3DSettings {
+  if (protocol === "hyper3d") return { protocol, operation: "multi-image-to-3d", modelType: "standard", maxReferenceImages: 5,
+    polycount: { min: 500, max: 1_000_000, default: 4_000, presets: [1_000, 4_000, 10_000, 20_000, 100_000] }, supportsTexture: true, supportsPbr: true };
   if (protocol === "tripo") return { protocol, operation: "multi-image-to-3d", modelType: "standard", maxReferenceImages: 4,
     polycount: { min: 100, max: 20_000, default: 4_000, presets: [1_000, 4_000, 10_000, 20_000] }, supportsTexture: true, supportsPbr: true };
   if (modelType === "smart-topology") return { protocol: "meshy", operation: "image-to-3d", modelType, maxReferenceImages: 1,
@@ -49,9 +52,15 @@ export function customVideoModel(provider: CustomProviderSettings, model: Custom
 }
 export function customModel3D(provider: CustomProviderSettings, model: CustomProviderModel): Model3DModel | undefined {
   const config = model.usages?.["3d"];
-  return config ? { provider: provider.id, providerName: provider.name, id: model.id, name: model.name,
+  return config ? model3DModel(provider.id, provider.name, { id: model.id, name: model.name, settings: config }) : undefined;
+}
+export function model3DModel(provider: string, providerName: string, model: Model3DDefinition): Model3DModel {
+  const config = model.settings;
+  return { provider, providerName, id: model.id, name: model.name,
     ...(config.protocol === "tripo" ? { referenceImageLabels: ["Front", "Left", "Back", "Right"] } : {}),
-    maxReferenceImages: config.maxReferenceImages, polycount: config.polycount, supportsTexture: config.supportsTexture, supportsPbr: config.supportsPbr } : undefined;
+    ...(config.protocol === "hyper3d" ? { estimatedCredits: hyper3DCredits(model.id) } : {}),
+    maxReferenceImages: config.maxReferenceImages, polycount: config.polycount, supportsTexture: config.supportsTexture,
+    supportsPbr: config.supportsPbr, defaults: config.defaults ?? { texture: config.supportsTexture, pbr: false } };
 }
 
 /** Shared validation keeps saved configuration and the editor's controls in agreement. */
@@ -87,21 +96,28 @@ export function normalizeModelUsages(value: unknown): CustomModelUsages | undefi
   }
   if (value["3d"] !== undefined) {
     const config = value["3d"];
-    if (!object(config) || !["meshy", "tripo"].includes(String(config.protocol)) || !["image-to-3d", "multi-image-to-3d"].includes(String(config.operation)) || !["standard", "smart-topology"].includes(String(config.modelType))) throw new Error("Choose a 3D generation protocol and template");
-    if (config.protocol === "tripo" && config.modelType !== "standard") throw new Error("Tripo does not use Meshy smart topology");
+    if (!object(config) || !["meshy", "tripo", "hyper3d"].includes(String(config.protocol)) || !["image-to-3d", "multi-image-to-3d"].includes(String(config.operation)) || !["standard", "smart-topology"].includes(String(config.modelType))) throw new Error("Choose a 3D generation protocol and template");
+    if (config.protocol !== "meshy" && config.modelType !== "standard") throw new Error("Smart topology is only supported by Meshy");
     if (config.modelType === "smart-topology" && config.operation !== "image-to-3d") throw new Error("Smart topology requires a single image");
-    const maxReferenceImages = integer(config.maxReferenceImages, 1, config.operation === "image-to-3d" ? 1 : 4, "3D reference image limit");
+    const maxReferenceImages = integer(config.maxReferenceImages, 1, config.operation === "image-to-3d" ? 1 : config.protocol === "hyper3d" ? 5 : 4, "3D reference image limit");
     if (!object(config.polycount)) throw new Error("Set the 3D polycount range");
-    const limit = config.protocol === "tripo" ? 1_500_000 : 300_000;
-    const min = integer(config.polycount.min, 100, limit, "minimum polycount");
+    const limit = config.protocol === "hyper3d" ? 2_000_000 : config.protocol === "tripo" ? 1_500_000 : 300_000;
+    const min = integer(config.polycount.min, config.protocol === "hyper3d" ? 500 : 100, limit, "minimum polycount");
     const max = integer(config.polycount.max, min, limit, "maximum polycount");
     const defaultCount = integer(config.polycount.default, min, max, "default polycount");
     if (!Array.isArray(config.polycount.presets) || !config.polycount.presets.length || config.polycount.presets.length > 20) throw new Error("Set polycount presets");
     const presets = [...new Set(config.polycount.presets.map((count) => integer(count, min, max, "polycount preset")))].sort((a, b) => a - b);
     if (typeof config.supportsTexture !== "boolean" || typeof config.supportsPbr !== "boolean" || (config.supportsPbr && !config.supportsTexture)) throw new Error("PBR requires texture support");
+    let defaults: CustomModel3DSettings["defaults"];
+    if (config.defaults !== undefined) {
+      if (!object(config.defaults) || typeof config.defaults.texture !== "boolean" || typeof config.defaults.pbr !== "boolean"
+        || config.defaults.texture && !config.supportsTexture || config.defaults.pbr && (!config.defaults.texture || !config.supportsPbr)) throw new Error("Generation defaults must use supported texture and PBR options");
+      defaults = { texture: config.defaults.texture, pbr: config.defaults.pbr };
+    }
     usages["3d"] = { protocol: config.protocol as CustomModel3DSettings["protocol"], ...endpoint(config), operation: config.operation as CustomModel3DSettings["operation"],
       modelType: config.modelType as CustomModel3DSettings["modelType"], maxReferenceImages,
-      polycount: { min, max, default: defaultCount, presets }, supportsTexture: config.supportsTexture, supportsPbr: config.supportsPbr };
+      polycount: { min, max, default: defaultCount, presets }, supportsTexture: config.supportsTexture, supportsPbr: config.supportsPbr,
+      ...(defaults ? { defaults } : {}) };
   }
   return usages;
 }

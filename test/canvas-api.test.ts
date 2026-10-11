@@ -16,4 +16,13 @@ describe("canvas generation API", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/projects/project/canvas/documents/rules/generate", expect.objectContaining({ body: JSON.stringify({ instruction: "Revise", model, reasoningLevel: "max", revision: "1" }) }));
     expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/projects/project/canvas/tables/items/generate", expect.objectContaining({ body: JSON.stringify({ instruction: "Balance damage", model, reasoningLevel: "high", revision: "2" }) }));
   });
+  it("identifies the saved node supplying generation references", async () => {
+    vi.stubGlobal("window", {});
+    const fetchMock = vi.fn(async (_url: string, _options?: RequestInit) => Response.json({ text: "Rules" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const model = { provider: "openai", id: "test" }, referenceSource = { boardId: "board", nodeId: "summary" };
+    await generateCanvasText("project", "Summarize", model, "off", referenceSource);
+    await generateCanvasDocument("project", "rules", { instruction: "Revise", model, revision: "1", referenceSource });
+    for (const [, options] of fetchMock.mock.calls) expect(JSON.parse(options!.body as string)).toHaveProperty("referenceSource", referenceSource);
+  });
 });

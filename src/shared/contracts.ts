@@ -59,6 +59,8 @@ export type MediaModelUsage = Exclude<ProviderCapability, "language">;
 export type MediaModelDefaults = Partial<Record<MediaModelUsage, ModelRef>>;
 
 export interface ProviderSummary extends ModelProviderSummary {
+  managed?: "free_cloud";
+  cloud?: import("./cloud-models.js").CloudConnectionState;
   status: ProviderStatus;
   capabilities: ProviderCapability[];
   enabled?: boolean;
@@ -77,7 +79,7 @@ export interface CustomProviderSettings {
   modelConfigurationVersion?: 2;
 }
 
-export type CustomProviderPreset = "gateway" | "ollama" | "lmstudio" | "google" | "openrouter" | "seedance" | "meshy" | "tripo";
+export type CustomProviderPreset = "gateway" | "ollama" | "lmstudio" | "google" | "openrouter" | "seedance" | "meshy" | "tripo" | "hyper3d";
 
 export interface CustomImageModelSettings {
   protocol: ImageProtocol;
@@ -100,7 +102,7 @@ export interface CustomVideoModelSettings {
 }
 
 export interface CustomModel3DSettings {
-  protocol: "meshy" | "tripo";
+  protocol: "meshy" | "tripo" | "hyper3d";
   baseUrl?: string;
   operation: "image-to-3d" | "multi-image-to-3d";
   modelType: "standard" | "smart-topology";
@@ -108,6 +110,13 @@ export interface CustomModel3DSettings {
   polycount: Model3DModel["polycount"];
   supportsTexture: boolean;
   supportsPbr: boolean;
+  defaults?: { texture: boolean; pbr: boolean };
+}
+
+export interface Model3DDefinition {
+  id: string;
+  name: string;
+  settings: CustomModel3DSettings;
 }
 
 export interface CustomModelUsages {
@@ -134,6 +143,7 @@ export interface DiscoveredProviderModels {
   models: CustomProviderModel[];
   truncated?: boolean;
   warnings?: string[];
+  source?: "provider" | "presets";
 }
 
 export interface ModelProviderEndpointSettings {
@@ -168,10 +178,14 @@ export interface CustomProviderModel {
 }
 
 export interface ProviderModelSettings {
-  models: Array<AgentModel & { visible: boolean; custom: boolean; capabilities?: ProviderCapability[] }>;
+  catalogDocsUrl?: string;
+  models: Array<AgentModel & { visible: boolean; custom: boolean; capabilities?: ProviderCapability[];
+    source?: "preset" | "custom" | "cloud"; model3d?: Model3DDefinition; description?: string }>;
   defaultApi: string;
   defaultBaseUrl?: string;
   canAddCustomModel: boolean;
+  model3DProtocol?: CustomModel3DSettings["protocol"];
+  catalogNotice?: string;
 }
 
 export type ModelAuthPrompt =
@@ -199,6 +213,7 @@ export type ImageModelRef = ModelRef;
 
 /** Why a connected provider offers no media models, so the canvas can say so instead of hiding it. */
 export interface MediaProviderStatus {
+  cloud?: import("./cloud-models.js").CloudConnectionState;
   provider: string;
   providerName: string;
   state: "ready" | "empty" | "error";
@@ -224,6 +239,9 @@ export interface Model3DModel extends Model3DModelRef {
   polycount: { min: number; max: number; default: number; presets: readonly number[] };
   supportsTexture?: boolean;
   supportsPbr?: boolean;
+  defaults?: { texture: boolean; pbr: boolean };
+  generationLabel?: string;
+  estimatedCredits?: number;
 }
 
 /** A preset move from the 3D provider's animation library. */
@@ -342,6 +360,12 @@ export interface AssetCanvasTextGenerationRequest {
   instruction: string;
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+  referenceSource?: AssetCanvasTextGenerationSource;
+}
+
+export interface AssetCanvasTextGenerationSource {
+  boardId: string;
+  nodeId: string;
 }
 
 export interface AssetCanvasTextGenerationResponse {
@@ -351,7 +375,7 @@ export interface AssetCanvasTextGenerationResponse {
 
 export type AssetCanvasNode = (
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
-  | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string } }
+  | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string; references?: AssetCanvasTextReference[] } }
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
     mediaType: "image" | "video" | "audio" | "model";
@@ -361,6 +385,7 @@ export type AssetCanvasNode = (
     instruction: string;
     model?: AgentModelRef;
     reasoningLevel?: AgentReasoningLevel;
+    references?: AssetCanvasTextReference[];
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;
@@ -440,11 +465,33 @@ export interface ConversationAgentState {
 export type ItemStatus = "preparing" | "inProgress" | "completed" | "cancelled" | "interrupted" | "failed";
 export type TurnStatus = Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "interrupted" | "failed">;
 
-export type ThreadItemErrorCode = "model_not_configured";
+export type ThreadItemErrorCode = "model_not_configured" | "authentication_failed" | "access_denied" |
+  "quota_exceeded" | "rate_limited" | "invalid_request" | "model_unavailable" | "provider_unavailable" |
+  "dns_error" | "connection_refused" | "connection_reset" | "timeout" | "tls_error" |
+  "stream_error" | "network_error";
+
+export interface AgentErrorCause {
+  name?: string;
+  message?: string;
+  code?: string;
+}
+
+export interface AgentErrorDiagnostics {
+  provider?: string;
+  model?: string;
+  endpoint?: string;
+  statusCode?: number;
+  requestId?: string;
+  errorCode?: string;
+  causes?: AgentErrorCause[];
+  network?: { source: "environment" | "system" | "manual" | "direct"; proxyUrl?: string };
+  retryAttempts?: number;
+}
 
 export interface ThreadItemError {
   message: string;
   code?: ThreadItemErrorCode;
+  diagnostics?: AgentErrorDiagnostics;
 }
 
 export interface PromptReference {

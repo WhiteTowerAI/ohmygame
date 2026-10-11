@@ -34,6 +34,7 @@ import { PromptContextIcon } from "./chat-reference.js";
 import { GodotIcon } from "./godot-icon.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { LazyDetails } from "./lazy-details.js";
+import { agentErrorDiagnosticRows, agentErrorDiagnosticText, agentErrorPresentation } from "./agent-error-presentation.js";
 
 type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
 
@@ -406,7 +407,7 @@ function WorkItems({ items, images, failed = false }: { items: TurnDisplay["work
     const hasFailedRetry = items.some((item) => item.kind === "item" && item.item.type === "retry" && item.item.status === "failed");
     const error = items.flatMap((item) => item.kind === "item" && item.item.type === "agentMessage" && item.item.error ? [item.item] : []).at(-1);
     if (!hasFailedRetry && error?.type === "agentMessage" && error.error) {
-      rendered.push(<ConnectionActivity key="turn-connection-error" title="Connection error" error={error.error} failed />);
+      rendered.push(<AgentErrorActivity key="turn-connection-error" error={error.error} />);
     }
   }
   return rendered;
@@ -542,10 +543,9 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
   }
   if (item.type === "dynamicToolCall" || item.type === "mcpToolCall") return <ToolActivity item={item} />;
   if (item.type === "retry") {
-    return <ConnectionActivity
-      title={item.status === "failed" ? "Connection error" : `Reconnecting ${item.attempt}/${item.maxAttempts}`}
+    return <AgentErrorActivity
+      retryLabel={item.status === "failed" ? undefined : `Reconnecting ${item.attempt}/${item.maxAttempts}`}
       error={item.error}
-      failed={item.status === "failed"}
     />;
   }
   if (item.type === "contextCompaction") {
@@ -588,36 +588,41 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
     return (
       <>
         {message}
-        <ConnectionActivity title="Connection error" error={item.error} failed />
+        <AgentErrorActivity error={item.error} />
       </>
     );
   }
   return null;
 }
 
-function ConnectionActivity({ title, error, failed = false }: { title: string; error: ThreadItemError; failed?: boolean }) {
-  const Icon = failed ? WifiOff : Wifi;
-  const presentation = connectionErrorPresentation(title, error);
-  return (
-    <details className={`connection-activity-details${failed ? " connection-activity-failed" : ""}`}>
-      <summary className="tool-activity tool-row tool-row-expandable timeline-activity connection-activity" role={failed ? "alert" : undefined}>
-        <Icon size={13} aria-hidden="true" />
-        <span className="tool-label">{presentation.title}</span>
-        <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" />
-      </summary>
-      <div className="connection-activity-error">{presentation.message}</div>
-    </details>
-  );
-}
-
-function connectionErrorPresentation(title: string, error: ThreadItemError): { title: string; message: string } {
-  if (error.code === "model_not_configured") {
-    return {
-      title: "Model setup required",
-      message: "The selected model isn't configured. Choose an available model or connect its provider in Settings, then try again.",
-    };
+function AgentErrorActivity({ error, retryLabel }: { error: ThreadItemError; retryLabel?: string }) {
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  useEffect(() => { setCopyStatus("idle"); }, [error]);
+  const failed = retryLabel === undefined;
+  const presentation = agentErrorPresentation(error);
+  const label = error.code === "model_not_configured" ? presentation.title : retryLabel ?? presentation.title;
+  const Icon = failed ? (["dns_error", "connection_refused", "connection_reset", "timeout", "tls_error", "stream_error", "network_error"].includes(error.code ?? "") ? WifiOff : X) : Wifi;
+  const rows = agentErrorDiagnosticRows(error);
+  async function copyDiagnostics() {
+    try {
+      await navigator.clipboard.writeText(agentErrorDiagnosticText(error));
+      setCopyStatus("copied");
+    } catch { setCopyStatus("failed"); }
   }
-  return { title, message: error.message };
+  return (
+    <div className={`connection-activity-details${failed ? " connection-activity-failed" : ""}`} role={failed ? "alert" : undefined}>
+      <div className="tool-activity tool-row timeline-activity connection-activity">
+        <Icon size={13} aria-hidden="true" /><span className="tool-label">{label}</span>
+      </div>
+      {failed ? <p className="connection-activity-guidance">{presentation.message}</p> : null}
+      <details className="connection-activity-diagnostics">
+        <summary>Details <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" /></summary>
+        <dl className="connection-activity-error">{rows.map(([label, value], index) => <div key={`${label}:${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+        <button type="button" className="connection-activity-copy" onClick={() => void copyDiagnostics()}><Copy size={12} aria-hidden="true" />{copyStatus === "copied" ? "Copied" : "Copy diagnostics"}</button>
+        {copyStatus === "failed" ? <p className="connection-activity-guidance" role="status">Could not copy. Select the details above to copy them manually.</p> : null}
+      </details>
+    </div>
+  );
 }
 
 function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>; completed?: boolean }) {

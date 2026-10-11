@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AGENT_REASONING_LEVELS, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, type AgentModelRef, type AgentReasoningLevel, type AssetCanvasTextGenerationSource } from "../shared/contracts.js";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
 import {
   canvasDocumentPath,
@@ -344,7 +344,7 @@ export function useCanvasDocuments(projectId: string) {
     [update, flush, changeGeneration],
   );
   const generate = useCallback(
-    async (id: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel) => {
+    async (id: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel, referenceSource?: AssetCanvasTextGenerationSource, prepare?: () => Promise<void>) => {
       const state = generationStates.current[id],
         instruction = state?.instruction.trim();
       if (!instruction || state?.generating || state?.applying)
@@ -352,6 +352,7 @@ export function useCanvasDocuments(projectId: string) {
       let autoApply = false;
       changeGeneration(id, { generating: true, model, reasoningLevel, error: undefined });
       try {
+        await prepare?.();
         await flush();
         const base = current.current?.documents.find((doc) => doc.id === id);
         if (!base) throw new Error("Document not found");
@@ -359,6 +360,7 @@ export function useCanvasDocuments(projectId: string) {
           instruction,
           model,
           reasoningLevel,
+          referenceSource,
           revision: base.revision,
         });
         if (result.status === "empty") {
