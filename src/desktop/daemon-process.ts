@@ -38,6 +38,10 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
   const port = await availablePort();
   const runtime = { url: `http://127.0.0.1:${port}`, token: options.token };
   const environment = { ...(options.environment ?? process.env) };
+  // Also discard inherited tokens, including case variants on Windows.
+  for (const name of Object.keys(environment)) {
+    if (name.toUpperCase() === "OHMYGAME_DAEMON_TOKEN") delete environment[name];
+  }
   if (options.runtimeBin) {
     const pathKey = Object.keys(environment).find((key) => key.toLowerCase() === "path") ?? "PATH";
     environment[pathKey] = [path.resolve(options.runtimeBin), environment[pathKey]].filter(Boolean).join(path.delimiter);
@@ -61,6 +65,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
     stdio: options.handlePlaytestRequest || options.resolveSystemProxy ? ["pipe", "pipe", "pipe", "ipc"] : ["pipe", "pipe", "pipe"],
   });
   // The token goes over stdin: other processes of the same user can read the environment a process starts with.
+  // Early child exits can close stdin; waitForHealth reports the startup failure and captured output.
   child.stdin?.on("error", () => {});
   child.stdin?.end(options.token);
   if (options.resolveSystemProxy) {

@@ -7,7 +7,8 @@ export function projectProcessEnvironment(environment: NodeJS.ProcessEnv = proce
   const result = { ...environment };
   delete result.ESBUILD_BINARY_PATH;
   for (const name of Object.keys(result)) {
-    if (name.startsWith("OHMYGAME_") || name === "DAEMON_HOST" || name === "DAEMON_PORT") delete result[name];
+    const key = name.toUpperCase();
+    if (key.startsWith("OHMYGAME_") || key === "DAEMON_HOST" || key === "DAEMON_PORT") delete result[name];
   }
   return result;
 }

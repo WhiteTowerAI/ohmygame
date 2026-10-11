@@ -129,4 +129,20 @@ describe("daemon access token", () => {
     expect(environment).toEqual({ PATH: "/usr/bin" });
     expect(await takeAccessToken({}, Readable.from([]))).toBeUndefined();
   });
+
+  it("rejects oversized stdin tokens without falling back to the environment", async () => {
+    const environment: NodeJS.ProcessEnv = { OHMYGAME_DAEMON_TOKEN_STDIN: "1", OHMYGAME_DAEMON_TOKEN: "stale" };
+    await expect(takeAccessToken(environment, Readable.from(["a".repeat(4_096), "b"]))).rejects.toThrow("too long");
+    expect(environment).toEqual({});
+  });
+
+  it("rejects a failed stdin stream without falling back to the environment", async () => {
+    const environment: NodeJS.ProcessEnv = { OHMYGAME_DAEMON_TOKEN_STDIN: "1", OHMYGAME_DAEMON_TOKEN: "stale" };
+    const input = Readable.from((async function* () {
+      yield "partial-token";
+      throw new Error("Token pipe failed");
+    })());
+    await expect(takeAccessToken(environment, input)).rejects.toThrow("Token pipe failed");
+    expect(environment).toEqual({});
+  });
 });
