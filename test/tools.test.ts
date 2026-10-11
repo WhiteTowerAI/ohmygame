@@ -247,7 +247,7 @@ describe("tool runner", () => {
       ["image-to-3d", { prompt: "model" }],
       ["image-to-3d", { images: [] }],
       ["image-to-3d", { targetPolycount: 4_000 }],
-      ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: { provider: "meshy", id: "meshy-6" } }],
+      ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: { provider: "meshy", id: "unknown-meshy-version" } }],
       ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: null }],
       ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], targetPolycount: 100_000 }],
       ["image-to-3d", { images: Array.from({ length: 5 }, () => ({ mediaType: "image/png", data: "aW1hZ2U=" })), model: { provider: "meshy", id: "meshy-7.1" } }],

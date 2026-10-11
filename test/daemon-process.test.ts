@@ -5,6 +5,27 @@ import { describe, expect, it, vi } from "vitest";
 import { startDaemon } from "../src/desktop/daemon-process.js";
 
 describe("desktop daemon process", () => {
+  it("resolves the system proxy over private child IPC", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-proxy-ipc-"));
+    const entry = path.join(directory, "daemon.mjs");
+    const resultFile = path.join(directory, "result.json");
+    await writeFile(entry, `
+      import { writeFileSync } from "node:fs";
+      import { createServer } from "node:http";
+      process.on("message", (message) => {
+        if (message.channel === "ohmygame:system-proxy:result") writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(message));
+      });
+      process.send({ channel: "ohmygame:system-proxy:resolve", id: "test-proxy" });
+      const server = createServer((_request, response) => response.end());
+      server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.once("SIGTERM", () => server.close(() => process.exit(0)));
+    `);
+    const daemon = await startDaemon({ daemonEntry: entry, dataDirectory: directory, token: "test-token", allowedOrigins: [], executable: process.execPath, environment: {}, resolveSystemProxy: async () => "PROXY 127.0.0.1:7890" });
+    try {
+      await vi.waitFor(async () => expect(JSON.parse(await readFile(resultFile, "utf8"))).toEqual({ channel: "ohmygame:system-proxy:result", id: "test-proxy", result: "PROXY 127.0.0.1:7890" }));
+    } finally { await daemon.stop(); await import("node:fs/promises").then(({ rm }) => rm(directory, { recursive: true, force: true })); }
+  });
+
   it("includes daemon output when the child exits before becoming healthy", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-desktop-error-"));
     const entry = path.join(directory, "daemon.mjs");
@@ -34,9 +55,11 @@ describe("desktop daemon process", () => {
       import { writeFileSync } from "node:fs";
       import { createServer } from "node:http";
       writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+      let token = "";
+      for await (const chunk of process.stdin) token += chunk;
       const server = createServer((request, response) => {
-        response.statusCode = request.url === "/health" && request.headers.authorization === "Bearer test-token" ? 200 : 401;
-        response.end(JSON.stringify({ development: process.argv.includes("--dev") }));
+        response.statusCode = request.url === "/health" && request.headers.authorization === "Bearer " + token ? 200 : 401;
+        response.end(JSON.stringify({ development: process.argv.includes("--dev"), tokenInEnvironment: Object.keys(process.env).some((name) => name.toUpperCase() === "OHMYGAME_DAEMON_TOKEN") }));
       });
       server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
       process.once("SIGTERM", () => server.close(() => process.exit(0)));
@@ -48,21 +71,24 @@ describe("desktop daemon process", () => {
       token: "test-token",
       allowedOrigins: ["null"],
       executable: process.execPath,
-      environment: {},
+      environment: { OHMYGAME_DAEMON_TOKEN: "stale-desktop-token", ohmygame_daemon_token: "stale-desktop-token" },
       development,
       healthTimeoutMs: 2_000,
     });
     const pid = Number(await readFile(pidFile, "utf8"));
 
-    expect((await fetch(`${daemon.runtime.url}/health`)).status).toBe(401);
-    expect((await fetch(`${daemon.runtime.url}/health`, {
-      headers: { authorization: "Bearer test-token" },
-    })).status).toBe(200);
-    expect(daemon.runtime.token).toBe("test-token");
-    expect(await (await fetch(`${daemon.runtime.url}/health`, {
-      headers: { authorization: "Bearer test-token" },
-    })).json()).toEqual({ development });
-    await daemon.stop();
+    try {
+      expect((await fetch(`${daemon.runtime.url}/health`)).status).toBe(401);
+      expect((await fetch(`${daemon.runtime.url}/health`, {
+        headers: { authorization: "Bearer test-token" },
+      })).status).toBe(200);
+      expect(daemon.runtime.token).toBe("test-token");
+      expect(await (await fetch(`${daemon.runtime.url}/health`, {
+        headers: { authorization: "Bearer test-token" },
+      })).json()).toEqual({ development, tokenInEnvironment: false });
+    } finally {
+      await daemon.stop();
+    }
     await vi.waitFor(() => expect(isRunning(pid)).toBe(false));
   });
 

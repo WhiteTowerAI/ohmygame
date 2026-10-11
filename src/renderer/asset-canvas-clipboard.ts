@@ -25,6 +25,9 @@ export function rememberCanvasClipboard(value: CanvasClipboard) { copied = struc
 function remapReferences(node: AssetCanvasNode, ids: ReadonlyMap<string, string>) {
   const reference = (value: AssetCanvasReference): AssetCanvasReference[] => value.type === "library" ? [value] : ids.has(value.nodeId) ? [{ ...value, nodeId: ids.get(value.nodeId)! }] : [];
   if (node.type === "image" || node.type === "model-3d") node.data.images = node.data.images.flatMap(reference);
+  if ((node.type === "text" || node.type === "document") && node.data.references) {
+    node.data.references = node.data.references.flatMap((value) => ids.has(value.nodeId) ? [{ type: "node" as const, nodeId: ids.get(value.nodeId)! }] : []);
+  }
   if (node.type === "video") {
     node.data.references = node.data.references.flatMap(reference);
     if (node.data.referenceMentions) node.data.referenceMentions = Object.fromEntries(

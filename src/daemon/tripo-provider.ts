@@ -1,13 +1,12 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { CustomModel3DSettings } from "../shared/contracts.js";
-import { resolveModel3D } from "../shared/generation-config.js";
+import { model3DPreset } from "../shared/model3d-presets.js";
 import type { ImageSource } from "./image-adapters.js";
-import { Model3DGenerationError, type Generated3DModel, type Model3DGenerationInput, type Model3DGenerator } from "./model3d.js";
+import { Model3DGenerationError, readModel3DResult, type Generated3DModel, type Model3DGenerationInput, type Model3DGenerator } from "./model3d.js";
 
 const BASE_URL = "https://openapi.tripo3d.ai/v3";
 const MAX_WAIT_MS = 15 * 60_000;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-const MAX_GLB_BYTES = 100 * 1024 * 1024;
 const VIEW_NAMES = ["front", "left", "back", "right"] as const;
 
 /** Tripo V3: upload private images, submit one task, poll and download its GLB. */
@@ -20,15 +19,18 @@ export class TripoProvider implements Model3DGenerator {
     private readonly connection?: ImageSource & { settings: CustomModel3DSettings },
   ) {}
 
-  async generate(input: Model3DGenerationInput, signal?: AbortSignal): Promise<Generated3DModel> {
+  async generate(input: Model3DGenerationInput, signal?: AbortSignal, settings?: CustomModel3DSettings): Promise<Generated3DModel> {
     if (!this.isEnabled()) throw new Model3DGenerationError("Tripo provider is disabled", 409);
     const key = this.apiKey();
     if (!key && this.connection?.authentication !== "none") throw new Model3DGenerationError("Tripo API key is not configured", 503);
-    const model = this.connection?.settings ?? (input.model.provider === "tripo" ? resolveModel3D(input.model) : undefined);
-    if (!model) throw new Model3DGenerationError("The selected Tripo model is unavailable", 400);
+    const model = settings ?? this.connection?.settings ?? model3DPreset(input.model.provider, input.model.id)?.settings;
+    if (!model || model.protocol !== "tripo") throw new Model3DGenerationError("The selected Tripo model is unavailable", 400);
     if (!input.images.length || input.images.length > model.maxReferenceImages) throw new Model3DGenerationError(`Provide 1 to ${model.maxReferenceImages} reference images`, 400);
     const polycount = input.targetPolycount ?? model.polycount.default;
     if (!Number.isInteger(polycount) || polycount < model.polycount.min || polycount > model.polycount.max) throw new Model3DGenerationError(`Tripo face count must be between ${model.polycount.min} and ${model.polycount.max}`, 400);
+    const texture = input.texture ?? model.defaults?.texture ?? model.supportsTexture;
+    const pbr = texture && (input.pbr ?? model.defaults?.pbr ?? false);
+    if (texture && !model.supportsTexture || pbr && !model.supportsPbr) throw new Model3DGenerationError("The selected 3D model does not support these texture options", 400);
     const images = input.images.map((image) => {
       const bytes = Buffer.from(image.data, "base64");
       if (!["image/png", "image/jpeg"].includes(image.mediaType) || !bytes.length || bytes.length > MAX_IMAGE_BYTES) throw new Model3DGenerationError("Tripo references must be PNG or JPEG images up to 20 MB", 400);
@@ -46,10 +48,9 @@ export class TripoProvider implements Model3DGenerator {
         if (typeof uploaded.file_token !== "string" || !uploaded.file_token) throw new Model3DGenerationError("Tripo returned no upload token");
         tokens.push(uploaded.file_token);
       }
-      const texture = input.texture ?? true;
       const created = await this.#json(`generation/${tokens.length === 1 ? "image-to-model" : "multiview-to-model"}`, {
         method: "POST", headers: { "content-type": "application/json" }, signal: requestSignal,
-        body: JSON.stringify({ model: input.model.id, face_limit: polycount, texture, pbr: texture && (input.pbr ?? false),
+        body: JSON.stringify({ model: input.model.id, face_limit: polycount, texture, pbr,
           ...(tokens.length === 1 ? { input: tokens[0] } : { inputs: tokens.map((token, index) => ({ [VIEW_NAMES[index]!]: token })) }),
         }),
       }, key);
@@ -73,10 +74,7 @@ export class TripoProvider implements Model3DGenerator {
           // Signed output URLs are fetched without the provider's API key or custom headers.
           const response = await this.request(url, { signal: requestSignal });
           if (!response.ok) throw new Model3DGenerationError(`Tripo GLB download failed (${response.status})`);
-          if (Number(response.headers.get("content-length")) > MAX_GLB_BYTES) throw new Model3DGenerationError("Tripo GLB output is too large", 413);
-          const bytes = Buffer.from(await response.arrayBuffer());
-          if (bytes.length > MAX_GLB_BYTES) throw new Model3DGenerationError("Tripo GLB output is too large", 413);
-          return { bytes, mediaType: "model/gltf-binary", requestId: taskId };
+          return { bytes: await readModel3DResult(response), mediaType: "model/gltf-binary", requestId: taskId };
         }
         if (["failed", "cancelled", "canceled"].includes(String(task.status))) throw new Model3DGenerationError(typeof task.error_message === "string" ? task.error_message : `Tripo task ${task.status}`, 400);
         if (!["queued", "running"].includes(String(task.status))) throw new Model3DGenerationError("Tripo returned an unknown task status");
