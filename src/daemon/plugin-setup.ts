@@ -236,7 +236,7 @@ export class PluginSetupManager {
     });
     try {
       await session.prompt(prompt);
-      state.error = lastAssistantError(session.messages);
+      state.error = lastAssistantError(session.messages)?.message;
     } finally {
       unsubscribe();
     }

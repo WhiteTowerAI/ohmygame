@@ -21,6 +21,7 @@ if (process.isMainFrame) {
     }),
     setAppearance: (appearance: "system" | "light" | "dark") =>
       ipcRenderer.invoke("ohmygame:set-appearance", appearance) as Promise<void>,
+    restartApp: () => ipcRenderer.invoke("ohmygame:restart-app") as Promise<void>,
     windowMenu: Object.freeze({
       icon: () => ipcRenderer.invoke("ohmygame:window-menu-icon") as Promise<string>,
       popup: (label: string, x: number, y: number) =>

@@ -31,12 +31,17 @@ interface StartDaemonOptions {
   development?: boolean;
   healthTimeoutMs?: number;
   handlePlaytestRequest?: (request: PlaytestRequest, signal: AbortSignal) => Promise<PlaytestResult>;
+  resolveSystemProxy?: () => Promise<string>;
 }
 
 export async function startDaemon(options: StartDaemonOptions): Promise<ManagedDaemon> {
   const port = await availablePort();
   const runtime = { url: `http://127.0.0.1:${port}`, token: options.token };
   const environment = { ...(options.environment ?? process.env) };
+  // Also discard inherited tokens, including case variants on Windows.
+  for (const name of Object.keys(environment)) {
+    if (name.toUpperCase() === "OHMYGAME_DAEMON_TOKEN") delete environment[name];
+  }
   if (options.runtimeBin) {
     const pathKey = Object.keys(environment).find((key) => key.toLowerCase() === "path") ?? "PATH";
     environment[pathKey] = [path.resolve(options.runtimeBin), environment[pathKey]].filter(Boolean).join(path.delimiter);
@@ -48,7 +53,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       DAEMON_HOST: "127.0.0.1",
       DAEMON_PORT: String(port),
       OHMYGAME_DATA_DIR: path.resolve(options.dataDirectory),
-      OHMYGAME_DAEMON_TOKEN: options.token,
+      OHMYGAME_DAEMON_TOKEN_STDIN: "1",
       OHMYGAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
@@ -57,8 +62,22 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.playerDirectory ? { OHMYGAME_PLAYER_DIR: path.resolve(options.playerDirectory) } : {}),
       ...(options.handlePlaytestRequest ? { OHMYGAME_PLAYTEST_IPC: "1" } : {}),
     },
-    stdio: options.handlePlaytestRequest ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
+    stdio: options.handlePlaytestRequest || options.resolveSystemProxy ? ["pipe", "pipe", "pipe", "ipc"] : ["pipe", "pipe", "pipe"],
   });
+  // The token goes over stdin: other processes of the same user can read the environment a process starts with.
+  // Early child exits can close stdin; waitForHealth reports the startup failure and captured output.
+  child.stdin?.on("error", () => {});
+  child.stdin?.end(options.token);
+  if (options.resolveSystemProxy) {
+    child.on("message", (value: unknown) => {
+      const message = value as { channel?: string; id?: string } | null;
+      if (message?.channel !== "ohmygame:system-proxy:resolve" || typeof message.id !== "string" || message.id.length > 100) return;
+      const send = (result: { result: string } | { error: string }) => {
+        if (child.connected) child.send({ channel: "ohmygame:system-proxy:result", id: message.id, ...result }, () => {});
+      };
+      void options.resolveSystemProxy!().then((result) => send({ result }), () => send({ error: "Could not detect the system proxy" }));
+    });
+  }
   const playtestRequests = options.handlePlaytestRequest
     ? bindPlaytestRequests(child, options.handlePlaytestRequest)
     : undefined;

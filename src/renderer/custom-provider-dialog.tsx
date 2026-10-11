@@ -1,3 +1,4 @@
+import { usesModel3DPresets } from "../shared/model3d-presets.js";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { AGENT_REASONING_LEVELS, CUSTOM_MODEL_APIS, type CustomProviderDetails, type CustomProviderModel, type SaveCustomProviderRequest, type CustomProviderPreset } from "../shared/contracts.js";
@@ -55,6 +56,8 @@ export function CustomProviderDialog({ settings, initialProvider, initialFocus =
   const [discoveryWarnings, setDiscoveryWarnings] = useState<string[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [fetchedCount, setFetchedCount] = useState<number>();
+  const [discoverySource, setDiscoverySource] = useState<"provider" | "presets">("provider");
+  const usesPresets = usesModel3DPresets(form.baseUrl, form.preset);
   const [manualOpen, setManualOpen] = useState(false);
   const [manual, setManual] = useState<CustomProviderModel>(() => emptyModel(form));
   const [saving, setSaving] = useState(false);
@@ -114,6 +117,7 @@ export function CustomProviderDialog({ settings, initialProvider, initialFocus =
       const loaded = await discoverCustomProviderModels({ providerId: settings?.id, baseUrl: form.baseUrl, api: form.api, authentication: form.authentication, apiKey: form.authentication === "api_key" ? form.apiKey : undefined, preset: form.preset }, controller.signal);
       if (controller.signal.aborted) return;
       setRows((current) => mergeDiscoveredProviderModels(current, loaded.models));
+      setDiscoverySource(loaded.source ?? "provider");
       setFetchedCount(loaded.models.length);
       setTruncated(loaded.truncated === true);
       setDiscoveryWarnings(loaded.warnings ?? []);
@@ -198,11 +202,11 @@ export function CustomProviderDialog({ settings, initialProvider, initialFocus =
           <section className="custom-provider-model-picker" aria-label="Model settings">
             <div className="custom-provider-model-heading">
               <h3>Models <small>{enabledCount} enabled</small></h3>
-              <button ref={fetchButton} className="settings-secondary-button" type="button" disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? "Fetching…" : "Fetch"}</button>
+              <button ref={fetchButton} className="settings-secondary-button" type="button" disabled={saving || fetching} onClick={() => void fetchModels()}>{fetching ? <LoaderCircle className="spin" size={13} /> : <RefreshCw size={13} />}{fetching ? usesPresets ? "Loading…" : "Fetching…" : usesPresets ? "Load presets" : "Fetch"}</button>
             </div>
             {discoveryWarnings.map((warning) => <p className="custom-provider-hint" role="status" key={warning}>{warning}</p>)}
             {discoveryError ? <p className="project-settings-error" role="alert">{discoveryError}</p> : null}
-            {fetchedCount !== undefined ? <p className="custom-provider-hint" role="status">{truncated ? `Fetched the first ${fetchedCount} models. Other model IDs can be added manually.` : `Fetched ${fetchedCount} models.`}</p> : null}
+            {fetchedCount !== undefined ? <p className="custom-provider-hint" role="status">{truncated ? `Fetched the first ${fetchedCount} models. Other model IDs can be added manually.` : `${discoverySource === "presets" ? "Loaded" : "Fetched"} ${fetchedCount} ${discoverySource === "presets" ? "official presets" : "models"}.`}</p> : null}
             {rows.length ? <>
               <label className="custom-provider-model-search"><Search size={14} /><input ref={modelSearch} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search models" aria-label="Search models" disabled={saving} /></label>
               {visibleModels.length ? <>
