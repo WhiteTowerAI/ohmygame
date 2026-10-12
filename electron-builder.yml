@@ -52,6 +52,13 @@ win:
     - nsis
   artifactName: OhMyGame-${version}-${arch}.${ext}
 
+nsis:
+  # Assisted installer: the wizard asks where to install instead of installing silently.
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # Keep the installer page that offers all users or the current user only.
+  perMachine: false
+
 publish:
   provider: generic
   url: ${env.DESKTOP_UPDATE_URL}

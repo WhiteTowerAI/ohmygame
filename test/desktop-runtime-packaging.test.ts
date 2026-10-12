@@ -99,3 +99,18 @@ describe("desktop runtime packaging", () => {
     },
   );
 });
+
+describe("windows installer", () => {
+  it("asks where to install and for whom", async () => {
+    const config = parse(
+      await readFile("electron-builder.yml", "utf8"),
+    ) as Configuration;
+
+    expect(config.win?.target).toEqual(["nsis"]);
+    expect(config.nsis).toMatchObject({
+      oneClick: false,
+      allowToChangeInstallationDirectory: true,
+      perMachine: false,
+    });
+  });
+});
