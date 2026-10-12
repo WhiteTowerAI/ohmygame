@@ -49,13 +49,13 @@ const POPULAR_PROVIDER_IDS = ["openrouter", "openai", "anthropic", "meshy", "tri
 const SEEDANCE_PROVIDER_IDS = new Set(["volcengine-ark", "byteplus-modelark"]);
 const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; label: string }> = [
   { value: "all", label: "All" },
-  { value: "language", label: "Language" },
+  { value: "language", label: "Text" },
   { value: "image", label: "Image" },
   { value: "video", label: "Video" },
   { value: "3d", label: "3D" },
 ];
 const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
-  language: "Language",
+  language: "Text",
   image: "Image",
   video: "Video",
   "3d": "3D",
