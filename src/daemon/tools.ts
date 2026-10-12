@@ -30,6 +30,7 @@ import {
   type ToolRunFile,
 } from "../shared/contracts.js";
 import { ImageGenerationError, type ImageGenerator } from "./openai-image.js";
+import { sniffImageType } from "./image-format.js";
 import { Model3DGenerationError, type Generated3DModel, type Model3DAnimationAction, type Model3DGenerator } from "./model3d.js";
 import { model3DJournal } from "./model3d-journal.js";
 import { inspectModel3D } from "./model3d-inspect.js";
@@ -269,7 +270,8 @@ export class ToolRunner {
       }, signal)));
       signal?.throwIfAborted();
       const files: ToolRunFile[] = generated.map((image, index) => {
-        const mediaType = generatedImageType(image.bytes, image.mediaType);
+        // Providers and proxies can ignore the requested output format.
+        const mediaType = sniffImageType(image.bytes) ?? image.mediaType;
         return { name: imageFileName(mediaType, outputs > 1 ? index + 1 : undefined), mediaType };
       });
       if (this.assetLibrary) {
@@ -621,14 +623,6 @@ function isToolRunFileName(value: string): boolean {
 
 function isToolId(value: unknown): value is ToolId {
   return typeof value === "string" && TOOL_IDS.includes(value as ToolId);
-}
-
-/** Providers and proxies may ignore the requested output format, so trust the image signature. */
-function generatedImageType(bytes: Buffer, declared: string): string {
-  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
-  if (bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return "image/jpeg";
-  if (bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
-  return declared;
 }
 
 function imageFileName(mediaType: string, index?: number): string {

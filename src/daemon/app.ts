@@ -5,6 +5,7 @@ import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js
 import { PluginCapabilities } from "./plugin-capabilities.js";
 import { registerPluginCapabilityRoutes } from "./plugin-capability-routes.js";
 import { isUtf8 } from "node:buffer";
+import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -3021,17 +3022,11 @@ function enabledPluginMentions(plugins: readonly PluginSummary[]): ConversationC
 }
 
 function isWebp(value: unknown): value is Buffer {
-  return Buffer.isBuffer(value) && value.length >= 12 &&
-    value.subarray(0, 4).toString("ascii") === "RIFF" &&
-    value.subarray(8, 12).toString("ascii") === "WEBP";
+  return Buffer.isBuffer(value) && sniffImageType(value) === "image/webp";
 }
 
 function isImageOfType(value: Buffer, mediaType: CreateLibraryImageRequest["image"]["mediaType"]): boolean {
-  if (mediaType === "image/webp") return isWebp(value);
-  if (mediaType === "image/png") {
-    return value.length >= 8 && value.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-  }
-  return value.length >= 3 && value[0] === 0xff && value[1] === 0xd8 && value[2] === 0xff;
+  return sniffImageType(value) === mediaType;
 }
 
 function isLibraryMediaOfType(value: Buffer, mediaType: LibraryUploadMediaType): boolean {
