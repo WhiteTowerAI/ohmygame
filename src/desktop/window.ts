@@ -8,12 +8,23 @@ const PLAYTEST_MAX_CONTENT_HEIGHT = 800;
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
 
+export type WindowAppearance = "system" | "light" | "dark";
+
 export function windowsTitleBarOverlay(isDark: boolean) {
   return {
     color: isDark ? "#1f1f1f" : "#f7f7f7",
     symbolColor: isDark ? "#ffffff" : "#202020",
     height: 32,
   };
+}
+
+/**
+ * Resolves the window chrome color from the requested appearance instead of from
+ * nativeTheme alone, so a change cannot leave the Windows window controls on the
+ * background of the previous appearance.
+ */
+export function windowChromeIsDark(appearance: WindowAppearance, systemIsDark: boolean): boolean {
+  return appearance === "dark" || (appearance === "system" && systemIsDark);
 }
 
 interface CreateWindowOptions {

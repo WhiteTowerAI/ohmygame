@@ -30,7 +30,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport } from "../src/desktop/window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, windowChromeIsDark } from "../src/desktop/window.js";
 
 beforeEach(() => {
   electron.windows.length = 0;
@@ -209,5 +209,16 @@ describe("desktop window", () => {
       expect(window.options.titleBarStyle).toBeUndefined();
       expect(window.options.titleBarOverlay).toBeUndefined();
     }
+  });
+
+  it.each([
+    ["system", true, true],
+    ["system", false, false],
+    ["dark", false, true],
+    ["dark", true, true],
+    ["light", true, false],
+    ["light", false, false],
+  ] as const)("resolves the %s appearance under a dark system theme of %s to dark chrome %s", (appearance, systemIsDark, dark) => {
+    expect(windowChromeIsDark(appearance, systemIsDark)).toBe(dark);
   });
 });

@@ -13,7 +13,7 @@ import { SYSTEM_PROXY_TARGET } from "../shared/network-settings.js";
 import { createNetworkDispatcher } from "../daemon/proxy.js";
 import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
-import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
+import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowChromeIsDark, windowsTitleBarOverlay, type WindowAppearance } from "./window.js";
 import { DesktopUpdater } from "./updater.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
@@ -63,6 +63,18 @@ let updater: DesktopUpdater | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
 const windowMenuLabels = new Set(["File", "Edit", "View", "Window"]);
 let applicationIconDataUrl: Promise<string> | undefined;
+/** The renderer's requested appearance, mirrored so win32 window controls follow it. */
+let windowAppearance: WindowAppearance = "system";
+
+/**
+ * Keeps the Windows window controls on the color of the window chrome the renderer
+ * draws. The renderer re-themes itself when the system theme changes, so the native
+ * overlay has to be refreshed from the same source.
+ */
+function applyWindowsTitleBarOverlay(): void {
+  if (process.platform !== "win32" || !mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setTitleBarOverlay(windowsTitleBarOverlay(windowChromeIsDark(windowAppearance, nativeTheme.shouldUseDarkColors)));
+}
 
 async function stopServices(): Promise<void> {
   webGamePlayers.close();
@@ -140,10 +152,9 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
   if (appearance !== "system" && appearance !== "light" && appearance !== "dark") {
     throw new Error("Invalid appearance");
   }
+  windowAppearance = appearance;
   nativeTheme.themeSource = appearance;
-  if (process.platform === "win32" && senderWindow === mainWindow) {
-    senderWindow.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors));
-  }
+  if (senderWindow === mainWindow) applyWindowsTitleBarOverlay();
 });
 handle("ohmygame:window-menu-icon", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid window menu source");
@@ -377,6 +388,8 @@ app.on("before-quit", (event) => {
 try {
   await app.whenReady();
   nativeTheme.themeSource = "system";
+  // The renderer follows the system theme on its own, so the window controls must too.
+  nativeTheme.on("updated", applyWindowsTitleBarOverlay);
   const rendererOrigin = useBuiltRenderer ? "null" : new URL(developmentRendererUrl).origin;
   const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(app.getPath("userData"), "data");
   const systemProxySession = session.fromPartition("ohmygame-system-proxy", { cache: false });

@@ -24,7 +24,7 @@ vi.mock("electron", () => ({
     handle: (name: string, fn: (...args: any[]) => any) => host.handlers.set(name, fn),
     on: (name: string, fn: (...args: any[]) => void) => host.ipcEvents.set(name, fn),
   },
-  nativeTheme: {}, session: { fromPartition: () => ({ setProxy: async () => {} }), defaultSession: { setProxy: async () => {} } },
+  nativeTheme: { on: vi.fn() }, session: { fromPartition: () => ({ setProxy: async () => {} }), defaultSession: { setProxy: async () => {} } },
   BrowserWindow: { getAllWindows: () => [] }, clipboard: {}, dialog: { showErrorBox: vi.fn() }, Menu: {}, shell: {},
 }));
 vi.mock("undici/index.js", () => ({ setGlobalDispatcher: vi.fn() }));
