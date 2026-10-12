@@ -6,6 +6,7 @@ import {
   type AgentSession,
   type SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { opaquePngsAsJpeg } from "./read-image-format.js";
 
 const ORIGIN = "https://api.deepseek.com";
 export const DEEPSEEK_REQUEST_LIMIT = 48 * 1024 * 1024;
@@ -88,7 +89,9 @@ export function createProviderImageReadTool(
     execute: (...args: Parameters<typeof resized.execute>) => {
       const autoResize =
         !isDeepSeekFileModel(args[4].model) && settings.getImageAutoResize();
-      return (autoResize ? resized : original).execute(...args);
+      return autoResize
+        ? resized.execute(...args).then(opaquePngsAsJpeg)
+        : original.execute(...args);
     },
   };
 }

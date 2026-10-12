@@ -236,6 +236,29 @@ describe("tool runner", () => {
     expect((await readdir(path.join(dataDirectory, "tools", "runs", run.id))).sort()).toEqual(["output-1.webp", "output-2.webp", "run.json"]);
   });
 
+  it("names generated images by their actual format", async () => {
+    const dataDirectory = await temporaryData();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16]);
+    const outputs = [png, jpeg];
+    // A proxy can ignore the requested WebP format and return other bytes.
+    const generate = vi.fn<ImageGenerator["generate"]>().mockImplementation(async () => ({
+      bytes: outputs.shift()!,
+      mediaType: "image/webp",
+    }));
+    const runner = new ToolRunner(dataDirectory, { generate });
+    await runner.load();
+    const run = await runner.run("generate-image", { prompt: "Two icons", resolution: "1K", aspectRatio: "1:1", outputs: 2 });
+
+    expect(run.files).toEqual([
+      { name: "output-1.png", mediaType: "image/png" },
+      { name: "output-2.jpg", mediaType: "image/jpeg" },
+    ]);
+    const runDirectory = path.join(dataDirectory, "tools", "runs", run.id);
+    expect(await readFile(path.join(runDirectory, "output-1.png"))).toEqual(png);
+    await expect(runner.file(run.id, "output-2.jpg")).resolves.toMatchObject({ bytes: jpeg, mediaType: "image/jpeg" });
+  });
+
   it("validates requests and reports missing configuration", async () => {
     const runner = new ToolRunner(await temporaryData(), fakeGenerator());
     await runner.load();

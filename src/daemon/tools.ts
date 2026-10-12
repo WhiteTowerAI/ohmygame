@@ -268,10 +268,10 @@ export class ToolRunner {
         ...(usesConfiguredOptions ? { resolution: resolution!, aspectRatio: aspectRatio!, ...(imageInput?.length ? { images: imageInput } : {}) } : { size }),
       }, signal)));
       signal?.throwIfAborted();
-      const files: ToolRunFile[] = generated.map((image, index) => ({
-        name: imageFileName(image.mediaType, outputs > 1 ? index + 1 : undefined),
-        mediaType: image.mediaType,
-      }));
+      const files: ToolRunFile[] = generated.map((image, index) => {
+        const mediaType = generatedImageType(image.bytes, image.mediaType);
+        return { name: imageFileName(mediaType, outputs > 1 ? index + 1 : undefined), mediaType };
+      });
       if (this.assetLibrary) {
         for (const [index, file] of files.entries()) {
           file.assetId = (await this.assetLibrary!.add(file.name, generated[index]!.bytes, {
@@ -621,6 +621,14 @@ function isToolRunFileName(value: string): boolean {
 
 function isToolId(value: unknown): value is ToolId {
   return typeof value === "string" && TOOL_IDS.includes(value as ToolId);
+}
+
+/** Providers and proxies may ignore the requested output format, so trust the image signature. */
+function generatedImageType(bytes: Buffer, declared: string): string {
+  if (bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
+  if (bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return "image/jpeg";
+  if (bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return declared;
 }
 
 function imageFileName(mediaType: string, index?: number): string {

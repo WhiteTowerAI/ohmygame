@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,6 +21,7 @@ import {
   installDeepSeekImageFiles,
   isDeepSeekFileModel,
 } from "../src/daemon/deepseek-image-files.js";
+import { isOpaquePng } from "../src/daemon/read-image-format.js";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -1004,6 +1006,51 @@ describe("Pi session integration", () => {
         .width,
     ).toBeLessThan(3000);
     expect(await readImage("https://api.deepseek.com")).toEqual(bytes);
+  });
+
+  it("sends opaque read PNGs as same-size JPEG and keeps transparent PNGs", async () => {
+    const dir = await temporaryDirectory();
+    const size = 640;
+    const noise = randomBytes(size * size * 4);
+    const pixels = (channels: 3 | 4) => {
+      const out = Buffer.alloc(size * size * channels);
+      for (let i = 0; i < out.length; i++)
+        out[i] = channels === 4 && i % 4 === 3 ? 128 : Math.floor(((i / channels) % size) * (200 / size)) + (noise[i] & 3);
+      return out;
+    };
+    const png = (channels: 3 | 4) =>
+      sharp(pixels(channels), { raw: { width: size, height: size, channels } }).png().toBuffer();
+    // Generated media can carry a misleading extension.
+    await writeFile(path.join(dir, "output.webp"), await png(3));
+    const transparent = await png(4);
+    await writeFile(path.join(dir, "sprite.png"), transparent);
+    const settings = SettingsManager.inMemory({ images: { autoResize: true } });
+    const tool = createProviderImageReadTool(dir, settings);
+    const read = (file: string) =>
+      tool.execute("read-1", { path: file }, undefined, undefined, {
+        cwd: dir,
+        model: { api: "openai-responses", baseUrl: "https://proxy.example/v1", input: ["text", "image"] },
+      } as Parameters<typeof tool.execute>[4]);
+
+    const opaque = await read("output.webp");
+    const image = opaque.content.find((block) => block.type === "image");
+    expect(image?.mimeType).toBe("image/jpeg");
+    expect(opaque.content[0]).toMatchObject({ type: "text", text: "Read image file [image/jpeg]" });
+    const metadata = await sharp(Buffer.from(image!.data, "base64")).metadata();
+    expect([metadata.format, metadata.width, metadata.height]).toEqual(["jpeg", size, size]);
+
+    const kept = (await read("sprite.png")).content.find((block) => block.type === "image");
+    expect(kept).toMatchObject({ mimeType: "image/png", data: transparent.toString("base64") });
+  });
+
+  it("treats palette PNGs with tRNS transparency as transparent", async () => {
+    const raw = { raw: { width: 2, height: 1, channels: 4 as const } };
+    const pixels = Buffer.from([255, 0, 0, 255, 0, 0, 255, 0]);
+    const palette = await sharp(pixels, raw).png({ palette: true }).toBuffer();
+    expect(palette[25]).toBe(3);
+    expect(isOpaquePng(palette)).toBe(false);
+    const opaque = await sharp(pixels, raw).removeAlpha().png().toBuffer();
+    expect(isOpaquePng(opaque)).toBe(true);
   });
 
   function completion() {
