@@ -28,7 +28,7 @@ describe("Meshy provider", () => {
     })).resolves.toEqual({
       bytes: Buffer.from([1, 2, 3]),
       mediaType: "model/gltf-binary",
-      requestId: "task-1",
+      requestId: "task-1", metadata: { forwardAxis: "+Z" },
     });
 
     expect(request.mock.calls.map(([url]) => url)).toEqual([
@@ -116,7 +116,7 @@ describe("Meshy provider", () => {
     const provider = new MeshyProvider(() => "meshy-key", request, 0);
 
     await expect(provider.animate({ model: Buffer.from("glb"), actionIds: [0, 30], heightMeters: 1.6 }))
-      .resolves.toEqual({ bytes: Buffer.from([9]), mediaType: "model/gltf-binary", requestId: "anim-1" });
+      .resolves.toEqual({ bytes: Buffer.from([9]), mediaType: "model/gltf-binary", requestId: "anim-1", metadata: { forwardAxis: "+Z" } });
     expect(request.mock.calls.map(([url]) => url)).toEqual([
       "https://api.meshy.ai/openapi/v1/rigging",
       "https://api.meshy.ai/openapi/v1/rigging/rig-1",
@@ -124,7 +124,7 @@ describe("Meshy provider", () => {
       "https://api.meshy.ai/openapi/v1/animations/anim-1",
       "https://files.example/animated.glb",
     ]);
-    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({ model_url: "data:model/gltf-binary;base64,Z2xi", height_meters: 1.6 });
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({ model_url: "data:application/octet-stream;base64,Z2xi", height_meters: 1.6 });
     expect(JSON.parse(String(request.mock.calls[2]?.[1]?.body))).toEqual({ rig_task_id: "rig-1", action_ids: [0, 30] });
   });
 

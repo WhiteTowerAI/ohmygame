@@ -45,6 +45,8 @@ const MAX_SESSIONS = 4;
 const IDLE_TIMEOUT_MS = 10 * 60_000;
 const MAX_ELEMENTS = 100;
 const MAX_TEXT = 4_000;
+/** Screenshots are resent with every later model request, so keep them small. */
+const CAPTURE_JPEG_QUALITY = 80;
 
 export class ElectronPlaytestDriver implements GameRuntimeAdapter {
   readonly available = true;
@@ -333,11 +335,12 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     this.#assertLive(state);
     const image = await state.window.webContents.capturePage();
     signal?.throwIfAborted();
-    const { width, height } = image.getSize();
+    const screenshot = logicalSizeImage(image, state.window.getContentSize()[0]);
+    const { width, height } = screenshot.getSize();
     return {
       sessionId: state.id,
-      mediaType: "image/png",
-      data: image.toPNG().toString("base64"),
+      mediaType: "image/jpeg",
+      data: screenshot.toJPEG(CAPTURE_JPEG_QUALITY).toString("base64"),
       width,
       height,
       analysis: analyzeNativeImage(image),
@@ -427,6 +430,16 @@ export function analyzeBitmap(bitmap: Uint8Array, width: number, height: number)
     luminanceVariance: rounded(luminanceVariance),
     likelyBlank: opaqueRatio < 0.01 || luminanceVariance < 1,
   };
+}
+
+/**
+ * Scale a high-DPI capture down to the page's CSS pixels, so screenshot pixels match input
+ * coordinates. The image's own aspect ratio is kept.
+ */
+function logicalSizeImage(image: NativeImage, contentWidth: number): NativeImage {
+  const { width, height } = image.getSize();
+  if (!(contentWidth > 0) || width <= contentWidth) return image;
+  return image.resize({ width: contentWidth, height: Math.max(1, Math.round(height * contentWidth / width)), quality: "best" });
 }
 
 function analyzeNativeImage(image: NativeImage): PlaytestCapture["analysis"] {

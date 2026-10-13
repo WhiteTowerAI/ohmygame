@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { useEffect, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes, type ReactNode } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -11,13 +11,14 @@ export interface CanvasTextModels {
   defaultReasoningLevel?: AgentReasoningLevel;
 }
 
-export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultReasoningLevel = "medium", model, reasoningLevel, instruction, generating, busy, error, label = "Text generation instruction", placeholder = "Describe the text you want to generate", generateLabel = "Generate text", onInstruction, onModel, onReasoningChange, onGenerate }: CanvasTextModels & {
+export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultReasoningLevel = "medium", model, reasoningLevel, instruction, generating, busy, error, references, label = "Text generation instruction", placeholder = "Describe the text you want to generate", generateLabel = "Generate text", onInstruction, onModel, onReasoningChange, onGenerate }: CanvasTextModels & {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   instruction: string;
   generating?: boolean;
   busy?: boolean;
   error?: string;
+  references?: ReactNode;
   label?: string;
   placeholder?: string;
   generateLabel?: string;
@@ -30,9 +31,10 @@ export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultR
   const selectedModel = models.find((candidate) => candidate.provider === effectiveModel?.provider && candidate.id === effectiveModel.id);
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? defaultReasoningLevel, selectedModel?.reasoningLevels ?? []);
   return <div className="story-text-composer nodrag nowheel">
+    {references}
     <CanvasTextarea aria-label={label} rows={3} value={instruction} disabled={busy} placeholder={placeholder} onChange={onInstruction} />
     {error ? <p role="alert">{error}</p> : null}
-    <div>
+    <div className="canvas-text-composer-actions">
       <ModelSelector variant="canvas" models={models} status={modelStatus} value={effectiveModel} reasoningLevel={reasoningLevel ?? defaultReasoningLevel} disabled={busy}
         onChange={(selected, level) => onModel({ provider: selected.provider, id: selected.id }, level)} onReasoningChange={onReasoningChange} />
       <button type="button" title={generateLabel} aria-label={generateLabel} disabled={busy || !instruction.trim() || !selectedModel} onClick={() => { if (selectedModel) onGenerate({ provider: selectedModel.provider, id: selectedModel.id }, effectiveReasoning); }}>

@@ -19,6 +19,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.resolve(import.meta.dirname, "index.html"),
+        webGameHost: path.resolve(import.meta.dirname, "web-game-host.html"),
         playableSandbox: path.resolve(import.meta.dirname, "playable-sandbox.html"),
       },
     },

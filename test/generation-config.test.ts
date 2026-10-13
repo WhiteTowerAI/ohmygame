@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_MODEL_3D_CONFIG, buildModel3DToolRequest, normalizeModel3DConfig, resolveModel3D } from "../src/shared/generation-config.js";
 
 describe("shared generation config", () => {
+  it("resolves legacy free references and shares tier capabilities with API-key models", () => {
+    const legacy = { provider: "cloud-hyper3d", id: "rodin" };
+    expect(resolveModel3D(legacy)).toMatchObject({ id: "Gen-2.5-Medium", estimatedCredits: 0.5 });
+    for (const tier of ["Gen-2", "Gen-2.5-Medium", "Gen-2.5-Extreme-High", "Sketch"]) {
+      const free = resolveModel3D({ provider: "cloud-hyper3d", id: tier })!;
+      const ownKey = resolveModel3D({ provider: "hyper3d", id: tier })!;
+      expect(free.polycount).toEqual(ownKey.polycount);
+      expect(free.estimatedCredits).toBe(ownKey.estimatedCredits);
+    }
+    expect(resolveModel3D({ provider: "hyper3d", id: "Gen-2" })!.polycount.max).toBe(1_000_000);
+    expect(resolveModel3D({ provider: "meshy", id: "rodin" })).toBeUndefined();
+  });
   it("uses the supported 3D controls by default", () => {
     expect(DEFAULT_MODEL_3D_CONFIG).toEqual({ targetPolycount: 4_000, texture: true, pbr: false });
   });

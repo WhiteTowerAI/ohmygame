@@ -1,4 +1,5 @@
 import { IMAGE_ASPECT_RATIOS, type ImageAspectRatio, type ImageModel, type ImageOutputCount, type ImageProtocol, type ImageResolution } from "../shared/contracts.js";
+import { knownImageReferenceLimit } from "../shared/image-reference-limits.js";
 
 type ImageModelDefinition = Omit<ImageModel, "provider" | "providerName">;
 
@@ -56,7 +57,7 @@ export function imageModelDefinition(id: string, catalog: readonly ImageModel[] 
     sizes: ["1024x1024", "1536x1024", "1024x1536"],
     generationOptions: resolutions.flatMap((resolution) => aspectRatios.map((aspectRatio) => ({ resolution, aspectRatio }))),
     supportsReferenceImage: known ? known.supportsReferenceImage : true,
-    ...(known?.maxReferenceImages ? { maxReferenceImages: known.maxReferenceImages } : {}),
+    maxReferenceImages: known?.supportsReferenceImage === false ? 0 : known?.maxReferenceImages ?? knownImageReferenceLimit(id) ?? 1,
     maxOutputs: known?.maxOutputs ?? (1 satisfies ImageOutputCount),
     protocol: family.protocol,
   };

@@ -1,6 +1,5 @@
 import {
   ArrowLeft,
-  House,
   LoaderCircle,
   MessageSquarePlus,
   PanelToggle,
@@ -16,13 +15,15 @@ import {
   useState,
   lazy,
   Suspense,
-  type CSSProperties,
-  type KeyboardEvent,
 } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
+  ApiError,
+  acquirePreview,
+  releasePreview,
+  stopPreview,
   approvePlan,
   answerQuestionnaire,
   cancelPrompt,
@@ -64,13 +65,16 @@ import { readChatLayout, type ChatLayout } from "./chat-layout.js";
 import { forgetPendingPublish, rememberPendingPublish, takePendingPublish } from "./pending-publish.js";
 import type { PublishDetails } from "./publish-dialog.js";
 import { usePlaytestAskRequests } from "./playable-playtest.js";
+import { useRuntimeConnection } from "./runtime-connection.js";
+import { ErrorBoundary } from "./error-boundary.js";
+import { WorkspaceShell, WorkspaceAgentPane } from "./workspace-shell.js";
 
 interface ProjectShellProps {
   projectId: string;
   conversationId?: string;
   view?: "design";
   onViewChange?: (view: "design" | "workspace", options?: { replace?: boolean }) => void;
-  initialPrompt?: { prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] };
+  initialPrompt?: { generation: number; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] };
   initialDraft?: ComposerDraft;
   initialCanvasNodeId?: string;
   onInitialCanvasNodeHandled?: () => void;
@@ -80,10 +84,7 @@ interface ProjectShellProps {
   onHome: () => void;
 }
 
-const DEFAULT_AGENT_WIDTH = 430;
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
-const MIN_AGENT_WIDTH = 320;
-const AGENT_WIDTH_STORAGE_KEY = "ohmygame-agent-width";
 const GODOT_WORKSPACE_OPEN_STORAGE_KEY = "ohmygame-godot-workspace-open";
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
@@ -102,11 +103,14 @@ export function ProjectShell({
   onHome,
 }: ProjectShellProps) {
   const auth = useAuth();
+  const runtime = useRuntimeConnection();
+  const openedGeneration = useRef(runtime.generation);
+  const previewPaused = runtime.generation !== openedGeneration.current || runtime.status !== "ready";
   const [state, dispatch] = useReducer(rendererReducer, initialRendererState);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
-  const [agentCollapsed, setAgentCollapsed] = useState(view === "design");
+  const [agentCollapsed, setAgentCollapsed] = useState(view === "design" && !initialPrompt && !initialDraft);
   const [designOpen, setDesignOpen] = useState(view === "design");
   useEffect(() => { setDesignOpen(view === "design"); }, [view]);
   const changeWorkspaceView = useCallback((open: boolean, options?: { replace?: boolean }): void => {
@@ -114,10 +118,7 @@ export function ProjectShell({
     onViewChange?.(open ? "design" : "workspace", options);
   }, [onViewChange]);
   const [godotWorkspaceOpen, setGodotWorkspaceOpen] = useState(readGodotWorkspaceOpen);
-  const [agentWidth, setAgentWidth] = useState(readAgentWidth);
   const [chatLayout] = useState<ChatLayout>(readChatLayout);
-  const [maximumAgentWidth, setMaximumAgentWidth] = useState(DEFAULT_AGENT_WIDTH);
-  const [resizingAgent, setResizingAgent] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishDialog, setPublishDialog] = useState<{ projectId: string; status: "open" | "success" }>();
   const [workspaceRevision, setWorkspaceRevision] = useState(0);
@@ -139,9 +140,6 @@ export function ProjectShell({
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
   const timeline = useRef<HTMLDivElement>(null);
   const followTimeline = useRef(true);
-  const workspaceShell = useRef<HTMLElement>(null);
-  const agentWidthRef = useRef(agentWidth);
-  const resizingAgentRef = useRef(false);
 
   // Godot has no Preview, so its workspace opens on Design unless the user hid it,
   // since Design keeps the workspace shown.
@@ -169,52 +167,6 @@ export function ProjectShell({
     return () => { disposed = true; };
   }, [projectId, state.conversation?.id, state.connection]);
 
-  function resizeAgent(clientX: number): void {
-    const shell = workspaceShell.current;
-    const bounds = shell?.getBoundingClientRect();
-    if (!shell || !bounds) return;
-    const maximum = getMaximumAgentWidth(bounds.width);
-    const distance = chatLayout === "right" ? bounds.right - clientX : clientX - bounds.left;
-    const width = Math.round(Math.min(maximum, Math.max(MIN_AGENT_WIDTH, distance)));
-    agentWidthRef.current = width;
-    shell.style.setProperty("--agent-width", `${width}px`);
-  }
-
-  function saveAgentWidth(): void {
-    localStorage.setItem(AGENT_WIDTH_STORAGE_KEY, String(agentWidthRef.current));
-  }
-
-  function finishAgentResize(): void {
-    if (!resizingAgentRef.current) return;
-    resizingAgentRef.current = false;
-    setResizingAgent(false);
-    setAgentWidth(agentWidthRef.current);
-    saveAgentWidth();
-  }
-
-  function resetAgentWidth(): void {
-    const width = Math.min(DEFAULT_AGENT_WIDTH, maximumAgentWidth);
-    agentWidthRef.current = width;
-    setAgentWidth(width);
-    localStorage.setItem(AGENT_WIDTH_STORAGE_KEY, String(width));
-  }
-
-  function resizeAgentWithKeyboard(event: KeyboardEvent<HTMLDivElement>): void {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const direction = chatLayout === "left"
-      ? (event.key === "ArrowLeft" ? -1 : 1)
-      : (event.key === "ArrowLeft" ? 1 : -1);
-    const bounds = workspaceShell.current?.getBoundingClientRect();
-    if (!bounds) return;
-    const clientX = chatLayout === "right"
-      ? bounds.right - agentWidthRef.current - direction * 16
-      : bounds.left + agentWidthRef.current + direction * 16;
-    resizeAgent(clientX);
-    setAgentWidth(agentWidthRef.current);
-    saveAgentWidth();
-  }
-
   function subscribe(cursor: number, selectedConversationId: string): void {
     unsubscribeEvents.current?.();
     unsubscribeEvents.current = subscribeToProject(projectId, cursor, {
@@ -235,17 +187,19 @@ export function ProjectShell({
       onOpen: () => dispatch({ type: "connection", status: "open" }),
       onError: () => dispatch({ type: "connection", status: "reconnecting" }),
       onReset: async () => {
-        const detail = await getConversation(projectId, selectedConversationId, true);
-        dispatch({
-          type: "conversation-loaded",
-          detail,
-        });
+        const [project, detail] = await Promise.all([getProject(projectId), getConversation(projectId, selectedConversationId, true)]);
+        dispatch({ type: "initialized", project, detail });
+        setWorkspaceRevision((value) => value + 1);
         return detail.cursor;
       },
     });
   }
 
   useEffect(() => {
+    if (runtime.status !== "ready") {
+      dispatch({ type: "connection", status: "reconnecting" });
+      return;
+    }
     let disposed = false;
 
     async function bootstrap() {
@@ -278,12 +232,9 @@ export function ProjectShell({
           detail,
         });
         subscribe(detail.cursor, selected.id);
+        if (runtime.recovered) setWorkspaceRevision((value) => value + 1);
 
-        if (supportsWebPreview(project) && project.preview.status === "stopped") {
-          void startPreview(project.id).catch((error) => {
-            if (!disposed) dispatch({ type: "notice", message: errorMessage(error) });
-          });
-        }
+
 
       } catch (error) {
         if (!disposed) dispatch({ type: "fatal", message: errorMessage(error) });
@@ -296,7 +247,16 @@ export function ProjectShell({
       unsubscribeEvents.current?.();
       unsubscribeEvents.current = undefined;
     };
-  }, [projectId]);
+  }, [projectId, runtime.generation, runtime.status]);
+
+  const previewSupported = supportsWebPreview(state.project);
+  useEffect(() => {
+    if (!previewSupported || runtime.status !== "ready") return;
+    const leaseId = crypto.randomUUID();
+    void acquirePreview(projectId, leaseId, true, previewPaused).catch(() => {});
+    const timer = setInterval(() => { void acquirePreview(projectId, leaseId).catch(() => {}); }, 20_000);
+    return () => { clearInterval(timer); void releasePreview(projectId, leaseId).catch(() => {}); };
+  }, [projectId, previewSupported, runtime.generation, runtime.status]);
 
   useEffect(() => {
     if (!state.project || state.phase !== "ready" || !conversationId || state.conversation?.id === conversationId) return;
@@ -334,8 +294,15 @@ export function ProjectShell({
     const conversation = state.conversation;
     if (
       state.connection !== "open" || !project || !conversation || conversation.id !== conversationId ||
-      !initialPrompt || initialPromptAttempted.current
+      !initialPrompt || initialPromptAttempted.current || initialPrompt.generation !== runtime.generation || runtime.status !== "ready"
     ) return;
+    sendInitialPrompt();
+  }, [state.connection, state.project?.id, state.conversation?.id, conversationId, initialPrompt, runtime.generation, runtime.status]);
+
+  function sendInitialPrompt(): void {
+    const project = state.project;
+    const conversation = state.conversation;
+    if (!initialPrompt || !project || !conversation || conversation.id !== conversationId || sendingInitialPrompt || runtime.status !== "ready") return;
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
     void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
@@ -346,7 +313,7 @@ export function ProjectShell({
       onInitialPromptHandled?.();
       setSendingInitialPrompt(false);
     });
-  }, [state.connection, state.project?.id, state.conversation?.id, conversationId, initialPrompt]);
+  }
 
   useEffect(() => {
     const element = timeline.current;
@@ -368,28 +335,10 @@ export function ProjectShell({
   }, [state.conversation?.id, state.agent.status, state.plan.mode]);
 
   useEffect(() => {
-    const updateMaximum = () => {
-      if (window.matchMedia("(max-width: 720px)").matches) return;
-      const bounds = workspaceShell.current?.getBoundingClientRect();
-      if (!bounds) return;
-      const maximum = getMaximumAgentWidth(bounds.width);
-      setMaximumAgentWidth(maximum);
-      if (agentWidthRef.current > maximum) {
-        agentWidthRef.current = maximum;
-        setAgentWidth(maximum);
-        localStorage.setItem(AGENT_WIDTH_STORAGE_KEY, String(maximum));
-      }
-    };
-    updateMaximum();
-    window.addEventListener("resize", updateMaximum);
-    return () => window.removeEventListener("resize", updateMaximum);
-  }, []);
-
-  useEffect(() => {
     const project = state.project;
     const busy = sendingInitialPrompt ||
       state.agent.status === "running" || state.agent.status === "cancelling";
-    if (!project || (!isWebRuntimeProjectType(project.type) && project.type !== "interactive-story") || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
+    if (runtime.recovered || !project || (!isWebRuntimeProjectType(project.type) && project.type !== "interactive-story") || auth.state.status !== "signed-in" || state.phase !== "ready" || publishing || busy) return;
     const pending = takePendingPublish(sessionStorage, project.id);
     if (pending) void publish(pending).catch(() => undefined);
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
@@ -579,12 +528,13 @@ export function ProjectShell({
     return removeFollowUp(item.turnId);
   }
 
-  async function restartPreview(updated = project) {
+  async function restartPreview(updated = project, reinstall = false) {
     if (!updated || updated.preview.status === "starting") return;
     dispatch({ type: "notice", message: undefined });
     try {
-      await startPreview(updated.id);
+      await startPreview(updated.id, reinstall);
     } catch (error) {
+      if (error instanceof ApiError && error.code === "PREVIEW_CANCELLED") return;
       dispatch({ type: "notice", message: errorMessage(error) });
     }
   }
@@ -706,27 +656,12 @@ export function ProjectShell({
   const viewerCollapsed = isGodotProject && !godotWorkspaceOpen && !designOpen;
 
   return (
-    <main
-      className={`workspace-shell workspace-shell-chat-${chatLayout}${agentIsCollapsed ? " workspace-shell-agent-collapsed" : ""}${viewerCollapsed ? " workspace-shell-viewer-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""}`}
-      ref={workspaceShell}
-      style={{ "--agent-width": `${agentWidth}px` } as CSSProperties}
-    >
-      {resizingAgent ? (
-        <div className="workspace-resize-shield" />
-      ) : null}
-
-      {chatLayout === "left" ? (
-        <WorkspaceNavigationActions
-          collapsed={agentIsCollapsed}
-          onHome={requestHome}
-          onExpand={() => setAgentCollapsed(false)}
-        />
-      ) : null}
-
-      <section className="agent-pane" aria-label="Agent">
-        <header className="pane-header window-drag-handle">
-          <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
-          <div className="pane-header-actions">
+    <WorkspaceShell chatLayout={chatLayout} agentCollapsed={agentIsCollapsed} viewerCollapsed={viewerCollapsed}
+      onHome={requestHome} onExpandAgent={() => setAgentCollapsed(false)}
+      agent={<WorkspaceAgentPane bodyRef={timeline} onScroll={(event) => {
+        const element = event.currentTarget;
+        followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+      }} actions={<>
             <button
               className="icon-button pane-header-action"
               type="button"
@@ -766,20 +701,11 @@ export function ProjectShell({
                 <PanelToggle size={14} />
               </button>
             ) : null}
-          </div>
-        </header>
-
-        <div
-          className="agent-body"
-          ref={timeline}
-          onScroll={(event) => {
-            const element = event.currentTarget;
-            followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-          }}
-        >
+      </>}>
           <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
             <Activity mode={agentIsCollapsed ? "hidden" : "visible"}>
+              <ErrorBoundary label="Conversation" resetKey={conversation?.id}>
               <AgentTimeline
                 turns={state.turns}
                 projectId={projectId}
@@ -790,6 +716,7 @@ export function ProjectShell({
                 onRevise={revisePrompt}
                 onAddToChat={addToChat}
               />
+              </ErrorBoundary>
             </Activity>
           </div>
 
@@ -812,6 +739,13 @@ export function ProjectShell({
             </div>
           ) : null}
 
+          {initialPrompt && initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current ? <div className="paused-initial-prompt" role="status">
+            <p>Your initial message was paused while the service restarted.</p>
+            <details><summary>Review message</summary><pre>{initialPrompt.prompt}</pre>
+              {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0)} attachments retained</p> : null}
+            </details>
+            <button type="button" disabled={runtime.status !== "ready" || state.connection !== "open" || !conversation || conversation.id !== conversationId} onClick={sendInitialPrompt}>Send original message</button>
+          </div> : null}
           {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
             key={conversation?.id}
             projectId={project?.id}
@@ -857,51 +791,26 @@ export function ProjectShell({
             onSteerPending={steerFollowUp}
             onEditPending={editFollowUp}
           /> : null}
-        </div>
-      </section>
-
-      <div
-        className="workspace-resizer"
-        role="separator"
-        aria-label="Resize agent panel"
-        aria-orientation="vertical"
-        aria-valuemin={MIN_AGENT_WIDTH}
-        aria-valuemax={maximumAgentWidth}
-        aria-valuenow={agentWidth}
-        aria-hidden={agentIsCollapsed || viewerCollapsed || undefined}
-        tabIndex={agentIsCollapsed || viewerCollapsed ? -1 : 0}
-        onDoubleClick={resetAgentWidth}
-        onKeyDown={resizeAgentWithKeyboard}
-        onPointerDown={(event) => {
-          if (!event.isPrimary || event.button !== 0) return;
-          event.preventDefault();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          resizingAgentRef.current = true;
-          setResizingAgent(true);
-        }}
-        onPointerMove={(event) => {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) resizeAgent(event.clientX);
-        }}
-        onPointerUp={(event) => {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-          finishAgentResize();
-        }}
-        onPointerCancel={finishAgentResize}
-        onLostPointerCapture={finishAgentResize}
-      />
-
+      </WorkspaceAgentPane>}
+    >
+      <ErrorBoundary label="Workspace" resetKey={project?.id} onHome={onHome}>
       {!project ? <section className="viewer-pane" /> : project.type !== "interactive-story" && project.type !== "asset-canvas" ? (
         <CodingWorkspace
           project={project}
           agentBusy={agentBusy}
           publishing={publishing}
           workspaceRevision={workspaceRevision}
+          previewPaused={previewPaused}
           openFileRequest={openFileRequest}
           onPublish={publish}
           publishDialog={publishDialogStatus}
           onOpenPublish={() => setPublishDialog({ projectId: project.id, status: "open" })}
           onClosePublish={() => setPublishDialog(undefined)}
           onRestart={restartPreview}
+          onStop={async () => {
+            try { await stopPreview(project.id); } catch (cause) { dispatch({ type: "notice", message: errorMessage(cause) }); }
+          }}
+          onAskAgent={requestPrompt}
           designOpen={designOpen}
           onDesignOpenChange={changeWorkspaceView}
           onDesignSaveReady={registerDesignSave}
@@ -949,26 +858,8 @@ export function ProjectShell({
         onAskAgent={requestPrompt}
         onSendToAgent={sendEditorRequest}
       />}
-    </main>
-  );
-}
-
-function WorkspaceNavigationActions({ collapsed, onHome, onExpand }: {
-  collapsed: boolean;
-  onHome: () => void;
-  onExpand: () => void;
-}) {
-  return (
-    <div className="workspace-navigation-actions" role="toolbar" aria-label="Workspace navigation">
-      <button className="icon-button workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home">
-        <House size={14} />
-      </button>
-      {collapsed ? (
-        <button className="icon-button" type="button" onClick={onExpand} title="Show agent" aria-label="Show agent">
-          <PanelToggle size={15} />
-        </button>
-      ) : null}
-    </div>
+      </ErrorBoundary>
+    </WorkspaceShell>
   );
 }
 
@@ -1009,16 +900,7 @@ async function initialConversationModel(): Promise<AgentModelRef | undefined> {
   }
 }
 
-function readAgentWidth(): number {
-  const stored = Number(localStorage.getItem(AGENT_WIDTH_STORAGE_KEY));
-  return Number.isFinite(stored) && stored >= MIN_AGENT_WIDTH ? stored : DEFAULT_AGENT_WIDTH;
-}
-
 function readGodotWorkspaceOpen(): boolean {
   // Open unless the user hid it; storage may be unavailable.
   try { return localStorage.getItem(GODOT_WORKSPACE_OPEN_STORAGE_KEY) !== "false"; } catch { return true; }
-}
-
-function getMaximumAgentWidth(workspaceWidth: number): number {
-  return Math.round(Math.max(MIN_AGENT_WIDTH, Math.min(workspaceWidth * 0.65, workspaceWidth - MIN_AGENT_WIDTH - 5)));
 }

@@ -8,16 +8,19 @@ import {
   createNodeCodebase,
   createPlayableStarterCodebase,
   NodeCodebaseConflictError,
+  openNodeCodebaseDetail,
   readNodeCodebase,
   readNodeCodebaseDetail,
   writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
+import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
 import { EDITOR_LAYOUT_SCHEMA } from "../src/shared/editor-layout-schema.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../src/shared/playable-graph-schema.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
 const temporaryRoots: string[] = [];
+const PROJECT_STYLE_MIGRATION_FILE = "schemas/project-style.version.json";
 
 afterEach(async () => {
   await Promise.all(
@@ -39,6 +42,7 @@ describe("Playable codebase", () => {
       "graph.json",
       "schemas/editor-layout.schema.json",
       "schemas/graph.schema.json",
+      "schemas/project-style.version.json",
       "shared/style/components.css",
       "shared/style/components.js",
       "shared/style/theme.css",
@@ -64,6 +68,120 @@ describe("Playable codebase", () => {
       .toContain('<div class="backdrop is-night" data-media="backdrop"></div>');
     // Its `next` Exit goes nowhere yet, which a draft allows.
     await expect(buildPlayableProject(workspace, "draft")).resolves.toBeDefined();
+  });
+
+  it("restores the missing Project Style when a Scene is added to a legacy project", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createPlayableStarterCodebase("Legacy", { width: 1280, height: 720 }),
+    );
+    await rm(path.join(workspace, "shared"), { recursive: true });
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE));
+
+    await addPlayableNode(workspace, { preset: "hotspot", id: "hotspot" });
+
+    for (const [relative, content] of Object.entries(
+      PLAYABLE_PROJECT_STYLE_FILES,
+    )) {
+      expect(await readFile(path.join(workspace, relative), "utf8")).toBe(
+        content,
+      );
+    }
+    await expect(
+      buildPlayableProject(workspace, "draft"),
+    ).resolves.toBeDefined();
+  });
+
+  it("keeps reads pure and migrates the missing Project Style when a legacy project is opened", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createPlayableStarterCodebase("Broken", { width: 1280, height: 720 }),
+    );
+    await addPlayableNode(workspace, { preset: "hotspot", id: "hotspot" });
+    await rm(path.join(workspace, "shared"), { recursive: true });
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE));
+
+    await readNodeCodebase(workspace);
+    await expect(
+      readFile(path.join(workspace, "shared/style/components.js"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    await openNodeCodebaseDetail(workspace);
+
+    await expect(
+      buildPlayableProject(workspace, "draft"),
+    ).resolves.toBeDefined();
+    expect(
+      await readFile(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE), "utf8"),
+    ).toBe('{\n  "version": 1\n}\n');
+  });
+
+  it("preserves customized Project Style files and does not repeat the migration", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createPlayableStarterCodebase("Customized", { width: 1280, height: 720 }),
+    );
+    const customTheme = ":host { --color-page: rebeccapurple; }\n";
+    await writeFile(
+      path.join(workspace, "shared/style/theme.css"),
+      customTheme,
+    );
+    await rm(path.join(workspace, "shared/style/components.js"));
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE));
+
+    await openNodeCodebaseDetail(workspace);
+
+    expect(
+      await readFile(path.join(workspace, "shared/style/theme.css"), "utf8"),
+    ).toBe(customTheme);
+    expect(
+      await readFile(
+        path.join(workspace, "shared/style/components.js"),
+        "utf8",
+      ),
+    ).toBe(PLAYABLE_PROJECT_STYLE_FILES["shared/style/components.js"]);
+
+    await rm(path.join(workspace, "shared/style/components.js"));
+    await rm(path.join(workspace, ".ohmygame"), {
+      recursive: true,
+      force: true,
+    });
+    await openNodeCodebaseDetail(workspace);
+    await expect(
+      readFile(path.join(workspace, "shared/style/components.js"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("can retry the Project Style migration after a failed open", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createPlayableStarterCodebase("Retry", { width: 1280, height: 720 }),
+    );
+    await rm(path.join(workspace, "shared"), { recursive: true });
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE));
+    await mkdir(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE), {
+      recursive: true,
+    });
+
+    await expect(openNodeCodebaseDetail(workspace)).rejects.toBeDefined();
+    await expect(
+      readFile(path.join(workspace, "shared/style/components.js"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE), {
+      recursive: true,
+    });
+    await expect(openNodeCodebaseDetail(workspace)).resolves.toBeDefined();
+    expect(
+      await readFile(path.join(workspace, "shared/style/components.js"), "utf8"),
+    ).toBe(PLAYABLE_PROJECT_STYLE_FILES["shared/style/components.js"]);
   });
 
   it("preserves user documentation and refreshes generated schemas", async () => {

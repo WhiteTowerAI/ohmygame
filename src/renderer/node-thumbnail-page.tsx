@@ -17,8 +17,19 @@ const NODE_THUMBNAIL_WIDTH = 1_280;
  * it runs the Node as the Workbench preview does, captures it once it has run
  * for a moment without errors, stores the image, and reports back.
  */
-export function NodeThumbnailPage({ projectId, nodeId }: { projectId: string; nodeId: string }) {
-  const [playable, setPlayable] = useState<{ definition: NodePlayerDefinition; assets: Record<string, Blob>; hash: string }>();
+export function NodeThumbnailPage({
+  projectId,
+  nodeId,
+}: {
+  projectId: string;
+  nodeId: string;
+}) {
+  const [playable, setPlayable] = useState<{
+    definition: NodePlayerDefinition;
+    assets: Record<string, Blob>;
+    hash: string;
+  }>();
+  const [runningHash, setRunningHash] = useState<string>();
   const [storage] = useState(createMemoryStorage);
   const stage = useRef<HTMLDivElement>(null);
   const done = useRef(false);
@@ -40,22 +51,39 @@ export function NodeThumbnailPage({ projectId, nodeId }: { projectId: string; no
     }).catch(() => finish(false));
   }, [projectId, nodeId]);
 
-  function onSnapshot(snapshot: NodeRuntimeSnapshot): void {
-    if (done.current || !playable) return;
-    if (snapshot.errors.length || snapshot.status === "failed") return finish(false);
-    if (snapshot.status !== "running" || snapshot.currentNodeId !== nodeId || timer.current !== undefined) return;
-    const { hash } = playable;
+  useEffect(() => {
+    if (!runningHash) return;
+    let cancelled = false;
     timer.current = window.setTimeout(() => {
-      const frame = stage.current?.querySelector(".playable-player-frame");
-      if (!frame) return finish(false);
-      void captureElementImage(frame, NODE_THUMBNAIL_WIDTH)
-        .then(async (image) => {
-          if (!image) return finish(false);
-          await setPlayableThumbnail(projectId, nodeId, hash, image);
+      void waitForPaint()
+        .then(async () => {
+          if (cancelled || done.current) return;
+          const frame = stage.current?.querySelector(".playable-player-frame");
+          const status = stage.current?.querySelector(
+            ".playable-player-status",
+          );
+          if (!frame || status) return finish(false);
+          const image = await captureElementImage(frame, NODE_THUMBNAIL_WIDTH);
+          if (cancelled || done.current || !image) return finish(false);
+          await setPlayableThumbnail(projectId, nodeId, runningHash, image);
           finish(true);
         })
         .catch(() => finish(false));
     }, NODE_THUMBNAIL_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer.current);
+      timer.current = undefined;
+    };
+  }, [projectId, nodeId, runningHash]);
+
+  function onSnapshot(snapshot: NodeRuntimeSnapshot): void {
+    if (done.current || !playable) return;
+    if (snapshot.errors.length || snapshot.status === "failed")
+      return finish(false);
+    if (snapshot.status !== "running" || snapshot.currentNodeId !== nodeId)
+      return;
+    setRunningHash(playable.hash);
   }
 
   const preview: PlayablePreviewOptions = { policy: "report", startNodeId: nodeId };
@@ -75,3 +103,12 @@ export function NodeThumbnailPage({ projectId, nodeId }: { projectId: string; no
 
 /** Diagnostics are the Workbench's to show; the capture only needs a clean run. */
 function ignoreDiagnostic(): void {}
+
+/** Lets React remove its loading cover and Chromium present the ready frame. */
+function waitForPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => resolve());
+    });
+  });
+}

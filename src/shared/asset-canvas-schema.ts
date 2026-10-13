@@ -1,6 +1,7 @@
 import {
   AGENT_REASONING_LEVELS,
   IMAGE_ASPECT_RATIOS,
+  IMAGE_MAX_REFERENCE_IMAGES,
   IMAGE_RESOLUTIONS,
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
@@ -9,6 +10,7 @@ import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
 
 export const MAX_ASSET_CANVAS_NODES = 2_000;
+export const MAX_TEXT_NODE_REFERENCES = 14;
 
 export const ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA = {
   ...EDITOR_LAYOUT_SCHEMA,
@@ -20,8 +22,8 @@ export const ASSET_CANVAS_EDITOR_LAYOUT_SCHEMA = {
         ...EDITOR_LAYOUT_SCHEMA.properties.nodes.additionalProperties,
         properties: {
           ...EDITOR_LAYOUT_SCHEMA.properties.nodes.additionalProperties.properties,
-          width: { type: "number", minimum: 100, maximum: 4096 },
-          height: { type: "number", minimum: 100, maximum: 4096 },
+          width: { type: "number", minimum: 100, maximum: 4096, description: "Text, document and table nodes only; other nodes size to their content." },
+          height: { type: "number", minimum: 100, maximum: 4096, description: "Text, document and table nodes only; other nodes size to their content." },
         },
       },
     },
@@ -43,20 +45,25 @@ const reference = {
     { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
   ],
 } as const;
+const nodeReferences = { type: "array", maxItems: MAX_TEXT_NODE_REFERENCES, uniqueItems: true, items: reference.oneOf[1] } as const;
 const node = (type: string, data: object) => ({
   type: "object",
   additionalProperties: false,
   required: ["id", "type", "data"],
   properties: { id, type: { const: type }, title: { type: "string", maxLength: 200 }, description: { type: "string", maxLength: 2000 }, data },
 });
+const model3DOptions = { type: "object", additionalProperties: false, properties: {
+  pose: { enum: ["a-pose", "t-pose"] }, textureModel: id, textureQuality: { enum: ["fast", "standard", "detailed", "extreme"] },
+  rigModel: { enum: ["v1.0-20240301", "v2.5-20260210"] }, rigType: { enum: ["biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"] }, animateInPlace: { type: "boolean" },
+} } as const;
 const nodes = [
   node("table", { type: "object", additionalProperties: false, required: ["tableId"], properties: { tableId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } }),
-  node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id } }),
+  node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id, references: nodeReferences } }),
   node("text", {
     type: "object",
     additionalProperties: false,
     required: ["text", "instruction"],
-    properties: { text: { type: "string" }, instruction: { type: "string" }, model, reasoningLevel: { enum: AGENT_REASONING_LEVELS } },
+    properties: { text: { type: "string" }, instruction: { type: "string" }, model, reasoningLevel: { enum: AGENT_REASONING_LEVELS }, references: nodeReferences },
   }),
   node("image", {
     type: "object",
@@ -68,7 +75,7 @@ const nodes = [
       model,
       resolution: { enum: IMAGE_RESOLUTIONS },
       aspectRatio: { enum: IMAGE_ASPECT_RATIOS },
-      images: { type: "array", maxItems: 14, items: reference },
+      images: { type: "array", maxItems: IMAGE_MAX_REFERENCE_IMAGES, items: reference },
       assetId: id,
     },
   }),
@@ -95,7 +102,9 @@ const nodes = [
     required: ["targetPolycount", "texture", "pbr", "images"],
     properties: {
       model,
-      targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
+      operation: { enum: ["image", "text", "retexture", "remesh"] }, prompt: { type: "string" }, source: reference,
+      promptSource: reference.oneOf[1], options: model3DOptions,
+      targetPolycount: { type: "integer", minimum: 48, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
       pbr: { type: "boolean" },
       images: { type: "array", maxItems: MODEL_3D_MAX_REFERENCE_IMAGES, items: reference },
@@ -107,9 +116,9 @@ const nodes = [
     additionalProperties: false,
     required: ["heightMeters", "actionIds"],
     properties: {
-      source: reference,
+      source: reference, model, options: model3DOptions,
       heightMeters: { type: "number", exclusiveMinimum: 0, maximum: 100 },
-      actionIds: { type: "array", maxItems: MAX_ANIMATION_ACTIONS, uniqueItems: true, items: { type: "integer", minimum: 0 } },
+      actionIds: { type: "array", maxItems: MAX_ANIMATION_ACTIONS, uniqueItems: true, items: { anyOf: [{ type: "integer", minimum: 0 }, { type: "string", minLength: 1, maxLength: 120 }] } },
       assetId: id,
     },
   }),

@@ -8,11 +8,12 @@ export async function captureElementImage(
   maxWidth: number,
   /** Draws over the capture, in the output image's pixels. */
   annotate?: (context: CanvasRenderingContext2D, width: number, height: number) => void,
+  capture?: () => Promise<Uint8Array>,
 ): Promise<Blob | undefined> {
   const capturePage = window.ohMyGameDesktop?.capturePage;
   const bounds = element.getBoundingClientRect();
-  if (!capturePage || bounds.width < 1 || bounds.height < 1) return undefined;
-  const png = await capturePage({
+  if ((!capture && !capturePage) || bounds.width < 1 || bounds.height < 1) return undefined;
+  const png = capture ? await capture() : await capturePage!({
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,

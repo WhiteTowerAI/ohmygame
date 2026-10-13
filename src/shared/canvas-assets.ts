@@ -2,6 +2,7 @@ import { Type } from "typebox";
 import type { AssetCanvasNode, LibraryAsset } from "./contracts.js";
 
 export interface CanvasAsset {
+  model3d?: LibraryAsset["model3d"];
   name: string;
   path: string;
   description?: string;
@@ -20,6 +21,11 @@ export const CANVAS_ASSETS_FILE = "canvas/assets.json";
 export const CANVAS_ASSETS_SCHEMA = Type.Object({
   version: Type.Literal(1),
   assets: Type.Record(Type.String({ pattern: "^[a-zA-Z0-9_-]{1,120}$" }), Type.Object({
+    model3d: Type.Optional(Type.Object({
+      triangles: Type.Integer({ minimum: 0 }), textured: Type.Boolean(), rigged: Type.Boolean(), animations: Type.Array(Type.String()),
+      forwardAxis: Type.Optional(Type.Union([Type.Literal("+X"), Type.Literal("+Z")])), provider: Type.Optional(Type.String()),
+      operation: Type.Optional(Type.Union([Type.Literal("image"), Type.Literal("text"), Type.Literal("retexture"), Type.Literal("remesh"), Type.Literal("animate")])),
+    }, { additionalProperties: false })),
     name: Type.String({ minLength: 1, maxLength: 200 }),
     path: Type.String({ minLength: 1, maxLength: 1000, pattern: "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+" }),
     description: Type.Optional(Type.String({ maxLength: 2000 })),
@@ -34,6 +40,7 @@ export function canvasNodeAssetIds(nodes: readonly AssetCanvasNode[]): string[] 
     if ("assetId" in node.data && node.data.assetId) ids.add(node.data.assetId);
     const references = node.type === "image" || node.type === "model-3d" ? node.data.images
       : node.type === "video" ? node.data.references : node.type === "animate-3d" && node.data.source ? [node.data.source] : [];
+    if (node.type === "model-3d" && node.data.source?.type === "library") ids.add(node.data.source.assetId);
     for (const reference of references) if (reference.type === "library") ids.add(reference.assetId);
   }
   return [...ids];

@@ -632,7 +632,7 @@ describe("native plugin capabilities", () => {
             }
           : {
               role: "assistant",
-              content: "Created the MCP plugin. Configure it in Plugins.",
+              content: "Prepared the MCP plugin draft. Review it in the builder.",
             };
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(
@@ -710,14 +710,23 @@ describe("native plugin capabilities", () => {
         ).json();
         expect(current.busy).toBe(false);
         expect(current.error).toBeUndefined();
-        expect(current.pluginId).toBe("personal:ai-created");
-        expect(current.messages).toContainEqual({
-          role: "assistant",
-          text: "Created the MCP plugin. Configure it in Plugins.",
-        });
+        expect(current.pluginId).toBeUndefined();
+        expect(current.status).toBe("ready");
+        expect(current.turns.flatMap((turn: { items: unknown[] }) => turn.items)).toEqual(expect.arrayContaining([
+          expect.objectContaining({ type: "dynamicToolCall", tool: "plugin_manage", status: "completed" }),
+        ]));
+        expect(current.turns.flatMap((turn: { items: unknown[] }) => turn.items)).toContainEqual(expect.objectContaining({
+          type: "agentMessage", text: "Prepared the MCP plugin draft. Review it in the builder.",
+        }));
       },
       { timeout: 15_000 },
     );
+    const draft = (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${state.id}/draft` })).json();
+    expect(draft).toMatchObject({ plugin: { id: "personal:ai-created", installed: false }, errors: [] });
+    expect((await app.inject({ method: "GET", url: "/plugins/personal%3Aai-created" })).statusCode).toBe(404);
+    const installed = await app.inject({ method: "POST", url: `/plugins/setup-sessions/${state.id}/install`, payload: { revision: draft.revision } });
+    expect(installed.statusCode, installed.body).toBe(200);
+    expect(installed.json()).toMatchObject({ pluginId: "personal:ai-created", status: "installed" });
     const metadataPath = path.join(
       directory,
       "plugin-setup",
@@ -744,14 +753,11 @@ describe("native plugin capabilities", () => {
           method: "GET",
           url: `/plugins/setup-sessions/${state.id}`,
         })
-      ).json().messages,
-    ).toEqual([
-      { role: "user", text: "Create an MCP plugin" },
-      {
-        role: "assistant",
-        text: "Created the MCP plugin. Configure it in Plugins.",
-      },
-    ]);
+      ).json().turns.flatMap((turn: { items: unknown[] }) => turn.items),
+    ).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "userMessage", text: "Create an MCP plugin" }),
+      expect.objectContaining({ type: "agentMessage", text: "Prepared the MCP plugin draft. Review it in the builder." }),
+    ]));
     expect(receivedToolResult).toBe(true);
     expect(
       (
@@ -898,7 +904,7 @@ describe("native plugin capabilities", () => {
           url: `/plugins/setup-sessions/${response.json().id}`,
         })
       ).json(),
-    ).toMatchObject({ id: response.json().id, messages: [], busy: false });
+    ).toMatchObject({ id: response.json().id, turns: [], busy: false });
     expect(
       (await app.inject({ method: "GET", url: "/projects" })).json(),
     ).toEqual([]);

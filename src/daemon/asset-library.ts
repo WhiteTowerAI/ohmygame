@@ -3,6 +3,7 @@ import { copyFile, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "n
 import path from "node:path";
 import type { LibraryAsset, LibraryAssetOrigin, LibraryAssetPurpose } from "../shared/contracts.js";
 import { workspaceMediaInfo } from "./workspace.js";
+import { readMediaDimensions } from "./media-dimensions.js";
 
 interface StoredLibrary {
   version: 1;
@@ -12,6 +13,7 @@ interface StoredLibrary {
 
 interface AddAssetOptions {
   prompt?: string;
+  model3d?: LibraryAsset["model3d"];
   sourceKey?: string;
   duration?: number;
   origin?: LibraryAssetOrigin;
@@ -40,8 +42,12 @@ export class AssetLibrary {
     await mkdir(this.#filesDirectory, { recursive: true });
     try {
       const parsed: unknown = JSON.parse(await readFile(this.#metadataFile, "utf8"));
-      const stored = parseLibrary(parsed);
-      if (!stored) throw new Error("Invalid Library metadata");
+      const parsedLibrary = parseLibrary(parsed);
+      if (!parsedLibrary) throw new Error("Invalid Library metadata");
+      const assets: LibraryAsset[] = [];
+      // Sequential reads keep a large Library from exhausting file handles while older records gain dimensions.
+      for (const asset of parsedLibrary.assets) assets.push(await this.#withDimensions(asset));
+      const stored = { ...parsedLibrary, assets };
       if (JSON.stringify(stored) !== JSON.stringify(parsed)) await this.#write(stored);
       this.#state = stored;
     } catch (error) {
@@ -175,7 +181,7 @@ export class AssetLibrary {
     options: AddAssetOptions,
   ): Promise<LibraryAsset> {
     const origin = options.origin ?? originFromSource(options.sourceKey);
-    const asset: LibraryAsset = {
+    const asset: LibraryAsset = await this.#withDimensions({
       id,
       name: path.basename(fileName),
       size,
@@ -184,9 +190,10 @@ export class AssetLibrary {
       origin,
       purpose: options.purpose ?? "asset",
       saved: origin !== "workspace",
+      ...(options.model3d ? { model3d: options.model3d } : {}),
       ...(options.duration !== undefined ? { duration: options.duration } : {}),
       ...(options.prompt?.trim() ? { prompt: options.prompt.trim() } : {}),
-    };
+    });
     const state = {
       ...this.#state,
       assets: [...this.#state.assets, asset],
@@ -195,6 +202,12 @@ export class AssetLibrary {
     await this.#write(state);
     this.#state = state;
     return asset;
+  }
+
+  async #withDimensions(asset: LibraryAsset): Promise<LibraryAsset> {
+    if (asset.width !== undefined || (asset.mediaType !== "image" && asset.mediaType !== "video")) return asset;
+    const dimensions = await readMediaDimensions(this.#contentPath(asset.id, asset.name));
+    return dimensions ? { ...asset, ...dimensions } : asset;
   }
 
   #contentPath(id: string, fileName: string): string {
@@ -269,6 +282,7 @@ function isLibraryAsset(value: unknown): value is LibraryAsset {
     (asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model") &&
     typeof asset.contentType === "string" && typeof asset.createdAt === "string" && Number.isFinite(Date.parse(asset.createdAt)) &&
     (asset.duration === undefined || typeof asset.duration === "number" && Number.isFinite(asset.duration) && asset.duration >= 0) &&
+    [asset.width, asset.height].every((value) => value === undefined || Number.isInteger(value) && value > 0) &&
     (asset.prompt === undefined || typeof asset.prompt === "string") &&
     (asset.origin === undefined || ["generated", "uploaded", "workspace", "builtin", "unknown"].includes(asset.origin)) &&
     (asset.purpose === undefined || asset.purpose === "asset" || asset.purpose === "reference") &&

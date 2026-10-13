@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -41,6 +41,35 @@ describe("project file management", () => {
     expect((await app.inject({ method: "DELETE", url: `${base}?path=game/main.ts` })).statusCode).toBe(204);
     expect((await app.inject({ method: "DELETE", url: `${base}?path=game` })).statusCode).toBe(204);
     expect((await app.inject({ method: "GET", url: base })).json()).toEqual([]);
+  });
+
+  it("renames files and folders when only the letter case changes", async () => {
+    const { app, project, base } = await setup();
+    await mkdir(path.join(project.workspacePath, "media"));
+    await writeFile(path.join(project.workspacePath, "media", "hero.png"), "hero");
+    await writeAssetMetadata(project.workspacePath, "media/hero.png", { origin: "generated", purpose: "asset" });
+    expect((await app.inject({ method: "PATCH", url: `${base}?path=media/hero.png`, payload: { name: "Hero.png" } })).json()).toEqual({ path: "media/Hero.png" });
+    expect((await app.inject({ method: "PATCH", url: `${base}?path=media`, payload: { name: "Media" } })).json()).toEqual({ path: "Media" });
+    expect((await app.inject({ method: "PATCH", url: `/projects/${project.id}/assets?path=Media/Hero.png`, payload: { name: "HERO" } })).json()).toEqual({ path: "Media/HERO.png" });
+    expect((await readdir(project.workspacePath)).filter((name) => name.toLowerCase() === "media")).toEqual(["Media"]);
+    expect(await readdir(path.join(project.workspacePath, "Media"))).toEqual(["HERO.png"]);
+    expect(await readFile(path.join(project.workspacePath, "Media", "HERO.png"), "utf8")).toBe("hero");
+    expect((await readAssetMetadata(project.workspacePath)).origins).toEqual({ "Media/HERO.png": "generated" });
+  });
+
+  it("refuses a rename onto another entry that the new name resolves to", async () => {
+    const { app, project, base } = await setup();
+    const file = (name: string) => path.join(project.workspacePath, name);
+    await writeFile(file("readme.md"), "readme");
+    await writeFile(file("notes.md"), "notes");
+    await link(file("readme.md"), file("copy.md"));
+    await symlink("readme.md", file("alias.md"));
+    for (const name of ["copy.md", "alias.md"]) expect((await app.inject({ method: "PATCH", url: `${base}?path=readme.md`, payload: { name } })).statusCode).toBe(409);
+    // Only a case-insensitive file system resolves README.md to the existing readme.md.
+    const caseInsensitive = await stat(file("README.md")).then(() => true, () => false);
+    expect((await app.inject({ method: "PATCH", url: `${base}?path=notes.md`, payload: { name: "README.md" } })).statusCode).toBe(caseInsensitive ? 409 : 200);
+    expect(await readFile(file("readme.md"), "utf8")).toBe("readme");
+    expect((await readdir(project.workspacePath)).filter((name) => name.endsWith(".md")).sort()).toEqual(caseInsensitive ? ["alias.md", "copy.md", "notes.md", "readme.md"] : ["README.md", "alias.md", "copy.md", "readme.md"]);
   });
 
   it("keeps provenance across folder renames and leaves Library copies intact after deletion", async () => {

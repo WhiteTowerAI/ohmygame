@@ -4,30 +4,35 @@ import { Home } from "./home.js";
 import { LibraryPage } from "./library.js";
 import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
-import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
 import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { GameStudioHome } from "./game-studio-home.js";
 import { SettingsPage } from "./settings-page.js";
-import type { PluginMention, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
+import { PluginBuilder } from "./plugin-builder.js";
+import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { pluginMentionToken } from "../shared/plugins.js";
 import { createConversation, createProject, MODELS_CHANGED_EVENT } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
+import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
 
 export function App() {
+  const serviceGeneration = useReadyRuntimeGeneration();
   const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
-  const [initialPrompt, setInitialPrompt] = useState<{ conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
+  const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
   const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
 
   // Provider catalogs are slow; load them now so asset canvas quick starts open without waiting.
   useEffect(() => {
+    invalidateQuickStartModels();
     void loadQuickStartModels();
+    if (serviceGeneration > 1) window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
     const refresh = () => { invalidateQuickStartModels(); void loadQuickStartModels(); };
     window.addEventListener(MODELS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
-  }, []);
+  }, [serviceGeneration]);
 
   useEffect(() => {
     const updateRoute = () => {
@@ -46,6 +51,7 @@ export function App() {
     };
   }, []);
 
+  if (route.page === "plugin-builder") return <PluginBuilder key={route.sessionId} sessionId={route.sessionId} />;
   if (route.page === "settings") {
     return <SettingsPage section={route.section} pluginId={route.pluginId} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} />;
   }
@@ -86,9 +92,10 @@ export function App() {
     />
   );
 
-  function openCreatedProject(projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
-    setInitialPrompt({ conversationId, prompt, mentions, images, mode, attachments });
-    navigateToConversation(projectId, conversationId);
+  function openCreatedProject(project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
+    const connection = runtimeConnection();
+    setInitialPrompt({ generation: connection.status === "ready" ? connection.generation : -1, conversationId, prompt, mentions, images, mode, attachments });
+    navigateToConversation(project.id, conversationId, false, createdProjectView(project.type));
   }
 
   function openProject(projectId: string, view?: "design"): void {
@@ -106,7 +113,7 @@ export function App() {
   }
 
   async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
-    const project = projectId ? { id: projectId } : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game" });
+    const project = projectId ? { id: projectId, type: undefined } : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game" });
     const conversation = await createConversation(project.id);
     const mention: PluginMention = {
       name: plugin.name,
@@ -118,7 +125,7 @@ export function App() {
       conversationId: conversation.id,
       draft: { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] },
     });
-    navigateToConversation(project.id, conversation.id);
+    navigateToConversation(project.id, conversation.id, false, createdProjectView(project.type));
   }
 
   function clearInitialPrompt(): void {
@@ -130,9 +137,9 @@ export function App() {
     setRoute({ page: "project", projectId, ...(view ? { view } : {}) });
   }
 
-  function navigateToConversation(projectId: string, conversationId: string, replace = false): void {
+  function navigateToConversation(projectId: string, conversationId: string, replace = false, initialView?: "design"): void {
     const current = parseAppRoute(window.location.hash);
-    const view = current.page === "project" && current.projectId === projectId ? current.view : undefined;
+    const view = initialView ?? (current.page === "project" && current.projectId === projectId ? current.view : undefined);
     window.history[replace ? "replaceState" : "pushState"](null, "", conversationHash(projectId, conversationId, view));
     setRoute({ page: "project", projectId, conversationId, ...(view ? { view } : {}) });
   }

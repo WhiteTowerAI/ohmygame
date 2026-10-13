@@ -1,6 +1,6 @@
 {
   "name": "ohmygame",
-  "version": "0.0.0-beta.4.2",
+  "version": "0.0.0-beta.4.6",
   "description": "An open-source local-first agent for creating and publishing games.",
   "author": "WhiteTowerAI",
   "license": "Apache-2.0",
@@ -39,13 +39,16 @@
     "test:ablation": "bun scripts/test-ablation.mjs",
     "test:publish-contract": "bun --bun node_modules/vitest/vitest.mjs run test/publish.test.ts test/publish-client.test.ts",
     "typecheck": "bun --bun node_modules/typescript/bin/tsc --noEmit",
-    "test:node-runtime": "bun run build:daemon && node scripts/test-node-runtime.mjs"
+    "test:node-runtime": "bun run build:daemon && node scripts/test-node-runtime.mjs",
+    "test:desktop-game": "bun run build:host && bun run build:renderer && node scripts/test-web-game-runtime.mjs"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "0.99.2",
     "@earendil-works/pi-coding-agent": "0.99.2",
     "@gltf-transform/core": "4.5.1",
     "@gltf-transform/extensions": "4.5.1",
     "@sentry/electron": "^7.20.0",
+    "@silvia-odwyer/photon-node": "0.3.4",
     "@supabase/supabase-js": "2.57.4",
     "electron-updater": "6.8.9",
     "esbuild": "0.28.2",
@@ -93,5 +96,8 @@
   "engines": {
     "node": ">=22.19.0",
     "bun": ">=1.4.2"
+  },
+  "patchedDependencies": {
+    "@earendil-works/pi-ai@0.99.2": "patches/@earendil-works%2Fpi-ai@0.99.2.patch"
   }
 }

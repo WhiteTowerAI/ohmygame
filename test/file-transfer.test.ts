@@ -24,12 +24,20 @@ describe("renderer file transfers", () => {
     expect(batch).toBe(2);
   });
 
-  it("preserves nested attachment paths and validates duplicates across batches", () => {
+  it("preserves nested attachment paths and numbers repeated names", () => {
     const file = new File(["rules"], "rules.md");
-    const first = attachmentFiles([{ file, relativePath: "game/rules.md" }]);
+    const first = appendAttachments([], attachmentFiles([{ file, relativePath: "game/rules.md" }]));
     expect(first[0]!.relativePath).toBe("game/rules.md");
-    expect(() => appendAttachments(first, attachmentFiles([{ file, relativePath: "game/rules.md" }]))).toThrow("already attached");
-    expect(appendAttachments(first, attachmentFiles([{ file, relativePath: "other/rules.md" }]))).toHaveLength(2);
+    expect(appendAttachments(first, attachmentFiles([{ file, relativePath: "game/rules.md" }])).map((attachment) => attachment.relativePath)).toEqual(["game/rules.md", "game/rules (2).md"]);
+    expect(appendAttachments(first, attachmentFiles([{ file, relativePath: "other/rules.md" }])).map((attachment) => attachment.relativePath)).toEqual(["game/rules.md", "other/rules.md"]);
+  });
+
+  it("keeps every pasted screenshot even though they share a name", () => {
+    const screenshot = () => new File(["image"], "image.png", { type: "image/png" });
+    const pasted = appendAttachments([], attachmentFiles([screenshot(), screenshot()]));
+    const next = appendAttachments(pasted, attachmentFiles([screenshot(), new File(["x"], "IMAGE.png"), new File(["x"], "README")]));
+    expect(next.map((attachment) => attachment.relativePath)).toEqual(["image.png", "image (2).png", "image (3).png", "IMAGE (4).png", "README"]);
+    expect(appendAttachments(next, attachmentFiles([new File(["x"], "README")])).at(-1)!.relativePath).toBe("README (2)");
   });
 
   it("rejects large attachment batches before upload", () => {

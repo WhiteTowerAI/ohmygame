@@ -1,9 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 import { discoverProviderModels } from "../src/daemon/provider-model-discovery.js";
+import { MODEL_3D_PRESETS } from "../src/shared/model3d-presets.js";
 
 const connection = { baseUrl: "https://gateway.example/v1/", api: "openai-completions", authentication: "api_key", apiKey: "test-discovery-key" };
 
 describe("provider model discovery", () => {
+  it.each(["meshy", "tripo", "hyper3d"] as const)("loads official %s presets without probing a LLM endpoint or claiming key access", async (preset) => {
+    const request = vi.fn<typeof fetch>();
+    const result = await discoverProviderModels({ ...connection, preset, baseUrl: { meshy: "https://api.meshy.ai/openapi/v1", tripo: "https://openapi.tripo3d.ai/v3", hyper3d: "https://api.hyper3d.com/api/v2" }[preset] }, request);
+    expect(result.source).toBe("presets");
+    expect(result.models).toHaveLength(MODEL_3D_PRESETS[preset].length);
+    expect(result.models.every((model) => model.usages?.["3d"]?.protocol === preset && !model.usages?.language)).toBe(true);
+    expect(result.models[1]?.usages?.["3d"]?.maxReferenceImages).toBe(preset === "hyper3d" ? 5 : 4);
+    expect(result.warnings?.[0]).toContain("does not check API-key access");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it("discovers versions from compatible 3D relays and uses known templates for official IDs", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id: "meshy-7.1" }, { id: "relay-future" }] }));
+    const result = await discoverProviderModels({ ...connection, preset: "meshy" }, request);
+    expect(request.mock.calls[0]?.[0].toString()).toBe("https://gateway.example/v1/models");
+    expect(result.models[0]?.usages?.["3d"]).toMatchObject({ operation: "multi-image-to-3d", maxReferenceImages: 4 });
+    expect(result.models[1]?.usages?.["3d"]?.protocol).toBe("meshy");
+  });
   it("reads an OpenAI-compatible list and uses reported limits and capabilities", async () => {
     const request = vi.fn<typeof fetch>(async () => Response.json({ data: [
       { id: "model-a", name: "Model A", context_length: 32_000, top_provider: { max_completion_tokens: 4_000 }, architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] }, supported_parameters: ["reasoning"], apiKey: connection.apiKey },
@@ -27,6 +46,15 @@ describe("provider model discovery", () => {
     expect(request.mock.calls[0]?.[1]?.headers).toEqual({ accept: "application/json" });
   });
 
+  it.each([
+    ["gpt-image-1", 16], ["gpt-image-1.5", 16], ["gpt-image-2", 16],
+    ["gemini-3.1-flash-image", 14], ["gemini-3-pro-image-preview", 14], ["gemini-2.5-flash-image", 3],
+  ])("discovers %s with its multi-image limit without a capability catalog", async (id, maxReferenceImages) => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ id }] }));
+    const result = await discoverProviderModels(connection, request);
+    expect(result.models[0]?.usages?.image?.maxReferenceImages).toBe(maxReferenceImages);
+  });
+
   it("merges dedicated media catalogs by ID and keeps every declared use and limit", async () => {
     const request = vi.fn<typeof fetch>(async (url) => {
       const path = new URL(String(url)).pathname;
@@ -44,7 +72,7 @@ describe("provider model discovery", () => {
     expect(result.models).toHaveLength(3);
     expect(result.models.find((model) => model.id === "shared-alias")).toMatchObject({ name: "Multimodal", usages: {
       language: true,
-      image: { protocol: "openrouter-images", resolutions: ["1K", "2K"], aspectRatios: ["1:1", "16:9"], maxReferenceImages: 14, maxOutputs: 4 },
+      image: { protocol: "openrouter-images", resolutions: ["1K", "2K"], aspectRatios: ["1:1", "16:9"], maxReferenceImages: 16, maxOutputs: 4 },
       video: { protocol: "openrouter-videos", resolutions: ["720p"], durations: [5, 10], maxReferenceImages: 2, referenceModes: ["frame"] },
     } });
     expect(result.models.find((model) => model.id === "video-alias")?.usages?.video).toMatchObject({ maxReferenceImages: 9, referenceModes: ["reference"] });

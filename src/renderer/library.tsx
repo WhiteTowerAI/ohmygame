@@ -1,3 +1,4 @@
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { useEffect, useMemo, useState } from "react";
 import {
   AssetToolbar,
@@ -20,6 +21,7 @@ interface LibraryPageProps {
 }
 
 export function LibraryPage({ onNavigate }: LibraryPageProps) {
+  const serviceGeneration = useReadyRuntimeGeneration();
   const [assets, setAssets] = useState<LibraryAsset[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
@@ -44,7 +46,7 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [serviceGeneration]);
 
   async function runAssetAction(action: () => Promise<unknown>): Promise<boolean> {
     setActionError(undefined);
