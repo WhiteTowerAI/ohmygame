@@ -98,20 +98,14 @@ Three games our team made with OhMyGame:
   </tr>
 </table>
 
-### 🎲 General games
-
-Start without choosing an engine, or bring an existing game project. The
-Game Studio plugin coordinates design, production art, implementation, and
-verification across engines. The same workspace can support applications,
-tools, and content through other workflows. **Web preview** is enabled for new
-General Game projects; existing projects keep their saved setting. Change it in
-Project settings to control browser preview and playtesting. Static Web
-publishing works independently. Native games use their engine's tools.
-
 ### 🎮 Web games
 
-2D and 3D games for the browser, built with Three.js, React Three Fiber, or
-Phaser. The project is a normal web project you can open in any editor.
+**The best place to start.** 2D and 3D games for the browser, built with
+Three.js, React Three Fiber, or Phaser. The agent follows a complete web game
+workflow: a design doc, key-screen mockups, production art, a playable core
+loop, and playtesting in the live preview. Games fit any window size, support
+touch, and publish to a shareable link. The project is a normal web project you
+can open in any editor.
 
 ### 🎬 Interactive stories
 
@@ -123,6 +117,18 @@ saves, and navigation. The architecture and authoring model are documented in
 
 <!-- TODO(asset): screenshot or GIF, Node Graph with two finished screens,
 made with OhMyGame. Leave out until there is a real one. -->
+
+### 🎲 General games: any engine or stack
+
+**General Game** doesn't assume an engine or stack. Start from an idea, bring a
+project in any engine, or make tools and content for your game. The Game Studio
+plugin coordinates design, production art, implementation, and verification
+across engines.
+
+When the output is a web page, preview, playtesting, and publishing work as
+they do for Web games; native games use their engine's own tools. See
+[General Game details](docs/runtime.md#agent-game-use). **Making a browser
+game? Choose Web Game**: it is tuned for the browser.
 
 ## How it's built
 
