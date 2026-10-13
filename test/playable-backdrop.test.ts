@@ -41,6 +41,49 @@ describe("setPlayableBackdrop", () => {
     const two = '<div data-media="backdrop"></div><div data-media="backdrop"></div>';
     expect(setPlayableBackdrop(two, "a", "image")).toBeUndefined();
   });
+
+  it("preserves attribute-looking text inside quoted values", () => {
+    const html = `<div aria-label="note > data-asset=example data-type=video clip" data-media="backdrop"></div>`;
+    expect(playableBackdrop(html)).toBe("missing");
+    const edited = setPlayableBackdrop(html, "new", "image")!;
+    expect(edited).toBe(`<div aria-label="note > data-asset=example data-type=video clip" data-media="backdrop" data-asset="new" data-type="image"></div>`);
+    expect(clearPlayableBackdrop(edited)).toBe(html);
+  });
+
+  it("matches real attributes rather than text inside another value", () => {
+    const html = `<div title='note > data-media="backdrop"'></div>`;
+    expect(playableBackdrop(html)).toBeUndefined();
+    expect(setPlayableBackdrop(html, "new", "image")).toBeUndefined();
+    expect(clearPlayableBackdrop(html)).toBeUndefined();
+  });
+
+  it("ignores background markup in comments and script text", () => {
+    const prefix = `<!-- <div data-media="backdrop"></div> --><script>const example = '<div data-media="backdrop"></div>';</script>`;
+    const html = `${prefix}<div data-media="backdrop"></div>`;
+    expect(setPlayableBackdrop(html, "new", "image")).toBe(`${prefix}<div data-media="backdrop" data-asset="new" data-type="image"></div>`);
+  });
+
+  it("handles unquoted and empty attributes without leaving duplicate assets", () => {
+    const html = `<div DATA-MEDIA=backdrop data-asset data-type=video title="a > b"/>`;
+    expect(playableBackdrop(html)).toBe("missing");
+    expect(setPlayableBackdrop(html, "new", "image")).toBe(`<div DATA-MEDIA=backdrop title="a > b" data-asset="new" data-type="image"/>`);
+    expect(clearPlayableBackdrop(html)).toBe(`<div DATA-MEDIA=backdrop title="a > b"/>`);
+  });
+
+  it("leaves a tag with an unfinished quoted value alone", () => {
+    const html = `<div data-media="backdrop" title="unfinished>`;
+    expect(playableBackdrop(html)).toBeUndefined();
+    expect(setPlayableBackdrop(html, "new", "image")).toBeUndefined();
+    expect(clearPlayableBackdrop(html)).toBeUndefined();
+  });
+
+  it("removes every real Asset attribute while keeping quoted examples", () => {
+    const html = `<div data-media="backdrop" data-asset="old" DATA-ASSET='duplicate' data-type="video" title='data-asset="example" data-type=video'/>`;
+    expect(setPlayableBackdrop(html, "new", "image")).toBe(
+      `<div data-media="backdrop" title='data-asset="example" data-type=video' data-asset="new" data-type="image"/>`,
+    );
+    expect(clearPlayableBackdrop(html)).toBe(`<div data-media="backdrop" title='data-asset="example" data-type=video'/>`);
+  });
 });
 
 describe("clearPlayableBackdrop", () => {

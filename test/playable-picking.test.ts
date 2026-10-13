@@ -55,6 +55,14 @@ describe("annotatePlayableSourceLocations", () => {
       '<img data-ohmygame-source="index.html:1:1" src="a.png" /><b data-ohmygame-source="other:1:1">x</b>',
     );
   });
+
+  it("leaves an unfinished start tag unchanged after annotating complete tags", () => {
+    const html = '<main></main><div title="unfinished>';
+
+    expect(annotatePlayableSourceLocations(html, "index.html")).toBe(
+      '<main data-ohmygame-source="index.html:1:1"></main><div title="unfinished>',
+    );
+  });
 });
 
 describe("describePlayablePick", () => {
