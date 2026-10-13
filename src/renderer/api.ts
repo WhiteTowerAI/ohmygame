@@ -75,6 +75,7 @@ import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
 import type { NetworkConnectionTest, NetworkSettings, NetworkSettingsState } from "../shared/network-settings.js";
 import { composerDrafts } from "./composer-drafts.js";
+import { t } from "./i18n.js";
 
 const API_BASE = "/api";
 
@@ -496,7 +497,7 @@ export async function waitForRuntime(timeoutMs = 10_000): Promise<void> {
       await delay(200);
     }
   }
-  throw new Error("Could not reach the local runtime");
+  throw new Error(t("api.runtimeUnreachable"));
 }
 
 export async function getProject(projectId: string): Promise<ProjectState> {
@@ -884,7 +885,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
 
 async function responseError(response: Response): Promise<ApiError> {
   const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string };
-  return new ApiError(body.message ?? body.error ?? `Request failed with ${response.status}`, response.status, body.code);
+  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code);
 }
 
 async function streamProjectEvents(
@@ -906,7 +907,7 @@ async function streamProjectEvents(
     const connectionSignal = AbortSignal.any([signal, connection.signal]);
     try {
       const current = runtimeConnection();
-      if (current.status !== "ready") throw new Error("Background service unavailable");
+      if (current.status !== "ready") throw new Error(t("api.serviceUnavailable"));
       if (current.generation !== generation) {
         generation = current.generation;
         cursor = handlers.onReset ? await handlers.onReset() : 0;
@@ -1082,7 +1083,7 @@ function desktopRuntime(): DesktopRuntime | undefined {
   const desktop = window.ohMyGameDesktop;
   if (!desktop) return;
   const state = runtimeConnection();
-  if (state.status !== "ready") throw new Error("The background service is unavailable. Wait for recovery or restart it.");
+  if (state.status !== "ready") throw new Error(t("api.serviceUnavailableLong"));
   return state.runtime ? { daemonUrl: state.runtime.url, token: state.runtime.token } : desktop.runtime;
 }
 

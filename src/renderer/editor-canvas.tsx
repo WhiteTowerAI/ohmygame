@@ -27,6 +27,7 @@ import { Hand, Maximize, Minus, MousePointer2, Plus } from "./icons.js";
 // React Flow's own layout rules, loaded with the one canvas both editors use,
 // since either editor may be the first to load.
 import "@xyflow/react/dist/style.css";
+import { t } from "./i18n.js";
 
 type CanvasPosition = { x: number; y: number };
 type InteractionMode = "pointer" | "pan";
@@ -138,10 +139,10 @@ export function EditorCanvas<N extends Node>({
       {fitViewOnLoad ? <InitialCanvasView onReady={onInitialFit} /> : null}
       <Panel className="story-canvas-toolbar" position="bottom-center">
         {addControl}
-        <button className={mode === "pointer" ? "is-active" : undefined} type="button" title="Select" aria-label="Select" aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
+        <button className={mode === "pointer" ? "is-active" : undefined} type="button" title={t("editorCanvas.select")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
           <MousePointer2 size={18} />
         </button>
-        <button className={mode === "pan" ? "is-active" : undefined} type="button" title="Pan canvas" aria-label="Pan canvas" aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>
+        <button className={mode === "pan" ? "is-active" : undefined} type="button" title={t("editorCanvas.pan")} aria-label={t("editorCanvas.pan")} aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>
           <Hand size={18} />
         </button>
         <FitViewButton />
@@ -260,7 +261,7 @@ function FitViewButton() {
     }
     await fitView({ padding: 0.2, duration: 200 });
   }
-  return <button type="button" title="Fit view" aria-label="Fit view" onClick={() => void fitCanvas()}><Maximize size={18} /></button>;
+  return <button type="button" title={t("editorCanvas.fit")} aria-label={t("editorCanvas.fit")} onClick={() => void fitCanvas()}><Maximize size={18} /></button>;
 }
 
 function AlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
@@ -322,9 +323,9 @@ function ZoomControls() {
   const { zoom } = useViewport();
   return (
     <Panel className="story-canvas-zoom" position="bottom-left">
-      <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => void zoomOut()}><Minus size={14} /></button>
-      <button className="story-canvas-zoom-value" type="button" title="Reset zoom" onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => void zoomIn()}><Plus size={14} /></button>
+      <button type="button" title={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size={14} /></button>
+      <button className="story-canvas-zoom-value" type="button" title={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
+      <button type="button" title={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size={14} /></button>
     </Panel>
   );
 }

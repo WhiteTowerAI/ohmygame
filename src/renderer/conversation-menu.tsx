@@ -1,6 +1,7 @@
 import { Check, FilePenLine, FileText, History, LoaderCircle, Search, X } from "./icons.js";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ConversationSummary } from "../shared/contracts.js";
+import { t } from "./i18n.js";
 
 interface ConversationMenuProps {
   conversations: ConversationSummary[];
@@ -95,34 +96,34 @@ export function ConversationMenu({
         aria-expanded={open}
         aria-controls="conversation-menu-popover"
         aria-haspopup="dialog"
-        title="Conversation history"
-        aria-label="Conversation history"
+        title={t("conversations.history")}
+        aria-label={t("conversations.history")}
         onClick={() => setOpen((value) => !value)}
       >
         <History size={14} />
       </button>
 
       {open ? (
-        <div id="conversation-menu-popover" className="conversation-popover" role="dialog" aria-label="Conversations">
+        <div id="conversation-menu-popover" className="conversation-popover" role="dialog" aria-label={t("conversations.label")}>
           <label className="project-switcher-search">
             <Search size={13} />
-            <input ref={searchInput} aria-label="Search conversations" value={query} placeholder="Search conversations" onChange={(event) => setQuery(event.target.value)} />
+            <input ref={searchInput} aria-label={t("conversations.search")} value={query} placeholder={t("conversations.search")} onChange={(event) => setQuery(event.target.value)} />
           </label>
           <div className="conversation-list">
             {visibleConversations.map((conversation) => editingId === conversation.id ? (
               <form className="conversation-rename" key={conversation.id} onSubmit={submitRename}>
                 <input
                   ref={editInput}
-                  aria-label="Conversation title"
+                  aria-label={t("conversations.titleLabel")}
                   disabled={saving}
                   maxLength={80}
                   onChange={(event) => setTitle(event.target.value)}
                   value={title}
                 />
-                <button type="submit" disabled={!title.trim() || saving} title="Save title" aria-label="Save title">
+                <button type="submit" disabled={!title.trim() || saving} title={t("conversations.saveTitle")} aria-label={t("conversations.saveTitle")}>
                   {saving ? <LoaderCircle className="spin" size={13} /> : <Check size={13} />}
                 </button>
-                <button type="button" disabled={saving} onClick={() => setEditingId(undefined)} title="Cancel rename" aria-label="Cancel rename">
+                <button type="button" disabled={saving} onClick={() => setEditingId(undefined)} title={t("conversations.cancelRename")} aria-label={t("conversations.cancelRename")}>
                   <X size={13} />
                 </button>
               </form>
@@ -142,10 +143,10 @@ export function ConversationMenu({
                     <span className="conversation-option-title">{conversation.title}</span>
                     <span className="conversation-option-meta">
                       {conversation.id === activeConversationId
-                        ? "Running"
+                        ? t("conversations.running")
                         : conversation.messageCount === 0
-                          ? "Empty"
-                          : `${conversation.messageCount} ${conversation.messageCount === 1 ? "message" : "messages"}`}
+                          ? t("conversations.empty")
+                          : t("conversations.messages", { count: conversation.messageCount })}
                     </span>
                   </span>
                   <span className="conversation-option-mark" aria-hidden="true">
@@ -156,14 +157,14 @@ export function ConversationMenu({
                   className="conversation-rename-button"
                   type="button"
                   onClick={() => startRename(conversation)}
-                  title="Rename conversation"
-                  aria-label={`Rename ${conversation.title}`}
+                  title={t("conversations.rename")}
+                  aria-label={t("conversations.renameName", { title: conversation.title })}
                 >
                   <FilePenLine size={13} />
                 </button>
               </div>
             ))}
-            {!visibleConversations.length ? <div className="conversation-menu-empty">No matching conversations</div> : null}
+            {!visibleConversations.length ? <div className="conversation-menu-empty">{t("conversations.noMatch")}</div> : null}
           </div>
           {error ? <p className="conversation-menu-error" role="alert">{error}</p> : null}
         </div>

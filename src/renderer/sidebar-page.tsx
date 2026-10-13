@@ -3,6 +3,7 @@ import { AppSidebar } from "./app-sidebar.js";
 import { ChevronRight } from "./icons.js";
 import type { AppNavigationTarget, SidebarPage } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
+import { t } from "./i18n.js";
 
 export function SidebarPageLayout({ active, children, onNavigate }: {
   active: SidebarPage;
@@ -30,7 +31,7 @@ export function SidebarPageHeader({ actions, breadcrumb, children, title }: {
     <header className={`sidebar-page-header${breadcrumb ? " sidebar-page-header-breadcrumb" : ""}`}>
       <div className="sidebar-page-title-row">
         {breadcrumb ? (
-          <nav className="sidebar-page-breadcrumb" aria-label="Breadcrumb">
+          <nav className="sidebar-page-breadcrumb" aria-label={t("nodeWorkbench.breadcrumb")}>
             <button type="button" onClick={breadcrumb.onClick}>{breadcrumb.label}</button>
             <ChevronRight size={14} aria-hidden="true" />
             <h1>{title}</h1>

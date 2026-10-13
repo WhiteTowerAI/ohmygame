@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { t } from "./i18n.js";
 
 export interface VideoMentionOption {
   alias: string;
@@ -44,8 +45,8 @@ export function VideoReferencePrompt({ value, disabled, options, onChange }: {
     requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(cursor, cursor); });
   }
   return <div className="video-reference-prompt">
-    <textarea ref={input} aria-label="Video prompt" rows={3} value={draft} disabled={disabled}
-      placeholder="Describe the video. Type @ to reference an image."
+    <textarea ref={input} aria-label={t("videoPrompt.label")} rows={3} value={draft} disabled={disabled}
+      placeholder={t("videoPrompt.placeholder")}
       aria-autocomplete="list" aria-controls={open ? listId : undefined}
       aria-activedescendant={open && candidates[active] ? `${listId}-${active}` : undefined}
       onFocus={() => { editing.current = true; }}
@@ -68,14 +69,14 @@ export function VideoReferencePrompt({ value, disabled, options, onChange }: {
           event.preventDefault(); event.stopPropagation(); insert(candidates[active]!);
         }
       }} />
-    {open ? <div className="video-mention-menu nowheel" role="listbox" id={listId} aria-label="Reference images">
+    {open ? <div className="video-mention-menu nowheel" role="listbox" id={listId} aria-label={t("videoPrompt.references")}>
       {candidates.length ? candidates.map((option, index) => <button key={option.alias} id={`${listId}-${index}`}
         type="button" role="option" aria-selected={index === active} className={index === active ? "is-active" : ""}
         onPointerDown={(event) => event.preventDefault()} onMouseDown={(event) => event.preventDefault()}
         onClick={() => insert(option)} onPointerMove={() => setActive(index)}>
         <MentionThumbnail assetId={option.assetId} />
         <span><strong>@{option.alias}</strong><small>{option.name}</small></span>
-      </button>) : <p>{options.length ? "No matching images" : "Add or connect an image first"}</p>}
+      </button>) : <p>{options.length ? t("videoPrompt.noMatch") : t("videoPrompt.addImage")}</p>}
     </div> : null}
   </div>;
 }

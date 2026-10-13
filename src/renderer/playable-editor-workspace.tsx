@@ -73,13 +73,14 @@ import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card
 import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEmptyCanvas } from "./playable-canvas-menus.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
+import { t } from "./i18n.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 
 const HISTORY_LIMIT = 50;
 const SAVE_ATTEMPTS = 3;
-const PROJECT_CHANGED = "The project changed while you were editing, so its latest version was loaded. Make your last change again.";
+const PROJECT_CHANGED = t("storyEditor.projectChanged");
 
 /** A step to undo or redo: the codebase, and the source files as they were, when the step wrote any. */
 interface HistoryEntry {
@@ -381,7 +382,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           return true;
         } catch (cause) {
           if (!(cause instanceof ApiError) || cause.status !== 409) throw cause;
-          if (attempt === SAVE_ATTEMPTS) throw new Error("The project keeps changing. Try again in a moment.");
+          if (attempt === SAVE_ATTEMPTS) throw new Error(t("storyEditor.keepsChanging"));
         }
         const remote = await getNodeCodebase(projectId);
         if (generation !== diskGeneration.current) continue;
@@ -567,7 +568,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       },
       (error) => {
         if (queuedCodebase.current === serialized) queuedCodebase.current = undefined;
-        setNotice(`Could not save your changes: ${errorMessage(error)}`);
+        setNotice(t("storyEditor.saveFailed", { error: errorMessage(error) }));
       },
     );
     return operation;
@@ -920,7 +921,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }
 
   async function publishGame(details: PublishDetails): Promise<boolean> {
-    if (!codebase) throw new Error("The game is still loading. Try publishing again when it is ready.");
+    if (!codebase) throw new Error(t("storyEditor.stillLoading"));
     await save(codebase);
     return onPublish(details);
   }
@@ -974,13 +975,13 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: openNode }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const tabs: WorkspaceTabOption<"canvas" | "design" | "code">[] = [
-    { id: "canvas", label: "Story", icon: Clapperboard },
-    ...(onDesignOpenChange ? [{ id: "design" as const, label: "Design", icon: FileText }] : []),
-    { id: "code", label: "Code", icon: Code2 },
+    { id: "canvas", label: t("storyEditor.tab.story"), icon: Clapperboard },
+    ...(onDesignOpenChange ? [{ id: "design" as const, label: t("workspace.tab.design"), icon: FileText }] : []),
+    { id: "code", label: t("workspace.tab.code"), icon: Code2 },
   ];
   const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
     {chatOnRight && onHome ? (
-      <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
+      <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title={t("sidebar.home")} aria-label={t("sidebar.home")}><House size={14} /></button>
     ) : null}
     <WorkspaceTabs
       tabs={tabs} active={designOpen ? "design" : workspaceView}
@@ -1002,7 +1003,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     <section
       className={`viewer-pane interactive-story-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
       data-active-tab={designOpen ? "design" : workspaceView}
-      aria-label="Playable Nodes workspace"
+      aria-label={t("storyEditor.workspace")}
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
         "--story-viewport-aspect": playerViewportAspect,
@@ -1015,18 +1016,18 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         {renderNavigation()}
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {!designOpen ? <><button className="icon-button pane-header-action" type="button" title="Project settings" aria-label="Project settings" aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
+          {!designOpen ? <><button className="icon-button pane-header-action" type="button" title={t("projectSettings.title")} aria-label={t("projectSettings.title")} aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
             <Settings size={14} />
           </button>
-          <button className="icon-button pane-header-action" type="button" data-tooltip={playtesting ? "Opening playtest..." : "Playtest in a new window"} aria-label="Playtest" disabled={phase !== "ready" || building || playtesting} onClick={() => void startPlaytest()}>
+          <button className="icon-button pane-header-action" type="button" data-tooltip={playtesting ? t("storyEditor.openingPlaytest") : t("storyEditor.playtestWindow")} aria-label={t("storyEditor.playtest")} disabled={phase !== "ready" || building || playtesting} onClick={() => void startPlaytest()}>
             {playtesting ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
           </button>
-          <button className="publish-button workspace-publish-button" type="button" title={publishing ? "Publishing" : "Publish"} aria-label={publishing ? "Publishing" : "Publish"} disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
+          <button className="publish-button workspace-publish-button" type="button" title={publishing ? t("workspace.publishing") : t("workspace.publish")} aria-label={publishing ? t("workspace.publishing") : t("workspace.publish")} disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
-            <span>Publish</span>
+            <span>{t("workspace.publish")}</span>
           </button>
           {chatOnRight && chatCollapsed && onToggleChat ? (
-            <button className="icon-button pane-header-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
+            <button className="icon-button pane-header-action" type="button" title={t("workspace.showChat")} aria-label={t("workspace.showChat")} onClick={onToggleChat}>
               <PanelToggle size={14} />
             </button>
           ) : null}
@@ -1037,7 +1038,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         project={project} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : workspaceView !== "code" ? <div className="interactive-story-body">
         <div className="interactive-story-canvas">
-          {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}
+          {phase === "loading" ? <div className="story-canvas-state">{t("storyEditor.loadingScenes")}</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (
             <PlayableCanvasContext.Provider value={canvasPlayer}>
@@ -1104,11 +1105,11 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           {notice && phase === "ready" ? <div className="story-save-notice" role="alert">{notice}</div> : null}
           {projectIssues.length && phase === "ready" ? (
             <div className="story-play-issue" role="alert">
-              <div><strong>The project does not compile</strong><span>{projectIssues[0]!.message}</span></div>
+              <div><strong>{t("storyEditor.noCompile")}</strong><span>{projectIssues[0]!.message}</span></div>
             </div>
           ) : null}
         </div>
-      </div> : <main className="story-code-view" aria-label="Playable Nodes code">
+      </div> : <main className="story-code-view" aria-label={t("storyEditor.code")}>
         <WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} openFileRequest={fileRequest} />
       </main>}
       {openedNode && codebase ? <PlayableNodeWorkbench

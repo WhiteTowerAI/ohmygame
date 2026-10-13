@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import type { ResponsesTransportMode } from "../shared/contracts.js";
 import { getResponsesTransport, updateResponsesTransport } from "./api.js";
+import { t } from "./i18n.js";
 
 export function ProviderResponsesTransport({
   providerId,
@@ -47,11 +48,11 @@ export function ProviderResponsesTransport({
   return (
     <section
       className="settings-detail-section"
-      aria-label="Responses connection settings"
+      aria-label={t("responsesTransport.label")}
     >
       <div className="settings-detail-field">
         <label className="settings-search-field-label" htmlFor={id}>
-          Responses connection
+          {t("responsesTransport.title")}
         </label>
         <select
           id={id}
@@ -62,15 +63,12 @@ export function ProviderResponsesTransport({
             void save(event.target.value as ResponsesTransportMode)
           }
         >
-          <option value="auto">Automatic</option>
+          <option value="auto">{t("customProvider.automatic")}</option>
           <option value="sse">HTTP / SSE</option>
-          <option value="websocket">Prefer WebSocket</option>
+          <option value="websocket">{t("responsesTransport.preferWebSocket")}</option>
         </select>
         <small className="settings-detail-hint">
-          Automatic prefers WebSocket for official OpenAI and HTTP / SSE for
-          relays. Temporary connection failures fall back to HTTP / SSE for five
-          minutes. Interrupted replies retry with Reconnecting when automatic
-          retry is enabled.
+          {t("responsesTransport.hint")}
         </small>
       </div>
       {error ? (

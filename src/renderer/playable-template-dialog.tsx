@@ -8,6 +8,7 @@ import hotspot from "./assets/templates/hotspot.webp";
 import mainMenu from "./assets/templates/main-menu.webp";
 import qte from "./assets/templates/qte.webp";
 import storyMap from "./assets/templates/story-map.webp";
+import { t } from "./i18n.js";
 
 /**
  * Pictures of each Template as a new Scene looks: its starter source with the
@@ -65,10 +66,10 @@ export function PlayableTemplateDialog({ presets, busy, onChoose, onClose }: {
     <section ref={dialog} className="project-create-dialog playable-template-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
       <header>
         <div>
-          <h2 id={titleId}>Add a Scene</h2>
-          <p>Pick a starting point, then describe the Scene in chat.</p>
+          <h2 id={titleId}>{t("storyMenu.addAScene")}</h2>
+          <p>{t("storyMenu.templateHint")}</p>
         </div>
-        <button type="button" aria-label="Close" onClick={onClose}><X size={16} /></button>
+        <button type="button" aria-label={t("common.close")} onClick={onClose}><X size={16} /></button>
       </header>
       <div className="playable-template-grid">
         {presets.map((preset) => <button

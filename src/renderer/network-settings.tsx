@@ -12,12 +12,13 @@ import {
   testNetworkConnection,
   updateNetworkSettings,
 } from "./api.js";
+import { t } from "./i18n.js";
 
 const SOURCE_LABELS: Record<EffectiveNetworkProxy["source"], string> = {
-  manual: "Manual proxy",
-  environment: "Environment",
-  system: "System proxy",
-  direct: "Direct connection",
+  manual: t("network.source.manual"),
+  environment: t("network.source.environment"),
+  system: t("network.source.system"),
+  direct: t("network.source.direct"),
 };
 
 export function NetworkSettingsPanel() {
@@ -94,7 +95,7 @@ export function NetworkSettingsPanel() {
     return (
       <section className="settings-panel settings-overview-panel">
         <p className={error ? "settings-error" : "settings-loading"}>
-          {error ?? "Loading network settings…"}
+          {error ?? t("network.loading")}
         </p>
       </section>
     );
@@ -113,21 +114,21 @@ export function NetworkSettingsPanel() {
       }}
     >
       <header className="settings-panel-header">
-        <h3>Network</h3>
+        <h3>{t("network.title")}</h3>
       </header>
       <fieldset className="settings-network-fields" disabled={Boolean(busy)}>
         <div className="settings-network-mode">
-          <span className="settings-search-field-label">Proxy</span>
+          <span className="settings-search-field-label">{t("network.proxy")}</span>
           <div
             className="settings-provider-options"
             role="radiogroup"
-            aria-label="Network proxy mode"
+            aria-label={t("network.modeLabel")}
           >
             {(
               [
-                ["auto", "Automatic"],
-                ["manual", "Manual"],
-                ["direct", "Direct"],
+                ["auto", t("network.automatic")],
+                ["manual", t("network.manual")],
+                ["direct", t("network.direct")],
               ] as const
             ).map(([mode, label]) => (
               <label className="settings-provider-option" key={mode}>
@@ -145,7 +146,7 @@ export function NetworkSettingsPanel() {
         </div>
         {manual ? (
           <label className="settings-detail-field">
-            <span className="settings-search-field-label">Proxy URL</span>
+            <span className="settings-search-field-label">{t("network.proxyUrl")}</span>
             <input
               className="settings-search-input"
               type="url"
@@ -157,16 +158,16 @@ export function NetworkSettingsPanel() {
               autoComplete="off"
             />
             <small className="settings-detail-hint">
-              Clash HTTP / Mixed port.
+              {t("network.clashHint")}
             </small>
           </label>
         ) : null}
         <details>
-          <summary>Advanced</summary>
+          <summary>{t("common.advanced")}</summary>
           <div className="settings-network-advanced">
             <label className="settings-detail-field">
               <span className="settings-search-field-label">
-                Bypass proxy for
+                {t("network.bypass")}
               </span>
               <input
                 className="settings-search-input"
@@ -177,7 +178,7 @@ export function NetworkSettingsPanel() {
                 autoComplete="off"
               />
               <small className="settings-detail-hint">
-                Comma-separated. Local addresses always bypass.
+                {t("network.bypassHint")}
               </small>
             </label>
             {canDetect ? (
@@ -186,21 +187,21 @@ export function NetworkSettingsPanel() {
                 type="button"
                 onClick={() => void perform("detect")}
               >
-                {busy === "detect" ? "Detecting…" : "Detect system proxy"}
+                {busy === "detect" ? t("network.detecting") : t("network.detect")}
               </button>
             ) : null}
           </div>
         </details>
       </fieldset>
       {state.requiresRestart || saved || state.detected.warning ? (
-        <div className="settings-network-status" aria-label="Network status">
+        <div className="settings-network-status" aria-label={t("network.status")}>
           {state.requiresRestart ? (
             <div className="settings-network-restart">
               <p role="status">
-                {saved ? "Saved. " : ""}
+                {saved ? t("network.savedPrefix") : ""}
                 {window.ohMyGameDesktop?.restartApp
-                  ? "Restart to apply."
-                  : `Restart ${window.ohMyGameDesktop ? "OhMyGame" : "the local service"} to apply.`}
+                  ? t("network.restartToApply")
+                  : window.ohMyGameDesktop ? t("network.restartAppToApply") : t("network.restartServiceToApply")}
               </p>
               {window.ohMyGameDesktop?.restartApp ? (
                 <button
@@ -209,12 +210,12 @@ export function NetworkSettingsPanel() {
                   disabled={Boolean(busy)}
                   onClick={() => void restart()}
                 >
-                  {busy === "restart" ? "Restarting…" : "Restart now"}
+                  {busy === "restart" ? t("network.restarting") : t("network.restartNow")}
                 </button>
               ) : null}
             </div>
           ) : saved ? (
-            <p role="status">Saved.</p>
+            <p role="status">{t("network.saved")}</p>
           ) : null}
           {state.detected.warning ? <p>{state.detected.warning}</p> : null}
         </div>
@@ -226,8 +227,8 @@ export function NetworkSettingsPanel() {
           title={`HTTP ${result.statusCode ?? "—"} · ${proxyDescription(result.route)}`}
         >
           {result.reachable
-            ? `api.openai.com reachable · ${result.elapsedMs} ms`
-            : (result.error ?? "Connection failed")}
+            ? t("network.reachable", { ms: result.elapsedMs })
+            : (result.error ?? t("providers.status.failed"))}
         </p>
       ) : null}
       {error ? (
@@ -242,14 +243,14 @@ export function NetworkSettingsPanel() {
           disabled={Boolean(busy) || (manual && !form.proxyUrl.trim())}
           onClick={() => void perform("test")}
         >
-          {busy === "test" ? "Testing…" : "Test connection"}
+          {busy === "test" ? t("network.testing") : t("network.test")}
         </button>
         <button
           className="settings-primary-button"
           type="submit"
           disabled={Boolean(busy) || (manual && !form.proxyUrl.trim())}
         >
-          {busy === "save" ? "Saving…" : "Save"}
+          {busy === "save" ? t("common.saving") : t("common.save")}
         </button>
       </div>
     </form>

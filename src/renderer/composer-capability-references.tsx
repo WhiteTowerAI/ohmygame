@@ -2,6 +2,7 @@ import type { PluginMention } from "../shared/contracts.js";
 import { Package, WandSparkles } from "./icons.js";
 import { skillDisplayName } from "./composer-mentions.js";
 import { GodotIcon } from "./godot-icon.js";
+import { t } from "./i18n.js";
 
 export function ComposerCapabilityReferences({ skill, plugin, onRemoveSkill, onRemovePlugin }: {
   skill?: string;
@@ -14,8 +15,8 @@ export function ComposerCapabilityReferences({ skill, plugin, onRemoveSkill, onR
     {skill ? <button
       className="composer-capability-reference"
       type="button"
-      title="Remove skill"
-      aria-label={`Remove ${skillDisplayName(skill)} skill`}
+      title={t("composer.removeSkill")}
+      aria-label={t("composer.removeSkillName", { name: skillDisplayName(skill) })}
       onClick={onRemoveSkill}
     >
       <WandSparkles size={15} aria-hidden="true" />
@@ -24,8 +25,8 @@ export function ComposerCapabilityReferences({ skill, plugin, onRemoveSkill, onR
     {plugin ? <button
       className="composer-capability-reference"
       type="button"
-      title="Remove plugin"
-      aria-label={`Remove ${plugin.displayName} plugin`}
+      title={t("composer.removePlugin")}
+      aria-label={t("composer.removePluginName", { name: plugin.displayName })}
       onClick={onRemovePlugin}
     >
       {isGodotPlugin(plugin) ? <GodotIcon size={15} /> : <Package size={15} aria-hidden="true" />}

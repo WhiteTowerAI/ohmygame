@@ -2,6 +2,7 @@ import {
   CANVAS_FORMAT_PRESETS,
   type CanvasFormatPresetId,
 } from "../shared/canvas-formats.js";
+import { t } from "./i18n.js";
 
 export function CanvasFormatOptions({
   value,
@@ -16,7 +17,7 @@ export function CanvasFormatOptions({
     <div
       className="story-format-options"
       role="radiogroup"
-      aria-label="Canvas format"
+      aria-label={t("storySettings.canvasFormat")}
     >
       {CANVAS_FORMAT_PRESETS.map((preset) => (
         <button

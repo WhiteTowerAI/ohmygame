@@ -13,12 +13,6 @@ export function supportedReasoningLevels(model: { reasoning: boolean; thinkingLe
   });
 }
 
-export function reasoningLabel(level?: AgentReasoningLevel): string {
-  if (!level) return "Default";
-  if (level === "xhigh") return "Extra high";
-  return level[0].toUpperCase() + level.slice(1);
-}
-
 export function parseReasoningLevel(value: unknown): AgentReasoningLevel | undefined {
   return AGENT_REASONING_LEVELS.find((level) => level === value);
 }

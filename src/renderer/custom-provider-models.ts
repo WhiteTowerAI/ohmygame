@@ -1,6 +1,7 @@
 import { AGENT_REASONING_LEVELS, type CustomProviderModel, type CustomThinkingLevelMap } from "../shared/contracts.js";
 import { compatibleReasoningProtocols, supportedReasoningLevels } from "../shared/reasoning.js";
 import { modelUsages, normalizeModelUsages } from "../shared/custom-models.js";
+import { t } from "./i18n.js";
 
 export type ModelRow = { model: CustomProviderModel; enabled: boolean };
 
@@ -33,12 +34,12 @@ export function initialCustomThinkingLevelMap(model: CustomProviderModel): Custo
 }
 
 export function modelError(model: CustomProviderModel, enabled = false): string | undefined {
-  if (!model.id.trim() || /[\s\x00-\x1f]/.test(model.id) || model.id.length > 200) return "Enter a model ID without spaces (up to 200 characters).";
+  if (!model.id.trim() || /[\s\x00-\x1f]/.test(model.id) || model.id.length > 200) return t("customProvider.errors.modelId");
   try { normalizeModelUsages(model.usages); } catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
-  if (enabled && !Object.values(modelUsages(model)).some(Boolean)) return `Choose a use for ${model.name || model.id} before enabling it.`;
-  if (modelUsages(model).language && (!Number.isSafeInteger(model.contextWindow) || model.contextWindow < 1 || model.contextWindow > 100_000_000 || !Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1 || model.maxTokens > model.contextWindow)) return `Check the token limits for ${model.name || model.id}. Output tokens must not exceed the context window.`;
+  if (enabled && !Object.values(modelUsages(model)).some(Boolean)) return t("customProvider.errors.chooseUse", { name: model.name || model.id });
+  if (modelUsages(model).language && (!Number.isSafeInteger(model.contextWindow) || model.contextWindow < 1 || model.contextWindow > 100_000_000 || !Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1 || model.maxTokens > model.contextWindow)) return t("customProvider.errors.tokenLimits", { name: model.name || model.id });
   if (model.thinkingLevelMap) {
-    if (!supportedReasoningLevels({ reasoning: model.reasoning, thinkingLevelMap: { ...model.reasoningCapabilities?.thinkingLevelMap, ...model.thinkingLevelMap } }).length) return `Enable at least one reasoning level for ${model.name || model.id}.`;
-    if (Object.values(model.thinkingLevelMap).some((value) => value !== null && (!value.trim() || value.length > 100 || /[\x00-\x1f]/.test(value)))) return `Enter a parameter for each enabled reasoning level in ${model.name || model.id}.`;
+    if (!supportedReasoningLevels({ reasoning: model.reasoning, thinkingLevelMap: { ...model.reasoningCapabilities?.thinkingLevelMap, ...model.thinkingLevelMap } }).length) return t("customProvider.errors.enableLevel", { name: model.name || model.id });
+    if (Object.values(model.thinkingLevelMap).some((value) => value !== null && (!value.trim() || value.length > 100 || /[\x00-\x1f]/.test(value)))) return t("customProvider.errors.levelParameter", { name: model.name || model.id });
   }
 }

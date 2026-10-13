@@ -3,6 +3,7 @@ import type { ConversationCapabilities } from "../shared/contracts.js";
 import { FileText, Lightbulb, Package, Plus, Upload, WandSparkles } from "./icons.js";
 import { attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
 import { matchingMentions, mentionQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
+import { t } from "./i18n.js";
 
 type ContextAction = "files" | "design" | "plan";
 interface ContextMenuItem {
@@ -23,9 +24,9 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   supportsDesign: boolean;
 }): ContextMenuItem[] {
   const actions: ContextMenuItem[] = query?.trigger === "$" ? [] : [
-    { id: "files", section: "Add", label: "Attach files", description: "Add files to this message", action: "files" },
-    ...(supportsDesign ? [{ id: "design", section: "Add" as const, label: "Reference game design", description: "Use the saved design document", action: "design" as const }] : []),
-    ...(canTogglePlanning ? [{ id: "plan", section: "Add" as const, label: "Plan mode", description: planning ? "Turn plan mode off" : "Turn plan mode on", action: "plan" as const }] : []),
+    { id: "files", section: "Add", label: t("contextMenu.attachFiles"), description: t("contextMenu.attachFilesHint"), action: "files" },
+    ...(supportsDesign ? [{ id: "design", section: "Add" as const, label: t("contextMenu.design"), description: t("contextMenu.designHint"), action: "design" as const }] : []),
+    ...(canTogglePlanning ? [{ id: "plan", section: "Add" as const, label: t("planMode.mode"), description: planning ? t("planMode.turnOff") : t("planMode.turnOn"), action: "plan" as const }] : []),
   ];
   const search = query?.query ?? "";
   return [
@@ -155,8 +156,8 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
         className="icon-button composer-attach-button"
         type="button"
         disabled={disabled}
-        aria-label="Add context or attach files"
-        title="Add context or attach files"
+        aria-label={t("contextMenu.trigger")}
+        title={t("contextMenu.trigger")}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         aria-haspopup="listbox"
@@ -225,9 +226,9 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover }
     else if (row.bottom > boundary.bottom - 6) element.scrollTop += row.bottom - boundary.bottom + 6;
   }, [selected, items[selected]?.id, menuRef]);
 
-  return <div ref={menuRef} id={id} className="composer-command-menu composer-context-menu" role="listbox" aria-label="Add context" onMouseDown={(event) => event.preventDefault()}>
+  return <div ref={menuRef} id={id} className="composer-command-menu composer-context-menu" role="listbox" aria-label={t("contextMenu.label")} onMouseDown={(event) => event.preventDefault()}>
     {items.length ? items.map((item, index) => <Fragment key={item.id}>
-      {item.section !== items[index - 1]?.section ? <div className="composer-context-menu-section" role="presentation">{item.section}</div> : null}
+      {item.section !== items[index - 1]?.section ? <div className="composer-context-menu-section" role="presentation">{t(`contextMenu.section.${item.section}`)}</div> : null}
       <button
         ref={selected === index ? selectedItem : undefined}
         id={`${id}-${item.id}`}
@@ -244,6 +245,6 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover }
         <span>{item.label}</span>
         <small>{item.description}</small>
       </button>
-    </Fragment>) : <div className="composer-context-menu-empty" role="status">No matching items</div>}
+    </Fragment>) : <div className="composer-context-menu-empty" role="status">{t("contextMenu.noMatch")}</div>}
   </div>;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { t } from "./i18n.js";
 
 const WINDOW_MENU_LABELS = ["File", "Edit", "View", "Window"] as const;
 
@@ -29,7 +30,7 @@ function DesktopWindowMenu() {
     void windowMenu.popup(label, bounds.left, bounds.bottom).catch(() => undefined);
   }
 
-  return <header className="desktop-window-menu-bar" role="menubar" aria-label="Application menu">
+  return <header className="desktop-window-menu-bar" role="menubar" aria-label={t("sidebar.applicationMenu")}>
     <span className="desktop-window-menu-icon" aria-hidden="true">
       {icon ? <img src={icon} alt="" draggable={false} /> : null}
     </span>

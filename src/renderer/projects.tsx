@@ -11,6 +11,7 @@ import { createdProjectView, projectsHash, type AppNavigationTarget } from "./ro
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { useProjectActivity } from "./use-project-activity.js";
+import { t } from "./i18n.js";
 
 interface ProjectsPageProps {
   projectType?: ProjectType | "all";
@@ -88,28 +89,28 @@ export function ProjectsPage({ projectType = "all", onNavigate, onOpenProject }:
   return (
     <SidebarPageLayout active="projects" onNavigate={onNavigate}>
       <SidebarPageHeader
-        title="Projects"
+        title={t("projects.title")}
         actions={(
           <div className="projects-controls">
-            <select className="projects-type-filter" aria-label="Project type" value={projectType} onChange={(event) => {
+            <select className="projects-type-filter" aria-label={t("creator.projectType")} value={projectType} onChange={(event) => {
               const type = event.target.value as ProjectType | "all";
               window.location.hash = projectsHash(type === "all" ? undefined : type);
             }}>
-              <option value="all">All types</option>
+              <option value="all">{t("projects.allTypes")}</option>
               {PROJECT_TYPES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
             </select>
             <label className="projects-search" htmlFor="projects-search-input">
               <Search size={14} aria-hidden="true" />
-              <input id="projects-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects" />
+              <input id="projects-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("projects.search")} />
             </label>
             <div className="projects-sort" ref={sortControl}>
-              <button className="projects-icon-button" type="button" aria-label="Sort projects" aria-expanded={sortOpen} onClick={() => setSortOpen((current) => !current)}>
+              <button className="projects-icon-button" type="button" aria-label={t("projects.sort")} aria-expanded={sortOpen} onClick={() => setSortOpen((current) => !current)}>
                 <ArrowDownUp size={16} />
               </button>
               {sortOpen ? (
                 <div className="projects-sort-menu" role="menu">
-                  <button className={sort === "updated" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { setSort("updated"); setSortOpen(false); }}>Recently updated</button>
-                  <button className={sort === "name" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { setSort("name"); setSortOpen(false); }}>Name</button>
+                  <button className={sort === "updated" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { setSort("updated"); setSortOpen(false); }}>{t("projects.recentlyUpdated")}</button>
+                  <button className={sort === "name" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { setSort("name"); setSortOpen(false); }}>{t("common.name")}</button>
                 </div>
               ) : null}
             </div>
@@ -117,13 +118,13 @@ export function ProjectsPage({ projectType = "all", onNavigate, onOpenProject }:
         )}
       />
 
-      {phase === "loading" ? <ProjectState><LoaderCircle className="spin" size={18} />Loading projects</ProjectState> : null}
-      {phase === "error" ? <ProjectState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></ProjectState> : null}
+      {phase === "loading" ? <ProjectState><LoaderCircle className="spin" size={18} />{t("projects.loading")}</ProjectState> : null}
+      {phase === "error" ? <ProjectState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />{t("common.retry")}</button></ProjectState> : null}
       {phase === "ready" ? (
         <div className="projects-grid">
           <button className="project-card project-card-new" type="button" onClick={() => setCreateOpen(true)}>
             <span className="project-card-new-art"><FolderPlus size={24} /></span>
-            <span className="project-card-copy"><strong>New project</strong><span>Start from an idea</span></span>
+            <span className="project-card-copy"><strong>{t("projects.new")}</strong><span>{t("projects.newHint")}</span></span>
           </button>
           {visibleProjects.map((project, index) => (
             <ProjectCard
@@ -140,7 +141,7 @@ export function ProjectsPage({ projectType = "all", onNavigate, onOpenProject }:
           ))}
         </div>
       ) : null}
-      {phase === "ready" && projects.length > 0 && visibleProjects.length === 0 ? <ProjectState><FolderPlus size={18} />No projects match your search</ProjectState> : null}
+      {phase === "ready" && projects.length > 0 && visibleProjects.length === 0 ? <ProjectState><FolderPlus size={18} />{t("projects.noMatch")}</ProjectState> : null}
       {actionError ? <p className="projects-notice" role="alert">{actionError}</p> : null}
       {renameTarget ? <ProjectRenameDialog name={renameTarget.name} returnFocus={renameTrigger.current} onClose={() => setRenameTarget(undefined)} onConfirm={(name) => {
         const project = renameTarget;

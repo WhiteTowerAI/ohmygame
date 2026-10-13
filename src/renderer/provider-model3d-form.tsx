@@ -3,6 +3,7 @@ import type { Model3DDefinition } from "../shared/contracts.js";
 import { MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DProviderId } from "../shared/model3d-presets.js";
 import { Model3DSettingsFields } from "./custom-model-usage-fields.js";
 import { LoaderCircle } from "./icons.js";
+import { t } from "./i18n.js";
 
 export function ProviderModel3DForm({ protocol, initial, busy, onSave, onCancel, onReset }: {
   protocol: Native3DProviderId; initial?: Model3DDefinition; busy: boolean;
@@ -21,24 +22,24 @@ export function ProviderModel3DForm({ protocol, initial, busy, onSave, onCancel,
       void onSave(normalized);
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   }
-  return <form className="provider-model-form provider-model3d-form" aria-label={initial ? "Edit 3D model" : "Add 3D model"} onSubmit={submit}>
+  return <form className="provider-model-form provider-model3d-form" aria-label={initial ? t("model3dForm.edit") : t("model3dForm.add")} onSubmit={submit}>
     <fieldset disabled={busy}>
       <div className="provider-model-form-grid">
-        <label className="settings-detail-field"><span className="settings-search-field-label">Model ID</span><input className="settings-search-input" value={model.id} disabled={Boolean(initial)} onChange={(event) => setModel({ ...model, id: event.target.value })} placeholder="Exact model version from your provider" maxLength={200} required autoFocus={!initial} autoComplete="off" spellCheck={false} /></label>
-        <label className="settings-detail-field"><span className="settings-search-field-label">Display name</span><input className="settings-search-input" value={model.name} onChange={(event) => setModel({ ...model, name: event.target.value })} placeholder={model.id || "Same as model ID"} maxLength={200} /></label>
+        <label className="settings-detail-field"><span className="settings-search-field-label">{t("models.modelId")}</span><input className="settings-search-input" value={model.id} disabled={Boolean(initial)} onChange={(event) => setModel({ ...model, id: event.target.value })} placeholder={t("model3dForm.idPlaceholder")} maxLength={200} required autoFocus={!initial} autoComplete="off" spellCheck={false} /></label>
+        <label className="settings-detail-field"><span className="settings-search-field-label">{t("models.displayName")}</span><input className="settings-search-input" value={model.name} onChange={(event) => setModel({ ...model, name: event.target.value })} placeholder={model.id || t("customProvider.sameAsId")} maxLength={200} /></label>
       </div>
-      {!initial ? <label className="settings-detail-field"><span className="settings-search-field-label">Start from</span><select className="settings-search-input" value={template} onChange={(event) => {
+      {!initial ? <label className="settings-detail-field"><span className="settings-search-field-label">{t("model3dForm.startFrom")}</span><select className="settings-search-input" value={template} onChange={(event) => {
         setTemplate(event.target.value);
         setModel({ ...model, settings: presets.find((preset) => preset.id === event.target.value)!.settings });
-      }}>{presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select><small>Copy a compatible template, then check its limits against the new version.</small></label> : null}
+      }}>{presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}</select><small>{t("model3dForm.templateHint")}</small></label> : null}
       <Model3DSettingsFields value={model.settings} onChange={(settings) => setModel({ ...model, settings })} lockProtocol lockCapabilities={official} showEndpoint={false} />
     </fieldset>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}
     <div className="provider-model-form-footer">
-      {official && onReset ? <button className="settings-secondary-button" type="button" disabled={busy} onClick={onReset}>Restore defaults</button> : <span />}
+      {official && onReset ? <button className="settings-secondary-button" type="button" disabled={busy} onClick={onReset}>{t("model3dForm.restore")}</button> : <span />}
       <div className="provider-model-form-actions">
-        <button className="settings-secondary-button" type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button className="settings-primary-button" type="submit" disabled={busy || !model.id.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : null}{initial ? "Save" : "Add"}</button>
+        <button className="settings-secondary-button" type="button" disabled={busy} onClick={onCancel}>{t("common.cancel")}</button>
+        <button className="settings-primary-button" type="submit" disabled={busy || !model.id.trim()}>{busy ? <LoaderCircle className="spin" size={13} /> : null}{initial ? t("common.save") : t("common.add")}</button>
       </div>
     </div>
   </form>;

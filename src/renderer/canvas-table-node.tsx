@@ -48,6 +48,7 @@ import {
   Upload,
   X,
 } from "./icons.js";
+import { t } from "./i18n.js";
 
 export interface CanvasTables {
   storage: CanvasTableStorage;
@@ -84,7 +85,7 @@ export function CanvasTableNode({
         <div data-alignment-frame className="design-document-node-content">
           <CanvasNodeLabel
             icon={Columns2}
-            label={runtime?.table?.title || "Table"}
+            label={runtime?.table?.title || t("tableNode.table")}
             details={data.nodeDetails}
             className="design-document-node-header"
           />
@@ -99,7 +100,7 @@ export function CanvasTableNode({
             </div>
           ) : (
             <p className="design-document-issue">
-              Table unavailable. Restore its file to load it again.
+              {t("tableNode.unavailable")}
             </p>
           )}
         </div>
@@ -109,12 +110,12 @@ export function CanvasTableNode({
           <div
             className="design-mode-control"
             role="group"
-            aria-label="Table view"
+            aria-label={t("tableNode.view")}
           >
             <button
               type="button"
-              aria-label="Edit table"
-              title="Edit table"
+              aria-label={t("tableNode.edit")}
+              title={t("tableNode.edit")}
               disabled={!table}
               onClick={() => table && runtime?.tables.open(table.id, "edit")}
             >
@@ -125,8 +126,8 @@ export function CanvasTableNode({
             <CanvasNodeSizeActions runtime={data.resizeRuntime} />
             <button
               type="button"
-              aria-label="Expand table"
-              title="Expand table"
+              aria-label={t("tableNode.expand")}
+              title={t("tableNode.expand")}
               disabled={!table}
               onClick={() => table && runtime?.tables.open(table.id, "preview")}
             >
@@ -165,7 +166,7 @@ export function ExpandedCanvasTable({
       <header className="design-expanded-toolbar">
         <Columns2 size={16} />
         <CanvasTextInput
-          aria-label="Table title"
+          aria-label={t("tableNode.title")}
           maxLength={200}
           value={table.title}
           onChange={(title) => tables.storage.update({ ...table, title })}
@@ -173,12 +174,12 @@ export function ExpandedCanvasTable({
         <div
           className="design-mode-control"
           role="group"
-          aria-label="Table view"
+          aria-label={t("tableNode.view")}
         >
           <button
             type="button"
-            title="Edit table"
-            aria-label="Edit table"
+            title={t("tableNode.edit")}
+            aria-label={t("tableNode.edit")}
             aria-pressed={mode === "edit"}
             onClick={() => setMode("edit")}
           >
@@ -186,8 +187,8 @@ export function ExpandedCanvasTable({
           </button>
           <button
             type="button"
-            title="Preview table"
-            aria-label="Preview table"
+            title={t("tableNode.preview")}
+            aria-label={t("tableNode.preview")}
             aria-pressed={mode === "preview"}
             onClick={() => setMode("preview")}
           >
@@ -232,7 +233,7 @@ export function CanvasTablePreview({ table }: { table: CanvasTable }) {
     <div
       className="canvas-table-scroll canvas-table-preview"
       role="region"
-      aria-label="Table preview"
+      aria-label={t("tableNode.previewLabel")}
     >
       <table
         style={{
@@ -252,7 +253,7 @@ export function CanvasTablePreview({ table }: { table: CanvasTable }) {
         </colgroup>
         <thead>
           <tr>
-            <th aria-label="Rows" />
+            <th aria-label={t("tableNode.rows")} />
             {table.columns.map((column) => (
               <th key={column.id} scope="col">
                 {column.title}
@@ -277,7 +278,7 @@ export function CanvasTablePreview({ table }: { table: CanvasTable }) {
       </table>
       {!table.rows.length ? (
         <p className="canvas-table-empty">
-          No rows yet. Edit the table or describe what to generate below.
+          {t("tableNode.noRows")}
         </p>
       ) : null}
     </div>
@@ -307,12 +308,12 @@ export function CanvasTableAI({
         generating={state?.generating}
         busy={busy}
         error={state?.error}
-        label="Table generation instruction"
-        placeholder="Describe the table to create or change"
+        label={t("tableNode.instruction")}
+        placeholder={t("tableNode.instructionPlaceholder")}
         generateLabel={
           state?.error || state?.proposal
-            ? "Retry table generation"
-            : "Generate table"
+            ? t("tableNode.retryGeneration")
+            : t("tableNode.generate")
         }
         onInstruction={(instruction) =>
           storage.changeGeneration(table.id, { instruction, error: undefined })
@@ -338,7 +339,7 @@ export function CanvasTableAI({
       {state?.proposal ? (
         <section
           className="design-ai-result nodrag nowheel nokey"
-          aria-label="AI table draft"
+          aria-label={t("tableNode.draft")}
         >
           <p className="design-ai-result-status" role="status">
             Candidate draft — review before replacing the table.
@@ -350,22 +351,22 @@ export function CanvasTableAI({
           <footer>
             <button
               type="button"
-              title="Copy table draft"
-              aria-label="Copy table draft"
+              title={t("tableNode.copyDraft")}
+              aria-label={t("tableNode.copyDraft")}
               onClick={() => {
                 void navigator.clipboard
                   .writeText(serializeDelimitedTable(state.proposal!, "\t"))
-                  .then(() => setCopyNotice("Draft copied."))
-                  .catch(() => setCopyNotice("Could not copy the draft."));
+                  .then(() => setCopyNotice(t("canvasDoc.copied")))
+                  .catch(() => setCopyNotice(t("tableNode.copyDraftFailed")));
               }}
             >
               <Copy size={14} />
-              <span>Copy</span>
+              <span>{t("common.copy")}</span>
             </button>
             <button
               type="button"
-              title="Discard table draft"
-              aria-label="Discard table draft"
+              title={t("tableNode.discardDraft")}
+              aria-label={t("tableNode.discardDraft")}
               disabled={busy}
               onClick={() =>
                 storage.changeGeneration(table.id, {
@@ -375,19 +376,19 @@ export function CanvasTableAI({
               }
             >
               <X size={14} />
-              <span>Discard</span>
+              <span>{t("common.discard")}</span>
             </button>
             <button
               type="button"
-              title="Replace table with draft"
-              aria-label="Replace table with draft"
+              title={t("tableNode.replace")}
+              aria-label={t("tableNode.replace")}
               disabled={busy}
               onClick={() => {
                 void storage.applyGeneration(table.id);
               }}
             >
               <Check size={14} />
-              <span>{state.applying ? "Saving…" : "Use draft"}</span>
+              <span>{state.applying ? t("common.saving") : t("canvasDoc.useDraft")}</span>
             </button>
           </footer>
         </section>
@@ -404,18 +405,18 @@ export function CanvasTableConflictNotice({
   storage: CanvasTableStorage;
 }) {
   return (
-    <CanvasNotice className="design-notice" tone="warning" message={`Table “${conflict.local.title}” changed elsewhere. Your draft is kept; choose a version to resume saving.`}>
+    <CanvasNotice className="design-notice" tone="warning" message={t("tableNode.conflict", { title: conflict.local.title })}>
       <button
         type="button"
         onClick={() => storage.resolve(conflict.local.id, "remote")}
       >
-        Use disk version
+        {t("canvas.useDisk")}
       </button>
       <button
         type="button"
         onClick={() => storage.resolve(conflict.local.id, "local")}
       >
-        Keep my version
+        {t("canvas.keepMine")}
       </button>
     </CanvasNotice>
   );
@@ -492,7 +493,7 @@ function CanvasTableEditor({
   return (
     <section
       className="canvas-table-editor nodrag nowheel nokey"
-      aria-label="Table editor"
+      aria-label={t("tableNode.editor")}
       onKeyDown={(event) => {
         if (
           (event.metaKey || event.ctrlKey) &&
@@ -511,7 +512,7 @@ function CanvasTableEditor({
       <div className="canvas-table-toolbar">
         <button
           type="button"
-          aria-label="Add row"
+          aria-label={t("tableNode.addRow")}
           disabled={table.rows.length >= MAX_TABLE_ROWS}
           onClick={() =>
             run(() =>
@@ -523,11 +524,11 @@ function CanvasTableEditor({
           }
         >
           <Plus size={13} />
-          Row
+          {t("tableNode.row")}
         </button>
         <button
           type="button"
-          aria-label="Add column"
+          aria-label={t("tableNode.addColumn")}
           disabled={table.columns.length >= MAX_TABLE_COLUMNS}
           onClick={() =>
             run(() =>
@@ -537,7 +538,7 @@ function CanvasTableEditor({
                   ...table.columns,
                   {
                     id: crypto.randomUUID(),
-                    title: `Column ${table.columns.length + 1}`,
+                    title: t("tableNode.columnName", { number: table.columns.length + 1 }),
                     type: "text",
                   },
                 ],
@@ -546,12 +547,12 @@ function CanvasTableEditor({
           }
         >
           <Plus size={13} />
-          Column
+          {t("tableNode.column")}
         </button>
         <button
           type="button"
-          title="Undo table edit"
-          aria-label="Undo table edit"
+          title={t("tableNode.undo")}
+          aria-label={t("tableNode.undo")}
           disabled={!session?.undo.length}
           onClick={() => tables.storage.history(table.id, "undo")}
         >
@@ -559,8 +560,8 @@ function CanvasTableEditor({
         </button>
         <button
           type="button"
-          title="Redo table edit"
-          aria-label="Redo table edit"
+          title={t("tableNode.redo")}
+          aria-label={t("tableNode.redo")}
           disabled={!session?.redo.length}
           onClick={() => tables.storage.history(table.id, "redo")}
         >
@@ -568,24 +569,24 @@ function CanvasTableEditor({
         </button>
         <button
           type="button"
-          title="Copy table as TSV"
-          aria-label="Copy table as TSV"
+          title={t("tableNode.copyTsv")}
+          aria-label={t("tableNode.copyTsv")}
           onClick={() => {
             void navigator.clipboard
               .writeText(serializeDelimitedTable(table, "\t"))
               .then(() => {
-                setNotice("Table copied.");
+                setNotice(t("tableNode.copied"));
                 setError(undefined);
               })
-              .catch(() => setError("Could not copy the table."));
+              .catch(() => setError(t("tableNode.copyFailed")));
           }}
         >
           <Copy size={13} />
         </button>
         <button
           type="button"
-          title="Export CSV"
-          aria-label="Export CSV"
+          title={t("tableNode.exportCsv")}
+          aria-label={t("tableNode.exportCsv")}
           onClick={() => {
             const url = URL.createObjectURL(
                 new Blob(["\uFEFF", serializeDelimitedTable(table, ",")], {
@@ -603,8 +604,8 @@ function CanvasTableEditor({
         </button>
         <button
           type="button"
-          title="Import CSV (replace table)"
-          aria-label="Import CSV"
+          title={t("tableNode.importCsvTitle")}
+          aria-label={t("tableNode.importCsv")}
           onClick={() => upload.current?.click()}
         >
           <Upload size={13} />
@@ -619,7 +620,7 @@ function CanvasTableEditor({
             event.currentTarget.value = "";
             if (!file) return;
             if (file.size > 4 * 1024 * 1024) {
-              setError("The table is too large.");
+              setError(t("tableNode.tooLarge"));
               return;
             }
             void file
@@ -660,11 +661,11 @@ function CanvasTableEditor({
           </colgroup>
           <thead>
             <tr>
-              <th aria-label="Rows" />
+              <th aria-label={t("tableNode.rows")} />
               {table.columns.map((column, c) => (
                 <th key={column.id}>
                   <CanvasTextInput
-                    aria-label={`Column ${c + 1} title`}
+                    aria-label={t("tableNode.columnTitle", { number: c + 1 })}
                     value={column.title}
                     maxLength={200}
                     onChange={(title) =>
@@ -678,7 +679,7 @@ function CanvasTableEditor({
                   />
                   <div className="canvas-table-column-tools">
                     <select
-                      aria-label={`Column ${c + 1} type`}
+                      aria-label={t("tableNode.columnType", { number: c + 1 })}
                       value={column.type}
                       onChange={(event) =>
                         setType(
@@ -687,14 +688,14 @@ function CanvasTableEditor({
                         )
                       }
                     >
-                      <option value="text">Text</option>
-                      <option value="number">Number</option>
-                      <option value="boolean">Boolean</option>
+                      <option value="text">{t("tableNode.type.text")}</option>
+                      <option value="number">{t("tableNode.type.number")}</option>
+                      <option value="boolean">{t("tableNode.type.boolean")}</option>
                     </select>
                     <button
                       type="button"
-                      aria-label={`Delete column ${c + 1}`}
-                      title="Delete column"
+                      aria-label={t("tableNode.deleteColumnNumber", { number: c + 1 })}
+                      title={t("tableNode.deleteColumn")}
                       disabled={table.columns.length === 1}
                       onClick={() =>
                         run(() =>
@@ -720,7 +721,7 @@ function CanvasTableEditor({
                   </div>
                   <span
                     role="separator"
-                    aria-label={`Resize column ${c + 1}`}
+                    aria-label={t("tableNode.resizeColumn", { number: c + 1 })}
                     aria-orientation="vertical"
                     className="canvas-table-column-resize"
                     onPointerDown={(event) => {
@@ -781,8 +782,8 @@ function CanvasTableEditor({
                   <span>{r + 1}</span>
                   <button
                     type="button"
-                    aria-label={`Delete row ${r + 1}`}
-                    title="Delete row"
+                    aria-label={t("tableNode.deleteRowNumber", { number: r + 1 })}
+                    title={t("tableNode.deleteRow")}
                     onClick={() =>
                       run(() =>
                         update({
@@ -799,7 +800,7 @@ function CanvasTableEditor({
                   <td key={column.id}>
                     <TableCell
                       value={String(canvasCell(row, column.id) ?? "")}
-                      label={`Row ${r + 1}, ${column.title || `column ${c + 1}`}`}
+                      label={t("tableNode.cell", { row: r + 1, column: column.title || t("tableNode.columnLower", { number: c + 1 }) })}
                       type={column.type}
                       onPaste={(event) => paste(event, r, c)}
                       onCommit={(value, history) => {

@@ -22,6 +22,7 @@ import { createPortal } from "react-dom";
 import { CanvasContextMenu, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import { type PlayablePresetSummary } from "../shared/playable-editor.js";
 import { PlayableTemplateDialog } from "./playable-template-dialog.js";
+import { t } from "./i18n.js";
 
 /** Opens Add a Scene and adds the chosen Template at the center of the canvas. */
 export function PlayableAddControl({ presets, busy, onAdd, className, children }: {
@@ -37,7 +38,7 @@ export function PlayableAddControl({ presets, busy, onAdd, className, children }
   const closeAdd = useCallback(() => setAddOpen(false), []);
 
   return <>
-    <button className={[className, addOpen ? "is-active" : undefined].filter(Boolean).join(" ") || undefined} type="button" title="Add Scene" {...(children ? {} : { "aria-label": "Add Scene" })} aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
+    <button className={[className, addOpen ? "is-active" : undefined].filter(Boolean).join(" ") || undefined} type="button" title={t("storyMenu.addScene")} {...(children ? {} : { "aria-label": t("storyMenu.addScene") })} aria-haspopup="dialog" aria-expanded={addOpen} onClick={() => setAddOpen(true)}>
       {children ?? (busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />)}
     </button>
     {addOpen ? createPortal(<PlayableTemplateDialog
@@ -61,10 +62,10 @@ export function PlayableEmptyCanvas({ presets, busy, onAdd }: {
 }) {
   return <div className="playable-canvas-empty">
     <div>
-      <strong>No Scenes yet</strong>
-      <p>Start from a Template, or describe your story in the chat.</p>
+      <strong>{t("storyMenu.noScenes")}</strong>
+      <p>{t("storyMenu.startHint")}</p>
       <PlayableAddControl presets={presets} busy={busy} onAdd={onAdd} className="playable-canvas-empty-add">
-        {busy ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />}<span>Add a Scene</span>
+        {busy ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />}<span>{t("storyMenu.addAScene")}</span>
       </PlayableAddControl>
     </div>
   </div>;
@@ -96,15 +97,15 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
   const run = (action: () => unknown) => { action(); onClose(); };
 
   return (
-    <CanvasContextMenu screenPosition={menu.screenPosition} label={menu.kind === "pane" ? "Canvas actions" : "Scene actions"} onClose={onClose}>
+    <CanvasContextMenu screenPosition={menu.screenPosition} label={menu.kind === "pane" ? t("assetCanvas.canvasActions") : t("storyMenu.sceneActions")} onClose={onClose}>
       {menu.kind === "pane" ? <>
-        <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>Undo</span></button>
-        <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>Redo</span></button>
-        <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>Paste</span></button>
+        <button type="button" role="menuitem" disabled={!canUndo} onClick={() => run(onUndo)}><Undo2 size={15} /><span>{t("assetCanvas.undo")}</span></button>
+        <button type="button" role="menuitem" disabled={!canRedo} onClick={() => run(onRedo)}><Redo2 size={15} /><span>{t("assetCanvas.redo")}</span></button>
+        <button type="button" role="menuitem" disabled={!canPaste} onClick={() => run(onPaste)}><Clipboard size={15} /><span>{t("assetCanvas.paste")}</span></button>
         <div className="story-canvas-context-submenu-root" onPointerEnter={() => setAddOpen(true)}>
-          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>Add Scene</span></button>
+          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={addOpen} onClick={() => setAddOpen(true)}><Plus size={15} /><span>{t("storyMenu.addScene")}</span></button>
           {addOpen ? <div className="story-canvas-context-add-menu">
-            <div className="story-canvas-context-submenu" role="menu" aria-label="Add Scene">
+            <div className="story-canvas-context-submenu" role="menu" aria-label={t("storyMenu.addScene")}>
               {presets.map((preset) => <button
                 type="button"
                 role="menuitem"
@@ -117,15 +118,15 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
           </div> : null}
         </div>
       </> : <>
-        <button type="button" role="menuitem" onClick={() => run(onOpen)}><Maximize size={15} /><span>Open</span></button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>Copy Scene</span></button>
-        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Plus size={15} /><span>Duplicate</span></button>
-        <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? "Start Scene" : "Set as Start"}</span></button>
+        <button type="button" role="menuitem" onClick={() => run(onOpen)}><Maximize size={15} /><span>{t("sceneWorkbench.open")}</span></button>
+        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onCopy)}><Copy size={15} /><span>{t("storyMenu.copyScene")}</span></button>
+        <button type="button" role="menuitem" disabled={busy} onClick={() => run(onDuplicate)}><Plus size={15} /><span>{t("common.duplicate")}</span></button>
+        <button type="button" role="menuitem" disabled={isEntry} onClick={() => run(onSetEntry)}><Flag size={15} /><span>{isEntry ? t("storyMenu.startScene") : t("storyMenu.setStart")}</span></button>
         <div className="playable-project-menu-separator" role="separator" />
-        <button type="button" role="menuitemcheckbox" aria-checked={story.onMap} title="Players see this Scene on the Story map. Turn it off for menus and other Scenes that are not steps in the story." onClick={() => run(() => onStoryOption("hidden", story.onMap))}><Eye size={15} /><span>On Story map</span>{story.onMap ? <Check size={13} /> : null}</button>
-        <button type="button" role="menuitemcheckbox" aria-checked={story.ending} title="The Story map counts this Scene as an ending" onClick={() => run(() => onStoryOption("ending", !story.ending))}><CircleStop size={15} /><span>Ending</span>{story.ending ? <Check size={13} /> : null}</button>
+        <button type="button" role="menuitemcheckbox" aria-checked={story.onMap} title={t("storyMenu.onMapTitle")} onClick={() => run(() => onStoryOption("hidden", story.onMap))}><Eye size={15} /><span>{t("storyMenu.onMap")}</span>{story.onMap ? <Check size={13} /> : null}</button>
+        <button type="button" role="menuitemcheckbox" aria-checked={story.ending} title={t("storyMenu.endingTitle")} onClick={() => run(() => onStoryOption("ending", !story.ending))}><CircleStop size={15} /><span>{t("storyMenu.ending")}</span>{story.ending ? <Check size={13} /> : null}</button>
         <div className="playable-project-menu-separator" role="separator" />
-        <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size={15} /><span>Delete</span></button>
+        <button className="is-danger" type="button" role="menuitem" onClick={() => run(onDelete)}><Trash2 size={15} /><span>{t("common.delete")}</span></button>
       </>}
     </CanvasContextMenu>
   );

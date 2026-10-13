@@ -3,6 +3,7 @@ import type { AgentModel, AgentModelRef, AgentReasoningLevel } from "../shared/c
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
 import { ArrowUp, LoaderCircle } from "./icons.js";
+import { t } from "./i18n.js";
 
 export interface CanvasTextModels {
   models: AgentModel[];
@@ -11,7 +12,7 @@ export interface CanvasTextModels {
   defaultReasoningLevel?: AgentReasoningLevel;
 }
 
-export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultReasoningLevel = "medium", model, reasoningLevel, instruction, generating, busy, error, references, label = "Text generation instruction", placeholder = "Describe the text you want to generate", generateLabel = "Generate text", onInstruction, onModel, onReasoningChange, onGenerate }: CanvasTextModels & {
+export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultReasoningLevel = "medium", model, reasoningLevel, instruction, generating, busy, error, references, label = t("textComposer.label"), placeholder = t("textComposer.placeholder"), generateLabel = t("textComposer.generate"), onInstruction, onModel, onReasoningChange, onGenerate }: CanvasTextModels & {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   instruction: string;

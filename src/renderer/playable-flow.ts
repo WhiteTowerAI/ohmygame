@@ -8,6 +8,7 @@ import {
   type PlayableAssetDefinition,
   type PlayableNode,
 } from "../shared/playable-nodes.js";
+import { t } from "./i18n.js";
 
 export type GraphMeta = Omit<NodeGraph, "nodes" | "edges">;
 
@@ -77,7 +78,7 @@ export function toFlowEdge(edge: PlayableEdge): Edge {
     sourceHandle: edge.source.signal,
     target: edge.targetNodeId,
     data: { mode: edge.mode },
-    ...(edge.mode === "push" ? { label: "↩ Back", className: "playable-edge-push" } : {}),
+    ...(edge.mode === "push" ? { label: t("sceneCard.back"), className: "playable-edge-push" } : {}),
   };
 }
 

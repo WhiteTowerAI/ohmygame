@@ -5,6 +5,7 @@ import { menuPlacement } from "./popover-placement.js";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
 import { getProjectCover } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
+import { language, t } from "./i18n.js";
 
 export interface ProjectCardActions {
   onRename: () => void;
@@ -22,7 +23,7 @@ interface ProjectCardProps {
 }
 
 export function ProjectCard({ project, fallback, onOpen, actions, agentStatus }: ProjectCardProps) {
-  const activityLabel = agentStatus === "cancelling" ? "Stopping" : "Working";
+  const activityLabel = agentStatus === "cancelling" ? t("projectCard.stopping") : t("projectCard.working");
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -64,12 +65,12 @@ export function ProjectCard({ project, fallback, onOpen, actions, agentStatus }:
 
   return (
     <article className="project-card">
-      <button className="project-card-open" type="button" onClick={onOpen} aria-label={`Open ${project.name}`}>
+      <button className="project-card-open" type="button" onClick={onOpen} aria-label={t("projectCard.open", { name: project.name })}>
         <ProjectCover projectId={project.id} fallback={fallback} />
         <span className="project-card-meta">
           <span className="project-card-copy">
             <span className="project-card-name" title={project.name}>{project.name}</span>
-            <span className="project-card-details" title={`${projectTypeLabel(project.type)} · ${agentStatus ? `Agent ${activityLabel}` : projectTimestamp(project.updatedAt) ?? projectTime(project.updatedAt)}`}>
+            <span className="project-card-details" title={`${projectTypeLabel(project.type)} · ${agentStatus ? t("projectCard.agentStatus", { status: activityLabel }) : projectTimestamp(project.updatedAt) ?? projectTime(project.updatedAt)}`}>
               <ProjectTypeIcon type={project.type} size={12} />
               <span>{projectTypeLabel(project.type)}</span>
               <i aria-hidden="true">·</i>
@@ -87,7 +88,7 @@ export function ProjectCard({ project, fallback, onOpen, actions, agentStatus }:
             ref={trigger}
             className="project-card-menu"
             type="button"
-            aria-label={`Project actions for ${project.name}`}
+            aria-label={t("projectCard.actions", { name: project.name })}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((current) => !current)}
@@ -102,11 +103,11 @@ export function ProjectCard({ project, fallback, onOpen, actions, agentStatus }:
               role="menu"
               style={menuPosition ?? { top: 0, left: 0, visibility: "hidden" }}
             >
-              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onRename(); }}>Rename</button>
-              {actions.onDesign ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDesign?.(); }}>Game design</button> : null}
-              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDuplicate(); }}>Duplicate</button>
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onRename(); }}>{t("common.rename")}</button>
+              {actions.onDesign ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDesign?.(); }}>{t("projectCard.gameDesign")}</button> : null}
+              <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDuplicate(); }}>{t("common.duplicate")}</button>
               <button className="project-card-actions-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDelete(); }}>
-                {project.workspaceLocation === "external" ? "Remove from OhMyGame" : "Delete"}
+                {project.workspaceLocation === "external" ? t("projectCard.remove") : t("common.delete")}
               </button>
             </div>,
             document.body,
@@ -144,25 +145,27 @@ export function ProjectCover({ projectId, fallback }: { projectId: string; fallb
 export function projectTime(value: string, now = new Date()): string {
   const updatedAt = new Date(value);
   const elapsed = now.getTime() - updatedAt.getTime();
-  if (!Number.isFinite(elapsed) || elapsed < 60_000) return "Edited just now";
+  if (!Number.isFinite(elapsed) || elapsed < 60_000) return t("projectCard.editedJustNow");
   const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 60) return `Edited ${minutes}m ago`;
+  if (minutes < 60) return t("projectCard.editedMinutes", { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Edited ${hours}h ago`;
+  if (hours < 24) return t("projectCard.editedHours", { count: hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) return `Edited ${days}d ago`;
+  if (days < 7) return t("projectCard.editedDays", { count: days });
   const includeYear = updatedAt.getFullYear() !== now.getFullYear();
-  return `Edited ${updatedAt.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    ...(includeYear ? { year: "numeric" } : {}),
-  })}`;
+  return t("projectCard.editedOn", {
+    date: updatedAt.toLocaleDateString(language, {
+      month: "short",
+      day: "numeric",
+      ...(includeYear ? { year: "numeric" } : {}),
+    }),
+  });
 }
 
 function projectTimestamp(value: string): string | undefined {
   const updatedAt = new Date(value);
   if (!Number.isFinite(updatedAt.getTime())) return undefined;
-  return updatedAt.toLocaleString("en-US", {
+  return updatedAt.toLocaleString(language, {
     month: "short",
     day: "numeric",
     year: "numeric",

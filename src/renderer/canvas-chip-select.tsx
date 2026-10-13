@@ -2,6 +2,7 @@ import { Check, ChevronDown, Search, Settings, type IconComponent } from "./icon
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { menuPlacement } from "./popover-placement.js";
+import { t } from "./i18n.js";
 
 export interface CanvasChipOption<Value extends string> {
   value: Value;
@@ -47,7 +48,7 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const current = options.find((option) => option.value === value);
-  const text = current?.shortLabel ?? current?.label ?? placeholder ?? "Select";
+  const text = current?.shortLabel ?? current?.label ?? placeholder ?? t("chipSelect.select");
   const searchable = options.length > SEARCH_THRESHOLD;
   const ActionIcon = action?.icon ?? Settings;
   const OptionActionIcon = optionAction?.icon;
@@ -148,8 +149,8 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
           <input
             ref={search}
             value={query}
-            placeholder={`Search ${label.toLowerCase()}s`}
-            aria-label={`Search ${label.toLowerCase()}s`}
+            placeholder={t("chipSelect.search", { label })}
+            aria-label={t("chipSelect.search", { label })}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== "Enter") return;
@@ -181,8 +182,8 @@ export function CanvasChipSelect<Value extends string>({ label, value, options, 
               {group.notes.map((note) => <p className="canvas-chip-menu-note" key={note}>{note}</p>)}
             </div>
           ))}
-          {normalizedQuery && visible.length === 0 ? <p className="canvas-chip-menu-note">No matches</p> : null}
-          {!normalizedQuery && options.length === 0 && notes.length === 0 ? <p className="canvas-chip-menu-note">{placeholder ?? "Nothing to choose"}</p> : null}
+          {normalizedQuery && visible.length === 0 ? <p className="canvas-chip-menu-note">{t("chipSelect.noMatches")}</p> : null}
+          {!normalizedQuery && options.length === 0 && notes.length === 0 ? <p className="canvas-chip-menu-note">{placeholder ?? t("chipSelect.nothing")}</p> : null}
         </div>
         {action ? <button
           type="button"

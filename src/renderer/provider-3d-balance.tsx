@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { Model3DBalance, Model3DModelRef } from "../shared/contracts.js";
 import { model3DBalance, MODELS_CHANGED_EVENT } from "./api.js";
 import { RefreshCw } from "./icons.js";
+import { language, t } from "./i18n.js";
 
-const credits = (value: number) => value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+const credits = (value: number) => value.toLocaleString(language, { maximumFractionDigits: 3 });
 
-export function Provider3DBalance({ model, label = "API balance" }: { model: Model3DModelRef; label?: string }) {
+export function Provider3DBalance({ model, label = t("balance.title") }: { model: Model3DModelRef; label?: string }) {
   const { provider, id } = model;
   const key = JSON.stringify([provider, id]);
   const [state, setState] = useState<{ key: string; value?: Model3DBalance; loading: boolean; error?: boolean }>();
@@ -37,14 +38,14 @@ export function Provider3DBalance({ model, label = "API balance" }: { model: Mod
   return <section className="settings-detail-section provider-models" aria-label={label}>
     <div className="provider-models-heading">
       <h4>{label}</h4>
-      <button type="button" className="icon-button settings-provider-setting-edit" aria-label="Refresh API balance" data-tooltip="Refresh balance" disabled={loading} onClick={() => refreshRef.current()}>
+      <button type="button" className="icon-button settings-provider-setting-edit" aria-label={t("balance.refreshLabel")} data-tooltip={t("balance.refresh")} disabled={loading} onClick={() => refreshRef.current()}>
         <RefreshCw size={15} className={loading ? "spin" : undefined} aria-hidden="true" />
       </button>
     </div>
     <div className="cloud-quota-details" role="status" aria-live="polite" aria-busy={loading}>
-      <div className="cloud-quota-row-heading"><span>Available credits</span><span>{current?.value ? `${credits(current.value.balance)} credits` : loading ? "Loading…" : "Unavailable"}</span></div>
-      {current?.value?.frozen ? <p className="cloud-quota-note">{credits(current.value.frozen)} credits frozen</p> : null}
-      {current?.error ? <p className="cloud-quota-note">Balance unavailable. Refresh to try again.</p> : null}
+      <div className="cloud-quota-row-heading"><span>{t("balance.available")}</span><span>{current?.value ? t("balance.credits", { amount: credits(current.value.balance) }) : loading ? t("common.loading") : t("quota.unavailable")}</span></div>
+      {current?.value?.frozen ? <p className="cloud-quota-note">{t("balance.frozen", { amount: credits(current.value.frozen) })}</p> : null}
+      {current?.error ? <p className="cloud-quota-note">{t("balance.error")}</p> : null}
     </div>
   </section>;
 }

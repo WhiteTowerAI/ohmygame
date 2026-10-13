@@ -4,6 +4,7 @@ import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
 import type { PlaytestStart } from "./playable-node-workbench.js";
+import { t } from "./i18n.js";
 
 export type { PlaytestStart };
 
@@ -104,14 +105,14 @@ export function PlaytestOverlay({ graph, record, diagnostics, onRestart, onForge
 
   return <>
     <div className="playable-playtest-corner">
-      <button type="button" title="Forget which Scenes were seen, so the Story map starts over" aria-label="Forget seen Scenes" onClick={onForgetSeen}><History size={13} /></button>
-      <button type="button" title="Replay from the start with a new game" aria-label="Replay" onClick={onRestart}><RotateCcw size={13} /></button>
+      <button type="button" title={t("playtest.forgetTitle")} aria-label={t("playtest.forget")} onClick={onForgetSeen}><History size={13} /></button>
+      <button type="button" title={t("playtest.replayTitle")} aria-label={t("sceneWorkbench.replay")} onClick={onRestart}><RotateCcw size={13} /></button>
     </div>
     {shown ? <aside className="playable-playtest-problem" role="alert">
       <InfoCircle size={13} />
-      <span>{sent ? "Added to the chat in the editor" : "Something broke"}</span>
-      {onAskAgent && !sent ? <button type="button" className="is-primary" onClick={() => { onAskAgent(askToFixPlaytest(graph, record, errors)); setSent(true); }}><Sparkles size={11} /><span>Ask AI to fix</span></button> : null}
-      <button type="button" aria-label="Dismiss" title="Dismiss" onClick={() => setDismissed(errors.length)}><X size={11} /></button>
+      <span>{sent ? t("playtest.addedToChat") : t("playtest.broke")}</span>
+      {onAskAgent && !sent ? <button type="button" className="is-primary" onClick={() => { onAskAgent(askToFixPlaytest(graph, record, errors)); setSent(true); }}><Sparkles size={11} /><span>{t("playtest.askFix")}</span></button> : null}
+      <button type="button" aria-label={t("notice.dismiss")} title={t("notice.dismiss")} onClick={() => setDismissed(errors.length)}><X size={11} /></button>
     </aside> : null}
   </>;
 }

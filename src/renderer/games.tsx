@@ -11,6 +11,7 @@ import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import { getExploreGame, getExploreGameCover, listExploreGames, waitForRuntime } from "./api.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
+import { language, t } from "./i18n.js";
 
 const RELATED_GAMES_LIMIT = 10;
 
@@ -43,16 +44,16 @@ export function GamesPage({
 
   return (
     <SidebarPageLayout active="community" onNavigate={onNavigate}>
-      <SidebarPageHeader title="Community" actions={(
-        <button className="projects-icon-button" type="button" onClick={() => void load()} disabled={phase === "loading"} title="Refresh" aria-label="Refresh">
+      <SidebarPageHeader title={t("community.title")} actions={(
+        <button className="projects-icon-button" type="button" onClick={() => void load()} disabled={phase === "loading"} title={t("common.refresh")} aria-label={t("common.refresh")}>
           <RefreshCw className={phase === "loading" ? "spin" : undefined} size={15} />
         </button>
       )} />
 
       <section className="explore-content">
-        {phase === "loading" ? <div className="explore-state"><LoaderCircle className="spin" size={20} />Loading games</div> : null}
+        {phase === "loading" ? <div className="explore-state"><LoaderCircle className="spin" size={20} />{t("community.loading")}</div> : null}
         {phase === "error" ? <div className="explore-state explore-error"><X size={20} />{error}</div> : null}
-        {phase === "ready" && games.length === 0 ? <div className="explore-state">No published games yet</div> : null}
+        {phase === "ready" && games.length === 0 ? <div className="explore-state">{t("community.none")}</div> : null}
         {phase === "ready" && games.length > 0 ? (
           <GameMosaic games={games.slice(0, HOME_GAME_MOSAIC_SLOTS.length)} onOhMyGame={onOhMyGame} />
         ) : null}
@@ -104,7 +105,7 @@ function GameTile({ className = "", game, onOpen, slot, useFixedSlot = false }: 
       {coverUrl
         ? <img className="explore-game-cover" src={coverUrl} alt="" />
         : <span className="explore-game-cover-placeholder" aria-hidden="true"><img src={brandMark} alt="" /></span>}
-      <button type="button" onClick={onOpen} aria-label={`Play ${game.title}`}>
+      <button type="button" onClick={onOpen} aria-label={t("community.play", { title: game.title })}>
         <span className="explore-game-overlay">
           <span className="explore-game-overlay-copy">
             <strong>{game.title}</strong>
@@ -185,14 +186,14 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
 
   return (
     <SidebarPageLayout active="community" onNavigate={onNavigate}>
-      <SidebarPageHeader title={game?.title ?? "Game"} breadcrumb={{ label: "Games", onClick: onBack }} />
+      <SidebarPageHeader title={game?.title ?? t("community.game")} breadcrumb={{ label: t("community.games"), onClick: onBack }} />
       <section className="game-detail-scroll">
-        {!game && !error ? <div className="explore-state"><LoaderCircle className="spin" size={20} />Loading game</div> : null}
+        {!game && !error ? <div className="explore-state"><LoaderCircle className="spin" size={20} />{t("community.loadingGame")}</div> : null}
         {error ? (
           <div className="explore-state explore-error">
             <X size={20} />
             <span>{error}</span>
-            <button className="quiet-button" type="button" onClick={() => void load()}>Retry</button>
+            <button className="quiet-button" type="button" onClick={() => void load()}>{t("common.retry")}</button>
           </div>
         ) : null}
         {game ? <GameDetail key={game.id} game={game} relatedGames={relatedGames} onOhMyGame={onOhMyGame} /> : null}
@@ -236,8 +237,8 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
             </div>
           </div>
           <div className="electron-game-toolbar-actions">
-            <button type="button" onClick={() => setSharing(true)} title="Share game" aria-label="Share game" aria-haspopup="dialog"><Share2 size={17} /></button>
-            <button type="button" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen"><Maximize size={17} /></button>
+            <button type="button" onClick={() => setSharing(true)} title={t("community.share")} aria-label={t("community.share")} aria-haspopup="dialog"><Share2 size={17} /></button>
+            <button type="button" onClick={() => void toggleFullscreen()} title={t("common.fullscreen")} aria-label={t("common.fullscreen")}><Maximize size={17} /></button>
           </div>
         </div>
       </div>
@@ -245,8 +246,8 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
       {sharing ? <GameShareDialog game={game} onClose={() => setSharing(false)} /> : null}
 
       {relatedGames.length ? (
-        <section className="electron-game-related" aria-label="More games">
-          <h2>More games</h2>
+        <section className="electron-game-related" aria-label={t("community.moreGames")}>
+          <h2>{t("community.moreGames")}</h2>
           <div className="electron-game-related-grid">
             {relatedGames.map((relatedGame) => (
               <GameTile
@@ -294,7 +295,7 @@ function GameShareDialog({ game, onClose }: { game: CommunityGame; onClose: () =
       await navigator.clipboard.writeText(game.playUrl);
       setCopied(true);
     } catch {
-      setError("Could not copy automatically. Select the link and copy it.");
+      setError(t("community.copyFailed"));
       linkRef.current?.focus();
       linkRef.current?.select();
     } finally {
@@ -310,7 +311,7 @@ function GameShareDialog({ game, onClose }: { game: CommunityGame; onClose: () =
       onClose();
     } catch (cause) {
       if (!(cause instanceof DOMException && cause.name === "AbortError")) {
-        setError("Sharing is unavailable. Copy the game link instead.");
+        setError(t("community.shareUnavailable"));
       }
     } finally {
       setBusy(false);
@@ -335,24 +336,24 @@ function GameShareDialog({ game, onClose }: { game: CommunityGame; onClose: () =
     <dialog ref={dialogRef} className="game-share-dialog" aria-labelledby={titleId} onKeyDown={handleKeyDown} onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div className="game-share-content">
         <header>
-          <div><h2 id={titleId}>Share game</h2><p>{game.title}</p></div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close share dialog"><X size={17} /></button>
+          <div><h2 id={titleId}>{t("community.share")}</h2><p>{game.title}</p></div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label={t("community.closeShare")}><X size={17} /></button>
         </header>
-        <label htmlFor={linkId}>Game link</label>
+        <label htmlFor={linkId}>{t("community.link")}</label>
         <div className="game-share-link">
           <input ref={linkRef} id={linkId} readOnly value={game.playUrl} onFocus={(event) => event.currentTarget.select()} />
           <button className="game-share-copy" type="button" onClick={() => void copyLink()} disabled={busy}>
             {busy ? <LoaderCircle className="spin" size={15} /> : copied ? <Check size={15} /> : <Copy size={15} />}
-            {copied ? "Copied" : "Copy link"}
+            {copied ? t("common.copied") : t("community.copyLink")}
           </button>
         </div>
         {error ? <p className="game-share-error" role="alert">{error}</p> : null}
-        {canShare ? <button className="game-share-native" type="button" onClick={() => void shareGame()} disabled={busy}><Share2 size={15} />More sharing options</button> : null}
+        {canShare ? <button className="game-share-native" type="button" onClick={() => void shareGame()} disabled={busy}><Share2 size={15} />{t("community.moreSharing")}</button> : null}
       </div>
     </dialog>
   );
 }
 
 function publishedDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
+  return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(value));
 }

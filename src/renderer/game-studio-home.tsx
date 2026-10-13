@@ -32,6 +32,7 @@ import {
   type GameStudioType,
 } from "./studios.js";
 import "./studios.css";
+import { t } from "./i18n.js";
 
 interface GameStudioHomeProps {
   projectType: GameStudioType;
@@ -134,7 +135,7 @@ export function GameStudioHome({
           aria-labelledby="studio-projects-heading"
         >
           <div className="studio-section-heading">
-            <h2 id="studio-projects-heading">Recent projects</h2>
+            <h2 id="studio-projects-heading">{t("projects.recent")}</h2>
             {phase === "error" ? (
               <button
                 className="studio-text-link"
@@ -142,16 +143,16 @@ export function GameStudioHome({
                 onClick={() => void load()}
               >
                 <RefreshCw size={13} />
-                Retry
+                {t("common.retry")}
               </button>
             ) : (
               <a className="studio-text-link" href={projectsHash(projectType)}>
-                View all
+                {t("common.viewAll")}
               </a>
             )}
           </div>
           {phase === "loading" ? (
-            <div className="studio-project-grid" aria-label="Loading projects">
+            <div className="studio-project-grid" aria-label={t("projects.loading")}>
               {Array.from({ length: recentProjectLimit }, (_, index) => (
                 <div className="studio-project-skeleton" key={index} />
               ))}
@@ -163,7 +164,7 @@ export function GameStudioHome({
             </p>
           ) : null}
           {phase === "ready" && !projects.length ? (
-            <p className="home-project-state">No projects yet</p>
+            <p className="home-project-state">{t("projects.none")}</p>
           ) : null}
           {phase === "ready" && projects.length > 0 ? (
             <div className="studio-project-grid">
@@ -203,7 +204,7 @@ export function GameStudioHome({
             aria-labelledby="studio-examples-heading"
           >
             <div className="studio-section-heading">
-              <h2 id="studio-examples-heading">Examples</h2>
+              <h2 id="studio-examples-heading">{t("studio.examples")}</h2>
             </div>
             <ExampleShelf
               examples={studioExamples}

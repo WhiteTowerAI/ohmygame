@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useRuntimeConnection } from "./runtime-connection.js";
+import { t } from "./i18n.js";
 
 export function RuntimeNotice() {
   const state = useRuntimeConnection();
@@ -22,17 +23,17 @@ export function RuntimeNotice() {
       <div>
         <strong>
           {recovering
-            ? "Reconnecting to the background service…"
-            : "The background service stopped"}
+            ? t("runtimeNotice.reconnecting")
+            : t("runtimeNotice.stopped")}
         </strong>
         <p>
           {recovering
-            ? "Your current view and unsent message are kept open."
-            : "You can restart the service and continue from this view."}
+            ? t("runtimeNotice.kept")
+            : t("runtimeNotice.restartHint")}
         </p>
         {state.error || error ? (
           <details>
-            <summary>Error details</summary>
+            <summary>{t("common.errorDetails")}</summary>
             <pre>{error ?? state.error}</pre>
           </details>
         ) : null}
@@ -53,7 +54,7 @@ export function RuntimeNotice() {
               .finally(() => setPending(false));
           }}
         >
-          Restart service
+          {t("runtimeNotice.restart")}
         </button>
       ) : null}
     </aside>

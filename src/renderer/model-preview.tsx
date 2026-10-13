@@ -1,5 +1,6 @@
 import { LoaderCircle } from "./icons.js";
 import { createElement, useEffect, useRef, useState } from "react";
+import { t } from "./i18n.js";
 
 type ModelViewerElement = HTMLElement & { loaded?: boolean; availableAnimations?: string[] };
 
@@ -60,8 +61,8 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       console.error("3D preview failed", detail?.sourceError);
       const type = detail?.type;
       setModelError(type === "webglcontextlost"
-        ? "The 3D preview lost its graphics context"
-        : "Could not display this 3D model");
+        ? t("modelPreview.contextLost")
+        : t("modelPreview.displayFailed"));
     };
 
     viewer.addEventListener("load", handleLoad);
@@ -79,7 +80,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
   if (!componentReady) {
     return <span className={`model-preview-standalone${componentError ? " model-preview-error" : ""}`} role={componentError ? "alert" : undefined}>
       {!componentError ? <LoaderCircle className="spin" size={16} /> : null}
-      {componentError ? "Could not load the 3D viewer" : "Loading 3D viewer"}
+      {componentError ? t("modelPreview.viewerFailed") : t("modelPreview.loadingViewer")}
     </span>;
   }
 
@@ -103,7 +104,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
       {!loaded && !modelError ? (
         <span className="model-preview-state">
           <LoaderCircle className="spin" size={16} />
-          {progress > 0 ? `Loading 3D model ${Math.round(progress * 100)}%` : "Loading 3D model"}
+          {progress > 0 ? t("modelPreview.loadingProgress", { percent: Math.round(progress * 100) }) : t("modelPreview.loading")}
         </span>
       ) : null}
       {modelError ? <span className="model-preview-state model-preview-error" role="alert">{modelError}</span> : null}
@@ -111,7 +112,7 @@ export function ModelPreview({ source, label, minHeight = 320, interactive = tru
         // nodrag/nowheel keep canvas nodes from treating the picker as a drag or zoom.
         <select
           className="model-preview-clips nodrag nowheel"
-          aria-label="Animation clip"
+          aria-label={t("modelPreview.clip")}
           value={clip ?? clips[0]}
           onChange={(event) => setClip(event.target.value)}
         >

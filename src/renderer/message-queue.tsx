@@ -1,5 +1,6 @@
 import { CornerDownRight, Pencil, Trash2 } from "./icons.js";
 import type { PendingPrompt } from "../shared/contracts.js";
+import { t } from "./i18n.js";
 
 interface MessageQueueProps {
   items: PendingPrompt[];
@@ -13,7 +14,7 @@ export function MessageQueue({ items, disabled, onRemove, onSteer, onEdit }: Mes
   if (items.length === 0) return null;
 
   return (
-    <div className="message-queue" aria-label="Queued messages">
+    <div className="message-queue" aria-label={t("queue.label")}>
       {items.map((item) => (
         <QueueRow key={item.turnId} item={item} disabled={disabled} onEdit={onEdit} onSteer={onSteer} onRemove={onRemove} />
       ))}
@@ -40,16 +41,16 @@ function QueueRow({ item, disabled, onEdit, onSteer, onRemove }: {
           type="button"
           disabled={disabled || !canEdit}
           onClick={() => onEdit(item)}
-          title={canEdit ? "Edit queued message" : "Remove and resend messages with attachments"}
-          aria-label="Edit queued message"
+          title={canEdit ? t("queue.editTitle") : t("queue.editAttachments")}
+          aria-label={t("queue.editTitle")}
         >
           <Pencil size={12} />
         </button>
-        <button type="button" disabled={disabled} onClick={() => onSteer(item.turnId)} title="Steer current run">
+        <button type="button" disabled={disabled} onClick={() => onSteer(item.turnId)} title={t("queue.steerTitle")}>
           <CornerDownRight size={12} />
-          <span>Steer</span>
+          <span>{t("queue.steer")}</span>
         </button>
-        <button type="button" disabled={disabled} onClick={() => onRemove(item.turnId)} title="Remove queued message" aria-label="Remove queued message">
+        <button type="button" disabled={disabled} onClick={() => onRemove(item.turnId)} title={t("queue.remove")} aria-label={t("queue.remove")}>
           <Trash2 size={12} />
         </button>
       </div>

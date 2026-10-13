@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type Ref, type UIEventHandler } from "react";
 import { House, PanelToggle, type IconComponent } from "./icons.js";
 import type { ChatLayout } from "./chat-layout.js";
+import { t } from "./i18n.js";
 
 const DEFAULT_AGENT_WIDTH = 430;
 const MIN_AGENT_WIDTH = 320;
 const AGENT_WIDTH_STORAGE_KEY = "ohmygame-agent-width";
 
 /** Shared chrome and layout for game and plugin workspaces. */
-export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = false, onHome, onExpandAgent, homeLabel = "Home", homeIcon = House, className = "", agent, children }: {
+export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = false, onHome, onExpandAgent, homeLabel = t("sidebar.home"), homeIcon = House, className = "", agent, children }: {
   chatLayout: ChatLayout;
   agentCollapsed: boolean;
   viewerCollapsed?: boolean;
@@ -84,12 +85,12 @@ export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = f
   return <main ref={shell} className={`workspace-shell workspace-shell-chat-${chatLayout}${agentCollapsed ? " workspace-shell-agent-collapsed" : ""}${viewerCollapsed ? " workspace-shell-viewer-collapsed" : ""}${resizingAgent ? " workspace-shell-resizing" : ""} ${className}`}
     style={{ "--agent-width": `${agentWidth}px` } as CSSProperties}>
     {resizingAgent ? <div className="workspace-resize-shield" /> : null}
-    {chatLayout === "left" ? <div className="workspace-navigation-actions" role="toolbar" aria-label="Workspace navigation">
+    {chatLayout === "left" ? <div className="workspace-navigation-actions" role="toolbar" aria-label={t("workspace.navigation")}>
       <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={homeIcon} />
-      {agentCollapsed ? <button className="icon-button" type="button" onClick={onExpandAgent} title="Show agent" aria-label="Show agent"><PanelToggle size={15} /></button> : null}
+      {agentCollapsed ? <button className="icon-button" type="button" onClick={onExpandAgent} title={t("workspace.showAgent")} aria-label={t("workspace.showAgent")}><PanelToggle size={15} /></button> : null}
     </div> : null}
     {agent}
-    <div className="workspace-resizer" role="separator" aria-label="Resize agent panel" aria-orientation="vertical"
+    <div className="workspace-resizer" role="separator" aria-label={t("workspace.resizeAgent")} aria-orientation="vertical"
       aria-valuemin={MIN_AGENT_WIDTH} aria-valuemax={maximumAgentWidth} aria-valuenow={agentWidth}
       aria-hidden={collapsed || undefined} tabIndex={collapsed ? -1 : 0}
       onDoubleClick={resetWidth} onKeyDown={resizeWithKeyboard}
@@ -107,11 +108,11 @@ export function WorkspaceShell({ chatLayout, agentCollapsed, viewerCollapsed = f
   </main>;
 }
 
-export function WorkspaceBackButton({ onClick, label = "Home", icon: Icon = House }: { onClick: () => void; label?: string; icon?: IconComponent }) {
+export function WorkspaceBackButton({ onClick, label = t("sidebar.home"), icon: Icon = House }: { onClick: () => void; label?: string; icon?: IconComponent }) {
   return <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onClick} title={label} aria-label={label}><Icon size={14} /></button>;
 }
 
-export function WorkspaceAgentPane({ label = "Agent", title, actions, bodyRef, onScroll, children }: {
+export function WorkspaceAgentPane({ label = t("workspace.agent"), title, actions, bodyRef, onScroll, children }: {
   label?: string;
   title?: ReactNode;
   actions: ReactNode;

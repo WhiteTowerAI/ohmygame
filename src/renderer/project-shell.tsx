@@ -68,6 +68,7 @@ import { usePlaytestAskRequests } from "./playable-playtest.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { WorkspaceShell, WorkspaceAgentPane } from "./workspace-shell.js";
+import { t } from "./i18n.js";
 
 interface ProjectShellProps {
   projectId: string;
@@ -208,7 +209,7 @@ export function ProjectShell({
         const [project, availableConversations] = await Promise.all([getProject(projectId), listConversations(projectId)]);
         if (disposed) return;
         if (project.workspaceAvailable === false) {
-          dispatch({ type: "fatal", message: "The selected workspace folder is no longer available." });
+          dispatch({ type: "fatal", message: t("projectShell.folderMissing") });
           return;
         }
         setConversations(availableConversations);
@@ -344,7 +345,7 @@ export function ProjectShell({
   }, [auth.state.status, state.phase, state.project?.id, state.project?.type, state.agent.status, sendingInitialPrompt, publishing]);
 
   if (state.phase === "fatal") {
-    return <FatalState message={state.notice ?? "Could not reach the local runtime."} onHome={onHome} />;
+    return <FatalState message={state.notice ?? t("projectShell.runtimeUnreachable")} onHome={onHome} />;
   }
 
   const project = state.project;
@@ -667,8 +668,8 @@ export function ProjectShell({
               type="button"
               disabled={!project || creatingConversation}
               onClick={() => void newConversation()}
-              title="New conversation"
-              aria-label="New conversation"
+              title={t("projectShell.newConversation")}
+              aria-label={t("projectShell.newConversation")}
             >
               {creatingConversation ? <LoaderCircle className="spin" size={14} /> : <MessageSquarePlus size={14} />}
             </button>
@@ -685,8 +686,8 @@ export function ProjectShell({
                 className="icon-button pane-header-action"
                 type="button"
                 onClick={() => setGodotWorkspaceVisibility(true)}
-                title="Show workspace"
-                aria-label="Show workspace"
+                title={t("projectShell.showWorkspace")}
+                aria-label={t("projectShell.showWorkspace")}
               >
                 <PanelToggle size={14} />
               </button>
@@ -695,8 +696,8 @@ export function ProjectShell({
                 className="icon-button pane-header-action"
                 type="button"
                 onClick={() => setAgentCollapsed(true)}
-                title="Hide agent"
-                aria-label="Hide agent"
+                title={t("projectShell.hideAgent")}
+                aria-label={t("projectShell.hideAgent")}
               >
                 <PanelToggle size={14} />
               </button>
@@ -705,7 +706,7 @@ export function ProjectShell({
           <div className="timeline" aria-live="polite">
             {state.phase === "loading" ? <TimelineSkeleton /> : null}
             <Activity mode={agentIsCollapsed ? "hidden" : "visible"}>
-              <ErrorBoundary label="Conversation" resetKey={conversation?.id}>
+              <ErrorBoundary label={t("errorBoundary.label.conversation")} resetKey={conversation?.id}>
               <AgentTimeline
                 turns={state.turns}
                 projectId={projectId}
@@ -740,11 +741,11 @@ export function ProjectShell({
           ) : null}
 
           {initialPrompt && initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current ? <div className="paused-initial-prompt" role="status">
-            <p>Your initial message was paused while the service restarted.</p>
-            <details><summary>Review message</summary><pre>{initialPrompt.prompt}</pre>
-              {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0)} attachments retained</p> : null}
+            <p>{t("projectShell.promptPaused")}</p>
+            <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
+              {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
             </details>
-            <button type="button" disabled={runtime.status !== "ready" || state.connection !== "open" || !conversation || conversation.id !== conversationId} onClick={sendInitialPrompt}>Send original message</button>
+            <button type="button" disabled={runtime.status !== "ready" || state.connection !== "open" || !conversation || conversation.id !== conversationId} onClick={sendInitialPrompt}>{t("projectShell.sendOriginal")}</button>
           </div> : null}
           {!questionnaire && state.plan.mode !== "awaiting_approval" ? <Composer
             key={conversation?.id}
@@ -757,7 +758,7 @@ export function ProjectShell({
             pendingPrompts={state.pendingPrompts}
             plan={activePlan}
             planMode={state.plan.mode}
-            notice={state.connection === "reconnecting" ? "Connection lost. Reconnecting..." : state.notice}
+            notice={state.connection === "reconnecting" ? t("projectShell.reconnecting") : state.notice}
             models={modelCatalog.models}
             modelStatus={modelCatalog.status}
             model={effectiveModel}
@@ -793,7 +794,7 @@ export function ProjectShell({
           /> : null}
       </WorkspaceAgentPane>}
     >
-      <ErrorBoundary label="Workspace" resetKey={project?.id} onHome={onHome}>
+      <ErrorBoundary label={t("errorBoundary.label.workspace")} resetKey={project?.id} onHome={onHome}>
       {!project ? <section className="viewer-pane" /> : project.type !== "interactive-story" && project.type !== "asset-canvas" ? (
         <CodingWorkspace
           project={project}
@@ -865,7 +866,7 @@ export function ProjectShell({
 
 function TimelineSkeleton() {
   return (
-    <div className="timeline-skeleton" aria-label="Loading project">
+    <div className="timeline-skeleton" aria-label={t("projectShell.loading")}>
       <span />
       <span />
       <span />
@@ -877,11 +878,11 @@ function FatalState({ message, onHome }: { message: string; onHome: () => void }
   return (
     <main className="fatal-state">
       <X size={24} />
-      <h1>Workspace unavailable</h1>
+      <h1>{t("projectShell.unavailable")}</h1>
       <p>{message}</p>
       <div className="fatal-actions">
-        <button type="button" onClick={onHome}><ArrowLeft size={15} />Home</button>
-        <button type="button" onClick={() => window.location.reload()}><RefreshCw size={15} />Reload</button>
+        <button type="button" onClick={onHome}><ArrowLeft size={15} />{t("sidebar.home")}</button>
+        <button type="button" onClick={() => window.location.reload()}><RefreshCw size={15} />{t("common.reload")}</button>
       </div>
     </main>
   );

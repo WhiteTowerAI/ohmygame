@@ -4,6 +4,7 @@ import { SlidersHorizontal, X } from "./icons.js";
 import { libraryAssetProjects, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
 import { menuPlacement } from "./popover-placement.js";
 import type { ProjectAssetFilters, BrowsableAsset } from "./asset-browser.js";
+import { t } from "./i18n.js";
 
 export function LibraryCollectionFilters({ assets, filters, onChange, defaultIncludeReferences = false }: {
   assets: readonly LibraryAsset[];
@@ -14,19 +15,19 @@ export function LibraryCollectionFilters({ assets, filters, onChange, defaultInc
   const projects = libraryAssetProjects(assets);
   const active = (filters.origin ?? "saved") !== "saved" || Boolean(filters.projectId) || (filters.includeReferences ?? false) !== defaultIncludeReferences;
   return <AssetFilterPopover active={active} onReset={() => onChange({ includeReferences: defaultIncludeReferences })}>
-    <label>Source<select value={filters.origin ?? "saved"} onChange={(event) => onChange({ ...filters, origin: event.target.value as LibraryAssetFilters["origin"] })}>
-      <option value="saved">Library</option>
-      <option value="generated">Generated</option>
-      <option value="uploaded">Uploaded</option>
-      <option value="workspace">From projects</option>
-      <option value="all">All sources</option>
+    <label>{t("libraryFilters.source")}<select value={filters.origin ?? "saved"} onChange={(event) => onChange({ ...filters, origin: event.target.value as LibraryAssetFilters["origin"] })}>
+      <option value="saved">{t("libraryFilters.saved")}</option>
+      <option value="generated">{t("libraryFilters.generated")}</option>
+      <option value="uploaded">{t("libraryFilters.uploaded")}</option>
+      <option value="workspace">{t("libraryFilters.fromProjects")}</option>
+      <option value="all">{t("libraryFilters.allSources")}</option>
     </select></label>
-    <label>Project<select value={filters.projectId ?? ""} onChange={(event) => onChange({ ...filters, projectId: event.target.value })}>
-      <option value="">All projects</option>
-      <option value="unassigned">No project</option>
+    <label>{t("libraryFilters.project")}<select value={filters.projectId ?? ""} onChange={(event) => onChange({ ...filters, projectId: event.target.value })}>
+      <option value="">{t("libraryFilters.allProjects")}</option>
+      <option value="unassigned">{t("libraryFilters.noProject")}</option>
       {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
     </select></label>
-    <label className="library-reference-toggle"><input type="checkbox" checked={filters.includeReferences ?? false} onChange={(event) => onChange({ ...filters, includeReferences: event.target.checked })} /><span>Include references</span></label>
+    <label className="library-reference-toggle"><input type="checkbox" checked={filters.includeReferences ?? false} onChange={(event) => onChange({ ...filters, includeReferences: event.target.checked })} /><span>{t("libraryFilters.includeReferences")}</span></label>
   </AssetFilterPopover>;
 }
 
@@ -37,17 +38,17 @@ export function ProjectAssetCollectionFilters({ assets, filters, onChange }: {
 }) {
   const active = (filters.origin ?? "all") !== "all" || (filters.purpose ?? "all") !== "all";
   return <AssetFilterPopover active={active} onReset={() => onChange({})}>
-    <label>Source<select value={filters.origin ?? "all"} onChange={(event) => onChange({ ...filters, origin: event.target.value as ProjectAssetFilters["origin"] })}>
-      <option value="all">All sources</option>
-      <option value="generated">Generated</option>
-      <option value="uploaded">Uploaded</option>
-      <option value="workspace">Project files</option>
-      {assets.some((asset) => asset.origin === "builtin") ? <option value="builtin">Built-in</option> : null}
+    <label>{t("libraryFilters.source")}<select value={filters.origin ?? "all"} onChange={(event) => onChange({ ...filters, origin: event.target.value as ProjectAssetFilters["origin"] })}>
+      <option value="all">{t("libraryFilters.allSources")}</option>
+      <option value="generated">{t("libraryFilters.generated")}</option>
+      <option value="uploaded">{t("libraryFilters.uploaded")}</option>
+      <option value="workspace">{t("libraryFilters.projectFiles")}</option>
+      {assets.some((asset) => asset.origin === "builtin") ? <option value="builtin">{t("libraryFilters.builtIn")}</option> : null}
     </select></label>
-    <label>Use<select value={filters.purpose ?? "all"} onChange={(event) => onChange({ ...filters, purpose: event.target.value as ProjectAssetFilters["purpose"] })}>
-      <option value="all">All uses</option>
-      <option value="asset">Assets</option>
-      <option value="reference">References</option>
+    <label>{t("libraryFilters.use")}<select value={filters.purpose ?? "all"} onChange={(event) => onChange({ ...filters, purpose: event.target.value as ProjectAssetFilters["purpose"] })}>
+      <option value="all">{t("libraryFilters.allUses")}</option>
+      <option value="asset">{t("libraryFilters.assets")}</option>
+      <option value="reference">{t("libraryFilters.references")}</option>
     </select></label>
   </AssetFilterPopover>;
 }
@@ -98,13 +99,13 @@ function AssetFilterPopover({ active, onReset, children }: { active: boolean; on
   }, [open]);
 
   return <>
-    <button ref={trigger} className={`library-filter-trigger${active ? " is-active" : ""}`} type="button" title="Filter assets" aria-label="Filter assets" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((value) => !value)}>
+    <button ref={trigger} className={`library-filter-trigger${active ? " is-active" : ""}`} type="button" title={t("libraryFilters.filter")} aria-label={t("libraryFilters.filter")} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((value) => !value)}>
       <SlidersHorizontal size={16} />{active ? <span className="library-filter-dot" /> : null}
     </button>
     {open ? createPortal(<div ref={popup} className="library-filter-popover" role="dialog" aria-labelledby={titleId} style={position ?? { top: 0, left: 0, visibility: "hidden" }}>
-      <header><strong id={titleId}>Filters</strong><button type="button" title="Close filters" aria-label="Close filters" onClick={close}><X size={14} /></button></header>
+      <header><strong id={titleId}>{t("libraryFilters.filters")}</strong><button type="button" title={t("libraryFilters.close")} aria-label={t("libraryFilters.close")} onClick={close}><X size={14} /></button></header>
       {children}
-      {active ? <button className="library-filter-reset" type="button" onClick={onReset}>Reset filters</button> : null}
+      {active ? <button className="library-filter-reset" type="button" onClick={onReset}>{t("libraryFilters.reset")}</button> : null}
     </div>, document.body) : null}
   </>;
 }

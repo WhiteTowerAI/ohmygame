@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useSyncExternalStore, type ReactNod
 import { desktopSave } from "./desktop-save.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { LoaderCircle } from "./icons.js";
+import { t } from "./i18n.js";
 
 export function useDesktopClosing(): boolean {
   return useSyncExternalStore(desktopSave.subscribe, desktopSave.getSnapshot, desktopSave.getSnapshot).closing;
@@ -23,7 +24,7 @@ export function DesktopCloseGuard({ children }: { children: ReactNode }) {
   }, []);
   return <>
     <div className="desktop-close-content" inert={state.closing || undefined}>{children}</div>
-    {state.closing ? <div className="desktop-close-status" role="status"><LoaderCircle size={12} className="spin" />Saving before closing…</div> : state.error ?
-      <CanvasNotice className="desktop-close-notice" message="Could not close. Your workspace is still open." detail={state.error} onDismiss={() => desktopSave.cancel()} /> : null}
+    {state.closing ? <div className="desktop-close-status" role="status"><LoaderCircle size={12} className="spin" />{t("closeGuard.saving")}</div> : state.error ?
+      <CanvasNotice className="desktop-close-notice" message={t("closeGuard.failed")} detail={state.error} onDismiss={() => desktopSave.cancel()} /> : null}
   </>;
 }

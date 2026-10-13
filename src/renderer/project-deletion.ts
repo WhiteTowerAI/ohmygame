@@ -1,8 +1,9 @@
 import type { ProjectState } from "../shared/contracts.js";
+import { t } from "./i18n.js";
 
 export function projectDeletionConfirmation(project: ProjectState): string {
   if (project.workspaceLocation === "external") {
-    return `Remove “${project.name}” from OhMyGame? Files in “${project.workspacePath}” will remain on disk.`;
+    return t("projects.confirmRemove", { name: project.name, path: project.workspacePath });
   }
-  return `Delete “${project.name}”? This cannot be undone.`;
+  return t("projects.confirmDelete", { name: project.name });
 }

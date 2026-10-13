@@ -20,6 +20,7 @@ import type {
 } from "../shared/contracts.js";
 import { inspectProjectPreview, updateProjectRunSettings } from "./api.js";
 import { supportsWebPreview } from "../shared/project-runtime.js";
+import { t } from "./i18n.js";
 
 export function ProjectSettingsDialogFrame({
   children,
@@ -98,12 +99,12 @@ export function ProjectSettingsDialogFrame({
         tabIndex={-1}
       >
         <header>
-          <h2 id={titleId}>Project settings</h2>
+          <h2 id={titleId}>{t("projectSettings.title")}</h2>
           <button
             type="button"
             disabled={busy}
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             <X size={16} />
           </button>
@@ -237,7 +238,7 @@ export function ProjectSettingsDialog({
           ? JSON.parse(previewArguments)
           : undefined;
       } catch {
-        throw new Error("Arguments must be a JSON array of strings.");
+        throw new Error(t("projectSettings.argumentsInvalid"));
       }
     }
     return {
@@ -299,23 +300,23 @@ export function ProjectSettingsDialog({
         className="project-run-settings"
         onSubmit={(event) => void submit(event)}
       >
-        <section className="project-settings-project" aria-label="Project">
-          <span>Project</span>
+        <section className="project-settings-project" aria-label={t("projectSettings.project")}>
+          <span>{t("projectSettings.project")}</span>
           <strong title={project.name}>{project.name}</strong>
         </section>
         <section
           className="project-settings-switches"
-          aria-label="Preview access"
+          aria-label={t("projectSettings.previewAccess")}
         >
           {project.type === "general" ? (
             <div className="project-settings-preview-toggle">
-              <strong>Web preview</strong>
+              <strong>{t("projectSettings.webPreview")}</strong>
               <label className="settings-toggle">
                 <input
                   ref={previewToggle}
                   type="checkbox"
                   role="switch"
-                  aria-label="Web preview"
+                  aria-label={t("projectSettings.webPreview")}
                   checked={webPreviewEnabled}
                   disabled={saving}
                   onChange={(event) =>
@@ -327,13 +328,13 @@ export function ProjectSettingsDialog({
             </div>
           ) : null}
           <div className="project-settings-preview-toggle">
-            <strong>Automatic preview</strong>
+            <strong>{t("projectSettings.automaticPreview")}</strong>
             <label className="settings-toggle">
               <input
                 ref={automaticToggle}
                 type="checkbox"
                 role="switch"
-                aria-label="Automatic preview"
+                aria-label={t("projectSettings.automaticPreview")}
                 checked={previewAutoStart}
                 disabled={saving || !webPreviewEnabled}
                 onChange={(event) => setPreviewAutoStart(event.target.checked)}
@@ -346,14 +347,14 @@ export function ProjectSettingsDialog({
           className="project-settings-group"
           aria-labelledby="preview-startup-heading"
         >
-          <h3 id="preview-startup-heading">Startup configuration</h3>
+          <h3 id="preview-startup-heading">{t("projectSettings.startup")}</h3>
           <fieldset
             className="project-settings-section"
             disabled={saving || !webPreviewEnabled}
           >
             <div className="project-settings-field-row">
               <label>
-                <span>Startup directory</span>
+                <span>{t("projectSettings.startupDirectory")}</span>
                 <input
                   value={startupDirectory}
                   spellCheck={false}
@@ -362,23 +363,23 @@ export function ProjectSettingsDialog({
                 />
               </label>
               <label>
-                <span>Preview mode</span>
+                <span>{t("projectSettings.previewModeField")}</span>
                 <select
                   value={previewMode}
                   onChange={(event) =>
                     setPreviewMode(event.target.value as PreviewMode)
                   }
                 >
-                  <option value="auto">Auto</option>
-                  <option value="script">Package script</option>
-                  <option value="static">Static files</option>
-                  <option value="command">Custom command</option>
+                  <option value="auto">{t("projectSettings.mode.auto")}</option>
+                  <option value="script">{t("projectSettings.mode.script")}</option>
+                  <option value="static">{t("projectSettings.mode.static")}</option>
+                  <option value="command">{t("projectSettings.mode.command")}</option>
                 </select>
               </label>
             </div>
             {previewMode === "command" ? (
               <label>
-                <span>Startup command</span>
+                <span>{t("projectSettings.startupCommand")}</span>
                 <input
                   value={previewCommand}
                   spellCheck={false}
@@ -386,14 +387,14 @@ export function ProjectSettingsDialog({
                   onChange={(event) => setPreviewCommand(event.target.value)}
                 />
                 <small>
-                  Use {"{port}"} and {"{host}"} for the local server address.
+                  {t("projectSettings.portHint")}
                 </small>
               </label>
             ) : null}
             {previewMode === "auto" || previewMode === "script" ? (
               <div className="project-settings-field-row">
                 <label>
-                  <span>Startup script</span>
+                  <span>{t("projectSettings.startupScript")}</span>
                   <input
                     value={startupScript}
                     spellCheck={false}
@@ -401,7 +402,7 @@ export function ProjectSettingsDialog({
                   />
                 </label>
                 <label>
-                  <span>Package manager</span>
+                  <span>{t("projectSettings.packageManager")}</span>
                   <select
                     value={packageManager}
                     onChange={(event) =>
@@ -410,7 +411,7 @@ export function ProjectSettingsDialog({
                       )
                     }
                   >
-                    <option value="auto">Auto</option>
+                    <option value="auto">{t("projectSettings.mode.auto")}</option>
                     <option value="npm">npm</option>
                     <option value="pnpm">pnpm</option>
                     <option value="yarn">yarn</option>
@@ -431,34 +432,34 @@ export function ProjectSettingsDialog({
               <details className="project-settings-fold is-nested">
                 <summary>
                   {previewMode === "command"
-                    ? "Server port"
-                    : "Port & arguments"}
+                    ? t("projectSettings.serverPort")
+                    : t("projectSettings.portArguments")}
                   <ChevronDown size={14} aria-hidden="true" />
                 </summary>
                 <div className="project-settings-section">
                   <label>
-                    <span>Server port</span>
+                    <span>{t("projectSettings.serverPort")}</span>
                     <input
                       type="number"
                       min={1024}
                       max={65535}
                       value={previewPort}
-                      placeholder="Automatic"
+                      placeholder={t("projectSettings.automatic")}
                       onChange={(event) => setPreviewPort(event.target.value)}
                     />
                   </label>
                   {previewMode === "script" || previewMode === "auto" ? (
                     <label>
-                      <span>Script arguments</span>
+                      <span>{t("projectSettings.scriptArguments")}</span>
                       <input
                         value={previewArguments}
                         spellCheck={false}
-                        placeholder='Automatic, or ["--port", "{port}"]'
+                        placeholder={t("projectSettings.argumentsPlaceholder")}
                         onChange={(event) =>
                           setPreviewArguments(event.target.value)
                         }
                       />
-                      <small>JSON array; [] disables extra arguments.</small>
+                      <small>{t("projectSettings.argumentsHint")}</small>
                     </label>
                   ) : null}
                 </div>
@@ -470,14 +471,14 @@ export function ProjectSettingsDialog({
           className="project-settings-group"
           aria-labelledby="preview-playtest-heading"
         >
-          <h3 id="preview-playtest-heading">Playtest defaults</h3>
+          <h3 id="preview-playtest-heading">{t("projectSettings.playtestDefaults")}</h3>
           <fieldset
             className="project-settings-section"
             disabled={saving || !webPreviewEnabled}
           >
             <div className="project-settings-field-row">
               <label>
-                <span>Default route</span>
+                <span>{t("projectSettings.defaultRoute")}</span>
                 <input
                   value={previewPath}
                   spellCheck={false}
@@ -485,16 +486,16 @@ export function ProjectSettingsDialog({
                 />
               </label>
               <label>
-                <span>Device</span>
+                <span>{t("projectSettings.deviceField")}</span>
                 <select
                   value={previewViewport}
                   onChange={(event) =>
                     setPreviewViewport(event.target.value as PreviewViewport)
                   }
                 >
-                  <option value="fit">Fit</option>
-                  <option value="tablet">Tablet</option>
-                  <option value="mobile">Mobile</option>
+                  <option value="fit">{t("projectSettings.device.fit")}</option>
+                  <option value="tablet">{t("projectSettings.device.tablet")}</option>
+                  <option value="mobile">{t("projectSettings.device.mobile")}</option>
                 </select>
               </label>
             </div>
@@ -502,7 +503,7 @@ export function ProjectSettingsDialog({
         </section>
         <details className="project-settings-fold">
           <summary>
-            Background cleanup
+            {t("projectSettings.cleanup")}
             <ChevronDown size={14} aria-hidden="true" />
           </summary>
           <fieldset
@@ -510,7 +511,7 @@ export function ProjectSettingsDialog({
             disabled={saving || !webPreviewEnabled}
           >
             <label>
-              <span>Stop unused preview after</span>
+              <span>{t("projectSettings.stopAfter")}</span>
               <select
                 value={previewIdleMinutes}
                 onChange={(event) =>
@@ -521,8 +522,8 @@ export function ProjectSettingsDialog({
                   (minutes) => (
                     <option key={minutes} value={minutes}>
                       {minutes
-                        ? `${minutes} ${minutes === 1 ? "minute" : "minutes"}`
-                        : "Keep running"}
+                        ? t("projectSettings.minutes", { count: minutes })
+                        : t("projectSettings.keepRunning")}
                     </option>
                   ),
                 )}
@@ -533,7 +534,7 @@ export function ProjectSettingsDialog({
         {previewActions ? (
           <details className="project-settings-fold">
             <summary>
-              Preview actions
+              {t("projectSettings.previewActions")}
               <ChevronDown size={14} aria-hidden="true" />
             </summary>
             <fieldset
@@ -547,8 +548,8 @@ export function ProjectSettingsDialog({
                 onClick={() => previewActions.onRestart()}
               >
                 {project.preview.status === "ready"
-                  ? "Restart preview service"
-                  : "Start preview"}
+                  ? t("projectSettings.restartPreview")
+                  : t("projectSettings.startPreview")}
               </button>
               {previewActions.onStop ? (
                 <button
@@ -560,8 +561,8 @@ export function ProjectSettingsDialog({
                   onClick={previewActions.onStop}
                 >
                   {project.preview.status === "starting"
-                    ? "Cancel startup"
-                    : "Stop preview"}
+                    ? t("projectSettings.cancelStartup")
+                    : t("projectSettings.stopPreview")}
                 </button>
               ) : null}
               <button
@@ -569,7 +570,7 @@ export function ProjectSettingsDialog({
                 type="button"
                 onClick={previewActions.onLogs}
               >
-                Preview logs
+                {t("projectSettings.previewLogs")}
               </button>
               {(project.previewMode ?? "auto") !== "static" &&
               project.previewMode !== "command" &&
@@ -580,7 +581,7 @@ export function ProjectSettingsDialog({
                   disabled={previewStartDisabled}
                   onClick={() => previewActions.onRestart(true)}
                 >
-                  Reinstall dependencies and restart
+                  {t("projectSettings.reinstall")}
                 </button>
               ) : null}
             </fieldset>
@@ -600,7 +601,7 @@ export function ProjectSettingsDialog({
             }
           >
             <ExternalLink size={14} />
-            Open preview in browser
+            {t("projectSettings.openInBrowser")}
           </button>
         ) : null}
         {error ? (
@@ -610,7 +611,7 @@ export function ProjectSettingsDialog({
         ) : null}
         <footer>
           <button type="button" disabled={saving} onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             className="project-settings-submit"
@@ -618,7 +619,7 @@ export function ProjectSettingsDialog({
             disabled={saving}
           >
             {saving ? <LoaderCircle className="spin" size={14} /> : null}
-            Save
+            {t("common.save")}
           </button>
         </footer>
       </form>

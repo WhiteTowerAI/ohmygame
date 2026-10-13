@@ -6,6 +6,7 @@ import type {
   WebSearchSettings,
 } from "../shared/web-search.js";
 import { getWebSearchSettings, updateWebSearchSettings } from "./api.js";
+import { t } from "./i18n.js";
 
 interface FormState {
   enabled: boolean;
@@ -68,7 +69,7 @@ export function WebSearchSettingsPanel() {
     return (
       <section className="settings-panel settings-overview-panel">
         <p className={error ? "settings-error" : "settings-loading"}>
-          {error ?? "Loading web search settings..."}
+          {error ?? t("webSearch.loading")}
         </p>
       </section>
     );
@@ -88,10 +89,10 @@ export function WebSearchSettingsPanel() {
       }}
     >
       <header className="settings-panel-header">
-        <h3>Web Search</h3>
+        <h3>{t("webSearch.title")}</h3>
       </header>
       <div className="settings-search-row">
-        <strong>Web search</strong>
+        <strong>{t("webSearch.toggle")}</strong>
         <label className="settings-toggle">
           <input
             type="checkbox"
@@ -104,20 +105,20 @@ export function WebSearchSettingsPanel() {
 
       <section className="settings-search-section">
         <div className="settings-search-section-header">
-          <h4>Provider</h4>
-          <p>Choose the service that runs web searches.</p>
+          <h4>{t("webSearch.provider")}</h4>
+          <p>{t("webSearch.providerDescription")}</p>
         </div>
         <div
           className="settings-provider-options"
           role="radiogroup"
-          aria-label="Web search provider"
+          aria-label={t("webSearch.providerLabel")}
         >
           {(
             [
-              ["auto", "Auto", "Select Exa or Parallel automatically"],
-              ["exa", "Exa", "Always use Exa"],
-              ["parallel", "Parallel", "Always use Parallel"],
-              ["custom", "Custom MCP", "Use a compatible MCP server"],
+              ["auto", t("webSearch.auto"), t("webSearch.autoDescription")],
+              ["exa", "Exa", t("webSearch.exaDescription")],
+              ["parallel", "Parallel", t("webSearch.parallelDescription")],
+              ["custom", t("webSearch.customMcp"), t("webSearch.customDescription")],
             ] as const
           ).map(([value, label, description]) => (
             <label className="settings-provider-option" key={value}>
@@ -138,9 +139,9 @@ export function WebSearchSettingsPanel() {
         </div>
         <div className="settings-search-option-row">
           <span>
-            <strong>Use fallback provider</strong>
+            <strong>{t("webSearch.fallback")}</strong>
             <small>
-              Retry with the other public provider when automatic search fails.
+              {t("webSearch.fallbackDescription")}
             </small>
           </span>
           <label className="settings-toggle">
@@ -157,12 +158,12 @@ export function WebSearchSettingsPanel() {
 
       <section className="settings-search-section">
         <div className="settings-search-section-header">
-          <h4>API keys</h4>
-          <p>Add credentials for the public providers you use.</p>
+          <h4>{t("webSearch.apiKeys")}</h4>
+          <p>{t("webSearch.apiKeysDescription")}</p>
         </div>
         <div className="settings-search-credentials">
           <SearchCredential
-            label="Exa API key"
+            label={t("webSearch.exaKey")}
             configured={settings.exaApiKeyConfigured}
             value={form.exaApiKey}
             clear={form.clearExaApiKey}
@@ -175,7 +176,7 @@ export function WebSearchSettingsPanel() {
             }
           />
           <SearchCredential
-            label="Parallel API key"
+            label={t("webSearch.parallelKey")}
             configured={settings.parallelApiKeyConfigured}
             value={form.parallelApiKey}
             clear={form.clearParallelApiKey}
@@ -193,12 +194,12 @@ export function WebSearchSettingsPanel() {
       {form.provider === "custom" ? (
         <section className="settings-search-section settings-custom-search-section">
           <div className="settings-search-section-header">
-            <h4>Custom MCP</h4>
-            <p>Connect a compatible server for web search.</p>
+            <h4>{t("webSearch.customMcp")}</h4>
+            <p>{t("webSearch.customDescriptionLong")}</p>
           </div>
           <div className="settings-search-fields">
             <label>
-              <span className="settings-search-field-label">Name</span>
+              <span className="settings-search-field-label">{t("webSearch.name")}</span>
               <input
                 className="settings-search-input"
                 value={form.customName}
@@ -207,7 +208,7 @@ export function WebSearchSettingsPanel() {
               />
             </label>
             <label>
-              <span className="settings-search-field-label">Endpoint</span>
+              <span className="settings-search-field-label">{t("webSearch.endpoint")}</span>
               <input
                 className="settings-search-input"
                 type="url"
@@ -220,7 +221,7 @@ export function WebSearchSettingsPanel() {
               />
             </label>
             <label>
-              <span className="settings-search-field-label">Tool name</span>
+              <span className="settings-search-field-label">{t("webSearch.toolName")}</span>
               <input
                 className="settings-search-input"
                 value={form.customToolName}
@@ -232,7 +233,7 @@ export function WebSearchSettingsPanel() {
               />
             </label>
             <SearchCredential
-              label="Bearer token"
+              label={t("webSearch.bearerToken")}
               configured={settings.custom?.apiKeyConfigured ?? false}
               value={form.customApiKey}
               clear={form.clearCustomApiKey}
@@ -254,7 +255,7 @@ export function WebSearchSettingsPanel() {
         </p>
       ) : null}
       {saved ? (
-        <p className="settings-success">Web search settings saved.</p>
+        <p className="settings-success">{t("webSearch.saved")}</p>
       ) : null}
       <div className="settings-form-actions">
         <button
@@ -262,7 +263,7 @@ export function WebSearchSettingsPanel() {
           type="submit"
           disabled={saving}
         >
-          {saving ? "Saving..." : "Save"}
+          {saving ? t("common.saving") : t("common.save")}
         </button>
       </div>
     </form>
@@ -292,7 +293,7 @@ function SearchCredential({
         <span className="settings-search-field-label">
           <span>{label}</span>
           {configured && !clear ? (
-            <span className="settings-search-field-status">Saved</span>
+            <span className="settings-search-field-status">{t("common.saved")}</span>
           ) : null}
         </span>
         <input
@@ -303,8 +304,8 @@ function SearchCredential({
           disabled={disabled || clear}
           placeholder={
             configured && !clear
-              ? "Saved - enter a new value to replace"
-              : "Optional"
+              ? t("webSearch.replacePlaceholder")
+              : t("webSearch.optional")
           }
           onChange={(event) => onChange(event.target.value)}
         />
@@ -317,7 +318,7 @@ function SearchCredential({
             disabled={disabled}
             onChange={(event) => onClear(event.target.checked)}
           />
-          <span>Remove saved key</span>
+          <span>{t("webSearch.removeKey")}</span>
         </label>
       ) : null}
     </div>

@@ -8,6 +8,7 @@ import { uploadLibraryAsset } from "./api.js";
 import { readMediaFileDuration } from "./video-reference-files.js";
 import { useNearViewport } from "./asset-gallery.js";
 import { AssetThumbnail, assetTypeBadge } from "./asset-browser.js";
+import { t } from "./i18n.js";
 
 /**
  * Workbench pieces for the Playable Nodes editor: a breadcrumb back to the
@@ -19,8 +20,8 @@ export function WorkbenchBreadcrumb({ label, onClose, onRename }: {
   /** Makes the label an editable title. */
   onRename?: (label: string) => void;
 }) {
-  return <nav className="story-node-editor-breadcrumb" aria-label="Breadcrumb">
-    <button type="button" onClick={onClose}>Story</button>
+  return <nav className="story-node-editor-breadcrumb" aria-label={t("nodeWorkbench.breadcrumb")}>
+    <button type="button" onClick={onClose}>{t("nodeWorkbench.story")}</button>
     <ChevronRight size={12} aria-hidden="true" />
     {onRename ? <BreadcrumbTitle value={label} onCommit={onRename} /> : <strong>{label}</strong>}
   </nav>;
@@ -39,8 +40,8 @@ function BreadcrumbTitle({ value, onCommit }: { value: string; onCommit: (value:
   };
   return <input
     className="story-node-editor-breadcrumb-title"
-    aria-label="Title"
-    title="Rename"
+    aria-label={t("nodeWorkbench.title")}
+    title={t("common.rename")}
     value={draft}
     maxLength={120}
     spellCheck={false}
@@ -123,14 +124,14 @@ export function LibraryAssetPicker({ title, assets, uploading, includeReferences
       <section className="story-video-picker" ref={dialog} role="dialog" aria-modal="true" aria-labelledby="story-video-picker-title" tabIndex={-1}>
         <header>
           <h2 id="story-video-picker-title">{title}</h2>
-          {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>Upload</span></button> : null}
-          <button type="button" aria-label="Close Library picker" onClick={onClose}><X size={16} /></button>
+          {onUpload ? <button type="button" className="story-video-picker-upload" disabled={uploading} onClick={onUpload}>{uploading ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span>{t("assetCanvas.upload")}</span></button> : null}
+          <button type="button" aria-label={t("nodeWorkbench.closePicker")} onClick={onClose}><X size={16} /></button>
         </header>
-        <div className="library-picker-toolbar"><label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Library" /></label>
+        <div className="library-picker-toolbar"><label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("nodeWorkbench.searchLibrary")} /></label>
           <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} />
         </div>
         <div className="story-video-picker-list">
-          {visibleAssets.length === 0 ? <p>{assets.length ? "No assets match your search" : "No assets in Library"}</p> : null}
+          {visibleAssets.length === 0 ? <p>{assets.length ? t("nodeWorkbench.noMatch") : t("nodeWorkbench.empty")}</p> : null}
           {visibleAssets.map((asset) => <LibraryPickerItem key={asset.id} asset={asset} onSelect={() => onSelect(asset)} />)}
         </div>
       </section>
@@ -149,15 +150,15 @@ function LibraryPickerItem({ asset, onSelect }: { asset: LibraryAsset; onSelect:
       <AssetThumbnail asset={asset} visible={visible} />
       {badge ? <span className="story-video-picker-badge">{badge}</span> : null}
     </span>
-    <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}{asset.referenceOnly || asset.projects?.length ? <small>{asset.referenceOnly ? "Reference" : ""}{asset.projects?.length === 1 ? `${asset.referenceOnly ? " · " : ""}${asset.projects[0]!.name}` : asset.projects?.length ? `${asset.referenceOnly ? " · " : ""}${asset.projects.length} projects` : ""}</small> : null}</span>
+    <span><strong>{title}</strong>{asset.prompt ? <small>{asset.name}</small> : null}{asset.referenceOnly || asset.projects?.length ? <small>{asset.referenceOnly ? t("assets.reference") : ""}{asset.projects?.length === 1 ? `${asset.referenceOnly ? " · " : ""}${asset.projects[0]!.name}` : asset.projects?.length ? `${asset.referenceOnly ? " · " : ""}${t("nodeWorkbench.projectCount", { count: asset.projects.length })}` : ""}</small> : null}</span>
   </button>;
 }
 
 /** Uploads a media file to the Library, with the limits every editor shares. */
 export async function uploadLibraryFile(file: File): Promise<LibraryAsset> {
   const mediaType = libraryUploadMediaType(file);
-  if (!mediaType) throw new Error("Upload a PNG, JPEG, WebP, MP4, MOV, WebM, MP3, or WAV file.");
-  if (file.size > 200 * 1024 * 1024) throw new Error("The upload must be no larger than 200 MB.");
+  if (!mediaType) throw new Error(t("nodeWorkbench.uploadTypes"));
+  if (file.size > 200 * 1024 * 1024) throw new Error(t("assetCanvas.uploadSize"));
   const kind = mediaType.startsWith("video/") ? "video" : mediaType.startsWith("audio/") ? "audio" : undefined;
   const duration = kind ? await readMediaFileDuration(file, kind) : undefined;
   const uploaded = await uploadLibraryAsset(file, mediaType, duration);

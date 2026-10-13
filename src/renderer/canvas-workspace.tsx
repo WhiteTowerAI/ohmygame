@@ -25,6 +25,7 @@ import "./game-design.css";
 import { ProjectMediaModelSettings } from "./media-model-defaults.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
+import { t } from "./i18n.js";
 
 class CanvasSaveFailure extends Error {
   constructor(cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); }
@@ -115,7 +116,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   useEffect(() => {
     if (singleBoard && workspaceView === "code") { onContextChange?.(undefined); return; }
     if (!activeId || !boardName) return;
-    onContextChange?.({ kind: "canvas-board", label: `${singleBoard ? project.name : boardName}${selectedNodes.length ? ` (${selectedNodes.length} selected)` : ""}`.slice(0, 200), text: `Current canvas board: ${canvasBoardPath(activeId)}\nSelected nodes: ${selectionContext}\nAsset paths and descriptions: canvas/assets.json\nRead these current project files to resolve the user's references. Selected nodes identify what the message refers to; they do not limit the requested work. Read actual image files when evaluating their appearance.` });
+    onContextChange?.({ kind: "canvas-board", label: `${singleBoard ? project.name : boardName}${selectedNodes.length ? t("canvas.selectedCount", { count: selectedNodes.length }) : ""}`.slice(0, 200), text: `Current canvas board: ${canvasBoardPath(activeId)}\nSelected nodes: ${selectionContext}\nAsset paths and descriptions: canvas/assets.json\nRead these current project files to resolve the user's references. Selected nodes identify what the message refers to; they do not limit the requested work. Read actual image files when evaluating their appearance.` });
   }, [activeId, boardName, singleBoard, workspaceView, project.name, selectionContext, onContextChange]);
   useEffect(() => { setSelectedNodes([]); }, [activeId]);
   useEffect(() => { setBoardConflict(undefined); }, [project.id, activeId]);
@@ -155,60 +156,60 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const tableConflicts = [...tableStorage.sessions.values()].flatMap((session) => session.conflict ? [session.conflict] : []);
   const hasTableDraft = [...tableStorage.sessions.values()].some((session) => session.issue && !Equal(session.local, session.base.table));
   const status = docs.conflict || boardConflict || tableConflicts.length ? "conflict" : docs.error || tableStorage.error || boardStatus === "error" ? "error" : docs.saving || tableStorage.saving || boardStatus === "saving" ? "saving" : hasDocumentDraft || hasTableDraft ? "draft" : docs.loadError ? "sync-error" : boardStatus;
-  const saveStatus = status === "conflict" ? <button type="button" className="design-save-status design-sync-retry" aria-label="Review canvas conflicts" onClick={() => setSaveAttempt((value) => value + 1)}>Review changes</button> : status === "error" ? <button type="button" className="design-save-status design-sync-retry is-error" disabled={saveRetrying} aria-label="Retry saving canvas workspace" onClick={() => {
+  const saveStatus = status === "conflict" ? <button type="button" className="design-save-status design-sync-retry" aria-label={t("canvas.reviewConflicts")} onClick={() => setSaveAttempt((value) => value + 1)}>{t("canvas.reviewChanges")}</button> : status === "error" ? <button type="button" className="design-save-status design-sync-retry is-error" disabled={saveRetrying} aria-label={t("canvas.retrySaving")} onClick={() => {
     setSaveRetrying(true); setSaveAttempt((value) => value + 1);
     void flush().catch(() => {}).finally(() => setSaveRetrying(false));
-  }}>{saveRetrying ? <><LoaderCircle size={12} className="spin" />Saving…</> : "Save failed · Retry"}</button> : status === "sync-error" ? <button type="button" className="design-save-status design-sync-retry" disabled={syncRetrying} aria-label="Retry canvas sync" title="Retry syncing workspace changes" onClick={() => {
+  }}>{saveRetrying ? <><LoaderCircle size={12} className="spin" />{t("common.saving")}</> : t("canvas.saveFailedRetry")}</button> : status === "sync-error" ? <button type="button" className="design-save-status design-sync-retry" disabled={syncRetrying} aria-label={t("canvas.retrySync")} title={t("canvas.retrySyncTitle")} onClick={() => {
     setSyncRetrying(true); setSyncRetryError(undefined);
     void retrySync().catch((cause) => setSyncRetryError(cause instanceof Error ? cause.message : String(cause))).finally(() => setSyncRetrying(false));
-  }}>{syncRetrying ? <><LoaderCircle size={12} className="spin" />Retrying…</> : "Sync paused · Retry"}</button> : <span className={`design-save-status is-${status}`} role="status">{status === "saving" ? <LoaderCircle size={12} className="spin" /> : status === "saved" ? <Check size={12} /> : null}{status === "saved" ? "Saved" : status === "saving" ? "Saving" : status === "error" ? "Save failed" : status === "load-error" ? "Could not load" : status === "conflict" ? "Review changes" : status === "draft" ? "Draft kept locally" : "Loading"}</span>;
+  }}>{syncRetrying ? <><LoaderCircle size={12} className="spin" />{t("notice.retrying")}</> : t("canvas.syncPausedRetry")}</button> : <span className={`design-save-status is-${status}`} role="status">{status === "saving" ? <LoaderCircle size={12} className="spin" /> : status === "saved" ? <Check size={12} /> : null}{status === "saved" ? t("common.saved") : status === "saving" ? t("canvas.status.saving") : status === "error" ? t("canvas.status.error") : status === "load-error" ? t("canvas.status.loadError") : status === "conflict" ? t("canvas.reviewChanges") : status === "draft" ? t("canvas.status.draft") : t("canvas.status.loading")}</span>;
   const floating = <div className="design-board-switcher">
     <Layers3 size={13} aria-hidden="true" />
-    <CanvasChipSelect label="Board" value={activeId} options={(workspace?.boards ?? []).map((board) => ({ value: board.id, label: board.name }))} disabled={busy}
-      action={{ label: "New board", icon: Plus, onSelect: () => { setName(""); setDialog({ type: "create" }); } }}
-      optionAction={{ label: (option) => `Board options: ${option.label}`, icon: MoreHorizontal, onSelect: (id, anchor) => setBoardOptions({ id, x: anchor.left, y: anchor.bottom + 5 }) }}
+    <CanvasChipSelect label={t("canvas.board")} value={activeId} options={(workspace?.boards ?? []).map((board) => ({ value: board.id, label: board.name }))} disabled={busy}
+      action={{ label: t("canvas.newBoard"), icon: Plus, onSelect: () => { setName(""); setDialog({ type: "create" }); } }}
+      optionAction={{ label: (option) => t("canvas.boardOptions", { name: option.label }), icon: MoreHorizontal, onSelect: (id, anchor) => setBoardOptions({ id, x: anchor.left, y: anchor.bottom + 5 }) }}
       onChange={(id) => void run(async () => { await flush(); setActiveId(id); setBoardStatus("loading"); })} />
   </div>;
   const settingsButton = <ProjectMediaModelSettings key={project.id} project={project} onSaved={(updated) => onProjectUpdated?.(updated)} />;
-  return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" data-active-tab={singleBoard ? workspaceView : undefined} aria-label={singleBoard ? "Asset Canvas workspace" : "Design workspace"}>
+  return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" data-active-tab={singleBoard ? workspaceView : undefined} aria-label={singleBoard ? t("canvas.assetCanvasWorkspace") : t("canvas.designWorkspace")}>
     {singleBoard ? <header className="pane-header viewer-header interactive-story-header window-drag-handle">
       <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
       <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
-        {chatOnRight && onHome ? <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button> : null}
-        <WorkspaceTabs tabs={[{ id: "canvas", label: "Canvas", icon: Layers3 }, { id: "code", label: "Code", icon: Code2 }]} active={workspaceView} onChange={changeView} label="Workspace mode" />
+        {chatOnRight && onHome ? <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title={t("sidebar.home")} aria-label={t("sidebar.home")}><House size={14} /></button> : null}
+        <WorkspaceTabs tabs={[{ id: "canvas", label: t("canvas.tab.canvas"), icon: Layers3 }, { id: "code", label: t("workspace.tab.code"), icon: Code2 }]} active={workspaceView} onChange={changeView} label={t("canvas.workspaceMode")} />
       </div>
       <div className="viewer-controls-slot" />
       <div className="viewer-publish design-header-actions">
         {saveStatus}
         {settingsButton}
-        {chatOnRight && chatCollapsed && onToggleChat ? <button className="icon-button pane-header-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}><PanelToggle size={14} /></button> : null}
+        {chatOnRight && chatCollapsed && onToggleChat ? <button className="icon-button pane-header-action" type="button" title={t("workspace.showChat")} aria-label={t("workspace.showChat")} onClick={onToggleChat}><PanelToggle size={14} /></button> : null}
       </div>
     </header> : headerActionsTarget ? createPortal(<>{saveStatus}{settingsButton}</>, headerActionsTarget) : null}
-    {error && error !== docs.error && error !== docs.loadError && error !== tableStorage.error ? <CanvasNotice className="design-notice" message="Could not complete this action." detail={error} onDismiss={() => setError(undefined)} /> : null}
-    {syncRetryError ? <CanvasNotice className="design-notice" message="Could not reconnect. Your canvas is still open." detail={syncRetryError} actionLabel="Retry sync" onAction={retrySync} onDismiss={() => setSyncRetryError(undefined)} /> : null}
-    {docs.loadError && !workspace ? <CanvasNotice className="design-notice" tone="error" message="Could not load workspace." detail={docs.loadError} actionLabel="Reload workspace" onAction={() => docsRef.current.refresh()} /> : null}
-    {docs.error && !docs.conflict ? <CanvasNotice key={`documents:${saveAttempt}`} className="design-notice" tone="error" message="Could not save documents. Your drafts are kept." detail={docs.error} actionLabel="Retry save" onAction={() => docsRef.current.flush()} /> : null}
-    {docs.conflict ? <CanvasNotice key={`document-conflict:${saveAttempt}`} className="design-notice" tone="warning" message={`Document “${docs.conflict.local.title}” changed elsewhere. Choose a version to resume saving.`}><button type="button" onClick={() => docs.resolve("remote")}>Use disk version</button><button type="button" onClick={() => docs.resolve("local")}>Keep my version</button></CanvasNotice> : null}
-    {tableStorage.error && !tableConflicts.length ? <CanvasNotice key={`tables:${saveAttempt}`} className="design-notice" tone="error" message="Could not save tables. Your drafts are kept." detail={tableStorage.error} actionLabel="Retry save" onAction={() => tableStorage.flush()} /> : null}
+    {error && error !== docs.error && error !== docs.loadError && error !== tableStorage.error ? <CanvasNotice className="design-notice" message={t("canvas.actionFailed")} detail={error} onDismiss={() => setError(undefined)} /> : null}
+    {syncRetryError ? <CanvasNotice className="design-notice" message={t("canvas.reconnectFailed")} detail={syncRetryError} actionLabel={t("canvas.retrySyncAction")} onAction={retrySync} onDismiss={() => setSyncRetryError(undefined)} /> : null}
+    {docs.loadError && !workspace ? <CanvasNotice className="design-notice" tone="error" message={t("canvas.loadFailed")} detail={docs.loadError} actionLabel={t("canvas.reloadWorkspace")} onAction={() => docsRef.current.refresh()} /> : null}
+    {docs.error && !docs.conflict ? <CanvasNotice key={`documents:${saveAttempt}`} className="design-notice" tone="error" message={t("canvas.documentsSaveFailed")} detail={docs.error} actionLabel={t("canvas.retrySave")} onAction={() => docsRef.current.flush()} /> : null}
+    {docs.conflict ? <CanvasNotice key={`document-conflict:${saveAttempt}`} className="design-notice" tone="warning" message={t("canvas.documentConflict", { title: docs.conflict.local.title })}><button type="button" onClick={() => docs.resolve("remote")}>{t("canvas.useDisk")}</button><button type="button" onClick={() => docs.resolve("local")}>{t("canvas.keepMine")}</button></CanvasNotice> : null}
+    {tableStorage.error && !tableConflicts.length ? <CanvasNotice key={`tables:${saveAttempt}`} className="design-notice" tone="error" message={t("canvas.tablesSaveFailed")} detail={tableStorage.error} actionLabel={t("canvas.retrySave")} onAction={() => tableStorage.flush()} /> : null}
     {tableConflicts.map((conflict) => <CanvasTableConflictNotice key={`${conflict.local.id}:${saveAttempt}`} conflict={conflict} storage={tableStorage} />)}
-    {boardConflict ? <CanvasNotice key={`board-conflict:${saveAttempt}`} className="design-notice" tone="warning" message="The board changed elsewhere. Your draft is kept; choose a version to resume saving.">{(["remote", "local"] as const).map((version) => <button type="button" key={version} disabled={busy || boardStatus === "loading" || boardStatus === "load-error"} onClick={() => void run(async () => {
+    {boardConflict ? <CanvasNotice key={`board-conflict:${saveAttempt}`} className="design-notice" tone="warning" message={t("canvas.boardConflict")}>{(["remote", "local"] as const).map((version) => <button type="button" key={version} disabled={busy || boardStatus === "loading" || boardStatus === "load-error"} onClick={() => void run(async () => {
       const resolve = boardResolve.current;
-      if (!resolve) throw new Error("Load the canvas before resolving its changes.");
+      if (!resolve) throw new Error(t("canvas.loadBeforeResolve"));
       await resolve(version);
       setBoardConflict(undefined);
-    })}>{version === "remote" ? "Use disk version" : "Keep my version"}</button>)}</CanvasNotice> : null}
+    })}>{version === "remote" ? t("canvas.useDisk") : t("canvas.keepMine")}</button>)}</CanvasNotice> : null}
     {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={singleBoard && workspaceView === "code"} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : singleBoard && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>Restore the workspace files, then reload.</span> : <LoaderCircle size={22} className="spin" />}</div>}
     {singleBoard && workspaceView === "code" ? <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + codeRevision} openFileRequest={openFileRequest} /> : null}
-    {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={`Board options: ${optionsBoard.name}`} onClose={() => setBoardOptions(undefined)}>
-      <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>Rename</span></button>
-      {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}<span>{direction === -1 ? "Move up" : "Move down"}</span></button>)}
-      <button type="button" role="menuitem" disabled={workspace.boards.length === 1} onClick={() => { setBoardOptions(undefined); setDialog({ type: "delete", id: optionsBoard.id }); }}><Trash2 size={14} /><span>Delete board</span></button>
+    {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={t("canvas.boardOptions", { name: optionsBoard.name })} onClose={() => setBoardOptions(undefined)}>
+      <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>{t("common.rename")}</span></button>
+      {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}<span>{direction === -1 ? t("canvas.moveUp") : t("canvas.moveDown")}</span></button>)}
+      <button type="button" role="menuitem" disabled={workspace.boards.length === 1} onClick={() => { setBoardOptions(undefined); setDialog({ type: "delete", id: optionsBoard.id }); }}><Trash2 size={14} /><span>{t("canvas.deleteBoard")}</span></button>
     </CanvasContextMenu> : null}
-    {expandedTable && tableStorage.sessions.get(expandedTable.id) && workspaceView !== "code" ? <div className="design-expanded-document canvas-expanded-table" role="dialog" aria-modal="true" aria-label="Expanded table">
+    {expandedTable && tableStorage.sessions.get(expandedTable.id) && workspaceView !== "code" ? <div className="design-expanded-document canvas-expanded-table" role="dialog" aria-modal="true" aria-label={t("canvas.expandedTable")}>
       <ExpandedCanvasTable key={expandedTable.id} table={tableStorage.sessions.get(expandedTable.id)!.local} tables={tables} initialMode={expandedTable.mode} />
-      <button className="design-expanded-close" type="button" title="Back to canvas" aria-label="Back to canvas" onClick={() => setExpandedTable(undefined)}><X size={16} /></button>
+      <button className="design-expanded-close" type="button" title={t("canvas.backToCanvas")} aria-label={t("canvas.backToCanvas")} onClick={() => setExpandedTable(undefined)}><X size={16} /></button>
     </div> : null}
-    {dialog ? <DesignModal title={dialog.type === "create" ? "New board" : dialog.type === "rename" ? "Rename board" : "Delete board"} onClose={() => { if (!busy) setDialog(undefined); }}>
+    {dialog ? <DesignModal title={dialog.type === "create" ? t("canvas.newBoard") : dialog.type === "rename" ? t("canvas.renameBoard") : t("canvas.deleteBoard")} onClose={() => { if (!busy) setDialog(undefined); }}>
       <form onSubmit={(event) => { event.preventDefault(); void run(async () => {
         await flush();
         let createdId: string | undefined;
@@ -219,25 +220,25 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
         if (createdId) setActiveId(createdId);
         setDialog(undefined);
       }); }}>
-        {dialog.type === "delete" ? <p>Delete "{workspace?.boards.find((board) => board.id === dialog.id)?.name}"? Documents and Library assets will be kept.</p> : <label>Name<input autoFocus required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label>}
-        <footer><button type="button" disabled={busy} onClick={() => setDialog(undefined)}>Cancel</button><button type="submit" disabled={busy || (dialog.type !== "delete" && !name.trim())}>{dialog.type === "delete" ? "Delete" : "Save"}</button></footer>
+        {dialog.type === "delete" ? <p>{t("canvas.confirmDeleteBoard", { name: workspace?.boards.find((board) => board.id === dialog.id)?.name })}</p> : <label>{t("common.name")}<input autoFocus required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} /></label>}
+        <footer><button type="button" disabled={busy} onClick={() => setDialog(undefined)}>{t("common.cancel")}</button><button type="submit" disabled={busy || (dialog.type !== "delete" && !name.trim())}>{dialog.type === "delete" ? t("common.delete") : t("common.save")}</button></footer>
       </form>
     </DesignModal> : null}
-    {insertion?.documentId && !insertion.assetId && insertion.text === undefined ? <LibraryAssetPicker title="Insert image" assets={assets} onClose={() => { if (!busy) setInsertion(undefined); }} onSelect={(asset) => void run(async () => { await docsRef.current.insertImage(insertion.documentId!, asset.id); setInsertion(undefined); })} /> : insertion ? <DesignModal title={insertion.text ? "Add text to document" : "Insert image"} onClose={() => { if (!busy) setInsertion(undefined); }}>
+    {insertion?.documentId && !insertion.assetId && insertion.text === undefined ? <LibraryAssetPicker title={t("canvas.insertImage")} assets={assets} onClose={() => { if (!busy) setInsertion(undefined); }} onSelect={(asset) => void run(async () => { await docsRef.current.insertImage(insertion.documentId!, asset.id); setInsertion(undefined); })} /> : insertion ? <DesignModal title={insertion.text ? t("canvas.addText") : t("canvas.insertImage")} onClose={() => { if (!busy) setInsertion(undefined); }}>
       <form onSubmit={(event) => { event.preventDefault(); void run(async () => {
         if (!insertion.documentId) return;
-        if (insertion.text !== undefined) { const doc = docsRef.current.workspace?.documents.find((doc) => doc.id === insertion.documentId); if (!doc) throw new Error("Document not found"); docsRef.current.update(doc.id, { markdown: `${doc.markdown.trimEnd()}\n\n${insertion.text}\n` }); await docsRef.current.flush(); }
+        if (insertion.text !== undefined) { const doc = docsRef.current.workspace?.documents.find((doc) => doc.id === insertion.documentId); if (!doc) throw new Error(t("canvas.documentNotFound")); docsRef.current.update(doc.id, { markdown: `${doc.markdown.trimEnd()}\n\n${insertion.text}\n` }); await docsRef.current.flush(); }
         else if (insertion.assetId) await docsRef.current.insertImage(insertion.documentId, insertion.assetId);
         setInsertion(undefined);
       }); }}>
-        <label>Document<select required value={insertion.documentId ?? ""} onChange={(event) => setInsertion({ ...insertion, documentId: event.target.value })}><option value="" disabled>Select document</option>{workspace?.documents.map((doc) => <option key={doc.id} value={doc.id}>{doc.title}</option>)}</select></label>
+        <label>{t("canvas.document")}<select required value={insertion.documentId ?? ""} onChange={(event) => setInsertion({ ...insertion, documentId: event.target.value })}><option value="" disabled>{t("canvas.selectDocument")}</option>{workspace?.documents.map((doc) => <option key={doc.id} value={doc.id}>{doc.title}</option>)}</select></label>
         {insertion.text !== undefined ? <pre className="design-insert-text">{insertion.text}</pre> : null}
-        <footer><button type="button" disabled={busy} onClick={() => setInsertion(undefined)}>Cancel</button><button type="submit" disabled={busy || !insertion.documentId || (insertion.text === undefined && !insertion.assetId)}>Insert</button></footer>
+        <footer><button type="button" disabled={busy} onClick={() => setInsertion(undefined)}>{t("common.cancel")}</button><button type="submit" disabled={busy || !insertion.documentId || (insertion.text === undefined && !insertion.assetId)}>{t("common.insert")}</button></footer>
       </form>
     </DesignModal> : null}
   </section></CanvasAssetProvider>;
 }
 function DesignModal({ title, children, onClose }: { title: string; children: ReactNode; onClose(): void }) {
   useEffect(() => { const close = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }; window.addEventListener("keydown", close); return () => window.removeEventListener("keydown", close); }, [onClose]);
-  return createPortal(<div className="design-modal-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button type="button" title="Close" aria-label="Close" onClick={onClose}><X size={16} /></button></header>{children}</section></div>, document.body);
+  return createPortal(<div className="design-modal-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={title}><header><h2>{title}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={onClose}><X size={16} /></button></header>{children}</section></div>, document.body);
 }

@@ -1,12 +1,13 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { CanvasAssetCatalogEntry, UnavailableCanvasAsset } from "../shared/canvas-assets.js";
 import { getLibraryAsset, getWorkspaceAsset } from "./api.js";
+import { t } from "./i18n.js";
 
 export interface LocalCanvasAsset { projectId: string; path: string; name: string; revision: number; error?: string }
 export function canvasAssetSources(projectId: string, assets: readonly CanvasAssetCatalogEntry[], unavailable: readonly UnavailableCanvasAsset[] = []): ReadonlyMap<string, LocalCanvasAsset> {
   return new Map([
     ...assets.map((asset): [string, LocalCanvasAsset] => [asset.id, { projectId, path: asset.path, name: asset.name, revision: Date.parse(asset.createdAt) }]),
-    ...unavailable.map((asset): [string, LocalCanvasAsset] => [asset.id, { projectId, path: asset.path, name: asset.name, revision: 0, error: `${asset.status === "missing" ? "File missing" : "File unavailable"}: ${asset.path}` }]),
+    ...unavailable.map((asset): [string, LocalCanvasAsset] => [asset.id, { projectId, path: asset.path, name: asset.name, revision: 0, error: asset.status === "missing" ? t("assets.fileMissing", { path: asset.path }) : t("assets.fileUnavailable", { path: asset.path }) }]),
   ]);
 }
 const CanvasAssets = createContext<{ byId: ReadonlyMap<string, LocalCanvasAsset>; byPath: ReadonlyMap<string, LocalCanvasAsset> }>({ byId: new Map(), byPath: new Map() });

@@ -5,6 +5,7 @@ import type { PlayablePickResult } from "../shared/playable-picker.js";
 import { playableAssetContext, playableDrawingContext, playableElementContext, playableNodeContext, playableNodeReferences } from "../shared/playable-chat-context.js";
 import type { ChatContextChip } from "./chat-reference.js";
 import { captureElementImage } from "./page-capture.js";
+import { t } from "./i18n.js";
 
 /** Screenshots sent with picks stay small; they only show where things are. */
 const ELEMENT_SCREENSHOT_WIDTH = 960;
@@ -96,7 +97,7 @@ export function usePlayableChatReport({ graph, nodeId, picks, strokes, media, on
       ...(context ? {
         surface: {
           key: `node:${nodeId}`,
-          chip: { key: `node:${nodeId}`, kind: "playable-node", label: context.label, detail: "Scene" },
+          chip: { key: `node:${nodeId}`, kind: "playable-node", label: context.label, detail: t("sceneCard.scene") },
           context,
           references: playableNodeReferences(graph, nodeId),
         },

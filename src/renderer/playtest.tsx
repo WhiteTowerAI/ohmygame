@@ -7,6 +7,7 @@ import { loadPlayableAssets } from "./playable-assets.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
+import { t } from "./i18n.js";
 
 export function PlaytestPage({ projectId }: { projectId: string }) {
   const [snapshot, setSnapshot] = useState<NodeRuntimeSnapshot>();
@@ -31,7 +32,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     setStart(takePlaytestStart(projectId));
     history.current.reset();
     void getNodeRuntime(projectId).then(async (result) => {
-      if (!result.available) throw new Error("This project has no Scenes yet.");
+      if (!result.available) throw new Error(t("sceneWorkbench.noScenes"));
       const assets = await loadPlayableAssets(projectId, result.definition.graph);
       if (disposed) return;
       document.title = `${result.definition.graph.title} - Playtest`;
@@ -102,7 +103,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     <main className="playable-player-page">
       <WindowDragRegion />
       <div className="playable-player-page-state" role={playable.status === "error" ? "alert" : undefined}>
-        {playable.status === "error" ? playable.error : "Loading playtest..."}
+        {playable.status === "error" ? playable.error : t("playtest.loading")}
       </div>
     </main>
   );

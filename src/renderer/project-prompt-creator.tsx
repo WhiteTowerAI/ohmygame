@@ -13,6 +13,7 @@ import { useComposerContextMenu } from "./composer-context-menu.js";
 import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatSkillInvocation, insertMention, parseSkillInvocation, toPluginMention, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { createPromptHistory, loadHomePromptHistory, nextPrompt, previousPrompt, saveHomePrompt } from "./prompt-history.js";
 import { ComposerCapabilityReferences } from "./composer-capability-references.js";
+import { t } from "./i18n.js";
 
 const EMPTY_CAPABILITIES: ConversationCapabilities = { plugins: [], skills: [] };
 
@@ -290,8 +291,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
               className="icon-button send-button"
               type="submit"
               disabled={(!selectedSkill && !selectedPlugin && !prompt.trim() && attachments.length === 0) || creating}
-              title="Create project"
-              aria-label="Create project"
+              title={t("creator.create")}
+              aria-label={t("creator.create")}
             >
               {creating ? <LoaderCircle className="spin" size={15} /> : <SendArrow size={15} />}
             </button>
@@ -334,7 +335,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         suggestions={contextMenu.suggestions}
         overlay={contextMenu.open ? contextMenu.overlay
           : matchesPlanCommand(prompt) ? <PlanCommandMenu planning={planning} onToggle={() => togglePlanning()} /> : null}
-        placeholder={selectedSkill || selectedPlugin ? "" : planning ? "Describe what to plan" : placeholder}
+        placeholder={selectedSkill || selectedPlugin ? "" : planning ? t("creator.planPlaceholder") : placeholder}
         textareaRef={promptRef}
         onSelectionChange={setMentionCursor}
         value={prompt}
@@ -344,8 +345,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
       />
       {existingProject ? (
         <p className="home-notice" role="alert">
-          This folder is already the workspace of “{existingProject.name}”.
-          {onOpenProject ? <button type="button" onClick={() => onOpenProject(existingProject.id)}>Open project</button> : null}
+          {t("creator.folderInUse", { name: existingProject.name })}
+          {onOpenProject ? <button type="button" onClick={() => onOpenProject(existingProject.id)}>{t("creator.openProject")}</button> : null}
         </p>
       ) : null}
       {error ? <p className="home-notice" role="alert">{error}</p> : null}
@@ -407,13 +408,13 @@ function WorkspaceSelector({ value, disabled, onChoose, onUseManaged }: {
         aria-controls={menuId}
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label={value ? `Workspace: ${value}` : "Workspace: new folder in OhMyGame storage"}
-        title={value ?? "Creates a new folder in OhMyGame's project storage"}
+        aria-label={value ? t("creator.workspaceValue", { path: value }) : t("creator.workspaceNew")}
+        title={value ?? t("creator.workspaceNewTitle")}
         disabled={disabled}
         onClick={() => setOpen((currentOpen) => !currentOpen)}
       >
         {value ? <Folder size={14} /> : <FolderPlus size={14} />}
-        <span>{folderName ?? "New folder"}</span>
+        <span>{folderName ?? t("creator.newFolder")}</span>
         <ChevronDown size={12} aria-hidden="true" />
       </button>
       {open ? (
@@ -422,7 +423,7 @@ function WorkspaceSelector({ value, disabled, onChoose, onUseManaged }: {
           className="home-project-type-menu home-workspace-menu"
           id={menuId}
           role="menu"
-          aria-label="Workspace"
+          aria-label={t("creator.workspace")}
           onKeyDown={(event) => {
             if (event.key === "Tab") {
               setOpen(false);
@@ -451,7 +452,7 @@ function WorkspaceSelector({ value, disabled, onChoose, onUseManaged }: {
             }}
           >
             <FolderPlus size={14} aria-hidden="true" />
-            <span>New folder</span>
+            <span>{t("creator.newFolder")}</span>
             {value ? null : <Check size={13} aria-hidden="true" />}
           </button>
           {value ? (
@@ -470,7 +471,7 @@ function WorkspaceSelector({ value, disabled, onChoose, onUseManaged }: {
             }}
           >
             <FolderOpen size={14} aria-hidden="true" />
-            <span>{value ? "Choose another folder…" : "Choose folder…"}</span>
+            <span>{value ? t("creator.chooseAnother") : t("creator.chooseFolder")}</span>
           </button>
         </div>
       ) : null}
@@ -546,7 +547,7 @@ function ProjectTypeSelector({ value, options, disabled, onChange }: {
           className="home-project-type-menu"
           id={menuId}
           role="menu"
-          aria-label="Project type"
+          aria-label={t("creator.projectType")}
           onKeyDown={(event) => {
             if (event.key === "Tab") {
               setOpen(false);
