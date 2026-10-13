@@ -49,10 +49,10 @@ try {
   const result = await tested.json();
   assert.equal(result.status, "connected", JSON.stringify(result));
   assert.equal(result.toolCount, 1);
-  console.log(
-    `Node.js ${process.versions.node}: daemon startup, authenticated API and native MCP runtime passed`,
-  );
 } finally {
   await daemon?.stop();
   await rm(directory, { recursive: true, force: true });
 }
+console.log(
+  `Node.js ${process.versions.node}: daemon startup, authenticated API, native MCP runtime and graceful shutdown passed`,
+);

@@ -10,6 +10,10 @@ describe("Asset Canvas clipboard", () => {
     copied.nodes[0]!.width = -1;
     expect(parseCanvasClipboard(JSON.stringify(copied))).toBeUndefined();
   });
+  it("drops sizes copied from content-sized nodes on older boards", () => {
+    const node = { id: "boat", type: "asset", position: { x: 0, y: 0 }, width: 330, height: 320, data: { assetId: "boat", mediaType: "image" } } as AssetCanvasNode;
+    expect(parseCanvasClipboard(JSON.stringify(createCanvasClipboard("project", [node], [])))?.nodes[0]).toEqual({ id: "boat", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "boat", mediaType: "image" } });
+  });
   it("duplicates canonical node data with a new identity and position", () => {
     const source: AssetCanvasNode = {
       id: "text",

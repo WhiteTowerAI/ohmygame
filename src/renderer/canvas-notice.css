@@ -1,0 +1,18 @@
+.canvas-notice { display: flex; align-items: flex-start; flex-shrink: 0; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-raised); color: var(--text-secondary); font-size: 11px; line-height: 1.5; }
+.canvas-notice-dot { width: 5px; height: 5px; flex-shrink: 0; margin-top: 6px; border-radius: 50%; background: var(--text-muted); }
+.canvas-notice.is-error .canvas-notice-dot { background: var(--danger); }
+.canvas-notice.is-warning .canvas-notice-dot { background: var(--warning); }
+.canvas-notice-content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.canvas-notice-feedback { display: block; margin-top: 3px; color: var(--text-muted); }
+.canvas-notice-content details { margin-top: 3px; color: var(--text-muted); }
+.canvas-notice-content summary { cursor: pointer; }
+.canvas-notice-content details > div { max-height: 140px; overflow: auto; margin-top: 4px; white-space: pre-wrap; }
+.canvas-notice > button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex-shrink: 0; min-height: 22px; padding: 2px 7px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.canvas-notice > button:hover { background: var(--surface-hover); color: var(--text); }
+.canvas-notice > button:disabled { opacity: .6; cursor: wait; }
+.canvas-notice > .canvas-notice-close { width: 22px; padding: 0; border-color: transparent; color: var(--text-muted); }
+.desktop-close-content { display: contents; }
+.desktop-close-status, .desktop-close-notice { position: fixed; z-index: 1500; bottom: 20px; left: 50%; transform: translateX(-50%); max-width: min(460px, calc(100% - 32px)); }
+.desktop-close-status { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-raised); color: var(--text-secondary); font-size: 12px; }
+.interactive-story-workspace:not([hidden]) .interactive-story-canvas { anchor-name: --desktop-close-canvas; }
+body:has(.interactive-story-workspace:not([hidden])) .desktop-close-status { position-anchor: --desktop-close-canvas; bottom: auto; top: calc(anchor(top) + 16px); left: anchor(center); }

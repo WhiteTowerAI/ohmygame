@@ -6,16 +6,18 @@
 .design-loading { flex: 1; display: grid; place-items: center; }
 .design-save-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 11px; white-space: nowrap; }
 .design-save-status.is-error { color: var(--danger); }
-.design-notice { display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: center; gap: 8px; padding: 8px 12px; font-size: 11px; background: var(--surface); border-bottom: 1px solid var(--border); z-index: 6; }
-.design-notice span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.design-header-actions > .design-save-status { order: -1; margin-right: 8px; }
+.design-notice { display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: flex-start; gap: 8px; margin: 6px 10px 0; padding: 8px 10px; font-size: 11px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); z-index: 6; }
+.design-notice > span:not(.canvas-notice-dot) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .design-notice button { flex-shrink: 0; }
+.design-sync-retry { padding: 3px 5px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+.design-sync-retry:hover { background: var(--surface-hover); color: var(--text-secondary); }
+.design-sync-retry:disabled { cursor: wait; }
 .design-document-issue { padding: 8px 12px; color: var(--danger); font-size: 11px; overflow-wrap: anywhere; }
 .design-image-placeholder button, .canvas-asset-retry { padding: 5px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-secondary); cursor: pointer; }
 .story-media-reference.is-unavailable { border: 1px solid var(--danger); }
 .story-media-reference .canvas-reference-retry { left: 4px; right: auto; }
-.story-save-notice { display: flex; align-items: center; gap: 8px; }
-.story-save-notice > span { min-width: 0; overflow-wrap: anywhere; }
-.story-save-notice > button { flex-shrink: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-secondary); cursor: pointer; }
+.story-save-notice { display: flex; align-items: flex-start; gap: 8px; }
 .story-canvas-state-error { align-content: center; gap: 12px; padding: 24px; overflow-wrap: anywhere; }
 .design-board-switcher { position: absolute; top: 12px; left: 16px; z-index: 6; display: flex; align-items: center; gap: 5px; max-width: calc(100% - 32px); height: 28px; color: var(--text-muted); }
 .design-board-switcher > svg { flex-shrink: 0; }

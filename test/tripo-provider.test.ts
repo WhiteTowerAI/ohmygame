@@ -1,3 +1,4 @@
+import { TEST_GLB } from "./model3d-fixture.js";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -22,7 +23,7 @@ const GLB = "https://files.test/model.glb?signature=example";
 function service() {
   let uploads = 0;
   return vi.fn<typeof fetch>(async (url, init) => {
-    if (String(url) === GLB) return new Response(Buffer.from("glb"));
+    if (String(url) === GLB) return new Response(new Uint8Array(TEST_GLB));
     if (String(url).endsWith("/files")) return Response.json({ code: 0, data: { file_token: `file_${++uploads}` } });
     if (init?.method === "POST") return Response.json({ code: 0, data: { task_id: "task_1" } });
     return Response.json({ code: 0, data: { status: "success", output: { model_url: GLB } } });
@@ -49,7 +50,7 @@ describe("Tripo V3 generation", () => {
   it.each([1, 2, 4])("uploads %i views, selects the matching endpoint and retrieves GLB without leaking credentials", async (count) => {
     const request = service();
     const result = await new TripoProvider(() => "tripo-test-key", request, 0).generate({ model, images: Array(count).fill(image), targetPolycount: 4_000, texture: true, pbr: true });
-    expect(result).toEqual({ bytes: Buffer.from("glb"), mediaType: "model/gltf-binary", requestId: "task_1" });
+    expect(result).toEqual({ bytes: TEST_GLB, mediaType: "model/gltf-binary", requestId: "task_1", metadata: { forwardAxis: "+X" } });
     expect(request.mock.calls.slice(0, count).every(([url, init]) => String(url) === `${BASE}/files` && init?.body instanceof FormData)).toBe(true);
     const uploaded = (request.mock.calls[0]![1]!.body as FormData).get("file") as Blob;
     expect(uploaded.type).toBe("image/png"); expect(Buffer.from(await uploaded.arrayBuffer())).toEqual(Buffer.from("reference"));
@@ -155,9 +156,10 @@ describe("Tripo V3 generation", () => {
   it("rejects unsupported versions, too many views and oversized references before upload", async () => {
     const request = service(), provider = new TripoProvider(() => "key", request, 0);
     await expect(provider.generate({ model: { ...model, id: "unknown" }, images: [image] })).rejects.toThrow("unavailable");
+    await expect(provider.generate({ model: { provider: "meshy", id: "meshy-t2" }, images: [image] })).rejects.toThrow("unavailable");
     await expect(provider.generate({ model, images: Array(5).fill(image) })).rejects.toThrow("1 to 4");
     await expect(provider.generate({ model, images: [{ ...image, data: Buffer.alloc(20 * 1024 * 1024 + 1).toString("base64") }] })).rejects.toThrow("20 MB");
-    await expect(provider.generate({ model, images: [image], targetPolycount: 50_000 })).rejects.toThrow("100 and 20000");
+    await expect(provider.generate({ model, images: [image], targetPolycount: 50_000 })).rejects.toThrow("50 and 20000");
     expect(request).not.toHaveBeenCalled();
   });
 });
@@ -215,6 +217,6 @@ describe("Tripo connection and custom models", () => {
     expect(request.mock.calls.at(-1)?.[1]).not.toHaveProperty("headers");
     expect(await readFile(path.join(directory, "model-visibility.json"), "utf8")).toContain('"protocol": "tripo"');
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models[0].referenceImageLabels).toEqual(["Front", "Left", "Back", "Right"]);
-    expect(() => normalizeModelUsages({ "3d": { ...config, modelType: "smart-topology" } })).toThrow("Tripo does not use Meshy");
+    expect(() => normalizeModelUsages({ "3d": { ...config, modelType: "smart-topology" } })).toThrow("Smart topology is only supported by Meshy");
   });
 });

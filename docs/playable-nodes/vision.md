@@ -1,10 +1,14 @@
 # Vision
 
+This document preserves the rationale for replacing the former fixed node-type
+editor. The current model is documented in [runtime.md](runtime.md),
+[authoring.md](authoring.md), and [agent.md](agent.md).
+
 ## The problem: we decided what a screen can be
 
-The current Interactive Story editor offers a fixed set of node types: Start,
+The former Interactive Story editor offered a fixed set of node types: Start,
 Open UI, Scene, Interaction, Choice, Ending, Story Map, Settings, Condition,
-and Update State. Each type has its own form, its own rules, and its own
+and Update State. Each type had its own form, its own rules, and its own
 player surface.
 
 That design made common things quick, but it also decided in advance what a

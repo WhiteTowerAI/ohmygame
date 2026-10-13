@@ -254,7 +254,7 @@ describe("daemon", () => {
       payload: { startupDirectory: "apps/game" },
     });
     expect(configured.statusCode).toBe(200);
-    expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: type === "general" ? "waiting" : "stopped" } });
+    expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
 
     const runSettings = await app.inject({
       method: "PUT",
@@ -286,7 +286,7 @@ describe("daemon", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
-  it.each([false, true])("starts newly generated General browser output only with explicit preview opt-in: %s", async (webPreviewEnabled) => {
+  it.each([false, true])("respects General Web preview policy when browser output is generated: %s", async (webPreviewEnabled) => {
     const app = createApp({
       dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-general-auto-preview-")),
       createSession: async (project) => ({
@@ -296,7 +296,7 @@ describe("daemon", () => {
           await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { dev: "node server.mjs" } }));
           await writeFile(path.join(project.workspacePath, "server.mjs"), `
             import { createServer } from "node:http";
-            const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+            const port = Number(process.env.PORT || process.argv[process.argv.indexOf("--port") + 1]);
             createServer((_req, res) => res.end("General ready")).listen(port, "127.0.0.1");
           `);
         },
@@ -304,18 +304,22 @@ describe("daemon", () => {
     });
     apps.push(app);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "general" } })).json();
+    expect(project.webPreviewEnabled).toBe(true);
     const settingsUrl = `/projects/${project.id}/settings/run`;
     const settings = { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled };
-    const configured = await app.inject({ method: "PUT", url: settingsUrl, payload: settings });
-    expect(configured.statusCode, configured.body).toBe(200);
-    expect(configured.json()).toMatchObject({ webPreviewEnabled, preview: { status: "waiting" } });
+    if (!webPreviewEnabled) {
+      const configured = await app.inject({ method: "PUT", url: settingsUrl, payload: settings });
+      expect(configured.statusCode, configured.body).toBe(200);
+      expect(configured.json()).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
+    }
+    await app.inject({ method: "PUT", url: `/projects/${project.id}/preview/leases/test-editor`, payload: { automatic: true } });
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
     const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Build browser output" } });
     expect(turn.statusCode).toBe(202);
     const readProject = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json();
     await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json()).toEqual([]));
     if (webPreviewEnabled) {
-      await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"));
+      await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"), { timeout: 3_000 });
       const url = (await readProject()).preview.url;
       expect(await (await fetch(url)).text()).toBe("General ready");
       const disabled = await app.inject({ method: "PUT", url: settingsUrl, payload: { ...settings, webPreviewEnabled: false } });
@@ -353,12 +357,12 @@ describe("daemon", () => {
     expect(godot.statusCode).toBe(201);
     expect(godot.json()).toMatchObject({ name: "Platformer", type: "godot-game" });
     expect(general.statusCode).toBe(201);
-    expect(general.json()).toMatchObject({ type: "general", preview: { status: "waiting" } });
+    expect(general.json()).toMatchObject({ type: "general", webPreviewEnabled: true, preview: { status: "waiting" } });
     expect(await readdir(general.json().workspacePath)).toEqual([]);
     expect(unknown.statusCode).toBe(400);
     const preview = await app.inject({ method: "POST", url: `/projects/${general.json().id}/preview?reuse=1` });
     expect(preview.statusCode).toBe(409);
-    expect(preview.json().error).toContain("Enable Web preview");
+    expect(preview.json().error).toContain("dev script");
   });
 
   it("lists projects", async () => {
@@ -1558,11 +1562,11 @@ describe("daemon", () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model3d-catalog-")) });
     apps.push(app);
 
-    expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({ models: [], providers: [] });
+    expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({ models: [], providers: [expect.objectContaining({ provider: "cloud-hyper3d", cloud: { availability: "sign_in_required" } })] });
     await app.inject({ method: "PUT", url: "/settings/models/providers/meshy", payload: { apiKey: "meshy-key" } });
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json()).toEqual({
       models: MODEL_3D_MODELS.filter((model) => model.provider === "meshy"),
-      providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }],
+      providers: [{ provider: "meshy", providerName: "Meshy", state: "ready" }, expect.objectContaining({ provider: "cloud-hyper3d", cloud: { availability: "sign_in_required" } })],
     });
   });
 

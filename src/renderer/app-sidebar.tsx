@@ -1,7 +1,7 @@
-import { ArrowDownToLine, Gamepad2, Globe2, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
+import { ArrowDownToLine, Gamepad2, Globe2, InfoCircle, MoreHorizontal, RefreshCw, UserRound, Wrench } from "./icons.js";
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useAuth } from "./auth.js";
-import type { AppNavigationTarget, SidebarPage } from "./routes.js";
+import { settingsHash, type AppNavigationTarget, type SidebarPage } from "./routes.js";
 import { UserAvatar } from "./user-avatar.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
@@ -65,7 +65,9 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
     ? { label: "Update", icon: <ArrowDownToLine size={15} />, action: () => void window.ohMyGameDesktop?.updates.download() }
     : updateStatus === "ready"
       ? { label: "Restart", icon: <RefreshCw size={14} />, action: () => void window.ohMyGameDesktop?.updates.install() }
-      : undefined;
+      : updateStatus === "error"
+        ? { label: "Issue", icon: <InfoCircle size={15} />, action: () => { window.location.hash = settingsHash("about"); } }
+        : undefined;
 
   const updatePercent = updateStatus === "downloading" ? update!.status.percent : undefined;
   const updateButton = updateAction ? (
@@ -126,11 +128,11 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <NavigationItem active={active === "library"} icon="library" label="Library" onClick={() => onNavigate("library")} />
         <NavigationItem active={active === "community"} icon="community" label="Community" onClick={() => onNavigate("community")} />
         <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
-        <NavigationItem active={active === "general"} icon="general" label="General Game" onClick={() => onNavigate("general")} />
         <NavigationItem active={active === "web-game"} icon="web-game" label="Web Game" onClick={() => onNavigate("web-game")} />
         <NavigationItem active={active === "interactive-story"} icon="interactive-story" label="Interactive Story" onClick={() => onNavigate("interactive-story")} />
         <NavigationItem active={active === "godot"} icon="godot" label="Godot" onClick={() => onNavigate("godot")} />
         <NavigationItem active={active === "asset-canvas"} icon="asset-canvas" label="Asset Canvas" onClick={() => onNavigate("asset-canvas")} />
+        <NavigationItem active={active === "general"} icon="general" label="General Game" onClick={() => onNavigate("general")} />
       </nav>
       {auth.state.status === "signed-in" ? (
         <div className="home-sidebar-account" ref={account}>

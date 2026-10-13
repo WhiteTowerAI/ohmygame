@@ -9,6 +9,7 @@ import {
   type PluginConfigurationField,
   type PluginConfigurationValues,
   type PluginDetail,
+  type PluginManifest,
 } from "../shared/plugins.js";
 import type { ProjectType } from "../shared/contracts.js";
 import {
@@ -213,6 +214,15 @@ export class PluginCapabilities {
     input?: string,
   ) {
     const definition = await this.definition(plugin, serverId);
+    return this.#testDefinition(plugin, serverId, definition, `${plugin.id}:${serverId}`, action, input);
+  }
+  async testDraft(plugin: PluginDetail, root: string, serverId: string, scope: string) {
+    const definitions = plugin.mcpConfigPath ? await readPluginMcpServers(root, plugin.mcpConfigPath) : {};
+    const definition = this.#resolve(plugin, serverId, { root, definitions });
+    return this.#testDefinition(plugin, serverId, definition, `draft:${scope}:${serverId}`, "test");
+  }
+  async #testDefinition(plugin: PluginDetail, serverId: string, definition: McpServerDefinition, key: string,
+    action: "test" | "auth-start" | "auth-complete", input?: string) {
     const literals: PluginConfigurationValues = {};
     protectDefinitions({ [serverId]: definition }, {}, literals, true);
     const redact = (text: string) =>
@@ -225,7 +235,7 @@ export class PluginCapabilities {
       );
     try {
       const result = await this.host.probe(
-        `${plugin.id}:${serverId}`,
+        key,
         this.runtimeName(plugin.id, serverId),
         definition,
         this.agentDirectory,
@@ -315,41 +325,7 @@ export class PluginCapabilities {
     input: CreateMcpPluginRequest,
     allowSecrets = true,
   ): Promise<PluginDetail> {
-    if (
-      !input ||
-      !input.servers ||
-      typeof input.servers !== "object" ||
-      Array.isArray(input.servers) ||
-      !Object.keys(input.servers).length
-    )
-      throw new LocalPluginError("Add at least one MCP server");
-    for (const [id, definition] of Object.entries(input.servers)) {
-      if (
-        !/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/.test(id) ||
-        !isMcpServerDefinition(definition)
-      )
-        throw new LocalPluginError(`Invalid MCP server: ${id}`);
-    }
-    const fields: Record<string, PluginConfigurationField> = structuredClone(
-      input.configuration ?? {},
-    );
-    const values: PluginConfigurationValues = {};
-    const servers = protectDefinitions(
-      structuredClone(input.servers),
-      fields,
-      values,
-      allowSecrets,
-    );
-    const manifest = {
-      name: input.name,
-      version: "1.0.0",
-      description: input.description || "MCP tools",
-      mcpServers: "./mcp.json",
-      configuration: fields,
-      interface: { displayName: input.displayName || input.name },
-    };
-    if (!isPluginManifest(manifest))
-      throw new LocalPluginError("Invalid plugin name or configuration fields");
+    const { manifest, servers, values } = mcpPluginPackage(input, allowSecrets);
     const source = path.join(
       this.dataDirectory,
       "plugin-workspaces",
@@ -430,6 +406,33 @@ export class PluginCapabilities {
     }
     await this.configuration.markMigrated();
   }
+}
+
+/** Shared by manual installation and the AI builder's uninstalled drafts. */
+export function mcpPluginPackage(input: CreateMcpPluginRequest, allowSecrets = false): {
+  manifest: PluginManifest;
+  servers: Record<string, McpServerDefinition>;
+  values: PluginConfigurationValues;
+} {
+  if (!input?.servers || typeof input.servers !== "object" || Array.isArray(input.servers) || !Object.keys(input.servers).length)
+    throw new LocalPluginError("Add at least one MCP server");
+  for (const [id, definition] of Object.entries(input.servers)) {
+    if (!/^[a-z0-9]+(?:[-_.][a-z0-9]+)*$/.test(id) || !isMcpServerDefinition(definition))
+      throw new LocalPluginError(`Invalid MCP server: ${id}`);
+  }
+  const fields = structuredClone(input.configuration ?? {});
+  const values: PluginConfigurationValues = {};
+  const servers = protectDefinitions(structuredClone(input.servers), fields, values, allowSecrets);
+  const manifest = {
+    name: input.name,
+    version: "1.0.0",
+    description: input.description || "MCP tools",
+    mcpServers: "./mcp.json",
+    configuration: fields,
+    interface: { displayName: input.displayName || input.name },
+  };
+  if (!isPluginManifest(manifest)) throw new LocalPluginError("Invalid plugin name or configuration fields");
+  return { manifest, servers, values };
 }
 function substitute(
   value: unknown,

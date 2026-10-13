@@ -91,6 +91,7 @@ describePublishContract("remote publish", () => {
   it("publishes General static output with Web preview disabled and no dev script", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "General static", "general");
+    expect((await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/settings/run`, payload: { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: false } })).statusCode).toBe(200);
     await writeFile(path.join(project.workspacePath, "index.html"), "<h1>Static General</h1>");
     expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json()).toMatchObject({ webPreviewEnabled: false, preview: { status: "waiting" } });
     const response = await publishProject(runtime.daemon, project.id);

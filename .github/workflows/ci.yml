@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches:
+      - dev
       - main
 
 concurrency:
@@ -25,4 +26,5 @@ jobs:
       - run: bun run prepare:preinstalled-plugins
       - run: bun run typecheck
       - run: bun run test
+      - run: bun run build:renderer
       - run: bun run test:node-runtime

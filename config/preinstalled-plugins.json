@@ -8,7 +8,7 @@
       "commit": "dede5909be4e494b228c801a55dda47439143932",
       "release": "v1.5.1",
       "version": "1.5.1",
-      "artifactSha256": "e3b5d2bb9e5e4b6b0afd1b2e3ba1da6ff9334b6e584bda0cd59978a88a734d93",
+      "artifactSha256": "9190f2bed03150ffa378f90f9f5cb16a162808d66a0cf65392d43950702dfd72",
       "candidate": "agent-skills:root",
       "interface": {
         "displayName": "Image to Three.js",

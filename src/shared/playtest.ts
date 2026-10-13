@@ -106,7 +106,7 @@ export interface PlaytestSnapshot extends GameUseSnapshot {
 
 export interface PlaytestCapture {
   sessionId: string;
-  mediaType: "image/png";
+  mediaType: "image/jpeg";
   data: string;
   width: number;
   height: number;

@@ -1,10 +1,17 @@
-import { AddMcpPluginDialog, PluginAssistantDialog, PluginConfigurationPanel, PluginMcpPanel } from "./plugin-controls.js";
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
+import { AddMcpPluginDialog, PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton } from "./plugin-controls.js";
+import { PluginBuilderSessions } from "./plugin-builder.js";
+import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import {
+  Box,
   ChevronRight,
   ExternalLink,
   FolderPlus,
   FolderOpen,
+  Gamepad2,
   GitBranch,
+  Globe2,
+  Image,
   LoaderCircle,
   Package,
   Plus,
@@ -12,6 +19,7 @@ import {
   Plug,
   Search,
   WandSparkles,
+  type IconComponent,
 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -35,11 +43,12 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   onPluginChange: (pluginId?: string) => void;
   onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
 }) {
+  const serviceGeneration = useReadyRuntimeGeneration();
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [detailResult, setDetailResult] = useState<{ pluginId: string; plugin?: PluginDetail; error?: string }>();
   const [detailRetry, setDetailRetry] = useState(0);
-  const [assistantOpen, setAssistantOpen] = useState(false);
+  const detailRequest = useRef({ pluginId, retry: detailRetry });
   const [mcpOpen, setMcpOpen] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [query, setQuery] = useState("");
@@ -71,8 +80,12 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
     }
   }
 
-  useEffect(() => { void load(); }, [catalogRetry]);
+  useEffect(() => { void load(); }, [catalogRetry, serviceGeneration]);
   useEffect(() => {
+    const explicitReload = detailRequest.current.pluginId !== pluginId || detailRequest.current.retry !== detailRetry;
+    detailRequest.current = { pluginId, retry: detailRetry };
+    // A service refresh keeps an already loaded configuration and its unsaved fields.
+    if (!explicitReload && detailResult?.plugin && detailResult.pluginId === pluginId) return;
     setDetailResult(undefined);
     setError(undefined);
     if (!pluginId) return;
@@ -88,7 +101,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       }
     })();
     return () => { disposed = true; };
-  }, [pluginId, detailRetry]);
+  }, [pluginId, detailRetry, serviceGeneration]);
 
   useEffect(() => {
     if (!addMenuOpen) return;
@@ -237,7 +250,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
           <div className="plugins-add" ref={addMenu}>
             <button className="settings-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding ? "Installing..." : "Add plugin"}</button>
             {addMenuOpen ? <div className="plugins-add-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setAssistantOpen(true); }}><Package size={14} /><span><strong>Create with AI</strong><small>Build a plugin with the agent</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); void openPluginBuilder().catch(cause => setError(errorMessage(cause))); }}><Package size={14} /><span><strong>Create with AI</strong><small>Build a plugin with the agent</small></span></button>
               <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setMcpOpen(true); }}><Plug size={14} /><span><strong>Add MCP service...</strong><small>Connect tools through a plugin</small></span></button>
               {window.ohMyGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>Install from folder...</strong><small>Choose a local plugin directory</small></span></button> : null}
               <button type="button" role="menuitem" onClick={openGitInstallDialog}><GitBranch size={14} /><span><strong>Install from Git...</strong><small>Clone a public HTTPS repository</small></span></button>
@@ -262,7 +275,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       onBrowseSkill={(skillId) => detail && void browsePluginSkill(detail.id, skillId)}
       onRemove={() => detail && void removePlugin(detail)}
       onCapabilitiesChanged={capabilitiesChanged}
-      onAssist={() => setAssistantOpen(true)}
+      onAssist={() => void openPluginBuilder(pluginId).catch(cause => setError(errorMessage(cause)))}
       onMcpToggle={(id, enabled) => detail && void updatePlugin(detail, { enabled: detail.enabled, components: { ...componentSettings(detail).components, [pluginComponentKey("mcp", id)]: enabled } })}
       onTry={onTryPlugin}
     /> : <>
@@ -270,6 +283,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       {phase === "loading" ? <PluginState>Loading plugins</PluginState> : null}
       {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
       {phase === "ready" ? <>
+        <PluginBuilderSessions />
         <InstalledPlugins
           plugins={installed}
           collapsible={!normalizedQuery}
@@ -277,7 +291,6 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
         />
       </> : null}
     </>}
-    {assistantOpen ? <PluginAssistantDialog pluginId={pluginId} onClose={() => { setAssistantOpen(false); capabilitiesChanged(); }} onChanged={capabilitiesChanged} /> : null}
     {mcpOpen ? <AddMcpPluginDialog onClose={() => setMcpOpen(false)} onInstalled={id => { setMcpOpen(false); capabilitiesChanged(); onPluginChange(id); }} /> : null}
     {gitDialogOpen ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !adding) closeInstallDialog();
@@ -492,7 +505,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         <h2>Try it</h2>
         <div>{prompts.map((prompt) => <button type="button" key={prompt} onClick={() => choosePrompt(prompt)}>
           <span className="plugin-prompt-copy">
-            <span className="plugin-prompt-reference">{plugin.id === "ohmygame:godot" ? <GodotIcon size={14} /> : <Package size={14} aria-hidden="true" />}{plugin.displayName}</span>
+            <span className="plugin-prompt-reference"><PluginGlyph plugin={plugin} size={14} />{plugin.displayName}</span>
             <span className="plugin-prompt-text">{prompt}</span>
           </span>
           <ChevronRight size={14} />
@@ -502,7 +515,9 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
       <SkillSection pluginId={plugin.id} items={plugin.skills} installed={plugin.installed} disabled={updating || !plugin.enabled} onBrowse={onBrowseSkill} onToggle={onToggleComponent} />
       <PluginConfigurationPanel plugin={plugin} onChanged={onCapabilitiesChanged} />
       <PluginMcpPanel plugin={plugin} onToggle={onMcpToggle} onAssist={onAssist} onChanged={onCapabilitiesChanged} />
-      {!plugin.mcpServers?.length && !plugin.connections.length ? <button type="button" onClick={onAssist}>Configure with AI</button> : null}
+      {!plugin.mcpServers?.length && !plugin.connections.length ? <div className="plugin-section-actions">
+        <button className="plugin-detail-secondary" type="button" aria-haspopup="dialog" onClick={onAssist}><WandSparkles size={13} aria-hidden="true" />Configure with AI</button>
+      </div> : null}
     </> : null}
   </section>;
 }
@@ -592,10 +607,22 @@ function pluginSummary(plugin: PluginDetail): PluginSummary {
   return summary;
 }
 
-function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id" | "source">; large?: boolean }): ReactNode {
-  const size = large ? 42 : 29;
-  const godot = plugin.id === "ohmygame:godot";
-  return <span className={`plugin-row-icon plugin-row-icon-${godot ? "godot" : "media"}${large ? " plugin-row-icon-large" : ""}`}>{godot ? <GodotIcon size={size} /> : plugin.source.type !== "builtIn" ? <Package size={size} /> : <WandSparkles size={size} />}</span>;
+const includedPluginIcons: Record<string, IconComponent> = {
+  "game-studio": Gamepad2,
+  "web-game-studio": Globe2,
+  "threejs-world": Box,
+  img2threejs: Image,
+};
+
+function PluginGlyph({ plugin, size }: { plugin: Pick<PluginSummary, "id" | "name" | "source">; size: number }): ReactNode {
+  if (plugin.id === "ohmygame:godot") return <GodotIcon size={size} />;
+  const included = plugin.source.type === "builtIn" || plugin.source.type === "preinstalled";
+  const Icon = (included ? includedPluginIcons[plugin.name] : undefined) ?? Package;
+  return <Icon size={size} aria-hidden="true" />;
+}
+
+function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id" | "name" | "source">; large?: boolean }): ReactNode {
+  return <span className={`plugin-row-icon${plugin.id === "ohmygame:godot" ? " plugin-row-icon-godot" : ""}${large ? " plugin-row-icon-large" : ""}`}><PluginGlyph plugin={plugin} size={large ? 42 : 29} /></span>;
 }
 
 function pluginSearchText(plugin: PluginSummary): string {
@@ -636,9 +663,7 @@ function PluginManagement({ plugin, updating, onBrowse, onRemove, onToggle }: {
     </dl>
     {plugin.installed ? <div className="plugin-section-actions">
       <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={() => onToggle(!plugin.enabled)}>{plugin.enabled ? "Disable" : "Enable"}</button>
-      {plugin.source.type !== "builtIn" ? <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={() => {
-        if (window.confirm(`Uninstall “${plugin.displayName}”?`)) onRemove();
-      }}>Uninstall</button> : null}
+      <PluginUninstallButton plugin={plugin} disabled={updating} onUninstall={onRemove} />
       {canBrowse ? <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={onBrowse}>Open folder</button> : null}
     </div> : null}
   </section>;

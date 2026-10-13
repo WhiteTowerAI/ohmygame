@@ -363,12 +363,12 @@ describe("AgentTimeline", () => {
       type: "agentMessage",
       text: "I started checking the project.",
       status: "failed",
-      error: { message: "OpenAI Responses stream ended before a terminal response event" },
+      error: { code: "stream_error", message: "OpenAI Responses stream ended before a terminal response event" },
     }]} failedTurnId="turn-1" />);
 
     expect(html).toContain("Worked for");
     expect(html).toContain("I started checking the project.");
-    expect(html).toContain("Connection error");
+    expect(html).toContain("Response interrupted");
     expect(html).toContain("OpenAI Responses stream ended before a terminal response event");
     expect(html).toContain('class="connection-activity-details connection-activity-failed"');
     expect(html).toContain('class="work-activity work-activity-failed"');
@@ -392,6 +392,54 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("/local/path/providers.md");
   });
 
+  it("folds DNS guidance and copyable diagnostics under a single error summary", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed",
+      error: { code: "dns_error", message: "Connection error.", diagnostics: {
+        provider: "deepseek", model: "deepseek-chat", endpoint: "https://api.deepseek.com/", requestId: "req-123", retryAttempts: 3,
+        network: { source: "manual", proxyUrl: "http://localhost:7890/" },
+        causes: [{ code: "ENOTFOUND", message: "getaddrinfo api.deepseek.com" }],
+      } },
+    }]} failedTurnId="turn-1" />);
+    expect(html).toContain("DNS lookup failed");
+    const summary = html.match(/<summary class="tool-activity tool-row timeline-activity connection-activity">([\s\S]*?)<\/summary>/)?.[1];
+    expect(summary).toContain("DNS lookup failed");
+    expect(summary).not.toContain("A hostname could not be resolved");
+    expect(html).toContain('<details class="connection-activity-details connection-activity-failed">');
+    expect(html).not.toContain('<details class="connection-activity-details connection-activity-failed" open');
+    expect(html).not.toContain('<summary>Details');
+    expect(html.indexOf("A hostname could not be resolved")).toBeGreaterThan(html.indexOf('class="connection-activity-diagnostics"'));
+    expect(html).toContain('aria-label="Copy diagnostics"');
+    expect(html).toContain("ENOTFOUND");
+    expect(html).toContain("req-123");
+    expect(html).toContain("Manual proxy");
+  });
+
+  it("previews an unclassified error on one line while preserving its full response", () => {
+    const message = "Unexpected gateway response\n  upstream request failed with additional diagnostic context";
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed", error: { message },
+    }]} failedTurnId="turn-1" />);
+    const summary = html.match(/<summary class="tool-activity tool-row timeline-activity connection-activity">([\s\S]*?)<\/summary>/)?.[1];
+    expect(summary).toContain("Model request failed — Unexpected gateway response upstream request failed");
+    expect(summary).not.toContain("\n");
+    expect(summary).toContain('role="alert"');
+    expect(html).toContain(`<dd>${message}</dd>`);
+    expect(html).not.toContain("activity-shimmer");
+  });
+
+  it.each([
+    ["authentication_failed", "Authentication failed"], ["quota_exceeded", "Provider quota exhausted"],
+    ["invalid_request", "Model request rejected"], [undefined, "Model request failed"],
+  ] as const)("does not call %s a connection error", (code, title) => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "assistant-error", turnId: "turn-1", type: "agentMessage", text: "", status: "failed",
+      error: { ...(code ? { code } : {}), message: "Provider rejected the request" },
+    }]} failedTurnId="turn-1" />);
+    expect(html).toContain(title);
+    expect(html).not.toContain("Connection error");
+  });
+
   it("renders only the final connection error when a turn has multiple failed attempts", () => {
     const failedMessage = (id: string, text: string, error: string): ThreadItem => ({
       id,
@@ -399,7 +447,7 @@ describe("AgentTimeline", () => {
       type: "agentMessage",
       text,
       status: "failed",
-      error: { message: error },
+      error: { code: "connection_reset", message: error },
     });
     const html = renderToStaticMarkup(<AgentTimeline items={[
       user(),
@@ -408,11 +456,11 @@ describe("AgentTimeline", () => {
       failedMessage("attempt-3", "Third partial response.", "final disconnect"),
     ]} failedTurnId="turn-1" />);
 
-    expect(html.match(/Connection error/g)).toHaveLength(1);
+    expect(html.match(/>Connection interrupted<\/span>/g)).toHaveLength(1);
     expect(html).not.toContain("first disconnect");
     expect(html).not.toContain("second disconnect");
     expect(html).toContain("final disconnect");
-    expect(html.indexOf("Third partial response.")).toBeLessThan(html.indexOf("Connection error"));
+    expect(html.indexOf("Third partial response.")).toBeLessThan(html.indexOf("Connection interrupted"));
   });
 
   it("shows only one expandable reconnect row for a retried stream error", () => {
@@ -440,7 +488,7 @@ describe("AgentTimeline", () => {
     expect(html.match(/connection-activity-details/g)).toHaveLength(1);
     expect(html).toContain("tool-detail-chevron");
     expect(html).not.toContain("solar-refresh-linear spin");
-    expect(html).not.toContain("activity-shimmer");
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Reconnecting 1/3" role="status">Reconnecting 1/3');
   });
 
   it("keeps reconnecting static after later activity appears", () => {
@@ -456,10 +504,34 @@ describe("AgentTimeline", () => {
     }, assistant("commentary", "I resumed the work.", "commentary")]} activeTurnId="turn-1" />);
 
     expect(html).toContain("Reconnecting 1/3");
-    expect(html).toContain('Reconnecting 1/3</span><svg');
-    expect(html).toContain('<span class="tool-label">Reconnecting 1/3</span>');
+    expect(html).not.toContain('<summary>Details');
+    expect(html).toContain('<span class="tool-label" title="Reconnecting 1/3">Reconnecting 1/3</span>');
     expect(html).not.toContain("solar-refresh-linear spin");
-    expect(html).not.toContain('class="tool-label activity-shimmer">Reconnecting');
+    expect(html).not.toContain('class="tool-label activity-shimmer" title="Reconnecting');
+  });
+
+  it.each([20, 30])("shimmers a reused retry row with timestamp %s after another failed attempt", (timestamp) => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "retry", turnId: "turn-1", type: "retry", status: "inProgress", attempt: 2, maxAttempts: 3,
+      delayMs: 1_000, error: { message: "stream disconnected again" }, timestamp,
+    }, {
+      ...assistant("attempt-1", "Partial reply", "commentary"), status: "failed", timestamp: 20,
+      error: { message: "stream disconnected" },
+    }]} activeTurnId="turn-1" />);
+    expect(html).toContain('<span class="tool-label activity-shimmer" title="Reconnecting 2/3" role="status">Reconnecting 2/3');
+    expect(html).not.toContain("Thinking");
+  });
+
+  it("stops reconnect shimmer after reasoning resumes even when that reasoning is hidden", () => {
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), {
+      id: "retry", turnId: "turn-1", type: "retry", status: "inProgress", attempt: 1, maxAttempts: 3,
+      delayMs: 1_000, error: { message: "stream disconnected" }, timestamp: 10,
+    }, {
+      id: "thinking", turnId: "turn-1", type: "reasoning", status: "completed", text: "Resumed reasoning", timestamp: 20,
+    }]} activeTurnId="turn-1" />);
+    expect(html).toContain('<span class="tool-label" title="Reconnecting 1/3">Reconnecting 1/3</span>');
+    const summary = html.match(/<summary class="tool-activity tool-row timeline-activity connection-activity">([\s\S]*?)<\/summary>/)?.[1];
+    expect(summary).not.toContain("activity-shimmer");
   });
 
   it("does not present an intermediate stream failure as a final connection error", () => {
@@ -543,7 +615,7 @@ describe("AgentTimeline", () => {
       attempt: 3,
       maxAttempts: 3,
       delayMs: 4_000,
-      error: { message: "stream disconnected" },
+      error: { code: "stream_error", message: "stream disconnected" },
     }, {
       id: "assistant-error",
       turnId: "turn-1",
@@ -553,7 +625,7 @@ describe("AgentTimeline", () => {
       error: { message: "stream disconnected" },
     }]} failedTurnId="turn-1" />);
 
-    expect(html.match(/Connection error/g)).toHaveLength(1);
+    expect(html.match(/>Response interrupted<\/span>/g)).toHaveLength(1);
     expect(html.match(/stream disconnected/g)).toHaveLength(1);
   });
 

@@ -97,14 +97,8 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
       return project?.id === event.data.project.id
         ? { ...next, project: event.data.project }
         : next;
-    case "preview.starting":
-      return project ? { ...next, project: { ...project, preview: { status: "starting" } } } : next;
-    case "preview.ready":
-      return project ? { ...next, project: { ...project, preview: { status: "ready", url: event.data.url } } } : next;
-    case "preview.error":
-      return project ? { ...next, project: { ...project, preview: { status: "error", error: event.data.error } } } : next;
-    case "preview.stopped":
-      return project ? { ...next, project: { ...project, preview: { status: "stopped" } } } : next;
+    case "preview.updated":
+      return project ? { ...next, project: { ...project, preview: event.data.preview } } : next;
     case "agent.started": {
       if (!event.turnId || !conversation) return next;
       const replacementId = event.data.revision === "last-turn"

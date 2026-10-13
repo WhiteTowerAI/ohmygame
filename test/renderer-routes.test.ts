@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginHash, pluginBuilderHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
@@ -39,6 +39,13 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/settings/plugins/id/extra")).toEqual({ page: "home" });
   });
 
+  it("restores a builder workspace without treating it as a plugin or game project", () => {
+    const sessionId = "1bf8dbe0-438a-488a-b8ec-299829c79561";
+    expect(parseAppRoute(pluginBuilderHash(sessionId))).toEqual({ page: "plugin-builder", sessionId });
+    expect(parseAppRoute("#/plugins/builder/%")).toEqual({ page: "home" });
+    expect(parseAppRoute(`${pluginBuilderHash(sessionId)}/extra`)).toEqual({ page: "home" });
+  });
+
   it("parses and formats project routes", () => {
     expect(parseAppRoute("#/projects/project%201")).toEqual({ page: "project", projectId: "project 1" });
     expect(parseAppRoute("#/projects/project%201/conversations/chat%201")).toEqual({
@@ -58,7 +65,7 @@ describe("renderer routes", () => {
   it("parses and formats Settings routes", () => {
     expect(DEFAULT_SETTINGS_SECTION).toBe("providers");
     expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "providers" });
-    for (const section of ["account", "billing", "appearance", "providers", "web-search", "plugins", "about"] as const) {
+    for (const section of ["account", "billing", "appearance", "providers", "web-search", "network", "plugins", "about"] as const) {
       expect(parseAppRoute(`#/settings/${section}`)).toEqual({ page: "settings", section });
       expect(settingsHash(section)).toBe(`#/settings/${section}`);
     }

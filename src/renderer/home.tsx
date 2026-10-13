@@ -1,3 +1,4 @@
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Plus, RefreshCw } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import type { PluginMention, ProjectState, ProjectType, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
@@ -10,20 +11,23 @@ import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import { ProjectPromptCreator } from "./project-prompt-creator.js";
 import { GAME_PROJECT_TYPES } from "./project-types.js";
-import { projectsHash, type AppNavigationTarget } from "./routes.js";
+import { createdProjectView, projectsHash, type AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
+import { useProjectActivity } from "./use-project-activity.js";
 import "./studios.css";
 
 interface HomeProps {
   onNavigate: (page: AppNavigationTarget) => void;
-  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
-  onOpen: (projectId: string) => void;
+  onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
+  onOpen: (projectId: string, view?: "design") => void;
 }
 
 export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
+  const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  const activity = useProjectActivity(phase === "ready" && projects.length > 0);
   const [loadError, setLoadError] = useState<string>();
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
@@ -46,7 +50,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
     }
   }
 
-  useEffect(() => { void loadProjects(); }, []);
+  useEffect(() => { void loadProjects(); }, [serviceGeneration]);
   async function rename(project: ProjectState, input: string) {
     const name = input.trim();
     if (!name || name === project.name) return;
@@ -121,6 +125,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
                 <ProjectCard
                   key={project.id}
                   project={project}
+                  agentStatus={activity.get(project.id)}
                   fallback={index % 4}
                   onOpen={() => onOpen(project.id)}
                   actions={{ onRename: () => {
@@ -145,7 +150,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
       }} /> : null}
       {createOpen ? <ProjectCreateDialog initialType={projectType} projectTypes={GAME_PROJECT_TYPES} onClose={() => setCreateOpen(false)} onCreated={(project) => {
         setCreateOpen(false);
-        onOpen(project.id);
+        onOpen(project.id, createdProjectView(project.type));
       }} /> : null}
     </main>
   );

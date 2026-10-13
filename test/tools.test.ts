@@ -1,3 +1,4 @@
+import { TEST_GLB } from "./model3d-fixture.js";
 import { access, mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,7 +20,7 @@ describe("tool runner", () => {
     const library = new AssetLibrary(dataDirectory);
     await library.load();
     const generate = vi.fn().mockResolvedValue({
-      bytes: Buffer.from("glb"),
+      bytes: TEST_GLB,
       mediaType: "model/gltf-binary" as const,
       requestId: "meshy-task-1",
     });
@@ -32,7 +33,7 @@ describe("tool runner", () => {
       pbr: true,
     });
 
-    expect(generate).toHaveBeenCalledWith({
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({
       model: { provider: "meshy", id: "meshy-t2" },
       images: [
         { mediaType: "image/png", data: "ZnJvbnQ=" },
@@ -40,19 +41,19 @@ describe("tool runner", () => {
       targetPolycount: 8_000,
       texture: true,
       pbr: true,
-    }, undefined);
+    }), undefined);
     expect(run).toMatchObject({
       toolId: "image-to-3d",
       files: [{ name: "model.glb", mediaType: "model/gltf-binary" }],
     });
-    expect(await readFile(path.join(dataDirectory, "tools", "runs", run.id, "model.glb"))).toEqual(Buffer.from("glb"));
+    expect(await readFile(path.join(dataDirectory, "tools", "runs", run.id, "model.glb"))).toEqual(TEST_GLB);
     expect(library.get(run.files[0]!.assetId!)).toMatchObject({ origin: "generated", purpose: "asset", mediaType: "model" });
     expect(library.get(run.files[0]!.assetId!)?.prompt).toBeUndefined();
   });
 
   it("runs 3D generation with a target poly count", async () => {
     const generate = vi.fn().mockResolvedValue({
-      bytes: Buffer.from("glb"),
+      bytes: TEST_GLB,
       mediaType: "model/gltf-binary" as const,
     });
     const runner = new ToolRunner(await temporaryData(), fakeGenerator(), { generate });
@@ -64,16 +65,16 @@ describe("tool runner", () => {
       texture: false,
     });
 
-    expect(generate).toHaveBeenCalledWith({
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({
       model: { provider: "meshy", id: "meshy-t2" },
       images: [{ mediaType: "image/png", data: "aW1hZ2U=" }],
       targetPolycount: 4_000,
       texture: false,
-    }, undefined);
+    }), undefined);
   });
 
   it("runs Meshy 7.1 with several views and its own polycount range", async () => {
-    const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("glb"), mediaType: "model/gltf-binary" as const });
+    const generate = vi.fn().mockResolvedValue({ bytes: TEST_GLB, mediaType: "model/gltf-binary" as const });
     const runner = new ToolRunner(await temporaryData(), fakeGenerator(), { generate });
     await runner.load();
     const views = Array.from({ length: 4 }, () => ({ mediaType: "image/png" as const, data: "aW1hZ2U=" }));
@@ -86,24 +87,24 @@ describe("tool runner", () => {
     const dataDirectory = await temporaryData();
     const library = new AssetLibrary(dataDirectory);
     await library.load();
-    const source = await library.add("hero.glb", Buffer.from("rigless"));
-    const animate = vi.fn().mockResolvedValue({ bytes: Buffer.from("animated"), mediaType: "model/gltf-binary" as const });
+    const source = await library.add("hero.glb", TEST_GLB);
+    const animate = vi.fn().mockResolvedValue({ bytes: TEST_GLB, mediaType: "model/gltf-binary" as const });
     const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn(), animate }, undefined, library);
     await runner.load();
 
     const run = await runner.run("animate-3d", { assetId: source.id, actionIds: [0, 30], heightMeters: 1.6 });
 
-    expect(animate).toHaveBeenCalledWith({ model: Buffer.from("rigless"), actionIds: [0, 30], heightMeters: 1.6 }, undefined);
+    expect(animate).toHaveBeenCalledWith(expect.objectContaining({ model: TEST_GLB, actionIds: [0, 30], heightMeters: 1.6, execution: expect.any(Object) }), undefined);
     expect(run).toMatchObject({ toolId: "animate-3d", files: [{ name: "model.glb", mediaType: "model/gltf-binary" }] });
     expect(run.files[0]?.assetId).not.toBe(source.id);
-    expect(await readFile(path.join(dataDirectory, "tools", "runs", run.id, "model.glb"))).toEqual(Buffer.from("animated"));
+    expect(await readFile(path.join(dataDirectory, "tools", "runs", run.id, "model.glb"))).toEqual(TEST_GLB);
   });
 
   it("rejects animation requests it cannot run", async () => {
     const dataDirectory = await temporaryData();
     const library = new AssetLibrary(dataDirectory);
     await library.load();
-    const model = await library.add("hero.glb", Buffer.from("glb"));
+    const model = await library.add("hero.glb", TEST_GLB);
     const image = await library.add("hero.png", Buffer.from("png"));
     const runner = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn(), animate: vi.fn() }, undefined, library);
     await runner.load();
@@ -111,13 +112,13 @@ describe("tool runner", () => {
     await expect(runner.run("animate-3d", { assetId: model.id, actionIds: [] })).rejects.toMatchObject({ statusCode: 400 });
     await expect(runner.run("animate-3d", { assetId: model.id, actionIds: [1, 1] })).rejects.toMatchObject({ statusCode: 400 });
     await expect(runner.run("animate-3d", { assetId: model.id, actionIds: Array.from({ length: MAX_ANIMATION_ACTIONS + 1 }, (_, index) => index) })).rejects.toMatchObject({ statusCode: 400 });
-    await expect(runner.run("animate-3d", { assetId: image.id, actionIds: [0] })).rejects.toMatchObject({ statusCode: 400, message: "Only GLB models can be animated" });
+    await expect(runner.run("animate-3d", { assetId: image.id, actionIds: [0] })).rejects.toMatchObject({ statusCode: 400, message: "Only GLB models are supported" });
     await expect(runner.run("animate-3d", { assetId: "missing", actionIds: [0] })).rejects.toMatchObject({ statusCode: 404 });
     const withoutAnimation = new ToolRunner(dataDirectory, fakeGenerator(), { generate: vi.fn() }, undefined, library);
     await expect(withoutAnimation.run("animate-3d", { assetId: model.id, actionIds: [0] })).rejects.toMatchObject({ statusCode: 503 });
   });
 
-  it("keeps a loaded animation library and retries a failed load", async () => {
+  it("loads animation libraries against the current connection and retries failures", async () => {
     const animations = vi.fn()
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValue([{ id: 0, name: "Idle", category: "DailyActions", subCategory: "Idle" }]);
@@ -126,7 +127,7 @@ describe("tool runner", () => {
     await expect(runner.animationActions()).rejects.toThrow("offline");
     await expect(runner.animationActions()).resolves.toHaveLength(1);
     await expect(runner.animationActions()).resolves.toHaveLength(1);
-    expect(animations).toHaveBeenCalledTimes(2);
+    expect(animations).toHaveBeenCalledTimes(3);
   });
 
   it("runs the selected video model with a Library image reference", async () => {
@@ -235,6 +236,29 @@ describe("tool runner", () => {
     expect((await readdir(path.join(dataDirectory, "tools", "runs", run.id))).sort()).toEqual(["output-1.webp", "output-2.webp", "run.json"]);
   });
 
+  it("names generated images by their actual format", async () => {
+    const dataDirectory = await temporaryData();
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]);
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16]);
+    const outputs = [png, jpeg];
+    // A proxy can ignore the requested WebP format and return other bytes.
+    const generate = vi.fn<ImageGenerator["generate"]>().mockImplementation(async () => ({
+      bytes: outputs.shift()!,
+      mediaType: "image/webp",
+    }));
+    const runner = new ToolRunner(dataDirectory, { generate });
+    await runner.load();
+    const run = await runner.run("generate-image", { prompt: "Two icons", resolution: "1K", aspectRatio: "1:1", outputs: 2 });
+
+    expect(run.files).toEqual([
+      { name: "output-1.png", mediaType: "image/png" },
+      { name: "output-2.jpg", mediaType: "image/jpeg" },
+    ]);
+    const runDirectory = path.join(dataDirectory, "tools", "runs", run.id);
+    expect(await readFile(path.join(runDirectory, "output-1.png"))).toEqual(png);
+    await expect(runner.file(run.id, "output-2.jpg")).resolves.toMatchObject({ bytes: jpeg, mediaType: "image/jpeg" });
+  });
+
   it("validates requests and reports missing configuration", async () => {
     const runner = new ToolRunner(await temporaryData(), fakeGenerator());
     await runner.load();
@@ -247,7 +271,7 @@ describe("tool runner", () => {
       ["image-to-3d", { prompt: "model" }],
       ["image-to-3d", { images: [] }],
       ["image-to-3d", { targetPolycount: 4_000 }],
-      ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: { provider: "meshy", id: "meshy-6" } }],
+      ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: { provider: "meshy", id: "unknown-meshy-version" } }],
       ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], model: null }],
       ["image-to-3d", { images: [{ mediaType: "image/png", data: "aW1hZ2U=" }], targetPolycount: 100_000 }],
       ["image-to-3d", { images: Array.from({ length: 5 }, () => ({ mediaType: "image/png", data: "aW1hZ2U=" })), model: { provider: "meshy", id: "meshy-7.1" } }],
@@ -380,6 +404,7 @@ describe("tool runner", () => {
     apps.push(app);
     const created = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { prompt: "Retry me" } });
 
+    await vi.waitFor(() => expect(attempt).toBe(1));
     const cancelled = await app.inject({ method: "POST", url: `/tool-jobs/${created.json().id}/cancel` });
     expect(cancelled.statusCode).toBe(200);
     expect(cancelled.json().status).toBe("cancelled");

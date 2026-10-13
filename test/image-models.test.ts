@@ -44,6 +44,12 @@ describe("image model families", () => {
     expect(new Set(model?.generationOptions.map((option) => option.resolution))).toEqual(new Set(["1K", "2K"]));
   });
 
+  it.each([0, 2, 16])("honours the catalog's %i reference limit over the model default", (limit) => {
+    const known = { ...CATALOG[0]!, maxReferenceImages: limit, supportsReferenceImage: limit > 0 };
+    const [model] = imageModelsForProvider("openai", "Relay", ["gpt-image-2"], [known]);
+    expect(model).toMatchObject({ maxReferenceImages: limit, supportsReferenceImage: limit > 0 });
+  });
+
   it("prefers GPT Image 2.5 Flare when nothing is requested", () => {
     expect(preferredImageModelId(["gpt-image-1", "gpt-image-2.5-flare"])).toBe("gpt-image-2.5-flare");
     expect(preferredImageModelId(["gpt-4o", "gpt-image-1"])).toBe("gpt-image-1");

@@ -103,9 +103,10 @@ Three games our team made with OhMyGame:
 Start without choosing an engine, or bring an existing game project. The
 Game Studio plugin coordinates design, production art, implementation, and
 verification across engines. The same workspace can support applications,
-tools, and content through other workflows. Enable **Web preview** in Project
-settings to use browser preview and playtesting; it is off by default. Static
-Web publishing works independently. Native games use their engine's tools.
+tools, and content through other workflows. **Web preview** is enabled for new
+General Game projects; existing projects keep their saved setting. Change it in
+Project settings to control browser preview and playtesting. Static Web
+publishing works independently. Native games use their engine's tools.
 
 ### 🎮 Web games
 
@@ -206,7 +207,7 @@ to publish a game; making games locally needs no account.
 Requires Bun 1.4.2 or newer for the toolchain and Node.js 22.19+ for the daemon.
 
 ```bash
-git clone https://github.com/WhiteTowerAI/ohmygame.git
+git clone --branch main https://github.com/WhiteTowerAI/ohmygame.git
 cd ohmygame
 bun install --frozen-lockfile
 bun run dev            # web renderer + local daemon
@@ -214,7 +215,10 @@ bun run dev            # web renderer + local daemon
 bun run dev:desktop    # Electron app
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md#configuration) for configuration.
+This uses the release branch. For development contributions, start from `dev`
+using [CONTRIBUTING.md](CONTRIBUTING.md#fork-and-create-a-branch).
+Local development can start without cloud configuration; see
+[CONTRIBUTING.md](CONTRIBUTING.md#configuration) for optional integrations.
 
 Design and Asset Canvas share boards, Markdown documents, and local media
 under `canvas/`. See [Canvas workspace](docs/canvas-agent.md) for the file
@@ -239,9 +243,12 @@ issues.
 
 ## Contributing
 
-Issues and PRs are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
-checks, and PR conventions, and [SECURITY.md](SECURITY.md) for reporting
-security issues.
+Issues and PRs are welcome. Start contribution branches from `dev` and target
+ordinary PRs at `dev`; `main` receives releases. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup, checks, and review,
+[中文快速指引](docs/contributing.zh-CN.md) for a short Chinese introduction, and
+[the documentation index](docs/README.md) for module guides.
+Report security issues using [SECURITY.md](SECURITY.md).
 
 ## License
 

@@ -26,6 +26,7 @@ import {
   type Edge,
   type EdgeChange,
   type NodeChange,
+  type ReactFlowInstance,
 } from "@xyflow/react";
 import { snapCanvasPosition } from "./canvas-alignment.js";
 import { EditorCanvas, isTextEntry, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
@@ -71,6 +72,7 @@ import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toF
 import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
 import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEmptyCanvas } from "./playable-canvas-menus.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
+import { useDesktopSave } from "./desktop-close-guard.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -147,14 +149,23 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [copiedNode, setCopiedNode] = useState<CopiedPlayableNode>();
   const [presets, setPresets] = useState<PlayablePresetSummary[]>([]);
   const [issues, setIssues] = useState<PlayableProjectValidationIssue[]>([]);
-  const [builtDefinition, setBuiltDefinition] = useState<NodePlayerDefinition>();
+  const [builtDefinitionState, setBuiltDefinitionState] = useState<{
+    projectId: string;
+    workspaceRevision: number;
+    codeRevision: number;
+    definition: NodePlayerDefinition;
+  }>();
+  const builtDefinition = builtDefinitionState?.projectId === projectId
+    && builtDefinitionState.workspaceRevision === workspaceRevision
+    && builtDefinitionState.codeRevision === codeRevision
+    ? builtDefinitionState.definition : undefined;
   const [thumbnails, setThumbnails] = useState<PlayableThumbnailManifest>();
-  const [thumbnailRevision, setThumbnailRevision] = useState(0);
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [building, setBuilding] = useState(false);
   const [playtesting, setPlaytesting] = useState(false);
   const [writing, setWriting] = useState(false);
   const latestCodebase = useRef<NodeCodebase | undefined>(undefined);
+  const canvas = useRef<ReactFlowInstance<PlayableFlowNode, Edge>>(null);
   /** What the editor last read from or wrote to disk, and the revision a save has to start from. */
   const diskCodebase = useRef<{ codebase: NodeCodebase; revision: string } | undefined>(undefined);
   /** Counts the versions loaded from disk, so a save queued before a load is not written over it. */
@@ -171,8 +182,6 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const historyTimer = useRef<number | undefined>(undefined);
   const historyGestureBase = useRef<NodeCodebase | undefined>(undefined);
   const [, setHistoryRevision] = useState(0);
-  /** The build of each Node the canvas last tried to capture, so a failure is not retried. */
-  const thumbnailAttempts = useRef(new Map<string, string>());
 
   const codebase = useMemo(
     () => graphMeta ? buildCodebase(graphMeta, nodes, edges, editorLayout, workspaceView) : undefined,
@@ -252,46 +261,49 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     void getPlayableValidation(projectId).then((result) => {
       if (disposed) return;
       setIssues(result.issues);
-      setBuiltDefinition(result.definition);
+      setBuiltDefinitionState(result.definition
+        ? { projectId, workspaceRevision, codeRevision, definition: result.definition }
+        : undefined);
     }).catch(() => {});
     return () => { disposed = true; };
   }, [phase, projectId, codeRevision, workspaceRevision]);
 
   useEffect(() => {
     setThumbnails(undefined);
-    thumbnailAttempts.current.clear();
   }, [projectId]);
 
-  useEffect(() => {
-    let disposed = false;
-    void listPlayableThumbnails(projectId).then((manifest) => {
-      if (!disposed) setThumbnails(manifest);
-    }).catch(() => {});
-    return () => { disposed = true; };
-  }, [projectId, workspaceRevision, thumbnailRevision]);
-
-  // Nodes with no thumbnail, or one of an older build, are captured in the
-  // background, one hidden window at a time.
+  // Submit every missing thumbnail; the desktop limits hidden windows, while
+  // this effect owns the batch and publishes each completed capture. A new
+  // build reads the cache again, including Nodes cancelled before they ran.
   useEffect(() => {
     const capture = window.ohMyGameDesktop?.captureNodeThumbnail;
-    if (!capture || !builtDefinition || !thumbnails) return;
-    const pending = builtDefinition.graph.nodes.flatMap((node) => {
-      const hash = playableThumbnailHash(builtDefinition, node.id);
-      return hash && thumbnails[node.id]?.hash !== hash
-        && thumbnailAttempts.current.get(node.id) !== hash ? [{ nodeId: node.id, hash }] : [];
-    });
-    if (!pending.length) return;
+    const batchId = crypto.randomUUID();
     let disposed = false;
+    let capturing = false;
     void (async () => {
-      for (const { nodeId, hash } of pending) {
-        if (disposed) return;
-        thumbnailAttempts.current.set(nodeId, hash);
-        const captured = await capture(projectId, nodeId, builtDefinition.graph.viewport).catch(() => false);
-        if (captured) setThumbnailRevision((current) => current + 1);
-      }
-    })();
-    return () => { disposed = true; };
-  }, [projectId, builtDefinition, thumbnails]);
+      const manifest = await listPlayableThumbnails(projectId);
+      if (disposed) return;
+      setThumbnails(manifest);
+      if (!capture || !builtDefinition) return;
+      const pending = builtDefinition.graph.nodes.flatMap((node) => {
+        const hash = playableThumbnailHash(builtDefinition, node.id);
+        return hash && manifest[node.id]?.hash !== hash ? [{ nodeId: node.id, hash }] : [];
+      });
+      if (!pending.length) return;
+      capturing = true;
+      await Promise.all(pending.map(async ({ nodeId, hash }) => {
+        const captured = await capture(projectId, nodeId, builtDefinition.graph.viewport, batchId).catch(() => false);
+        if (!captured || disposed) return;
+        const updated = await listPlayableThumbnails(projectId);
+        if (disposed || updated[nodeId]?.hash !== hash) return;
+        setThumbnails((cached) => ({ ...cached, [nodeId]: updated[nodeId]! }));
+      }));
+    })().catch(() => {});
+    return () => {
+      disposed = true;
+      if (capturing) void window.ohMyGameDesktop?.cancelNodeThumbnails?.(batchId).catch(() => {});
+    };
+  }, [projectId, builtDefinition]);
 
   /**
    * Adopts a whole codebase into the editor. `diskRevision` says it is what
@@ -561,6 +573,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     );
     return operation;
   }, [projectId]);
+
+  useDesktopSave(async () => {
+    const pending = latestCodebase.current;
+    if (!pending) return saveChain.current;
+    // React Flow delays onMoveEnd while scrolling; read the displayed view on close.
+    const viewport = workspaceView === "canvas" && !designOpen ? canvas.current?.getViewport() : undefined;
+    await save(viewport ? { ...pending, editorLayout: { ...pending.editorLayout, viewport } } : pending);
+  });
 
   useEffect(() => {
     if (phase !== "ready" || !codebase) return;
@@ -1024,6 +1044,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
               <EditorCanvas<PlayableFlowNode>
                 nodes={renderedNodes}
                 edges={renderedEdges}
+                onInit={(instance) => { canvas.current = instance; }}
                 nodeTypes={PLAYABLE_NODE_TYPES}
                 addControl={<PlayableAddControl
                   presets={presets}

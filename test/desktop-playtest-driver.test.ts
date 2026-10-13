@@ -3,9 +3,11 @@ import type { PlaytestSnapshot } from "../src/shared/playtest.js";
 
 const electron = vi.hoisted(() => {
   class FakeImage {
-    getSize() { return { width: 2, height: 1 }; }
-    toPNG() { return Buffer.from("png"); }
-    toBitmap() { return Buffer.from([0, 0, 0, 255, 255, 255, 255, 255]); }
+    constructor(readonly width = 2, readonly height = 1) {}
+    getSize() { return { width: this.width, height: this.height }; }
+    resize = vi.fn((options: { width: number; height: number }) => new FakeImage(options.width, options.height));
+    toJPEG = vi.fn((quality: number) => Buffer.from(`jpeg:${this.width}x${this.height}:${quality}`));
+    toBitmap = vi.fn(() => Buffer.from([0, 0, 0, 255, 255, 255, 255, 255]));
   }
 
   class FakeDebugger {
@@ -44,6 +46,7 @@ const electron = vi.hoisted(() => {
     closeHandler?: (event: { preventDefault(): void }) => void;
     closedHandler?: () => void;
     readonly setContentSize = vi.fn();
+    readonly getContentSize = vi.fn(() => [this.options.width, this.options.height]);
     readonly showInactive = vi.fn();
     readonly hide = vi.fn();
     readonly loadURL = vi.fn(async (url: string) => { this.loadedUrl = url; });
@@ -92,7 +95,7 @@ const electron = vi.hoisted(() => {
     isDestroyed() { return this.destroyed; }
     destroy() { this.destroyed = true; this.closedHandler?.(); }
   }
-  return { windows, FakeWindow };
+  return { windows, FakeWindow, FakeImage };
 });
 
 vi.mock("electron", () => ({ BrowserWindow: electron.FakeWindow }));
@@ -334,12 +337,30 @@ describe("electron playtest driver", () => {
     expect(result).toMatchObject({
       operation: "capture",
       capture: {
-        mediaType: "image/png",
-        data: Buffer.from("png").toString("base64"),
+        mediaType: "image/jpeg",
+        data: Buffer.from("jpeg:2x1:80").toString("base64"),
         width: 2,
         height: 1,
         analysis: { sampledPixels: 2, opaqueRatio: 1, likelyBlank: false },
       },
+    });
+    driver.close();
+  });
+
+  it("scales high-DPI screenshots to CSS pixels and keeps their aspect ratio", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 1200, height: 800 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0];
+    const retina = new electron.FakeImage(2400, 1601);
+    window.webContents.capturePage.mockResolvedValueOnce(retina);
+    const result = await driver.request({ operation: "capture", sessionId: opened.snapshot.sessionId });
+
+    expect(retina.resize).toHaveBeenCalledWith({ width: 1200, height: 801, quality: "best" });
+    expect(retina.toBitmap).toHaveBeenCalled();
+    expect(result).toMatchObject({
+      operation: "capture",
+      capture: { mediaType: "image/jpeg", data: Buffer.from("jpeg:1200x801:80").toString("base64"), width: 1200, height: 801 },
     });
     driver.close();
   });

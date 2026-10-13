@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AGENT_REASONING_LEVELS, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, type AgentModelRef, type AgentReasoningLevel, type AssetCanvasTextGenerationSource } from "../shared/contracts.js";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
 import {
   canvasDocumentPath,
@@ -17,6 +17,8 @@ import {
   setMainCanvasDocument,
 } from "./canvas-api.js";
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
+import { useDesktopClosing } from "./desktop-close-guard.js";
+import { isDesktopClosing } from "./desktop-save.js";
 
 export interface DocumentGenerationState {
   instruction: string;
@@ -33,6 +35,7 @@ const documentContent = ({ id, title, markdown }: CanvasMarkdownDocument): Canva
 const equal = (a: CanvasMarkdownDocument, b: CanvasMarkdownDocument) =>
   a.id === b.id && a.title === b.title && a.markdown === b.markdown;
 export function useCanvasDocuments(projectId: string) {
+  const closing = useDesktopClosing();
   const [workspace, setWorkspace] = useState<CanvasWorkspaceDetail>();
   const current = useRef<CanvasWorkspaceDetail | undefined>(undefined);
   const bases = useRef(new Map<string, CanvasDocumentDetail>());
@@ -100,7 +103,7 @@ export function useCanvasDocuments(projectId: string) {
     let next: CanvasWorkspaceDetail;
     try { next = await getCanvasWorkspace(projectId); }
     catch (cause) {
-      if (mounted.current && requestId === refreshCounter.current) setLoadError(message(cause));
+      if (mounted.current && requestId === refreshCounter.current && !isDesktopClosing()) setLoadError(message(cause));
       throw cause;
     }
     if (!mounted.current || requestId !== refreshCounter.current) return;
@@ -172,15 +175,18 @@ export function useCanvasDocuments(projectId: string) {
   }, [projectId, publish, recoveryKey, reportConflict]);
   useEffect(() => {
     mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => {
+    if (closing) return;
     void refresh().catch(() => {});
     const timer = window.setInterval(() => {
-      void refresh().catch(() => {});
+      if (!isDesktopClosing()) void refresh().catch(() => {});
     }, 3000);
     return () => {
-      mounted.current = false;
       window.clearInterval(timer);
     };
-  }, [refresh]);
+  }, [refresh, closing]);
   const update = useCallback(
     (
       id: string,
@@ -217,7 +223,14 @@ export function useCanvasDocuments(projectId: string) {
               const base = bases.current.get(doc.id);
               return base && !equal(base.document, doc);
             });
-            if (!entries.length) break;
+            if (!entries.length) {
+              const blocked = current.current.documents.find((doc) => {
+                const base = bases.current.get(doc.id);
+                return base && !equal(base.document, doc) && current.current?.documentIssues?.some((issue) => issue.id === doc.id);
+              });
+              if (blocked) throw new Error(`Could not save document “${blocked.title}”. Restore its workspace file before closing.`);
+              break;
+            }
             setSaving(true);
             for (const entry of entries) {
               const local = documentContent(entry);
@@ -295,12 +308,12 @@ export function useCanvasDocuments(projectId: string) {
     return operation;
   }, [projectId, publish, reportConflict]);
   useEffect(() => {
-    if (!workspace || conflict) return;
+    if (!workspace || conflict || closing) return;
     const timer = window.setTimeout(() => {
-      void flush().catch(() => {});
+      if (!isDesktopClosing()) void flush().catch(() => {});
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [workspace, flush, conflict]);
+  }, [workspace, flush, conflict, closing]);
   const create = useCallback(async () => {
     await flush();
     const detail = await createCanvasDocument(projectId, "Untitled document");
@@ -344,7 +357,7 @@ export function useCanvasDocuments(projectId: string) {
     [update, flush, changeGeneration],
   );
   const generate = useCallback(
-    async (id: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel) => {
+    async (id: string, model: AgentModelRef, reasoningLevel?: AgentReasoningLevel, referenceSource?: AssetCanvasTextGenerationSource, prepare?: () => Promise<void>) => {
       const state = generationStates.current[id],
         instruction = state?.instruction.trim();
       if (!instruction || state?.generating || state?.applying)
@@ -352,6 +365,7 @@ export function useCanvasDocuments(projectId: string) {
       let autoApply = false;
       changeGeneration(id, { generating: true, model, reasoningLevel, error: undefined });
       try {
+        await prepare?.();
         await flush();
         const base = current.current?.documents.find((doc) => doc.id === id);
         if (!base) throw new Error("Document not found");
@@ -359,6 +373,7 @@ export function useCanvasDocuments(projectId: string) {
           instruction,
           model,
           reasoningLevel,
+          referenceSource,
           revision: base.revision,
         });
         if (result.status === "empty") {
