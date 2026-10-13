@@ -27,6 +27,11 @@ symlinks. Preview modes are:
 | Static files | Serve the selected folder's `index.html` without installing dependencies. |
 | Custom command | Run a local server command in the selected directory, without a Node dependency install. |
 
+Static directory index pages redirect to a trailing-slash URL while preserving
+the query string, so relative scripts and other assets resolve from that directory.
+Directories without an index return 404; missing extensionless application routes
+can still fall back to the root `index.html` when the request accepts HTML.
+
 Custom commands can use `{host}` and `{port}`. The process also receives `HOST`,
 `PORT` and `BROWSER=none`. Its server must listen on that port. Advanced settings
 allow a fixed upstream port and a JSON array of package-script arguments, with

@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { createReadStream } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 
 const MIME: Record<string, string> = {
@@ -27,7 +28,7 @@ const MIME: Record<string, string> = {
 export async function startStaticPreview(
   directory: string,
   port: number,
-): Promise<{ close(): Promise<void> }> {
+): Promise<{ url: string; close(): Promise<void> }> {
   const root = await realpath(directory);
   const server = createServer((incoming, outgoing) => {
     void (async () => {
@@ -99,6 +100,7 @@ export async function startStaticPreview(
   });
   server.on("error", () => {});
   return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections();

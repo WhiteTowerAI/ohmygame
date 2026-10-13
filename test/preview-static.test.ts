@@ -1,5 +1,4 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { createServer, type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,15 +17,9 @@ async function directory(): Promise<string> {
 }
 
 async function preview(root: string): Promise<string> {
-  const reservation = createServer();
-  await new Promise<void>((resolve) =>
-    reservation.listen(0, "127.0.0.1", resolve),
-  );
-  const { port } = reservation.address() as AddressInfo;
-  await new Promise<void>((resolve) => reservation.close(() => resolve()));
-  const server = await startStaticPreview(root, port);
+  const server = await startStaticPreview(root, 0);
   cleanups.push(() => server.close());
-  return `http://127.0.0.1:${port}`;
+  return server.url;
 }
 
 describe("static preview directory URLs", () => {
@@ -54,50 +47,106 @@ describe("static preview directory URLs", () => {
 
       const response = await fetch(url, { method });
       expect(response.status).toBe(200);
-      expect(new URL(response.url).pathname).toBe("/level%20one/");
-      expect(new URL(response.url).search).toBe("?level=2&label=a%2Fb");
+      const resolvedUrl = new URL(response.url);
+      expect(resolvedUrl.pathname).toBe("/level%20one/");
+      expect(resolvedUrl.search).toBe("?level=2&label=a%2Fb");
       expect(await response.text()).toBe(method === "HEAD" ? "" : html);
-      const script = await fetch(new URL("./game.js", response.url));
+      const script = await fetch(new URL("./game.js", resolvedUrl));
       expect(script.status).toBe(200);
       expect(await script.text()).toBe("export const ready = true;");
     },
   );
 
-  it("checks blocked paths and resolved containment before redirecting", async () => {
-    const root = await directory();
-    const outside = await directory();
-    await writeFile(path.join(outside, "index.html"), "outside");
-    await symlink(
-      outside,
-      path.join(root, "external"),
-      process.platform === "win32" ? "junction" : "dir",
-    );
-    for (const name of [".private", "node_modules"]) {
-      await mkdir(path.join(root, name));
-      await writeFile(path.join(root, name, "index.html"), "blocked");
-    }
-    const url = await preview(root);
+  it.each(["GET", "HEAD"])(
+    "checks %s paths and resolved indexes before redirecting",
+    async (method) => {
+      const root = await directory();
+      const outside = await directory();
+      await writeFile(path.join(outside, "index.html"), "outside");
+      await symlink(
+        outside,
+        path.join(root, "external"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      const indexed = path.join(root, "index-escape");
+      await mkdir(indexed);
+      // Windows junctions exercise index containment without symlink privileges.
+      await symlink(
+        process.platform === "win32"
+          ? outside
+          : path.join(outside, "index.html"),
+        path.join(indexed, "index.html"),
+        process.platform === "win32" ? "junction" : "file",
+      );
+      for (const name of [".private", "node_modules"]) {
+        await mkdir(path.join(root, name));
+        await writeFile(path.join(root, name, "index.html"), "blocked");
+      }
+      const url = await preview(root);
 
-    for (const name of [".private", "node_modules", "external"]) {
-      const response = await fetch(`${url}/${name}`, { redirect: "manual" });
-      expect(response.status).toBe(403);
-      expect(response.headers.has("location")).toBe(false);
-    }
-  });
+      for (const name of [
+        ".private",
+        "node_modules",
+        "external",
+        "index-escape",
+      ]) {
+        const response = await fetch(`${url}/${name}`, {
+          method,
+          redirect: "manual",
+        });
+        expect(response.status).toBe(403);
+        expect(response.headers.has("location")).toBe(false);
+        await response.text();
+      }
+    },
+  );
 
-  it("continues serving files and extensionless application routes without redirects", async () => {
-    const root = await directory();
-    await writeFile(path.join(root, "index.html"), "home");
-    const url = await preview(root);
+  it.each(["GET", "HEAD"])(
+    "returns 404 for %s directories without an index before redirecting",
+    async (method) => {
+      const root = await directory();
+      await writeFile(path.join(root, "index.html"), "home");
+      await mkdir(path.join(root, "empty"));
+      const url = await preview(root);
 
-    for (const pathname of ["/", "/index.html", "/play?level=2"]) {
-      const response = await fetch(`${url}${pathname}`, {
+      const response = await fetch(`${url}/empty?level=2`, {
+        method,
         headers: { accept: "text/html" },
         redirect: "manual",
       });
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(404);
       expect(response.headers.has("location")).toBe(false);
-      expect(await response.text()).toBe("home");
-    }
-  });
+      expect(await response.text()).toBe(
+        method === "HEAD" ? "" : "Preview file not found.",
+      );
+    },
+  );
+
+  it.each(["GET", "HEAD"])(
+    "serves %s files, canonical directories and application routes without redirects",
+    async (method) => {
+      const root = await directory();
+      await writeFile(path.join(root, "index.html"), "home");
+      await mkdir(path.join(root, "levels"));
+      await writeFile(path.join(root, "levels", "index.html"), "home");
+      const url = await preview(root);
+
+      for (const pathname of [
+        "/",
+        "/index.html",
+        "/levels/",
+        "/levels/index.html",
+        "/play?level=2",
+      ]) {
+        const response = await fetch(`${url}${pathname}`, {
+          method,
+          headers: { accept: "text/html" },
+          redirect: "manual",
+        });
+        expect(response.status).toBe(200);
+        expect(response.headers.has("location")).toBe(false);
+        expect(await response.text()).toBe(method === "HEAD" ? "" : "home");
+      }
+    },
+  );
 });
