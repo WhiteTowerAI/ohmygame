@@ -22,6 +22,9 @@ const GRAPH_FILE = "graph.json";
 const LAYOUT_FILE = "editor/layout.json";
 const GRAPH_SCHEMA_FILE = "schemas/graph.schema.json";
 const LAYOUT_SCHEMA_FILE = "schemas/editor-layout.schema.json";
+const PROJECT_STYLE_FILES = Object.keys(PLAYABLE_PROJECT_STYLE_FILES);
+const PROJECT_STYLE_MIGRATION_FILE = "schemas/project-style.version.json";
+const PROJECT_STYLE_MIGRATION_CONTENT = '{\n  "version": 1\n}\n';
 const codebaseOperations = new Map<string, Promise<void>>();
 
 export class NodeCodebaseError extends Error {
@@ -139,6 +142,7 @@ export async function createNodeCodebase(
       "README.md",
       GRAPH_SCHEMA_FILE,
       LAYOUT_SCHEMA_FILE,
+      PROJECT_STYLE_MIGRATION_FILE,
     ];
     const snapshot = await snapshotFiles(workspacePath, touchedFiles);
     try {
@@ -177,6 +181,17 @@ export async function readNodeCodebaseDetail(
   workspacePath: string,
 ): Promise<NodeCodebaseDetail> {
   return withCodebaseLock(workspacePath, () => readCodebase(workspacePath));
+}
+
+/** Reads a codebase after applying one-time migrations needed by the editor. */
+export async function openNodeCodebaseDetail(
+  workspacePath: string,
+): Promise<NodeCodebaseDetail> {
+  return withCodebaseLock(workspacePath, async () => {
+    const codebase = await readCodebase(workspacePath);
+    await migratePlayableProjectStyle(workspacePath);
+    return codebase;
+  });
 }
 
 /** Resolves with the revision of the written files. */
@@ -247,6 +262,8 @@ async function writeCodebase(
     "README.md",
     GRAPH_SCHEMA_FILE,
     LAYOUT_SCHEMA_FILE,
+    ...PROJECT_STYLE_FILES,
+    PROJECT_STYLE_MIGRATION_FILE,
   ];
   const snapshot = await snapshotFiles(workspacePath, touchedFiles);
   try {
@@ -275,6 +292,7 @@ export async function ensureNodeCodebaseContract(
   await Promise.all([
     ensureFile(path.join(workspacePath, "AGENTS.md"), AGENT_INSTRUCTIONS),
     ensureFile(path.join(workspacePath, "README.md"), PROJECT_DOCUMENTATION),
+    migratePlayableProjectStyle(workspacePath),
     writeJsonIfChanged(
       path.join(workspacePath, GRAPH_SCHEMA_FILE),
       PLAYABLE_GRAPH_SCHEMA,
@@ -284,6 +302,44 @@ export async function ensureNodeCodebaseContract(
       EDITOR_LAYOUT_SCHEMA,
     ),
   ]);
+}
+
+async function migratePlayableProjectStyle(
+  workspacePath: string,
+): Promise<void> {
+  const marker = await resolveWorkspaceMutationPath(
+    workspacePath,
+    PROJECT_STYLE_MIGRATION_FILE,
+  );
+  try {
+    await readFile(marker);
+    return;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
+  }
+
+  const snapshot = await snapshotFiles(workspacePath, [
+    ...PROJECT_STYLE_FILES,
+    PROJECT_STYLE_MIGRATION_FILE,
+  ]);
+  try {
+    for (const [relative, content] of Object.entries(
+      PLAYABLE_PROJECT_STYLE_FILES,
+    )) {
+      await ensureFile(
+        await resolveWorkspaceMutationPath(workspacePath, relative),
+        content,
+      );
+    }
+    await writeTextAtomic(
+      workspacePath,
+      PROJECT_STYLE_MIGRATION_FILE,
+      PROJECT_STYLE_MIGRATION_CONTENT,
+    );
+  } catch (cause) {
+    await restoreFiles(workspacePath, snapshot);
+    throw cause;
+  }
 }
 
 async function validateCodebase(
@@ -411,6 +467,7 @@ async function existingGeneratedFiles(
 }
 
 async function ensureFile(file: string, content: string): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
   try {
     await writeFile(file, content, { encoding: "utf8", flag: "wx" });
   } catch (cause) {

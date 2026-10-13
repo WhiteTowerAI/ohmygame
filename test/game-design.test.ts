@@ -215,6 +215,18 @@ describe("Markdown design workspace", () => {
     await expect(store.setMainDocument(project.id, doc.document.id)).rejects.toMatchObject({ statusCode: 409 });
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
   });
+  it("opens boards with a legacy size on a content-sized node and reports it", async () => {
+    const { store, project, boardId } = await runtime(fakeGenerator, "asset-canvas");
+    const canvas = path.join(project.workspacePath, "canvas");
+    await writeFile(path.join(canvas, `boards/${boardId}.json`), JSON.stringify({ version: 1, id: boardId, viewport: { width: 1280, height: 720 }, edges: [],
+      nodes: [{ id: "boat", type: "image", data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [] } }] }));
+    await writeFile(path.join(canvas, `editor/${boardId}.json`), JSON.stringify({ version: 1, nodes: { boat: { x: 0, y: 0, width: 330, height: 320 } }, viewport: { x: 0, y: 0, zoom: 1 }, view: "canvas" }));
+    const { board } = await store.board(project.id, boardId);
+    expect(board.nodes[0]).not.toHaveProperty("width");
+    expect(board.editorLayout.nodes.boat).toEqual({ x: 0, y: 0 });
+    const result = await checkCanvasWorkspace(project.workspacePath);
+    expect(result.issues).toEqual([{ file: `canvas/editor/${boardId}.json`, message: expect.stringContaining("Node boat: image nodes size to their content") }]);
+  });
   it("keeps Markdown canonical and rejects stale saves after disk edits", async () => {
     const { store, project } = await runtime();
     const detail = await store.createDocument(project.id, "Rules");
@@ -266,6 +278,13 @@ describe("Markdown design workspace", () => {
     expect(inserted.document.markdown).toMatch(/!\[gardener\.png\]\(\.\.\/\.\.\/assets\//);
     const link = inserted.document.markdown.match(/\]\(([^)]+)\)/)![1]!;
     expect(await readFile(path.resolve(project.workspacePath, "canvas/documents", link), "utf8")).toBe("image");
+  });
+  it("removes a deleted image's embed when the file name has parentheses", async () => {
+    const { store, project, library, projects } = await runtime();
+    const doc = await store.createDocument(project.id, "Art"), asset = await library.add("hero (1).png", Buffer.from("image"));
+    expect((await store.insertAsset(project.id, doc.document.id, asset.id)).document.markdown).toContain("/hero%20(1).png)");
+    await projects.deleteWorkspaceEntry(project.id, (await store.workspace(project.id)).assets[0]!.path);
+    expect((await store.read(project.id, doc.document.id))!.document.markdown).not.toContain("![");
   });
   it("reads direct semantic edits, fits new nodes and reports malformed fields without rewriting them", async () => {
     const { store, project, boardId, node } = await runtime();
@@ -513,6 +532,32 @@ describe("Markdown design workspace", () => {
     await writeFile(path.join(project.workspacePath, "canvas/jobs.json"), JSON.stringify([{ id: "interrupted", toolId: "generate-image", context: { projectId: project.id, boardId, nodeId: node.id }, status: "running", createdAt: "now", input: { prompt: "Garden" } }]));
     expect((await store.jobs(project.id))[0]).toMatchObject({ status: "cancelled", error: expect.stringContaining("interrupted") });
   });
+  it("keeps generation history usable in a duplicated project", async () => {
+    const { store, projects, project, boardId, node } = await runtime();
+    await store.generateNode(project.id, boardId, node.id);
+    const original = await waitForJob(store, project.id); expect(original.status).toBe("succeeded");
+    const copy = await projects.duplicate(project.id);
+    expect(await store.jobs(copy.id)).toEqual([{ ...original, context: { ...original.context, projectId: copy.id } }]);
+    await store.generateNode(copy.id, boardId, node.id);
+    expect((await waitForJob(store, copy.id)).status).toBe("succeeded");
+    expect(await store.jobs(copy.id)).toHaveLength(2); expect(await store.jobs(project.id)).toEqual([original]);
+  });
+  it("restores a generation that was running during duplication as cancelled in the copy", async () => {
+    let calls = 0;
+    const { store, projects, project, boardId, node } = await runtime({ generate: async (_input, signal) => {
+      if (calls++) return { bytes: Buffer.from("image"), mediaType: "image/png" };
+      return new Promise((_resolve, reject) => signal!.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")), { once: true }));
+    } });
+    const job = await store.start(project.id, boardId, node.id, "generate-image", { prompt: "Garden" });
+    await expect.poll(() => calls).toBe(1);
+    const copy = await projects.duplicate(project.id);
+    expect((await store.jobs(copy.id))[0]).toMatchObject({ id: job.id, status: "cancelled", error: expect.stringContaining("interrupted"), context: { projectId: copy.id } });
+    // The copy shares the job ID; cancelling there must leave the original running.
+    expect((await store.cancel(copy.id, job.id)).status).toBe("cancelled");
+    expect((await store.jobs(project.id))[0]!.status).toBe("running"); expect(calls).toBe(1);
+    await store.retry(copy.id, job.id); expect((await waitForJob(store, copy.id)).status).toBe("succeeded");
+    expect((await store.jobs(project.id))[0]!.status).toBe("running");
+  });
   it.each(["generate-video", "image-to-3d", "animate-3d"] as const)("stores %s output in the matching node", async (toolId) => {
     const { store, project, boardId, tools, library } = await runtime(), board = await store.board(project.id, boardId);
     const node: AssetCanvasNode = toolId === "animate-3d"
@@ -538,7 +583,7 @@ describe("Markdown design workspace", () => {
     const run = vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "animation-run", toolId: "animate-3d", createdAt: "now", files: [{ name: output.name, mediaType: "model/gltf-binary", assetId: output.id }] });
     await store.generateNode(project.id, boardId, animation.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
-    expect(run).toHaveBeenCalledWith("animate-3d", { assetId: source.id, actionIds: [0], heightMeters: 1.7 }, expect.any(AbortSignal));
+    expect(run).toHaveBeenCalledWith("animate-3d", expect.objectContaining({ assetId: source.id, actionIds: [0], heightMeters: 1.7 }), expect.any(AbortSignal), expect.any(String));
     const manifest = await readCanvasAssets(project.workspacePath);
     await writeFile(path.join(project.workspacePath, "assets/wrong.png"), "image");
     manifest.assets[source.id]!.path = "assets/wrong.png";
@@ -619,6 +664,25 @@ describe("Markdown design workspace", () => {
     await expect.poll(async () => (await app.inject(`${base}/jobs`)).json()[0]?.status).toBe("succeeded");
     expect(generate).toHaveBeenCalledTimes(1);
     expect(generate.mock.calls[0]![0]).toMatchObject({ prompt: "Changed\n\nGarden", resolution: "2K", aspectRatio: "16:9" });
+  });
+  it("serves generation history and generates in a duplicated project", async () => {
+    const app = createApp({ dataDirectory: await temp(), imageGenerator: fakeGenerator }); apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "asset-canvas" } })).json(), base = `/projects/${project.id}/canvas`;
+    const workspace = (await app.inject(`${base}/workspace`)).json(), boardId = workspace.boards[0].id;
+    const detail = (await app.inject(`${base}/boards/${boardId}`)).json(), node = createAssetGenerationNode("image", { x: 0, y: 0 });
+    if (node.type !== "image") throw new Error("Expected image node");
+    node.data.prompt = "Garden";
+    detail.board.nodes.push(node); detail.board.editorLayout.nodes[node.id] = node.position;
+    expect((await app.inject({ method: "PUT", url: `${base}/boards/${boardId}`, payload: detail })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `${base}/boards/${boardId}/nodes/${node.id}/generate` })).statusCode).toBe(202);
+    await expect.poll(async () => (await app.inject(`${base}/jobs`)).json()[0]?.status).toBe("succeeded");
+
+    const copy = (await app.inject({ method: "POST", url: `/projects/${project.id}/duplicate` })).json(), copyBase = `/projects/${copy.id}/canvas`;
+    const history = await app.inject(`${copyBase}/jobs`);
+    expect(history.statusCode).toBe(200);
+    expect(history.json()).toMatchObject([{ status: "succeeded", context: { projectId: copy.id, boardId, nodeId: node.id } }]);
+    expect((await app.inject({ method: "POST", url: `${copyBase}/boards/${boardId}/nodes/${node.id}/generate` })).statusCode).toBe(202);
+    await expect.poll(async () => (await app.inject(`${copyBase}/jobs`)).json()[0]?.status).toBe("succeeded");
   });
   it("cancels and finishes canvas generation when the application closes", async () => {
     let started!: () => void;

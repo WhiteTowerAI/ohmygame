@@ -1,3 +1,4 @@
+import { TEST_GLB } from "./model3d-fixture.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -75,6 +76,9 @@ describe("agent tools", () => {
     expect(createAgentTools(project, runner, projects).some(({ name }) => name === "game_use")).toBe(false);
     const playtest = { driver, resolveOpenTarget: async () => ({ runtime: "web" as const, url: "http://127.0.0.1:43210/" }) };
     if (type === "general") {
+      expect(project.webPreviewEnabled).toBe(true);
+      expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(true);
+      await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: false });
       expect(createAgentTools(project, runner, projects, undefined, undefined, playtest).some(({ name }) => name === "game_use")).toBe(false);
       await projects.setRunSettings(project.id, { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: true });
     }
@@ -208,7 +212,7 @@ describe("agent tools", () => {
     }, {
       generate: async ({ images }) => {
         expect(images).toEqual([{ mediaType: "image/png", data: Buffer.from("source image").toString("base64") }]);
-        return { bytes: Buffer.from("generated glb"), mediaType: "model/gltf-binary" };
+        return { bytes: TEST_GLB, mediaType: "model/gltf-binary" };
       },
     });
     await runner.load();
@@ -220,7 +224,7 @@ describe("agent tools", () => {
     const relativePath = text.replace("Generated 3D model saved to ", "");
 
     expect(relativePath).toMatch(/^assets\/generated\/model-[0-9a-f-]+\.glb$/);
-    expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated glb");
+    expect(await readFile(path.join(project.workspacePath, relativePath))).toEqual(TEST_GLB);
     const model = (await listWorkspaceFiles(project.workspacePath)).find((file) => file.path === relativePath);
     expect(model?.previewPath).toMatch(/^\.data\/asset-previews\/model-[0-9a-f-]+\.png$/);
     expect(await readFile(path.join(project.workspacePath, model?.previewPath ?? ""), "utf8")).toBe("source image");

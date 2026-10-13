@@ -4,7 +4,7 @@ import type { MediaModelCatalog, MediaModelDefaults, MediaModelUsage, ModelRef, 
 import { MODEL_USAGE_LABELS } from "../shared/custom-models.js";
 import { listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setDefaultMediaModel, updateProjectMediaModelDefaults } from "./api.js";
 import { CanvasChipSelect, type CanvasChipOption } from "./canvas-chip-select.js";
-import { LoaderCircle, Settings } from "./icons.js";
+import { LoaderCircle, SlidersHorizontal } from "./icons.js";
 import { menuPlacement } from "./popover-placement.js";
 
 const USAGES = ["image", "video", "3d"] as const;
@@ -148,7 +148,7 @@ export function ProjectMediaModelSettings({ project, onSaved }: {
     finally { setSaving(false); }
   }
   return <>
-    <button ref={trigger} className="icon-button pane-header-action" type="button" title="Project settings" aria-label="Project settings" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((next) => !next)}><Settings size={14} /></button>
+    <button ref={trigger} className="icon-button pane-header-action" type="button" title="Default models" aria-label="Default models" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((next) => !next)}><SlidersHorizontal size={14} /></button>
     {open ? createPortal(<div ref={setPopup} className="canvas-chip-menu project-media-defaults" role="dialog" aria-labelledby={titleId}
       style={position ?? { top: 0, left: 0, visibility: "hidden" }}>
       <div className="canvas-chip-menu-heading" id={titleId}>Default models{saving ? <LoaderCircle className="spin" size={12} aria-label="Saving" /> : null}</div>

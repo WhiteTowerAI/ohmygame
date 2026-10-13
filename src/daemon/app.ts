@@ -1,7 +1,11 @@
+import { inspectPreviewConfiguration } from "./preview-configuration.js";
+import { validatePreviewSettings } from "../shared/preview-settings.js";
+import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
 import { PluginCapabilities } from "./plugin-capabilities.js";
 import { registerPluginCapabilityRoutes } from "./plugin-capability-routes.js";
 import { isUtf8 } from "node:buffer";
+import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -9,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
 import { groupThreadItems } from "../shared/turns.js";
@@ -24,6 +28,7 @@ import { ConversationManager, type StoredConversation } from "./conversations.js
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "./text-generation.js";
+import { resolveCanvasTextReferences } from "./canvas-text-references.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
 import { registerCanvasRoutes } from "./canvas-routes.js";
@@ -35,20 +40,26 @@ import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
 import { LocalPublisher } from "./publish/local.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
-import { PreviewManager } from "./preview.js";
+import { PreviewManager, PreviewCancelledError } from "./preview.js";
 import { ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError } from "./projects.js";
 import { ExampleError, ExampleStore } from "./examples.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
+import { NetworkSettingsService } from "./network-settings.js";
+import type { NetworkSettings } from "../shared/network-settings.js";
 import { normalizeCustomProvider, normalizeCustomProviderModel, ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
 import { CUSTOM_IMAGE_MODEL_APIS, type DiscoverProviderModelsRequest } from "../shared/contracts.js";
-import type { Model3DGenerator } from "./model3d.js";
+import { Model3DGenerationError, type Model3DGenerator } from "./model3d.js";
+import { CloudModelsClient } from "./cloud-models.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
+import { isNative3DProvider, model3DPreset, normalizeNativeModel3D, MODEL_3D_CATALOG_DOCS, MODEL_3D_CATALOG_REVIEWED } from "../shared/model3d-presets.js";
+import type { ProviderModelSettings } from "../shared/contracts.js";
 import { MeshyProvider } from "./meshy-provider.js";
 import { MediaProviderKeyStore } from "./media-provider-settings.js";
 import { TripoProvider } from "./tripo-provider.js";
+import { Hyper3DProvider } from "./hyper3d-provider.js";
 import type { ImageGenerator } from "./openai-image.js";
 import { ProviderImages } from "./provider-images.js";
 import { ProviderModels3D } from "./provider-models3d.js";
@@ -80,7 +91,7 @@ import {
   createPlayableStarterCodebase,
   NodeCodebaseConflictError,
   NodeCodebaseError,
-  readNodeCodebaseDetail,
+  openNodeCodebaseDetail,
   writeNodeCodebase,
 } from "./playable-codebase.js";
 import type { NodeCodebaseUpdate } from "../shared/playable-codebase.js";
@@ -96,6 +107,8 @@ import {
 } from "./playable-thumbnails.js";
 
 export interface AppOptions {
+  cloudApiUrl?: string;
+  cloudFetch?: typeof fetch;
   dataDirectory?: string;
   piAgentDirectory?: string;
   logger?: boolean;
@@ -121,6 +134,7 @@ export interface AppOptions {
   examplesDirectory?: string;
   playtestDriver?: GameRuntimeAdapter;
   webSearchFetch?: typeof fetch;
+  networkSettings?: NetworkSettingsService;
 }
 
 const createProjectSchema = {
@@ -175,6 +189,12 @@ const runSettingsSchema = {
       previewPath: { type: "string", maxLength: 1_000 },
       previewViewport: { enum: ["fit", "tablet", "mobile"] },
       webPreviewEnabled: { type: "boolean" },
+      previewAutoStart: { type: "boolean" },
+      previewMode: { enum: ["auto", "script", "static", "command"] },
+      previewCommand: { type: "string", maxLength: 2_000 },
+      previewArguments: { type: "array", maxItems: 20, items: { type: "string", maxLength: 500 } },
+      previewPort: { type: "integer", minimum: 1024, maximum: 65535 },
+      previewIdleMinutes: { type: "integer", minimum: 0, maximum: 60 },
     },
   },
 } as const;
@@ -411,7 +431,7 @@ const toolRunSchema = {
       },
       images: {
         type: "array",
-        maxItems: 14,
+        maxItems: IMAGE_MAX_REFERENCE_IMAGES,
         items: {
           type: "object",
           additionalProperties: false,
@@ -503,15 +523,18 @@ export function createApp(options: AppOptions = {}) {
   const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const examples = new ExampleStore(options.examplesDirectory, (workspacePath, exampleId) => artifacts.preparePlayableExample(workspacePath, exampleId));
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
+  const cloudModels = new CloudModelsClient(options.cloudApiUrl ?? options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130", options.cloudFetch);
   const publisher = localPublisher ?? new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
   });
   const previews = new PreviewManager(events);
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
+  const networkSettings = options.networkSettings ?? new NetworkSettingsService(dataDirectory);
   const meshySettings = new MediaProviderKeyStore(dataDirectory, "meshy", "Meshy");
   const tripoSettings = new MediaProviderKeyStore(dataDirectory, "tripo", "Tripo");
-  const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings]] as const;
+  const hyper3dSettings = new MediaProviderKeyStore(dataDirectory, "hyper3d", "Hyper3D");
+  const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings], ["hyper3d", "Hyper3D", hyper3dSettings]] as const;
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
@@ -573,7 +596,9 @@ export function createApp(options: AppOptions = {}) {
     getDeviceId: () => SettingsManager.create(piAgentDirectory, piAgentDirectory).getOrCreateDeviceId(),
     onCredentialsChanged: syncOpenAIEndpoint,
   });
-  const providerEnabled = (id: string) => providerModelSettings.isEnabled(id);
+  const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
+    ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
+    : providerModelSettings.isEnabled(id);
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(),
     migrateLegacyModels: (id, models) => providerModelSettings.migrateLegacyImageModels(id, models, async () => { await (await getModelRuntime()).refresh({ allowNetwork: false, providers: [id] }); }),
@@ -582,13 +607,15 @@ export function createApp(options: AppOptions = {}) {
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
   });
-  const providerModels3D = new ProviderModels3D(getModelRuntime,
-    new MeshyProvider(() => meshySettings.key(), options.model3DFetch, undefined, () => providerEnabled("meshy")),
-    () => meshySettings.get().configured, () => providerModelSettings.customProviderCatalog(), providerEnabled,
-    options.model3DFetch, () => providerModelSettings.defaultModel3D(), {
-      generator: new TripoProvider(() => tripoSettings.key(), options.model3DFetch, undefined, () => providerEnabled("tripo")),
-      configured: () => tripoSettings.get().configured,
-    });
+  const providerModels3D = new ProviderModels3D({
+    runtime: getModelRuntime,
+    meshy: { generator: new MeshyProvider(() => meshySettings.key(), options.model3DFetch, undefined, () => providerEnabled("meshy")), configured: () => meshySettings.get().configured },
+    tripo: { generator: new TripoProvider(() => tripoSettings.key(), options.model3DFetch, undefined, () => providerEnabled("tripo")), configured: () => tripoSettings.get().configured },
+    hyper3d: { generator: new Hyper3DProvider(() => hyper3dSettings.key(), options.model3DFetch, undefined, () => providerEnabled("hyper3d")), configured: () => hyper3dSettings.get().configured },
+    customProviders: () => providerModelSettings.customProviderCatalog(),
+    nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
+    isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
+  });
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -609,7 +636,8 @@ export function createApp(options: AppOptions = {}) {
       if (!selected) {
         const injected = usage === "image" ? options.imageGenerator : usage === "video" ? options.videoGenerator : options.model3DGenerator;
         if (injected) return input;
-        const catalog = videoCatalog ?? await (usage === "image" ? providerImages : providerModels3D).catalog();
+        const processing3D = usage === "3d" && "operation" in input && (input.operation === "retexture" || input.operation === "remesh");
+        const catalog = processing3D ? { models: (await providerModels3D.operationModels()).filter((model) => model.operations?.includes(input.operation!)) } : videoCatalog ?? await (usage === "image" ? providerImages : providerModels3D).catalog();
         const first = catalog.models[0];
         if (first) selected = { provider: first.provider, id: first.id };
       }
@@ -647,6 +675,11 @@ export function createApp(options: AppOptions = {}) {
   const withPluginCapabilities = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => plugin ? pluginCapabilities.decorate(plugin) : plugin;
   let agents: AgentManager;
   agents = new AgentManager(events, {
+    errorDiagnostics: () => {
+      const route = networkSettings.get().active;
+      return { network: { source: route.source, ...(route.httpsProxy ? { proxyUrl: route.httpsProxy } : {}) } };
+    },
+    onRunFailed: (error, scope) => app.log.warn({ agentError: error, ...scope }, "Agent model request failed"),
     ...(options.createSession ? {} : {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
@@ -689,7 +722,7 @@ export function createApp(options: AppOptions = {}) {
               runtime: "web",
               url: project.type === "interactive-story"
                 ? await playableDrafts.open(project)
-                : await previews.ensureStarted(project),
+                : previewPageUrl(await previews.ensureStarted(project, false), "playtest"),
             }),
           } : undefined,
           webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
@@ -710,8 +743,7 @@ export function createApp(options: AppOptions = {}) {
       await agentPlaytests.get(`${project.id}:${conversationId}`)?.cleanup();
     },
     onRunCompleted: (project) => {
-      if (!supportsWebPreview(project) || project.preview.status === "ready" || project.preview.status === "starting") return;
-      void previews.ensureStarted(project).catch(() => {});
+      void previews.automatic(project, true).catch(() => {});
     },
   });
   const invalidatePluginSessions = () => {
@@ -742,7 +774,10 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onReady", async () => {
-    await Promise.all([library.load(), projects.load(), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), tripoSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
+    await networkSettings.load();
+    await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
+      app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
+    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
@@ -777,6 +812,30 @@ export function createApp(options: AppOptions = {}) {
       .header("cache-control", "no-cache")
       .send(await readFile(path.join(playerDirectory, file))));
   }
+
+  const networkSettingsSchema = {
+    body: {
+      type: "object", additionalProperties: false, required: ["mode", "proxyUrl", "noProxy"],
+      properties: {
+        mode: { type: "string", enum: ["auto", "manual", "direct"] },
+        proxyUrl: { type: "string", maxLength: 2_000 },
+        noProxy: { type: "string", maxLength: 4_000 },
+      },
+    },
+  };
+  app.get("/settings/network", async () => networkSettings.get());
+  app.put<{ Body: NetworkSettings }>("/settings/network", { schema: networkSettingsSchema }, async (request, reply) => {
+    try { return await networkSettings.update(request.body); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.post("/settings/network/detect", async (_request, reply) => {
+    try { return await networkSettings.detect(); }
+    catch { return reply.code(502).send({ error: "Could not detect the system proxy. Check your system network settings." }); }
+  });
+  app.post<{ Body: NetworkSettings }>("/settings/network/test", { schema: networkSettingsSchema }, async (request, reply) => {
+    try { return await networkSettings.test(request.body); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
 
   app.get("/settings/web-search", async () => webSearchSettings.get());
 
@@ -1074,7 +1133,7 @@ export function createApp(options: AppOptions = {}) {
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (project.type !== "interactive-story") return reply.code(409).send({ error: "Playable codebases require an Interactive Story project" });
     try {
-      return await readNodeCodebaseDetail(project.workspacePath);
+      return await openNodeCodebaseDetail(project.workspacePath);
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
@@ -1204,6 +1263,13 @@ export function createApp(options: AppOptions = {}) {
         required: ["instruction"],
         properties: {
           instruction: { type: "string", minLength: 1, maxLength: 12_000 },
+          referenceSource: {
+            type: "object", additionalProperties: false, required: ["boardId", "nodeId"],
+            properties: {
+              boardId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" },
+              nodeId: { type: "string", minLength: 1, maxLength: 120 },
+            },
+          },
           reasoningLevel: { type: "string", enum: AGENT_REASONING_LEVELS },
           model: {
             type: "object",
@@ -1247,19 +1313,20 @@ export function createApp(options: AppOptions = {}) {
     }
     const reasoningLevel = effectiveReasoningLevel(model, request.body.reasoningLevel, defaultReasoningLevel(project.workspacePath, piAgentDirectory));
     try {
+      const references = request.body.referenceSource ? await resolveCanvasTextReferences(project.workspacePath, request.body.referenceSource, request.params.documentId) : [];
       if (document) {
-        const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel);
+        const result = await generateDesignDocumentMarkdown(runtime, model, document.document, request.body.instruction, reasoningLevel, references);
         return { ...result, model: selected, revision: document.revision };
       }
       if (table) {
         const result = await generateDesignTable(runtime, model, table.table, request.body.instruction, reasoningLevel);
         return { ...result, model: selected, revision: table.revision };
       }
-      const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel);
+      const text = await generateCreativeText(runtime, model, request.body.instruction, reasoningLevel, references);
       if (!text) return reply.code(502).send({ error: "The language model returned no text" });
       return { text, model: selected };
     } catch (cause) {
-      return reply.code(502).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      return reply.code(cause instanceof CanvasError ? cause.statusCode : 502).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   };
 
@@ -1294,11 +1361,14 @@ export function createApp(options: AppOptions = {}) {
 
   const syncRunSettings = async (before: ProjectState, project: ProjectState) => {
     if (webPreviewSettingsChanged(before, project)) {
-      await previews.stop(project);
+      const running = before.preview.status === "ready" || before.preview.status === "starting";
+      await previews.stop(project, "settings");
       await projects.refreshPreviewReadiness(project.id);
       // Preview capability and run settings affect both agent tools and its prompt.
       agents.invalidateProjectSessions(project.id);
+      if (running && supportsWebPreview(project) && project.preview.status !== "waiting") void previews.start(project, false, false).catch(() => {});
     }
+    void previews.automatic(project).catch(() => {});
     events.publish(project.id, "project.updated", { project: structuredClone(project) });
     return project;
   };
@@ -1373,7 +1443,7 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
-    await previews.stop(project);
+    await previews.forget(project);
     agents.forgetProject(project.id);
     conversations.forget(project);
     for (const [key, driver] of agentPlaytests) {
@@ -1868,17 +1938,36 @@ export function createApp(options: AppOptions = {}) {
         capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
       };
     })];
-    return [...providers, ...directProviders].sort((left, right) => left.name.localeCompare(right.name));
+    return [...providers, ...directProviders, ...await cloudModels.providers(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
+  app.put<{ Body: { accessToken: string; userId: string } | null }>("/cloud/session", {
+    schema: { body: { anyOf: [{ type: "null" }, { type: "object", additionalProperties: false, required: ["accessToken", "userId"], properties: {
+      accessToken: { type: "string", minLength: 1, maxLength: 16_384 }, userId: { type: "string", minLength: 1, maxLength: 128 },
+    } }] } },
+  }, async (request, reply) => {
+    // Update identity immediately; cloud verification runs when catalogs are requested.
+    void cloudModels.setSession(options.localDebug ? null : request.body);
+    return reply.code(204).send();
+  });
+  app.get("/cloud/quotas", async () => cloudModels.quotas());
+  app.get("/cloud/jobs", async (_request, reply) => {
+    try { return await cloudModels.jobs(); }
+    catch (cause) { if (cause instanceof Model3DGenerationError) return reply.code(cause.statusCode).send({ error: cause.message }); throw cause; }
+  });
+  app.get<{ Params: { id: string } }>("/cloud/jobs/:id/result", async (request, reply) => {
+    try { return reply.type("model/gltf-binary").send(await cloudModels.result(request.params.id)); }
+    catch (cause) { if (cause instanceof Model3DGenerationError) return reply.code(cause.statusCode).send({ error: cause.message }); throw cause; }
+  });
 
   app.patch<{ Params: { providerId: string }; Body: { enabled: boolean } }>("/settings/models/providers/:providerId/enabled", {
     schema: { body: { type: "object", additionalProperties: false, required: ["enabled"], properties: { enabled: { type: "boolean" } } } },
   }, async (request, reply) => {
     const provider = (await providerSummaries()).find((item) => item.id === request.params.providerId);
     if (!provider) return reply.code(404).send({ error: "Provider not found" });
-    if (!provider.configured) return reply.code(400).send({ error: "Connect the provider before enabling it" });
-    await providerModelSettings.setEnabled(provider.id, request.body.enabled);
+    const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
+    if (!provider.configured && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
+    await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
     return { ...provider, enabled: request.body.enabled };
   });
 
@@ -1998,7 +2087,28 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/settings/models/providers/openai/endpoint", async () => openAIEndpoint.get());
 
-  const providerModels = async (runtime: ModelRuntime, providerId: string) => {
+  const hasModelProvider = async (runtime: ModelRuntime, id: string) => isNative3DProvider(id) || Boolean(runtime.getProvider(id))
+    || id.startsWith("cloud-") && (await cloudModels.cloudCatalog()).providers.some((provider) => provider.id === id);
+  const providerModels = async (runtime: ModelRuntime, providerId: string): Promise<ProviderModelSettings> => {
+    if (isNative3DProvider(providerId)) {
+      const native = native3DProviders.find(([id]) => id === providerId)!;
+      return { models: providerModelSettings.models3D(providerId).map((definition) => ({
+        provider: providerId, providerName: native[1], id: definition.id, name: definition.name, reasoningLevels: [], capabilities: ["3d"],
+        visible: providerModelSettings.isVisible({ provider: providerId, id: definition.id }), custom: !model3DPreset(providerId, definition.id),
+        source: model3DPreset(providerId, definition.id) ? "preset" : "custom", model3d: definition,
+      })), defaultApi: providerId, canAddCustomModel: native[2].get().configured, model3DProtocol: providerId,
+      catalogNotice: `Official presets · reviewed ${MODEL_3D_CATALOG_REVIEWED}. No model-list API; new versions arrive with app updates or can be added manually. Key access is determined by the provider.`,
+      catalogDocsUrl: MODEL_3D_CATALOG_DOCS[providerId] };
+    }
+    if (providerId.startsWith("cloud-")) {
+      const catalog = await cloudModels.cloudCatalog();
+      const provider = catalog.providers.find((provider) => provider.id === providerId);
+      return { models: catalog.models.filter((model) => model.provider === providerId).map((model) => ({
+        provider: providerId, providerName: provider?.name ?? providerId, id: model.id, name: model.name, reasoningLevels: [], capabilities: [model.capability],
+        visible: providerModelSettings.isVisible(model), custom: false, source: "cloud",
+        description: [model.estimatedCredits !== undefined && `${model.estimatedCredits} credits / generation`, model.maxReferenceImages && `up to ${model.maxReferenceImages} references`, model.polycount && `${model.polycount.min.toLocaleString()}–${model.polycount.max.toLocaleString()} faces`].filter(Boolean).join(" · "),
+      })), defaultApi: "cloud", canAddCustomModel: false, catalogNotice: "Models and generation options are managed by OhMyGame. You can choose which models to show." };
+    }
     const catalog = providerModelSettings.isCustom(providerId) ? customModelCatalog(runtime.getModels()) : new Map();
     const models = runtime.getModels(providerId).map((model) => providerModelSettings.resolveModel(model, catalog));
     const customProvider = await providerModelSettings.customProvider(providerId, catalog);
@@ -2021,7 +2131,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.get<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models", async (request, reply) => {
     const runtime = await getModelRuntime();
-    if (!runtime.getProvider(request.params.providerId)) return reply.code(404).send({ error: "Provider not found" });
+    if (!await hasModelProvider(runtime, request.params.providerId)) return reply.code(404).send({ error: "Provider not found" });
     return providerModels(runtime, request.params.providerId);
   });
 
@@ -2030,9 +2140,9 @@ export function createApp(options: AppOptions = {}) {
   }, async (request, reply) => {
     const runtime = await getModelRuntime();
     const { providerId } = request.params;
-    if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    if (!await hasModelProvider(runtime, providerId)) return reply.code(404).send({ error: "Provider not found" });
     const custom = await providerModelSettings.customProvider(providerId);
-    const known = new Set(custom ? custom.models.map((model) => model.id) : runtime.getModels(providerId).map((model) => model.id));
+    const known = new Set((await providerModels(runtime, providerId)).models.map((model) => model.id));
     if (request.body.ids.some((id) => !known.has(id))) return reply.code(400).send({ error: "Model not found" });
     if (request.body.visible && custom?.models.some((model) => request.body.ids.includes(model.id) && !modelUsageList(model).length)) return reply.code(400).send({ error: "Assign a use to the model before enabling it" });
     await providerModelSettings.setVisibility(providerId, request.body.ids, request.body.visible);
@@ -2042,26 +2152,54 @@ export function createApp(options: AppOptions = {}) {
   app.post<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models/custom", async (request, reply) => {
     const runtime = await getModelRuntime();
     const { providerId } = request.params;
-    if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    if (!await hasModelProvider(runtime, providerId)) return reply.code(404).send({ error: "Provider not found" });
     try {
       const settings = await providerModels(runtime, providerId);
       if (!settings.canAddCustomModel) return reply.code(400).send({ error: "Custom models require an API key connection" });
-      const model = normalizeCustomProviderModel(request.body, settings.defaultApi, settings.defaultBaseUrl, customModelCatalog(runtime.getModels()));
-      if (runtime.getModel(providerId, model.id)) return reply.code(409).send({ error: "A model with this ID already exists" });
-      await providerModelSettings.addCustomModel(providerId, model);
-      await providerModelSettings.setVisibility(providerId, [model.id], true);
-      await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      if (isNative3DProvider(providerId)) {
+        const model = normalizeNativeModel3D(providerId, request.body);
+        if (settings.models.some((entry) => entry.id === model.id)) return reply.code(409).send({ error: "A model with this ID already exists" });
+        await providerModelSettings.saveModel3D(providerId, model, true);
+      } else {
+        const model = normalizeCustomProviderModel(request.body, settings.defaultApi, settings.defaultBaseUrl, customModelCatalog(runtime.getModels()));
+        if (runtime.getModel(providerId, model.id)) return reply.code(409).send({ error: "A model with this ID already exists" });
+        await providerModelSettings.addCustomModel(providerId, model);
+        await providerModelSettings.setVisibility(providerId, [model.id], true);
+        await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      }
       return reply.code(201).send(await providerModels(runtime, providerId));
     } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+
+  app.put<{ Params: { providerId: string; modelId: string } }>("/settings/models/providers/:providerId/models/:modelId", async (request, reply) => {
+    const { providerId, modelId } = request.params;
+    if (!isNative3DProvider(providerId)) return reply.code(400).send({ error: "Use the custom provider editor for this connection" });
+    if (!providerModelSettings.models3D(providerId).some((model) => model.id === modelId)) return reply.code(404).send({ error: "3D model not found" });
+    try {
+      const model = normalizeNativeModel3D(providerId, request.body);
+      if (model.id !== modelId) return reply.code(400).send({ error: "Model IDs cannot be renamed. Add a new version instead." });
+      await providerModelSettings.saveModel3D(providerId, model);
+      return providerModels(await getModelRuntime(), providerId);
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+
+  app.delete<{ Params: { providerId: string; modelId: string } }>("/settings/models/providers/:providerId/models/:modelId/overrides", async (request, reply) => {
+    const { providerId, modelId } = request.params;
+    if (!isNative3DProvider(providerId) || !model3DPreset(providerId, modelId)) return reply.code(404).send({ error: "Official model not found" });
+    await providerModelSettings.removeModel3D(providerId, modelId, true);
+    return providerModels(await getModelRuntime(), providerId);
   });
 
   app.delete<{ Params: { providerId: string; modelId: string } }>("/settings/models/providers/:providerId/models/custom/:modelId", async (request, reply) => {
     const runtime = await getModelRuntime();
     const { providerId, modelId } = request.params;
-    if (!runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
+    if (!isNative3DProvider(providerId) && !runtime.getProvider(providerId)) return reply.code(404).send({ error: "Provider not found" });
     try {
-      await providerModelSettings.removeCustomModel(providerId, modelId);
-      await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      if (isNative3DProvider(providerId)) await providerModelSettings.removeModel3D(providerId, modelId);
+      else {
+        await providerModelSettings.removeCustomModel(providerId, modelId);
+        await runtime.refresh({ allowNetwork: false, providers: [providerId] });
+      }
       return providerModels(runtime, providerId);
     } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
@@ -2146,14 +2284,24 @@ export function createApp(options: AppOptions = {}) {
       return reply.code(204).send();
     });
   }
-  app.get("/model3d-animations", async (_request, reply) => {
-    if (!meshySettings.get().configured || !providerEnabled("meshy")) return [];
+  app.get("/model3d-operations", async () => providerModels3D.operationModels());
+  app.get<{ Querystring: { provider?: string; id?: string; rigModel?: string; rigType?: string } }>("/model3d-animations", async (request, reply) => {
+    const { provider, id, rigModel, rigType } = request.query;
+    if ((provider && !id) || (!provider && id)) return reply.code(400).send({ error: "Specify provider and model ID together" });
     try {
-      return await tools.animationActions();
+      return await tools.animationActions(provider && id ? { provider, id } : undefined, {
+        ...(rigModel ? { rigModel: rigModel as import("../shared/contracts.js").Model3DOptions["rigModel"] } : {}),
+        ...(rigType ? { rigType: rigType as import("../shared/contracts.js").Model3DOptions["rigType"] } : {}),
+      });
     } catch (cause) {
       if (cause instanceof ToolRunError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
+  });
+  app.get<{ Querystring: { provider: string; id: string } }>("/model3d-balance", async (request, reply) => {
+    if (!isAgentModelRef(request.query)) return reply.code(400).send({ error: "Choose a 3D connection" });
+    try { return await providerModels3D.balance(request.query); }
+    catch (cause) { if (cause instanceof Error && "statusCode" in cause) return reply.code(Number(cause.statusCode)).send({ error: cause.message }); throw cause; }
   });
 
   app.post<{ Params: { projectId: string }; Body: CreateConversationRequest }>(
@@ -2351,17 +2499,47 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Params: { projectId: string }; Querystring: { reuse?: string } }>("/projects/:projectId/preview", async (request, reply) => {
+  app.post<{ Params: { projectId: string }; Body: ProjectRunSettings }>("/projects/:projectId/preview/inspect", { schema: runSettingsSchema }, async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    try { validatePreviewSettings(request.body); } catch (cause) { return reply.code(400).send({ error: (cause as Error).message }); }
+    return inspectPreviewConfiguration({ ...project, ...request.body, packageManager: request.body.packageManager });
+  });
+  app.delete<{ Params: { projectId: string } }>("/projects/:projectId/preview", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    await previews.stop(project);
+    return { preview: project.preview };
+  });
+  app.put<{ Params: { projectId: string; leaseId: string }; Body: { automatic?: boolean; paused?: boolean } }>(
+    "/projects/:projectId/preview/leases/:leaseId",
+    { schema: { params: { type: "object", required: ["projectId", "leaseId"], properties: { projectId: { type: "string" }, leaseId: { type: "string", pattern: "^[a-zA-Z0-9-]{1,100}$" } } }, body: { type: "object", additionalProperties: false, properties: { automatic: { type: "boolean" }, paused: { type: "boolean" } } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      previews.acquire(project, `editor:${request.params.leaseId}`, request.body.automatic, request.body.paused);
+      return { preview: project.preview };
+    },
+  );
+  app.delete<{ Params: { projectId: string; leaseId: string } }>("/projects/:projectId/preview/leases/:leaseId", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    previews.release(project, `editor:${request.params.leaseId}`);
+    return reply.code(204).send();
+  });
+
+  app.post<{ Params: { projectId: string }; Querystring: { reuse?: string; reinstall?: string } }>("/projects/:projectId/preview", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const reuse = request.query.reuse === "1";
     if (reuse && !isWebRuntimeProjectType(project.type)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
-      const url = await (reuse ? previews.ensureStarted(project) : previews.start(project));
+      const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
     } catch (cause) {
+      if (cause instanceof PreviewCancelledError) return reply.code(409).send({ error: cause.message, code: "PREVIEW_CANCELLED" });
       if (cause instanceof ProjectWorkspaceError) return reply.code(409).send({ error: cause.message });
-      throw cause;
+      return reply.code(503).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
   });
 
@@ -2813,8 +2991,9 @@ export function createApp(options: AppOptions = {}) {
 
   app.addHook("onClose", async () => {
     await pluginCapabilities.host.close();
+    await cloudModels.setSession(null);
     await canvasStore.close();
-    tools.close();
+    await tools.close();
     modelAuth.close();
     await agents.close();
     await Promise.allSettled([...agentPlaytests.values()].map((driver) => driver.cleanup()));
@@ -2843,17 +3022,11 @@ function enabledPluginMentions(plugins: readonly PluginSummary[]): ConversationC
 }
 
 function isWebp(value: unknown): value is Buffer {
-  return Buffer.isBuffer(value) && value.length >= 12 &&
-    value.subarray(0, 4).toString("ascii") === "RIFF" &&
-    value.subarray(8, 12).toString("ascii") === "WEBP";
+  return Buffer.isBuffer(value) && sniffImageType(value) === "image/webp";
 }
 
 function isImageOfType(value: Buffer, mediaType: CreateLibraryImageRequest["image"]["mediaType"]): boolean {
-  if (mediaType === "image/webp") return isWebp(value);
-  if (mediaType === "image/png") {
-    return value.length >= 8 && value.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-  }
-  return value.length >= 3 && value[0] === 0xff && value[1] === 0xd8 && value[2] === 0xff;
+  return sniffImageType(value) === mediaType;
 }
 
 function isLibraryMediaOfType(value: Buffer, mediaType: LibraryUploadMediaType): boolean {

@@ -1,3 +1,4 @@
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Check, Copy, LoaderCircle, Maximize, RefreshCw, Share2, X } from "./icons.js";
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
@@ -20,6 +21,7 @@ export function GamesPage({
   onNavigate: (page: AppNavigationTarget) => void;
   onOhMyGame: (gameId: string) => void;
 }) {
+  const serviceGeneration = useReadyRuntimeGeneration();
   const [games, setGames] = useState<CommunityGame[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
@@ -37,7 +39,7 @@ export function GamesPage({
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [serviceGeneration]);
 
   return (
     <SidebarPageLayout active="community" onNavigate={onNavigate}>
@@ -150,6 +152,7 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
   onNavigate: (page: AppNavigationTarget) => void;
   onOhMyGame: (gameId: string) => void;
 }) {
+  const serviceGeneration = useReadyRuntimeGeneration();
   const [game, setGame] = useState<CommunityGame>();
   const [relatedGames, setRelatedGames] = useState<CommunityGame[]>([]);
   const [error, setError] = useState<string>();
@@ -178,7 +181,7 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
   useEffect(() => {
     void load();
     return () => { loadVersion.current += 1; };
-  }, [gameId]);
+  }, [gameId, serviceGeneration]);
 
   return (
     <SidebarPageLayout active="community" onNavigate={onNavigate}>

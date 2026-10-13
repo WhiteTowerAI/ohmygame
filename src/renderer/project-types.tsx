@@ -15,7 +15,10 @@ const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
   "godot-game": "Godot",
 };
 
-export const PROJECT_TYPES: readonly ProjectTypeOption[] = PROJECT_TYPE_IDS.map((value) => ({ value, label: PROJECT_TYPE_LABELS[value] }));
+export const PROJECT_TYPES: readonly ProjectTypeOption[] = [
+  ...PROJECT_TYPE_IDS.filter((value) => value !== "general"),
+  "general" as const,
+].map((value) => ({ value, label: PROJECT_TYPE_LABELS[value] }));
 
 export const GAME_PROJECT_TYPES: readonly ProjectTypeOption[] = PROJECT_TYPES.filter(({ value }) => value !== "asset-canvas");
 

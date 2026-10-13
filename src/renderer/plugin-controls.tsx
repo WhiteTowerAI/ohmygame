@@ -1,33 +1,44 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   PluginConfigurationValues,
   PluginConfigurationView,
   PluginDetail,
   PluginMcpResult,
 } from "../shared/plugins.js";
-import type { PluginSetupState } from "../shared/plugin-setup.js";
-import type { AgentModelCatalog } from "../shared/contracts.js";
 import {
-  abortPluginSetup,
   createMcpPlugin,
-  createPluginSetup,
-  listModels,
-  promptPluginSetup,
+  readPluginDraftConfiguration,
+  savePluginDraftConfiguration,
   readPluginConfiguration,
   readPluginMcpDefinition,
-  readPluginSetup,
   savePluginConfiguration,
   savePluginMcpDefinition,
   testPluginMcp,
 } from "./api.js";
-import { MarkdownContent } from "./markdown-content.js";
-import { LoaderCircle, Plug, WandSparkles } from "./icons.js";
+import { LoaderCircle, Plug, Trash2, WandSparkles } from "./icons.js";
+
+export function PluginUninstallButton({ plugin, disabled, compact = false, onUninstall }: {
+  plugin: Pick<PluginDetail, "displayName" | "installed" | "source">;
+  disabled?: boolean;
+  compact?: boolean;
+  onUninstall: () => void;
+}) {
+  if (!plugin.installed || plugin.source.type === "builtIn") return null;
+  return <button className={compact ? "icon-button pane-header-action" : "plugin-detail-secondary"} type="button"
+    disabled={disabled} title="Uninstall plugin" aria-label="Uninstall plugin" onClick={() => {
+      if (window.confirm(`Uninstall “${plugin.displayName}”?`)) onUninstall();
+    }}>{compact ? <Trash2 size={14} /> : "Uninstall"}</button>;
+}
 
 export function PluginConfigurationPanel({
   plugin,
+  setupId,
+  compact = false,
   onChanged,
 }: {
   plugin: PluginDetail;
+  setupId?: string;
+  compact?: boolean;
   onChanged: () => void;
 }) {
   const [config, setConfig] = useState<PluginConfigurationView>();
@@ -37,7 +48,7 @@ export function PluginConfigurationPanel({
   const [notice, setNotice] = useState<string>();
   useEffect(() => {
     let active = true;
-    void readPluginConfiguration(plugin.id)
+    void (setupId ? readPluginDraftConfiguration(setupId) : readPluginConfiguration(plugin.id))
       .then((value) => {
         if (active) {
           setConfig(value);
@@ -50,12 +61,12 @@ export function PluginConfigurationPanel({
     return () => {
       active = false;
     };
-  }, [plugin.id]);
+  }, [plugin.id, setupId]);
   if (config && !Object.keys(config.fields).length) return null;
   if (!config && !Object.keys(plugin.configuration ?? {}).length) return null;
   return (
     <section className="plugin-components plugin-configuration">
-      <h2>Configuration</h2>
+      {!compact ? <h2>Configuration</h2> : null}
       {config ? (
         <form
           onSubmit={(event) => {
@@ -67,7 +78,7 @@ export function PluginConfigurationPanel({
             const value =
               values[key] ?? config.values[key] ?? field.default ?? "";
             return (
-              <label key={key}>
+              <label key={key} title={compact ? field.description : undefined}>
                 <span>
                   {field.label}
                   {field.required ? " *" : ""}
@@ -114,7 +125,7 @@ export function PluginConfigurationPanel({
                     }
                   />
                 )}
-                {field.description ? <small>{field.description}</small> : null}
+                {!compact && field.description ? <small>{field.description}</small> : null}
                 {field.type === "secret" &&
                 config.configuredSecrets.includes(key) ? (
                   <button
@@ -157,10 +168,10 @@ export function PluginConfigurationPanel({
     setBusy(true);
     setError(undefined);
     try {
-      setConfig(await savePluginConfiguration(plugin.id, values));
+      setConfig(await (setupId ? savePluginDraftConfiguration(setupId, values) : savePluginConfiguration(plugin.id, values)));
       setValues({});
       setNotice(
-        "Saved. Active conversations apply changes after the current turn finishes.",
+        compact ? "Saved" : setupId ? "Saved for this draft. Credentials carry over when you install it." : "Saved. Active conversations apply changes after the current turn finishes.",
       );
       onChanged();
     } catch (cause) {
@@ -588,228 +599,6 @@ export function AddMcpPluginDialog({
   }
 }
 
-export function PluginAssistantDialog({
-  pluginId,
-  onClose,
-  onChanged,
-}: {
-  pluginId?: string;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const [state, setState] = useState<PluginSetupState>();
-  const [catalog, setCatalog] = useState<AgentModelCatalog>();
-  const [model, setModel] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [error, setError] = useState<string>();
-  const [sending, setSending] = useState(false);
-  const bottom = useRef<HTMLDivElement>(null);
-  const storageKey = `ohmygame.plugin-setup.${pluginId ?? "new"}`;
-  const onChangedRef = useRef(onChanged);
-  onChangedRef.current = onChanged;
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const saved = localStorage.getItem(storageKey);
-        const session = saved
-          ? await readPluginSetup(saved).catch(() =>
-              createPluginSetup(pluginId),
-            )
-          : await createPluginSetup(pluginId);
-        if (!active) return;
-        localStorage.setItem(storageKey, session.id);
-        setState(session);
-        const models = await listModels();
-        if (!active) return;
-        setCatalog(models);
-        const selected = models.defaultModel ?? models.models[0];
-        if (selected) setModel(`${selected.provider}\n${selected.id}`);
-      } catch (cause) {
-        if (active) setError(message(cause));
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [storageKey, pluginId]);
-  useEffect(() => {
-    if (!state?.busy) return;
-    let active = true;
-    let inFlight = false;
-    const timer = setInterval(() => {
-      if (inFlight) return;
-      inFlight = true;
-      void readPluginSetup(state.id)
-        .then((next) => {
-          if (!active) return;
-          setError(undefined);
-          setState(next);
-          if (!next.busy) onChangedRef.current();
-        })
-        .catch((cause) => {
-          if (active) setError(message(cause));
-        })
-        .finally(() => {
-          inFlight = false;
-        });
-    }, 1000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [state?.id, state?.busy]);
-  useEffect(() => {
-    if (state?.pluginId)
-      localStorage.setItem(`ohmygame.plugin-setup.${state.pluginId}`, state.id);
-  }, [state?.pluginId, state?.id]);
-  useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "nearest" });
-  }, [state?.messages.length]);
-  return (
-    <div className="plugin-install-backdrop">
-      <section
-        className="plugin-assistant-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Plugin assistant"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-      >
-        <header>
-          <h2>
-            {pluginId ? "Set up or repair plugin" : "Create plugin with AI"}
-          </h2>
-          <button
-            className="plugin-detail-secondary"
-            type="button"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </header>
-        <p>
-          Describe the service or workflow. Enter credentials in the plugin's
-          configuration form.
-        </p>
-        <div className="plugin-assistant-messages" aria-live="polite">
-          {state?.messages.map((item, i) => (
-            <div className={`plugin-assistant-message is-${item.role}`} key={i}>
-              <strong>{item.role === "user" ? "You" : "Assistant"}</strong>
-              <MarkdownContent text={item.text} />
-            </div>
-          ))}
-          {state?.busy ? (
-            <div className="plugin-assistant-activity">
-              <LoaderCircle className="spin" size={14} />
-              <span>
-                {state.activity &&
-                !["plugin_manage", "read", "write", "edit", "bash"].includes(
-                  state.activity,
-                )
-                  ? state.activity
-                  : "Working on the plugin…"}
-              </span>
-            </div>
-          ) : null}
-          <div ref={bottom} />
-        </div>
-        {state?.pluginId ? (
-          <a
-            href={`#/settings/plugins/${encodeURIComponent(state.pluginId)}`}
-            onClick={onClose}
-          >
-            Open plugin configuration
-          </a>
-        ) : null}
-        {error || state?.error ? (
-          <p role="alert">{error ?? state?.error}</p>
-        ) : null}
-        {catalog && !catalog.models.length ? (
-          <p>
-            No model is available.{" "}
-            <a href="#/settings/providers">Configure a provider</a> to use the
-            assistant.
-          </p>
-        ) : null}
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send();
-          }}
-        >
-          <label className="sr-only">Plugin request</label>
-          <textarea
-            aria-label="Plugin request"
-            autoFocus
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="Connect this MCP service, or create a Skill for…"
-            disabled={state?.busy || sending}
-          />
-          <footer>
-            <select
-              aria-label="Assistant model"
-              value={model}
-              disabled={state?.busy}
-              onChange={(event) => setModel(event.target.value)}
-            >
-              {catalog?.models.map((item) => (
-                <option
-                  key={`${item.provider}/${item.id}`}
-                  value={`${item.provider}\n${item.id}`}
-                >
-                  {item.providerName} · {item.name}
-                </option>
-              ))}
-            </select>
-            {state?.busy ? (
-              <button
-                className="plugin-detail-secondary"
-                type="button"
-                onClick={() =>
-                  void abortPluginSetup(state.id).catch((cause) =>
-                    setError(message(cause)),
-                  )
-                }
-              >
-                Stop
-              </button>
-            ) : (
-              <button
-                className="plugin-detail-primary"
-                type="submit"
-                disabled={!state || !model || !prompt.trim() || sending}
-              >
-                Send
-              </button>
-            )}
-          </footer>
-        </form>
-      </section>
-    </div>
-  );
-  async function send() {
-    if (!state || !model || !prompt.trim()) return;
-    setSending(true);
-    setError(undefined);
-    try {
-      const [provider, id] = model.split("\n");
-      setState(
-        await promptPluginSetup(state.id, prompt, {
-          provider: provider!,
-          id: id!,
-        }),
-      );
-      setPrompt("");
-    } catch (cause) {
-      setError(message(cause));
-    } finally {
-      setSending(false);
-    }
-  }
-}
 function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : "Something went wrong";
 }

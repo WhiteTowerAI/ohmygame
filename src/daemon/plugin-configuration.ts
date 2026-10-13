@@ -244,6 +244,33 @@ export class PluginConfigurationStore {
     });
     return this.view(plugin);
   }
+  async remove(pluginId: string): Promise<void> {
+    await this.#mutate(next => this.#remove(next, pluginId));
+  }
+  /** Transfer draft values and retire their private identity in one write. */
+  async promoteDraft(draft: PluginDetail, plugin: PluginDetail): Promise<void> {
+    if (draft.id === plugin.id) return;
+    await this.#mutate(next => {
+      // A retry after promotion succeeded but metadata saving failed must not
+      // overwrite the installed configuration with draft defaults.
+      if (!next.plugins[draft.id]) return;
+      this.#applyValues(next, plugin.id, this.fields(plugin), this.resolved(draft));
+      this.#remove(next, draft.id);
+    });
+  }
+  #remove(next: StoredConfiguration, pluginId: string): void {
+    for (const ref of Object.values(next.plugins[pluginId]?.secretRefs ?? {})) delete next.credentials[ref];
+    delete next.plugins[pluginId];
+    if (next.extraFields) delete next.extraFields[pluginId];
+    for (const [key, ref] of Object.entries(next.serverOverrides ?? {})) {
+      if (!key.startsWith(`${pluginId}/`)) continue;
+      delete next.credentials[ref];
+      delete next.serverOverrides![key];
+    }
+    for (const [key, owner] of Object.entries(next.legacyOwners)) {
+      if (owner.pluginId === pluginId) delete next.legacyOwners[key];
+    }
+  }
   redact(
     plugin: PluginDetail,
     value: string,

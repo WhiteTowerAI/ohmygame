@@ -63,11 +63,13 @@ editor's words.
 
 ## Documents
 
-| Document                     | Question it answers                                  | Status  |
-| ---------------------------- | ---------------------------------------------------- | ------- |
-| [vision.md](vision.md)       | Why change, and what the author should be able to do | Current |
-| [authoring.md](authoring.md) | What creating a project feels like in the editor     | Current |
-| [runtime.md](runtime.md)     | The Node protocol, State, Signals, navigation, saves | Current |
-| [agent.md](agent.md)         | What the Agent is given, its rules, and its tools    | Current |
+| Document                     | Question it answers                                  | Status         |
+| ---------------------------- | ---------------------------------------------------- | -------------- |
+| [vision.md](vision.md)       | Why the fixed node-type model was redesigned         | Design history |
+| [authoring.md](authoring.md) | What creating a project feels like in the editor     | Current        |
+| [runtime.md](runtime.md)     | The Node protocol, State, Signals, navigation, saves | Current        |
+| [agent.md](agent.md)         | What the Agent is given, its rules, and its tools    | Current        |
 
-Read them in this order.
+Start with `runtime.md` for implementation, `authoring.md` for editor behavior,
+or `agent.md` for agent integration. Read `vision.md` for the redesign's rationale;
+its description of the former editor is historical.

@@ -4,16 +4,16 @@ import { defaultProjectName, GAME_PROJECT_TYPES, PROJECT_TYPES, projectTypeLabel
 describe("project types", () => {
   it("keeps the shared labels and display order", () => {
     expect(PROJECT_TYPES).toEqual([
-      { label: "General Game", value: "general" },
       { label: "Web Game", value: "web-game" },
       { label: "Interactive Story", value: "interactive-story" },
       { label: "Asset Canvas", value: "asset-canvas" },
       { label: "Godot", value: "godot-game" },
+      { label: "General Game", value: "general" },
     ]);
   });
 
   it("keeps Asset Canvas out of the home game types", () => {
-    expect(GAME_PROJECT_TYPES.map(({ value }) => value)).toEqual(["general", "web-game", "interactive-story", "godot-game"]);
+    expect(GAME_PROJECT_TYPES.map(({ value }) => value)).toEqual(["web-game", "interactive-story", "godot-game", "general"]);
   });
 
   it("provides labels and default names", () => {

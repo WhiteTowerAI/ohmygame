@@ -1,3 +1,4 @@
+import { TEST_GLB } from "./model3d-fixture.js";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -46,6 +47,38 @@ async function generate(app: ReturnType<typeof createApp>, tool: ToolId, payload
 }
 
 describe("unified custom media models", () => {
+  it("saves a GPT Image default and sends all 16 references through the generation route", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ data: [{ b64_json: Buffer.from("generated").toString("base64") }] }));
+    const { app, save } = await fixture(request);
+    const { id } = await save([model("gpt-image-2", { image: defaultImageSettings("openai-images", "gpt-image-2") })]);
+    const images = Array.from({ length: 16 }, () => reference);
+    const payload = { prompt: "Compose references", resolution: "1K", aspectRatio: "1:1", imageModel: { provider: id, id: "gpt-image-2" }, images };
+    await generate(app, "generate-image", payload);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]?.[0]).toBe(`${connection.baseUrl}/images/edits`);
+    expect((request.mock.calls[0]?.[1]?.body as FormData).getAll("image[]")).toHaveLength(16);
+    const rejected = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: { ...payload, images: [...images, reference] } });
+    expect(rejected.statusCode).toBe(400);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps saved single-image overrides and rejects extra references before contacting the endpoint", async () => {
+    const request = vi.fn<typeof fetch>();
+    const { app, save } = await fixture(request);
+    const { id } = await save([model("gpt-image-2", { image: { ...defaultImageSettings("openai-images", "gpt-image-2"), maxReferenceImages: 1 } })]);
+    const catalog = (await app.inject({ method: "GET", url: "/image-models/catalog" })).json();
+    expect(catalog.models).toContainEqual(expect.objectContaining({ provider: id, id: "gpt-image-2", maxReferenceImages: 1 }));
+    const created = await app.inject({ method: "POST", url: "/tools/generate-image/jobs", payload: {
+      prompt: "Compose references", resolution: "1K", aspectRatio: "1:1", imageModel: { provider: id, id: "gpt-image-2" }, images: [reference, reference],
+    } });
+    expect(created.statusCode).toBe(202);
+    await vi.waitFor(async () => {
+      const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
+      expect(jobs.find((job: { id: string }) => job.id === created.json().id)).toMatchObject({ status: "failed", error: "The selected image model supports up to 1 reference images" });
+    });
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("persists every use, exposes only language models to the SDK, and honours visibility and defaults after restart", async () => {
     const request = vi.fn<typeof fetch>(async () => { throw new Error("No model discovery should be needed"); });
     const { app, runtime, directory, save } = await fixture(request);
@@ -118,7 +151,7 @@ describe("unified custom media models", () => {
   });
 
   it.each(["image-to-3d", "multi-image-to-3d"] as const)("runs a custom Meshy alias through %s with its configured polycount", async (operation) => {
-    const request = vi.fn<typeof fetch>(async (url, init) => String(url) === "https://files.test/model.glb" ? new Response(Buffer.from("glb"))
+    const request = vi.fn<typeof fetch>(async (url, init) => String(url) === "https://files.test/model.glb" ? new Response(new Uint8Array(TEST_GLB))
       : init?.method === "POST" ? Response.json({ result: "mesh-job" }) : Response.json({ status: "SUCCEEDED", model_urls: { glb: "https://files.test/model.glb" } }));
     const { app, save } = await fixture(request);
     const config = { ...defaultModel3DSettings(), operation, maxReferenceImages: operation === "multi-image-to-3d" ? 4 : 1, baseUrl: "https://meshes.test/openapi/v1" };
@@ -130,7 +163,8 @@ describe("unified custom media models", () => {
 
   it.each(["image", "video", "3d"] as const)("resolves %s node overrides, project defaults and global inheritance without switching unavailable selections", async (usage) => {
     const request = vi.fn<typeof fetch>(async (url, init) => {
-      if (String(url) === "https://files.test/output.mp4" || String(url) === "https://files.test/model.glb") return new Response(Buffer.from("generated"));
+      if (String(url) === "https://files.test/model.glb") return new Response(new Uint8Array(TEST_GLB));
+      if (String(url) === "https://files.test/output.mp4") return new Response(Buffer.from("generated"));
       if (String(url).endsWith("/images/generations")) return Response.json({ data: [{ b64_json: Buffer.from("image").toString("base64") }] });
       if (init?.method === "POST") return Response.json({ id: "job", result: "job" });
       return Response.json({ status: "completed", model_urls: { glb: "https://files.test/model.glb" }, unsigned_urls: ["https://files.test/output.mp4"] });
@@ -213,6 +247,7 @@ describe("unified custom media models", () => {
     const settings = (await store.customProvider(id))!;
     expect(settings.modelConfigurationVersion).toBe(2);
     expect(settings.models.map((model) => model.id)).toEqual(["chat", "gpt-image-1"]);
+    expect(settings.models.find((model) => model.id === "gpt-image-1")?.usages?.image?.maxReferenceImages).toBe(16);
     const updated = await app.inject({ method: "PUT", url: `/settings/models/providers/${id}/custom`, payload: { ...settings, hiddenModelIds: ["gpt-image-1"], models: settings.models.map((model) => model.id === "gpt-image-1" ? { ...model, name: "My image", usages: { image: { ...defaultImageSettings(), maxReferenceImages: 0 } } } : model) } });
     expect(updated.statusCode, updated.body).toBe(200);
     request.mockClear();
@@ -230,7 +265,24 @@ describe("unified custom media models", () => {
     expect((await app.inject({ method: "GET", url: "/image-models/catalog" })).json().models).toContainEqual(expect.objectContaining({ provider: id, id: modelId }));
     const migrated = (await app.inject({ method: "GET", url: `/settings/models/providers/${id}/custom` })).json();
     expect(migrated.models).toHaveLength(1);
-    expect(migrated.models[0]).toMatchObject({ id: modelId, name: "My existing model", usages: { language: true, image: { protocol: "gemini-generate-content" } } });
+    expect(migrated.models[0]).toMatchObject({ id: modelId, name: "My existing model", usages: { language: true, image: { protocol: "gemini-generate-content", maxReferenceImages: 14 } } });
     expect(runtime.getModels(id).map((model) => model.id)).toEqual([modelId]);
   });
+});
+
+it("uses an opted-in hidden custom Meshy connection for animations without forcing a key", async () => {
+  const request = vi.fn<typeof fetch>(async (url) => String(url).endsWith("/animations/library") ? Response.json([{ action_id: 0, name: "Idle" }]) : Response.json({ data: [] }));
+  const { app, save } = await fixture(request);
+  const base = { ...defaultModel3DSettings(), baseUrl: "http://relay.test/openapi/v1" };
+  const disabled = await save([model("geometry-only", { "3d": base })], { authentication: "none", apiKey: undefined });
+  const rejected = await app.inject(`/model3d-animations?provider=${disabled.id}&id=geometry-only`);
+  expect(rejected.statusCode).toBe(503);
+  const enabled = await save([model("geometry", { "3d": { ...base, operations: ["animate", "retexture"] } })], { name: "Animation studio", authentication: "none", apiKey: undefined, hiddenModelIds: ["geometry"] });
+  expect((await app.inject("/model3d-models/catalog")).json().models.some((model: { provider: string }) => model.provider === enabled.id)).toBe(false);
+  expect((await app.inject("/model3d-operations")).json()).toContainEqual(expect.objectContaining({ provider: enabled.id, operations: expect.arrayContaining(["animate", "retexture"]) }));
+  const response = await app.inject(`/model3d-animations?provider=${enabled.id}&id=geometry`);
+  expect(response.statusCode, response.body).toBe(200); expect(response.json()).toMatchObject([{ id: 0, name: "Idle" }]);
+  const call = request.mock.calls.find(([url]) => String(url).endsWith("/animations/library"))!;
+  expect(call[0]).toBe("http://relay.test/openapi/v1/animations/library");
+  expect(new Headers(call[1]?.headers).has("authorization")).toBe(false);
 });

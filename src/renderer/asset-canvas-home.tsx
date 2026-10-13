@@ -1,3 +1,4 @@
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Box, Film, Image, LoaderCircle, Plus, RefreshCw, type IconComponent } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
@@ -11,6 +12,7 @@ import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { WindowDragRegion } from "./window-drag-region.js";
+import { useProjectActivity } from "./use-project-activity.js";
 
 const QUICK_START_ICONS: Record<AssetCanvasStarter, IconComponent> = {
   image: Image,
@@ -22,8 +24,10 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   onNavigate: (page: AppNavigationTarget) => void;
   onOpenProject: (projectId: string, initialNodeId?: string) => void;
 }) {
+  const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  const activity = useProjectActivity(phase === "ready" && projects.length > 0);
   const [error, setError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
@@ -45,7 +49,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [serviceGeneration]);
 
   // Picks up providers connected since the last visit, so a starter click rarely waits.
   useEffect(() => { void loadQuickStartModels(); }, []);
@@ -116,6 +120,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
             {projects.map((project, index) => <ProjectCard
               key={project.id}
               project={project}
+              agentStatus={activity.get(project.id)}
               fallback={index % 4}
               onOpen={() => onOpenProject(project.id)}
               actions={{

@@ -221,6 +221,11 @@ export class NodeRuntime {
   #errors: NodeRuntimeErrorRecord[] = [];
   #cachedSave?: PlayableSave;
   #activeNode?: ActiveSurface;
+  /**
+   * Back stack depth at which the player left the story by a navigation
+   * Signal. While set, the save keeps where they left it.
+   */
+  #leftStoryAt?: number;
   #started = false;
   #starting = false;
   #disposed = false;
@@ -382,7 +387,8 @@ export class NodeRuntime {
     this.#assertNavigationReady(token);
     const nodeId = this.#navigation.currentNodeId;
     const node = playableNodeById(this.#graph, nodeId);
-    if (!node?.signals.some((candidate) => candidate.id === signal)) {
+    const declared = node?.signals.find((candidate) => candidate.id === signal);
+    if (!declared) {
       throw new PlayableNavigationError(
         "unknown-signal",
         `Node "${nodeId}" did not declare Signal "${signal}".`,
@@ -413,8 +419,15 @@ export class NodeRuntime {
     }
     this.#changed();
     if (edge) this.#see("edges", edge.id);
-    await this.#navigate(() =>
-      navigatePlayableSignal(this.#graph, this.#navigation, signal),
+    // A navigation Signal leads around the game, not on through the story.
+    const leftStoryAt =
+      declared.role === "navigation"
+        ? (this.#leftStoryAt ?? this.#navigation.backStack.length)
+        : undefined;
+    await this.#navigate(
+      () => navigatePlayableSignal(this.#graph, this.#navigation, signal),
+      undefined,
+      leftStoryAt,
     );
   }
 
@@ -430,7 +443,17 @@ export class NodeRuntime {
       });
       return;
     }
-    await this.#navigate(() => navigatePlayableBack(this.#navigation));
+    // Back as far as where the player left the story is still around the game.
+    const leftStoryAt =
+      this.#leftStoryAt !== undefined &&
+      this.#navigation.backStack.length > this.#leftStoryAt
+        ? this.#leftStoryAt
+        : undefined;
+    await this.#navigate(
+      () => navigatePlayableBack(this.#navigation),
+      undefined,
+      leftStoryAt,
+    );
   }
 
   #report(report: NodeRuntimeNavigationReport): void {
@@ -441,6 +464,7 @@ export class NodeRuntime {
   async #navigate(
     resolve: () => PlayableNavigationState,
     prepare?: () => void,
+    leftStoryAt?: number,
   ): Promise<void> {
     this.#assertStarted();
     if (this.#transitioning)
@@ -451,7 +475,7 @@ export class NodeRuntime {
     const next = resolve();
     this.#transitioning = true;
     this.#changed();
-    const operation = this.#performNavigation(next, prepare);
+    const operation = this.#performNavigation(next, prepare, leftStoryAt);
     this.#activeOperation = operation;
     try {
       await operation;
@@ -466,6 +490,7 @@ export class NodeRuntime {
   async #performNavigation(
     next: PlayableNavigationState,
     prepare: (() => void) | undefined,
+    leftStoryAt: number | undefined,
   ): Promise<void> {
     try {
       prepare?.();
@@ -482,7 +507,9 @@ export class NodeRuntime {
       if (!this.#disposed) await this.#failRuntime();
       throw cause;
     }
-    await this.#checkpoint();
+    // A way around the game does not move the save from the story.
+    if (leftStoryAt === undefined) await this.#checkpoint();
+    else this.#leftStoryAt = leftStoryAt;
   }
 
   async #failRuntime(): Promise<void> {
@@ -804,6 +831,7 @@ export class NodeRuntime {
   }
 
   async #checkpoint(): Promise<void> {
+    this.#leftStoryAt = undefined;
     const save: PlayableSave = {
       version: 1,
       graphVersion: this.#graph.version,

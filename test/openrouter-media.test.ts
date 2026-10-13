@@ -62,4 +62,17 @@ describe("OpenRouter media catalogs", () => {
     ]);
     expect(request.mock.calls[0]?.[0]).toBe("https://openrouter.ai/api/v1/videos/models");
   });
+
+  it("uses known reference counts only when the catalog allows images and omits a count", async () => {
+    const request = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ data: [
+      { id: "openai/gpt-image-2", architecture: { input_modalities: ["image"], output_modalities: ["image"] } },
+      { id: "google/gemini-3.1-flash-image", architecture: { input_modalities: ["image"], output_modalities: ["image"] } },
+      { id: "image-alias", architecture: { input_modalities: ["image"], output_modalities: ["image"] } },
+      { id: "openai/gpt-image-1", architecture: { input_modalities: ["text"], output_modalities: ["image"] } },
+    ] }));
+    const models = await listOpenRouterImageModels(source, request);
+    expect(Object.fromEntries(models.map((model) => [model.id, model.maxReferenceImages]))).toEqual({
+      "openai/gpt-image-2": 16, "google/gemini-3.1-flash-image": 14, "image-alias": 1, "openai/gpt-image-1": 0,
+    });
+  });
 });

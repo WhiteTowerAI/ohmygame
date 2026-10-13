@@ -22,7 +22,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   placeholder: string;
   onProjectTypeChange?: (type: ProjectType) => void;
   onOpenProject?: (projectId: string) => void;
-  onCreate: (projectId: string, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
+  onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
 }) {
   const [prompt, setPrompt] = useState("");
   const [selectedSkill, setSelectedSkill] = useState<string>();
@@ -98,7 +98,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
       const submittedMentions = activePluginMentions(submittedPrompt, pluginMentions);
       saveHomePrompt({ prompt: submittedPrompt, mentions: submittedMentions });
       onCreate(
-        project.id,
+        project,
         created.current.conversationId,
         submittedPrompt,
         submittedMentions,

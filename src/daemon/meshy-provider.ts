@@ -1,20 +1,22 @@
 import { createHash } from "node:crypto";
-import type { Generated3DModel, Model3DAnimationAction, Model3DAnimationInput, Model3DGenerationInput, Model3DGenerator } from "./model3d.js";
-import { Model3DGenerationError } from "./model3d.js";
+import type { Generated3DModel, Model3DAnimationAction, Model3DAnimationInput, Model3DGenerationInput, Model3DGenerator, Model3DExecution } from "./model3d.js";
+import { Model3DGenerationError, readModel3DResult } from "./model3d.js";
 import { mergeAnimationClips } from "./merge-animations.js";
 import { ANIMATION_ACTIONS_PER_REQUEST, MAX_ANIMATION_ACTIONS } from "../shared/generation-config.js";
-import type { CustomModel3DSettings } from "../shared/contracts.js";
+import { modelFacingPositiveZ } from "./model3d-inspect.js";
+import type { CustomModel3DSettings, Model3DBalance, Model3DModelRef, Model3DOptions } from "../shared/contracts.js";
+import { model3DPreset } from "../shared/model3d-presets.js";
+import { remeshPolycount } from "../shared/model3d-operations.js";
 
 // Image to 3D lives under v1; v2 only serves text-to-3D and answers this path with 404 "Not found".
 const BASE_URL = "https://api.meshy.ai/openapi/v1";
 const POLL_INTERVAL_MS = 2_000;
-const MAX_WAIT_MS = 15 * 60_000;
-const MAX_GLB_BYTES = 100 * 1024 * 1024;
+const MAX_WAIT_MS = 60 * 60_000;
 /** Consecutive status polls that may fail to connect before the job gives up; one dropped request should not lose a paid task. */
 const MAX_POLL_NETWORK_FAILURES = 3;
 
 export class MeshyProvider implements Model3DGenerator {
-  /** Rig task IDs by model content and height. Kept in memory only; a restart simply rigs again. */
+  /** Reuse paid rigs across jobs; each job journals the rig it uses for recovery. */
   readonly #rigs = new Map<string, string>();
 
   constructor(
@@ -25,46 +27,62 @@ export class MeshyProvider implements Model3DGenerator {
     private readonly connection?: { baseUrl: string; headers?: Record<string, string>; authentication?: "api_key" | "none"; settings?: CustomModel3DSettings },
   ) {}
 
-  async generate(input: Model3DGenerationInput, signal?: AbortSignal): Promise<Generated3DModel> {
-    const meshy = meshyTask(input, this.connection?.settings);
+  async generate(input: Model3DGenerationInput, signal?: AbortSignal, settings?: CustomModel3DSettings): Promise<Generated3DModel> {
+    const config = settings ?? this.connection?.settings ?? model3DPreset(input.model.provider, input.model.id)?.settings;
+    const meshy = meshyTask(input, config);
     return this.#session(signal, "Meshy generation timed out", async (apiKey, requestSignal) => {
-      const { taskId, task } = await this.#runTask(apiKey, meshy.endpoint, meshy.body, requestSignal, "Meshy generation request failed");
-      return { bytes: await this.#downloadGlb(record(task.model_urls).glb, requestSignal), mediaType: "model/gltf-binary", requestId: taskId };
+      let { taskId, task } = await this.#runTask(apiKey, meshy.endpoint, meshy.body, requestSignal, "Meshy generation request failed", input.execution, "generate");
+      if (input.operation === "text" && (input.texture ?? config?.defaults?.texture ?? config?.supportsTexture ?? true)) {
+        ({ taskId, task } = await this.#runTask(apiKey, "text-to-3d", { mode: "refine", preview_task_id: taskId, enable_pbr: input.pbr ?? config?.defaults?.pbr ?? false }, requestSignal, "Meshy texture refinement failed", input.execution, "refine"));
+      }
+      return { bytes: await this.#downloadGlb(record(task.model_urls).glb, requestSignal), mediaType: "model/gltf-binary", requestId: taskId, ...(!input.operation || input.operation === "image" || input.operation === "text" ? { metadata: { forwardAxis: "+Z" as const } } : {}) };
     });
   }
 
   /**
    * Rigs a humanoid GLB, then bakes the chosen library actions into one file with a clip per action. Meshy caps each
-   * animation request, so larger sets run as parallel requests on the same rig and their clips are merged.
+   * animation request, so larger sets run as sequential requests on the same rig and their clips are merged.
    */
   async animate(input: Model3DAnimationInput, signal?: AbortSignal): Promise<Generated3DModel> {
+    if (input.actionIds.some((id) => typeof id !== "number" || !Number.isInteger(id) || id < 0)) throw new Model3DGenerationError("Meshy actions must be numeric library IDs", 400);
     if (input.actionIds.length < 1 || input.actionIds.length > MAX_ANIMATION_ACTIONS) {
       throw new Model3DGenerationError(`Choose 1 to ${MAX_ANIMATION_ACTIONS} animations`, 400);
     }
     return this.#session(signal, "Meshy animation timed out", async (apiKey, requestSignal) => {
       const rigTaskId = await this.#rig(apiKey, input, requestSignal);
-      const batches = await Promise.all(chunks(input.actionIds, ANIMATION_ACTIONS_PER_REQUEST).map(async (actionIds) => {
+      const batches: { taskId: string; bytes: Buffer }[] = [];
+      for (const [index, actionIds] of chunks(input.actionIds, ANIMATION_ACTIONS_PER_REQUEST).entries()) {
         const { taskId, task } = await this.#runTask(apiKey, "animations", {
           rig_task_id: rigTaskId,
           action_ids: actionIds,
-        }, requestSignal, "Meshy animation request failed");
-        return { taskId, bytes: await this.#downloadGlb(record(task.result).animation_glb_url, requestSignal) };
-      }));
+        }, requestSignal, "Meshy animation request failed", input.execution, `animation-${index}`);
+        batches.push({ taskId, bytes: await this.#downloadGlb(record(task.result).animation_glb_url, requestSignal) });
+      }
       const bytes = await mergeAnimationClips(batches.map((batch) => batch.bytes));
-      return { bytes, mediaType: "model/gltf-binary", requestId: batches.map((batch) => batch.taskId).join(",") };
+      return { bytes, mediaType: "model/gltf-binary", requestId: batches.map((batch) => batch.taskId).join(","), metadata: { forwardAxis: "+Z" } };
     });
   }
 
   /** Reuses a recent rig of the same model and height, since re-animating a character is common and rigging is billed. */
   async #rig(apiKey: string, input: Model3DAnimationInput, signal: AbortSignal): Promise<string> {
-    const key = createHash("sha256").update(input.model).update(`\0${input.heightMeters ?? ""}`).digest("hex");
-    const cached = this.#rigs.get(key);
-    if (cached && await this.#rigAvailable(apiKey, cached, signal)) return cached;
-    this.#rigs.delete(key);
-    const { taskId } = await this.#runTask(apiKey, "rigging", {
-      model_url: `data:model/gltf-binary;base64,${input.model.toString("base64")}`,
+    const key = createHash("sha256").update(this.scope(apiKey)).update(input.model).update(`\0${input.heightMeters ?? ""}\0${input.forwardAxis ?? ""}`).digest("hex");
+    const body = {
+      model_url: `data:application/octet-stream;base64,${(await modelFacingPositiveZ(input.model, input.forwardAxis)).toString("base64")}`,
       height_meters: input.heightMeters,
-    }, signal, "Meshy rigging request failed");
+    };
+    const url = `${this.baseUrl}/rigging`;
+    let reused = false;
+    const submit = async () => {
+      const cached = this.#rigs.get(key);
+      if (cached && await this.#rigAvailable(apiKey, cached, signal)) { reused = true; return { taskId: cached }; }
+      this.#rigs.delete(key);
+      return this.#submitTask(apiKey, url, body, signal, "Meshy rigging request failed");
+    };
+    const { taskId } = input.execution
+      ? await input.execution.submitted("rig", this.scope(apiKey), { endpoint: "rigging", body }, submit)
+      : await submit();
+    // Cached rigs were already checked; recovered and newly submitted rigs still need polling.
+    if (!reused) await this.#waitTask(apiKey, url, taskId, signal);
     this.#rigs.set(key, taskId);
     return taskId;
   }
@@ -75,7 +93,7 @@ export class MeshyProvider implements Model3DGenerator {
    */
   async #rigAvailable(apiKey: string, taskId: string, signal: AbortSignal): Promise<boolean> {
     try {
-      const task = await this.json(`${BASE_URL}/rigging/${encodeURIComponent(taskId)}`, { signal }, apiKey, "Meshy status request failed");
+      const task = await this.json(`${this.baseUrl}/rigging/${encodeURIComponent(taskId)}`, { signal }, apiKey, "Meshy status request failed");
       const expiresAt = task.expires_at;
       return task.id === taskId && string(task.status)?.toUpperCase() === "SUCCEEDED"
         && typeof expiresAt === "number" && expiresAt > Date.now() + MAX_WAIT_MS;
@@ -86,9 +104,9 @@ export class MeshyProvider implements Model3DGenerator {
   }
 
   /** Lists Meshy's preset animations; the call is free, so the daemon can show them before anything is spent. */
-  async animations(signal?: AbortSignal): Promise<Model3DAnimationAction[]> {
+  async animations(signal?: AbortSignal, _model?: Model3DModelRef, _options?: Model3DOptions): Promise<Model3DAnimationAction[]> {
     return this.#session(signal, "Meshy animation library timed out", async (apiKey, requestSignal) => {
-      const body = await this.json(`${BASE_URL}/animations/library`, { signal: requestSignal }, apiKey, "Meshy animation library request failed");
+      const body = await this.json(`${this.baseUrl}/animations/library`, { signal: requestSignal }, apiKey, "Meshy animation library request failed");
       const items: unknown[] = Array.isArray(body) ? body : [];
       return items.flatMap((item) => {
         const value = record(item);
@@ -109,11 +127,11 @@ export class MeshyProvider implements Model3DGenerator {
   async #session<T>(signal: AbortSignal | undefined, timeoutMessage: string, run: (apiKey: string, signal: AbortSignal) => Promise<T>): Promise<T> {
     if (!this.isEnabled()) throw new Model3DGenerationError("Meshy provider is disabled", 409);
     const apiKey = this.apiKey();
-    if (!apiKey) throw new Model3DGenerationError("Meshy API key is not configured", 503);
+    if (!apiKey && this.connection?.authentication !== "none") throw new Model3DGenerationError("Meshy API key is not configured", 503);
     const timeout = AbortSignal.timeout(MAX_WAIT_MS);
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     try {
-      return await run(apiKey, requestSignal);
+      return await run(apiKey ?? "", requestSignal);
     } catch (cause) {
       if (timeout.aborted && !signal?.aborted) throw new Model3DGenerationError(timeoutMessage, 504);
       throw cause;
@@ -121,8 +139,17 @@ export class MeshyProvider implements Model3DGenerator {
   }
 
   /** Creates a task and polls it until it finishes; Meshy's task endpoints all share this shape. */
-  async #runTask(apiKey: string, endpoint: string, body: Record<string, unknown>, signal: AbortSignal, message: string): Promise<{ taskId: string; task: Record<string, unknown> }> {
-    const created = await this.json(`${this.baseUrl}/${endpoint}`, {
+  async #runTask(apiKey: string, endpoint: string, body: Record<string, unknown>, signal: AbortSignal, message: string, execution?: Model3DExecution, stage = endpoint): Promise<{ taskId: string; task: Record<string, unknown> }> {
+    // Text generation is the documented v2 sibling of the v1 API, including opted-in compatible relays.
+    const base = endpoint === "text-to-3d" ? this.baseUrl.replace(/\/v1$/, "/v2") : this.baseUrl;
+    const url = `${base}/${endpoint}`;
+    const submit = () => this.#submitTask(apiKey, url, body, signal, message);
+    const { taskId } = execution ? await execution.submitted(stage, this.scope(apiKey), { endpoint, body }, submit) : await submit();
+    return { taskId, task: await this.#waitTask(apiKey, url, taskId, signal) };
+  }
+
+  async #submitTask(apiKey: string, url: string, body: Record<string, unknown>, signal: AbortSignal, message: string): Promise<{ taskId: string }> {
+    const created = await this.json(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -130,12 +157,16 @@ export class MeshyProvider implements Model3DGenerator {
     }, apiKey, message);
     const taskId = string(created.result) ?? string(created.id);
     if (!taskId) throw new Model3DGenerationError("Meshy returned no task ID");
+    return { taskId };
+  }
+
+  async #waitTask(apiKey: string, url: string, taskId: string, signal: AbortSignal): Promise<Record<string, unknown>> {
     let networkFailures = 0;
     while (true) {
       signal.throwIfAborted();
       let task: Record<string, unknown>;
       try {
-        task = await this.json(`${this.baseUrl}/${endpoint}/${encodeURIComponent(taskId)}`, { signal }, apiKey, "Meshy status request failed");
+        task = await this.json(`${url}/${encodeURIComponent(taskId)}`, { signal }, apiKey, "Meshy status request failed");
         networkFailures = 0;
       } catch (cause) {
         if (!(cause instanceof MeshyNetworkError) || ++networkFailures >= MAX_POLL_NETWORK_FAILURES) throw cause;
@@ -143,7 +174,7 @@ export class MeshyProvider implements Model3DGenerator {
         continue;
       }
       const status = string(task.status)?.toUpperCase();
-      if (status === "SUCCEEDED" || status === "COMPLETED") return { taskId, task };
+      if (status === "SUCCEEDED" || status === "COMPLETED") return task;
       if (status === "FAILED" || status === "CANCELED" || status === "CANCELLED") {
         throw new Model3DGenerationError(string(record(task.task_error).message) ?? string(task.message) ?? `Meshy task ${status.toLowerCase()}`, 400);
       }
@@ -155,15 +186,13 @@ export class MeshyProvider implements Model3DGenerator {
     if (!httpUrl(url)) throw new Model3DGenerationError("Meshy task completed without a GLB artifact");
     const content = await this.request(url, { signal });
     if (!content.ok) throw new Model3DGenerationError(`Meshy GLB download failed (${content.status})`, content.status);
-    const bytes = Buffer.from(await content.arrayBuffer());
-    if (bytes.length > MAX_GLB_BYTES) throw new Model3DGenerationError("Meshy GLB output is too large", 413);
-    return bytes;
+    return readModel3DResult(content);
   }
 
   private async json(url: string, init: RequestInit, apiKey: string, message: string): Promise<Record<string, unknown>> {
     let response: Response;
     try {
-      response = await this.request(url, { ...init, headers: { ...this.connection?.headers, ...(this.connection?.authentication === "none" ? {} : { authorization: `Bearer ${apiKey}` }), ...init.headers } });
+      response = await this.request(url, { ...init, signal: AbortSignal.any([AbortSignal.timeout(60_000), ...(init.signal ? [init.signal] : [])]), headers: { ...this.connection?.headers, ...(this.connection?.authentication === "none" ? {} : { authorization: `Bearer ${apiKey}` }), ...init.headers } });
     } catch (cause) {
       if (init.signal?.aborted) throw init.signal.reason ?? cause;
       throw new MeshyNetworkError(cause);
@@ -175,6 +204,14 @@ export class MeshyProvider implements Model3DGenerator {
     throw new Model3DGenerationError(`Meshy ${response.status}: ${string(body.message) ?? message}`, response.status >= 500 ? 502 : 400);
   }
 
+  private scope(key: string) { return JSON.stringify([this.baseUrl, key, this.connection?.headers, this.connection?.authentication]); }
+  async accountBalance(signal?: AbortSignal): Promise<Model3DBalance> {
+    return this.#session(signal, "Meshy balance timed out", async (key, requestSignal) => {
+      const value = await this.json(`${this.baseUrl}/balance`, { signal: requestSignal }, key, "Balance request failed");
+      if (typeof value.balance !== "number") throw new Model3DGenerationError("Meshy returned an invalid balance");
+      return { balance: value.balance };
+    });
+  }
   private get baseUrl(): string { return (this.connection?.baseUrl ?? BASE_URL).replace(/\/$/, ""); }
 }
 
@@ -194,37 +231,43 @@ function networkErrorDetail(cause: unknown): string {
 
 /** Meshy runs T2 and 7.1 on different endpoints with different polycount controls. */
 function meshyTask(input: Model3DGenerationInput, settings?: CustomModel3DSettings): { endpoint: string; body: Record<string, unknown> } {
-  const texture = {
-    should_texture: input.texture ?? true,
-    enable_pbr: input.texture === false ? false : input.pbr ?? false,
-  };
+  if (!settings || settings.protocol !== "meshy") throw new Model3DGenerationError(`Meshy does not offer ${input.model.provider}/${input.model.id}`, 400);
+  const operation = input.operation ?? "image";
+  if (operation === "retexture" || operation === "remesh") {
+    if (!input.source?.length) throw new Model3DGenerationError("Choose a source GLB", 400);
+    const model_url = `data:application/octet-stream;base64,${input.source.toString("base64")}`;
+    if (operation === "remesh") {
+      const range = remeshPolycount("meshy"), count = input.targetPolycount ?? range.default;
+      if (!Number.isInteger(count) || count < range.min || count > range.max) throw new Model3DGenerationError("Meshy remesh face count must be 100–300000", 400);
+      return { endpoint: "remesh", body: { model_url, target_polycount: count, topology: "triangle", target_formats: ["glb"] } };
+    }
+    if (input.images.length > 1 || input.images.length && input.prompt?.trim()) throw new Model3DGenerationError("Meshy retexture accepts one style image or a prompt", 400);
+    const ai_model = input.options?.textureModel ?? "latest";
+    if (!["latest", "meshy-7", "meshy-6", "meshy-6-lite"].includes(ai_model)) throw new Model3DGenerationError("Unsupported Meshy texture version", 400);
+    return { endpoint: "retexture", body: { model_url, ai_model, enable_pbr: input.pbr ?? false,
+      ...(input.images[0] ? { image_style_url: `data:${input.images[0].mediaType};base64,${input.images[0].data}` } : { text_style_prompt: input.prompt }) } };
+  }
   const images = input.images.map((image) => `data:${image.mediaType};base64,${image.data}`);
-  if (settings) {
-    if (images.length < 1 || images.length > settings.maxReferenceImages) throw new Model3DGenerationError(`Provide 1 to ${settings.maxReferenceImages} reference images`, 400);
-    return { endpoint: settings.operation, body: {
-      ...(settings.operation === "image-to-3d" ? { image_url: images[0] } : { image_urls: images }),
-      ai_model: input.model.id, ...texture, target_polycount: input.targetPolycount ?? settings.polycount.default,
-      ...(settings.modelType === "smart-topology" ? { model_type: "smart-topology" } : { should_remesh: true, topology: "triangle" }),
-    } };
+  if (operation === "image" && (images.length < 1 || images.length > settings.maxReferenceImages)) {
+    const name = model3DPreset(input.model.provider, input.model.id)?.name ?? input.model.id;
+    throw new Model3DGenerationError(settings.maxReferenceImages === 1 ? `${name} requires exactly one reference image` : `${name} takes 1 to ${settings.maxReferenceImages} reference images`, 400);
   }
-  if (input.model.provider === "meshy" && input.model.id === "meshy-t2") {
-    if (images.length !== 1) throw new Model3DGenerationError("Meshy T2 requires exactly one reference image", 400);
-    return {
-      endpoint: "image-to-3d",
-      // Smart Topology generates straight at the target face count, so no remesh pass is involved.
-      body: { image_url: images[0], model_type: "smart-topology", ai_model: "meshy-t2", ...texture, target_polycount: input.targetPolycount ?? 4_000 },
-    };
+  const polycount = input.targetPolycount ?? settings.polycount.default;
+  if (!Number.isInteger(polycount) || polycount < settings.polycount.min || polycount > settings.polycount.max) throw new Model3DGenerationError(`Meshy face count must be between ${settings.polycount.min} and ${settings.polycount.max}`, 400);
+  const texture = input.texture ?? settings.defaults?.texture ?? settings.supportsTexture;
+  const pbr = texture && (input.pbr ?? settings.defaults?.pbr ?? false);
+  if (texture && !settings.supportsTexture || pbr && !settings.supportsPbr) throw new Model3DGenerationError("The selected 3D model does not support these texture options", 400);
+  if (operation === "text") {
+    if (images.length || !input.prompt?.trim() || input.prompt.length > 800) throw new Model3DGenerationError("Meshy text generation needs a prompt up to 800 characters", 400);
+    return { endpoint: "text-to-3d", body: { mode: "preview", prompt: input.prompt, ai_model: input.model.id, model_type: settings.modelType,
+      ...(settings.modelType === "standard" ? { should_remesh: true } : {}), target_polycount: polycount, topology: "triangle", ...(input.options?.pose ? { pose_mode: input.options.pose } : {}) } };
   }
-  if (input.model.provider === "meshy" && input.model.id === "meshy-7.1") {
-    if (images.length < 1 || images.length > 4) throw new Model3DGenerationError("Meshy 7.1 takes 1 to 4 reference images", 400);
-    return {
-      // The multi-image endpoint accepts a single view too, so one endpoint covers 7.1; the first image is the front.
-      endpoint: "multi-image-to-3d",
-      // Standard models only honour target_polycount through the remesh pass.
-      body: { image_urls: images, ai_model: "meshy-7.1", ...texture, should_remesh: true, topology: "triangle", target_polycount: input.targetPolycount ?? 30_000 },
-    };
-  }
-  throw new Model3DGenerationError(`Meshy does not offer ${input.model.provider}/${input.model.id}`, 400);
+  return { endpoint: settings.operation, body: {
+    ...(settings.operation === "image-to-3d" ? { image_url: images[0] } : { image_urls: images }),
+    ...(input.options?.pose ? { pose_mode: input.options.pose } : {}),
+    ai_model: input.model.id, should_texture: texture, enable_pbr: pbr, target_polycount: polycount,
+    ...(settings.modelType === "smart-topology" ? { model_type: "smart-topology" } : { should_remesh: true, topology: "triangle" }),
+  } };
 }
 
 function chunks<T>(values: T[], size: number): T[][] {

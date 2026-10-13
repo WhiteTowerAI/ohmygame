@@ -25,7 +25,19 @@ optional `title` and `description`, content, and references. Markdown bodies
 are shared between document nodes. Connections for prompts and media are
 derived from `promptSource`, `images`, `references`, and `source`.
 
-Positions, optional node width/height and zoom live in `editor/`. New nodes get positions automatically.
+Text and Document nodes accept up to 14 connected Text, Document, Image or image
+Asset nodes in `references` (`{ "type": "node", "nodeId": "..." }`). These
+connections supply source material to AI generation. Connecting an image to a
+Document adds a generation reference; use Insert image to put it in the Markdown.
+Generation saves the current board and documents first, then reads the referenced
+nodes' saved text, Markdown and actual image output from the workspace. Image
+references require a language model that accepts images. A node cannot reference
+itself or, for Document nodes, another node pointing to the same document.
+
+Positions, zoom and the width/height of text, document and table nodes live in
+`editor/`. Media and generation nodes size to their content: the editor ignores
+a width/height on them and canvas_check reports it. New nodes get positions
+automatically.
 The agent usually edits only the semantic files. Deleting a board or node
 keeps its documents, tables and media.
 

@@ -1,11 +1,6 @@
 import { NodeResizer, useStore } from "@xyflow/react";
 import { Maximize, RefreshCw } from "./icons.js";
 
-export const CANVAS_READABLE_SIZES = {
-  text: { width: 300, height: 190 },
-  document: { width: 360, height: 330 },
-  table: { width: 640, height: 360 },
-};
 export interface CanvasNodeResizeRuntime {
   start(): void;
   end(): void;

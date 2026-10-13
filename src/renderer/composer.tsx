@@ -1,10 +1,11 @@
-import { FileText, SendArrow, Square, X } from "./icons.js";
+import { FileText, X } from "./icons.js";
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PendingPrompt, PlanMode, PlanState, PluginMention, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference } from "../shared/contracts.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
-import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
+import type { AgentModelCatalogStatus } from "./model-selector.js";
 import { MessageQueue } from "./message-queue.js";
 import { PromptBox, type DroppedFile } from "./prompt-box.js";
+import { ComposerActions } from "./composer-actions.js";
 import { PlanStatus } from "./plan-status.js";
 import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
@@ -417,28 +418,14 @@ export function Composer({
       />
       {notice || attachmentError ? <p className="composer-error" role="alert">{attachmentError ?? notice}</p> : null}
       <PromptBox
-        actions={(
-          <>
-            <ModelSelector
-              models={models}
-              status={modelStatus}
-              value={model}
-              reasoningLevel={reasoningLevel}
-              disabled={!conversationReady || running || stopping || modelChanging}
-              onChange={onModelChange}
-              onReasoningChange={onReasoningChange}
-            />
-            {showStop ? (
-              <button className="icon-button stop-button" type="button" onClick={onStop} disabled={stopping} title="Stop agent" aria-label="Stop agent">
-                <Square size={14} fill="currentColor" />
-              </button>
-            ) : (
-              <button className="icon-button send-button" type="submit" disabled={inputDisabled || (!selectedSkill && !selectedPlugin && !prompt.trim() && attachments.length === 0) || stopping} title={running ? "Queue follow-up" : "Send prompt"} aria-label={running ? "Queue follow-up" : "Send prompt"}>
-                <SendArrow size={15} />
-              </button>
-            )}
-          </>
-        )}
+        actions={<ComposerActions
+          models={models} status={modelStatus} value={model} reasoningLevel={reasoningLevel}
+          disabled={!conversationReady || running || stopping || modelChanging}
+          onChange={onModelChange} onReasoningChange={onReasoningChange}
+          showStop={showStop} stopping={stopping} onStop={onStop}
+          sendDisabled={inputDisabled || (!selectedSkill && !selectedPlugin && !prompt.trim() && attachments.length === 0) || stopping}
+          sendLabel={running ? "Queue follow-up" : "Send prompt"}
+        />}
         content={<>
           {contexts.length ? <div className="composer-contexts" aria-label="Context for the next message">
             {contexts.map((context) => <div className={`composer-context is-${context.kind}`} key={context.key} title={context.detail ?? context.label}>

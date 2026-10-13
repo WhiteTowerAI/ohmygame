@@ -1,13 +1,49 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 
 const cleanups: (() => Promise<void>)[] = [];
-afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
+afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); vi.unstubAllEnvs(); });
 
 describe("player preview startup", () => {
+  it("applies automatic policy to an open General project without undoing manual stops", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-preview-policy-"));
+    const app = createApp({ dataDirectory });
+    cleanups.push(async () => { await app.close(); await rm(dataDirectory, { recursive: true, force: true }); });
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Policy", type: "general" } })).json();
+    await writeFile(path.join(project.workspacePath, "index.html"), "<head></head><p>Policy</p>");
+    const settings = { startupDirectory: ".", startupScript: "dev", previewPath: "/", previewViewport: "fit", webPreviewEnabled: true, previewMode: "auto", previewAutoStart: false };
+    const save = (automatic: boolean) => app.inject({ method: "PUT", url: `/projects/${project.id}/settings/run`, payload: { ...settings, previewAutoStart: automatic } });
+    await save(false);
+    await app.inject({ method: "PUT", url: `/projects/${project.id}/preview/leases/editor`, payload: { automatic: true } });
+    expect((await app.inject(`/projects/${project.id}`)).json().preview.status).toBe("stopped");
+    await save(true);
+    await vi.waitFor(async () => expect((await app.inject(`/projects/${project.id}`)).json().preview.status).toBe("ready"));
+    await app.inject({ method: "DELETE", url: `/projects/${project.id}/preview` });
+    await save(false);
+    await save(true);
+    expect((await app.inject(`/projects/${project.id}`)).json().preview).toMatchObject({ status: "stopped", stopReason: "manual" });
+  });
+  it("keeps health, files, and other projects available after a missing-manager failure", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-preview-isolation-"));
+    const app = createApp({ dataDirectory });
+    cleanups.push(async () => { await app.close(); await rm(dataDirectory, { recursive: true, force: true }); });
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Error1111" } })).json();
+    await writeFile(path.join(project.workspacePath, "package.json"), JSON.stringify({ scripts: { dev: "vite" } }));
+    await writeFile(path.join(project.workspacePath, "bun.lock"), "{}");
+    await writeFile(path.join(project.workspacePath, "main.ts"), 'import "./style.css";');
+    vi.stubEnv("PATH", dataDirectory);
+    const failed = await app.inject({ method: "POST", url: `/projects/${project.id}/preview` });
+    expect(failed.statusCode).toBe(503);
+    expect(failed.json().error).toContain("bun was not found");
+    expect((await app.inject("/health")).statusCode).toBe(200);
+    expect((await app.inject("/projects")).statusCode).toBe(200);
+    expect((await app.inject(`/projects/${project.id}/files`)).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: "/projects", payload: { name: "Another project" } })).statusCode).toBe(201);
+    expect((await app.inject(`/projects/${project.id}`)).json().preview.status).toBe("error");
+  });
   it("reuses a development server for concurrent opens without changing its URL or process", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-player-preview-"));
     const app = createApp({ dataDirectory });
@@ -20,7 +56,7 @@ describe("player preview startup", () => {
       import { createServer } from "node:http";
       import { writeFileSync } from "node:fs";
       writeFileSync("server.pid", String(process.pid));
-      createServer((_request, response) => response.end("game")).listen(Number(process.argv[process.argv.indexOf("--port") + 1]), "127.0.0.1");
+      createServer((_request, response) => response.end("game")).listen(Number(process.env.PORT || process.argv[process.argv.indexOf("--port") + 1]), "127.0.0.1");
     `);
     const open = () => app.inject({ method: "POST", url: `/projects/${project.id}/preview?reuse=1` });
     const [first, concurrent] = await Promise.all([open(), open()]);

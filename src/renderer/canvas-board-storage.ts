@@ -1,10 +1,11 @@
 import type { AssetCanvasDocument, ToolJob } from "../shared/contracts.js";
-import { isAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { isAssetCanvasDocument, withoutContentNodeSizes } from "../shared/asset-canvas.js";
 import { mergeCanvasDocument, type CanvasBoardDetail } from "../shared/canvas-workspace.js";
 import { cancelCanvasJob, generateCanvasMedia, getCanvasBoard, listCanvasJobs, saveCanvasBoard } from "./canvas-api.js";
 
 export interface CanvasBoardStorage {
   key: string;
+  boardId: string;
   load(): Promise<AssetCanvasDocument>;
   save(canvas: AssetCanvasDocument): Promise<AssetCanvasDocument>;
   refresh(canvas: AssetCanvasDocument): Promise<AssetCanvasDocument | undefined>;
@@ -60,13 +61,15 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
   };
   return {
     key: `${projectId}:${boardId}`,
+    boardId,
     load: () => {
       // Strict Mode and repeated renders must share one initialized storage session.
       loading ??= (async () => {
         base = await getCanvasBoard(projectId, boardId);
         let canvas = canvasOnly(base.board);
         try {
-          const draft = JSON.parse(localStorage.getItem(recoveryKey) ?? "null") as { base: AssetCanvasDocument; local: AssetCanvasDocument } | null;
+          const stored = JSON.parse(localStorage.getItem(recoveryKey) ?? "null") as { base: AssetCanvasDocument; local: AssetCanvasDocument } | null;
+          const draft = stored && { base: withoutContentNodeSizes(stored.base), local: withoutContentNodeSizes(stored.local) };
           if (draft && isAssetCanvasDocument(draft.base) && isAssetCanvasDocument(draft.local)) {
             const merged = mergeCanvasDocument(draft.base, draft.local, canvas);
             if (merged) canvas = merged;

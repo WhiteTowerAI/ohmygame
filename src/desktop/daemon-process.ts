@@ -2,20 +2,19 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import path from "node:path";
 import type { PlaytestIpcMessage, PlaytestRequest, PlaytestResult } from "../shared/playtest.js";
+import { signalProcessTree } from "../daemon/process-lifecycle.js";
+import type { DaemonRuntime } from "../shared/desktop-runtime.js";
+export type { DaemonRuntime } from "../shared/desktop-runtime.js";
 
 const MAX_STARTUP_OUTPUT_CHARS = 8_000;
-
-export interface DaemonRuntime {
-  url: string;
-  token: string;
-}
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 20_000;
 
 export interface ManagedDaemon {
   runtime: DaemonRuntime;
   stop(): Promise<void>;
 }
 
-interface StartDaemonOptions {
+export interface StartDaemonOptions {
   daemonEntry: string;
   dataDirectory: string;
   token: string;
@@ -31,12 +30,18 @@ interface StartDaemonOptions {
   development?: boolean;
   healthTimeoutMs?: number;
   handlePlaytestRequest?: (request: PlaytestRequest, signal: AbortSignal) => Promise<PlaytestResult>;
+  resolveSystemProxy?: () => Promise<string>;
+  onUnexpectedExit?: (error: Error) => void;
 }
 
 export async function startDaemon(options: StartDaemonOptions): Promise<ManagedDaemon> {
   const port = await availablePort();
   const runtime = { url: `http://127.0.0.1:${port}`, token: options.token };
   const environment = { ...(options.environment ?? process.env) };
+  // Also discard inherited tokens, including case variants on Windows.
+  for (const name of Object.keys(environment)) {
+    if (name.toUpperCase() === "OHMYGAME_DAEMON_TOKEN") delete environment[name];
+  }
   if (options.runtimeBin) {
     const pathKey = Object.keys(environment).find((key) => key.toLowerCase() === "path") ?? "PATH";
     environment[pathKey] = [path.resolve(options.runtimeBin), environment[pathKey]].filter(Boolean).join(path.delimiter);
@@ -48,8 +53,9 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       DAEMON_HOST: "127.0.0.1",
       DAEMON_PORT: String(port),
       OHMYGAME_DATA_DIR: path.resolve(options.dataDirectory),
-      OHMYGAME_DAEMON_TOKEN: options.token,
+      OHMYGAME_DAEMON_TOKEN_STDIN: "1",
       OHMYGAME_ALLOWED_ORIGINS: options.allowedOrigins.join(","),
+      OHMYGAME_PROJECT_PROCESS_IPC: "1",
       ...(options.piAgentDirectory ? { PI_CODING_AGENT_DIR: path.resolve(options.piAgentDirectory) } : {}),
       ...(options.bundledPluginsDirectory ? { OHMYGAME_BUNDLED_PLUGINS_DIR: path.resolve(options.bundledPluginsDirectory) } : {}),
       ...(options.preinstalledPluginsDirectory ? { OHMYGAME_PREINSTALLED_PLUGINS_DIR: path.resolve(options.preinstalledPluginsDirectory) } : {}),
@@ -57,12 +63,35 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.playerDirectory ? { OHMYGAME_PLAYER_DIR: path.resolve(options.playerDirectory) } : {}),
       ...(options.handlePlaytestRequest ? { OHMYGAME_PLAYTEST_IPC: "1" } : {}),
     },
-    stdio: options.handlePlaytestRequest ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe", "ipc"],
   });
+  const projectProcesses = new Set<number>();
+  child.on("message", (value: unknown) => {
+    const message = value as { channel?: unknown; action?: unknown; pid?: unknown } | null;
+    if (message?.channel !== "ohmygame:project-process" || typeof message.pid !== "number" || !Number.isSafeInteger(message.pid) || message.pid <= 0) return;
+    if (message.action === "started") projectProcesses.add(message.pid);
+    else if (message.action === "stopped") projectProcesses.delete(message.pid);
+  });
+  // The token goes over stdin: other processes of the same user can read the environment a process starts with.
+  // Early child exits can close stdin; waitForHealth reports the startup failure and captured output.
+  child.stdin?.on("error", () => {});
+  child.stdin?.end(options.token);
+  if (options.resolveSystemProxy) {
+    child.on("message", (value: unknown) => {
+      const message = value as { channel?: string; id?: string } | null;
+      if (message?.channel !== "ohmygame:system-proxy:resolve" || typeof message.id !== "string" || message.id.length > 100) return;
+      const send = (result: { result: string } | { error: string }) => {
+        if (child.connected) child.send({ channel: "ohmygame:system-proxy:result", id: message.id, ...result }, () => {});
+      };
+      void options.resolveSystemProxy!().then((result) => send({ result }), () => send({ error: "Could not detect the system proxy" }));
+    });
+  }
   const playtestRequests = options.handlePlaytestRequest
     ? bindPlaytestRequests(child, options.handlePlaytestRequest)
     : undefined;
   let processError: Error | undefined;
+  let ready = false;
+  let stopped = false;
   let startupOutput = "";
   const captureStartupOutput = (chunk: unknown) => {
     startupOutput = `${startupOutput}${String(chunk)}`.slice(-MAX_STARTUP_OUTPUT_CHARS);
@@ -80,22 +109,42 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
     processError = error;
     console.error("Managed daemon process error", error);
   });
+  const cleanup = async () => {
+    playtestRequests?.close();
+    const pids = [...projectProcesses];
+    projectProcesses.clear();
+    await Promise.all(pids.map((pid) => signalProcessTree(pid, true).catch((error) => console.warn("Could not stop project process", error))));
+  };
+  const closed = new Promise<void>((resolve) => child.once("close", (code, signal) => {
+    const unexpected = ready && !stopped;
+    void cleanup().finally(() => {
+      resolve();
+      if (unexpected) options.onUnexpectedExit?.(startupError(`The background service exited (${signal ?? code ?? "unknown"})`, startupOutput));
+    });
+  }));
 
   try {
     await waitForHealth(runtime, child, () => processError, () => startupOutput, options.healthTimeoutMs ?? 15_000);
+    if (child.exitCode !== null || child.signalCode !== null) throw startupError("Daemon exited during startup", startupOutput);
+    ready = true;
   } catch (error) {
+    stopped = true;
     await stopChild(child);
+    await cleanup();
     throw error;
   }
 
-  let stopped = false;
+  let stopping: Promise<void> | undefined;
   return {
     runtime,
-    async stop() {
-      if (stopped) return;
+    stop() {
+      if (stopping) return stopping;
       stopped = true;
-      playtestRequests?.close();
-      await stopChild(child);
+      return stopping = (async () => {
+        playtestRequests?.close();
+        await stopChild(child);
+        await closed;
+      })();
     },
   };
 }
@@ -106,7 +155,7 @@ function bindPlaytestRequests(
 ): { close(): void } {
   const active = new Map<string, AbortController>();
   const send = (message: PlaytestIpcMessage) => {
-    if (child.connected) child.send?.(message);
+    if (child.connected) child.send?.(message, () => {});
   };
   const onMessage = (value: unknown) => {
     if (!value || typeof value !== "object") return;
@@ -161,8 +210,8 @@ async function waitForHealth(
   while (Date.now() < deadline) {
     const error = processError();
     if (error) throw error;
-    if (child.exitCode !== null) {
-      throw startupError(`Daemon exited before becoming ready (${child.exitCode})`, startupOutput());
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw startupError(`Daemon exited before becoming ready (${child.signalCode ?? child.exitCode})`, startupOutput());
     }
     try {
       const response = await fetch(`${runtime.url}/health`, {
@@ -187,14 +236,28 @@ function startupError(message: string, output: string): Error {
 }
 
 async function stopChild(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  child.kill("SIGTERM");
-  const forced = await Promise.race([exited.then(() => false), delay(5_000).then(() => true)]);
-  if (forced && child.exitCode === null && child.signalCode === null) {
-    child.kill("SIGKILL");
-    await exited;
+  // IPC lets Windows close the daemon's services before taskkill. POSIX also
+  // supports older daemons through SIGTERM; both paths share the shutdown gate.
+  if (child.connected) child.send({ channel: "ohmygame:shutdown" }, () => {});
+  if (process.platform !== "win32") child.kill("SIGTERM");
+  if (await exitsWithin(exited, GRACEFUL_SHUTDOWN_TIMEOUT_MS)) return;
+  if (process.platform === "win32") await signalProcessTree(child.pid, true);
+  else child.kill("SIGKILL");
+  if (!(await exitsWithin(exited, 5_000))) {
+    throw new Error("The background service could not be stopped.");
   }
+}
+
+async function exitsWithin(exited: Promise<void>, milliseconds: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      exited.then(() => true),
+      new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), milliseconds); }),
+    ]);
+  } finally { clearTimeout(timer); }
 }
 
 function delay(milliseconds: number): Promise<void> {

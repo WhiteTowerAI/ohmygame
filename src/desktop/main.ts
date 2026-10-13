@@ -3,32 +3,40 @@ import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
-import { startDaemon, type ManagedDaemon } from "./daemon-process.js";
+import { DaemonSupervisor } from "./daemon-supervisor.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
-import { applySystemProxy } from "./system-proxy.js";
+import { setGlobalDispatcher } from "undici/index.js";
+import { SYSTEM_PROXY_TARGET } from "../shared/network-settings.js";
+import { createNetworkDispatcher } from "../daemon/proxy.js";
+import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
+import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
-import { DesktopUpdater } from "./updater.js";
+import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
+import { RendererCloseRequest } from "./renderer-close.js";
+import { AsyncTaskPool } from "./async-task-pool.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import type { WebGamePlayerRequest } from "../shared/web-game-player.js";
+import type { WebGamePlayerRequest, WebGamePreviewLayout } from "../shared/web-game-player.js";
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
+loadEnvironmentFiles(repositoryRoot, app.isPackaged ? "production" : "development");
 const developmentRendererUrl = process.env.OHMYGAME_RENDERER_URL ?? "http://127.0.0.1:43120";
 const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-renderer");
-let daemon: ManagedDaemon | undefined;
+let daemon: DaemonSupervisor | undefined;
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 /** A Node that fails to start never reports back; its window gives up after this. */
 const NODE_THUMBNAIL_TIMEOUT_MS = 20_000;
+const nodeThumbnailCaptures = new AsyncTaskPool(2);
+const nodeThumbnailBatches = new Map<string, { projectId: string; controller: AbortController; requests: number }>();
 /** Hidden Node thumbnail windows by WebContents ID. */
 const nodeThumbnails = new Map<number, { window: BrowserWindow; finish: (captured: boolean) => void }>();
-let nodeThumbnailQueue: Promise<unknown> = Promise.resolve();
 /** Thumbnail windows run Node code, so they may only capture and report. */
 const NODE_THUMBNAIL_CHANNELS = new Set(["ohmygame:capture-page", "ohmygame:finish-node-thumbnail"]);
 
@@ -45,8 +53,14 @@ const agentPlaytests = new ElectronPlaytestDriver((state) => {
 });
 const webGamePlayers = new WebGamePlayerWindows((state) => {
   mainWindow?.webContents.send("ohmygame:web-game-player-state", state);
-});
+}, useBuiltRenderer
+  ? pathToFileURL(path.join(moduleDirectory, "../renderer/web-game-host.html")).href
+  : new URL("web-game-host.html", `${developmentRendererUrl}/`).href);
 let quitting = false;
+let quitPending = false;
+let restartPending = false;
+let rendererClose: RendererCloseRequest | undefined;
+let shutdown: Promise<void> | undefined;
 let updater: DesktopUpdater | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
 const windowMenuLabels = new Set(["File", "Edit", "View", "Window"]);
@@ -57,6 +71,36 @@ async function stopServices(): Promise<void> {
   agentPlaytests.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
 }
+
+function prepareShutdown(forUpdate = false): Promise<void> {
+  shutdown ??= (async () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      try {
+        await rendererClose?.request();
+      } catch (cause) {
+        if (forUpdate) throw new DesktopUpdatePreparationError("save", cause instanceof Error ? cause.message : String(cause));
+        throw cause;
+      }
+    }
+    quitting = true;
+    try {
+      await stopServices();
+    } catch (cause) {
+      console.error("Could not stop desktop services", cause);
+      if (forUpdate) {
+        quitting = false;
+        throw new DesktopUpdatePreparationError("shutdown", cause instanceof Error ? cause.message : String(cause));
+      }
+    }
+  })().catch((cause) => { shutdown = undefined; throw cause; });
+  return shutdown;
+}
+
+ipcMain.on("ohmygame:ready-to-close", (event, id: unknown, error: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || typeof id !== "number" ||
+      (error !== undefined && typeof error !== "string")) return;
+  rendererClose?.complete(id, error);
+});
 
 async function openProjectFile(filePath: string, mode: ProjectFileOpenMode): Promise<void> {
   if (mode === "reveal") {
@@ -194,13 +238,14 @@ handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
   const bounds = captureBounds(rectangle, window.getContentBounds());
   return window.webContents.capturePage(bounds).then((image) => image.toPNG());
 });
-handle("ohmygame:capture-node-thumbnail", (event, projectId: unknown, nodeId: unknown, viewport: unknown) => {
+handle("ohmygame:capture-node-thumbnail", (event, projectId: unknown, nodeId: unknown, viewport: unknown, batchId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid thumbnail source");
-  if (!validRouteId(projectId) || !validRouteId(nodeId) || !isValidPlaytestViewport(viewport)) throw new Error("Invalid thumbnail target");
-  // One hidden window at a time keeps background captures cheap.
-  const capture = nodeThumbnailQueue.then(() => captureNodeThumbnail(projectId, nodeId, viewport));
-  nodeThumbnailQueue = capture.catch(() => {});
-  return capture;
+  if (!validRouteId(projectId) || !validRouteId(nodeId) || !isValidPlaytestViewport(viewport) || !validRouteId(batchId)) throw new Error("Invalid thumbnail target");
+  return scheduleNodeThumbnail(projectId, nodeId, viewport, batchId);
+});
+handle("ohmygame:cancel-node-thumbnails", (event, batchId: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || !validRouteId(batchId)) throw new Error("Invalid thumbnail cancellation");
+  nodeThumbnailBatches.get(batchId)?.controller.abort();
 });
 handle("ohmygame:finish-node-thumbnail", (event, captured: unknown) => {
   nodeThumbnails.get(event.sender.id)?.finish(captured === true);
@@ -219,6 +264,25 @@ handle("ohmygame:web-game-player-state", (event, projectId: unknown) => {
   requirePlayerSource(event.sender, projectId);
   return webGamePlayers.state(projectId);
 });
+handle("ohmygame:attach-web-game-preview", (event, projectId: unknown, attachment: unknown, url: unknown, layout: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (!validRouteId(attachment) || typeof url !== "string" || url.length > 4_000) throw new Error("Invalid game preview target");
+  return webGamePlayers.attach(projectId, attachment, mainWindow!, url, requirePreviewLayout(layout), () => resolvePlayerTarget(projectId));
+});
+handle("ohmygame:layout-web-game-preview", (event, projectId: unknown, attachment: unknown, layout: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (!validRouteId(attachment)) throw new Error("Invalid game preview attachment");
+  webGamePlayers.layout(projectId, attachment, requirePreviewLayout(layout));
+});
+handle("ohmygame:detach-web-game-preview", (event, projectId: unknown, attachment: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  if (!validRouteId(attachment)) throw new Error("Invalid game preview attachment");
+  webGamePlayers.detach(projectId, attachment);
+});
+handle("ohmygame:capture-web-game-preview", (event, projectId: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  return webGamePlayers.capture(projectId);
+});
 handle("ohmygame:open-web-game-player", (event, projectId: unknown, request: unknown) => {
   requirePlayerSource(event.sender, projectId);
   const input = request as Partial<WebGamePlayerRequest> | null;
@@ -227,16 +291,38 @@ handle("ohmygame:open-web-game-player", (event, projectId: unknown, request: unk
   }
   return webGamePlayers.open(projectId, input as WebGamePlayerRequest, () => resolvePlayerTarget(projectId));
 });
+handle("ohmygame:close-web-game-player", (event, projectId: unknown) => {
+  requirePlayerSource(event.sender, projectId);
+  webGamePlayers.closeProject(projectId);
+});
 handle("ohmygame:refresh-web-game-player", (event, projectId: unknown, reload: unknown = false) => {
   requirePlayerSource(event.sender, projectId);
   if (typeof reload !== "boolean") throw new Error("Invalid game player refresh");
   return webGamePlayers.refresh(projectId, () => resolvePlayerTarget(projectId), reload);
+});
+handle("ohmygame:runtime-state", (event) => {
+  if (!BrowserWindow.fromWebContents(event.sender) || !daemon) throw new Error("Invalid background service source");
+  return daemon.state();
+});
+handle("ohmygame:restart-runtime", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents || !daemon || quitting) throw new Error("Invalid background service source");
+  return daemon.restart();
 });
 
 function requirePlayerSource(sender: Electron.WebContents, projectId: unknown): asserts projectId is string {
   if (!mainWindow || sender !== mainWindow.webContents || !validRouteId(projectId) || !daemon) {
     throw new Error("Invalid game player source");
   }
+}
+
+function requirePreviewLayout(value: unknown): WebGamePreviewLayout {
+  const layout = value as Partial<WebGamePreviewLayout> | null;
+  const bounds = layout?.bounds;
+  if (!bounds || typeof layout.visible !== "boolean" ||
+      ![bounds.x, bounds.y, bounds.width, bounds.height].every((entry) => Number.isFinite(entry) && entry >= 0 && entry <= 32_768)) {
+    throw new Error("Invalid game preview bounds");
+  }
+  return layout as WebGamePreviewLayout;
 }
 
 async function resolvePlayerTarget(projectId: string): Promise<WebGamePlayerTarget> {
@@ -304,6 +390,12 @@ handle("ohmygame:update-state", () => updater?.state() ?? null);
 handle("ohmygame:check-for-update", () => updater?.check());
 handle("ohmygame:download-update", () => updater?.download());
 handle("ohmygame:install-update", () => updater?.install());
+handle("ohmygame:restart-app", (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid restart source");
+  if (quitting) return;
+  restartPending = true;
+  app.quit();
+});
 
 // On macOS, closing the last window keeps the app and its services running
 // until Quit, and clicking the Dock icon opens the main window again.
@@ -320,17 +412,44 @@ app.on("activate", () => {
 app.on("before-quit", (event) => {
   if (quitting || !daemon) return;
   event.preventDefault();
-  quitting = true;
-  void stopServices().finally(() => app.quit());
+  if (quitPending) return;
+  quitPending = true;
+  void prepareShutdown().then(() => {
+    if (restartPending) app.relaunch();
+    app.quit();
+  }).catch(() => { quitPending = false; restartPending = false; });
 });
 
 try {
   await app.whenReady();
   nativeTheme.themeSource = "system";
   const rendererOrigin = useBuiltRenderer ? "null" : new URL(developmentRendererUrl).origin;
-  daemon = await startDaemon({
+  const dataDirectory = process.env.OHMYGAME_DATA_DIR ?? path.join(app.getPath("userData"), "data");
+  const systemProxySession = session.fromPartition("ohmygame-system-proxy", { cache: false });
+  await systemProxySession.setProxy({ mode: "system" });
+  const network = await prepareDesktopNetwork({
+    dataDirectory,
+    environment: app.isPackaged ? await packagedEnvironment() : { ...process.env },
+    resolveProxy: (url) => systemProxySession.resolveProxy(url),
+  });
+  // Main uses the same local bypasses; preserve the original environment for daemon policy resolution.
+  setGlobalDispatcher(createNetworkDispatcher(network.active));
+  const proxyConfig = electronProxyConfig(network.active);
+  const startupSessions = [session.defaultSession, session.fromPartition("electron-updater", { cache: false })];
+  app.on("login", (event, _contents, _request, authInfo, callback) => {
+    if (!authInfo.isProxy) return;
+    const credentials = proxyCredentials(network.active, authInfo.host, authInfo.port);
+    if (!credentials) return;
+    event.preventDefault();
+    callback(credentials.username, credentials.password);
+  });
+  app.on("session-created", (createdSession) => {
+    void createdSession.setProxy(proxyConfig).catch((error) => console.warn("Could not configure session proxy", error));
+  });
+  await Promise.all(startupSessions.map((startupSession) => startupSession.setProxy(proxyConfig)));
+  daemon = new DaemonSupervisor({
     daemonEntry: path.join(moduleDirectory, "../daemon/server.js"),
-    dataDirectory: process.env.OHMYGAME_DATA_DIR ?? path.join(app.getPath("userData"), "data"),
+    dataDirectory,
     token: randomBytes(32).toString("base64url"),
     allowedOrigins: [rendererOrigin],
     piAgentDirectory: process.env.PI_CODING_AGENT_DIR ?? path.join(app.getPath("userData"), "pi-agent"),
@@ -349,15 +468,27 @@ try {
         ? path.join(process.resourcesPath, "runtime", "node")
         : path.join(process.resourcesPath, "runtime", "node", "bin")
       : undefined,
-    environment: app.isPackaged ? await packagedEnvironment() : undefined,
+    environment: network.environment,
+    resolveSystemProxy: async () => {
+      // A separate system-configured session keeps detection independent of a manual app proxy.
+      await systemProxySession.forceReloadProxyConfig();
+      return systemProxySession.resolveProxy(SYSTEM_PROXY_TARGET);
+    },
     development: !useBuiltRenderer,
     healthTimeoutMs: 60_000,
     handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
+    onState: (state) => {
+      if (state.status !== "ready") {
+        webGamePlayers.close();
+        agentPlaytests.close();
+      }
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send("ohmygame:runtime-state", state);
+      }
+    },
   });
-  updater = new DesktopUpdater(app.getVersion(), async () => {
-    await stopServices();
-    quitting = true;
-  });
+  await daemon.start();
+  updater = new DesktopUpdater(app.getVersion(), () => prepareShutdown(true));
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
   updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));
@@ -383,13 +514,34 @@ async function openMainWindow(): Promise<void> {
     integratedMenuBar: true,
     beforeLoad: (window) => {
       mainWindow = window;
+      window.on("show", () => webGamePlayers.synchronize());
+      window.on("hide", () => webGamePlayers.synchronize());
+      window.on("minimize", () => webGamePlayers.synchronize());
+      window.on("restore", () => webGamePlayers.synchronize());
+      window.on("resize", () => webGamePlayers.synchronize());
+      const close = new RendererCloseRequest(
+        (id) => window.webContents.send("ohmygame:prepare-close", id),
+        (id, error) => { if (!window.isDestroyed()) window.webContents.send("ohmygame:cancel-close", id, error); },
+      );
+      rendererClose = close;
+      let allowClose = false;
+      window.on("close", (event) => {
+        if (quitting || allowClose) return;
+        event.preventDefault();
+        void close.request().then(() => {
+          if (quitPending || quitting || allowClose || window.isDestroyed()) return;
+          allowClose = true;
+          window.close();
+        }).catch(() => {});
+      });
       window.once("closed", () => {
-        if (mainWindow === window) mainWindow = undefined;
+        if (mainWindow === window) { mainWindow = undefined; rendererClose = undefined; }
         webGamePlayers.close();
         for (const playtest of playtestWindows.values()) {
           void Promise.resolve(playtest).then((window) => window.close(), () => {});
         }
         playtestWindows.clear();
+        for (const batch of nodeThumbnailBatches.values()) batch.controller.abort();
         for (const thumbnail of nodeThumbnails.values()) thumbnail.finish(false);
       });
     },
@@ -400,11 +552,6 @@ async function packagedEnvironment(): Promise<NodeJS.ProcessEnv> {
   const environment = { ...process.env };
   // esbuild spawns a native binary, which cannot run from inside app.asar.
   environment.ESBUILD_BINARY_PATH ??= packagedEsbuildBinary();
-  try {
-    await applySystemProxy(environment, (url) => session.defaultSession.resolveProxy(url));
-  } catch (error) {
-    console.warn("Could not resolve the system proxy", error);
-  }
   if (!environment.CLOUD_API_URL && !environment.PUBLISH_API_URL) {
     const config = JSON.parse(readFileSync(path.join(process.resourcesPath, "desktop-config.json"), "utf8")) as {
       cloudApiUrl?: unknown;
@@ -440,14 +587,31 @@ function captureBounds(value: unknown, content: Electron.Rectangle): Electron.Re
   return bounds;
 }
 
+async function scheduleNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string): Promise<boolean> {
+  let batch = nodeThumbnailBatches.get(batchId);
+  if (!batch) {
+    batch = { projectId, controller: new AbortController(), requests: 0 };
+    nodeThumbnailBatches.set(batchId, batch);
+  } else if (batch.projectId !== projectId) throw new Error("Invalid thumbnail batch");
+  batch.requests += 1;
+  return nodeThumbnailCaptures.run(
+    () => captureNodeThumbnail(projectId, nodeId, viewport, batch.controller.signal), batch.controller.signal,
+  ).catch(() => false).finally(() => {
+    batch.requests -= 1;
+    if (!batch.requests) nodeThumbnailBatches.delete(batchId);
+  });
+}
+
 /**
  * Runs one Node in a hidden window. The page stores its own screenshot, with
  * the hash of what it ran, and then reports whether that worked.
  */
-async function captureNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }): Promise<boolean> {
-  if (!daemon || !mainWindow) return false;
+async function captureNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, signal: AbortSignal): Promise<boolean> {
+  if (!daemon || !mainWindow || signal.aborted) return false;
   let finish!: (captured: boolean) => void;
   const finished = new Promise<boolean>((resolve) => { finish = resolve; });
+  const cancel = () => finish(false);
+  signal.addEventListener("abort", cancel, { once: true });
   const timer = setTimeout(() => finish(false), NODE_THUMBNAIL_TIMEOUT_MS);
   let thumbnailWindow: BrowserWindow | undefined;
   try {
@@ -473,6 +637,7 @@ async function captureNodeThumbnail(projectId: string, nodeId: string, viewport:
   } catch {
     return false;
   } finally {
+    signal.removeEventListener("abort", cancel);
     clearTimeout(timer);
     if (thumbnailWindow && !thumbnailWindow.isDestroyed()) thumbnailWindow.destroy();
   }

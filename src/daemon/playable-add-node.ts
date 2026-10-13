@@ -84,7 +84,7 @@ export async function addPlayableNode(
       ...codebase.editorLayout,
       nodes: {
         ...codebase.editorLayout.nodes,
-        [request.id]: request.position ?? freePlayablePosition(codebase.editorLayout),
+        [request.id]: request.position ?? freePlayablePosition(codebase.editorLayout, codebase.graph.viewport),
       },
     };
     return {

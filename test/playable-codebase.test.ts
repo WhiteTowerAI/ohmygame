@@ -8,16 +8,20 @@ import {
   createNodeCodebase,
   createPlayableStarterCodebase,
   NodeCodebaseConflictError,
+  openNodeCodebaseDetail,
   readNodeCodebase,
   readNodeCodebaseDetail,
   writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
+import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
 import { EDITOR_LAYOUT_SCHEMA } from "../src/shared/editor-layout-schema.js";
+import { fitPlayableLayout, freePlayablePosition, type NodeCodebase, type NodeEditorLayout } from "../src/shared/playable-codebase.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../src/shared/playable-graph-schema.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
 const temporaryRoots: string[] = [];
+const PROJECT_STYLE_MIGRATION_FILE = "schemas/project-style.version.json";
 
 afterEach(async () => {
   await Promise.all(
@@ -39,6 +43,7 @@ describe("Playable codebase", () => {
       "graph.json",
       "schemas/editor-layout.schema.json",
       "schemas/graph.schema.json",
+      "schemas/project-style.version.json",
       "shared/style/components.css",
       "shared/style/components.js",
       "shared/style/theme.css",
@@ -64,6 +69,120 @@ describe("Playable codebase", () => {
       .toContain('<div class="backdrop is-night" data-media="backdrop"></div>');
     // Its `next` Exit goes nowhere yet, which a draft allows.
     await expect(buildPlayableProject(workspace, "draft")).resolves.toBeDefined();
+  });
+
+  it("restores the missing Project Style when a Scene is added to a legacy project", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createPlayableStarterCodebase("Legacy", { width: 1280, height: 720 }),
+    );
+    await rm(path.join(workspace, "shared"), { recursive: true });
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE));
+
+    await addPlayableNode(workspace, { preset: "hotspot", id: "hotspot" });
+
+    for (const [relative, content] of Object.entries(
+      PLAYABLE_PROJECT_STYLE_FILES,
+    )) {
+      expect(await readFile(path.join(workspace, relative), "utf8")).toBe(
+        content,
+      );
+    }
+    await expect(
+      buildPlayableProject(workspace, "draft"),
+    ).resolves.toBeDefined();
+  });
+
+  it("keeps reads pure and migrates the missing Project Style when a legacy project is opened", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createPlayableStarterCodebase("Broken", { width: 1280, height: 720 }),
+    );
+    await addPlayableNode(workspace, { preset: "hotspot", id: "hotspot" });
+    await rm(path.join(workspace, "shared"), { recursive: true });
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE));
+
+    await readNodeCodebase(workspace);
+    await expect(
+      readFile(path.join(workspace, "shared/style/components.js"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readFile(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    await openNodeCodebaseDetail(workspace);
+
+    await expect(
+      buildPlayableProject(workspace, "draft"),
+    ).resolves.toBeDefined();
+    expect(
+      await readFile(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE), "utf8"),
+    ).toBe('{\n  "version": 1\n}\n');
+  });
+
+  it("preserves customized Project Style files and does not repeat the migration", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createPlayableStarterCodebase("Customized", { width: 1280, height: 720 }),
+    );
+    const customTheme = ":host { --color-page: rebeccapurple; }\n";
+    await writeFile(
+      path.join(workspace, "shared/style/theme.css"),
+      customTheme,
+    );
+    await rm(path.join(workspace, "shared/style/components.js"));
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE));
+
+    await openNodeCodebaseDetail(workspace);
+
+    expect(
+      await readFile(path.join(workspace, "shared/style/theme.css"), "utf8"),
+    ).toBe(customTheme);
+    expect(
+      await readFile(
+        path.join(workspace, "shared/style/components.js"),
+        "utf8",
+      ),
+    ).toBe(PLAYABLE_PROJECT_STYLE_FILES["shared/style/components.js"]);
+
+    await rm(path.join(workspace, "shared/style/components.js"));
+    await rm(path.join(workspace, ".ohmygame"), {
+      recursive: true,
+      force: true,
+    });
+    await openNodeCodebaseDetail(workspace);
+    await expect(
+      readFile(path.join(workspace, "shared/style/components.js"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("can retry the Project Style migration after a failed open", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createPlayableStarterCodebase("Retry", { width: 1280, height: 720 }),
+    );
+    await rm(path.join(workspace, "shared"), { recursive: true });
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE));
+    await mkdir(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE), {
+      recursive: true,
+    });
+
+    await expect(openNodeCodebaseDetail(workspace)).rejects.toBeDefined();
+    await expect(
+      readFile(path.join(workspace, "shared/style/components.js"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    await rm(path.join(workspace, PROJECT_STYLE_MIGRATION_FILE), {
+      recursive: true,
+    });
+    await expect(openNodeCodebaseDetail(workspace)).resolves.toBeDefined();
+    expect(
+      await readFile(path.join(workspace, "shared/style/components.js"), "utf8"),
+    ).toBe(PLAYABLE_PROJECT_STYLE_FILES["shared/style/components.js"]);
   });
 
   it("preserves user documentation and refreshes generated schemas", async () => {
@@ -134,6 +253,22 @@ describe("Playable codebase", () => {
       editorLayout: { nodes: { start: { x: 80, y: 180 } } },
     });
     expect((await readNodeCodebase(mismatchedLayout)).editorLayout.nodes).not.toHaveProperty("other");
+  });
+
+  it("reports a graph without a screen when a Scene has no position yet", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
+    );
+    const graph = await readJson(workspace, "graph.json") as { viewport?: unknown };
+    delete graph.viewport;
+    await writeFile(path.join(workspace, "graph.json"), `${JSON.stringify(graph)}\n`);
+    const layout = await readJson(workspace, "editor/layout.json") as { nodes: Record<string, unknown> };
+    layout.nodes = {};
+    await writeFile(path.join(workspace, "editor/layout.json"), `${JSON.stringify(layout)}\n`);
+
+    await expect(readNodeCodebase(workspace)).rejects.toThrow("must have required properties viewport");
   });
 
   it("updates graph and layout together and rejects invalid changes without writing", async () => {
@@ -406,6 +541,69 @@ describe("Playable codebase", () => {
       .toContain('data-media="backdrop"');
   });
 });
+
+describe("Playable Scene placement", () => {
+  const scenes = ["menu", "platform", "carriage", "good-ending", "bad-ending"];
+
+  it("places Scenes without a position clear of each other on a landscape screen", () => {
+    const { graph, editorLayout } = codebaseWithScenes({ width: 1920, height: 1080 }, scenes);
+
+    expect(overlappingCards(fitPlayableLayout(graph, editorLayout), graph.viewport)).toEqual([]);
+  });
+
+  it("places Scenes without a position clear of each other on a portrait screen", () => {
+    const { graph, editorLayout } = codebaseWithScenes({ width: 1080, height: 1920 }, scenes);
+
+    expect(overlappingCards(fitPlayableLayout(graph, editorLayout), graph.viewport)).toEqual([]);
+  });
+
+  it("places a new Scene clear of one the author moved off the grid, which stays where it is", () => {
+    const { graph, editorLayout } = codebaseWithScenes({ width: 1920, height: 1080 }, ["start", "added"]);
+    const layout = { ...editorLayout, nodes: { start: { x: 120, y: 200 } } };
+
+    const fitted = fitPlayableLayout(graph, layout);
+
+    expect(fitted.nodes.start).toEqual({ x: 120, y: 200 });
+    expect(fitted.nodes.added).toEqual(freePlayablePosition(layout, graph.viewport));
+    expect(overlappingCards(fitted, graph.viewport)).toEqual([]);
+  });
+});
+
+/** A project with these Scenes in graph.json and no canvas positions. */
+function codebaseWithScenes(viewport: { width: number; height: number }, ids: string[]): NodeCodebase {
+  const codebase = createPlayableStarterCodebase("Story", viewport);
+  return {
+    ...codebase,
+    graph: {
+      ...codebase.graph,
+      nodes: ids.map((id) => ({
+        id,
+        title: id,
+        source: { html: `nodes/${id}/index.html`, css: `nodes/${id}/style.css`, javascript: `nodes/${id}/node.js` },
+        assets: [],
+        signals: [{ id: "next", label: "Next" }],
+      })),
+    },
+  };
+}
+
+/**
+ * The pairs of Scenes whose cards cover each other. The canvas draws a card
+ * as a 28px title above a stage that fits the screen's shape into 440 by 440.
+ */
+function overlappingCards(layout: NodeEditorLayout, viewport: { width: number; height: number }): string[] {
+  const aspect = viewport.width / viewport.height;
+  const width = 440 * Math.min(1, aspect);
+  const height = 28 + 440 / Math.max(1, aspect);
+  const pairs: string[] = [];
+  const cards = Object.entries(layout.nodes);
+  for (const [index, [left, a]] of cards.entries()) {
+    for (const [right, b] of cards.slice(index + 1)) {
+      if (Math.abs(a.x - b.x) < width && Math.abs(a.y - b.y) < height) pairs.push(`${left}+${right}`);
+    }
+  }
+  return pairs;
+}
 
 async function temporaryWorkspace(): Promise<string> {
   const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-playable-codebase-"));
