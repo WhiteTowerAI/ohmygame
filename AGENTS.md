@@ -20,5 +20,8 @@ their code, documentation, and tests.
 
 - Match existing style and keep unrelated formatting cleanup in a separate PR.
 - Update relevant documentation when public behavior or file contracts change.
+- `README.md` is the source for `README.zh-CN.md`. Update both in the same PR,
+  keeping sections, media, and links aligned; say so in the PR if the
+  translation must follow later.
 - Use the [checks guidance](CONTRIBUTING.md#make-and-check-your-change) for the
   change type. Record skipped checks and manual validation still needed.
