@@ -35,9 +35,8 @@ export async function startStaticPreview(
         outgoing.writeHead(405).end();
         return;
       }
-      const pathname = decodeURIComponent(
-        new URL(incoming.url ?? "/", "http://localhost").pathname,
-      );
+      const requestUrl = new URL(incoming.url ?? "/", "http://localhost");
+      const pathname = decodeURIComponent(requestUrl.pathname);
       const parts = pathname.split("/");
       if (
         parts.some((part) => part.startsWith(".") || part === "node_modules")
@@ -46,9 +45,12 @@ export async function startStaticPreview(
         return;
       }
       let filename = path.join(root, pathname);
+      let redirectDirectory = false;
       try {
-        if ((await stat(filename)).isDirectory())
+        if ((await stat(filename)).isDirectory()) {
+          redirectDirectory = !requestUrl.pathname.endsWith("/");
           filename = path.join(filename, "index.html");
+        }
       } catch (cause) {
         if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
         if (
@@ -61,6 +63,15 @@ export async function startStaticPreview(
       const relative = path.relative(root, filename);
       if (relative.startsWith("..") || path.isAbsolute(relative)) {
         outgoing.writeHead(403).end();
+        return;
+      }
+      if (redirectDirectory) {
+        outgoing
+          .writeHead(301, {
+            location: `${requestUrl.pathname}/${requestUrl.search}`,
+            "cache-control": "no-store",
+          })
+          .end();
         return;
       }
       outgoing.writeHead(200, {
