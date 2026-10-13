@@ -410,7 +410,7 @@ export function createAgentTools(
     label: "Check Project",
     description: [
       "Validate the Playable Nodes project: graph.json against its schema and references, then compile every Node and the shared modules it imports.",
-      "Run it after changing the project and fix every issue it reports. Use mode \"publish\" before the user publishes; it also requires every Signal to be connected and every source file to exist.",
+      "Run it after changing the project and fix every issue it reports. Use mode \"publish\" before the user publishes; it also requires every Signal other than navigation ones to be connected and every source file to exist.",
     ].join("\n"),
     parameters: Type.Object({
       mode: Type.Optional(Type.Union([Type.Literal("draft"), Type.Literal("publish")], { description: "Validation strictness; defaults to draft" })),
