@@ -278,7 +278,23 @@ describe("electron playtest driver", () => {
     window.session.permissionHandler!(contents, "pointerLock", callback, mainFrame);
     expect(callback).toHaveBeenCalledWith(true);
     expect(() => window.session.requestErrorHandler!({ webContentsId: contents.id, url: "http://127.0.0.1:43123/a.png", error: "net::ERR_FAILED", timestamp: Date.now() })).not.toThrow();
-    expect(() => driver.close()).not.toThrow();
+  });
+
+  it("closes a session whose window is destroyed before the closed event", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0]!;
+    // Keep the session registered until Electron delivers the closed event.
+    window.destroyed = true;
+    expect(driver.watchState().activeSessions).toBe(1);
+
+    await expect(driver.request({ operation: "close", sessionId: opened.snapshot.sessionId })).resolves.toEqual({ operation: "close" });
+    expect(driver.watchState().activeSessions).toBe(0);
+    expect(window.debugger.isAttached).not.toHaveBeenCalled();
+    expect(window.debugger.detach).not.toHaveBeenCalled();
+    window.closedHandler?.();
+    expect(driver.watchState().activeSessions).toBe(0);
   });
 
   it("bounds retained browser sessions", async () => {
