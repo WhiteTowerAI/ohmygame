@@ -110,7 +110,7 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
     <div className="provider-models-heading">
       <h4>{t("models.title")} <small>{settings ? shown : ""}</small></h4>
       {settings ? <div className="provider-models-heading-actions">
-        {settings.model3DProtocol ? <button className="settings-secondary-button" type="button" disabled={busy || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)} title={t("models.reloadTitle")} aria-label={t("models.reloadLabel")}><RefreshCw size={13} className={busy ? "spin" : undefined} /><span>{t("models.reload")}</span></button> : null}
+        {settings.model3DProtocol ? <button className="settings-secondary-button" type="button" disabled={busy || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)} title={t("models.reloadTitle")} aria-label={t("models.reloadLabel")}><RefreshCw size={13} className={busy ? "spin" : undefined} /><span>{t("common.reload")}</span></button> : null}
         {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setEditingModel(undefined); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
           <Plus size={13} /><span>{t("models.add")}</span>
         </button> : null}
@@ -135,8 +135,8 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
         {editing ? <SegmentedControl className="settings-provider-filters" label={t("models.filter.label")} options={MODEL_FILTER_OPTIONS} value={filter} onChange={setFilter} /> : null}
       </div>
       {editing ? <div className="provider-models-list-actions">
-        <span>{shown} shown <i aria-hidden="true">/</i> {settings.models.length} total</span>
-        <button type="button" disabled={busy || !models.some((model) => !model.visible)} onClick={() => changeVisibility(models, true)}>{t("models.showAll")}</button>
+        <span>{t("models.shownCount", { shown, total: settings.models.length })}</span>
+        <button type="button" disabled={busy || !models.some((model) => !model.visible)} onClick={() => changeVisibility(models, true)}>{t("common.showAll")}</button>
         <button type="button" disabled={busy || !models.some((model) => model.visible)} onClick={() => changeVisibility(models, false)}>{t("models.hideAll")}</button>
       </div> : null}
       <div className="provider-models-list" role="list" aria-label={editing ? t("models.providerModels") : t("models.shownProviderModels")} aria-busy={busy}>

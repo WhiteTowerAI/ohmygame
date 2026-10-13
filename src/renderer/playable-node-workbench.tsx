@@ -402,7 +402,7 @@ export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoS
   media?: ReactNode;
 }) {
   return <div className="playable-preview-toolbar">
-    {tool !== "play" ? <p className="playable-preview-toolbar-hint">{TOOL_HINTS[tool]}{tool === "select" && picks ? ` · ${picks} picked` : ""}</p> : null}
+    {tool !== "play" ? <p className="playable-preview-toolbar-hint">{TOOL_HINTS[tool]}{tool === "select" && picks ? ` · ${t("sceneWorkbench.pickedCount", { count: picks })}` : ""}</p> : null}
     <div role="toolbar" aria-label={t("sceneWorkbench.tools")}>
       {TOOLS.map(({ tool: value, label, title, icon: Icon }) => <button
         key={value}

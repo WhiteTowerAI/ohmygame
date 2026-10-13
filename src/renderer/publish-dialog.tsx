@@ -202,7 +202,7 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
           }} />
           {pendingCover ? <div className="publish-cover-controls">
             <button type="button" disabled={busy} onClick={() => { setPendingCover(undefined); setError(undefined); setCoverNotice(undefined); }}>{t("publish.cancelSelection")}</button>
-            <button className="project-create-submit" type="button" disabled={busy} onClick={() => void applyCover()}>{coverOperation === "apply" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}Apply cover</button>
+            <button className="project-create-submit" type="button" disabled={busy} onClick={() => void applyCover()}>{coverOperation === "apply" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}{t("publish.applyCoverButton")}</button>
           </div> : null}
           <p className={`publish-cover-status${pendingCover || coverNotice ? "" : " visually-hidden"}`} role="status">{pendingCover ? t("publish.applyCover") : coverNotice}</p>
           {project.publication ? <p className="publish-cover-status">{t("publish.localCover")}</p> : null}

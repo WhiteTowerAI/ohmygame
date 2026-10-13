@@ -67,7 +67,7 @@ export function SendToProjectDialog({ assetId, name, onClose }: { assetId: strin
           <span>{tNodes("sendToProject.added", { project: <strong>{phase.project.name}</strong>, path: <code>{phase.path}</code> })}</span>
         </div>
         <div className="project-switcher-footer">
-          <button type="button" onClick={() => { window.location.hash = projectHash(phase.project.id); }}><FolderOpen size={14} />Open {phase.project.name}</button>
+          <button type="button" onClick={() => { window.location.hash = projectHash(phase.project.id); }}><FolderOpen size={14} />{t("common.openName", { name: phase.project.name })}</button>
         </div>
       </> : <>
         <label className="project-switcher-search">

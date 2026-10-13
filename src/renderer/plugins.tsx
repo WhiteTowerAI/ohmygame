@@ -303,7 +303,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
         {installCandidates.length ? <div className="plugin-install-candidates" role="radiogroup" aria-label={t("plugins.title")}>
           {installCandidates.map((candidate) => <button type="button" role="radio" aria-checked={selectedCandidate === candidate.key} className={selectedCandidate === candidate.key ? "is-selected" : ""} key={candidate.key} onClick={() => setSelectedCandidate(candidate.key)}>
             <span><strong>{candidate.displayName}</strong><small>{candidate.description}</small></span>
-            <span className="plugin-install-candidate-meta"><small>{candidate.skillCount} skill{candidate.skillCount === 1 ? "" : "s"}</small><span className="plugin-install-candidate-radio" aria-hidden="true" /></span>
+            <span className="plugin-install-candidate-meta"><small>{t("plugins.skillCount", { count: candidate.skillCount })}</small><span className="plugin-install-candidate-radio" aria-hidden="true" /></span>
           </button>)}
         </div> : <label><span>{t("plugins.repositoryUrl")}</span><input autoFocus type="url" required disabled={Boolean(adding)} value={gitUrl} placeholder="https://github.com/example/plugin" onChange={(event) => setGitUrl(event.target.value)} /></label>}
         {error ? <p className="plugin-install-error" role="alert">{error}</p> : null}
@@ -494,7 +494,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
                 </button>) : null}
                 {projectPhase === "ready" && !visibleProjects.length ? <div className="project-switcher-state">{emptyProjectLabel}</div> : null}
               </div>
-              <div className="project-switcher-footer"><button type="button" disabled={projectPhase === "starting"} onClick={() => void startPlugin()}><FolderPlus size={14} />New {projectTypeLabel(plugin.projectTypes?.[0] ?? "web-game")} project</button></div>
+              <div className="project-switcher-footer"><button type="button" disabled={projectPhase === "starting"} onClick={() => void startPlugin()}><FolderPlus size={14} />{t("plugins.newProject", { type: projectTypeLabel(plugin.projectTypes?.[0] ?? "web-game") })}</button></div>
             </div> : null}
           </div>
         </div>

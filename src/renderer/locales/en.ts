@@ -1,6 +1,7 @@
 // English is the source language. Add every UI string here first.
 const en = {
   common: {
+    openName: "Open {{name}}",
     tryAgain: "Try again",
     copied: "Copied",
     copyDetails: "Copy details",
@@ -171,6 +172,9 @@ const en = {
     edit: "Edit {{label}}",
     loadingConfiguration: "Loading configuration",
     connect: {
+      providerApiKey: "{{name}} API key",
+      signInWith: "Sign in with {{name}}",
+      enterApiKey: "Enter {{name}} API key",
       title: "Connect",
       description: "Choose how OhMyGame should connect to this provider.",
       oauthHint: "Sign in with your account in the browser",
@@ -228,6 +232,7 @@ const en = {
     apiBalance: "API balance · {{model}}",
   },
   models: {
+    shownCount: "{{shown}} shown / {{total}} total",
     filter: {
       shown: "Shown",
       custom: "Custom",
@@ -236,14 +241,12 @@ const en = {
     title: "Models",
     reloadTitle: "Reload the bundled official presets and account catalog",
     reloadLabel: "Reload model catalog",
-    reload: "Reload",
     add: "Add model",
     doneEditing: "Done editing models",
     editModels: "Edit models",
     catalogInfo: "Model catalog info",
     officialVersions: "Official model versions",
     search: "Search models",
-    showAll: "Show all",
     hideAll: "Hide all",
     providerModels: "Provider models",
     shownProviderModels: "Shown provider models",
@@ -335,6 +338,12 @@ const en = {
     },
   },
   modelUsage: {
+    referenceMode: {
+      frame: "Frame",
+      reference: "Reference",
+    },
+    useReferenceDefault_one: "Use model default ({{count}} reference)",
+    useReferenceDefault_other: "Use model default ({{count}} references)",
     useFor: "Use this model for",
     unassigned: "Unassigned — choose a use before enabling this model.",
     imageProtocol: "Image protocol",
@@ -511,6 +520,7 @@ const en = {
     },
   },
   examples: {
+    loadingName: "Loading {{name}}",
     play: "Play",
     playName: "Play {{name}}",
     example: "Example",
@@ -844,6 +854,8 @@ const en = {
     canvasFormat: "Canvas format",
   },
   library: {
+    usedByProject: "{{name}} is used by this project.",
+    usedByProjects: "{{name}} is used by {{count}} projects.",
     confirmDelete: "Delete “{{name}}” from Library? This cannot be undone.",
     title: "Library",
     loading: "Loading assets",
@@ -879,6 +891,7 @@ const en = {
     reset: "Reset filters",
   },
   community: {
+    byAuthor: "by {{author}}",
     title: "Community",
     loading: "Loading games",
     none: "No published games yet",
@@ -1354,6 +1367,7 @@ const en = {
       "The background service is unavailable. Wait for recovery or restart it.",
   },
   publish: {
+    applyCoverButton: "Apply cover",
     processingCover: "Processing cover...",
     savingCover: "Saving cover...",
     publishing: "Publishing...",
@@ -1394,6 +1408,9 @@ const en = {
     coverProcessFailed: "Could not process this cover image",
   },
   plugins: {
+    skillCount_one: "{{count}} skill",
+    skillCount_other: "{{count}} skills",
+    newProject: "New {{type}} project",
     plugin: "Plugin",
     title: "Plugins",
     search: "Search plugins...",
@@ -1454,6 +1471,7 @@ const en = {
     openFolder: "Open folder",
   },
   pluginControls: {
+    needsConfiguration: "Needs configuration: {{fields}}",
     uninstall: "Uninstall plugin",
     confirmUninstall: "Uninstall “{{name}}”?",
     uninstallShort: "Uninstall",
@@ -1504,6 +1522,7 @@ const en = {
     adding: "Adding…",
   },
   pluginBuilder: {
+    loadFailed: "Could not load builder workspaces. {{error}}",
     workspaces: "Plugin workspaces",
     continue: "Continue building",
     tab: {
@@ -1558,6 +1577,7 @@ const en = {
     },
   },
   canvas: {
+    restoreWorkspace: "Restore the workspace files, then reload.",
     selectedCount: " ({{count}} selected)",
     reviewConflicts: "Review canvas conflicts",
     reviewChanges: "Review changes",
@@ -1617,6 +1637,8 @@ const en = {
     timeout: "The local canvas service took too long to respond. Try again.",
   },
   canvasDocs: {
+    restoreFirst:
+      "Restore the document file before adopting this draft. You can still edit or copy it.",
     editedElsewhere:
       "The same document was edited elsewhere. Choose a version before saving.",
     removed: "Document was removed from the workspace index",
@@ -1633,6 +1655,10 @@ const en = {
       "Saving was interrupted. Review the document before adopting the candidate draft again.",
   },
   canvasDoc: {
+    unavailableDraftKept:
+      "Document unavailable: {{source}}. Your unsaved draft is kept.",
+    unavailableRestore:
+      "Document unavailable: {{source}}. Restore the file to load it again.",
     missing: "Missing document",
     title: "Document title",
     markdown: "Document Markdown",
@@ -1686,6 +1712,9 @@ const en = {
       "AI table editing was interrupted. Your instruction and candidate draft are kept. Try again.",
   },
   tableNode: {
+    candidateReview: "Candidate draft — review before replacing the table.",
+    pasteHint:
+      "Paste cells from a spreadsheet. CSV import replaces the table; Undo restores it.",
     table: "Table",
     unavailable: "Table unavailable. Restore its file to load it again.",
     view: "Table view",
@@ -1738,6 +1767,24 @@ const en = {
     columnLower: "column {{number}}",
   },
   assetCanvas: {
+    textureQualities: {
+      fast: "Fast",
+      standard: "Standard",
+      detailed: "Detailed",
+      extreme: "Extreme",
+    },
+    rigTypes: {
+      biped: "Biped",
+      quadruped: "Quadruped",
+      hexapod: "Hexapod",
+      octopod: "Octopod",
+      serpentine: "Serpentine",
+      aquatic: "Aquatic",
+    },
+    moveCount_one: "{{count}} move",
+    moveCount_other: "{{count}} moves",
+    animationSelection:
+      "{{count}}/{{max}} selected · Rigging and animation use provider credits",
     group: {
       assets: "Assets",
       documents: "Documents",
@@ -1793,7 +1840,6 @@ const en = {
     connectGlb: "Connect a source GLB model",
     model: "Model",
     connect3d: "Connect a 3D model",
-    workspace: "Asset Canvas workspace",
     expandedText: "Expanded text",
     dropFiles: "Drop files",
     importing: "Importing files",
@@ -1836,6 +1882,7 @@ const en = {
     },
     operation: "3D operation",
     op: {
+      animate: "Animate",
       image: "Image to 3D",
       text: "Text to 3D",
       retexture: "Retexture",
@@ -1992,6 +2039,7 @@ const en = {
     needsProvider: "{{label}} needs a provider that offers it.",
   },
   sceneWorkbench: {
+    pickedCount: "{{count}} picked",
     askFailed: "Could not ask the AI: {{summary}}",
     textFailed: "Could not change the text: {{error}}",
     changing: 'Changing "{{before}}" to "{{after}}"',

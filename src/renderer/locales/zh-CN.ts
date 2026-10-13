@@ -2,6 +2,7 @@ import type en from "./en.js";
 
 const zhCN: typeof en = {
   common: {
+    openName: "打开 {{name}}",
     tryAgain: "重试",
     copied: "已复制",
     copyDetails: "复制详情",
@@ -169,6 +170,9 @@ const zhCN: typeof en = {
     edit: "编辑 {{label}}",
     loadingConfiguration: "正在加载配置",
     connect: {
+      providerApiKey: "{{name}} API 密钥",
+      signInWith: "使用 {{name}} 登录",
+      enterApiKey: "输入 {{name}} API 密钥",
       title: "连接",
       description: "选择 OhMyGame 连接这个服务商的方式。",
       oauthHint: "在浏览器中用你的账户登录",
@@ -226,6 +230,7 @@ const zhCN: typeof en = {
     apiBalance: "API 余额 · {{model}}",
   },
   models: {
+    shownCount: "已显示 {{shown}} / 共 {{total}} 个",
     filter: {
       shown: "已显示",
       custom: "自定义",
@@ -234,14 +239,12 @@ const zhCN: typeof en = {
     title: "模型",
     reloadTitle: "重新加载内置的官方预设和账户模型目录",
     reloadLabel: "重新加载模型目录",
-    reload: "重新加载",
     add: "添加模型",
     doneEditing: "完成编辑模型",
     editModels: "编辑模型",
     catalogInfo: "模型目录说明",
     officialVersions: "官方模型版本",
     search: "搜索模型",
-    showAll: "全部显示",
     hideAll: "全部隐藏",
     providerModels: "服务商模型",
     shownProviderModels: "已显示的服务商模型",
@@ -329,6 +332,12 @@ const zhCN: typeof en = {
     },
   },
   modelUsage: {
+    referenceMode: {
+      frame: "首尾帧",
+      reference: "参考图",
+    },
+    useReferenceDefault_one: "使用模型默认值（{{count}} 张参考图）",
+    useReferenceDefault_other: "使用模型默认值（{{count}} 张参考图）",
     useFor: "将此模型用于",
     unassigned: "未分配 — 启用前请先选择用途。",
     imageProtocol: "图像协议",
@@ -500,6 +509,7 @@ const zhCN: typeof en = {
     },
   },
   examples: {
+    loadingName: "正在加载 {{name}}",
     play: "试玩",
     playName: "试玩 {{name}}",
     example: "示例",
@@ -827,6 +837,8 @@ const zhCN: typeof en = {
     canvasFormat: "画布格式",
   },
   library: {
+    usedByProject: "{{name}} 正被这个项目使用。",
+    usedByProjects: "{{name}} 正被 {{count}} 个项目使用。",
     confirmDelete: "要从素材库删除“{{name}}”吗？此操作无法撤销。",
     title: "素材库",
     loading: "正在加载素材",
@@ -862,6 +874,7 @@ const zhCN: typeof en = {
     reset: "重置筛选",
   },
   community: {
+    byAuthor: "作者：{{author}}",
     title: "社区",
     loading: "正在加载游戏",
     none: "还没有已发布的游戏",
@@ -1322,6 +1335,7 @@ const zhCN: typeof en = {
     serviceUnavailableLong: "后台服务不可用，请等待恢复或重启服务。",
   },
   publish: {
+    applyCoverButton: "应用封面",
     processingCover: "正在处理封面…",
     savingCover: "正在保存封面…",
     publishing: "正在发布…",
@@ -1361,6 +1375,9 @@ const zhCN: typeof en = {
     coverProcessFailed: "无法处理这张封面图片",
   },
   plugins: {
+    skillCount_one: "{{count}} 个 Skill",
+    skillCount_other: "{{count}} 个 Skill",
+    newProject: "新建{{type}}项目",
     plugin: "插件",
     title: "插件",
     search: "搜索插件…",
@@ -1421,6 +1438,7 @@ const zhCN: typeof en = {
     openFolder: "打开文件夹",
   },
   pluginControls: {
+    needsConfiguration: "需要配置：{{fields}}",
     uninstall: "卸载插件",
     confirmUninstall: "要卸载“{{name}}”吗？",
     uninstallShort: "卸载",
@@ -1467,6 +1485,7 @@ const zhCN: typeof en = {
     adding: "正在添加…",
   },
   pluginBuilder: {
+    loadFailed: "无法加载插件构建工作区。{{error}}",
     workspaces: "插件工作区",
     continue: "继续构建",
     tab: {
@@ -1519,6 +1538,7 @@ const zhCN: typeof en = {
     },
   },
   canvas: {
+    restoreWorkspace: "请恢复工作区文件，然后重新加载。",
     selectedCount: "（已选 {{count}} 个）",
     reviewConflicts: "查看画布冲突",
     reviewChanges: "查看更改",
@@ -1575,6 +1595,7 @@ const zhCN: typeof en = {
     timeout: "本地画布服务响应超时，请重试。",
   },
   canvasDocs: {
+    restoreFirst: "请先恢复文档文件，再采用此草稿。你仍然可以编辑或复制草稿。",
     editedElsewhere: "同一份文档在其他地方被修改了。保存前请先选择一个版本。",
     removed: "文档已从工作区索引中移除",
     saveBlocked: "无法保存文档“{{title}}”。关闭前请先恢复它的工作区文件。",
@@ -1587,6 +1608,8 @@ const zhCN: typeof en = {
     savingInterrupted: "保存被中断。再次采用候选草稿前，请先检查文档。",
   },
   canvasDoc: {
+    unavailableDraftKept: "文档不可用：{{source}}。未保存的草稿已保留。",
+    unavailableRestore: "文档不可用：{{source}}。请恢复文件后重新加载。",
     missing: "文档缺失",
     title: "文档标题",
     markdown: "文档 Markdown",
@@ -1635,6 +1658,8 @@ const zhCN: typeof en = {
     interrupted: "AI 编辑表格被中断。你的指令和候选草稿已保留，请重试。",
   },
   tableNode: {
+    candidateReview: "候选草稿——请检查后再替换表格。",
+    pasteHint: "可从电子表格粘贴单元格。导入 CSV 会替换表格，可通过撤销恢复。",
     table: "表格",
     unavailable: "表格不可用。恢复它的文件后即可重新加载。",
     view: "表格视图",
@@ -1687,6 +1712,24 @@ const zhCN: typeof en = {
     columnLower: "列 {{number}}",
   },
   assetCanvas: {
+    textureQualities: {
+      fast: "快速",
+      standard: "标准",
+      detailed: "精细",
+      extreme: "极致",
+    },
+    rigTypes: {
+      biped: "双足",
+      quadruped: "四足",
+      hexapod: "六足",
+      octopod: "八足",
+      serpentine: "蛇形",
+      aquatic: "水生",
+    },
+    moveCount_one: "{{count}} 个动作",
+    moveCount_other: "{{count}} 个动作",
+    animationSelection:
+      "已选 {{count}}/{{max}} 个 · 绑定骨骼和动画会消耗服务商额度",
     group: {
       assets: "素材",
       documents: "文档",
@@ -1740,7 +1783,6 @@ const zhCN: typeof en = {
     connectGlb: "连接一个源 GLB 模型",
     model: "模型",
     connect3d: "连接一个 3D 模型",
-    workspace: "素材画布工作区",
     expandedText: "展开的文本",
     dropFiles: "拖放文件",
     importing: "正在导入文件",
@@ -1782,6 +1824,7 @@ const zhCN: typeof en = {
     },
     operation: "3D 操作",
     op: {
+      animate: "动画",
       image: "图生 3D",
       text: "文生 3D",
       retexture: "重新贴图",
@@ -1938,6 +1981,7 @@ const zhCN: typeof en = {
     needsProvider: "{{label}} 需要一个提供它的服务商。",
   },
   sceneWorkbench: {
+    pickedCount: "已选 {{count}} 个",
     askFailed: "无法询问 AI：{{summary}}",
     textFailed: "无法修改文本：{{error}}",
     changing: "将“{{before}}”改为“{{after}}”",

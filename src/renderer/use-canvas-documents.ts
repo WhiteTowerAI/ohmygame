@@ -345,7 +345,7 @@ export function useCanvasDocuments(projectId: string) {
       try {
         if (conflictRef.current) throw new Error(t("canvasDocs.resolveFirst"));
         if (!current.current?.documents.some((doc) => doc.id === id) || current.current.documentIssues?.some((issue) => issue.id === id))
-          throw new Error("Restore the document file before adopting this draft. You can still edit or copy it.");
+          throw new Error(t("canvasDocs.restoreFirst"));
         update(id, { markdown: proposal });
         await flush();
         changeGeneration(id, { proposal: undefined, proposalStatus: undefined, error: undefined });

@@ -34,6 +34,11 @@ for `Intl` and `toLocale*` formatting.
 - Content from outside the app: examples, plugin and skill descriptions,
   Community games, provider and model names.
 
+Provider authentication translates standard `Sign in with …` and `… API key`
+method labels and the SDK's matching `Enter … API key` prompt in the renderer.
+Brand names stay intact. Other provider instructions, including multi-step
+cloud credential setup, are displayed as received so their meaning is preserved.
+
 ## Terminology
 
 Keep Agent, MCP, Skills, Pi, API, and Base URL in English. Use 画布 for

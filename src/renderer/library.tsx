@@ -15,7 +15,7 @@ import { LibraryCollectionFilters } from "./library-filters.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
-import { t } from "./i18n.js";
+import { t, tNodes } from "./i18n.js";
 
 interface LibraryPageProps {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -130,7 +130,7 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
       {deleteTarget ? <div className="library-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteTarget(undefined); }}>
         <section className="library-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="library-delete-title" onKeyDown={(event) => { if (event.key === "Escape" && !deleting) setDeleteTarget(undefined); }}>
           <h2 id="library-delete-title">{t("library.deleteEverywhereTitle")}</h2>
-          <p><strong>{fileName(deleteTarget.asset.path)}</strong> is used by {deleteTarget.references.length === 1 ? "this project" : `${deleteTarget.references.length} projects`}.</p>
+          <p>{tNodes(deleteTarget.references.length === 1 ? "library.usedByProject" : "library.usedByProjects", { name: <strong>{fileName(deleteTarget.asset.path)}</strong>, count: deleteTarget.references.length })}</p>
           <p className="library-delete-warning">{t("library.deleteWarning")}</p>
           <ul>{deleteTarget.references.map((reference) => <li key={reference.id}>{reference.name}</li>)}</ul>
           {actionError ? <p className="library-delete-error" role="alert">{actionError}</p> : null}

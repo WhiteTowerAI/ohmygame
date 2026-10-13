@@ -149,7 +149,7 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
             />
           ) : (
             <div className="example-player-status" role="status">
-              {loadError ?? <><LoaderCircle className="spin" size={16} /><span>Loading {example.name}</span></>}
+              {loadError ?? <><LoaderCircle className="spin" size={16} /><span>{t("examples.loadingName", { name: example.name })}</span></>}
             </div>
           )}
         </div>

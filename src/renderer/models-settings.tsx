@@ -622,6 +622,17 @@ function Native3DProviderKeyForm({ provider, onCompleted }: { provider: Provider
   </>;
 }
 
+function authMethodLabel(method: ModelProviderSummary["methods"][number]): string {
+  if (method.type === "api_key" && method.label.endsWith(" API key")) {
+    return t("providers.connect.providerApiKey", { name: method.label.slice(0, -" API key".length) });
+  }
+  if (method.type === "api_key" && method.label === "API key") return t("providers.apiKey");
+  if (method.type === "oauth" && method.label.startsWith("Sign in with ")) {
+    return t("providers.connect.signInWith", { name: method.label.slice("Sign in with ".length) });
+  }
+  return method.label;
+}
+
 function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProviderSummary; onBack: () => void; onChoose: (method: ModelAuthMethod) => void }) {
   return (
     <section className="settings-panel settings-provider-detail">
@@ -635,7 +646,7 @@ function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProvi
               <button className="settings-method-row" type="button" key={method.type} onClick={() => onChoose(method.type)}>
                 <span className="settings-method-icon"><Icon size={15} /></span>
                 <span className="settings-method-copy">
-                  <strong>{method.label}</strong>
+                  <strong>{authMethodLabel(method)}</strong>
                   <small>{method.type === "oauth" ? t("providers.connect.oauthHint") : t("providers.connect.apiKeyHint")}</small>
                 </span>
                 <ChevronRight size={14} />
@@ -740,6 +751,11 @@ function ActiveProviderAuth({ provider, method, inline = false, onBack, onComple
   const openedUrl = useRef<string | undefined>(undefined);
   const endpoint = useProviderEndpoint(inline ? "" : provider.id);
   const editingKey = inline && method === "api_key";
+  const apiKeyMethod = provider.methods.find((candidate) => candidate.type === "api_key");
+  // Translate the SDK's standard key prompt, keeping multi-step/custom auth instructions intact.
+  const standardKeyPrompt = method === "api_key" && prompt?.value.type === "secret"
+    && apiKeyMethod && (apiKeyMethod.label === "API key" || apiKeyMethod.label.endsWith(" API key"))
+    && prompt.value.message === `Enter ${apiKeyMethod.label}`;
   // A proxy Base URL only applies to API keys; never send a ChatGPT sign-in through it.
   const editsEndpoint = endpoint.supported && method === "api_key";
 
@@ -834,13 +850,13 @@ function ActiveProviderAuth({ provider, method, inline = false, onBack, onComple
         <form className="settings-detail-section" onSubmit={(event) => void respond(event)}>
           {editsEndpoint ? <BaseUrlField endpoint={endpoint} /> : null}
           <label className="settings-detail-field">
-            <span className="settings-search-field-label">{editingKey && prompt.value.type === "secret" ? t("providers.newApiKey") : prompt.value.message}</span>
+            <span className="settings-search-field-label">{editingKey && prompt.value.type === "secret" ? t("providers.newApiKey") : standardKeyPrompt ? t("providers.connect.enterApiKey", { name: provider.name }) : prompt.value.message}</span>
             {prompt.value.type === "select" ? (
               <select className="settings-search-input" value={answer || prompt.value.options[0]?.id || ""} onChange={(event) => setAnswer(event.target.value)}>
                 {prompt.value.options.map((option) => <option value={option.id} key={option.id}>{option.label}</option>)}
               </select>
             ) : (
-              <input className="settings-search-input" type={prompt.value.type === "secret" ? "password" : "text"} value={answer} placeholder={editingKey && prompt.value.type === "secret" ? t("providers.replaceKeyPlaceholder") : prompt.value.placeholder} onChange={(event) => setAnswer(event.target.value)} autoFocus autoComplete={prompt.value.type === "secret" ? "new-password" : "off"} spellCheck={false} />
+              <input className="settings-search-input" type={prompt.value.type === "secret" ? "password" : "text"} value={answer} placeholder={editingKey && prompt.value.type === "secret" ? t("providers.replaceKeyPlaceholder") : standardKeyPrompt ? t("providers.keyPlaceholder", { name: provider.name }) : prompt.value.placeholder} onChange={(event) => setAnswer(event.target.value)} autoFocus autoComplete={prompt.value.type === "secret" ? "new-password" : "off"} spellCheck={false} />
             )}
           </label>
           <div className="settings-form-actions">

@@ -47,7 +47,7 @@ export function CustomModelUsageFields({ usages, preset, modelId, onChange }: {
           <NumberField label={t("modelUsage.maxReferenceImages")} value={image.maxReferenceImages} min={0} max={IMAGE_MAX_REFERENCE_IMAGES} onChange={(maxReferenceImages) => onChange({ ...usages, image: { ...image, maxReferenceImages } })} />
           <label><span>{t("modelUsage.maxOutputs")}</span><select value={image.maxOutputs} onChange={(event) => onChange({ ...usages, image: { ...image, maxOutputs: Number(event.target.value) as typeof image.maxOutputs } })}>{IMAGE_OUTPUT_COUNTS.map((count) => <option key={count}>{count}</option>)}</select></label>
         </div>
-        {referenceDefault !== undefined && referenceDefault !== image.maxReferenceImages ? <button className="settings-secondary-button" type="button" onClick={() => onChange({ ...usages, image: { ...image, maxReferenceImages: referenceDefault } })}>Use model default ({referenceDefault} references)</button> : null}
+        {referenceDefault !== undefined && referenceDefault !== image.maxReferenceImages ? <button className="settings-secondary-button" type="button" onClick={() => onChange({ ...usages, image: { ...image, maxReferenceImages: referenceDefault } })}>{t("modelUsage.useReferenceDefault", { count: referenceDefault })}</button> : null}
       </details>
     </div> : null}
     {video ? <div className="custom-model-use-settings">
@@ -60,7 +60,7 @@ export function CustomModelUsageFields({ usages, preset, modelId, onChange }: {
         <ChoiceFields label={t("modelUsage.videoAspectRatios")} options={VIDEO_ASPECT_RATIOS} value={video.aspectRatios} onChange={(aspectRatios) => onChange({ ...usages, video: { ...video, aspectRatios } })} />
         <NumberListField label={t("modelUsage.durations")} value={video.durations} onChange={(durations) => onChange({ ...usages, video: { ...video, durations } })} />
         <NumberField label={t("modelUsage.maxVideoReferences")} value={video.maxReferenceImages} min={0} max={30} onChange={(maxReferenceImages) => onChange({ ...usages, video: { ...video, maxReferenceImages } })} />
-        <ChoiceFields label={t("modelUsage.videoReferenceModes")} options={["frame", "reference"] as const} value={video.referenceModes} onChange={(referenceModes) => onChange({ ...usages, video: { ...video, referenceModes } })} />
+        <ChoiceFields label={t("modelUsage.videoReferenceModes")} options={["frame", "reference"] as const} labels={{ frame: t("modelUsage.referenceMode.frame"), reference: t("modelUsage.referenceMode.reference") }} value={video.referenceModes} onChange={(referenceModes) => onChange({ ...usages, video: { ...video, referenceModes } })} />
       </details>
     </div> : null}
     {model3d ? <Model3DSettingsFields value={model3d} onChange={(settings) => onChange({ ...usages, "3d": settings })} /> : null}
@@ -110,7 +110,7 @@ export function Model3DSettingsFields({ value, onChange, lockCapabilities = fals
           <label><input type="checkbox" checked={value.supportsTexture} onChange={(event) => update({ supportsTexture: event.target.checked, supportsPbr: event.target.checked && value.supportsPbr })} />{t("modelUsage.textureSupport")}</label>
           <label><input type="checkbox" checked={value.supportsPbr} disabled={!value.supportsTexture} onChange={(event) => update({ supportsPbr: event.target.checked })} />{t("modelUsage.pbrSupport")}</label>
         </div>
-        {!lockCapabilities ? <ChoiceFields label={t("modelUsage.operations")} options={protocolOperations(value.protocol).filter((operation) => operation !== "image")} value={value.operations ?? []} onChange={(operations) => update({ operations })} /> : null}
+        {!lockCapabilities ? <ChoiceFields label={t("modelUsage.operations")} options={protocolOperations(value.protocol).filter((operation) => operation !== "image")} labels={Object.fromEntries(protocolOperations(value.protocol).map((operation) => [operation, t(`assetCanvas.op.${operation}`)]))} value={value.operations ?? []} onChange={(operations) => update({ operations })} /> : null}
       </fieldset>
     </details>
   </div>;
@@ -132,6 +132,6 @@ function NumberListField({ label, value, onChange }: { label: string; value: rea
     onChange(values);
   }} /><small>{t("modelUsage.commas")}</small></label>;
 }
-function ChoiceFields<T extends string>({ label, options, value, onChange }: { label: string; options: readonly T[]; value: readonly T[]; onChange: (value: T[]) => void }) {
-  return <fieldset className="custom-model-choices"><legend>{label}</legend><div className="custom-provider-capabilities">{options.map((option) => <label key={option}><input type="checkbox" checked={value.includes(option)} onChange={(event) => onChange(event.target.checked ? [...value, option] : value.filter((item) => item !== option))} />{option}</label>)}</div></fieldset>;
+function ChoiceFields<T extends string>({ label, options, labels, value, onChange }: { label: string; options: readonly T[]; labels?: Partial<Record<T, string>>; value: readonly T[]; onChange: (value: T[]) => void }) {
+  return <fieldset className="custom-model-choices"><legend>{label}</legend><div className="custom-provider-capabilities">{options.map((option) => <label key={option}><input type="checkbox" checked={value.includes(option)} onChange={(event) => onChange(event.target.checked ? [...value, option] : value.filter((item) => item !== option))} />{labels?.[option] ?? option}</label>)}</div></fieldset>;
 }

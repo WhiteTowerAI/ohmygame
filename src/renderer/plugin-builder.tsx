@@ -36,7 +36,7 @@ export function PluginBuilderSessions() {
       .catch(cause => { if (active) setError(message(cause)); });
     return () => { active = false; };
   }, [generation]);
-  if (error) return <p className="plugins-inline-error" role="alert">Could not load builder workspaces. {error}</p>;
+  if (error) return <p className="plugins-inline-error" role="alert">{t("pluginBuilder.loadFailed", { error })}</p>;
   if (!sessions.length) return null;
   return <section className="plugin-builder-recents" aria-label={t("pluginBuilder.workspaces")}>
     <h2>{t("pluginBuilder.continue")}</h2>

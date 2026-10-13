@@ -342,7 +342,7 @@ export function CanvasTableAI({
           aria-label={t("tableNode.draft")}
         >
           <p className="design-ai-result-status" role="status">
-            Candidate draft — review before replacing the table.
+            {t("tableNode.candidateReview")}
           </p>
           <div className="canvas-table-ai-preview">
             <CanvasTablePreview table={state.proposal} />
@@ -833,8 +833,7 @@ function CanvasTableEditor({
         </table>
       </div>
       <p className="canvas-table-hint">
-        Paste cells from a spreadsheet. CSV import replaces the table; Undo
-        restores it.
+        {t("tableNode.pasteHint")}
       </p>
     </section>
   );

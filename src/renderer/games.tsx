@@ -232,7 +232,7 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
             <span className="electron-game-thumbnail" aria-hidden="true">{coverUrl ? <img src={coverUrl} alt="" /> : <img className="is-placeholder" src={brandMark} alt="" />}</span>
             <div className="electron-game-identity">
               <strong>{game.title}</strong>
-              <span>by {game.author.displayName} · {publishedDate(game.publishedAt)}</span>
+              <span>{t("community.byAuthor", { author: game.author.displayName })} · {publishedDate(game.publishedAt)}</span>
               {game.description ? <p>{game.description}</p> : null}
             </div>
           </div>

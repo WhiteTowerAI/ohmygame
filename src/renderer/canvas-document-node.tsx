@@ -51,7 +51,7 @@ export function CanvasDocumentNode({ data, selected }: { data: { documentId?: st
       <div data-alignment-frame className="design-document-node-content">
         <CanvasNodeLabel icon={FileText} label={doc?.title ?? issue?.title ?? t("canvasDoc.missing")} details={data.nodeDetails} className="design-document-node-header"
           titleEditor={isEditing && doc ? <CanvasTextInput className="nodrag" aria-label={t("canvasDoc.title")} value={doc.title} maxLength={200} onChange={(title) => runtime?.design.update(doc.id, { title })} /> : undefined} />
-        {issue ? <div className="design-document-issue" role="status">Document unavailable: {issue.source}{doc ? ". Your unsaved draft is kept." : ". Restore the file to load it again."}</div> : null}
+        {issue ? <div className="design-document-issue" role="status">{t(doc ? "canvasDoc.unavailableDraftKept" : "canvasDoc.unavailableRestore", { source: issue.source })}</div> : null}
         {doc ? <div ref={bodyRef} className={`design-document-node-body nowheel${isEditing ? " nodrag" : " is-preview"}`} onScrollCapture={(event) => {
           const pane = event.target as HTMLElement;
           if (pane.parentElement !== bodyRef.current || pane.hidden) return;

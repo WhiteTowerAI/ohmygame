@@ -144,10 +144,11 @@ export function PluginConfigurationPanel({
           })}
           {config.missing.length ? (
             <p role="status">
-              Needs configuration:{" "}
-              {config.missing
-                .map((key) => config.fields[key]?.label)
-                .join(", ")}
+              {t("pluginControls.needsConfiguration", {
+                fields: config.missing
+                  .map((key) => config.fields[key]?.label)
+                  .join(", "),
+              })}
             </p>
           ) : null}
           <button
