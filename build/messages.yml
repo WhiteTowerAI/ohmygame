@@ -1,0 +1,3 @@
+appCannotBeClosed:
+  en: "${PRODUCT_NAME} is still running, or its program files could not be updated.\n\nSetup did not finish. Your projects and conversations remain untouched.\n\nClose ${PRODUCT_NAME} and click Retry. If it still fails, Cancel, check security software or administrator permissions, and run the installer again. Rerunning the installer can repair incomplete program files."
+  zh_CN: "${PRODUCT_NAME} 仍在运行，或程序文件无法更新。\n\n本次安装尚未完成。你的项目和会话数据不会被删除。\n\n请关闭 ${PRODUCT_NAME} 后单击“重试”。如果仍然失败，请取消安装，检查安全软件或管理员权限，然后重新运行安装程序；重新安装可以修复不完整的程序文件。"

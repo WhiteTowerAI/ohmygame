@@ -1,9 +1,10 @@
-import { AGENT_REASONING_LEVELS, type CustomProviderModel, type CustomThinkingLevelMap, type DiscoveredProviderModels, type CustomProviderPreset, type CustomModelUsages } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, IMAGE_MAX_REFERENCE_IMAGES, type CustomProviderModel, type CustomThinkingLevelMap, type DiscoveredProviderModels, type CustomProviderPreset, type CustomModelUsages } from "../shared/contracts.js";
 import { defaultImageSettings, defaultModel3DSettings, defaultVideoSettings } from "../shared/custom-models.js";
 import { listOpenRouterImageModels, listOpenRouterVideoModels } from "./openrouter-media.js";
 import { normalizeCustomProvider } from "./provider-model-settings.js";
 import { automaticCustomReasoning, knownCustomModel, normalizeThinkingLevelMap, type CustomModelCatalog } from "./custom-model-capabilities.js";
 import { imageModelDefinition } from "./image-models.js";
+import { MODEL_3D_PRESETS, model3DPreset, usesModel3DPresets, type Native3DProviderId } from "../shared/model3d-presets.js";
 
 const MAX_MODELS = 2_000;
 const MAX_PAGES = 20;
@@ -13,6 +14,12 @@ export async function discoverProviderModels(value: unknown, request: typeof fet
   if (!isObject(value)) throw new Error("Invalid provider connection");
   const settings = normalizeCustomProvider({ ...value, name: "Model discovery", models: undefined, hiddenModelIds: undefined });
   if (settings.authentication === "api_key" && !settings.apiKey) throw new Error("API key is required");
+  if (usesModel3DPresets(settings.baseUrl, settings.preset)) return {
+    source: "presets", models: MODEL_3D_PRESETS[settings.preset as Native3DProviderId].map((model) => ({
+      id: model.id, name: model.name, api: settings.api, contextWindow: 128_000, maxTokens: 16_384,
+      reasoning: false, supportsImages: false, usages: { "3d": model.settings },
+    })), warnings: ["Loaded official presets. This does not check API-key access; add other compatible versions manually."],
+  };
   if (settings.api === "google-vertex") throw new Error("This protocol does not offer a compatible model list. Add model IDs manually.");
   const headers: Record<string, string> = { accept: "application/json" };
   if (settings.api === "anthropic-messages") headers["anthropic-version"] = "2023-06-01";
@@ -62,7 +69,7 @@ export async function discoverProviderModels(value: unknown, request: typeof fet
             if ("generationOptions" in item) previous.usages = { ...previous.usages, image: {
               protocol: "openrouter-images", resolutions: [...new Set(item.generationOptions.map((option) => option.resolution))],
               aspectRatios: [...new Set(item.generationOptions.map((option) => option.aspectRatio))],
-              maxReferenceImages: Math.min(14, item.maxReferenceImages ?? 0), maxOutputs: item.maxOutputs,
+              maxReferenceImages: Math.min(IMAGE_MAX_REFERENCE_IMAGES, item.maxReferenceImages ?? 0), maxOutputs: item.maxOutputs,
             } };
             else previous.usages = { ...previous.usages, video: { protocol: "openrouter-videos", resolutions: [...item.resolutions],
               aspectRatios: [...item.aspectRatios], durations: [...item.durations], maxReferenceImages: item.maxImageReferences,
@@ -95,10 +102,10 @@ function discoveredModel(value: unknown, api: string, catalog: CustomModelCatalo
   if (image || outputs.includes("image")) {
     const protocol = preset === "openrouter" ? "openrouter-images" : preset === "seedance" ? "volcengine-images" : google ? "gemini-generate-content" : image?.protocol ?? "openai-images";
     usages.image = image ? { protocol, resolutions: [...new Set(image.generationOptions.map((option) => option.resolution))],
-      aspectRatios: [...new Set(image.generationOptions.map((option) => option.aspectRatio))], maxReferenceImages: Math.min(14, image.maxReferenceImages ?? 1), maxOutputs: image.maxOutputs } : defaultImageSettings(protocol);
+      aspectRatios: [...new Set(image.generationOptions.map((option) => option.aspectRatio))], maxReferenceImages: Math.min(IMAGE_MAX_REFERENCE_IMAGES, image.maxReferenceImages ?? 1), maxOutputs: image.maxOutputs } : defaultImageSettings(protocol, id);
   }
   if (outputs.includes("video")) usages.video = defaultVideoSettings(preset === "seedance" ? "seedance" : "openrouter-videos");
-  if (outputs.includes("3d") || outputs.includes("model") || preset === "meshy" || preset === "tripo") usages["3d"] = defaultModel3DSettings(id === "meshy-t2" ? "smart-topology" : "standard", preset === "tripo" ? "tripo" : "meshy");
+  if (outputs.includes("3d") || outputs.includes("model") || preset === "meshy" || preset === "tripo" || preset === "hyper3d") usages["3d"] = model3DPreset(preset ?? "meshy", id)?.settings ?? defaultModel3DSettings("standard", preset === "tripo" ? "tripo" : preset === "hyper3d" ? "hyper3d" : "meshy");
   const contextWindow = tokenLimit(value.contextWindow ?? value.context_length ?? value.inputTokenLimit) ?? known?.contextWindow ?? 128_000;
   const topProvider = isObject(value.top_provider) ? value.top_provider : undefined;
   const maxTokens = Math.min(contextWindow, tokenLimit(value.maxTokens ?? value.max_tokens ?? value.outputTokenLimit ?? topProvider?.max_completion_tokens) ?? known?.maxTokens ?? 16_384);

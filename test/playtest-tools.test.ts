@@ -35,8 +35,8 @@ class FakeDriver implements GameRuntimeAdapter {
         operation: "capture",
         capture: {
           sessionId: request.sessionId,
-          mediaType: "image/png",
-          data: Buffer.from("png").toString("base64"),
+          mediaType: "image/jpeg",
+          data: Buffer.from("jpeg").toString("base64"),
           width: 1280,
           height: 720,
           analysis: { sampledPixels: 100, opaqueRatio: 1, luminanceMean: 80, luminanceVariance: 12, likelyBlank: false },
@@ -87,7 +87,7 @@ describe("game use tool", () => {
 
     expect(result.content).toEqual([
       { type: "text", text: expect.stringContaining('"likelyBlank": false') },
-      { type: "image", data: Buffer.from("png").toString("base64"), mimeType: "image/png" },
+      { type: "image", data: Buffer.from("jpeg").toString("base64"), mimeType: "image/jpeg" },
     ]);
   });
 

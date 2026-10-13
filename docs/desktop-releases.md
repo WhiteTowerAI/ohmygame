@@ -46,8 +46,13 @@ or code-signing credentials in the application or the public update bucket.
 
 ## Publishing
 
-Set `package.json` to the release version, commit it, and create a matching
-`v*` tag. Pushing the tag starts `.github/workflows/release-desktop.yml`, which:
+Prepare the release version in `package.json` through a PR into `dev`, then
+merge the reviewed release from `dev` into `main` with a merge commit. Create
+the matching `v*` tag on that `main` commit. See
+[the maintainer workflow](maintaining.md#release-preparation) for verification,
+synchronization, and urgent fixes.
+
+Pushing the tag starts `.github/workflows/release-desktop.yml`, which:
 
 1. Builds the Windows NSIS installer and macOS DMG/ZIP.
 2. Builds Windows without code signing and signs/notarizes macOS.
@@ -70,6 +75,13 @@ TypeBox is pinned to the same version as Pi so the desktop daemon shares one
 installation. The `beforePack` hook bundles its public runtime entry points
 into `.runtime/typebox`, which replaces the original ESM files in the packaged
 app while preserving TypeBox's package metadata and declarations.
+
+Pi AI is a direct, pinned runtime dependency because the daemon imports its
+patched diagnostic helper. The `afterPack` hook checks that the packaged helper
+and adapters match the installed patch, then starts the packaged daemon with
+temporary data and verifies its authenticated API on native platform builds.
+An incomplete or unpatched dependency therefore fails packaging before an
+installer is created.
 
 ## Rollback
 

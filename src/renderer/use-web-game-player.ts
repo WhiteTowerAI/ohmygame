@@ -1,3 +1,4 @@
+import { previewPageUrl } from "../shared/preview-page.js";
 import { useEffect, useRef, useState } from "react";
 import { ensureProjectPreview } from "./api.js";
 import { webGamePlayerUrl, type WebGamePlayerBridge, type WebGamePlayerRequest, type WebGamePlayerState } from "../shared/web-game-player.js";
@@ -42,7 +43,7 @@ export class BrowserGamePlayers implements WebGamePlayerBridge {
       const opening = player;
       player.ready = ensureProjectPreview(projectId).then(({ url }) => {
         if (opening.window.closed) throw new Error("The game window was closed.");
-        opening.url = webGamePlayerUrl(url, request.path);
+        opening.url = previewPageUrl(webGamePlayerUrl(url, request.path), "player");
         opening.window.location.href = opening.url;
       }).catch((error) => {
         opening.window.close();
@@ -52,6 +53,18 @@ export class BrowserGamePlayers implements WebGamePlayerBridge {
     }
     await player.ready;
     player.window.focus();
+  }
+
+  async close(projectId: string): Promise<void> {
+    const player = this.#players.get(projectId);
+    if (player) { player.window.close(); this.#forget(projectId, player); }
+  }
+
+  observePath(projectId: string, path: string): void {
+    const player = this.#players.get(projectId);
+    if (!player?.url) return;
+    const current = new URL(player.url);
+    player.url = previewPageUrl(webGamePlayerUrl(current.origin, path), "player", current.searchParams.get("__ohmygame_client") ?? undefined);
   }
 
   onState(listener: (state: WebGamePlayerState) => void): () => void {
@@ -68,7 +81,7 @@ export class BrowserGamePlayers implements WebGamePlayerBridge {
     // A cross-origin browser popup cannot expose its current route to the editor.
     const current = new URL(player.url);
     if (!reload && new URL(url).origin === current.origin) return;
-    player.url = webGamePlayerUrl(url, `${current.pathname}${current.search}${current.hash}`);
+    player.url = previewPageUrl(webGamePlayerUrl(url, `${current.pathname}${current.search}${current.hash}`), "player", current.searchParams.get("__ohmygame_client") ?? undefined);
     player.window.location.href = player.url;
   }
 
@@ -95,11 +108,12 @@ interface PlayerState extends WebGamePlayerState {
   error?: string;
 }
 
-export function useWebGamePlayer(projectId: string | undefined, previewBaseUrl: string | undefined) {
+export function useWebGamePlayer(projectId: string | undefined, previewBaseUrl: string | undefined, previewRevision?: number, playerPath?: string) {
   const desktop = typeof window === "undefined" ? undefined : window.ohMyGameDesktop?.webGamePlayer;
   const bridge = desktop ?? browserPlayers;
   const initial = (): PlayerState => ({ projectId: projectId ?? "", open: !desktop && !!projectId && browserPlayers.isOpen(projectId), checking: !!desktop && !!projectId, pending: false });
   const [state, setState] = useState<PlayerState>(initial);
+  const lastPreview = useRef<{ projectId?: string; revision?: number }>({});
   const busy = useRef<string | undefined>(undefined);
   const stateRevision = useRef(0);
   const shown = state.projectId === projectId ? state : initial();
@@ -125,13 +139,19 @@ export function useWebGamePlayer(projectId: string | undefined, previewBaseUrl: 
   }, [projectId, bridge]);
 
   useEffect(() => {
+    if (!desktop && projectId && playerPath) browserPlayers.observePath(projectId, playerPath);
+  }, [projectId, playerPath, desktop]);
+
+  useEffect(() => {
     if (!projectId || !shown.open || !previewBaseUrl) return;
     let disposed = false;
-    void bridge.refresh(projectId).catch((error) => {
+    const reload = lastPreview.current.projectId === projectId && lastPreview.current.revision !== undefined && lastPreview.current.revision !== previewRevision;
+    lastPreview.current = { projectId, revision: previewRevision };
+    void bridge.refresh(projectId, reload).catch((error) => {
       if (!disposed) setState((current) => current.projectId === projectId ? { ...current, error: message(error) } : current);
     });
     return () => { disposed = true; };
-  }, [projectId, previewBaseUrl, shown.open, bridge]);
+  }, [projectId, previewBaseUrl, shown.open, previewRevision, bridge]);
 
   async function run(action: () => Promise<void>): Promise<void> {
     if (!projectId || busy.current === projectId) return;
@@ -156,6 +176,7 @@ export function useWebGamePlayer(projectId: string | undefined, previewBaseUrl: 
     ...shown,
     suspended: shown.open || shown.pending || shown.checking,
     play: (request: WebGamePlayerRequest) => run(() => bridge.open(projectId!, request)),
+    close: () => projectId ? bridge.close(projectId) : Promise.resolve(),
     reload: () => run(() => bridge.refresh(projectId!, true)),
   };
 }

@@ -6,11 +6,28 @@ export interface WebGamePlayerRequest {
 export interface WebGamePlayerState {
   projectId: string;
   open: boolean;
+  /** The desktop game keeps its client identity when it moves between windows. */
+  client?: string;
+  error?: string;
+}
+
+export interface WebGamePreviewLayout {
+  bounds: { x: number; y: number; width: number; height: number };
+  visible: boolean;
+}
+
+export interface DesktopWebGamePreviewBridge {
+  attach(projectId: string, attachment: string, url: string, layout: WebGamePreviewLayout): Promise<void>;
+  layout(projectId: string, attachment: string, layout: WebGamePreviewLayout): Promise<void>;
+  detach(projectId: string, attachment: string): Promise<void>;
+  capture(projectId: string): Promise<Uint8Array>;
 }
 
 export interface WebGamePlayerBridge {
+  preview?: DesktopWebGamePreviewBridge;
   open(projectId: string, request: WebGamePlayerRequest): Promise<void>;
   state(projectId: string): Promise<WebGamePlayerState>;
+  close(projectId: string): Promise<void>;
   /** Follows a restarted development server without resetting a running game otherwise. */
   refresh(projectId: string, reload?: boolean): Promise<void>;
   onState(listener: (state: WebGamePlayerState) => void): () => void;

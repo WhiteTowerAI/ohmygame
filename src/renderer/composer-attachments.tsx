@@ -15,14 +15,14 @@ export type AttachmentInput = File | { file: File; relativePath?: string };
 
 export function appendAttachments(current: ComposerAttachment[], next: ComposerAttachment[]): ComposerAttachment[] {
   if (next.some((attachment) => attachment.file.size > MAX_ATTACHMENT_BYTES)) throw new Error("An attachment cannot exceed 500 MB");
-  const paths = new Set(current.map((attachment) => attachment.relativePath));
-  const duplicate = next.find((attachment) => {
-    if (paths.has(attachment.relativePath)) return true;
-    paths.add(attachment.relativePath);
-    return false;
-  });
-  if (duplicate) throw new Error(`\"${duplicate.relativePath}\" is already attached`);
-  const combined = [...current, ...next];
+  // Each attachment uploads to its own path in the batch. Pasted screenshots are all "image.png",
+  // so a repeated name gets a numbered copy instead of being refused. Case-insensitive disks share paths.
+  const paths = new Set(current.map((attachment) => attachment.relativePath.toLowerCase()));
+  const combined = [...current, ...next.map((attachment) => {
+    const relativePath = availablePath(attachment.relativePath, paths);
+    paths.add(relativePath.toLowerCase());
+    return relativePath === attachment.relativePath ? attachment : { ...attachment, relativePath };
+  })];
   if (combined.length > MAX_ATTACHMENT_FILES) throw new Error("Attach at most 1,000 files at a time");
   if (combined.reduce((total, attachment) => total + attachment.file.size, 0) > MAX_ATTACHMENT_BATCH_BYTES) throw new Error("Attached files cannot exceed 1 GB in total");
   return combined;
@@ -44,14 +44,21 @@ export async function uploadAttachments(projectId: string, batchId: string, atta
 }
 
 export function attachmentFiles(files: AttachmentInput[]): ComposerAttachment[] {
-  const seen = new Set<string>();
   return files.flatMap((value) => {
     const file = value instanceof File ? value : value.file;
     const relativePath = (value instanceof File ? file.webkitRelativePath : value.relativePath) || file.webkitRelativePath || file.name;
-    if (!file.name || seen.has(relativePath)) return [];
-    seen.add(relativePath);
-    return [{ id: crypto.randomUUID(), file, relativePath }];
+    return file.name ? [{ id: crypto.randomUUID(), file, relativePath }] : [];
   });
+}
+
+function availablePath(relativePath: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(relativePath.toLowerCase())) return relativePath;
+  const slash = relativePath.lastIndexOf("/") + 1, name = relativePath.slice(slash);
+  const dot = name.lastIndexOf("."), stem = dot > 0 ? name.slice(0, dot) : name, extension = dot > 0 ? name.slice(dot) : "";
+  for (let copy = 2; ; copy++) {
+    const candidate = `${relativePath.slice(0, slash)}${stem} (${copy})${extension}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
 }
 
 export function AttachmentStrip({ items, onRemove }: { items: ComposerAttachment[]; onRemove: (id: string) => void }) {

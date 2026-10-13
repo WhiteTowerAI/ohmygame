@@ -1,0 +1,167 @@
+.runtime-notice {
+  position: fixed;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  width: min(620px, calc(100vw - 48px));
+  padding: 16px 20px;
+  border: 1px solid var(--border, #555);
+  border-radius: 12px;
+  background: var(--surface, #252525);
+  color: var(--text, #eee);
+  box-shadow: 0 8px 32px #0004;
+  font-size: 13px;
+  -webkit-app-region: no-drag;
+}
+.runtime-notice > div {
+  min-width: 0;
+  flex: 1;
+}
+.runtime-notice p,
+.preview-diagnostic p {
+  margin: 6px 0 0;
+  opacity: 0.75;
+}
+.runtime-notice pre,
+.pane-error-boundary pre,
+.preview-diagnostic pre,
+.paused-initial-prompt pre {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.runtime-notice details,
+.pane-error-boundary details,
+.preview-diagnostic details {
+  margin-top: 8px;
+}
+.runtime-notice button,
+.pane-error-boundary button,
+.preview-recovery-actions button,
+.paused-initial-prompt button {
+  border: 1px solid var(--border, #666);
+  border-radius: 6px;
+  padding: 7px 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pane-error-boundary {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 180px;
+  padding: 32px;
+}
+.pane-error-boundary > div,
+.preview-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.paused-initial-prompt {
+  margin: 8px 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.preview-status-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+}
+.preview-status-panel .workspace-state {
+  flex: initial;
+  height: auto;
+  padding: 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 600px;
+}
+.preview-status-panel > p {
+  font-size: 13px;
+  opacity: 0.7;
+}
+.preview-diagnostic {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  z-index: 3;
+  max-height: 280px;
+  overflow: auto;
+  padding: 12px 16px;
+  background: var(--surface, #252525);
+  color: var(--text, #eee);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  font-size: 12px;
+  box-shadow: 0 4px 20px #0003;
+}
+
+.preview-logs {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  max-height: 45%;
+  overflow: auto;
+  padding: 12px;
+  background: var(--surface);
+  color: var(--text);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+.preview-logs header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.preview-logs button {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.preview-logs p {
+  overflow-wrap: anywhere;
+}
+.preview-logs pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    11px/1.5 ui-monospace,
+    monospace;
+}
+.preview-config-hint {
+  margin: 6px 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary, #999);
+  overflow-wrap: anywhere;
+}
+
+.coding-workspace {
+  position: relative;
+}
+
+@container workspace-header (max-width: 380px) {
+  .preview-controls > .viewport-menu {
+    display: none;
+  }
+}

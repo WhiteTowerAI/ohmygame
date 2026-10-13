@@ -224,20 +224,31 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["image-to-3d"],
     label: "Generate 3D Asset",
-    description: "Turn a PNG or JPEG in the current project into a textured GLB model.",
+    description: "Generate a GLB from images or text, retexture a source GLB, or remesh it with Meshy/Tripo. Choose an available 3D model connection. Hyper3D retexture requires a source model and one image; Meshy/Tripo accept one image or a texture prompt. Cloud supports image generation only.",
     parameters: Type.Object({
-      imagePath: Type.String({ description: "Path to a PNG or JPEG image in the current project workspace" }),
+      operation: Type.Optional(Type.Union([Type.Literal("image"), Type.Literal("text"), Type.Literal("retexture"), Type.Literal("remesh")], { description: "Defaults to image" })),
+      imagePath: Type.Optional(Type.String({ description: "Path to a PNG/JPEG reference; required for image generation and Hyper3D retexture" })),
+      imagePaths: Type.Optional(Type.Array(Type.String(), { maxItems: 5, description: "Multiple generation views, instead of imagePath" })),
+      prompt: Type.Optional(Type.String({ description: "Object description for text generation, or material/style description for retexture" })),
+      sourcePath: Type.Optional(Type.String({ description: "Source GLB path for retexture/remesh" })),
+      targetPolycount: Type.Optional(Type.Integer({ minimum: 48, maximum: 2000000 })),
+      texture: Type.Optional(Type.Boolean()), pbr: Type.Optional(Type.Boolean()),
+      options: Type.Optional(Type.Object({ pose: Type.Optional(Type.Union([Type.Literal("a-pose"), Type.Literal("t-pose")])), textureModel: Type.Optional(Type.String()), textureQuality: Type.Optional(Type.Union([Type.Literal("fast"), Type.Literal("standard"), Type.Literal("detailed"), Type.Literal("extreme")])) })),
       model: Type.Optional(mediaModelParameter()),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const source = await getWorkspaceMedia(project.workspacePath, input.imagePath);
-      if (source.contentType !== "image/png" && source.contentType !== "image/jpeg") {
-        throw new Error("Image to 3D requires a PNG or JPEG image");
-      }
+      if (input.imagePath && input.imagePaths) throw new Error("Use imagePath or imagePaths, not both");
+      const imagePaths = input.imagePaths ?? (input.imagePath ? [input.imagePath] : []);
+      const images = await Promise.all(imagePaths.map(async (file) => {
+        const source = await getWorkspaceMedia(project.workspacePath, file);
+        if (source.contentType !== "image/png" && source.contentType !== "image/jpeg") throw new Error("3D references require PNG or JPEG");
+        return { mediaType: source.contentType as "image/png" | "image/jpeg", data: (await readFile(source.absolutePath)).toString("base64") };
+      }));
       const run = await tools.run("image-to-3d", {
-        ...(input.model ? { model: input.model } : {}),
-        images: [{ mediaType: source.contentType, data: (await readFile(source.absolutePath)).toString("base64") }],
+        model: input.model, operation: input.operation, prompt: input.prompt,
+        sourceAssetId: input.sourcePath ? await projects.ensureLibraryAsset(project.id, input.sourcePath) : undefined,
+        targetPolycount: input.targetPolycount, texture: input.texture, pbr: input.pbr, options: input.options, images,
       }, signal, project.id);
       try {
         const output = run.files[0];
@@ -245,7 +256,7 @@ export function createAgentTools(
         const file = await tools.file(run.id, output.name);
         if (!file) throw new Error("Generated 3D model could not be read");
         signal?.throwIfAborted();
-        const sourcePrompt = await projects.generatedAssetPrompt(project.id, input.imagePath);
+        const sourcePrompt = input.prompt ?? (imagePaths[0] ? await projects.generatedAssetPrompt(project.id, imagePaths[0]) : undefined);
         const relativePath = await projects.addGeneratedAsset(project.id, `model-${run.id}.glb`, file.bytes, {
           ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
           ...(sourcePrompt ? { prompt: sourcePrompt } : {}),
@@ -267,9 +278,13 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["animate-3d"],
     label: "Animate 3D Asset",
-    description: "Rig a textured humanoid GLB in the current project and bake preset animations into a new GLB, one named clip per action, ready for a three.js AnimationMixer. Only two-legged humanoid characters facing +Z can be rigged.",
+    description: "Rig a project GLB and bake preset animation clips using Meshy or Tripo (including explicitly enabled compatible connections). Meshy needs a textured humanoid up to 300k triangles, facing +Z. Tripo checks riggability and supports humanoid v1 or creature v2.5 rigs. Actions belong to the selected provider and rig version.",
     parameters: Type.Object({
       modelPath: Type.String({ description: "Path to a GLB model in the current project workspace" }),
+      model: Type.Optional(mediaModelParameter()),
+      rigModel: Type.Optional(Type.Union([Type.Literal("v1.0-20240301"), Type.Literal("v2.5-20260210")])),
+      rigType: Type.Optional(Type.Union([Type.Literal("biped"), Type.Literal("quadruped"), Type.Literal("hexapod"), Type.Literal("octopod"), Type.Literal("serpentine"), Type.Literal("aquatic")])),
+      animateInPlace: Type.Optional(Type.Boolean()),
       actions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {
         minItems: 1,
         maxItems: MAX_ANIMATION_ACTIONS,
@@ -281,13 +296,16 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const source = await getWorkspaceMedia(project.workspacePath, input.modelPath);
       if (source.contentType !== "model/gltf-binary") throw new Error("Only GLB models can be animated");
-      const library = await tools.animationActions();
+      const options = input.rigModel || input.rigType || input.animateInPlace !== undefined ? { rigModel: input.rigModel, rigType: input.rigType, animateInPlace: input.animateInPlace } : undefined;
+      const library = await tools.animationActions(input.model, options);
       const actions = input.actions
         ? input.actions.map((name) => findAnimationAction(library, name))
+        : library.some((action) => typeof action.id === "string") ? library.filter((action) => ["Idle", "Walk", "Run", "Jump", "Slash", "Hurt", "Fall", "March"].includes(action.name))
         : DEFAULT_ANIMATION_ACTION_IDS.flatMap((id) => library.filter((action) => action.id === id));
       const assetId = await projects.ensureLibraryAsset(project.id, input.modelPath);
       const run = await tools.run("animate-3d", {
         assetId,
+        model: input.model, options,
         actionIds: [...new Set(actions.map((action) => action.id))],
         ...(input.heightMeters !== undefined ? { heightMeters: input.heightMeters } : {}),
       }, signal);

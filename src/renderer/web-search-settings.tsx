@@ -1,3 +1,4 @@
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { useEffect, useState } from "react";
 import type {
   UpdateWebSearchSettings,
@@ -22,6 +23,7 @@ interface FormState {
 }
 
 export function WebSearchSettingsPanel() {
+  const serviceGeneration = useReadyRuntimeGeneration();
   const [settings, setSettings] = useState<WebSearchSettings>();
   const [form, setForm] = useState<FormState>();
   const [error, setError] = useState<string>();
@@ -34,7 +36,8 @@ export function WebSearchSettingsPanel() {
       .then((next) => {
         if (disposed) return;
         setSettings(next);
-        setForm(formFromSettings(next));
+        setError(undefined);
+        setForm((current) => current ?? formFromSettings(next));
       })
       .catch((cause) => {
         if (!disposed) setError(errorMessage(cause));
@@ -42,7 +45,7 @@ export function WebSearchSettingsPanel() {
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [serviceGeneration]);
 
   async function save() {
     if (!form || saving) return;

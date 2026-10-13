@@ -1,7 +1,9 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
+import { takeAccessToken } from "../src/daemon/access-token.js";
 import { createApp } from "../src/daemon/app.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
@@ -105,5 +107,42 @@ describe("desktop daemon access", () => {
       await response.body?.cancel();
       controller.abort();
     }
+  });
+});
+
+describe("daemon access token", () => {
+  it("takes the token from stdin when the desktop app sends it there", async () => {
+    const environment: NodeJS.ProcessEnv = { OHMYGAME_DAEMON_TOKEN_STDIN: "1", PATH: "/usr/bin" };
+    expect(await takeAccessToken(environment, Readable.from(["desktop-", "secret"]))).toBe("desktop-secret");
+    expect(environment).toEqual({ PATH: "/usr/bin" });
+  });
+
+  it("refuses to start without the token the desktop app said it would send", async () => {
+    const environment: NodeJS.ProcessEnv = { OHMYGAME_DAEMON_TOKEN_STDIN: "1", OHMYGAME_DAEMON_TOKEN: "stale" };
+    await expect(takeAccessToken(environment, Readable.from([]))).rejects.toThrow("was not received");
+    expect(environment).toEqual({});
+  });
+
+  it("takes a token given in the environment and removes it from there", async () => {
+    const environment: NodeJS.ProcessEnv = { OHMYGAME_DAEMON_TOKEN: "standalone-secret", PATH: "/usr/bin" };
+    expect(await takeAccessToken(environment, Readable.from(["ignored"]))).toBe("standalone-secret");
+    expect(environment).toEqual({ PATH: "/usr/bin" });
+    expect(await takeAccessToken({}, Readable.from([]))).toBeUndefined();
+  });
+
+  it("rejects oversized stdin tokens without falling back to the environment", async () => {
+    const environment: NodeJS.ProcessEnv = { OHMYGAME_DAEMON_TOKEN_STDIN: "1", OHMYGAME_DAEMON_TOKEN: "stale" };
+    await expect(takeAccessToken(environment, Readable.from(["a".repeat(4_096), "b"]))).rejects.toThrow("too long");
+    expect(environment).toEqual({});
+  });
+
+  it("rejects a failed stdin stream without falling back to the environment", async () => {
+    const environment: NodeJS.ProcessEnv = { OHMYGAME_DAEMON_TOKEN_STDIN: "1", OHMYGAME_DAEMON_TOKEN: "stale" };
+    const input = Readable.from((async function* () {
+      yield "partial-token";
+      throw new Error("Token pipe failed");
+    })());
+    await expect(takeAccessToken(environment, input)).rejects.toThrow("Token pipe failed");
+    expect(environment).toEqual({});
   });
 });

@@ -144,7 +144,7 @@ describe("renderer event stream", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
       urls.push(String(input));
       if (urls.length === 1) {
-        return new Response(streamFrom(sse(7, "preview.starting", {})), { status: 200 });
+        return new Response(streamFrom(sse(7, "preview.updated", { preview: { status: "starting" } })), { status: 200 });
       }
       queueMicrotask(() => {
         unsubscribe();
@@ -175,7 +175,7 @@ describe("renderer event stream", () => {
       urls.push(String(input));
       if (urls.length === 1) return new Response(new ReadableStream<Uint8Array>({ start(controller) {
         failStream = controller;
-        controller.enqueue(new TextEncoder().encode(sse(7, "preview.starting", {})));
+        controller.enqueue(new TextEncoder().encode(sse(7, "preview.updated", { preview: { status: "starting" } })));
       } }));
       queueMicrotask(() => { unsubscribe(); finish(); });
       return new Response(streamFrom(""));

@@ -36,7 +36,7 @@ export function modelError(model: CustomProviderModel, enabled = false): string 
   if (!model.id.trim() || /[\s\x00-\x1f]/.test(model.id) || model.id.length > 200) return "Enter a model ID without spaces (up to 200 characters).";
   try { normalizeModelUsages(model.usages); } catch (cause) { return cause instanceof Error ? cause.message : String(cause); }
   if (enabled && !Object.values(modelUsages(model)).some(Boolean)) return `Choose a use for ${model.name || model.id} before enabling it.`;
-  if (!Number.isSafeInteger(model.contextWindow) || model.contextWindow < 1 || model.contextWindow > 100_000_000 || !Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1 || model.maxTokens > model.contextWindow) return `Check the token limits for ${model.name || model.id}. Output tokens must not exceed the context window.`;
+  if (modelUsages(model).language && (!Number.isSafeInteger(model.contextWindow) || model.contextWindow < 1 || model.contextWindow > 100_000_000 || !Number.isSafeInteger(model.maxTokens) || model.maxTokens < 1 || model.maxTokens > model.contextWindow)) return `Check the token limits for ${model.name || model.id}. Output tokens must not exceed the context window.`;
   if (model.thinkingLevelMap) {
     if (!supportedReasoningLevels({ reasoning: model.reasoning, thinkingLevelMap: { ...model.reasoningCapabilities?.thinkingLevelMap, ...model.thinkingLevelMap } }).length) return `Enable at least one reasoning level for ${model.name || model.id}.`;
     if (Object.values(model.thinkingLevelMap).some((value) => value !== null && (!value.trim() || value.length > 100 || /[\x00-\x1f]/.test(value)))) return `Enter a parameter for each enabled reasoning level in ${model.name || model.id}.`;

@@ -12,7 +12,7 @@ export type SidebarPage =
   | "asset-canvas"
   | "community";
 
-export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "web-search" | "plugins" | "about";
+export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "web-search" | "network" | "plugins" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 type SidebarRoutePage = Exclude<SidebarPage, "community" | "projects">;
 
@@ -27,6 +27,7 @@ export type AppRoute =
   | { page: "projects"; projectType?: ProjectType }
   | { page: "community" }
   | { page: "settings"; section: SettingsSection; pluginId?: string }
+  | { page: "plugin-builder"; sessionId: string }
   | { page: "game"; gameId: string }
   | { page: "playtest"; projectId: string }
   | { page: "thumbnail"; projectId: string; nodeId: string }
@@ -34,6 +35,8 @@ export type AppRoute =
 
 export function parseAppRoute(hash: string): AppRoute {
   if (hash === "#/" || hash === "") return { page: "home" };
+  const builderMatch = /^#\/plugins\/builder\/([0-9a-f-]{36})$/.exec(hash);
+  if (builderMatch?.[1]) return { page: "plugin-builder", sessionId: builderMatch[1] };
   const pluginMatch = /^#\/(?:settings\/)?plugins(?:\/([^/]+))?$/.exec(hash);
   if (pluginMatch) {
     try {
@@ -42,7 +45,7 @@ export function parseAppRoute(hash: string): AppRoute {
       return { page: "settings", section: "plugins" };
     }
   }
-  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|web-search|connections|about))?$/.exec(hash);
+  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|web-search|network|connections|about))?$/.exec(hash);
   if (settingsMatch?.[1] === "connections") return { page: "settings", section: "plugins" };
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
@@ -119,8 +122,16 @@ export function pluginHash(pluginId: string): string {
   return `#/settings/plugins/${encodeURIComponent(pluginId)}`;
 }
 
+export function pluginBuilderHash(sessionId: string): string {
+  return `#/plugins/builder/${encodeURIComponent(sessionId)}`;
+}
+
 export function projectHash(projectId: string, view?: "design"): string {
   return `#/projects/${encodeURIComponent(projectId)}${view ? "/design" : ""}`;
+}
+
+export function createdProjectView(type: ProjectType | undefined): "design" | undefined {
+  return type === "general" ? "design" : undefined;
 }
 
 export function conversationHash(projectId: string, conversationId: string, view?: "design"): string {

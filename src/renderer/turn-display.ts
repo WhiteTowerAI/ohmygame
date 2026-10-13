@@ -11,6 +11,7 @@ export interface TurnDisplay {
   messages: ThreadItem[];
   finalMessages: AssistantItem[];
   working: boolean;
+  activeRetryId?: string;
   status: Turn["status"];
   hadThinking: boolean;
   durationMs: number;
@@ -73,7 +74,14 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
   const visibleItems = withoutInitialThinking(activityItems);
   const live = !finalStarted;
   const working = workStarted || hasVisibleAssistantText(visibleItems);
-  const waiting = !waitingForInput && live && working && shouldShowWaiting(visibleItems, now);
+  // Retry attempts update the same row, which may precede older activity in the array.
+  const latestActivity = activityItems.reduce<ThreadItem | undefined>((latest, item) => {
+    // A failed attempt can share the retry's timestamp and does not signal resumed work.
+    if (item.type === "agentMessage" && item.status === "failed") return latest;
+    return !latest || (item.timestamp ?? 0) >= (latest.timestamp ?? 0) ? item : latest;
+  }, undefined);
+  const activeRetryId = live && latestActivity?.type === "retry" && latestActivity.status === "inProgress" ? latestActivity.id : undefined;
+  const waiting = !activeRetryId && !waitingForInput && live && working && shouldShowWaiting(visibleItems, now);
   const work = projectWorkItems(visibleItems, { active: live, waiting });
   return {
     user,
@@ -82,6 +90,7 @@ export function projectTurnDisplay(turn: Turn, now = Date.now(), waitingForInput
     messages: [],
     finalMessages,
     working,
+    activeRetryId,
     status: turn.status,
     hadThinking,
     durationMs,

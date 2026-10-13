@@ -1,3 +1,4 @@
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ExampleSummary } from "../shared/examples.js";
 import { createProject, getExampleCover, listExamples, playExample, waitForRuntime } from "./api.js";
@@ -6,12 +7,14 @@ import { projectTypeLabel } from "./project-types.js";
 
 /** Packaged examples and object URLs for their covers, revoked on unmount. */
 export function useExamples(): { examples: ExampleSummary[]; covers: Record<string, string> } {
+  const serviceGeneration = useReadyRuntimeGeneration();
   const [examples, setExamples] = useState<ExampleSummary[]>([]);
   const [covers, setCovers] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let disposed = false;
     const coverUrls: string[] = [];
+    setCovers({});
     void waitForRuntime().then(listExamples).then(async (list) => {
       if (disposed) return;
       setExamples(list);
@@ -27,7 +30,7 @@ export function useExamples(): { examples: ExampleSummary[]; covers: Record<stri
       disposed = true;
       for (const url of coverUrls) URL.revokeObjectURL(url);
     };
-  }, []);
+  }, [serviceGeneration]);
 
   return { examples, covers };
 }

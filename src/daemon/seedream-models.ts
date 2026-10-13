@@ -1,4 +1,5 @@
 import type { ImageAspectRatio, ImageModel, ImageResolution } from "../shared/contracts.js";
+import { SEEDREAM_REFERENCE_LIMITS } from "../shared/image-reference-limits.js";
 
 export const SEEDREAM_PROVIDER_ID = "volcengine-ark";
 export const SEEDREAM_PROVIDER_NAME = "Volcengine Ark";
@@ -7,10 +8,9 @@ export const SEEDREAM_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
 const ASPECT_RATIOS = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9"] as const satisfies readonly ImageAspectRatio[];
 
 interface SeedreamModelSpec {
-  id: string;
+  id: keyof typeof SEEDREAM_REFERENCE_LIMITS;
   name: string;
   resolutions: readonly ImageResolution[];
-  maxReferenceImages: number;
   sizes: Partial<Record<ImageResolution, Record<(typeof ASPECT_RATIOS)[number], string>>>;
   sequentialImageGeneration?: "disabled";
 }
@@ -26,13 +26,12 @@ const STANDARD_SIZES = {
 } satisfies SeedreamModelSpec["sizes"];
 
 const MODEL_SPECS: readonly SeedreamModelSpec[] = [
-  { id: "doubao-seedream-5-0-pro-260628", name: "Doubao Seedream 5.0 Pro", resolutions: ["1K", "2K"], maxReferenceImages: 10, sizes: PRO_SIZES },
-  { id: "doubao-seedream-5-0-flash-260915", name: "Doubao Seedream 5.0 Flash", resolutions: ["1K", "2K"], maxReferenceImages: 10, sizes: PRO_SIZES },
+  { id: "doubao-seedream-5-0-pro-260628", name: "Doubao Seedream 5.0 Pro", resolutions: ["1K", "2K"], sizes: PRO_SIZES },
+  { id: "doubao-seedream-5-0-flash-260915", name: "Doubao Seedream 5.0 Flash", resolutions: ["1K", "2K"], sizes: PRO_SIZES },
   {
     id: "doubao-seedream-5-0-260128",
     name: "Doubao Seedream 5.0",
     resolutions: ["2K", "4K"],
-    maxReferenceImages: 14,
     sizes: STANDARD_SIZES,
     sequentialImageGeneration: "disabled",
   },
@@ -47,7 +46,7 @@ export function seedreamModels(): ImageModel[] {
     sizes: [],
     generationOptions: model.resolutions.flatMap((resolution) => ASPECT_RATIOS.map((aspectRatio) => ({ resolution, aspectRatio }))),
     supportsReferenceImage: true,
-    maxReferenceImages: model.maxReferenceImages,
+    maxReferenceImages: SEEDREAM_REFERENCE_LIMITS[model.id],
     maxOutputs: 1,
     protocol: "volcengine-images",
   }));

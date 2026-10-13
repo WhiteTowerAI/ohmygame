@@ -13,6 +13,7 @@ import {
   type VideoModel,
 } from "../shared/contracts.js";
 import { withOpenRouterAttribution } from "./openrouter-attribution.js";
+import { knownImageReferenceLimit } from "../shared/image-reference-limits.js";
 
 export interface OpenRouterMediaSource {
   baseUrl: string;
@@ -119,7 +120,7 @@ function imageModel(record: OpenRouterImageRecord): ImageModel[] {
   const usableAspectRatios: readonly ImageAspectRatio[] = aspectRatios.length ? aspectRatios : ["1:1"];
   const inputReferences = rangeMax(parameters.input_references);
   const supportsImageInput = stringArray(record.architecture?.input_modalities).includes("image");
-  const maxReferenceImages = inputReferences ?? (supportsImageInput ? 1 : 0);
+  const maxReferenceImages = inputReferences ?? (supportsImageInput ? knownImageReferenceLimit(id) ?? 1 : 0);
   const outputMax = Math.max(1, Math.min(4, rangeMax(parameters.n) ?? 1));
   const maxOutputs = [...IMAGE_OUTPUT_COUNTS].reverse().find((count) => count <= outputMax) ?? 1;
   return [{

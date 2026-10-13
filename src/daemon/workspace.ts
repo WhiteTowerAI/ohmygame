@@ -1,4 +1,3 @@
-import { isUtf8 } from "node:buffer";
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
@@ -53,18 +52,26 @@ export async function readWorkspaceFile(workspacePath: string, requestedPath: st
 
   const handle = await open(absolutePath, "r");
   try {
-    const length = Math.min(fileStat.size, MAX_FILE_BYTES + 1);
+    const length = Math.min(fileStat.size, MAX_FILE_BYTES);
     const bytes = Buffer.alloc(length);
     const { bytesRead } = await handle.read(bytes, 0, length, 0);
     const content = bytes.subarray(0, bytesRead);
     const truncated = fileStat.size > MAX_FILE_BYTES;
-    const visible = truncated ? content.subarray(0, MAX_FILE_BYTES) : content;
-    const binary = visible.includes(0) || !isUtf8(visible);
+    let text: string | undefined;
+    if (!content.includes(0)) {
+      try {
+        // Streaming leaves an incomplete final character pending; fatal decoding still rejects invalid bytes.
+        text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content, { stream: truncated });
+      } catch {
+        // Invalid UTF-8 is presented as binary.
+      }
+    }
+    const binary = text === undefined;
     return {
       path: relativePath,
       size: fileStat.size,
       binary,
-      ...(!binary ? { content: visible.toString("utf8") } : {}),
+      ...(!binary ? { content: text } : {}),
       ...(truncated ? { truncated: true } : {}),
     };
   } finally {

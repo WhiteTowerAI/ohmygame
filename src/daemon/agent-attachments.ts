@@ -6,6 +6,7 @@ import { lstat, mkdir, open, readFile, readdir, rename, rm, stat, utimes, writeF
 import path from "node:path";
 import type { ConversationAttachment, PromptAttachment, PromptImage, ProjectState } from "../shared/contracts.js";
 import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FILES } from "../shared/file-transfer.js";
+import { sniffImageType } from "./image-format.js";
 
 const ATTACHMENTS_DIRECTORY = ".data/agent-attachments";
 const FILES_DIRECTORY = "files";
@@ -384,10 +385,9 @@ function detectAttachment(name: string, contents: Buffer): Pick<PromptAttachment
 }
 
 function sniffContentType(contents: Buffer): string | undefined {
-  if (contents.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "image/png";
-  if (contents.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return "image/jpeg";
+  const imageType = sniffImageType(contents);
+  if (imageType) return imageType;
   if (contents.subarray(0, 6).toString("ascii") === "GIF87a" || contents.subarray(0, 6).toString("ascii") === "GIF89a") return "image/gif";
-  if (contents.subarray(0, 4).toString("ascii") === "RIFF" && contents.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
   if (contents.subarray(0, 2).toString("ascii") === "BM") return "image/bmp";
   if (contents.subarray(0, 4).equals(Buffer.from([0x49, 0x49, 0x2a, 0x00])) || contents.subarray(0, 4).equals(Buffer.from([0x4d, 0x4d, 0x00, 0x2a]))) return "image/tiff";
   if (contents.subarray(0, 4).equals(Buffer.from([0x00, 0x00, 0x01, 0x00]))) return "image/x-icon";

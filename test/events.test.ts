@@ -4,11 +4,11 @@ import { RuntimeEventBus } from "../src/shared/events.js";
 describe("RuntimeEventBus", () => {
   it("replays after a cursor and streams new events", () => {
     const bus = new RuntimeEventBus();
-    const first = bus.publish("a", "preview.starting", {});
-    bus.publish("b", "preview.starting", {});
+    const first = bus.publish("a", "preview.updated", { preview: { status: "starting" } });
+    bus.publish("b", "preview.updated", { preview: { status: "starting" } });
     const listener = vi.fn();
     const unsubscribe = bus.subscribe("a", listener);
-    const second = bus.publish("a", "preview.stopped", {});
+    const second = bus.publish("a", "preview.updated", { preview: { status: "stopped" } });
 
     expect(bus.since("a", first.id)).toEqual([second]);
     expect(listener).toHaveBeenCalledWith(second);
@@ -17,9 +17,9 @@ describe("RuntimeEventBus", () => {
 
   it("retains only its configured replay capacity", () => {
     const bus = new RuntimeEventBus(2);
-    bus.publish("a", "preview.starting", {});
-    const second = bus.publish("a", "preview.stopped", {});
-    const third = bus.publish("a", "preview.starting", {});
+    bus.publish("a", "preview.updated", { preview: { status: "starting" } });
+    const second = bus.publish("a", "preview.updated", { preview: { status: "stopped" } });
+    const third = bus.publish("a", "preview.updated", { preview: { status: "starting" } });
 
     expect(bus.since("a")).toEqual([second, third]);
     expect(bus.canReplay("a", 0)).toBe(false);

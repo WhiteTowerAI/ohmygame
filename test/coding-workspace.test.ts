@@ -188,10 +188,10 @@ describe("coding workspace", () => {
     );
 
     expect(html).toContain("viewer-stage-mobile");
-    expect(html).toContain('src="http://127.0.0.1:43121/play"');
+    expect(html).toContain('src="http://127.0.0.1:43121/play?__ohmygame_client=');
   });
 
-  it("starts general projects in Code and keeps Web preview an explicit capability", () => {
+  it("respects the saved General preview capability when opening the workspace directly", () => {
     const props = {
       agentBusy: false, publishing: false, workspaceRevision: 0,
       onPublish: async () => false, onOpenPublish: () => undefined,
@@ -207,7 +207,7 @@ describe("coding workspace", () => {
 
     const runnable = renderToStaticMarkup(createElement(CodingWorkspace, { ...props, project: { ...project, webPreviewEnabled: true, preview: previewProject.preview } }));
     expect(runnable).toContain(">Preview<");
-    expect(runnable).toContain(`src="${previewProject.preview.url}/"`);
+    expect(runnable).toContain(`src="${previewProject.preview.url}/?__ohmygame_client=`);
     expect(runnable).toContain('aria-label="Play"');
     expect(runnable).not.toContain("Publishing requires a Web build");
   });

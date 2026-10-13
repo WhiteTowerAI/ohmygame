@@ -302,7 +302,7 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
     if (typeof build !== "string" || !build.trim()) {
       throw new PublishError("Projects with package.json need a non-empty scripts.build command before publishing");
     }
-    const packageManager = await resolvePackageManager(workspacePath, project?.packageManager);
+    const { manager: packageManager } = await resolvePackageManager(workspacePath, project?.packageManager);
     if (hasDependencies(packageJson)) {
       await ensureProjectDependencies(workspacePath, packageManager,
         (command, args) => run(command, args, workspacePath, track));
@@ -322,7 +322,9 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
   const zipOptions = {
     mtime: new Date(1980, 0, 2),
     forceDosTimestamp: true,
-    ...(plugin ? { mode: 0o100644 } : {}),
+    // Deflate output differs between zlib builds, so Plugin entries are stored
+    // to keep the archive's checksum the same on every runtime.
+    ...(plugin ? { mode: 0o100644, compress: false } : {}),
   } as const;
   if (cover !== undefined && files.includes(PUBLISH_GAME_COVER_PATH)) {
     throw new PublishError(`Publish output uses reserved path: ${PUBLISH_GAME_COVER_PATH}`);
@@ -344,6 +346,8 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
       chunks.push(chunk);
     });
     output.once("error", reject);
+    // yazl reports a file it cannot stat or read on the ZipFile, possibly once per file, and then never ends the output.
+    zip.on("error", reject);
     output.once("end", () => resolve(Buffer.concat(chunks)));
   });
   zip.end();
