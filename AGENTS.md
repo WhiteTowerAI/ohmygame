@@ -1,17 +1,24 @@
+# Repository instructions
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, verification, formatting, and
+the contribution workflow. [docs/README.md](docs/README.md) maps modules to
+their code, documentation, and tests.
+
 ## Git
 
-- Prefer small PRs focused on one feature, one bug fix, one chore, or one refactor.
-- Use branches:
-  - `feat/<short-name>`
-  - `fix/<short-name>`
-  - `chore/<short-name>`
-  - `refactor/<short-name>`
-  - `docs/<short-name>`
-- Use Conventional Commit style for PR titles:
-  - `feat(editor): add marquee selection`
-  - `fix(runtime): handle missing tween state`
-  - `docs(agents): update collaboration rules`
-- PR descriptions must include:
-  - What changed
-  - Why it changed
-  - How it was checked
+- Keep PRs focused on one feature, bug fix, documentation change, chore, or refactor.
+- Start contribution branches from `dev` and target ordinary PRs at `dev`.
+  `main` receives maintainer release PRs from `dev`.
+- Use `feat/<short-name>`, `fix/<short-name>`, `chore/<short-name>`,
+  `refactor/<short-name>`, or `docs/<short-name>` for contribution branches.
+- Use Conventional Commit PR titles, for example
+  `feat(editor): add marquee selection`, `fix(runtime): handle missing tween state`,
+  or `docs(agents): update collaboration rules`.
+- PR descriptions must say what changed, why it changed, and how it was checked.
+
+## Changes and verification
+
+- Match existing style and keep unrelated formatting cleanup in a separate PR.
+- Update relevant documentation when public behavior or file contracts change.
+- Use the [checks guidance](CONTRIBUTING.md#make-and-check-your-change) for the
+  change type. Record skipped checks and manual validation still needed.

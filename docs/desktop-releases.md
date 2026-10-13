@@ -46,8 +46,13 @@ or code-signing credentials in the application or the public update bucket.
 
 ## Publishing
 
-Set `package.json` to the release version, commit it, and create a matching
-`v*` tag. Pushing the tag starts `.github/workflows/release-desktop.yml`, which:
+Prepare the release version in `package.json` through a PR into `dev`, then
+merge the reviewed release from `dev` into `main` with a merge commit. Create
+the matching `v*` tag on that `main` commit. See
+[the maintainer workflow](maintaining.md#release-preparation) for verification,
+synchronization, and urgent fixes.
+
+Pushing the tag starts `.github/workflows/release-desktop.yml`, which:
 
 1. Builds the Windows NSIS installer and macOS DMG/ZIP.
 2. Builds Windows without code signing and signs/notarizes macOS.

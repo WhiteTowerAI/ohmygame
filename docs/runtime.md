@@ -49,11 +49,6 @@ loads `.env.local` while preserving values supplied by the parent process.
 authenticated API with Node. `PI_CODING_AGENT_DIR` can isolate the desktop
 agent's configuration during verification.
 
-The full Bun daemon experiment remains on `chore/bun-runtime`; the adopted
-toolchain stage is on `chore/bun-toolchain`. See the
-[adoption report](experiments/bun-toolchain-2026-10-07.md) for validation and
-measured tradeoffs, including corrections to the earlier experiment's baseline.
-
 Electron main owns only desktop lifecycle. Projects, conversations, previews,
 and events live in the daemon. Closing the last window quits the application
 and gives the daemon time to stop active Pi and preview processes.
@@ -165,21 +160,22 @@ Web publishing is independent of the switch: it validates a static `index.html`
 or the configured build's static output. Native engines use their own tools or
 Connections; General Game does not install an engine or initialize a Web wrapper.
 
-Web Game's **Play** button opens one human-controlled game window per project.
-Repeated clicks focus the existing game without reloading it. While that window
-is opening or running, the editor unloads its Preview iframe and shows the last
-project cover with a **Return to game** action. Closing the player restores the
-iframe when the Preview tab is visible; other tabs do not start another game.
-Opening or returning to the player reloads neither a ready development server
-nor an in-flight server startup. Browser-only development uses a named popup.
+The desktop **Play** button opens one human-controlled game window per project.
+Repeated clicks focus it without reloading. Preview and Play move the same
+WebContentsView between the editor and the native player window, preserving the
+document, route, in-memory state, localStorage, and IndexedDB. Closing Play
+returns the view to Preview. The editor shows the last project cover with a
+**Return to game** action while the player is open. Opening or returning to the
+player does not restart a ready or in-flight development server.
 
-The human window uses the Preview's browser storage and receives no editor
-preload or daemon credentials. Moving between the iframe and player reloads
-the game, so in-memory progress is not transferred; saved progress depends on
-the game's storage. Reload targets the active human game. A restarted server
-reloads an open player at its current route. The preview origin is retained across
-restarts when its saved port is available. Human play and agent tests share the
-development server and source, so code changes can still hot-update both.
+The game view receives no editor preload or daemon credentials. Browser-only
+development uses a Preview iframe and a separate named popup; switching between
+them reloads the game, and saved progress depends on the game's storage. Reload
+targets the active human game. A restarted server reloads it at the current
+route. The preview origin is retained across restarts when its saved port is
+available. Human play and agent tests share the development server and source,
+so code changes can hot-update both. See [preview lifecycle](preview-runtime.md)
+for storage, diagnostics, and window details.
 
 The desktop runtime exposes game interaction and verification as the Pi custom
 tool `game_use`. This is an OhMyGame core capability rather than a Plugin:

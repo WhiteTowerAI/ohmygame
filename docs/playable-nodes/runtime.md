@@ -442,8 +442,8 @@ Workbench's "State used" section; calling `get()` without a key records
 In preview builds, the compiler adds an inert `data-ohmygame-source`
 attribute to each element written in node HTML. On request, the sandbox host
 enters pick mode and returns the picked element description defined in
-[authoring.md](authoring.md#element-picking). Capture uses the desktop host's
-page capture of the preview frame.
+[authoring.md](authoring.md#element-picking-text-editing-and-moving). Capture
+uses the desktop host's page capture of the preview frame.
 
 ## Compiler
 
