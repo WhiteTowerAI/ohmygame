@@ -7315,7 +7315,7 @@ button {
 /* Keep preview anchors stable even when React Flow's styles load after ours. */
 .story-node > .story-media-input-handle,
 .story-node > .story-media-output-handle {
-  top: calc(28px + var(--story-media-height, 280px) / 2);
+  top: calc(var(--story-card-title-height, 28px) + var(--story-media-height, 280px) / 2);
 }
 
 .story-node-outputs {
@@ -7329,8 +7329,8 @@ button {
 }
 
 .story-presentation-node-card > .story-node-outputs {
-  top: 28px;
-  bottom: 28px;
+  top: var(--story-card-title-height, 28px);
+  bottom: var(--story-card-title-height, 28px);
 }
 
 .story-node-output {
@@ -7488,7 +7488,7 @@ button {
 
 .story-media-node-label {
   display: flex;
-  height: 28px;
+  height: var(--story-card-title-height, 28px);
   align-items: center;
   gap: 6px;
   color: var(--text-secondary);

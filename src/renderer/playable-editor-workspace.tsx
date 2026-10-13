@@ -31,7 +31,7 @@ import {
 import { snapCanvasPosition } from "./canvas-alignment.js";
 import { EditorCanvas, isTextEntry, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
-import { rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
+import { PLAYABLE_CARD_TITLE_HEIGHT, playableCanvasStageSize, rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
   type NodeGraph,
   type PlayableNode,
@@ -190,8 +190,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   latestCodebase.current = codebase;
   const playerViewport = graphMeta?.viewport ?? { width: 1280, height: 720 };
   const playerViewportAspect = playerViewport.width / playerViewport.height;
-  const canvasStageWidth = 440 * Math.min(1, playerViewportAspect);
-  const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
+  const canvasStage = playableCanvasStageSize(playerViewport);
   const canUndo = Boolean(historyPendingBase.current || undoHistory.current.length);
   const canRedo = !historyPendingBase.current && redoHistory.current.length > 0;
   const openedNode = !designOpen && workspaceView === "canvas" && phase === "ready"
@@ -1007,8 +1006,9 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
         "--story-viewport-aspect": playerViewportAspect,
-        "--story-canvas-stage-width": `${canvasStageWidth}px`,
-        "--story-canvas-stage-height": `${canvasStageHeight}px`,
+        "--story-canvas-stage-width": `${canvasStage.width}px`,
+        "--story-canvas-stage-height": `${canvasStage.height}px`,
+        "--story-card-title-height": `${PLAYABLE_CARD_TITLE_HEIGHT}px`,
       } as CSSProperties}
     >
       <header className="pane-header viewer-header interactive-story-header window-drag-handle">

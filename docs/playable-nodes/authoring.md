@@ -544,8 +544,11 @@ review below is not built yet.
 - The summary bar offers **Keep** and **Undo turn**. Undo restores the
   checkpoint. Continuing to edit implicitly keeps the change.
 - New Scenes without a position in `editor/layout.json` are placed in the
-  next free grid slot when the project is read, and positions of removed
-  Scenes are dropped. The Agent does not need to compute layout.
+  next free grid slot when the project is read. Slots fit the Scene card's
+  screen shape and title, with a gap, and skip any position that would overlap
+  an existing card, including cards moved off the grid. Saved positions stay
+  where they are, and positions of removed Scenes are dropped. The Agent does
+  not need to compute layout.
 
 ### Asset versions
 

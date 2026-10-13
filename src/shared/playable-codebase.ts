@@ -48,20 +48,20 @@ export function playableLayoutMatchesGraph(
 }
 
 const CARD_STAGE_SIZE = 440;
-const CARD_TITLE_HEIGHT = 28;
+export const PLAYABLE_CARD_TITLE_HEIGHT = 28;
 const SLOT_GAP = 40;
 const COLUMNS = 4;
 
 /**
- * The space a Scene card takes on the canvas: its title above a stage that
- * fits the screen's shape into 440 by 440, as the editor draws it.
+ * The Scene thumbnail size shared by rendering and automatic placement.
+ * Fits the project's screen shape into 440 by 440.
  */
-function playableCardSize(viewport: NodeGraph["viewport"] | undefined): { width: number; height: number } {
+export function playableCanvasStageSize(viewport: NodeGraph["viewport"] | undefined): { width: number; height: number } {
   // A graph read from disk is fitted before it is checked, so it may have no screen yet.
   const aspect = viewport ? viewport.width / viewport.height : 1;
   return {
     width: CARD_STAGE_SIZE * Math.min(1, aspect),
-    height: CARD_TITLE_HEIGHT + CARD_STAGE_SIZE / Math.max(1, aspect),
+    height: CARD_STAGE_SIZE / Math.max(1, aspect),
   };
 }
 
@@ -70,7 +70,8 @@ export function freePlayablePosition(
   layout: NodeEditorLayout,
   viewport: NodeGraph["viewport"],
 ): { x: number; y: number } {
-  const card = playableCardSize(viewport);
+  const stage = playableCanvasStageSize(viewport);
+  const card = { width: stage.width, height: PLAYABLE_CARD_TITLE_HEIGHT + stage.height };
   // Slots leave a gap between cards and stay on the canvas's 10px grid.
   const columnWidth = Math.ceil((card.width + SLOT_GAP) / 10) * 10;
   const rowHeight = Math.ceil((card.height + SLOT_GAP) / 10) * 10;
