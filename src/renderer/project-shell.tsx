@@ -190,8 +190,10 @@ export function ProjectShell({
         if (event.type === "workspace.restored" || event.type === "workspace.undone") {
           // Files changed under every editor.
           setWorkspaceRevision((value) => value + 1);
-          // Whatever was cut off before, this one ran to its end.
-          setUnfinishedRestore(false);
+          // A restore that ran to its end leaves nothing unfinished. An undo leaves the note of one that was cut off
+          // before it as it is, so the project is asked again.
+          if (event.type === "workspace.restored") setUnfinishedRestore(false);
+          else void getUnfinishedRestore(projectId).then(setUnfinishedRestore, () => {});
           // A restored conversation lost its later messages. An undone turn is marked by the event itself: reading
           // the conversation for it would drop a turn that started before the answer came.
           if (event.type === "workspace.restored" && event.conversationId === selectedConversationId) {

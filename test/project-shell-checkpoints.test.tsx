@@ -615,6 +615,59 @@ describe("checkpoints in the project shell", () => {
     );
   });
 
+  it("restores only after a confirmation, and saves the design first", async () => {
+    let saved!: () => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          saved = resolve;
+        }),
+    );
+    vi.doMock(CODING_WORKSPACE, () => ({
+      CodingWorkspace: ({
+        onDesignSaveReady,
+      }: {
+        onDesignSaveReady: (save: (() => Promise<void>) | undefined) => void;
+      }) => {
+        useEffect(() => onDesignSaveReady(save), [onDesignSaveReady]);
+        return null;
+      },
+    }));
+    const daemon = await openProject((route) =>
+      route === `${BASE}/restore`
+        ? new Response(null, { status: 204 })
+        : undefined,
+    );
+    const restored = () =>
+      daemon.requests.filter((request) => request.route === `${BASE}/restore`)
+        .length;
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const restore = () =>
+      act(async () =>
+        container
+          .querySelector<HTMLButtonElement>(
+            '[aria-label="Restore to before this message"]',
+          )!
+          .click(),
+      );
+
+    await restore();
+    await settle();
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(save).not.toHaveBeenCalled();
+    expect(restored()).toBe(0);
+
+    confirm.mockReturnValue(true);
+    await restore();
+    await settle();
+    // Unsaved edits must be on disk before the files are put back.
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(restored()).toBe(0);
+    await act(async () => saved());
+    await settle();
+    expect(restored()).toBe(1);
+  });
+
   it("asks before it puts the files back after a restore that was cut off, and shows why that failed", async () => {
     let refuse = true;
     const daemon = await openProject((route, init) => {
@@ -857,6 +910,28 @@ describe("checkpoints in the project shell", () => {
     await act(async () => daemon.send(1, "workspace.restored", {}));
     await settle();
     expect(container.querySelector(".unfinished-restore")).toBeNull();
+  });
+
+  it("asks the project again after an undo, which leaves the note of an earlier cut-off one standing", async () => {
+    let unfinished = true;
+    const daemon = await openProject((route) =>
+      route === UNFINISHED ? Response.json({ unfinished }) : undefined,
+    );
+    const banner = () => container.querySelector(".unfinished-restore");
+    expect(banner()).not.toBeNull();
+
+    await act(async () =>
+      daemon.send(1, "workspace.undone", { checkpointId: "other", kept: 0 }),
+    );
+    await settle();
+    expect(banner()).not.toBeNull();
+
+    unfinished = false;
+    await act(async () =>
+      daemon.send(2, "workspace.undone", { checkpointId: "other", kept: 0 }),
+    );
+    await settle();
+    expect(banner()).toBeNull();
   });
 
   it("shows the banner when a restore left the workspace partly changed", async () => {
