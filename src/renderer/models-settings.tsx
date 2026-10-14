@@ -21,6 +21,7 @@ import {
   notifyAgentModelsChanged,
   updateOpenAIEndpointSettings,
   updateModel3DProviderApiKey,
+  updateMinimaxApiKey,
   updateSeedanceApiKey,
   listVideoModelCatalog,
 } from "./api.js";
@@ -45,6 +46,7 @@ export type ModelsView = { page: "providers" } | { page: "provider"; provider: P
 
 const POPULAR_PROVIDER_IDS = ["openrouter", "openai", "anthropic", "meshy", "tripo"];
 const SEEDANCE_PROVIDER_IDS = new Set(["volcengine-ark", "byteplus-modelark"]);
+const MINIMAX_PROVIDER_IDS = new Set(["minimax-video-cn", "minimax-video-global"]);
 const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; label: string }> = [
   { value: "all", label: t("common.all") },
   { value: "language", label: t("capability.language") },
@@ -233,6 +235,7 @@ function ProviderAuthView({ provider, onBack, onCompleted }: { provider: Provide
   if (provider.custom) return <CustomProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (provider.id === "meshy" || provider.id === "tripo") return <Native3DProviderAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (MINIMAX_PROVIDER_IDS.has(provider.id)) return <MinimaxAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
@@ -391,6 +394,55 @@ function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: Provide
       {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
       {provider.configured && provider.id === "volcengine-ark" ? <ProviderImageModels key={`seedream-${modelsRevision}`} providerId={provider.id} /> : null}
       {provider.configured ? <SeedanceModels key={`seedance-${modelsRevision}`} providerId={provider.id} /> : null}
+    </section>
+  );
+}
+
+function MinimaxAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const deletion = useProviderDeletion(provider.id, onCompleted);
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [modelsRevision, setModelsRevision] = useState(0);
+  async function save(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      await updateMinimaxApiKey(provider.id, apiKey);
+      onCompleted();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+  const inputId = `${provider.id}-api-key`;
+  return (
+    <section className="settings-panel settings-provider-detail">
+      <ProviderDetailHeader provider={provider} onBack={onBack}>
+        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
+      </ProviderDetailHeader>
+      <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
+      <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
+        <label className="settings-search-field-label" htmlFor={inputId}>{t("providers.apiKey")}</label>
+        <div className="settings-detail-inline">
+          <input
+            id={inputId}
+            className="settings-search-input"
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })}
+            disabled={saving || deletion.busy}
+          />
+          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
+            {saving ? t("common.saving") : t("common.save")}
+          </button>
+        </div>
+      </form>
+      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
+      {provider.configured ? <SeedanceModels key={`minimax-${modelsRevision}`} providerId={provider.id} /> : null}
     </section>
   );
 }

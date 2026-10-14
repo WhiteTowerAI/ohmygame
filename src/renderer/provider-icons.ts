@@ -65,6 +65,8 @@ export const PROVIDER_ICONS: Readonly<Partial<Record<string, ProviderIcon>>> = {
   "kimi-coding": color(kimi),
   minimax: color(minimax),
   "minimax-cn": color(minimax),
+  "minimax-video-cn": color(minimax),
+  "minimax-video-global": color(minimax),
   meshy: color(meshy),
   ollama: monochrome(ollama),
   lmstudio: monochrome(lmstudio),
