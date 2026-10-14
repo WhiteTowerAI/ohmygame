@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -183,9 +183,36 @@ describe("network settings", () => {
       active: { source: "direct" },
       requiresRestart: false,
     });
-    await expect(readFile(service.store.filePath)).rejects.toMatchObject({
-      code: "ENOENT",
+    expect(JSON.parse(await readFile(service.store.filePath, "utf8"))).toEqual({
+      version: 1,
+      ...DEFAULT_NETWORK_SETTINGS,
     });
+  });
+
+  it("starts new installations Direct and keeps Automatic for earlier ones without saved settings", async () => {
+    const fresh = new NetworkSettingsStore(await directory());
+    await fresh.load();
+    expect(fresh.get().mode).toBe("direct");
+
+    for (const entry of ["projects", "pi-agent"]) {
+      const dataDirectory = await directory();
+      await mkdir(path.join(dataDirectory, entry));
+      const existing = new NetworkSettingsStore(dataDirectory);
+      await existing.load();
+      expect(existing.get().mode).toBe("auto");
+    }
+    const upgraded = await directory();
+    await writeFile(path.join(upgraded, "onboarding.json"), "{}");
+    const store = new NetworkSettingsStore(upgraded);
+    await store.load();
+    expect(store.get().mode).toBe("auto");
+
+    // The choice is saved, so data created later does not change it.
+    const freshDirectory = path.dirname(fresh.filePath);
+    await mkdir(path.join(freshDirectory, "projects"));
+    const reloaded = new NetworkSettingsStore(freshDirectory);
+    await reloaded.load();
+    expect(reloaded.get().mode).toBe("direct");
   });
 
   it("reports a proxy connection refusal without exposing transport details", async () => {

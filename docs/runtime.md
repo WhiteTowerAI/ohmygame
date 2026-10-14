@@ -125,8 +125,11 @@ renderer would not cover the agent.
 
 ![Network settings with Manual selected and a saved proxy URL](assets/network-settings.webp)
 
-- **Direct** is the default when no network settings have been saved. It clears
-  inherited application proxy variables. System TUN and VPN routing still apply.
+- **Direct** is the default for new installations. It clears inherited
+  application proxy variables. System TUN and VPN routing still apply. An
+  installation that already has projects, agent settings or a setup record but
+  never saved network settings keeps **Automatic**, its earlier behavior. The
+  first start records the chosen mode in `network-settings.json`.
 - **Manual proxy** uses one HTTP/HTTPS proxy URL for both request schemes. For
   Clash, enter its HTTP or Mixed port, such as `http://127.0.0.1:7890`.
 - **Automatic** uses `HTTP_PROXY` / `HTTPS_PROXY` (including lowercase variants)

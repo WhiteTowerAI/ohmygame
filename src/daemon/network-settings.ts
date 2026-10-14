@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fetch as networkFetch, type Dispatcher } from "undici/index.js";
 import {
@@ -56,10 +63,19 @@ export function normalizeNetworkSettings(input: unknown): NetworkSettings {
   return { mode: value.mode as NetworkSettings["mode"], proxyUrl, noProxy };
 }
 
+// Data an installation creates once it has been used; network settings are absent until saved.
+const EXISTING_INSTALLATION_ENTRIES = [
+  "projects",
+  "pi-agent",
+  "onboarding.json",
+];
+
 export class NetworkSettingsStore {
   readonly filePath: string;
+  readonly #dataDirectory: string;
   #settings: NetworkSettings = { ...DEFAULT_NETWORK_SETTINGS };
   constructor(dataDirectory: string) {
+    this.#dataDirectory = dataDirectory;
     this.filePath = path.join(dataDirectory, "network-settings.json");
   }
 
@@ -71,6 +87,33 @@ export class NetworkSettingsStore {
       this.#settings = normalizeNetworkSettings(stored);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await this.#initialize();
+    }
+  }
+
+  /**
+   * Installations from before Direct became the default never saved a mode and
+   * used Automatic. Keep that for them, and record the choice so later starts agree.
+   */
+  async #initialize(): Promise<void> {
+    const existing = (
+      await Promise.all(
+        EXISTING_INSTALLATION_ENTRIES.map((entry) =>
+          access(path.join(this.#dataDirectory, entry)).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      )
+    ).some(Boolean);
+    const settings: NetworkSettings = existing
+      ? { ...DEFAULT_NETWORK_SETTINGS, mode: "auto" }
+      : { ...DEFAULT_NETWORK_SETTINGS };
+    try {
+      await this.update(settings);
+    } catch {
+      // An unwritable data directory still starts with the chosen mode.
+      this.#settings = settings;
     }
   }
 
