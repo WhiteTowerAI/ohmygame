@@ -843,6 +843,107 @@ describe("Agent turn changes", () => {
     ).toEqual([["Write the notes", { files: 1, undone: true }]]);
   });
 
+  it("keeps a turn marked as undone while an edited message runs", async () => {
+    const { app, base, userMessages, send, ended, undo } = await studio([
+      { write: { "notes.txt": "first" } },
+      { say: "Wrote the notes." },
+      { say: "Said something." },
+      { hang: true },
+    ]);
+    await send("Write the notes");
+    const first = await ended("Write the notes");
+    await send("Say something");
+    await ended("Say something");
+    expect((await undo(first.checkpointId!)).statusCode).toBe(200);
+
+    const revised = await app.inject({
+      method: "POST",
+      url: `${base}/revise-last`,
+      payload: { prompt: "Say something else" },
+    });
+    expect(revised.statusCode, revised.body).toBe(202);
+    // The mark is written again when the edited message starts, which is after its run started.
+    await vi.waitFor(
+      async () =>
+        expect((await userMessages()).map((message) => message.text)).toEqual([
+          "Write the notes",
+          "Say something else",
+        ]),
+      { timeout: 10_000 },
+    );
+    expect((await userMessages())[0]!.changes).toEqual({
+      files: 1,
+      undone: true,
+    });
+  });
+
+  it("keeps the turns before an edited message that fails before it starts", async () => {
+    const {
+      app,
+      start,
+      base,
+      detail,
+      userMessages,
+      send,
+      file,
+      idle,
+      ended,
+      undo,
+    } = await studio([
+      { write: { "notes.txt": "first" } },
+      { say: "Wrote the notes.", delayMs: 800 },
+      { say: "Said something." },
+    ]);
+    await send("Write the notes");
+    await vi.waitFor(
+      async () => expect(await file("notes.txt")).toBe("first"),
+      { timeout: 15_000 },
+    );
+    // Queued behind the running turn, so the ends of both turns are written after this message.
+    expect((await send("Say something")).queued).toBe(true);
+    await idle(2);
+    const first = await ended("Write the notes");
+
+    // The model can no longer be used, so the edited message fails before it starts.
+    vi.spyOn(ModelRuntime.prototype, "hasConfiguredAuth").mockReturnValue(
+      false,
+    );
+    vi.spyOn(ModelRuntime.prototype, "checkAuth").mockResolvedValue(
+      undefined as never,
+    );
+    const revised = await app.inject({
+      method: "POST",
+      url: `${base}/revise-last`,
+      payload: { prompt: "Say something else" },
+    });
+    expect(revised.statusCode, revised.body).toBe(202);
+    await vi.waitFor(
+      async () => expect((await detail()).agent.status).toBe("error"),
+      { timeout: 10_000 },
+    );
+    vi.restoreAllMocks();
+
+    // The edit holds, and the first turn can still be shown and undone.
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await userMessages()).map((message) => [
+            message.text,
+            message.changes,
+          ]),
+        ).toEqual([["Write the notes", { files: 1 }]]),
+      { timeout: 10_000 },
+    );
+    expect((await undo(first.checkpointId!)).json()).toEqual({
+      changed: ["notes.txt"],
+      conflicts: [],
+    });
+    await app.close();
+    expect(
+      (await userMessages(start())).map((message) => message.changes),
+    ).toEqual([{ files: 1, undone: true }]);
+  });
+
   it("lets a turn be undone again when a restore brings its files back", async () => {
     const { userMessages, send, file, ended, undo, restore } = await studio([
       { write: { "notes.txt": "first" } },

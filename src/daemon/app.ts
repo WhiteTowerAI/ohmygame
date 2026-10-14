@@ -26,7 +26,7 @@ import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, CheckpointNotFoundError, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
-import { TURN_END_ENTRY, checkpointExtension, turnRange } from "./checkpoint-extension.js";
+import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, checkpointExtension, turnRange } from "./checkpoint-extension.js";
 import { CheckpointConflictError, CheckpointIncompleteError, CheckpointStore } from "./checkpoints.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
@@ -2507,8 +2507,9 @@ export function createApp(options: AppOptions = {}) {
       const activeItems = agents.activeItems(project.id, conversation.summary.id);
       const activePlanState = agents.planState(conversation);
       // The end of an earlier turn is kept whatever its time: it is written when a run is over, in the very
-      // millisecond in which a message that waited for that starts the next run.
-      const before = (entry: SessionEntry) => !currentRun || entry.timestamp < currentRun.timestamp || (entry.type === "custom" && entry.customType === TURN_END_ENTRY);
+      // millisecond in which a message that waited for that starts the next run. That an earlier turn was undone is
+      // written again when an edited message starts, and no undo runs while a turn does, so it is kept too.
+      const before = (entry: SessionEntry) => !currentRun || entry.timestamp < currentRun.timestamp || (entry.type === "custom" && (entry.customType === TURN_END_ENTRY || entry.customType === CHECKPOINT_UNDONE_ENTRY));
       const loadedItems = [
         ...conversationItems(branch.filter(before), !currentRun),
         // A reset must be a complete snapshot. Replaying from the active turn's

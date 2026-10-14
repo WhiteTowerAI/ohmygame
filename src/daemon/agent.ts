@@ -1359,6 +1359,18 @@ export class AgentManager {
     active.ended = true;
     await this.#withQueueMutation(key, async () => {
       if (this.#activeTurns.get(key) !== active) return;
+      // An edit whose message never started, because the run failed or stopped first, still moved the conversation
+      // back, and what the run wrote keeps it there. The ends of the turns before it are written again, as when the
+      // message starts, or those turns could no longer be shown or undone.
+      if (active.left) {
+        try {
+          const sessionManager = this.#sessions.get(key)?.session.sessionManager;
+          if (sessionManager) carryTurnEnds(sessionManager, active.left, true);
+        } catch {
+          console.warn("Could not keep where earlier turns ended");
+        }
+        active.left = undefined;
+      }
       // The turn is still active, so no prompt, edit or restore moves the conversation on before its end is written.
       const ends = await this.#turnEnds(project, active);
       this.#recordTurnEnds(projectId, active, ends);
