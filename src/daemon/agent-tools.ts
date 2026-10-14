@@ -196,11 +196,35 @@ export function createAgentTools(
         Type.Literal("1024x1024"),
         Type.Literal("1536x1024"),
         Type.Literal("1024x1536"),
-      ], { description: "Output size" })),
+      ], { description: "Legacy output size. Do not combine with resolution or aspectRatio." })),
+      resolution: Type.Optional(Type.Union([
+        Type.Literal("512"),
+        Type.Literal("1K"),
+        Type.Literal("2K"),
+        Type.Literal("4K"),
+      ], { description: "Output resolution. Provide together with aspectRatio; do not combine with size. Use a value supported by the selected image model." })),
+      aspectRatio: Type.Optional(Type.Union([
+        Type.Literal("1:1"),
+        Type.Literal("2:3"),
+        Type.Literal("3:2"),
+        Type.Literal("3:4"),
+        Type.Literal("4:3"),
+        Type.Literal("4:5"),
+        Type.Literal("5:4"),
+        Type.Literal("9:16"),
+        Type.Literal("16:9"),
+        Type.Literal("21:9"),
+      ], { description: "Output aspect ratio. Provide together with resolution; do not combine with size. Use a value supported by the selected image model." })),
     }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const run = await tools.run("generate-image", input, signal, project.id);
+      const configured = input.resolution !== undefined || input.aspectRatio !== undefined;
+      if (input.size !== undefined && configured) throw new Error("Image size cannot be combined with resolution or aspect ratio");
+      if (configured && (input.resolution === undefined || input.aspectRatio === undefined)) throw new Error("Image resolution and aspect ratio must be provided together");
+      const request = input.resolution !== undefined && input.aspectRatio !== undefined
+        ? { prompt: input.prompt, ...(input.imageModel ? { imageModel: input.imageModel } : {}), resolution: input.resolution, aspectRatio: input.aspectRatio }
+        : { prompt: input.prompt, ...(input.imageModel ? { imageModel: input.imageModel } : {}), ...(input.size !== undefined ? { size: input.size } : {}) };
+      const run = await tools.run("generate-image", request, signal, project.id);
       try {
         const output = run.files[0];
         if (!output) throw new Error("Image generator returned no output");

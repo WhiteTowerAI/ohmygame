@@ -2,7 +2,7 @@ import { TEST_GLB } from "./model3d-fixture.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { activePiToolNames, createAgentTools, planningPiToolNames, projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
@@ -164,6 +164,39 @@ describe("agent tools", () => {
     expect(result.details).toEqual({ artifact: { type: "image", path: relativePath, mediaType: "image/webp" } });
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated image");
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
+  });
+
+  it("exposes configured image dimensions to the agent and forwards them to the generator", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Game");
+    const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({
+      bytes: Buffer.from("generated image"),
+      mediaType: "image/png",
+    });
+    const runner = new ToolRunner(dataDirectory, { generate });
+    await runner.load();
+    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_image");
+    if (!tool) throw new Error("Expected image tool");
+
+    expect(tool.parameters).toMatchObject({
+      properties: {
+        resolution: expect.any(Object),
+        aspectRatio: expect.any(Object),
+      },
+    });
+    await tool.execute("call-configured", {
+      prompt: "A wide fantasy landscape",
+      resolution: "2K",
+      aspectRatio: "16:9",
+    }, undefined, undefined, {} as never);
+
+    expect(generate).toHaveBeenCalledWith({
+      prompt: "A wide fantasy landscape",
+      resolution: "2K",
+      aspectRatio: "16:9",
+    }, undefined);
   });
 
   it("publishes a validated structured plan", async () => {
