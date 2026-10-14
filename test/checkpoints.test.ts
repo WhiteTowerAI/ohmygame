@@ -1744,6 +1744,58 @@ describe("workspace checkpoints", () => {
     }
   });
 
+  it("reads no more than it is asked for of a file, and checks a file that fits", async () => {
+    const large = Buffer.concat([
+      randomBytes(1024 * 1024),
+      Buffer.alloc(8 * 1024 * 1024, "a"),
+    ]);
+    const game = await project({ "src/game.ts": "one" });
+    await mkdir(path.join(game.workspacePath, "assets"));
+    await writeFile(path.join(game.workspacePath, "assets/pack.bin"), large);
+    const store = new CheckpointStore();
+    const commit = await store.snapshot(game);
+
+    const start = await store.read(game, commit, "assets/pack.bin", 1000);
+    expect(Buffer.from(start!).equals(large.subarray(0, 1000))).toBe(true);
+    // Exactly as long as the limit, and shorter: the whole file.
+    expect(
+      Buffer.from(
+        (await store.read(game, commit, "src/game.ts", 3))!,
+      ).toString(),
+    ).toBe("one");
+    expect(
+      Buffer.from(
+        (await store.read(game, commit, "src/game.ts", 1000))!,
+      ).toString(),
+    ).toBe("one");
+    expect(await store.read(game, commit, "src", 1000)).toBeUndefined();
+    expect(await store.read(game, commit, "missing.ts", 1000)).toBeUndefined();
+
+    const oid = createHash("sha1").update("blob 3\0one").digest("hex");
+    const object = path.join(
+      checkpointDirectory(game),
+      "objects",
+      oid.slice(0, 2),
+      oid.slice(2),
+    );
+    // A file that fits is checked whole, as without a limit.
+    for (const damaged of [
+      (await readFile(object)).subarray(0, 6),
+      deflateSync("blob 3\0two"),
+      deflateSync("blob 4\0one"),
+      deflateSync("tree 3\0one"),
+    ]) {
+      await writeFile(object, damaged);
+      await expect(
+        store.read(game, commit, "src/game.ts", 1000),
+      ).rejects.toThrow();
+    }
+    await rm(object);
+    await expect(store.read(game, commit, "src/game.ts", 1000)).rejects.toThrow(
+      "does not exist",
+    );
+  });
+
   it("takes only checkpoint ids", async () => {
     const game = await project({ "src/game.ts": "one" });
     const store = new CheckpointStore();

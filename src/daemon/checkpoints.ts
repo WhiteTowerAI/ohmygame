@@ -27,6 +27,7 @@ import {
   readCommit,
   readCommitTree,
   readHead,
+  readBlobStart,
   readObject,
   readTree,
   removeObject,
@@ -299,13 +300,14 @@ export class CheckpointStore {
 
   /**
    * Reads a file as a snapshot holds it, or the target of a symbolic link.
-   * Undefined when the snapshot has no file there. The whole file is held in
-   * memory, so this is for files a diff view would show.
+   * Undefined when the snapshot has no file there. What is read is held in
+   * memory: with a `limit`, no more than that many bytes from the start.
    */
   async read(
     project: CheckpointProject,
     commit: string,
     filePath: string,
+    limit?: number,
   ): Promise<Uint8Array | undefined> {
     const gitdir = checkpointDirectory(project);
     let tree = await readCommitTree(gitdir, commit);
@@ -313,9 +315,11 @@ export class CheckpointStore {
     for (const [index, name] of names.entries()) {
       const entry = (await this.#entries(gitdir, tree)).get(name);
       if (index === names.length - 1)
-        return entry && entry.mode !== TREE_MODE
-          ? await readObject(gitdir, entry.oid, "blob")
-          : undefined;
+        return !entry || entry.mode === TREE_MODE
+          ? undefined
+          : limit === undefined
+            ? await readObject(gitdir, entry.oid, "blob")
+            : await readBlobStart(gitdir, entry.oid, limit);
       if (entry?.mode !== TREE_MODE) return undefined;
       tree = entry.oid;
     }

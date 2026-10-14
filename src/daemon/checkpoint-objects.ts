@@ -239,6 +239,61 @@ export async function readObject(
   return object.subarray(end + 1);
 }
 
+/**
+ * Reads at most `limit` bytes of a blob's content, inflating no more of it
+ * than that. A blob that fits is checked against its id as `readObject` does;
+ * of a longer one only the start is read, so only damage that the inflating
+ * meets there is found.
+ */
+export async function readBlobStart(
+  gitdir: string,
+  oid: string,
+  limit: number,
+): Promise<Buffer> {
+  const hash = createHash("sha1");
+  const kept: Buffer[] = [];
+  let size = 0;
+  let length: number | undefined;
+  let header = Buffer.alloc(0);
+  const source = createReadStream(objectPath(gitdir, oid));
+  const inflating = source.pipe(createInflate());
+  source.once("error", (error) => inflating.destroy(error));
+  try {
+    for await (const chunk of inflating as AsyncIterable<Buffer>) {
+      hash.update(chunk);
+      let content = chunk;
+      if (length === undefined) {
+        header = Buffer.concat([header, chunk]);
+        const end = header.indexOf(0);
+        if (end === -1) {
+          if (header.length > 64) throw new DamagedObjectError(oid);
+          continue;
+        }
+        const [type, count = ""] = header.toString("latin1", 0, end).split(" ");
+        if (type !== "blob" || !/^\d+$/.test(count))
+          throw new Error(`Checkpoint object ${oid} is not a blob`);
+        length = Number(count);
+        content = header.subarray(end + 1);
+      }
+      const part = content.subarray(0, Math.max(limit - size, 0));
+      kept.push(part);
+      size += part.length;
+      // Leaving the loop stops the reading and the inflating.
+      if (length > limit && size >= limit) return Buffer.concat(kept);
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT")
+      throw new Error(`Checkpoint object ${oid} does not exist`);
+    throw String(code).startsWith("Z_") ? new DamagedObjectError(oid) : error;
+  } finally {
+    source.destroy();
+  }
+  if (size !== length || hash.digest("hex") !== oid)
+    throw new DamagedObjectError(oid);
+  return Buffer.concat(kept);
+}
+
 /** Writes a blob's content into a new file, which is created with the given permissions. */
 export async function writeBlobTo(
   gitdir: string,

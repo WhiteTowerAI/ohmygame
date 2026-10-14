@@ -3027,7 +3027,8 @@ export function createApp(options: AppOptions = {}) {
         const side = async (commit: string, held: boolean): Promise<CheckpointFile | null> => {
           if (!held) return null;
           if (media) return { binary: true };
-          const content = await checkpoints.read(project, commit, change.path);
+          // One byte more than is shown tells a longer file from one that fits.
+          const content = await checkpoints.read(project, commit, change.path, MAX_CHECKPOINT_FILE_BYTES + 1);
           return content ? checkpointFile(content) : null;
         };
         return {
