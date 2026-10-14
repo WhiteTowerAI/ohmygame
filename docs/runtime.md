@@ -355,10 +355,11 @@ A snapshot of an unchanged workspace is the commit that is already there.
 
 A message whose turn changed files shows **N files changed** below it. The row
 opens a list of the files that were added, modified or removed, and each file
-opens a line diff. Text is shown up to 256 KiB a side; images, audio, video and
-3D models are listed without content. The list is the difference between the
-two snapshots, so it holds everything that changed in the project during the
-turn, including edits made by hand or by another conversation.
+opens a line diff. Text is shown up to 256 KiB a side and 2,000 lines; images,
+audio, video and 3D models are listed without content. The list is the
+difference between the two snapshots, so it holds everything that changed in
+the project during the turn, including edits made by hand or by another
+conversation.
 
 ![A turn's changed files with the line diff of one of them](assets/turn-changes.webp)
 
@@ -370,7 +371,9 @@ undo then changes nothing and asks whether to keep those files and undo the
 rest, or to overwrite them. Overwriting is refused when more files have become
 conflicts since the list was shown. The Agent is told which files went back
 by a note in the conversation that starts no turn, so that its next reply does
-not build on files that are gone. A turn that was undone says so, and a turn
+not build on files that are gone. Only the conversation where the undo was
+asked for gets the note, and after a message is edited the note is no longer
+part of what the Agent is sent. A turn that was undone says so, and a turn
 with files that were kept can be undone the rest of the way later.
 
 ![Undo asking what to do with a file that was changed again after the turn](assets/turn-undo-conflict.webp)
@@ -393,9 +396,13 @@ undo or a restore:
   `.data/agent-attachments`, at the workspace root.
 - A file or folder the daemon is not allowed to read.
 
-Limits: Asset Canvas and Godot projects have no checkpoints, because part of
-their state lives outside the workspace. The store only grows; nothing removes
-old snapshots yet. Permission bits other than "executable" are not recorded.
+Limits: Asset Canvas and Godot projects have no checkpoints. A turn in an
+Asset Canvas also changes the shared Library and the generation history, which
+live outside the workspace, and a Godot project is changed through the running
+Godot editor. In the other project types only the workspace goes back: an image
+that a turn generated stays in the Library, and the generation history keeps
+its entry. The store only grows; nothing removes old snapshots yet. Permission
+bits other than "executable" are not recorded.
 
 Project covers are saved independently of publishing. Selecting an image in the
 publish dialog previews it; **Apply cover** saves it and stops automatic cover
