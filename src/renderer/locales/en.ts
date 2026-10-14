@@ -511,6 +511,11 @@ const en = {
     automatic: "Automatic",
     manual: "Manual",
     direct: "Direct",
+    hints: {
+      direct: "Connect without an app proxy. System VPN and TUN routing still apply.",
+      manual: "Use an HTTP or HTTPS proxy for app requests.",
+      auto: "Use environment proxy settings first, then the system proxy, otherwise connect directly.",
+    },
     proxyUrl: "Proxy URL",
     clashHint: "Clash HTTP / Mixed port.",
     bypass: "Bypass proxy for",
@@ -518,6 +523,7 @@ const en = {
     detecting: "Detecting…",
     detect: "Detect system proxy",
     status: "Network status",
+    unsaved: "Unsaved changes.",
     savedPrefix: "Saved. ",
     restartToApply: "Restart to apply.",
     restartAppToApply: "Restart OhMyGame to apply.",
@@ -528,6 +534,7 @@ const en = {
     reachable: "api.openai.com reachable · {{ms}} ms",
     testing: "Testing…",
     test: "Test connection",
+    testHint: "Check api.openai.com using the current form without saving",
   },
   projects: {
     recent: "Recent projects",

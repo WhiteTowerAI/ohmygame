@@ -5,7 +5,11 @@ import {
   type EffectiveNetworkProxy,
 } from "../shared/network-settings.js";
 import { NetworkSettingsStore } from "../daemon/network-settings.js";
-import { publicNetworkProxy, resolveNetworkProxy } from "../daemon/proxy.js";
+import {
+  proxyUrlsFromEnvironment,
+  publicNetworkProxy,
+  resolveNetworkProxy,
+} from "../daemon/proxy.js";
 
 export function electronProxyConfig(
   proxy: EffectiveNetworkProxy,
@@ -58,14 +62,20 @@ export async function prepareDesktopNetwork(options: {
 }): Promise<{ environment: NodeJS.ProcessEnv; active: EffectiveNetworkProxy }> {
   const store = new NetworkSettingsStore(options.dataDirectory);
   await store.load();
+  const settings = store.get();
   let systemProxy = "DIRECT";
-  try {
-    systemProxy = await options.resolveProxy(SYSTEM_PROXY_TARGET);
-  } catch {
-    systemProxy = "UNAVAILABLE";
+  if (
+    settings.mode === "auto" &&
+    !proxyUrlsFromEnvironment(options.environment)
+  ) {
+    try {
+      systemProxy = await options.resolveProxy(SYSTEM_PROXY_TARGET);
+    } catch {
+      systemProxy = "UNAVAILABLE";
+    }
   }
   const active = resolveNetworkProxy(
-    store.get(),
+    settings,
     options.environment,
     systemProxy,
   );

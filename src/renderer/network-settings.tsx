@@ -21,6 +21,12 @@ const SOURCE_LABELS: Record<EffectiveNetworkProxy["source"], string> = {
   direct: t("network.source.direct"),
 };
 
+const MODE_HINTS: Record<NetworkSettings["mode"], string> = {
+  direct: t("network.hints.direct"),
+  manual: t("network.hints.manual"),
+  auto: t("network.hints.auto"),
+};
+
 export function NetworkSettingsPanel() {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [state, setState] = useState<NetworkSettingsState>();
@@ -101,8 +107,13 @@ export function NetworkSettingsPanel() {
     );
 
   const manual = form.mode === "manual";
+  const dirty =
+    form.mode !== state.settings.mode ||
+    form.proxyUrl !== state.settings.proxyUrl ||
+    form.noProxy !== state.settings.noProxy;
   const canDetect =
     state.systemProxyAvailable &&
+    state.detected.source !== "environment" &&
     state.settings.mode === "auto" &&
     form.mode === "auto";
   return (
@@ -123,12 +134,13 @@ export function NetworkSettingsPanel() {
             className="settings-provider-options"
             role="radiogroup"
             aria-label={t("network.modeLabel")}
+            aria-describedby="network-proxy-mode-hint"
           >
             {(
               [
-                ["auto", t("network.automatic")],
-                ["manual", t("network.manual")],
                 ["direct", t("network.direct")],
+                ["manual", t("network.manual")],
+                ["auto", t("network.automatic")],
               ] as const
             ).map(([mode, label]) => (
               <label className="settings-provider-option" key={mode}>
@@ -144,6 +156,12 @@ export function NetworkSettingsPanel() {
             ))}
           </div>
         </div>
+        <p
+          className="settings-detail-hint settings-network-mode-hint"
+          id="network-proxy-mode-hint"
+        >
+          {MODE_HINTS[form.mode]}
+        </p>
         {manual ? (
           <label className="settings-detail-field">
             <span className="settings-search-field-label">{t("network.proxyUrl")}</span>
@@ -193,8 +211,9 @@ export function NetworkSettingsPanel() {
           </div>
         </details>
       </fieldset>
-      {state.requiresRestart || saved || state.detected.warning ? (
+      {dirty || state.requiresRestart || saved || state.detected.warning ? (
         <div className="settings-network-status" aria-label={t("network.status")}>
+          {dirty ? <p>{t("network.unsaved")}</p> : null}
           {state.requiresRestart ? (
             <div className="settings-network-restart">
               <p role="status">
@@ -240,6 +259,7 @@ export function NetworkSettingsPanel() {
         <button
           className="settings-add-button"
           type="button"
+          title={t("network.testHint")}
           disabled={Boolean(busy) || (manual && !form.proxyUrl.trim())}
           onClick={() => void perform("test")}
         >
@@ -248,7 +268,7 @@ export function NetworkSettingsPanel() {
         <button
           className="settings-primary-button"
           type="submit"
-          disabled={Boolean(busy) || (manual && !form.proxyUrl.trim())}
+          disabled={Boolean(busy) || !dirty || (manual && !form.proxyUrl.trim())}
         >
           {busy === "save" ? t("common.saving") : t("common.save")}
         </button>

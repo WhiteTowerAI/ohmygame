@@ -159,13 +159,25 @@ export class NetworkSettingsService {
 
   async update(input: unknown): Promise<NetworkSettingsState> {
     const settings = normalizeNetworkSettings(input);
+    if (
+      settings.mode === "auto" &&
+      this.store.get().mode !== "auto" &&
+      !proxyUrlsFromEnvironment(this.#environment) &&
+      this.options.resolveSystemProxy
+    ) {
+      this.#systemProxy = await this.options.resolveSystemProxy();
+    }
     resolveNetworkProxy(settings, this.#environment, this.#systemProxy);
     await this.store.update(settings);
     return this.get();
   }
 
   async detect(): Promise<NetworkSettingsState> {
-    if (this.options.resolveSystemProxy)
+    if (
+      this.store.get().mode === "auto" &&
+      !proxyUrlsFromEnvironment(this.#environment) &&
+      this.options.resolveSystemProxy
+    )
       this.#systemProxy = await this.options.resolveSystemProxy();
     return this.get();
   }

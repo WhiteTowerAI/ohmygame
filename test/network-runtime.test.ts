@@ -40,6 +40,7 @@ describe("Node proxy transport", () => {
         import { OpenAISessionTransport } from './src/daemon/openai-session-transport.ts';
         loadEnvironmentFiles(${JSON.stringify(directory)}, 'development');
         const service = new NetworkSettingsService(${JSON.stringify(directory)}, { environment: process.env });
+        await service.store.update({ mode: 'auto', proxyUrl: '', noProxy: '' });
         await service.load();
         assert.equal(service.get().active.source, 'environment');
         const dispatcher = activateNetworkProxy(service.get().active);

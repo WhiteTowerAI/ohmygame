@@ -123,18 +123,27 @@ in Settings and do not change the language-only completion requirement.
 agent sessions and model requests run in the local daemon, so proxying only the
 renderer would not cover the agent.
 
-![Network settings with a manual proxy and Restart now](assets/network-settings.webp)
+![Network settings with Manual selected and a saved proxy URL](assets/network-settings.webp)
 
-- **Automatic** uses `HTTP_PROXY` / `HTTPS_PROXY` (including lowercase variants)
-  first, then a system HTTP/HTTPS proxy detected by Electron, then a direct
-  connection. Both desktop development and packaged apps detect the system
-  proxy. Browser-only development uses environment variables.
+- **Direct** is the default when no network settings have been saved. It clears
+  inherited application proxy variables. System TUN and VPN routing still apply.
 - **Manual proxy** uses one HTTP/HTTPS proxy URL for both request schemes. For
   Clash, enter its HTTP or Mixed port, such as `http://127.0.0.1:7890`.
-- **Direct** clears inherited application proxy variables. System TUN and VPN
-  routing still apply.
+- **Automatic** uses `HTTP_PROXY` / `HTTPS_PROXY` (including lowercase variants)
+  first, then a system HTTP/HTTPS proxy detected by Electron, then a direct
+  connection. Desktop development and packaged apps detect the system proxy
+  only when Automatic needs it. Browser-only development uses environment
+  variables.
+
+Existing saved modes are retained. Users who previously used the default
+Automatic mode without saving settings now start with Direct; select and save
+Automatic to keep inheriting proxy settings.
 
 Settings are stored in `network-settings.json` under the daemon data directory.
+The panel opens with the saved proxy mode selected, or Direct when no settings
+have been saved. Unsaved edits are marked. Switching to Automatic refreshes
+system detection when there is no environment proxy; later bypass-list edits
+reuse the detected route.
 Saving or detecting a new proxy does not change active connections. When the
 effective proxy URLs or bypass list change, restart the desktop app (or the
 standalone daemon) to apply them. Changing an inactive proxy draft or selecting
@@ -158,11 +167,13 @@ returned to the renderer.
 an isolated connection. It makes a bounded HTTPS HEAD request to
 `https://api.openai.com/v1/models` without model credentials or redirects. An
 HTTP response, including 401 or 403, confirms transport reachability, not model
-access or successful inference. It neither saves the draft nor changes the
-global dispatcher or the next-startup configuration. Automatic tests refresh
-system detection only for the test when no environment proxy is set.
-**Detect system proxy** asks Electron over private
-child-process IPC and leaves the active connection unchanged.
+access or successful inference. Results show elapsed time, with the tested
+connection and HTTP status in a tooltip. The test neither saves the draft nor
+changes the global dispatcher or the next-startup configuration. Automatic tests
+refresh system detection only for the test when no environment proxy is set.
+**Detect system proxy** is available for saved Automatic settings without an
+environment proxy. It asks Electron over private child-process IPC and leaves
+the active connection unchanged.
 
 This first version accepts HTTP/HTTPS proxies. Manual SOCKS proxies, proxy
 authentication fields, and `ALL_PROXY` are not supported. System detection

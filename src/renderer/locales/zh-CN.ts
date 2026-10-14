@@ -495,6 +495,11 @@ const zhCN: typeof en = {
     automatic: "自动",
     manual: "手动",
     direct: "直连",
+    hints: {
+      direct: "不使用应用代理。系统 VPN 和 TUN 路由仍然生效。",
+      manual: "应用请求使用 HTTP 或 HTTPS 代理。",
+      auto: "优先使用环境代理，其次使用系统代理，否则直接连接。",
+    },
     proxyUrl: "代理地址",
     clashHint: "Clash 的 HTTP / Mixed 端口。",
     bypass: "不走代理的地址",
@@ -502,6 +507,7 @@ const zhCN: typeof en = {
     detecting: "正在检测…",
     detect: "检测系统代理",
     status: "网络状态",
+    unsaved: "有未保存的更改。",
     savedPrefix: "已保存。",
     restartToApply: "重启后生效。",
     restartAppToApply: "重启 OhMyGame 后生效。",
@@ -512,6 +518,7 @@ const zhCN: typeof en = {
     reachable: "api.openai.com 可访问 · {{ms}} 毫秒",
     testing: "正在测试…",
     test: "测试连接",
+    testHint: "使用当前表单检测 api.openai.com，不保存设置",
   },
   projects: {
     recent: "最近的项目",

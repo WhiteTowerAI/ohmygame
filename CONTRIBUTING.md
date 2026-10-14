@@ -241,8 +241,10 @@ their PR so a maintainer can complete it.
 
 - Removing a project that uses an existing workspace folder never deletes
   that folder.
-- The daemon honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` (either case)
-  and keeps local traffic off the proxy. See [network proxy](docs/runtime.md#network-proxy).
+- Network defaults to Direct. Select Automatic in **Settings → Network** to
+  honor `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` (either case), or select Manual
+  to set a proxy URL. Local traffic bypasses the proxy. See
+  [network proxy](docs/runtime.md#network-proxy).
 - The desktop app manages its own authenticated daemon; the renderer has no
   Node.js access.
 - Signing, hosted update feeds, and release credentials are maintainer tasks.

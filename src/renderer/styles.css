@@ -1149,6 +1149,7 @@ body {
 .settings-network-panel { max-width: 620px; }
 .settings-network-fields { display: grid; gap: 12px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .settings-network-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; }
+.settings-network-mode-hint { margin: 0; }
 .settings-network-fields details { color: var(--text-secondary); font-size: 12px; }
 .settings-network-fields summary { width: fit-content; cursor: pointer; }
 .settings-network-advanced { display: grid; gap: 12px; padding-top: 12px; }
