@@ -828,7 +828,11 @@ export class AgentManager {
 
       const undo = await restoreFiles(checkpoint.commit);
       try {
-        const navigation = await session.navigateTree(message.id, { summarize: false });
+        // Pi stays where it is when asked to go to the entry the conversation ends with, which is the message itself
+        // when the app quit during its first answer. Going to the checkpoint before it then has the same result.
+        const before = branch[branch.indexOf(message) - 1];
+        const target = branch.at(-1) === message && before?.type === "custom" ? before.id : message.id;
+        const navigation = await session.navigateTree(target, { summarize: false });
         if (navigation.cancelled) throw new Error("Restore was cancelled");
         // Pi moves back in memory only; an entry after the move makes it the conversation's end on disk too.
         sessionManager.appendCustomEntry(CHECKPOINT_RESTORED_ENTRY, { version: 1, checkpoint: checkpointId, undo });

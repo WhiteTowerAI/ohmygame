@@ -2,6 +2,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -453,6 +454,40 @@ describe("Agent checkpoints", () => {
       "written by the player before any turn",
     );
     expect(await userMessages(restarted)).toEqual([]);
+  });
+
+  it("restores to before a message that was the last thing saved when the app quit", async () => {
+    const { app, start, project, userMessages, send, missing, restore } =
+      await studio([{ hang: true }]);
+    await send("Write the notes");
+    const folder = path.join(
+      project.storagePath ?? path.dirname(project.workspacePath),
+      "session",
+    );
+    let saved = "";
+    await vi.waitFor(
+      async () => {
+        const [name] = await readdir(folder);
+        saved = await readFile(path.join(folder, name!), "utf8");
+        expect(saved).toContain('"role":"user"');
+      },
+      { timeout: 10_000 },
+    );
+    const [name] = await readdir(folder);
+    await app.close();
+    // As the app left it when it was killed while the model answered: the message is the last entry.
+    await writeFile(path.join(folder, name!), saved);
+
+    const restarted = start();
+    const [message] = await userMessages(restarted);
+    await writeFile(path.join(project.workspacePath, "later.txt"), "later");
+    const restored = await restore(message!.checkpointId!, restarted);
+    expect(restored.statusCode, restored.body).toBe(204);
+    expect(await missing("later.txt")).toBe(true);
+    expect(await userMessages(restarted)).toEqual([]);
+    // The message is gone from what is saved too.
+    await restarted.close();
+    expect(await userMessages(start())).toEqual([]);
   });
 
   it("continues the conversation from the restored point", async () => {
