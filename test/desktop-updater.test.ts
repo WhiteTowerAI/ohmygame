@@ -14,6 +14,36 @@ import { DesktopUpdater } from "../src/desktop/updater.js";
 
 beforeEach(() => vi.clearAllMocks());
 
+it("preserves version-bound notes through download, failure, retry and installation", async () => {
+  const desktop = new DesktopUpdater("1.0.0", vi.fn());
+  updater.listeners.get("update-available")!({ version: "1.1.0", releaseNotes: "### Fixed\n\n- Restore previews." });
+  const release = { version: "1.1.0", notes: "### Fixed\n\n- Restore previews." };
+  expect(desktop.state().availableRelease).toEqual(release);
+  updater.listeners.get("download-progress")!({ percent: 50 });
+  expect(desktop.state().availableRelease).toEqual(release);
+  updater.listeners.get("error")!(new Error("ECONNRESET"));
+  expect(desktop.state().availableRelease).toEqual(release);
+  updater.downloadUpdate.mockResolvedValueOnce(undefined);
+  await desktop.download();
+  updater.listeners.get("update-downloaded")!({ version: "1.1.0" });
+  expect(desktop.state().availableRelease).toEqual(release);
+  await desktop.install();
+  expect(desktop.state().availableRelease).toEqual(release);
+});
+
+it("uses only the target version's notes and clears stale notes on subsequent checks", () => {
+  const desktop = new DesktopUpdater("1.0.0", vi.fn());
+  updater.listeners.get("update-available")!({ version: "1.2.0", releaseNotes: [
+    { version: "1.1.0", note: "Earlier update." },
+    { version: "1.2.0", note: "Latest update." },
+  ] });
+  expect(desktop.state().availableRelease).toEqual({ version: "1.2.0", notes: "Latest update." });
+  updater.listeners.get("update-available")!({ version: "1.3.0" });
+  expect(desktop.state().availableRelease).toEqual({ version: "1.3.0", notes: "" });
+  updater.listeners.get("update-not-available")!();
+  expect(desktop.state().availableRelease).toBeUndefined();
+});
+
 it("prepares and launches a downloaded update once despite repeated clicks", async () => {
   let finish!: () => void;
   const cleanup = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));

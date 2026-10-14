@@ -156,6 +156,9 @@ OhMyGame 不会把你绑定在某一个模型上，也不按次收费。
 
 ### 下载
 
+每个版本的变化可查看[更新日志](CHANGELOG.md)，或在应用内打开
+**设置 → 关于 → 更新日志**。
+
 点击页面顶部的按钮，或者前往 [Releases](https://github.com/WhiteTowerAI/ohmygame/releases)
 下载安装包。目前提供 macOS（Apple 芯片）和 Windows（x64）版本。Windows 版暂时还没有代码签名，
 安装时 Windows 可能会弹出 SmartScreen 警告。

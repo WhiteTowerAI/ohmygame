@@ -1,5 +1,5 @@
 import { app } from "electron";
-import electronUpdater from "electron-updater";
+import electronUpdater, { type UpdateInfo } from "electron-updater";
 import type { DesktopUpdateErrorCode, DesktopUpdatePhase, DesktopUpdateRetry, DesktopUpdateState } from "../shared/desktop-update.js";
 
 const { autoUpdater } = electronUpdater;
@@ -16,7 +16,6 @@ export class DesktopUpdater {
   #listeners = new Set<(state: DesktopUpdateState) => void>();
   #installing = false;
   #operation: DesktopUpdatePhase = "check";
-  #availableVersion?: string;
 
   constructor(currentVersion: string, private readonly onInstall: () => Promise<void> | void) {
     this.#state = { currentVersion, status: { type: "idle" } };
@@ -29,25 +28,28 @@ export class DesktopUpdater {
       this.#operation = "check";
       this.#set({ type: "checking" });
     });
-    autoUpdater.on("update-not-available", () => this.#set({ type: "up-to-date" }));
+    autoUpdater.on("update-not-available", () => {
+      this.#state = { ...this.#state, availableRelease: undefined };
+      this.#set({ type: "up-to-date" });
+    });
     autoUpdater.on("update-available", (info) => {
-      this.#availableVersion = info.version;
+      this.#rememberRelease(info);
       this.#set({ type: "available", version: info.version });
     });
     autoUpdater.on("download-progress", (progress) => {
       const current = this.#state.status;
-      const version = current.type === "available" || current.type === "downloading" ? current.version : this.#availableVersion;
+      const version = current.type === "available" || current.type === "downloading" ? current.version : this.#state.availableRelease?.version;
       if (!version) return;
       this.#operation = "download";
       this.#set({ type: "downloading", version, percent: Math.max(0, Math.min(100, Math.round(progress.percent))) });
     });
     autoUpdater.on("update-downloaded", (info) => {
-      this.#availableVersion = info.version;
+      this.#rememberRelease(info);
       this.#set({ type: "ready", version: info.version });
     });
     autoUpdater.on("error", (error) => {
       this.#installing = false;
-      this.#setError(error, this.#operation, retryFor(this.#operation), this.#availableVersion);
+      this.#setError(error, this.#operation, retryFor(this.#operation), this.#state.availableRelease?.version);
     });
   }
 
@@ -115,6 +117,17 @@ export class DesktopUpdater {
   #set(status: DesktopUpdateState["status"]): void {
     this.#state = { ...this.#state, status };
     for (const listener of this.#listeners) listener(this.#state);
+  }
+
+  #rememberRelease(info: Pick<UpdateInfo, "version" | "releaseNotes">): void {
+    const notes = typeof info.releaseNotes === "string"
+      ? info.releaseNotes
+      : info.releaseNotes?.find((entry) => entry.version === info.version)?.note;
+    const previous = this.#state.availableRelease;
+    this.#state = { ...this.#state, availableRelease: {
+      version: info.version,
+      notes: notes?.trim() || (previous?.version === info.version ? previous.notes : ""),
+    } };
   }
 
   #setError(error: unknown, phase: DesktopUpdatePhase, retry: DesktopUpdateRetry, version?: string): void {

@@ -14,7 +14,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Validate version and changelog
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/release-notes.mjs --check "$RELEASE_TAG"
+
   windows:
+    needs: release-notes
     runs-on: windows-latest
     env:
       DESKTOP_UPDATE_URL: ${{ vars.DESKTOP_UPDATE_URL }}
@@ -76,6 +89,7 @@ jobs:
             release/latest.yml
 
   macos:
+    needs: release-notes
     runs-on: macos-14
     env:
       DESKTOP_UPDATE_URL: ${{ vars.DESKTOP_UPDATE_URL }}
@@ -146,6 +160,14 @@ jobs:
       contents: write
       actions: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Prepare release notes
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/release-notes.mjs "$RELEASE_TAG" > "$RUNNER_TEMP/release-notes.md"
       - uses: actions/download-artifact@v4
         with:
           pattern: OhMyGame-*
@@ -214,8 +236,8 @@ jobs:
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
-          # This job has no checkout, so gh needs to be told the repository.
           GH_REPO: ${{ github.repository }}
+          RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" \
@@ -223,6 +245,7 @@ jobs:
               release-assets/*.dmg \
               release-assets/*.zip \
               --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file "$RELEASE_NOTES_FILE"
           else
             gh release create "$GITHUB_REF_NAME" \
               release-assets/*.exe \
@@ -231,7 +254,7 @@ jobs:
               --verify-tag \
               --title "OhMyGame $GITHUB_REF_NAME" \
               --prerelease \
-              --generate-notes
+              --notes-file "$RELEASE_NOTES_FILE"
           fi
       - name: Delete intermediate GitHub artifacts
         if: ${{ success() }}

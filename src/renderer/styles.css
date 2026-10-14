@@ -2247,34 +2247,131 @@ select.settings-search-input {
   color: var(--danger);
 }
 
-.settings-about-list {
-  overflow: hidden;
-  border-radius: 6px;
-  background: var(--settings-row-surface);
-}
-
-.settings-about-row {
+.settings-about-summary {
   display: flex;
-  min-height: 58px;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border);
+  gap: 16px;
+}
+
+.settings-about-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-about-logo {
+  width: 32px;
+  height: 24px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+:root[data-appearance="light"] .settings-about-logo {
+  filter: brightness(0) saturate(100%);
+}
+
+.settings-about-copy {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.settings-about-product {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.settings-about-product strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.settings-about-product span {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.settings-about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.settings-about-links a {
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-decoration: none;
+  transition: color 140ms ease;
+}
+
+.settings-about-links a:is(:hover, :focus-visible) {
+  color: var(--text);
+}
+
+.settings-changelog-panel {
+  gap: 16px;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-changelog-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.settings-changelog-header h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.settings-changelog-version {
+  max-width: 100%;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+}
+
+.settings-changelog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.settings-changelog-empty a {
+  color: var(--text-secondary);
+  text-underline-offset: 3px;
+}
+
+.settings-changelog-content {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.settings-changelog-empty {
+  margin: 0;
   color: var(--text-muted);
   font-size: 13px;
-}
-
-.settings-about-row:last-child {
-  border-bottom: 0;
-}
-
-.settings-about-row strong {
-  overflow: hidden;
-  color: var(--text);
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.7;
 }
 
 .settings-account-panel {
@@ -2355,11 +2452,9 @@ select.settings-search-input {
 }
 
 .settings-about-status {
-  display: grid;
-  min-width: 220px;
-  color: var(--text-secondary);
+  margin: 0;
+  color: var(--text-muted);
   font-size: 12px;
-  gap: 8px;
   line-height: 1.5;
 }
 
@@ -2369,6 +2464,8 @@ select.settings-search-input {
   border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
   border-radius: 8px;
   background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+  font-size: 13px;
+  line-height: 1.5;
 }
 .settings-update-error p { margin: 0; }
 .settings-update-data-safe { margin-top: 5px !important; color: var(--text); font-weight: 500; }
@@ -2383,18 +2480,14 @@ select.settings-search-input {
   white-space: pre-wrap;
 }
 
-.settings-about-update {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 16px;
-}
-
 .settings-about-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.settings-update-error .settings-about-actions {
+  margin-top: 12px;
 }
 
 .settings-about-actions .settings-secondary-button {
@@ -2403,21 +2496,10 @@ select.settings-search-input {
 }
 
 @media (max-width: 560px) {
-  .settings-account-row,
-  .settings-about-row,
-  .settings-about-update {
+  .settings-account-row {
     align-items: flex-start;
     flex-direction: column;
-  }
-
-  .settings-account-row,
-  .settings-about-row {
     padding: 12px;
-  }
-
-  .settings-about-update {
-    width: 100%;
-    gap: 10px;
   }
 
   .settings-panel-header {

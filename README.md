@@ -179,6 +179,9 @@ game, or the renderer.
 
 ### Download
 
+See [the changelog](CHANGELOG.md) for changes in each release, or open
+**Settings → About → Changelog** inside the app.
+
 Grab the installer from the buttons at the top or from
 [Releases](https://github.com/WhiteTowerAI/ohmygame/releases). Builds are
 available for macOS (Apple silicon) and Windows (x64). The Windows build is

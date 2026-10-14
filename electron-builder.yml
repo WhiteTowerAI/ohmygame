@@ -11,6 +11,9 @@ asarUnpack:
 directories:
   output: release
 
+releaseInfo:
+  releaseNotesFile: .runtime/release-notes.md
+
 files:
   - dist/desktop/**/*.js
   - dist/desktop/**/*.cjs
