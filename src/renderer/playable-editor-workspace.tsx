@@ -1,8 +1,8 @@
 import {
+  ArrowLeft,
   Clapperboard,
   Code2,
   FileText,
-  House,
   LoaderCircle,
   PanelToggle,
   Share2,
@@ -73,6 +73,7 @@ import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEmptyCanvas } fr
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
 import { t } from "./i18n.js";
+import { WorkspaceBackButton } from "./workspace-shell.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -99,7 +100,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   agentBusy: boolean;
@@ -113,6 +114,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   chatOnRight?: boolean;
   chatCollapsed?: boolean;
   onHome?: () => void;
+  homeLabel?: string;
   onToggleChat?: () => void;
   designOpen?: boolean;
   onDesignOpenChange?: (open: boolean) => void;
@@ -994,7 +996,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   ];
   const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
     {chatOnRight && onHome ? (
-      <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title={t("sidebar.home")} aria-label={t("sidebar.home")}><House size={14} /></button>
+      <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} />
     ) : null}
     <WorkspaceTabs
       tabs={tabs} active={designOpen ? "design" : workspaceView}

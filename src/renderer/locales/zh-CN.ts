@@ -543,6 +543,9 @@ const zhCN: typeof en = {
     "asset-canvas": "素材画布",
     "godot-game": "Godot",
   },
+  navigation: {
+    backTo: "返回{{page}}",
+  },
   sidebar: {
     update: "更新",
     restart: "重启",
@@ -980,7 +983,7 @@ const zhCN: typeof en = {
   },
   errorBoundary: {
     failed: "{{label}}无法显示",
-    hint: "你可以重试这个视图，或返回项目列表。",
+    hint: "你可以重试这个视图。",
     retry: "重试视图",
     back: "返回项目列表",
     label: {

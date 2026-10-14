@@ -28,6 +28,13 @@ These are entry points, not an exhaustive ownership map. HTTP API and event
 definitions live in the code; use the corresponding shared types and tests
 when changing a contract.
 
+Project workspaces return to their entry page using the top-left Back arrow.
+The destination survives conversation/view changes and refreshes in the same
+tab; a project link opened without an entry page returns to Projects. The
+Projects URL preserves its type filter, search (`q`), and name sorting
+(`sort=name`) when returning or refreshing. See the
+[workspace return example](assets/project-return-navigation.webp).
+
 ## Architecture and feature guides
 
 | Document                                         | Purpose                                                                                                                        |

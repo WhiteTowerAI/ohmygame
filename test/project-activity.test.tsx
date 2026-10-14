@@ -41,7 +41,7 @@ function Activity({ enabled = true }: { enabled?: boolean }) {
 const noop = () => undefined;
 const pages = [
   { name: "Home", type: "web-game", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} /> },
-  { name: "Projects", type: "web-game", view: <ProjectsPage onNavigate={noop} onOpenProject={noop} /> },
+  { name: "Projects", type: "web-game", view: <ProjectsPage onNavigate={noop} onOpenProject={noop} onFiltersChange={noop} /> },
   { name: "Game Studio", type: "web-game", view: <GameStudioHome projectType="web-game" onNavigate={noop} onCreate={noop} onOpenProject={noop} /> },
   { name: "Asset Canvas", type: "asset-canvas", view: <AssetCanvasHome onNavigate={noop} onOpenProject={noop} /> },
 ] as const;

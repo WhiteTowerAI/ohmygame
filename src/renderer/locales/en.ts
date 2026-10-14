@@ -559,6 +559,9 @@ const en = {
     "asset-canvas": "Asset Canvas",
     "godot-game": "Godot",
   },
+  navigation: {
+    backTo: "Back to {{page}}",
+  },
   sidebar: {
     update: "Update",
     restart: "Restart",
@@ -1003,7 +1006,7 @@ const en = {
   },
   errorBoundary: {
     failed: "{{label}} could not be displayed",
-    hint: "You can retry this view or return to your projects.",
+    hint: "You can retry this view.",
     retry: "Retry view",
     back: "Back to projects",
     label: {

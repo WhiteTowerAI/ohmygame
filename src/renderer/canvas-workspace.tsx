@@ -14,7 +14,8 @@ import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
 import { useCanvasDocuments } from "./use-canvas-documents.js";
 import type { CanvasDocuments } from "./canvas-document-node.js";
-import { Check, ChevronLeft, ChevronRight, Code2, House, Layers3, LoaderCircle, MoreHorizontal, PanelToggle, Pencil, Plus, Trash2, X } from "./icons.js";
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Code2, Layers3, LoaderCircle, MoreHorizontal, PanelToggle, Pencil, Plus, Trash2, X } from "./icons.js";
+import { WorkspaceBackButton } from "./workspace-shell.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { CanvasContextMenu } from "./editor-canvas.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -31,7 +32,7 @@ class CanvasSaveFailure extends Error {
   constructor(cause: unknown) { super(cause instanceof Error ? cause.message : String(cause), { cause }); }
 }
 
-export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, openFileRequest, chatOnRight, chatCollapsed, onHome, onToggleChat, onProjectUpdated }: {
+export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveReady, onSaveReady, onContextChange, initialNodeId, onInitialNodeHandled, workspaceRevision = 0, openFileRequest, chatOnRight, chatCollapsed, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onProjectUpdated }: {
   project: ProjectState; headerActionsTarget?: HTMLElement | null;
   onLeaveReady?: (leave: ((action: () => void) => void) | undefined) => void;
   onSaveReady?: (save: (() => Promise<void>) | undefined) => void;
@@ -43,6 +44,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   chatOnRight?: boolean;
   chatCollapsed?: boolean;
   onHome?: () => void;
+  homeLabel?: string;
   onToggleChat?: () => void;
   onProjectUpdated?: (project: ProjectState) => void;
 }) {
@@ -175,7 +177,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
     {singleBoard ? <header className="pane-header viewer-header interactive-story-header window-drag-handle">
       <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
       <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
-        {chatOnRight && onHome ? <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title={t("sidebar.home")} aria-label={t("sidebar.home")}><House size={14} /></button> : null}
+        {chatOnRight && onHome ? <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} /> : null}
         <WorkspaceTabs tabs={[{ id: "canvas", label: t("canvas.tab.canvas"), icon: Layers3 }, { id: "code", label: t("workspace.tab.code"), icon: Code2 }]} active={workspaceView} onChange={changeView} label={t("canvas.workspaceMode")} />
       </div>
       <div className="viewer-controls-slot" />

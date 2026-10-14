@@ -28,7 +28,7 @@ The workspace keeps the current Interactive Story layout:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Header: Project ▾ · Home           Playtest · chat · Publish │
+│ Header: Project ▾ · Back           Playtest · chat · Publish │
 ├───────────────┬──────────────────────────────────────────────┤
 │               │                                              │
 │  Chat with    │   Story (the flow canvas)                    │
@@ -45,9 +45,10 @@ The workspace keeps the current Interactive Story layout:
   Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to
   return. The tab is named for the whole story it shows, not for one Scene.
 - The **Project ▾** menu holds **Screen size**, **Variables**, and **Export**.
-  **Home** returns
-  to the project list. **Playtest** opens the real Runtime; the chat toggle
-  and **Publish** follow it.
+  The **Back** arrow returns to the page used to open the project, retaining
+  project-list filters, search, and sorting. Opening a project link directly
+  uses **Projects** as the return destination. **Playtest** opens the real
+  Runtime; the chat toggle and **Publish** follow it.
 
 ### Source files
 
