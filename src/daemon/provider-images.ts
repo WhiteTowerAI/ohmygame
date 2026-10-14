@@ -11,11 +11,13 @@ import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedre
 const CAPABILITY_TTL_MS = 10 * 60_000;
 
 // Models without fixed pixel sizes (Seedream) take resolution + aspect ratio instead.
-const LEGACY_SIZE_GENERATION_OPTIONS: Record<ImageSize, { resolution: ImageResolution; aspectRatio: ImageAspectRatio }> = {
-  "1024x1024": { resolution: "1K", aspectRatio: "1:1" },
-  "1536x1024": { resolution: "1K", aspectRatio: "3:2" },
-  "1024x1536": { resolution: "1K", aspectRatio: "2:3" },
+const LEGACY_SIZE_ASPECT_RATIOS: Record<ImageSize, ImageAspectRatio> = {
+  "1024x1024": "1:1",
+  "1536x1024": "3:2",
+  "1024x1536": "2:3",
 };
+// Legacy sizes are about 1K; use the nearest resolution a model offers, preferring larger output.
+const LEGACY_SIZE_RESOLUTIONS: readonly ImageResolution[] = ["1K", "2K", "4K", "512"];
 
 interface ProviderImagesOptions {
   openAIConnection?: () => Promise<{ source?: ImageSource; models?: ImageModel[]; message?: string; connected?: boolean }>;
@@ -142,7 +144,10 @@ export class ProviderImages implements ImageGenerator {
       : "Image generation is not configured", 503);
     let { size, resolution, aspectRatio } = input;
     if (size !== undefined && definition.sizes.length === 0 && resolution === undefined && aspectRatio === undefined) {
-      const mapped = LEGACY_SIZE_GENERATION_OPTIONS[size];
+      const ratio = LEGACY_SIZE_ASPECT_RATIOS[size];
+      const mapped = LEGACY_SIZE_RESOLUTIONS
+        .map((candidate) => definition.generationOptions.find((option) => option.resolution === candidate && option.aspectRatio === ratio))
+        .find((option) => option !== undefined);
       if (mapped) {
         resolution = mapped.resolution;
         aspectRatio = mapped.aspectRatio;

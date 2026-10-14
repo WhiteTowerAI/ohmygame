@@ -48,6 +48,22 @@ describe("ProviderImages", () => {
     expect(body.size).toBe(seedreamRequestOptions("doubao-seedream-5-0-flash-260915", "1K", "3:2")?.size);
   });
 
+  it("maps a legacy pixel size to the nearest resolution a Seedream model offers", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({
+      data: [{ b64_json: Buffer.from("seedream").toString("base64"), output_format: "png" }],
+    }));
+    const images = new ProviderImages(async () => { throw new Error("Runtime unavailable"); }, request, () => "volc-key");
+
+    // Seedream 5.0 offers 2K and 4K only.
+    await expect(images.generate({
+      prompt: "A game icon",
+      imageModel: { provider: "volcengine-ark", id: "doubao-seedream-5-0-260128" },
+      size: "1024x1536",
+    })).resolves.toMatchObject({ bytes: Buffer.from("seedream") });
+    const body = JSON.parse(String(request.mock.calls[0]?.[1]?.body)) as { size?: string };
+    expect(body.size).toBe(seedreamRequestOptions("doubao-seedream-5-0-260128", "2K", "2:3")?.size);
+  });
+
   it("lists and generates with a configured OpenRouter image model", async () => {
     const request = vi.fn<typeof fetch>(async (input) => String(input).endsWith("/images/models")
       ? Response.json({ data: [{
