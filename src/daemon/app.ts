@@ -783,10 +783,16 @@ export function createApp(options: AppOptions = {}) {
    * the Agent, a running game is left running: it follows the files by
    * itself. One that is not running is looked at again and may start.
    */
-  const workspaceChanged = async (project: ProjectState) => {
+  /** After files were put back. A restore can change any file, so a running game starts again from the files as they are now. */
+  const workspaceChanged = async (project: ProjectState, restart = false) => {
+    const running = restart && (project.preview.status === "ready" || project.preview.status === "starting");
+    // Stopped for this reason rather than by the player, the preview still starts by itself later.
+    if (running) await previews.stop(project, "settings");
     await projects.refreshPreviewReadiness(project.id);
     await projects.touch(project.id);
-    void previews.automatic(project, true).catch(() => {});
+    if (running && project.preview.status !== "waiting") void previews.start(project, false, false).catch(() => {});
+    else void previews.automatic(project, true).catch(() => {});
+    events.publish(project.id, "project.updated", { project: structuredClone(project) });
   };
   const app = Fastify({
     logger: options.logger ?? false,
@@ -2966,10 +2972,7 @@ export function createApp(options: AppOptions = {}) {
         if (cause instanceof CheckpointIncompleteError) return reply.code(409).send({ error: cause.message, code: "CHECKPOINT_INCOMPLETE" });
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
-      // A running game serves the files it started with; the next preview starts from the restored ones.
-      await previews.stop(project);
-      await projects.refreshPreviewReadiness(project.id);
-      await projects.touch(project.id);
+      await workspaceChanged(project, true);
       events.publish(project.id, "workspace.restored", { checkpointId }, { conversationId: conversation.summary.id });
       return reply.code(204).send();
     },
@@ -3093,7 +3096,7 @@ export function createApp(options: AppOptions = {}) {
     } catch (cause) {
       return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
-    await workspaceChanged(project);
+    await workspaceChanged(project, true);
     events.publish(project.id, "workspace.restored", {});
     return reply.code(204).send();
   });

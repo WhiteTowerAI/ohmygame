@@ -23,6 +23,7 @@ import type {
   CheckpointChangeItem,
   CheckpointFileView,
   ConversationDetail,
+  ProjectState,
   RuntimeEvent,
   RuntimeEventType,
   ThreadItem,
@@ -379,12 +380,14 @@ describe("Agent checkpoints", () => {
       app,
       start,
       project,
+      conversation,
       userMessages,
       send,
       idle,
       file,
       missing,
       restore,
+      published,
     } = await studio([
       { write: { "notes.txt": "first" } },
       { say: "Wrote the notes." },
@@ -425,6 +428,16 @@ describe("Agent checkpoints", () => {
     ]);
     // The message that checkpoint belonged to is gone, so the checkpoint is too.
     expect((await restore(messages[1]!.checkpointId!)).statusCode).toBe(404);
+    // Every window learns of it, and the preview is not left stopped as if the player had stopped it.
+    const [restored] = await published("workspace.restored");
+    expect(restored).toMatchObject({
+      conversationId: conversation.id,
+      data: { checkpointId: messages[1]!.checkpointId },
+    });
+    const state = (
+      await app.inject({ method: "GET", url: `/projects/${project.id}` })
+    ).json() as ProjectState;
+    expect(state.preview.stopReason).not.toBe("manual");
 
     await app.close();
     const restarted = start();
