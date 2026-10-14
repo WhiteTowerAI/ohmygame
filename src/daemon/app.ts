@@ -41,6 +41,7 @@ import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { PlayableDraftServer } from "./playable-draft-server.js";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
+import { registerCommunityRoutes } from "./publish/community-routes.js";
 import { LocalPublisher } from "./publish/local.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager, PreviewCancelledError } from "./preview.js";
@@ -806,7 +807,7 @@ export function createApp(options: AppOptions = {}) {
     const origin = request.headers.origin;
     if (origin && allowedOrigins.has(origin)) {
       reply.header("access-control-allow-origin", origin);
-      reply.header("access-control-allow-headers", "authorization, content-type, last-event-id");
+      reply.header("access-control-allow-headers", "authorization, content-type, last-event-id, x-publish-access-token");
       reply.header("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
       reply.header("vary", "Origin");
     }
@@ -1473,39 +1474,7 @@ export function createApp(options: AppOptions = {}) {
     return reply.code(204).send();
   });
 
-  app.get("/community/games", async (_request, reply) => {
-    try {
-      return await publisher.community();
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-    }
-  });
-
-  app.get<{ Params: { gameId: string } }>("/community/games/:gameId", async (request, reply) => {
-    try {
-      return await publisher.communityGame(request.params.gameId);
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-    }
-  });
-
-  app.get<{ Params: { gameId: string; deploymentId: string } }>(
-    "/community/games/:gameId/deployments/:deploymentId/cover",
-    async (request, reply) => {
-      try {
-        const cover = await publisher.communityGameCover(request.params.gameId, request.params.deploymentId);
-        reply.header("content-type", "image/webp");
-        reply.header("cache-control", "private, max-age=31536000, immutable");
-        reply.header("x-content-type-options", "nosniff");
-        return reply.send(cover);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-      }
-    },
-  );
+  registerCommunityRoutes(app, publisher, projects);
 
   app.get("/library/assets", async (request) => {
     const associations = await projects.libraryAssetAssociations((project, cause) => request.log.warn({ projectId: project.id, err: cause }, "Could not read Library asset usage"));

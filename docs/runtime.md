@@ -370,5 +370,79 @@ Each publish creates an immutable Deployment of the same Game, so the play link
 stays the same. The project stores only the publication identity: Game ID,
 Deployment ID, play URL, publish time, and the published title and description.
 
+### Community and creator profiles
+
+![Creator profile with published game covers](assets/community-profile.webp)
+
+Community uses the original mosaic of large, medium, and small square covers.
+Full groups use the existing 28-card layout; additional works continue in the
+same pattern rather than being truncated. Narrow layouts use equal square
+cards, with two columns on small screens. Clicking or tapping the cover opens
+the game detail, including on the owner's profile. Covers are requested
+only when cards approach the visible area. Desktop overlays retain the original
+gradient, hover animation, and centered title and author, with viewer and like counts
+below. Small mosaic cards omit the author to leave room for the title and
+counts. Overlays appear on hover or keyboard focus; hidden links and likes
+do not intercept cover clicks. Narrow layouts and touch devices show the
+overlay directly. Long titles and author names truncate within the card.
+The filter button beside **My profile** and **Refresh** supports title,
+description, and author search, sorting by first listing, viewers, or likes,
+and first-listing periods.
+
+Author links open their public profile with listed works. **My profile** requires
+sign-in and includes deployed works. Profile cards open the game detail; they
+have no editing or unpublish controls. The game detail header shows **Edit game**
+and a **More game actions → Unpublish** menu only for the signed-in author,
+using the existing user and game author IDs without an extra ownership request.
+These controls are available as soon as game metadata loads, independently of
+related games and the game iframe. Owners can edit published titles and
+descriptions without reuploading files. A matching local project also provides
+**Open project** and **Publish update**; replacing game files or the cover requires
+that project.
+The current editor draft carries into **Publish update** without first saving
+metadata. Related games request at most ten other listed works from the service.
+
+![Publish update preserves the title and description from the editor](assets/community-publish-update.webp)
+
+Metadata edits update the local publication record when it exists.
+Local project matching starts only when the owner opens the editor, so
+unavailable local projects do not block viewing or editing published metadata.
+Successful metadata edits update the detail directly without restarting the game;
+a published file update reloads the player with its new deployment. Late reads
+preserve completed edits and cannot restore an unpublished game.
+
+**Unpublish** removes the uploaded game, its deployment files, and engagement
+records from the cloud. Community and profile entries disappear, and old play
+and cover URLs stop working. Local project files are kept; the daemon clears
+only their saved publication state. Publishing again creates a new cloud game
+with a new play URL and fresh engagement counts. The game detail asks for
+confirmation before unpublishing and returns to the owner's profile on success.
+The legacy Cloud listing endpoint remains part of the initial publish protocol;
+the desktop has no hide/relist control.
+Legacy hidden works remain accessible to their signed-in author through the
+same detail page, with read-only engagement counts. Other visitors cannot read
+their Community details or covers.
+
+Viewer counts are cumulative unique viewers per work, recorded when the app
+successfully opens the Community game detail. Refreshes and repeat visits do
+not add viewers. Signed-in visits use the account identity; anonymous visits
+use a random browser identifier. Logging in merges that browser's anonymous
+visit with the account, and signed-out returns from it reuse the same identity.
+Authenticated creator visits do not increment their own count. Shared play HTML
+does not include an injected tracking script, so direct shared-link visits are
+not included in this count. Clearing browser storage or visiting from another
+browser can count an anonymous viewer again.
+
+Likes require sign-in, support undo, and are unique per account and work. A
+completed like updates the card, sort order, and profile total together, even
+when an earlier refresh is still in flight.
+Community reads opt in to metrics with `?metrics=true`; older service responses
+without metrics show unavailable counts. Cloud access tokens are forwarded
+transiently and never stored in project files. Local development provides the
+same flows through temporary debug snapshots.
+
+Hosted use requires the Community engagement migration and matching Cloud API
+before releasing the updated client. See the Cloud contract for rollout order.
+
 The Publish v1 contract is in the
 [`ohmygame-cloud` repository](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md).

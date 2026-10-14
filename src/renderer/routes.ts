@@ -26,6 +26,7 @@ export type AppRoute =
   | { page: SidebarRoutePage }
   | { page: "projects"; projectType?: ProjectType }
   | { page: "community" }
+  | { page: "community-profile"; authorId: string }
   | { page: "settings"; section: SettingsSection; pluginId?: string }
   | { page: "plugin-builder"; sessionId: string }
   | { page: "game"; gameId: string }
@@ -50,6 +51,11 @@ export function parseAppRoute(hash: string): AppRoute {
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
   if (communityMatch) return { page: "community" };
+  const profileMatch = /^#\/community\/creators\/([^/]+)$/.exec(hash);
+  if (profileMatch?.[1]) {
+    try { return { page: "community-profile", authorId: decodeURIComponent(profileMatch[1]) }; }
+    catch { return { page: "home" }; }
+  }
   const projectsMatch = /^#\/projects(?:\?([^#]*))?$/.exec(hash);
   if (projectsMatch) {
     const projectType = new URLSearchParams(projectsMatch[1]).get("type");
@@ -148,4 +154,8 @@ export function communityHash(): string {
 
 export function playtestHash(projectId: string): string {
   return `#/playtest/${encodeURIComponent(projectId)}`;
+}
+
+export function communityProfileHash(authorId: string): string {
+  return `#/community/creators/${encodeURIComponent(authorId)}`;
 }

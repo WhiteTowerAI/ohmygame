@@ -1,3 +1,4 @@
+import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
 import {
@@ -439,21 +440,52 @@ export async function updateWebSearchSettings(input: UpdateWebSearchSettings): P
   return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
 }
 
-export async function listExploreGames(): Promise<CommunityGame[]> {
-  return request("/community/games");
+export async function listExploreGames(accessToken?: string, options: CommunityGamesQuery = {}): Promise<CommunityGame[]> {
+  const query = new URLSearchParams({ metrics: "true" });
+  if (options.limit !== undefined) query.set("limit", String(options.limit));
+  if (options.excludeGameId) query.set("excludeGameId", options.excludeGameId);
+  return request(`/community/games?${query}`, { headers: communityHeaders(accessToken) });
 }
 
-export async function getExploreGame(gameId: string): Promise<CommunityGame> {
-  return request(`/community/games/${encodeURIComponent(gameId)}`);
+export async function getExploreGame(gameId: string, accessToken?: string): Promise<CommunityGame> {
+  return request(`/community/games/${encodeURIComponent(gameId)}?metrics=true`, { headers: communityHeaders(accessToken) });
 }
 
-export async function getExploreGameCover(gameId: string, deploymentId: string): Promise<Blob | undefined> {
+export async function getExploreGameCover(gameId: string, deploymentId: string, accessToken?: string): Promise<Blob | undefined> {
   const response = await fetch(apiUrl(
     `/community/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
-  ), { headers: runtimeHeaders() });
+  ), { headers: { ...runtimeHeaders(), ...communityHeaders(accessToken) } });
   if (response.status === 404) return undefined;
   if (!response.ok) throw await responseError(response);
   return response.blob();
+}
+
+export function getCommunityProfile(authorId: string, accessToken?: string): Promise<CommunityProfile> {
+  return request(`/community/authors/${encodeURIComponent(authorId)}`, { headers: communityHeaders(accessToken) });
+}
+
+export function getMyCommunityGames(accessToken: string): Promise<CommunityProfile> {
+  return request("/community/me/games", { headers: communityHeaders(accessToken) });
+}
+
+export function recordCommunityView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/view`, { method: "POST", body: JSON.stringify({ visitorId, ...(accessToken ? { accessToken } : {}) }) });
+}
+
+export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
+}
+
+export function unpublishCommunityGame(gameId: string, accessToken: string): Promise<void> {
+  return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "DELETE", body: JSON.stringify({ accessToken }) });
+}
+
+export function updateCommunityGame(gameId: string, accessToken: string, metadata: { title: string; description: string }): Promise<Pick<CommunityGame, "title" | "description">> {
+  return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "PUT", body: JSON.stringify({ accessToken, ...metadata }) });
+}
+
+function communityHeaders(accessToken?: string): Record<string, string> {
+  return accessToken ? { "x-publish-access-token": accessToken } : {};
 }
 
 export async function listPlugins(): Promise<PluginCatalog> {

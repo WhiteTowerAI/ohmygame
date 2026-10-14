@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginHash, pluginBuilderHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
+import { communityProfileHash, communityHash, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, playtestHash, pluginHash, pluginBuilderHash, projectHash, projectsHash, settingsHash, sidebarHash } from "../src/renderer/routes.js";
 
 describe("renderer routes", () => {
   it("uses Home as the default route", () => {
@@ -17,6 +17,12 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/community/images")).toEqual({ page: "home" });
     expect(communityHash()).toBe("#/community/games");
     expect(parseAppRoute("#/tools")).toEqual({ page: "home" });
+  });
+
+  it("opens creator profiles and rejects malformed profile links", () => {
+    expect(communityProfileHash("user 1")).toBe("#/community/creators/user%201");
+    expect(parseAppRoute(communityProfileHash("user 1"))).toEqual({ page: "community-profile", authorId: "user 1" });
+    expect(parseAppRoute("#/community/creators/%")).toEqual({ page: "home" });
   });
 
   it("opens a Studio's project list with its type selected", () => {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { CommunityProfilePage } from "./community-profile.js";
 import { GamePlayer, GamesPage } from "./games.js";
 import { Home } from "./home.js";
 import { LibraryPage } from "./library.js";
@@ -70,6 +71,7 @@ export function App() {
   if (route.page === "community") {
     return <GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
   }
+  if (route.page === "community-profile") return <CommunityProfilePage authorId={route.authorId} onNavigate={navigateToSidebarPage} onBack={goToGames} onOpenGame={ohMyGame} />;
   if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
   if (route.page === "projects") return <ProjectsPage projectType={route.projectType} onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "general" || route.page === "web-game" || route.page === "interactive-story" || route.page === "godot") return <GameStudioHome key={route.page} projectType={route.page === "godot" ? "godot-game" : route.page} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;

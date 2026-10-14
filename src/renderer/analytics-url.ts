@@ -11,6 +11,7 @@ export function analyticsPath(route: AppRoute): string {
     case "home": return "/";
     case "projects": return "/projects";
     case "community": return "/community/games";
+    case "community-profile": return "/community/creators/:id";
     case "game": return "/community/games/:id";
     case "settings": return route.pluginId ? "/settings/plugins/:id" : `/settings/${route.section}`;
     case "playtest": return "/playtest/:id";

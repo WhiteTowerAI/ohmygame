@@ -12,11 +12,14 @@ export interface PublishDetails {
   description: string;
 }
 
-export function PublishDialog({ project, publishing, justPublished = false, onClose, onPublish }: {
+export function PublishDialog({ project, publishing, justPublished = false, initialEditing = false, coverAccessToken, profileUrl, onClose, onPublish }: {
   project: ProjectState;
   publishing: boolean;
   onClose: () => void;
   justPublished?: boolean;
+  initialEditing?: boolean;
+  coverAccessToken?: string;
+  profileUrl?: string;
   onPublish: (details: PublishDetails) => Promise<boolean>;
 }) {
   const titleId = useId();
@@ -35,7 +38,7 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
   const [coverNotice, setCoverNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
-  const [editing, setEditing] = useState(!project.publication);
+  const [editing, setEditing] = useState(!project.publication || initialEditing);
   const publication = editing ? undefined : project.publication;
   const busy = publishing || submitting || Boolean(coverOperation);
   const submitLabel = coverOperation === "process" ? t("publish.processingCover") : coverOperation ? t("publish.savingCover") : busy ? t("publish.publishing") : project.publication ? t("publish.update") : t("publish.publish");
@@ -175,6 +178,8 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
       <header><h2 id={titleId}>{publication ? justPublished ? t("publish.gamePublished") : t("publish.publishedGame") : project.publication ? t("publish.update") : t("publish.publishGame")}</h2><button type="button" disabled={busy} onClick={onClose} aria-label={t("common.close")}><X size={16} /></button></header>
       {publication ? <PublicationDetails
         publication={publication}
+        coverAccessToken={coverAccessToken}
+        profileUrl={profileUrl}
         name={project.name}
         justPublished={justPublished}
         onClose={onClose}
@@ -231,10 +236,12 @@ function useCoverUrl(cover: Blob | undefined): string | undefined {
   return url;
 }
 
-export function PublicationDetails({ publication, name, justPublished = false, onClose, onUpdate }: {
+export function PublicationDetails({ publication, name, justPublished = false, coverAccessToken, profileUrl, onClose, onUpdate }: {
   publication: PublicationState;
   name: string;
   justPublished?: boolean;
+  coverAccessToken?: string;
+  profileUrl?: string;
   onClose: () => void;
   onUpdate: () => void;
 }) {
@@ -248,11 +255,11 @@ export function PublicationDetails({ publication, name, justPublished = false, o
   useEffect(() => {
     let active = true;
     setCover(undefined);
-    void getExploreGameCover(publication.gameId, publication.deploymentId)
+    void getExploreGameCover(publication.gameId, publication.deploymentId, coverAccessToken)
       .then((value) => { if (active) setCover(value); })
       .catch(() => undefined);
     return () => { active = false; };
-  }, [publication.gameId, publication.deploymentId]);
+  }, [publication.gameId, publication.deploymentId, coverAccessToken]);
 
   async function copyLink(): Promise<void> {
     setCopyError(false);
@@ -287,7 +294,7 @@ export function PublicationDetails({ publication, name, justPublished = false, o
       <p className={`publication-copy-status${copyError ? " is-error" : ""}`} role={copyError ? "alert" : "status"}>{copyError ? t("publish.copyFailed") : copied ? t("publish.linkCopied") : ""}</p>
     </div>
     <div className="publication-secondary-actions">
-      <a href={gameHash(publication.gameId)} onClick={onClose}>{t("publish.viewInCommunity")}</a>
+      <a href={profileUrl ?? gameHash(publication.gameId)} onClick={onClose}>{profileUrl ? t("community.viewOnProfile") : t("publish.viewInCommunity")}</a>
       <button type="button" onClick={onUpdate}><Upload size={13} />{t("publish.update")}</button>
     </div>
   </div>;

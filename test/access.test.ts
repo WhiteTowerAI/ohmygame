@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { takeAccessToken } from "../src/daemon/access-token.js";
 import { createApp } from "../src/daemon/app.js";
+import { LOCAL_DEBUG_ACCESS_TOKEN } from "../src/shared/local-debug.js";
 
 const apps: ReturnType<typeof createApp>[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -107,6 +108,41 @@ describe("desktop daemon access", () => {
       await response.body?.cancel();
       controller.abort();
     }
+  });
+
+  it.each(["http://127.0.0.1:43120", "null"])("allows signed-in Community reads from the configured renderer origin %s", async (origin) => {
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-community-cors-")),
+      accessToken: "desktop-secret",
+      allowedOrigins: [origin],
+      localDebug: true,
+    });
+    apps.push(app);
+
+    const preflight = await app.inject({
+      method: "OPTIONS",
+      url: "/community/games?metrics=true",
+      headers: {
+        origin,
+        "access-control-request-method": "GET",
+        "access-control-request-headers": "authorization,x-publish-access-token",
+      },
+    });
+    expect(preflight.statusCode).toBe(204);
+    expect(preflight.headers["access-control-allow-origin"]).toBe(origin);
+    expect(String(preflight.headers["access-control-allow-headers"]).split(/\s*,\s*/)).toEqual(
+      expect.arrayContaining(["authorization", "x-publish-access-token"]),
+    );
+
+    const games = await app.inject({
+      method: "GET",
+      url: "/community/games?metrics=true",
+      headers: { origin, authorization: "Bearer desktop-secret", "x-publish-access-token": LOCAL_DEBUG_ACCESS_TOKEN },
+    });
+    expect(games.statusCode).toBe(200);
+    expect(games.headers["access-control-allow-origin"]).toBe(origin);
+    expect(games.json()).toEqual([]);
+    expect((await app.inject({ method: "GET", url: "/community/me/games", headers: { origin, "x-publish-access-token": LOCAL_DEBUG_ACCESS_TOKEN } })).statusCode).toBe(401);
   });
 });
 

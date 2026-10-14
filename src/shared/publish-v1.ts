@@ -49,6 +49,31 @@ export interface PublishCommunityGame {
   coverUrl?: string;
   publishedAt: string;
   author: CommunityAuthor;
+  firstListedAt?: string;
+  stats?: CommunityGameStats;
+  listingStatus?: PublishListingStatus;
+}
+
+export interface CommunityGamesQuery {
+  limit?: number;
+  excludeGameId?: string;
+}
+
+export interface CommunityGameStats {
+  viewerCount: number;
+  likeCount: number;
+  liked?: boolean;
+}
+
+export interface ManagedCommunityGame extends PublishCommunityGame {
+  listingStatus: PublishListingStatus;
+  updatedAt: string;
+}
+
+export interface CommunityProfile {
+  author: CommunityAuthor;
+  games: ManagedCommunityGame[];
+  totalLikes: number;
 }
 
 export interface CreatePublishGameRequest {

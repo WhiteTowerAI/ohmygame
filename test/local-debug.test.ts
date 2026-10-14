@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -55,6 +55,9 @@ describe("local debug mode", () => {
     const community = { ...result.game, author: { id: LOCAL_DEBUG_USER.id, displayName: LOCAL_DEBUG_USER.name } };
     expect((await app.inject({ method: "GET", url: "/community/games" })).json()).toEqual([community]);
     expect((await app.inject({ method: "GET", url: `/community/games/${result.game.id}` })).json()).toEqual(community);
+    expect((await app.inject({ method: "GET", url: `/community/games?limit=1&excludeGameId=${result.game.id}` })).json()).toEqual([]);
+    expect((await app.inject({ method: "GET", url: "/community/games?limit=1" })).json()).toEqual([community]);
+    expect((await app.inject({ method: "GET", url: "/community/games?limit=51" })).statusCode).toBe(400);
     const stored = (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json<ProjectState>();
     expect(stored.publication).toMatchObject({ gameId: result.game.id, playUrl: result.game.playUrl, title: "Local title" });
     expect(result.game.coverUrl).toBe(result.deployment.coverUrl);
@@ -66,6 +69,41 @@ describe("local debug mode", () => {
 
     await app.close();
     await expect(fetch(result.game.playUrl)).rejects.toThrow();
+  });
+
+  it("unpublishes local snapshots while keeping the project available to publish again", async () => {
+    const { app, project } = await runtime();
+    await writeFile(path.join(project.workspacePath, "index.html"), "Game");
+    const published = (await app.inject({ method: "POST", url: `/projects/${project.id}/publish`, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN, title: "Managed" } })).json();
+    const gameId = published.game.id;
+    const headers = { "x-publish-access-token": LOCAL_DEBUG_ACCESS_TOKEN };
+    const mine = (await app.inject({ method: "GET", url: "/community/me/games", headers })).json();
+    expect(mine.games[0]).toMatchObject({ id: gameId, listingStatus: "listed", stats: { viewerCount: 0, likeCount: 0 } });
+    const firstListedAt = mine.games[0].firstListedAt;
+    expect((await app.inject({ method: "GET", url: "/community/me/games" })).statusCode).toBe(401);
+    const visitorId = "33333333-3333-4333-8333-333333333333";
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect((await app.inject({ method: "POST", url: `/community/games/${gameId}/view`, payload: { visitorId } })).json().viewerCount).toBe(1);
+      expect((await app.inject({ method: "PUT", url: `/community/games/${gameId}/like`, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN, liked: true } })).json().likeCount).toBe(1);
+    }
+    await app.inject({ method: "PUT", url: `/community/games/${gameId}`, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN, title: "Renamed", description: "Updated metadata" } });
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication.title).toBe("Renamed");
+    await app.inject({ method: "POST", url: `/projects/${project.id}/publish`, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN, title: "Renamed" } });
+    const updated = (await app.inject({ method: "GET", url: "/community/me/games", headers })).json();
+    expect(updated.games[0]).toMatchObject({ stats: { viewerCount: 1, likeCount: 1 } });
+    expect(updated.games[0].firstListedAt).toBe(firstListedAt);
+    expect((await app.inject({ method: "DELETE", url: `/community/games/${gameId}`, payload: { accessToken: "invalid" } })).statusCode).toBe(401);
+    expect((await app.inject({ method: "GET", url: "/community/me/games", headers })).json().games).toHaveLength(1);
+    expect((await app.inject({ method: "DELETE", url: `/community/games/${gameId}`, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN } })).statusCode).toBe(204);
+    expect((await fetch(published.game.playUrl)).status).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/community/me/games", headers })).json().games).toEqual([]);
+    expect((await app.inject({ method: "GET", url: "/community/games" })).json()).toEqual([]);
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication).toBeUndefined();
+    expect(await readFile(path.join(project.workspacePath, "index.html"), "utf8")).toBe("Game");
+    const republished = await publish(app, project.id);
+    expect(republished.statusCode).toBe(201);
+    expect(republished.json().game.id).not.toBe(gameId);
+    expect((await app.inject({ method: "GET", url: "/community/me/games", headers })).json().games[0].stats).toMatchObject({ viewerCount: 0, likeCount: 0 });
   });
 
   it("updates one Community entry while preserving earlier snapshots", async () => {

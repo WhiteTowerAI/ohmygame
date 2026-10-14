@@ -1,17 +1,17 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Check, Copy, LoaderCircle, Maximize, RefreshCw, Share2, X } from "./icons.js";
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { Check, Copy, LoaderCircle, Maximize, RefreshCw, Share2, UserRound, X } from "./icons.js";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
-import {
-  HOME_GAME_MOSAIC_SLOTS,
-  takeGameMosaicSlots,
-  type GameMosaicSlot,
-} from "../shared/game-mosaic.js";
+import type { CommunityGameStats } from "../shared/publish-v1.js";
+import { GameGrid, GameTile, GameStats, useGameCover } from "./community-game-card.js";
+import { CommunityGameActions } from "./community-game-actions.js";
+import { CommunityFilterButton, DEFAULT_COMMUNITY_FILTERS, filterCommunityGames } from "./community-filters.js";
+import { useAuth } from "./auth.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
-import { getExploreGame, getExploreGameCover, listExploreGames, waitForRuntime } from "./api.js";
-import type { AppNavigationTarget } from "./routes.js";
+import { getExploreGame, listExploreGames, recordCommunityView, waitForRuntime } from "./api.js";
+import { communityProfileHash, type AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
-import { language, t } from "./i18n.js";
+import { language, t, tNodes } from "./i18n.js";
 
 const RELATED_GAMES_LIMIT = 10;
 
@@ -22,129 +22,82 @@ export function GamesPage({
   onNavigate: (page: AppNavigationTarget) => void;
   onOhMyGame: (gameId: string) => void;
 }) {
+  const auth = useAuth();
   const serviceGeneration = useReadyRuntimeGeneration();
+  const [filters, setFilters] = useState({ ...DEFAULT_COMMUNITY_FILTERS });
+  const [openingProfile, setOpeningProfile] = useState(false);
+  const loadVersion = useRef(0);
+  const pendingStats = useRef<Map<string, CommunityGameStats> | undefined>(undefined);
   const [games, setGames] = useState<CommunityGame[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
 
   async function load() {
+    const version = ++loadVersion.current;
+    const changes = new Map<string, CommunityGameStats>();
+    pendingStats.current = changes;
     setPhase("loading");
     setError(undefined);
     try {
       await waitForRuntime();
-      setGames(await listExploreGames());
+      const token = auth.state.status === "signed-in" ? await auth.requestAccessToken() : undefined;
+      const loaded = await listExploreGames(token);
+      if (version !== loadVersion.current) return;
+      // Keep likes made while the list request was in flight.
+      setGames(loaded.map(game => changes.has(game.id) ? { ...game, stats: changes.get(game.id) } : game));
       setPhase("ready");
     } catch (cause) {
+      if (version !== loadVersion.current) return;
       setError(cause instanceof Error ? cause.message : String(cause));
       setPhase("error");
+    } finally {
+      if (pendingStats.current === changes) pendingStats.current = undefined;
     }
   }
 
-  useEffect(() => { void load(); }, [serviceGeneration]);
+  useEffect(() => {
+    setGames(previous => previous.map(game => game.stats ? { ...game, stats: { ...game.stats, liked: undefined } } : game));
+    void load();
+    return () => { loadVersion.current += 1; };
+  }, [serviceGeneration, auth.state.status, auth.state.status === "signed-in" ? auth.state.user.id : undefined]);
+  const visibleGames = filterCommunityGames(games, filters);
+  useEffect(() => {
+    if (openingProfile && auth.state.status === "signed-in") {
+      setOpeningProfile(false);
+      window.location.hash = communityProfileHash(auth.state.user.id);
+    }
+  }, [openingProfile, auth.state]);
 
   return (
     <SidebarPageLayout active="community" onNavigate={onNavigate}>
       <SidebarPageHeader title={t("community.title")} actions={(
+        <div className="community-header-actions">
+        <CommunityFilterButton value={filters} onChange={setFilters} />
+        <button className="projects-icon-button" type="button" title={t("community.myProfile")} aria-label={t("community.myProfile")} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
+          if (auth.state.status === "signed-in") window.location.hash = communityProfileHash(auth.state.user.id);
+          else {
+            setOpeningProfile(true);
+            void auth.requestAccessToken().then(token => { if (!token) setOpeningProfile(false); });
+          }
+        }}><UserRound size={15} /></button>
         <button className="projects-icon-button" type="button" onClick={() => void load()} disabled={phase === "loading"} title={t("common.refresh")} aria-label={t("common.refresh")}>
           <RefreshCw className={phase === "loading" ? "spin" : undefined} size={15} />
         </button>
+        </div>
       )} />
 
       <section className="explore-content">
-        {phase === "loading" ? <div className="explore-state"><LoaderCircle className="spin" size={20} />{t("community.loading")}</div> : null}
+        {phase === "loading" && !games.length ? <div className="explore-state"><LoaderCircle className="spin" size={20} />{t("community.loading")}</div> : null}
         {phase === "error" ? <div className="explore-state explore-error"><X size={20} />{error}</div> : null}
         {phase === "ready" && games.length === 0 ? <div className="explore-state">{t("community.none")}</div> : null}
-        {phase === "ready" && games.length > 0 ? (
-          <GameMosaic games={games.slice(0, HOME_GAME_MOSAIC_SLOTS.length)} onOhMyGame={onOhMyGame} />
-        ) : null}
+        {phase === "ready" && games.length > 0 && visibleGames.length === 0 ? <div className="explore-state">{t("community.noMatches")}</div> : null}
+        {phase !== "error" && visibleGames.length > 0 ? <GameGrid games={visibleGames} onOpen={game => onOhMyGame(game.id)} onStatsChange={(gameId, stats) => {
+          pendingStats.current?.set(gameId, stats);
+          setGames(previous => previous.map(game => game.id === gameId ? { ...game, stats } : game));
+        }} /> : null}
       </section>
     </SidebarPageLayout>
   );
-}
-
-type MosaicStyle = CSSProperties & {
-  "--mosaic-column": number;
-  "--mosaic-row": number;
-  "--mosaic-size": number;
-};
-
-function GameMosaic({ games, onOhMyGame }: { games: CommunityGame[]; onOhMyGame: (gameId: string) => void }) {
-  const slots = takeGameMosaicSlots(HOME_GAME_MOSAIC_SLOTS, games.length);
-  const complete = games.length === HOME_GAME_MOSAIC_SLOTS.length;
-  return (
-    <div className={`explore-game-mosaic${complete ? " is-complete" : ""}`}>
-      {games.map((game, index) => (
-        <GameTile
-          game={game}
-          key={game.id}
-          onOpen={() => onOhMyGame(game.id)}
-          slot={slots[index]!}
-          useFixedSlot={complete}
-        />
-      ))}
-    </div>
-  );
-}
-
-function GameTile({ className = "", game, onOpen, slot, useFixedSlot = false }: {
-  className?: string;
-  game: CommunityGame;
-  onOpen: () => void;
-  slot?: GameMosaicSlot;
-  useFixedSlot?: boolean;
-}) {
-  const coverUrl = useGameCover(game);
-  const size = slot?.size ?? 1;
-  const style: MosaicStyle | undefined = slot ? {
-    "--mosaic-column": slot.column,
-    "--mosaic-row": slot.row,
-    "--mosaic-size": slot.size,
-  } : undefined;
-  return (
-    <article className={`explore-game-tile explore-game-tile-size-${size}${className ? ` ${className}` : ""}`} style={useFixedSlot ? style : undefined}>
-      {coverUrl
-        ? <img className="explore-game-cover" src={coverUrl} alt="" />
-        : <span className="explore-game-cover-placeholder" aria-hidden="true"><img src={brandMark} alt="" /></span>}
-      <button type="button" onClick={onOpen} aria-label={t("community.play", { title: game.title })}>
-        <span className="explore-game-overlay">
-          <span className="explore-game-overlay-copy">
-            <strong>{game.title}</strong>
-            <span className="explore-game-creator">
-              <span className="explore-game-creator-avatar" aria-hidden="true">
-                <i>{game.author.displayName.slice(0, 1).toUpperCase()}</i>
-                {game.author.avatarUrl ? <img src={game.author.avatarUrl} alt="" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
-              </span>
-              <small>{game.author.displayName}</small>
-            </span>
-          </span>
-        </span>
-      </button>
-    </article>
-  );
-}
-
-function useGameCover(game: CommunityGame): string | undefined {
-  const [url, setUrl] = useState<string>();
-
-  useEffect(() => {
-    let active = true;
-    let objectUrl: string | undefined;
-    setUrl(undefined);
-    if (!game.coverUrl) return;
-    void getExploreGameCover(game.id, game.deploymentId)
-      .then((cover) => {
-        if (!active || !cover) return;
-        objectUrl = URL.createObjectURL(cover);
-        setUrl(objectUrl);
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [game.coverUrl, game.deploymentId, game.id]);
-
-  return url;
 }
 
 export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
@@ -153,40 +106,74 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
   onNavigate: (page: AppNavigationTarget) => void;
   onOhMyGame: (gameId: string) => void;
 }) {
+  const auth = useAuth();
   const serviceGeneration = useReadyRuntimeGeneration();
   const [game, setGame] = useState<CommunityGame>();
+  const [accessToken, setAccessToken] = useState<string>();
   const [relatedGames, setRelatedGames] = useState<CommunityGame[]>([]);
   const [error, setError] = useState<string>();
   const loadVersion = useRef(0);
+  const pendingChanges = useRef<Map<string, Partial<CommunityGame>> | undefined>(undefined);
 
   async function load() {
     const version = ++loadVersion.current;
-    setGame(undefined);
-    setRelatedGames([]);
+    const changes = new Map<string, Partial<CommunityGame>>();
+    pendingChanges.current = changes;
     setError(undefined);
     try {
       await waitForRuntime();
-      const [currentGame, games] = await Promise.all([
-        getExploreGame(gameId),
-        listExploreGames().catch(() => []),
-      ]);
+      const token = auth.state.status === "signed-in" ? await auth.requestAccessToken() : undefined;
+      const related = listExploreGames(token, { limit: RELATED_GAMES_LIMIT, excludeGameId: gameId }).catch(() => []);
+      const currentGame = await getExploreGame(gameId, token);
       if (version !== loadVersion.current) return;
-      setGame(currentGame);
-      setRelatedGames(games.filter((candidate) => candidate.id !== gameId).slice(0, RELATED_GAMES_LIMIT));
+      setAccessToken(token);
+      setGame({ ...currentGame, ...changes.get(gameId) });
+      await Promise.all([
+        related.then(games => {
+          if (version === loadVersion.current) setRelatedGames(games.map(game => ({ ...game, ...changes.get(game.id) })));
+        }),
+        (currentGame.listingStatus === "unlisted" ? Promise.resolve(undefined) : recordCommunityView(gameId, communityVisitorId(), token).catch(() => undefined)).then(stats => {
+          if (stats && version === loadVersion.current) setGame(previous => previous?.id === gameId ? { ...previous, stats: { ...stats, ...changes.get(gameId)?.stats, viewerCount: stats.viewerCount } } : previous);
+        }),
+      ]);
     } catch (cause) {
       if (version !== loadVersion.current) return;
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      if (pendingChanges.current === changes) pendingChanges.current = undefined;
     }
   }
 
   useEffect(() => {
-    void load();
-    return () => { loadVersion.current += 1; };
+    setGame(undefined);
+    setAccessToken(undefined);
+    setRelatedGames([]);
   }, [gameId, serviceGeneration]);
 
+  useEffect(() => {
+    setGame(previous => previous?.stats ? { ...previous, stats: { ...previous.stats, liked: undefined } } : previous);
+    setRelatedGames(previous => previous.map(game => game.stats ? { ...game, stats: { ...game.stats, liked: undefined } } : game));
+    void load();
+    return () => { loadVersion.current += 1; };
+  }, [gameId, serviceGeneration, auth.state.status, auth.state.status === "signed-in" ? auth.state.user.id : undefined]);
+
+  function updateGame(id: string, change: Partial<CommunityGame>) {
+    const pending = pendingChanges.current;
+    pending?.set(id, { ...pending.get(id), ...change });
+    setGame(previous => previous?.id === id ? { ...previous, ...change } : previous);
+    setRelatedGames(previous => previous.map(item => item.id === id ? { ...item, ...change } : item));
+  }
+
+  const owner = auth.state.status === "signed-in" && auth.state.user.id === game?.author.id;
   return (
     <SidebarPageLayout active="community" onNavigate={onNavigate}>
-      <SidebarPageHeader title={game?.title ?? t("community.game")} breadcrumb={{ label: t("community.games"), onClick: onBack }} />
+      <SidebarPageHeader title={game?.title ?? t("community.game")} breadcrumb={{ label: t("community.games"), onClick: onBack }} actions={owner && game ? (
+        <CommunityGameActions key={`${game.id}:${serviceGeneration}`} game={game} accessToken={accessToken} onChange={change => updateGame(game.id, change)} onUnpublished={() => {
+          loadVersion.current += 1;
+          setGame(undefined);
+          window.location.hash = communityProfileHash(game.author.id);
+        }} />
+      ) : undefined} />
       <section className="game-detail-scroll">
         {!game && !error ? <div className="explore-state"><LoaderCircle className="spin" size={20} />{t("community.loadingGame")}</div> : null}
         {error ? (
@@ -196,19 +183,21 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
             <button className="quiet-button" type="button" onClick={() => void load()}>{t("common.retry")}</button>
           </div>
         ) : null}
-        {game ? <GameDetail key={game.id} game={game} relatedGames={relatedGames} onOhMyGame={onOhMyGame} /> : null}
+        {game ? <GameDetail key={`${game.id}:${game.deploymentId}`} game={game} accessToken={owner ? accessToken : undefined} relatedGames={relatedGames} onOhMyGame={onOhMyGame} onStatsChange={(id, stats) => updateGame(id, { stats })} /> : null}
       </section>
     </SidebarPageLayout>
   );
 }
 
-function GameDetail({ game, relatedGames, onOhMyGame }: {
+function GameDetail({ game, accessToken, relatedGames, onOhMyGame, onStatsChange }: {
   game: CommunityGame;
+  accessToken?: string;
   relatedGames: CommunityGame[];
   onOhMyGame: (gameId: string) => void;
+  onStatsChange: (gameId: string, stats: CommunityGameStats) => void;
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
-  const coverUrl = useGameCover(game);
+  const coverUrl = useGameCover(game, accessToken);
   const [sharing, setSharing] = useState(false);
 
   async function toggleFullscreen() {
@@ -232,11 +221,12 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
             <span className="electron-game-thumbnail" aria-hidden="true">{coverUrl ? <img src={coverUrl} alt="" /> : <img className="is-placeholder" src={brandMark} alt="" />}</span>
             <div className="electron-game-identity">
               <strong>{game.title}</strong>
-              <span>{t("community.byAuthor", { author: game.author.displayName })} · {publishedDate(game.publishedAt)}</span>
+              <span>{tNodes("community.byAuthor", { author: <a href={communityProfileHash(game.author.id)}>{game.author.displayName}</a> })} · {publishedDate(game.publishedAt)}</span>
               {game.description ? <p>{game.description}</p> : null}
             </div>
           </div>
           <div className="electron-game-toolbar-actions">
+            <GameStats game={game} onChange={stats => onStatsChange(game.id, stats)} />
             <button type="button" onClick={() => setSharing(true)} title={t("community.share")} aria-label={t("community.share")} aria-haspopup="dialog"><Share2 size={17} /></button>
             <button type="button" onClick={() => void toggleFullscreen()} title={t("common.fullscreen")} aria-label={t("common.fullscreen")}><Maximize size={17} /></button>
           </div>
@@ -255,6 +245,7 @@ function GameDetail({ game, relatedGames, onOhMyGame }: {
                 game={relatedGame}
                 key={relatedGame.id}
                 onOpen={() => onOhMyGame(relatedGame.id)}
+                onStatsChange={onStatsChange}
               />
             ))}
           </div>
@@ -356,4 +347,15 @@ function GameShareDialog({ game, onClose }: { game: CommunityGame; onClose: () =
 
 function publishedDate(value: string): string {
   return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(value));
+}
+
+let fallbackVisitorId: string | undefined;
+function communityVisitorId(): string {
+  try {
+    const saved = localStorage.getItem("ohmygame-community-visitor");
+    if (saved && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(saved)) return saved;
+    const id = crypto.randomUUID();
+    localStorage.setItem("ohmygame-community-visitor", id);
+    return id;
+  } catch { return fallbackVisitorId ??= crypto.randomUUID(); }
 }
