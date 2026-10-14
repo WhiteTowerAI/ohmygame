@@ -2,6 +2,7 @@ import { ChevronRight, FilePenLine } from "./icons.js";
 import {
   createContext,
   Fragment,
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -16,7 +17,7 @@ import type {
   TurnChanges,
 } from "../shared/contracts.js";
 import { t } from "./i18n.js";
-import { lineDiff } from "./line-diff.js";
+import { lineDiff, type DiffHunk } from "./line-diff.js";
 
 type ConflictChoice = NonNullable<CheckpointUndoRequest["conflicts"]>;
 
@@ -84,6 +85,8 @@ const CLOSED: FooterView = { open: false, files: {}, submitting: false };
 /** How many files the undo confirmation names before it only counts them. */
 const NAMED_FILES = 10;
 const LINE_SIGNS = { same: " ", added: "+", removed: "-" } as const;
+/** The most lines a file view draws; a longer diff ends with a count of the rest. */
+const MAX_SHOWN_LINES = 2_000;
 const FooterViewsContext = createContext<FooterViews | undefined>(undefined);
 
 /**
@@ -529,16 +532,23 @@ function ChangedFile({
   );
 }
 
-function FileChanges({ view }: { view: CheckpointFileView }) {
+// Kept from drawing again while the footer around it changes: a diff can have thousands of lines.
+const FileChanges = memo(function FileChanges({
+  view,
+}: {
+  view: CheckpointFileView;
+}) {
   const binary = Boolean(view.before?.binary || view.after?.binary);
   // Of a longer file only the beginning was read, so a change beyond it is not seen here.
   const truncated = Boolean(view.before?.truncated || view.after?.truncated);
   // A side that is not there compares as an empty text, so the other side shows whole.
-  const hunks = useMemo(
+  const { hunks, hidden } = useMemo(
     () =>
-      binary
-        ? []
-        : lineDiff(view.before?.content ?? "", view.after?.content ?? ""),
+      shownLines(
+        binary
+          ? []
+          : lineDiff(view.before?.content ?? "", view.after?.content ?? ""),
+      ),
     [view, binary],
   );
   if (binary)
@@ -575,11 +585,29 @@ function FileChanges({ view }: { view: CheckpointFileView }) {
               : t("checkpoints.sameLines")}
         </p>
       )}
+      {hidden ? (
+        <p className="turn-changes-note">
+          {t("checkpoints.moreLines", { count: hidden })}
+        </p>
+      ) : null}
       {truncated && hunks.length ? (
         <p className="turn-changes-note">{t("checkpoints.truncated")}</p>
       ) : null}
     </>
   );
+});
+
+/** The hunks cut to `MAX_SHOWN_LINES` lines, and how many lines were left out. */
+function shownLines(all: DiffHunk[]): { hunks: DiffHunk[]; hidden: number } {
+  const hunks: DiffHunk[] = [];
+  let room = MAX_SHOWN_LINES;
+  let hidden = 0;
+  for (const hunk of all) {
+    if (room > 0) hunks.push(hunk.slice(0, room));
+    hidden += Math.max(hunk.length - room, 0);
+    room = Math.max(room - hunk.length, 0);
+  }
+  return { hunks, hidden };
 }
 
 /**

@@ -1476,6 +1476,8 @@ const en = {
     sameLines:
       "The lines are the same. Only line endings or file permissions changed.",
     truncated: "Only the beginning of this file is shown.",
+    moreLines_one: "{{count}} more line is not shown.",
+    moreLines_other: "{{count}} more lines are not shown.",
     nonePutBack: "No files were put back.",
     putBack_one: "{{count}} file was put back.",
     putBack_other: "{{count}} files were put back.",

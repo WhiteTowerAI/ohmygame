@@ -1435,6 +1435,8 @@ const zhCN: typeof en = {
     samePart: "显示的部分没有差异。文件比显示的内容更长。",
     sameLines: "各行内容相同，只有换行符或文件权限发生了变化。",
     truncated: "只显示了这个文件的开头部分。",
+    moreLines_one: "还有 {{count}} 行未显示。",
+    moreLines_other: "还有 {{count}} 行未显示。",
     nonePutBack: "没有文件被恢复。",
     putBack_one: "已恢复 {{count}} 个文件。",
     putBack_other: "已恢复 {{count}} 个文件。",

@@ -233,6 +233,28 @@ describe("TurnChangesFooter", () => {
     );
   });
 
+  it("draws at most two thousand lines of a file and says how many more there are", async () => {
+    const after = Array.from(
+      { length: 2_500 },
+      (_, index) => `line ${index + 1}`,
+    );
+    const file = vi.fn<TurnChangesControls["file"]>(async () => ({
+      path: "src/game.js",
+      before: null,
+      after: { binary: false, content: after.join("\n") },
+    }));
+    await render(controls({ file }));
+    await click("3 files changed");
+
+    await click("src/game.js");
+    const lines = container.querySelectorAll(".turn-change-line");
+    expect(lines).toHaveLength(2_000);
+    expect(lines[1_999]?.textContent).toBe("2000+line 2000");
+    expect(texts(".turn-change .turn-changes-note")).toEqual([
+      "500 more lines are not shown.",
+    ]);
+  });
+
   it("shows no content for a binary file and an error for a file that cannot be read", async () => {
     const file = vi
       .fn<TurnChangesControls["file"]>()
