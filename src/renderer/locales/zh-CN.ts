@@ -1403,7 +1403,7 @@ const zhCN: typeof en = {
   },
   checkpoints: {
     kind: { added: "新增", modified: "修改", removed: "删除" },
-    state: { changed: "之后又改过", undone: "已恢复原样" },
+    state: { changed: "之后又被更改", undone: "已恢复原样" },
     filesChanged_one: "更改了 {{count}} 个文件",
     filesChanged_other: "更改了 {{count}} 个文件",
     undo: "撤销",
@@ -1421,13 +1421,13 @@ const zhCN: typeof en = {
     andMore: "以及另外 {{count}} 个",
     everythingListed:
       "这里列出了本回合期间项目中的全部更改，包括你自己做的更改。",
-    renewed: "期间又有文件被更改，因此没有覆盖任何文件。",
-    blockedIntro: "这些文件无法恢复，因为它们的位置上有其他文件：",
+    renewed: "在此期间又有其他文件被更改，因此没有覆盖任何文件。",
+    blockedIntro: "这些文件无法恢复，因为它们原来的位置已被其他文件占用：",
     conflictsIntro: "这些文件在本回合之后又被更改过：",
     blockedHint:
       "“撤销其余部分”会保留这些文件，以及本回合之后更改过的所有文件。",
     conflictsHint:
-      "保留它们，只恢复其他文件；或者覆盖它们，之后所做的更改会丢失。",
+      "保留它们，只恢复其他文件；或者覆盖它们，并丢失之后对它们所做的更改。",
     keep: "保留",
     overwrite: "覆盖",
     binary: "二进制文件",
@@ -1444,16 +1444,16 @@ const zhCN: typeof en = {
     kept_other: "{{count}} 个文件保持原样。",
     restoreToMessage: "恢复到这条消息之前",
     restoreConfirm:
-      "要把项目恢复到这条消息之前吗？\n\n此后的所有文件更改（包括你自己做的）以及这条消息之后的对话都会被移除。",
+      "要把项目恢复到这条消息之前吗？\n\n此后的所有文件更改（包括你自己做的）都会被撤销，这条消息和它之后的全部对话也会被移除。",
     unfinished: {
       interrupted: "恢复文件的过程被中断，项目文件可能只更改了一部分。",
       alreadyBack: "文件已经是中断之前的状态。",
       ok: "确定",
       willPutBack_one:
-        "{{count}} 个文件会恢复到中断之前的状态，此后对该文件的更改会丢失。",
+        "{{count}} 个文件会恢复到中断之前的状态，此后对文件所做的更改会丢失。",
       willPutBack_other:
-        "{{count}} 个文件会恢复到中断之前的状态，此后对这些文件的更改会丢失。",
-      kind: { added: "恢复", modified: "改回", removed: "移除" },
+        "{{count}} 个文件会恢复到中断之前的状态，此后对文件所做的更改会丢失。",
+      kind: { added: "重新出现", modified: "改回原样", removed: "删除" },
       putBack_one: "恢复 {{count}} 个文件",
       putBack_other: "恢复 {{count}} 个文件",
       notNow: "暂不处理",
