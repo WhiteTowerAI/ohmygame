@@ -97,7 +97,9 @@ describe("checkpointExtension", () => {
     const entries: Array<{ customType: string; data: unknown }> = [];
     let ended!: (event: { message: { role: string } }) => Promise<void>;
     const pi = {
-      on: (_event: string, handler: typeof ended) => {
+      // The end of a message is the one event that comes before the message is stored and before any tool runs.
+      on: (event: string, handler: typeof ended) => {
+        expect(event).toBe("message_end");
         ended = handler;
       },
       appendEntry: (customType: string, data: unknown) => {

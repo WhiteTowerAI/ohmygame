@@ -1981,6 +1981,22 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("puts the files back when a restore cannot move the conversation back", async () => {
+    const { session, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session, checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => 1 } });
+    const project = createProject();
+    const conversation = createConversation(project);
+    await manager.prompt(project, conversation, "Build").result;
+    session.navigateTree.mockResolvedValueOnce({ cancelled: true });
+    // The first call restores the checkpoint and returns a snapshot of what it replaced.
+    const restoreFiles = vi.fn(async (commit: string) => (commit === "a".repeat(40) ? "c".repeat(40) : "d".repeat(40)));
+
+    await expect(manager.restoreCheckpoint(project, conversation, "checkpoint-1", restoreFiles)).rejects.toThrow("Restore was cancelled");
+    expect(restoreFiles.mock.calls).toEqual([["a".repeat(40)], ["c".repeat(40)]]);
+    await manager.close();
+  });
+
   it("marks a turn as undone and tells the model which files went back", async () => {
     const { session, entries, userMessage } = checkpointSession();
     session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));

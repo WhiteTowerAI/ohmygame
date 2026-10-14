@@ -66,6 +66,8 @@ function hold(method: "snapshot" | "undo" | "restore", nth = 1) {
       return result;
     } as never,
   );
+  // Released at the end of a test that fails before it does so, or the turn could not close and the app not stop.
+  cleanup.push(async () => released.open());
   return { reached: reached.opened, release: released.open };
 }
 
@@ -663,6 +665,10 @@ describe("Agent checkpoints", () => {
     );
     const busy = await restore(first!.checkpointId!);
     expect(busy.statusCode, busy.body).toBe(409);
+    // Refused before anything is put back, rather than put back and taken back again when the conversation cannot move.
+    expect(busy.json()).toEqual({
+      error: "Wait for the agent to finish before restoring",
+    });
     expect(await file("notes.txt")).toBe("second");
     await idle(2);
 
