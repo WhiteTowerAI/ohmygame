@@ -11,6 +11,14 @@
   color: var(--text);
 }
 
+:root[data-appearance="light"] .onboarding {
+  --canvas: #ffffff;
+}
+
+:root[data-appearance="light"] .desktop-window-frame:has(.onboarding) {
+  --window-chrome-background: #ffffff;
+}
+
 .desktop-window-content > .onboarding {
   height: 100%;
 }

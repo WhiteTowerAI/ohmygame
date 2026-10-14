@@ -47,7 +47,7 @@
 :root[data-appearance="light"] {
   color: #202020;
   color-scheme: light;
-  --canvas: #ffffff;
+  --canvas: #f7f7f7;
   --surface: #ffffff;
   --surface-raised: #ffffff;
   --surface-hover: #f4f4f4;
@@ -172,7 +172,7 @@ body {
 }
 
 :root[data-appearance="light"] .desktop-window-frame {
-  --window-chrome-background: #ffffff;
+  --window-chrome-background: #f7f7f7;
   --window-chrome-text: #202020;
   --window-chrome-hover: rgb(0 0 0 / 7%);
 }
