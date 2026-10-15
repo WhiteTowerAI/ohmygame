@@ -834,6 +834,9 @@ describe("daemon", () => {
       "generate_3d_asset",
       "generate_video",
       "animate_3d_asset",
+      "generate_speech",
+      "generate_sound_effect",
+      "generate_music",
     ]);
   });
 
