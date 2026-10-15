@@ -95,7 +95,7 @@ export function CanvasTableNode({
             </p>
           ) : null}
           {table ? (
-            <div className="design-document-node-body is-preview nowheel">
+            <div className={`design-document-node-body is-preview${selected ? " nowheel" : ""}`}>
               <CanvasTablePreview table={table} />
             </div>
           ) : (

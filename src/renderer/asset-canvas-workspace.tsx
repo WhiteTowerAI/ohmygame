@@ -1710,7 +1710,7 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
       <div data-alignment-frame className="story-text-output">
         <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
         <CanvasTextarea
-          className="nodrag nowheel"
+          className={selected ? "nodrag nowheel" : "nodrag"}
           aria-label={t("assetCanvas.textOutput")}
           rows={5}
           value={data.text ?? ""}
