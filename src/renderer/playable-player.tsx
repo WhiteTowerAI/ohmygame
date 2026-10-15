@@ -9,7 +9,6 @@ import {
 } from "react";
 import type {
   PlayableAssetTransfer,
-  PlayableFrameMessage,
   PlayableMediaCommand,
   PlayableMediaState,
   PlayableMove,
@@ -38,6 +37,8 @@ export interface NodePlayerProps {
    */
   seenKey?: string;
   seenStorage?: Storage;
+  /** Where the player's settings are kept, in `seenStorage`, since they outlast saves too. */
+  preferencesKey?: string;
   /** Authoring preview options; omit in the Published Player. */
   preview?: PlayablePreviewOptions;
   /** Hands the preview's input to an authoring tool; requires `preview`. */
@@ -65,6 +66,7 @@ export function NodePlayer({
   storage = window.localStorage,
   seenKey = `${saveKey}:seen`,
   seenStorage = window.localStorage,
+  preferencesKey = `${saveKey}:preferences`,
   preview,
   tool,
   onPick,
@@ -99,7 +101,15 @@ export function NodePlayer({
       const message = event.data;
       if (message.instanceId !== instanceId) return;
       if (message.kind === "ohmygame:playable:save") {
-        respondToSave(iframe.current, storage, saveKey, message);
+        respondToSave(iframe.current, storage, saveKey, message.instanceId, message.requestId, message.save);
+      } else if (message.kind === "ohmygame:playable:slots") {
+        respondToSave(iframe.current, storage, slotsKey(saveKey), message.instanceId, message.requestId, message.slots);
+      } else if (message.kind === "ohmygame:playable:preferences") {
+        try {
+          seenStorage.setItem(preferencesKey, JSON.stringify(message.preferences));
+        } catch (cause) {
+          onDiagnostic(`Could not keep the player's settings: ${errorMessage(cause)}`);
+        }
       } else if (message.kind === "ohmygame:playable:seen") {
         try {
           seenStorage.setItem(seenKey, JSON.stringify(message.seen));
@@ -127,7 +137,7 @@ export function NodePlayer({
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, onMedia, saveKey, storage, seenKey, seenStorage]);
+  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, onMedia, saveKey, storage, seenKey, seenStorage, preferencesKey]);
 
   // A new session starts with no video until the frame reports one.
   useEffect(() => {
@@ -187,7 +197,9 @@ export function NodePlayer({
           definition,
           assets: transferredAssets,
           save,
-          seen: readSeen(seenStorage, seenKey),
+          slots: readStored(storage, slotsKey(saveKey)),
+          seen: readStored(seenStorage, seenKey),
+          preferences: readStored(seenStorage, preferencesKey),
           ...(preview ? { preview } : {}),
         },
         "*",
@@ -250,31 +262,38 @@ export function NodePlayer({
   );
 }
 
+/** Save slots are kept beside the save, in the same storage. */
+export function slotsKey(saveKey: string): string {
+  return `${saveKey}:slots`;
+}
+
 function respondToSave(
   iframe: HTMLIFrameElement | null,
   storage: Storage,
-  saveKey: string,
-  message: Extract<PlayableFrameMessage, { kind: "ohmygame:playable:save" }>,
+  key: string,
+  instanceId: string,
+  requestId: string,
+  value: unknown,
 ): void {
   let error: string | undefined;
   try {
-    storage.setItem(saveKey, JSON.stringify(message.save));
+    storage.setItem(key, JSON.stringify(value));
   } catch (cause) {
     error = errorMessage(cause);
   }
   iframe?.contentWindow?.postMessage(
     {
       kind: "ohmygame:playable:save-result",
-      instanceId: message.instanceId,
-      requestId: message.requestId,
+      instanceId,
+      requestId,
       error,
     },
     "*",
   );
 }
 
-/** What the player has seen; a record that cannot be read starts over. */
-function readSeen(storage: Storage, key: string): unknown {
+/** A record kept beside the save, such as what the player has seen; one that cannot be read starts over. */
+function readStored(storage: Storage, key: string): unknown {
   try {
     const stored = storage.getItem(key);
     return stored === null ? undefined : JSON.parse(stored) as unknown;

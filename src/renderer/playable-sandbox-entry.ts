@@ -8,12 +8,16 @@ import {
 } from "../shared/playable-player-protocol.js";
 import {
   NodeRuntime,
+  type PlayablePreferencesStore,
   type PlayableSave,
   type PlayableSaveStore,
   type PlayableSeenStore,
+  type PlayableSlotStore,
 } from "../shared/playable-runtime.js";
+import type { JsonObject } from "../shared/playable-nodes.js";
 import type { PlayableSeen } from "../shared/playable-story-map.js";
-import { DocumentPlayableSurfaceHost } from "../shared/playable-sandbox.js";
+import { DocumentPlayableAudio } from "../shared/playable-audio.js";
+import { DocumentPlayableSurfaceHost, loadPlayableModule } from "../shared/playable-sandbox.js";
 
 let session: SandboxSession | undefined;
 
@@ -65,17 +69,22 @@ async function startSession(
         new Blob([asset.bytes], { type: asset.contentType }),
       );
     }
-    const saveStore = new ParentSaveStore(message.instanceId, message.save);
-    const host = new DocumentPlayableSurfaceHost(document);
+    const saveStore = new ParentSaveStore(message.instanceId, message.save, message.slots);
+    const audio = message.preview?.silent ? undefined : new DocumentPlayableAudio(document);
+    const host = new DocumentPlayableSurfaceHost(document, loadPlayableModule, audio && ((root) => audio.watchNode(root)));
+    const { silent: _silent, ...preview } = message.preview ?? {};
     const runtime = new NodeRuntime({
       graph: message.definition.graph,
       compiled: message.definition.compiled,
       graphSignature: message.definition.graphSignature,
       surfaceHost: host,
       saveStore,
+      slotStore: saveStore.slots,
       seenStore: new ParentSeenStore(message.instanceId, message.seen),
+      preferencesStore: new ParentPreferencesStore(message.instanceId, message.preferences),
+      ...(audio ? { audio } : {}),
       assetUrls,
-      ...message.preview,
+      ...preview,
       onChange: () => scheduleSnapshot(message.instanceId),
       onError: (error) =>
         post({
@@ -90,6 +99,7 @@ async function startSession(
       runtime,
       host,
       saveStore,
+      ...(audio ? { audio } : {}),
       assetUrls,
       // The timeline is an authoring tool; published sessions never report media.
       ...(message.preview ? { media: reportBackdropMedia(host, message.instanceId) } : {}),
@@ -127,37 +137,55 @@ async function disposeSession(): Promise<void> {
   current.saveStore.dispose();
   current.media?.stop();
   await current.runtime.dispose();
+  current.audio?.dispose();
   current.host.destroy();
   for (const url of Object.values(current.assetUrls)) URL.revokeObjectURL(url);
 }
 
+/** Keeps the save and the slots with the host, which confirms each write. */
 class ParentSaveStore implements PlayableSaveStore {
   readonly #pending = new Map<
     string,
     { resolve: () => void; reject: (error: Error) => void }
   >();
   #nextRequest = 0;
+  readonly slots: PlayableSlotStore;
 
   constructor(
     readonly instanceId: string,
     readonly initialSave: unknown,
-  ) {}
+    initialSlots: unknown,
+  ) {
+    this.slots = {
+      load: async () => initialSlots,
+      save: (slots) => this.#request((requestId) => ({
+        kind: "ohmygame:playable:slots",
+        instanceId: this.instanceId,
+        requestId,
+        slots,
+      })),
+    };
+  }
 
   async load(): Promise<unknown> {
     return this.initialSave;
   }
 
   save(save: PlayableSave): Promise<void> {
-    const requestId = String(++this.#nextRequest);
-    const result = new Promise<void>((resolve, reject) => {
-      this.#pending.set(requestId, { resolve, reject });
-    });
-    post({
+    return this.#request((requestId) => ({
       kind: "ohmygame:playable:save",
       instanceId: this.instanceId,
       requestId,
       save,
+    }));
+  }
+
+  #request(message: (requestId: string) => PlayableFrameMessage): Promise<void> {
+    const requestId = String(++this.#nextRequest);
+    const result = new Promise<void>((resolve, reject) => {
+      this.#pending.set(requestId, { resolve, reject });
     });
+    post(message(requestId));
     return result;
   }
 
@@ -199,12 +227,28 @@ class ParentSeenStore implements PlayableSeenStore {
   }
 }
 
+class ParentPreferencesStore implements PlayablePreferencesStore {
+  constructor(
+    readonly instanceId: string,
+    readonly initialPreferences: unknown,
+  ) {}
+
+  async load(): Promise<unknown> {
+    return this.initialPreferences;
+  }
+
+  async save(preferences: JsonObject): Promise<void> {
+    post({ kind: "ohmygame:playable:preferences", instanceId: this.instanceId, preferences });
+  }
+}
+
 interface SandboxSession {
   instanceId: string;
   preview: boolean;
   runtime: NodeRuntime;
   host: DocumentPlayableSurfaceHost;
   saveStore: ParentSaveStore;
+  audio?: DocumentPlayableAudio;
   assetUrls: Record<string, string>;
   media?: BackdropMediaReport;
 }

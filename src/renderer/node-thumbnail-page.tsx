@@ -89,7 +89,8 @@ export function NodeThumbnailPage({
     setRunningHash(playable.hash);
   }
 
-  const preview: PlayablePreviewOptions = { policy: "report", startNodeId: nodeId };
+  // A capture runs unseen, so it plays no music.
+  const preview: PlayablePreviewOptions = { policy: "report", startNodeId: nodeId, silent: true };
   return <div ref={stage} className="playable-thumbnail-page">
     {playable ? <NodePlayer
       definition={playable.definition}

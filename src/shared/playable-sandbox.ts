@@ -34,13 +34,21 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
   readonly #nodeLayer: HTMLElement;
   #picking?: { stop: () => void };
   #watchingMedia?: () => void;
+  readonly #watchSurface?: (root: ShadowRoot) => () => void;
 
+  /**
+   * `watchSurface` is called with each surface as it mounts, before its code
+   * runs, and the function it returns when the surface goes; the sandbox's
+   * audio uses it to hear the surface's media.
+   */
   constructor(
     document: Document,
     loadModule: PlayableModuleLoader = loadPlayableModule,
+    watchSurface?: (root: ShadowRoot) => () => void,
   ) {
     this.#document = document;
     this.#loadModule = loadModule;
+    this.#watchSurface = watchSurface;
     assertPlayableSandboxDocument(document);
     installPlayableSandboxCsp(document);
     const scaffold = createSandboxScaffold(document);
@@ -310,6 +318,11 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
     template.innerHTML = surface.html;
     root.append(style, template.content.cloneNode(true));
     layer.append(host);
+    const unwatch = this.#watchSurface?.(root);
+    const remove = () => {
+      host.remove();
+      unwatch?.();
+    };
 
     try {
       const module = await this.#loadModule(surface.javascript);
@@ -320,10 +333,10 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
       const cleanup = await module.mount({ ...context, root });
       return {
         cleanup: cleanup as PlayableCleanup | undefined,
-        destroy: () => host.remove(),
+        destroy: remove,
       };
     } catch (cause) {
-      host.remove();
+      remove();
       throw cause;
     }
   }

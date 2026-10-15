@@ -53,6 +53,7 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - A Node may use only Assets listed in its \`assets\` array. Resolve them with \`context.assets.url(assetId)\`.
 - Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
 - A Node's background is one \`<div class="backdrop" data-media="backdrop" data-asset="ID" data-type="video|image">\` inside a \`.has-backdrop\` container. The author sets \`data-asset\` and \`data-type\` from the editor, so keep exactly one such element in the Node's HTML and never replace it; to change the background, change those two attributes. \`showBackdrop(context)\` from \`shared/style/components.js\` shows it: a video plays once with sound and stops on its last frame, an image stays still. It returns \`{ video, cleanup }\`.
+- Music that should carry on across Scenes, such as a chapter's theme, goes through \`context.audio.music(assetId)\`, not an \`<audio>\` element in a Node: it keeps playing into the next Scene, is kept with the save, and turns down while a Scene's own video plays with sound. A Node that reads a long sequence one step at a time, such as a script, keeps its place with \`context.position\`, so Continue returns there.
 - \`playScene(context, { signal })\` from the same file shows the background and emits the Signal when its video ends or the player clicks. The Blank Template uses it; change or replace it freely.
 - Use normal modules under \`shared/\` for code shared by Nodes. Imports must remain inside this workspace; project dependencies resolve from this project's own \`node_modules\`.
 - UI that appears on more than one Node, such as a top bar or a Home button, is a shared component under \`shared/components/\`. Each Node that shows it imports it, and declares and routes the Signals it emits like its own. There is no layer drawn over every Node; State carries whatever must continue across Nodes.
@@ -104,7 +105,10 @@ Each Node module exports \`mount(context)\`. The Runtime supplies:
 - \`context.assets.url(id)\`: a URL for an Asset declared by this Node.
 - \`context.state.get(key)\`, \`set(key, value)\`, \`patch(values)\`, and \`subscribe(listener)\`.
 - \`context.navigation.emit(signalId)\`, \`back()\`, and \`connected(signalId)\`, which is true when this Node declares the Signal and an edge routes it.
-- \`context.session.hasSave()\`, \`save()\`, \`continue()\`, \`restart()\`, and \`reset()\`.
+- \`context.session.hasSave()\`, \`save()\`, \`continue()\`, \`restart()\`, and \`reset()\`; save slots with \`slots()\`, \`saveSlot(id, note)\`, \`loadSlot(id)\`, and \`deleteSlot(id)\`.
+- \`context.position.get()\` and \`set(value)\`: where the player is inside this Node, as JSON the Node chooses. It is kept with the save and on the back stack; a Node entered by a Signal starts with \`null\`.
+- \`context.audio.music(assetId | null, { fade })\` and \`sound(assetId)\`: music plays on across Nodes until a Node changes it, and turns down while a Node's video or audio plays with sound.
+- \`context.preferences.get()\` and \`set(values)\`: the player's settings, kept across games. \`musicVolume\` and \`soundVolume\` (0 to 1) set the volumes; other keys are the project's.
 - \`context.story.map()\`: the story laid out from the graph in rows from the Start, with what the player has seen across every game. Nodes have \`id\`, \`label\`, \`row\`, \`column\` (from the left of its row of \`rowSize\`), \`ending\`, and \`seen\`; edges have \`from\`, \`to\`, and \`seen\`. It leaves out \`push\` side screens, navigation Signals, steps back up the story, and Nodes with \`story.hidden\`.
 - \`context.lifecycle.signal\`: aborted before cleanup when the Node exits.
 

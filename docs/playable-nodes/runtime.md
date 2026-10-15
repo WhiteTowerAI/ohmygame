@@ -9,7 +9,9 @@ The Runtime owns everything that must survive a node:
 - Project State;
 - navigation and the back stack;
 - asset resolution;
-- the save slot;
+- the save, save slots, and each Node's position;
+- music and sounds;
+- the player's preferences;
 - what the player has seen, for the Story Map;
 - node lifecycle;
 - the sandbox that hosts node code.
@@ -181,12 +183,28 @@ interface RuntimeContext {
     patch(values: JsonObject): Promise<void>;
     subscribe(listener: (state: Readonly<JsonObject>) => void): () => void;
   };
+  position: {
+    get(): JsonValue | null;
+    set(value: JsonValue | null): Promise<void>;
+  };
+  audio: {
+    music(assetId: string | null, options?: { fade?: number }): void;
+    sound(assetId: string): void;
+  };
+  preferences: {
+    get(): Readonly<JsonObject>;
+    set(values: JsonObject): Promise<void>;
+  };
   session: {
     hasSave(): boolean;
     save(): Promise<void>;
     continue(): Promise<void>;
     reset(): Promise<void>;
     restart(): Promise<void>;
+    slots(): SlotSummary[];
+    saveSlot(id: string, note?: string): Promise<void>;
+    loadSlot(id: string): Promise<void>;
+    deleteSlot(id: string): Promise<void>;
   };
   story: { map(): StoryMap };
   lifecycle: { signal: AbortSignal };
@@ -324,7 +342,7 @@ Runtime in an explicit failed state.
 
 ## Save and session
 
-One save slot:
+The save is the game the player is in, written as they play:
 
 ```json
 {
@@ -332,11 +350,19 @@ One save slot:
   "graphVersion": 1,
   "graphSignature": "…",
   "savedAt": "…",
-  "currentNodeId": "archive",
+  "currentNodeId": "chapter-2",
   "backStack": ["main-menu"],
-  "state": {}
+  "state": {},
+  "position": { "script": "9f3c…", "step": 14 },
+  "backPositions": [null],
+  "music": "rain-theme"
 }
 ```
+
+`position`, `backPositions`, and `music` are left out when there are none.
+A save written before they existed continues with no positions and no
+music, and one whose music is no longer an audio Asset of the graph
+continues without it.
 
 - The Runtime checkpoints after every successful navigation and committed
   state change; writes may be debounced. `session.save()` flushes.
@@ -353,9 +379,64 @@ One save slot:
   save. A save whose graph version or signature no longer matches is
   reported as incompatible (`save.incompatible`) rather than loaded partially.
 
+### Position
+
+`context.position` is where the player is inside the current Node, as JSON
+the Node chooses, such as the line a script is on. Setting it checkpoints the
+save, so Continue and a loaded slot mount the Node with it, and the Node picks
+up there. A Node entered by a Signal starts with `null`. A `push` keeps the
+Node's position on the back stack, and `back()` restores it. `reset()` and
+`restart()` clear every position. A position is at most 64 KiB of JSON.
+
+The graph signature changes only with `graph.json`, so a save survives an
+edit to a Node's code or files. A Node whose position can go stale, such as a
+script that changed, recognizes that and starts over.
+
+### Slots
+
+Besides the save, the player can keep games in slots. `saveSlot(id, note)`
+copies the game into a slot (1 to 40 letters, digits, `-`, or `_`), with an
+optional note of up to 200 characters such as the current line; while the
+player is away from the story through a navigation Signal, it copies where
+the story is, as the save does. `loadSlot(id)` continues that game like
+`continue()`, which also moves the save there. `slots()` lists them in ID
+order with `savedAt`, `nodeId`, and the note; a slot from another version of
+the graph is listed `incompatible` and cannot be loaded. A game keeps at most
+100 slots. Hosts keep them all together beside the save (`<saveKey>:slots`),
+and a write keeps slots this version cannot read.
+
+## Music and sound
+
+`context.audio.music(assetId)` fades to the music over `fade` seconds (1 by
+default) and keeps it playing across Nodes until a Node changes it;
+`music(null)` fades it out. Asking for the music already playing leaves it
+playing. The Asset must be declared by the Node that starts it. The music is
+kept with the save, so Continue and a loaded slot bring it back, and
+`restart()` stops it. `sound(assetId)` plays an Asset once.
+
+While a Node's own `<video>` or `<audio>` plays with sound, such as a
+cinematic Scene's background, the music turns down to a quarter and comes
+back when it stops. The sandbox listens for that on each Node's ShadowRoot,
+so it needs nothing from Node code. Node media plays at the sound volume.
+
+Where the browser will not start sound before the player touches the page,
+music starts at their first click or key. A preview built for thumbnails
+plays nothing.
+
+## Preferences
+
+`context.preferences` holds the player's settings. Like what the player has
+seen, they are kept apart from the save and outlast new games and restarts.
+`get()` returns the stored values over the defaults, `musicVolume: 0.7` and
+`soundVolume: 1`; `set(values)` changes only the given keys. The Runtime reads
+`musicVolume` and `soundVolume` (numbers from 0 to 1) for its volumes; any
+other key, such as a text speed, belongs to the project. Settings are at most
+64 KiB of JSON, and settings that cannot be read start over. Hosts keep them
+beside what the player has seen (`<saveKey>:preferences`).
+
 ## Story Map
 
-Besides the save slot, the Runtime keeps what the player has **seen**: when
+Besides the save, the Runtime keeps what the player has **seen**: when
 each node was first entered and each edge first taken. It lasts across new
 games, `reset()`, `restart()`, and graph edits, since it is kept by ID, apart
 from the save; IDs no longer in the graph are ignored. Only play adds to it,
@@ -438,7 +519,9 @@ The Runtime publishes a serializable snapshot to the host:
   "errors": [
     { "nodeId": "archive", "code": "undeclared-asset", "message": "…" }
   ],
-  "save": { "present": true, "savedAt": "…" }
+  "save": { "present": true, "savedAt": "…" },
+  "position": null,
+  "music": "rain-theme"
 }
 ```
 
@@ -525,9 +608,9 @@ These fit the model but are not in v1:
 - multiple simultaneous node regions;
 - automatic media-ended or timer transitions in the Runtime;
 - Subflows and a visual component tree;
-- multiple save slots and save management UI;
+- a save management UI in the editor, and slot thumbnails;
 - a typed state schema;
-- persistent audio and media services;
+- voice and more than one music channel;
 - network access from node code;
 - stronger per-surface JavaScript isolation.
 

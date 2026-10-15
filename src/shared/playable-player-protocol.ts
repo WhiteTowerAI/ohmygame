@@ -29,6 +29,8 @@ export interface PlayablePreviewOptions {
   policy?: NodeRuntimePolicy;
   startNodeId?: string;
   previewState?: JsonObject;
+  /** Plays no music or sounds, such as for a thumbnail capture. */
+  silent?: true;
 }
 
 /**
@@ -99,8 +101,12 @@ export type PlayableHostMessage =
       definition: NodePlayerDefinition;
       assets: Record<string, PlayableAssetTransfer>;
       save?: unknown;
+      /** Save slots, all together. */
+      slots?: unknown;
       /** What the player has seen in earlier sessions, for the Story Map. */
       seen?: unknown;
+      /** The player's settings. */
+      preferences?: unknown;
       preview?: PlayablePreviewOptions;
     }
   | {
@@ -121,10 +127,23 @@ export type PlayableFrameMessage =
       save: PlayableSave;
     }
   | {
+      /** Keep every slot, replacing the ones kept before; answered by a save-result. */
+      kind: "ohmygame:playable:slots";
+      instanceId: string;
+      requestId: string;
+      slots: Record<string, unknown>;
+    }
+  | {
       /** Keep this record; there is no reply, since losing it never stops the game. */
       kind: "ohmygame:playable:seen";
       instanceId: string;
       seen: PlayableSeen;
+    }
+  | {
+      /** Keep the player's settings; there is no reply, like the seen record. */
+      kind: "ohmygame:playable:preferences";
+      instanceId: string;
+      preferences: JsonObject;
     }
   | {
       kind: "ohmygame:playable:snapshot";
@@ -205,8 +224,12 @@ export function isPlayableFrameMessage(
     return false;
   if (value.kind === "ohmygame:playable:save")
     return typeof value.requestId === "string" && isRecord(value.save);
+  if (value.kind === "ohmygame:playable:slots")
+    return typeof value.requestId === "string" && isRecord(value.slots);
   if (value.kind === "ohmygame:playable:seen")
     return isRecord(value.seen);
+  if (value.kind === "ohmygame:playable:preferences")
+    return isRecord(value.preferences);
   if (value.kind === "ohmygame:playable:snapshot")
     return isRecord(value.snapshot);
   if (value.kind === "ohmygame:playable:picked")
