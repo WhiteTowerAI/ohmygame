@@ -63,20 +63,52 @@ export class CloudModelsClient implements Model3DGenerator {
     try { await pending; } finally { if (this.refreshPending === pending) this.refreshPending = undefined; }
   }
   async quotas(): Promise<CloudQuotaSnapshot | null> { await this.refresh(true); return this.snapshot ?? null; }
-  async cloudCatalog(): Promise<CloudCatalog> { await this.refresh(); return this.metadata; }
+  hasProvider(providerId: string): boolean { return this.metadata.providers.some((provider) => provider.id === providerId); }
+  /**
+   * Return the currently known provider state without starting or awaiting a
+   * network request. Settings pages use this snapshot so a slow cloud service
+   * cannot hold the whole provider list hostage.
+   */
+  providersSnapshot(isEnabled: (id: string) => boolean): ProviderSummary[] {
+    const available = this.availableProviderIds();
+    return this.metadata.providers.map((provider) => {
+      const cloud = this.connection(provider.id);
+      const configured = available.has(provider.id);
+      return {
+        id: provider.id,
+        name: `${provider.name} · Free`,
+        managed: "free_cloud",
+        configured,
+        cloud,
+        enabled: isEnabled(provider.id),
+        status: this.error ? "error" : configured ? "connected" : "not_configured",
+        capabilities: provider.capabilities,
+        methods: [],
+      };
+    });
+  }
   connection(provider: string): CloudConnectionState {
     const quota = this.snapshot?.quotas.find((quota) => quota.provider === provider);
     return { availability: !this.session ? "sign_in_required" : this.error || !quota ? "unavailable" : quota.availability,
       ...(this.session ? { userId: this.session.userId } : {}),
       ...(quota ? { quota } : {}), ...(this.error ? { message: this.error } : quota?.message ? { message: quota.message } : {}) };
   }
-  async providers(isEnabled: (id: string) => boolean): Promise<ProviderSummary[]> {
-    await this.refresh();
-    return this.metadata.providers.map((provider) => {
-      const cloud = this.connection(provider.id), configured = Boolean(this.snapshot?.quotas.some((quota) => quota.provider === provider.id && quota.availability !== "unavailable"));
-      return { id: provider.id, name: `${provider.name} · Free`, managed: "free_cloud", configured, cloud, enabled: isEnabled(provider.id),
-        status: this.error ? "error" : configured ? "connected" : "not_configured", capabilities: provider.capabilities, methods: [] };
-    });
+  /** Like providersSnapshot, but for the cloud model settings panel. */
+  catalogSnapshot(): CloudCatalog {
+    const available = this.availableProviderIds();
+    const verificationPending = Boolean(this.session && !this.snapshot && !this.error);
+    return {
+      // Keep providers visible while quota verification is pending. The model
+      // settings route uses this list to validate provider ids. Once the
+      // allowance is known, hide models that the account cannot use.
+      providers: this.metadata.providers,
+      models: verificationPending ? this.metadata.models : this.metadata.models.filter((model) => available.has(model.provider)),
+    };
+  }
+  private availableProviderIds(): Set<string> {
+    return new Set(this.snapshot?.quotas
+      .filter((quota) => quota.availability !== "unavailable")
+      .map((quota) => quota.provider) ?? []);
   }
   async catalog(): Promise<MediaModelCatalog<Model3DModel>> {
     await this.refresh();

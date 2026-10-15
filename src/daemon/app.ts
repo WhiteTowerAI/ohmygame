@@ -1961,8 +1961,10 @@ export function createApp(options: AppOptions = {}) {
   });
 
   const providerSummaries = async () => {
-    const piProviders = await modelAuth.providers();
-    const customProviders = await providerModelSettings.customProviderCatalog();
+    const [piProviders, customProviders] = await Promise.all([
+      modelAuth.providers(),
+      providerModelSettings.customProviderCatalog(),
+    ]);
     const customModels = new Map(customProviders.map((provider) => [provider.id, provider]));
     const customImageProviders = new Set(customProviders
       .filter((provider) => CUSTOM_IMAGE_MODEL_APIS.some((api) => api === provider.api)).map((provider) => provider.id));
@@ -2022,7 +2024,11 @@ export function createApp(options: AppOptions = {}) {
         capabilities: ["video"] as const,
       };
     })];
-    return [...providers, ...directProviders, ...await cloudModels.providers(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
+    // Cloud quota/catalog verification can take tens of seconds. Refresh it in
+    // the background and serve the last known snapshot so opening Settings does
+    // not wait on the cloud service.
+    void cloudModels.refresh();
+    return [...providers, ...directProviders, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
   registerOpenAIImageRoutes(app, openAIImages, imageConnection, options.modelDiscoveryFetch);
@@ -2234,7 +2240,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   const hasModelProvider = async (runtime: ModelRuntime, id: string) => isNative3DProvider(id) || Boolean(runtime.getProvider(id))
-    || id.startsWith("cloud-") && (await cloudModels.cloudCatalog()).providers.some((provider) => provider.id === id);
+    || id.startsWith("cloud-") && cloudModels.hasProvider(id);
   const providerModels = async (runtime: ModelRuntime, providerId: string): Promise<ProviderModelSettings> => {
     if (isNative3DProvider(providerId)) {
       const native = native3DProviders.find(([id]) => id === providerId)!;
@@ -2247,7 +2253,8 @@ export function createApp(options: AppOptions = {}) {
       catalogDocsUrl: MODEL_3D_CATALOG_DOCS[providerId] };
     }
     if (providerId.startsWith("cloud-")) {
-      const catalog = await cloudModels.cloudCatalog();
+      void cloudModels.refresh();
+      const catalog = cloudModels.catalogSnapshot();
       const provider = catalog.providers.find((provider) => provider.id === providerId);
       return { models: catalog.models.filter((model) => model.provider === providerId).map((model) => ({
         provider: providerId, providerName: provider?.name ?? providerId, id: model.id, name: model.name, reasoningLevels: [], capabilities: [model.capability],
