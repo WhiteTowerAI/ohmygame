@@ -2454,8 +2454,6 @@ const en = {
   },
   storyMenu: {
     addScene: "Add Scene",
-    noScenes: "No Scenes yet",
-    startHint: "Start from a Template, or describe your story in the chat.",
     addAScene: "Add a Scene",
     sceneActions: "Scene actions",
     copyScene: "Copy Scene",

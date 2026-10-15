@@ -110,9 +110,9 @@ Connecting can happen two ways, and both produce the same edges:
 
 ## Creating a Scene
 
-A new project has no Scenes. Its empty canvas says so and offers **Add a
-Scene**, or describing the story in the chat; the first Scene added becomes
-the Start.
+A new project opens with an empty Story canvas. Use the toolbar's **Add Scene**
+control or describe the story in the chat; the first Scene added becomes the
+Start.
 
 1. The author chooses **Add Scene** on the canvas.
 2. The **Add a Scene** window shows each Template (Blank, Main menu,

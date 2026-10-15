@@ -2377,8 +2377,6 @@ const zhCN: typeof en = {
   },
   storyMenu: {
     addScene: "添加场景",
-    noScenes: "还没有场景",
-    startHint: "从模板开始，或在聊天中描述你的故事。",
     addAScene: "添加一个场景",
     sceneActions: "场景操作",
     copyScene: "复制场景",
