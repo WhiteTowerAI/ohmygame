@@ -535,8 +535,12 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
     label: "Visual Novel",
     summary: "Dialogue lines with characters, then answers",
     brief:
-      "A Scene that plays `script.txt` in its folder: dialogue with names, narration, character pictures, background and music changes, and answers that leave through Signals; the player has Auto, Skip, and a Log. The script format is at the top of `shared/vn/player.js`, and characters with their looks (image Asset IDs) are in `shared/vn/characters.json`. The author writes the lines: never write, rewrite, or extend dialogue or narration unless asked, and keep their wording when restructuring. Declare every Asset the script or its characters use in this Node's `assets`, every Variable it reads or sets in `initialState`, and one Signal per answer or `->` exit, renaming `option-a` and `option-b` to the outcomes. Change the player's look in `shared/vn/player.css`, which every Visual Novel Scene shares.",
-    signals: [signal("option-a", "Option A"), signal("option-b", "Option B")],
+      "A Scene that plays `script.txt` in its folder: dialogue with names, narration, character pictures, background changes, music that plays on into later Scenes, and answers that leave through Signals. The player saves at every line and has Save, Load, Auto, Skip, Log, Settings, and Title. The script format is at the top of `shared/vn/player.js`, and characters with their looks (image Asset IDs) are in `shared/vn/characters.json`. The author writes the lines: never write, rewrite, or extend dialogue or narration unless asked, and keep their wording when restructuring. Declare every Asset the script or its characters use in this Node's `assets`, every Variable it reads or sets in `initialState`, and one Signal per answer or `->` exit, renaming `option-a` and `option-b` to the outcomes. Connect the `title` navigation Exit to the title screen (Main menu) when there is one; Title shows disabled until then. Change the player's look in `shared/vn/player.css`, which every Visual Novel Scene shares.",
+    signals: [
+      signal("option-a", "Option A"),
+      signal("option-b", "Option B"),
+      { id: "title", label: "Title", role: "navigation" },
+    ],
     source: visualNovelSource,
     sharedFiles: VISUAL_NOVEL_SHARED_FILES,
   },

@@ -144,7 +144,14 @@ at the top of `shared/vn/player.js`, and list characters and their looks in
 `shared/vn/characters.json`. The author writes the dialogue and narration:
 do not write, rewrite, or extend them unless asked. Declare every Asset the
 script and its characters use in the node's `assets`, every Variable in
-`initialState`, and one Signal per answer or `->` exit.
+`initialState`, and one Signal per answer or `->` exit. Connect its `title`
+navigation Exit to the title screen.
+
+**Music across Scenes.** Use `context.audio.music(assetId)` for music that
+should carry on, never an `<audio>` element in a Node; the Runtime keeps it
+playing into the next Scene and in the save, and turns it down under a
+Scene's own video sound. A Node that steps through a long sequence keeps its
+place with `context.position` so Continue returns there.
 
 ## Tools
 

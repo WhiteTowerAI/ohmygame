@@ -138,7 +138,7 @@ export const VISUAL_NOVEL_SHARED_FILES: Record<string, string> = {
   display: none;
 }
 
-/* Auto, Skip, and Log, small along the box's bottom edge. */
+/* The quick menu, small along the box's bottom edge. */
 .vn-menu {
   position: absolute;
   right: 7cqw;
@@ -166,6 +166,11 @@ export const VISUAL_NOVEL_SHARED_FILES: Record<string, string> = {
   color: var(--color-accent-ink);
 }
 
+.vn-menu button[aria-disabled="true"] {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .vn .choices {
   z-index: 1;
 }
@@ -176,23 +181,41 @@ export const VISUAL_NOVEL_SHARED_FILES: Record<string, string> = {
   cursor: default;
 }
 
-/* The lines so far in this Scene, over everything. */
-.vn-log {
+/* Save, Load, Log, and Settings open over everything. */
+.vn-panel {
   position: absolute;
   inset: 0;
   z-index: 3;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: var(--space-2);
-  padding: 4cqw 12cqw 3cqw;
+  padding: 3.2cqw 10cqw 2.6cqw;
   background: rgb(6 6 8 / 0.92);
 }
 
-.vn-log[hidden] {
+.vn-panel[hidden] {
   display: none;
 }
 
-.vn-log ol {
+.vn-panel h2 {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-eyebrow);
+  font-weight: 400;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+}
+
+.vn-panel-body {
+  display: grid;
+  min-height: 0;
+}
+
+.vn-panel .action {
+  justify-self: center;
+}
+
+.vn-log {
   overflow: auto;
   margin: 0;
   padding: 0;
@@ -214,8 +237,87 @@ export const VISUAL_NOVEL_SHARED_FILES: Record<string, string> = {
   text-align: right;
 }
 
-.vn-log .action {
+/* Slots in a grid: number, when, and the line the game was saved on. */
+.vn-slots {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr;
+  gap: var(--space-2);
+}
+
+.vn-slot {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 0.3cqw var(--space-2);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: rgb(255 255 255 / 0.03);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.vn-slot:hover:not(:disabled),
+.vn-slot:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.vn-slot:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.vn-slot b {
+  grid-row: span 2;
+  color: var(--color-accent-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-line);
+}
+
+.vn-slot small {
+  color: var(--color-muted);
+  font-size: var(--text-eyebrow);
+}
+
+.vn-slot span {
+  overflow: hidden;
+  font-size: var(--text-eyebrow);
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Settings: a slider per preference, with its value. */
+.vn-settings {
+  display: grid;
+  align-content: center;
+  gap: var(--space-3);
+  width: 60cqw;
   justify-self: center;
+}
+
+.vn-settings label {
+  display: grid;
+  grid-template-columns: 14cqw 1fr 6cqw;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-body);
+}
+
+.vn-settings input {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+.vn-settings output {
+  color: var(--color-muted);
+  text-align: right;
 }
 
 @keyframes vn-fade {
@@ -237,7 +339,7 @@ export const VISUAL_NOVEL_SHARED_FILES: Record<string, string> = {
  *   @bg <asset> [video]    change the background
  *   @show <who> [look] [left|center|right]
  *   @hide <who>
- *   @music <asset>         loop music for this Scene; @music stop ends it
+ *   @music <asset>         music that plays on into later Scenes; @music stop ends it
  *   @sfx <asset>           play a sound once
  *   @set <key> = <value>   also += and -=; <key> is a Variable
  *   who: words             a line of dialogue; <who> is a character ID or any name
@@ -250,24 +352,45 @@ export const VISUAL_NOVEL_SHARED_FILES: Record<string, string> = {
  * bare key that must be truthy, or !key. A value is a number, true, false,
  * null, or "quoted text". Each <exit> is one of the Scene's Signals.
  *
- * Variables set by the script are kept while the Scene plays and saved when
- * the Scene is left, so a Scene picked up from a save plays again from its
- * first line with the Variables it started with. Music stops when the Scene
- * ends.
+ * The game saves at every line, so Continue and a loaded slot return to the
+ * line the player was on. Variables set by the script are saved when the
+ * Scene is left; until then the Scene works them out again from its start.
+ * Music plays on into the next Scene until a script changes it, and turns
+ * down while a video with sound plays.
+ *
+ * The quick menu offers Save, Load, Auto, Skip, Log, Settings, and Title.
+ * Title leaves through the Scene's "title" Signal, a navigation Exit, and
+ * shows disabled until it is connected.
  */
 import { showBackdrop } from "../style/components.js";
 import characters from "./characters.json";
 
-/** Words on the player's controls. */
-const LABELS = { auto: "Auto", skip: "Skip", log: "Log", close: "Close" };
-/** Characters per second while a line types out. */
+/** Words the player sees on the controls. */
+const LABELS = {
+  save: "Save",
+  load: "Load",
+  auto: "Auto",
+  skip: "Skip",
+  log: "Log",
+  settings: "Settings",
+  title: "Title",
+  close: "Close",
+  empty: "Empty",
+  incompatible: "From another version",
+  music: "Music",
+  sound: "Sound",
+  textSpeed: "Text speed",
+  autoWait: "Auto wait",
+};
+/** How many slots Save and Load show. */
+const SLOT_COUNT = 12;
+/** Characters per second while a line types out, until the player changes it in Settings. */
 const TEXT_SPEED = 40;
-/** How long Auto waits after a line, plus a little per character, in milliseconds. */
-const AUTO_DELAY = 1200;
-const AUTO_DELAY_PER_CHARACTER = 45;
+/** Seconds Auto waits after a line, until the player changes it, plus a little per character. */
+const AUTO_WAIT = 1.2;
+const AUTO_WAIT_PER_CHARACTER = 0.045;
 /** How quickly Skip moves through lines, in milliseconds. */
 const SKIP_DELAY = 70;
-const MUSIC_VOLUME = 0.6;
 
 const POSITIONS = ["left", "center", "right"];
 const NAME = "[A-Za-z0-9][A-Za-z0-9._-]*";
@@ -397,7 +520,6 @@ function readValue(text, fail) {
   if (/^"(?:[^"\\\\]|\\\\.)*"$/.test(value)) return JSON.parse(value);
   fail("\\"" + value + "\\" is not a number, true, false, null, or \\"quoted text\\".");
 }
-
 /**
  * Plays a script over the Scene's background. Call it from mount() and
  * return what it returns.
@@ -408,6 +530,7 @@ function readValue(text, fail) {
  */
 export function playScript(context, script) {
   const steps = parseScript(script);
+  const version = scriptVersion(script);
   const stage = context.root.querySelector(".vn") ?? context.root.firstElementChild;
   const ui = buildInterface(stage);
   let backdrop = showBackdrop(context);
@@ -434,13 +557,13 @@ export function playScript(context, script) {
 
   const sprites = new Map();
   const log = [];
-  let music;
   let index = 0;
   let typing;
   let waiting = false;
   let leaving = false;
   let mode;
   let timer;
+  let panel;
 
   const holds = (condition) => {
     if (!condition) return true;
@@ -461,6 +584,14 @@ export function playScript(context, script) {
     if (effect.op === "=") variables[effect.key] = effect.value;
     else variables[effect.key] = (typeof current === "number" ? current : 0) + (effect.op === "+=" ? effect.value : -effect.value);
     changed.add(effect.key);
+  };
+  const preference = (key, fallback) => {
+    const value = context.preferences.get()[key];
+    return typeof value === "number" ? value : fallback;
+  };
+  /** Saves the game at a line or answers, so the player comes back to them. */
+  const remember = (step) => {
+    context.position.set({ script: version, step }).catch(() => {});
   };
 
   const leave = async (signal) => {
@@ -506,23 +637,30 @@ export function playScript(context, script) {
     }
   };
 
-  const playMusic = (asset) => {
-    music?.pause();
-    music = undefined;
-    if (!asset) return;
-    music = new Audio(context.assets.url(asset));
-    music.loop = true;
-    music.volume = MUSIC_VOLUME;
-    // Sound may only start after the player's first click.
-    music.play().catch(() => stage.addEventListener("pointerdown", () => music?.play().catch(() => {}), { once: true }));
+  const speaker = (step) => {
+    const who = step.who ? characters[step.who] : undefined;
+    return { name: step.who ? who?.name ?? step.who : "", color: who?.color ?? "" };
+  };
+
+  /** Applies a step that changes the scene rather than waiting for the player. */
+  const perform = (step, replaying) => {
+    switch (step.kind) {
+      case "bg": return setBackground(step);
+      case "show": return show(step);
+      case "hide":
+        sprites.get(step.who)?.remove();
+        sprites.delete(step.who);
+        return;
+      case "music": return context.audio.music(step.asset);
+      case "sfx": if (!replaying) context.audio.sound(step.asset); return;
+      case "set": return apply(step);
+    }
   };
 
   const say = (step) => {
-    const who = step.who ? characters[step.who] : undefined;
-    const name = step.who ? who?.name ?? step.who : "";
+    const { name, color } = speaker(step);
     ui.box.hidden = false;
     ui.name.textContent = name;
-    const color = who?.color ?? "";
     ui.box.style.setProperty("--vn-speaker", color || null);
     stage.classList.toggle("has-speaker", Boolean(step.who && sprites.has(step.who)));
     for (const [id, sprite] of sprites) sprite.classList.toggle("is-speaking", id === step.who);
@@ -537,7 +675,7 @@ export function playScript(context, script) {
       ui.text.textContent = step.text;
       ui.next.hidden = false;
       waiting = true;
-      if (mode === "auto") timer = setTimeout(advance, AUTO_DELAY + AUTO_DELAY_PER_CHARACTER * glyphs.length);
+      if (mode === "auto") timer = setTimeout(advance, (preference("autoWait", AUTO_WAIT) + AUTO_WAIT_PER_CHARACTER * glyphs.length) * 1000);
       if (mode === "skip") timer = setTimeout(advance, SKIP_DELAY);
     };
     if (mode === "skip") return finish();
@@ -548,7 +686,7 @@ export function playScript(context, script) {
         shown += 1;
         ui.text.textContent = glyphs.slice(0, shown).join("");
         if (shown >= glyphs.length) finish();
-      }, 1000 / TEXT_SPEED),
+      }, 1000 / Math.max(1, preference("textSpeed", TEXT_SPEED))),
     };
   };
 
@@ -586,30 +724,39 @@ export function playScript(context, script) {
     while (index < steps.length && !leaving) {
       const step = steps[index];
       index += 1;
-      switch (step.kind) {
-        case "bg": setBackground(step); break;
-        case "show": show(step); break;
-        case "hide":
-          sprites.get(step.who)?.remove();
-          sprites.delete(step.who);
-          break;
-        case "music": playMusic(step.asset); break;
-        case "sfx": void new Audio(context.assets.url(step.asset)).play().catch(() => {}); break;
-        case "set": apply(step); break;
-        case "say": return say(step);
-        case "choice": return ask(step);
-        case "exit":
-          if (holds(step.when)) return void leave(step.signal);
-          break;
+      if (step.kind === "say" || step.kind === "choice") {
+        remember(index - 1);
+        return step.kind === "say" ? say(step) : ask(step);
       }
+      if (step.kind === "exit") {
+        if (holds(step.when)) return void leave(step.signal);
+        continue;
+      }
+      perform(step, false);
     }
     // The end of a script with no exit: the last line stays.
     setMode(undefined);
   };
 
+  /**
+   * Picks up at the line the save was made on: the steps before it set the
+   * scene and the Variables again, without sounds or waiting.
+   */
+  const resume = () => {
+    const saved = context.position.get();
+    const step = saved?.script === version ? saved.step : undefined;
+    if (!Number.isInteger(step) || step <= 0 || step >= steps.length) return;
+    if (steps[step].kind !== "say" && steps[step].kind !== "choice") return;
+    for (; index < step; index += 1) {
+      const passed = steps[index];
+      if (passed.kind === "say") log.push({ ...speaker(passed), text: passed.text });
+      else if (passed.kind !== "exit" && passed.kind !== "choice") perform(passed, true);
+    }
+  };
+
   const advance = () => {
     clearTimeout(timer);
-    if (leaving || !ui.log.hidden || !ui.choices.hidden) return;
+    if (leaving || panel || !ui.choices.hidden) return;
     if (typing) return typing.finish();
     if (waiting) run();
   };
@@ -617,44 +764,68 @@ export function playScript(context, script) {
   const setMode = (next) => {
     mode = next;
     clearTimeout(timer);
-    ui.auto.setAttribute("aria-pressed", String(mode === "auto"));
-    ui.skip.setAttribute("aria-pressed", String(mode === "skip"));
-    if (mode && waiting) timer = setTimeout(advance, mode === "skip" ? SKIP_DELAY : AUTO_DELAY);
+    ui.buttons.auto.setAttribute("aria-pressed", String(mode === "auto"));
+    ui.buttons.skip.setAttribute("aria-pressed", String(mode === "skip"));
+    if (mode && waiting) timer = setTimeout(advance, mode === "skip" ? SKIP_DELAY : preference("autoWait", AUTO_WAIT) * 1000);
     if (mode === "skip" && typing) typing.finish();
   };
 
-  const openLog = () => {
+  const openPanel = (kind) => {
     setMode(undefined);
-    ui.logLines.replaceChildren(...log.map((entry) => {
-      const item = document.createElement("li");
-      const name = document.createElement("b");
-      name.textContent = entry.name;
-      if (entry.color) item.style.setProperty("--vn-speaker", entry.color);
-      item.append(name, entry.text);
-      return item;
-    }));
-    ui.log.hidden = false;
-    ui.logLines.scrollTop = ui.logLines.scrollHeight;
+    panel = kind;
+    ui.panel.hidden = false;
+    ui.panel.dataset.panel = kind;
+    ui.panelTitle.textContent = LABELS[kind];
+    renderPanel();
   };
-  const closeLog = () => {
-    ui.log.hidden = true;
+  const closePanel = () => {
+    panel = undefined;
+    ui.panel.hidden = true;
+  };
+  const renderPanel = () => {
+    if (panel === "log") ui.panelBody.replaceChildren(logList(log));
+    else if (panel === "settings") ui.panelBody.replaceChildren(settingsForm(context.preferences.get()));
+    else ui.panelBody.replaceChildren(slotGrid(context.session.slots(), panel));
+    if (panel === "log") ui.panelBody.firstChild.scrollTop = ui.panelBody.firstChild.scrollHeight;
+  };
+  const useSlot = async (id) => {
+    if (panel === "save") {
+      const last = log[log.length - 1];
+      const note = last ? (last.name ? last.name + ": " : "") + last.text : "";
+      await context.session.saveSlot(id, note.length > 120 ? note.slice(0, 119) + "…" : note || undefined);
+      renderPanel();
+      return;
+    }
+    closePanel();
+    await context.session.loadSlot(id);
   };
 
   const onClick = (event) => {
-    const target = event.target;
-    const button = target.closest?.("button");
-    if (button === ui.auto) return setMode(mode === "auto" ? undefined : "auto");
-    if (button === ui.skip) return setMode(mode === "skip" ? undefined : "skip");
-    if (button === ui.logButton) return openLog();
-    if (button === ui.close) return closeLog();
+    const button = event.target.closest?.("button");
+    if (button?.dataset.slot) return void useSlot(button.dataset.slot).catch(() => {});
+    if (button === ui.close) return closePanel();
+    if (panel) return;
+    const action = button?.dataset.action;
+    if (action === "auto") return setMode(mode === "auto" ? undefined : "auto");
+    if (action === "skip") return setMode(mode === "skip" ? undefined : "skip");
+    if (action === "title") return button.getAttribute("aria-disabled") === "true" ? undefined : void leave("title");
+    if (action) return openPanel(action);
     if (button && ui.choices.contains(button)) return choose(button);
-    if (!ui.log.hidden || !ui.choices.hidden) return;
+    if (!ui.choices.hidden) return;
     // A click while Auto or Skip runs hands control back to the player.
     if (mode) return setMode(undefined);
     advance();
   };
+  const onInput = (event) => {
+    const key = event.target.name;
+    if (!key) return;
+    const value = Number(event.target.value);
+    event.target.nextElementSibling.textContent = formatSetting(key, value);
+    void context.preferences.set({ [key]: value }).catch(() => {});
+  };
   const onKey = (event) => {
-    if (event.key === "Escape" && !ui.log.hidden) return closeLog();
+    if (event.key === "Escape" && panel) return closePanel();
+    if (panel) return;
     if (!ui.choices.hidden) {
       const button = ui.choices.children[Number(event.key) - 1];
       if (button) choose(button);
@@ -667,20 +838,24 @@ export function playScript(context, script) {
     }
   };
   const onWheel = (event) => {
-    if (event.deltaY < 0 && ui.log.hidden) openLog();
+    if (event.deltaY < 0 && !panel) openPanel("log");
   };
 
+  // Title is a way around the game; it shows disabled until its Exit is connected.
+  if (!context.navigation.connected("title")) ui.buttons.title.setAttribute("aria-disabled", "true");
   stage.addEventListener("click", onClick);
+  stage.addEventListener("input", onInput);
   stage.addEventListener("wheel", onWheel, { passive: true });
   window.addEventListener("keydown", onKey);
+  resume();
   run();
 
   return () => {
     clearInterval(typing?.interval);
     clearTimeout(timer);
-    music?.pause();
     backdrop.cleanup();
     stage.removeEventListener("click", onClick);
+    stage.removeEventListener("input", onInput);
     stage.removeEventListener("wheel", onWheel);
     window.removeEventListener("keydown", onKey);
   };
@@ -701,6 +876,95 @@ export function playScript(context, script) {
     context.assets.url(asset);
     return asset;
   }
+}
+
+/** A short fingerprint of the script, so a save made before it changed starts the Scene over. */
+function scriptVersion(text) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16);
+}
+
+function logList(log) {
+  const list = document.createElement("ol");
+  list.className = "vn-log";
+  list.append(...log.map((entry) => {
+    const item = document.createElement("li");
+    const name = document.createElement("b");
+    name.textContent = entry.name;
+    if (entry.color) item.style.setProperty("--vn-speaker", entry.color);
+    item.append(name, entry.text);
+    return item;
+  }));
+  return list;
+}
+
+function slotGrid(slots, mode) {
+  const grid = document.createElement("div");
+  grid.className = "vn-slots";
+  const byId = new Map(slots.map((slot) => [slot.id, slot]));
+  for (let number = 1; number <= SLOT_COUNT; number += 1) {
+    const id = String(number);
+    const slot = byId.get(id);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "vn-slot";
+    button.dataset.slot = id;
+    const title = document.createElement("b");
+    title.textContent = String(number).padStart(2, "0");
+    const when = document.createElement("small");
+    when.textContent = slot ? new Date(slot.savedAt).toLocaleString() : LABELS.empty;
+    const note = document.createElement("span");
+    note.textContent = slot?.incompatible ? LABELS.incompatible : slot?.note ?? "";
+    button.append(title, when, note);
+    // Only a slot that holds a game this version can play can be loaded.
+    if (mode === "load" && (!slot || slot.incompatible)) {
+      button.disabled = true;
+      delete button.dataset.slot;
+    }
+    grid.append(button);
+  }
+  return grid;
+}
+
+/** Settings: each slider changes one preference as it moves. */
+const SETTINGS = [
+  { key: "musicVolume", label: "music", min: 0, max: 1, step: 0.05, fallback: 0.7 },
+  { key: "soundVolume", label: "sound", min: 0, max: 1, step: 0.05, fallback: 1 },
+  { key: "textSpeed", label: "textSpeed", min: 10, max: 120, step: 5, fallback: TEXT_SPEED },
+  { key: "autoWait", label: "autoWait", min: 0.4, max: 4, step: 0.1, fallback: AUTO_WAIT },
+];
+
+function settingsForm(preferences) {
+  const form = document.createElement("div");
+  form.className = "vn-settings";
+  for (const setting of SETTINGS) {
+    const row = document.createElement("label");
+    const name = document.createElement("span");
+    name.textContent = LABELS[setting.label];
+    const input = document.createElement("input");
+    input.type = "range";
+    input.name = setting.key;
+    input.min = String(setting.min);
+    input.max = String(setting.max);
+    input.step = String(setting.step);
+    const value = typeof preferences[setting.key] === "number" ? preferences[setting.key] : setting.fallback;
+    input.value = String(value);
+    const shown = document.createElement("output");
+    shown.textContent = formatSetting(setting.key, value);
+    row.append(name, input, shown);
+    form.append(row);
+  }
+  return form;
+}
+
+function formatSetting(key, value) {
+  if (key === "musicVolume" || key === "soundVolume") return Math.round(value * 100) + "%";
+  if (key === "autoWait") return value.toFixed(1) + "s";
+  return String(value);
 }
 
 /** The player's elements, added to the Scene's stage after its background. */
@@ -727,22 +991,22 @@ function buildInterface(stage) {
   next.textContent = "▼";
   next.hidden = true;
   const menu = element("nav", "vn-menu", stage);
-  const button = (label) => {
-    const created = element("button", "", menu);
-    created.type = "button";
-    created.textContent = label;
-    return created;
-  };
-  const auto = button(LABELS.auto);
-  const skip = button(LABELS.skip);
-  const logButton = button(LABELS.log);
-  const log = element("div", "vn-log", stage);
-  log.hidden = true;
-  const logLines = element("ol", "", log);
-  const close = element("button", "action", log);
+  const buttons = {};
+  for (const action of ["save", "load", "auto", "skip", "log", "settings", "title"]) {
+    const button = element("button", "", menu);
+    button.type = "button";
+    button.dataset.action = action;
+    button.textContent = LABELS[action];
+    buttons[action] = button;
+  }
+  const panel = element("section", "vn-panel", stage);
+  panel.hidden = true;
+  const panelTitle = element("h2", "", panel);
+  const panelBody = element("div", "vn-panel-body", panel);
+  const close = element("button", "action", panel);
   close.type = "button";
   close.textContent = LABELS.close;
-  return { backdrop, sprites, choices, box, name, text, next, auto, skip, logButton, log, logLines, close };
+  return { backdrop, sprites, choices, box, name, text, next, buttons, panel, panelTitle, panelBody, close };
 }
 `,
 };

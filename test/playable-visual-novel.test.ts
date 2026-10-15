@@ -121,6 +121,8 @@ describe("playScript", () => {
     assets?: string[];
     connected?: string[];
     characters?: object;
+    position?: unknown;
+    slots?: { id: string; savedAt: string; nodeId: string; note?: string; incompatible?: true }[];
   } = {}) {
     const { playScript } = await loadPlayer(options.characters);
     const host = document.createElement("div");
@@ -132,7 +134,31 @@ describe("playScript", () => {
     const connected = new Set(options.connected ?? ["option-a", "option-b"]);
     const emitted: string[] = [];
     const patches: Record<string, unknown>[] = [];
+    const positions: unknown[] = [];
+    const audio: string[] = [];
+    const session: string[] = [];
+    const preferences: Record<string, unknown> = { musicVolume: 0.7, soundVolume: 1 };
     const context = {
+      position: {
+        get: () => options.position ?? null,
+        set: async (value: unknown) => { positions.push(value); },
+      },
+      audio: {
+        music: (id: string | null) => {
+          if (id !== null && !assets.has(id)) throw new Error(`Asset "${id}" is not declared for this Playable surface.`);
+          audio.push(`music:${id}`);
+        },
+        sound: (id: string) => { audio.push(`sound:${id}`); },
+      },
+      preferences: {
+        get: () => ({ ...preferences }),
+        set: async (values: Record<string, unknown>) => { Object.assign(preferences, values); },
+      },
+      session: {
+        slots: () => options.slots ?? [],
+        saveSlot: async (id: string, note?: string) => { session.push(`save:${id}:${note}`); },
+        loadSlot: async (id: string) => { session.push(`load:${id}`); },
+      },
       root,
       assets: {
         url: (id: string) => {
@@ -161,7 +187,8 @@ describe("playScript", () => {
     const text = () => root.querySelector(".vn-text")!.textContent;
     const name = () => root.querySelector(".vn-name")!.textContent;
     const answers = () => [...root.querySelectorAll<HTMLButtonElement>(".choices .option")];
-    return { root, stage, click, text, name, answers, emitted, patches, cleanup, state };
+    const menu = (action: string) => root.querySelector<HTMLButtonElement>(`.vn-menu [data-action="${action}"]`)!;
+    return { root, stage, click, text, name, answers, menu, emitted, patches, positions, audio, session, preferences, cleanup, state };
   }
 
   it("types a line, completes it on a click, and moves on with the next", async () => {
@@ -229,17 +256,118 @@ describe("playScript", () => {
 
   it("skips to the answers and keeps the lines in the log", async () => {
     const scene = await play("One.\nTwo.\nThree.\n? Go -> option-a", {});
-    const [, skip, log] = [...scene.root.querySelectorAll<HTMLButtonElement>(".vn-menu button")];
-    scene.click(skip!);
+    scene.click(scene.menu("skip"));
     vi.runAllTimers();
     expect(scene.answers()).toHaveLength(1);
-    expect(skip!.getAttribute("aria-pressed")).toBe("false");
-    scene.click(log!);
+    expect(scene.menu("skip").getAttribute("aria-pressed")).toBe("false");
+    scene.click(scene.menu("log"));
     expect([...scene.root.querySelectorAll(".vn-log li")].map((item) => item.textContent)).toEqual(["One.", "Two.", "Three."]);
+    // While a panel is open, a click does not move the story on.
+    scene.click();
+    expect(scene.root.querySelector(".vn-panel")!.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("saves its place at every line and answers", async () => {
+    const scene = await play("One.\n@set trust += 1\nTwo.\n? Go -> option-a", { state: { trust: 0 } });
+    vi.runAllTimers();
+    scene.click();
+    vi.runAllTimers();
+    scene.click();
+    const version = (scene.positions[0] as { script: string }).script;
+    expect(scene.positions).toEqual([{ script: version, step: 0 }, { script: version, step: 2 }, { script: version, step: 3 }]);
+  });
+
+  it("picks up at the saved line with the scene, Variables, and log as they were, without replaying sounds", async () => {
+    const script = [
+      "@bg street",
+      "@show mio smile left",
+      "@music rain",
+      "@sfx door",
+      "mio: First.",
+      "@set trust += 2",
+      "@hide mio",
+      "Second.",
+      "? [trust >= 2] Trust -> option-a",
+      "? Leave -> option-b",
+    ].join("\n");
+    const assets = ["street", "mio", "mio-smile", "rain", "door"];
+    const first = await play(script, { state: { trust: 0 }, assets });
+    const version = (first.positions[0] as { script: string }).script;
+    first.cleanup();
+    document.body.replaceChildren();
+
+    const scene = await play(script, { state: { trust: 0 }, assets, position: { script: version, step: 8 } });
+    expect(scene.answers().map((answer) => answer.textContent)).toEqual(["1Trust", "2Leave"]);
+    expect(scene.root.querySelector(".backdrop img")!.getAttribute("src")).toBe("blob:street");
+    expect(scene.root.querySelectorAll(".vn-sprite")).toHaveLength(0);
+    expect(scene.audio).toEqual(["music:rain"]);
+    scene.click(scene.menu("log"));
+    expect([...scene.root.querySelectorAll(".vn-log li")].map((item) => item.textContent)).toEqual(["MioFirst.", "Second."]);
+    scene.click(scene.root.querySelector(".vn-panel .action")!);
+    scene.click(scene.answers()[0]!);
+    await vi.runAllTimersAsync();
+    expect(scene.patches).toEqual([{ trust: 2 }]);
+  });
+
+  it("starts over when the script changed since the save", async () => {
+    const scene = await play("One.\nTwo.", { position: { script: "older", step: 1 } });
+    vi.runAllTimers();
+    expect(scene.text()).toBe("One.");
+  });
+
+  it("saves to a slot with the current line and loads a slot that holds a game", async () => {
+    const scene = await play("mio: You came alone.", {
+      assets: ["mio", "mio-smile"],
+      slots: [
+        { id: "1", savedAt: "2026-10-16T00:00:00.000Z", nodeId: "chapter", note: "Earlier" },
+        { id: "2", savedAt: "2026-10-16T00:00:00.000Z", nodeId: "chapter", incompatible: true },
+      ],
+    });
+    vi.runAllTimers();
+    scene.click(scene.menu("save"));
+    const slots = () => [...scene.root.querySelectorAll<HTMLButtonElement>(".vn-slot")];
+    expect(slots()).toHaveLength(12);
+    expect(slots()[0]!.textContent).toContain("Earlier");
+    scene.click(slots()[2]!);
+    await vi.runAllTimersAsync();
+    expect(scene.session).toEqual(["save:3:Mio: You came alone."]);
+    scene.click(scene.root.querySelector(".vn-panel .action")!);
+
+    scene.click(scene.menu("load"));
+    expect(slots().map((slot) => slot.disabled).slice(0, 3)).toEqual([false, true, true]);
+    scene.click(slots()[0]!);
+    await vi.runAllTimersAsync();
+    expect(scene.session.at(-1)).toBe("load:1");
+  });
+
+  it("changes a setting as its slider moves and types at the chosen speed", async () => {
+    const scene = await play("Hello there.");
+    scene.click(scene.menu("settings"));
+    const speed = scene.root.querySelector<HTMLInputElement>('.vn-settings input[name="textSpeed"]')!;
+    speed.value = "120";
+    speed.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(scene.preferences.textSpeed).toBe(120);
+    expect(speed.nextElementSibling!.textContent).toBe("120");
+  });
+
+  it("leaves by Title only once its Exit is connected", async () => {
+    const unconnected = await play("Hello.");
+    expect(unconnected.menu("title").getAttribute("aria-disabled")).toBe("true");
+    unconnected.click(unconnected.menu("title"));
+    expect(unconnected.emitted).toEqual([]);
+    unconnected.cleanup();
+
+    const scene = await play("@set trust += 1\nHello.", { connected: ["title"], state: { trust: 0 } });
+    scene.click(scene.menu("title"));
+    await vi.runAllTimersAsync();
+    expect(scene.emitted).toEqual(["title"]);
+    // Leaving keeps what the Scene changed, as any exit does.
+    expect(scene.patches).toEqual([{ trust: 1 }]);
   });
 
   it("stops at mount on an undeclared Asset, Variable, or character", async () => {
     await expect(play("@bg street")).rejects.toThrow('Asset "street" is not declared');
+    await expect(play("@music rain")).rejects.toThrow('Asset "rain" is not declared');
     await expect(play("@set trust += 1")).rejects.toThrow('Project State key "trust"');
     await expect(play("@show ghost")).rejects.toThrow('script.txt line 1: "ghost" is not in shared/vn/characters.json');
     await expect(play("@show mio angry", { assets: ["mio"] })).rejects.toThrow('mio has no look "angry"');
@@ -253,7 +381,7 @@ describe("Visual Novel Template", () => {
 
     const result = await addPlayableNode(workspacePath, { preset: "visual-novel", id: "chapter-1" });
     expect(result.files).toContain("nodes/chapter-1/script.txt");
-    expect(result.signals).toEqual(["option-a", "option-b"]);
+    expect(result.signals).toEqual(["option-a", "option-b", "title"]);
     for (const [relative, content] of Object.entries(VISUAL_NOVEL_SHARED_FILES)) {
       expect(await readFile(path.join(workspacePath, relative), "utf8")).toBe(content);
     }

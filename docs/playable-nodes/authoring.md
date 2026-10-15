@@ -472,7 +472,7 @@ the Visual Novel's shows its first line of dialogue.
 | Hotspot   | A picture with pulsing spots, one Signal per spot      | `door`, `window`       |
 | Ending    | Stamped ending title, closing lines, and Play again    | none                   |
 | Story map | The branches seen so far, locked ones, endings found   | none (Back)            |
-| Visual Novel | Lines from `script.txt` with names and characters, then answers | `option-a`, `option-b` |
+| Visual Novel | Lines from `script.txt` with names and characters, then answers | `option-a`, `option-b`, `title` |
 
 Starter Signals are ordinary declared Signals; the author or Agent renames
 and adds them freely. The set follows the old editor's story nodes: Open UI
@@ -512,19 +512,31 @@ and a picture (an image Asset) for each look, are listed once in
 The player is ordinary shared project source under `shared/vn/`, like the
 Project Style: the first Visual Novel Scene adds it, later ones leave the
 author's changes to it alone, and changing `player.css` restyles every
-Visual Novel Scene. It types each line out, advances on a click, Space, or
-Enter, and offers Auto, Skip, and a Log of the Scene's lines. An answer whose
-Exit is not connected shows disabled. A script mistake, or an Asset,
-Variable, or character the script uses but the project does not declare,
-stops the Scene when it opens, naming the line.
+Visual Novel Scene. It types each line out and advances on a click, Space, or
+Enter. Its quick menu has:
 
-Two limits keep it to content, with no Runtime changes:
+- **Save** and **Load**: twelve slots, each showing when it was saved and
+  the line it was saved on. Only a slot that holds a game this version can
+  play can be loaded.
+- **Auto**, **Skip**, and **Log**, the Scene's lines so far.
+- **Settings**: music and sound volume, text speed, and how long Auto waits.
+  They are the player's, kept across games.
+- **Title**: the Scene's `title` navigation Exit, usually to the Main menu.
+  It shows disabled until it is connected.
 
-- Variables the script changes are saved when the Scene is left. Continue
-  picks a saved game up at the start of its Scene, with the Variables it
-  started with, so nothing is counted twice.
-- Music belongs to the Scene and stops when it ends; the next Scene starts
-  its own.
+An answer whose Exit is not connected shows disabled. A script mistake, or an
+Asset, Variable, or character the script uses but the project does not
+declare, stops the Scene when it opens, naming the line.
+
+The game saves at every line, so Continue or a loaded slot returns to the
+line the player was on, with the background, characters, and music as they
+were. Variables the script changes are saved when the Scene is left; until
+then the Scene works them out again from its start, so nothing is counted
+twice. A save made before the script was edited starts the Scene over.
+
+Music from `@music` plays on into later Scenes until a script changes it, and
+turns down while a video with sound plays, such as a cinematic Scene's
+background, so Visual Novel and interactive film Scenes mix in one game.
 
 ### Scene thumbnails
 
