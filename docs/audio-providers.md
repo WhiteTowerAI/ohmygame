@@ -23,6 +23,14 @@ The stable tool boundary is:
 
 Unsupported operations fail before an incompatible provider is called. Adding ElevenLabs, MiniMax, Suno, Gemini, Fish Audio, or SiliconFlow should normally require a new adapter and settings integration, not changes to jobs or Library storage.
 
+## Asset Canvas audio nodes
+
+Asset Canvas exposes the common layer as three generation nodes: **Speech**, **Sound effect**, and **Music**. Each node filters the shared audio catalog by its required operation, so a speech-only model cannot be selected for music or effects. A Text or Document node can be connected as a prompt source; its current content is combined with the node's local text when the job starts.
+
+Speech nodes store provider-neutral model, speaker, and speed settings. Sound-effect and music nodes store provider-neutral prompt, duration, and loop settings, plus capability-gated options such as negative prompts, lyrics, and instrumental mode. Generated MP3 or WAV output is registered in the Library, written back to the node as an `assetId`, and playable in both generation nodes and Library asset nodes. Model and option selections are remembered independently for each node type.
+
+The sound-effect and music nodes intentionally remain visible when no compatible adapter is configured. In that state the model selector explains that no compatible audio model is available and generation stays disabled; installing a future adapter that advertises the matching operation activates the existing node without another canvas schema change.
+
 ## Volcengine Doubao Speech
 
 The first adapter uses the official TTS v3 unidirectional HTTP streaming endpoint. Configure it in **Settings → Providers & Models → Doubao Speech**. The key is stored in the local data directory with restricted file permissions and is sent only from the daemon.

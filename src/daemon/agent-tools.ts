@@ -557,7 +557,7 @@ export function createAgentTools(
   }), defineTool({
     name: "generate_canvas_media",
     label: "Generate Canvas Media",
-    description: "Generate the saved image, video, 3D or animation node using its current prompt, model and references. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
+    description: "Generate a saved image, video, speech, sound-effect, music, 3D or animation node using its current prompt, model and references. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
     parameters: Type.Object({ boardId: Type.String({ minLength: 1, maxLength: 100 }), nodeId: Type.String({ minLength: 1, maxLength: 120 }) }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
@@ -578,7 +578,7 @@ export function createAgentTools(
         if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
         const manifest = await readCanvasAssets(project.workspacePath);
         const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
-        return { content: [{ type: "text", text: `Generated media for node ${input.nodeId}. Saved: ${paths.join(", ")}. Read relevant image files to inspect the actual result.` }], details: { canvasGeneration: current } };
+        return { content: [{ type: "text", text: `Generated media for node ${input.nodeId}. Saved: ${paths.join(", ")}. Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
       } finally { signal?.removeEventListener("abort", cancel); }
     },
   })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type) && (project.type !== "general" || supportsWebPreview(project))

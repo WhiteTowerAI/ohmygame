@@ -406,7 +406,7 @@ export interface ProjectAgentActivity {
   status: Extract<AgentStatus, "running" | "cancelling">;
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "animate-3d" | "asset" | "document" | "table";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -486,6 +486,36 @@ export type AssetCanvasNode = (
     references: AssetCanvasReference[];
     referenceMode?: VideoReferenceMode;
     referenceMentions?: Record<string, AssetCanvasReference>;
+    assetId?: string;
+  } }
+  | { id: string; type: "speech"; position: AssetCanvasPosition; data: {
+    /** Script text to synthesize; also accepts a linked text/document node as promptSource. */
+    text: string;
+    promptSource?: AssetCanvasTextReference;
+    model?: ModelRef;
+    /** Speaker ID; uses the provider's configured default voice when omitted. */
+    voiceId?: string;
+    /** Speech rate in provider units (Volcengine speech_rate: -50..100, 0 = normal). */
+    speed?: number;
+    assetId?: string;
+  } }
+  | { id: string; type: "sound-effect"; position: AssetCanvasPosition; data: {
+    prompt: string;
+    promptSource?: AssetCanvasTextReference;
+    model?: ModelRef;
+    durationSeconds?: number;
+    loop?: boolean;
+    negativePrompt?: string;
+    assetId?: string;
+  } }
+  | { id: string; type: "music"; position: AssetCanvasPosition; data: {
+    prompt: string;
+    promptSource?: AssetCanvasTextReference;
+    model?: ModelRef;
+    instrumental: boolean;
+    lyrics?: string;
+    durationSeconds?: number;
+    loop?: boolean;
     assetId?: string;
   } }
   | { id: string; type: "model-3d"; position: AssetCanvasPosition; data: {

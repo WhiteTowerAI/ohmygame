@@ -26,9 +26,9 @@ afterEach(async () => {
 });
 async function temp() { const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-design-")); directories.push(directory); return directory; }
 const fakeGenerator: ImageGenerator = { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/png" }) };
-async function runtime(generator: ImageGenerator = fakeGenerator, projectType: ProjectType = "web-game", resolveInput?: ConstructorParameters<typeof ToolRunner>[5]) {
+async function runtime(generator: ImageGenerator = fakeGenerator, projectType: ProjectType = "web-game", resolveInput?: ConstructorParameters<typeof ToolRunner>[5], audioGenerator?: ConstructorParameters<typeof ToolRunner>[6]) {
   const directory = await temp(), library = new AssetLibrary(directory), projects = new ProjectManager(directory, library);
-  const tools = new ToolRunner(directory, generator, undefined, undefined, library, resolveInput);
+  const tools = new ToolRunner(directory, generator, undefined, undefined, library, resolveInput, audioGenerator);
   await Promise.all([library.load(), projects.load(), tools.load()]);
   const project = await projects.create("Sky garden", projectType), store = new CanvasStore(projects, library, tools);
   stores.push(store);
@@ -568,6 +568,75 @@ describe("Markdown design workspace", () => {
     vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "run", toolId, createdAt: "now", files: [{ name: output.name, mediaType: toolId === "generate-video" ? "video/mp4" : "model/gltf-binary", assetId: output.id }] } satisfies ToolRun);
     await store.start(project.id, boardId, node.id, toolId, {} as RunToolRequest);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded"); expect((await store.board(project.id, boardId)).board.nodes.find((candidate) => candidate.id === node.id)!.data).toHaveProperty("assetId", output.id);
+  });
+  it("generates speech from the saved node and linked text, then stores its audio output", async () => {
+    const model = { provider: "volcengine-tts", id: "seed-tts-2.0" } as const;
+    const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("audio"), mediaType: "audio/mpeg" as const, model });
+    const { store, project, boardId } = await runtime(fakeGenerator, "asset-canvas", undefined, {
+      catalog: () => ({ models: [], providers: [] }),
+      generate,
+    });
+    const detail = await store.board(project.id, boardId);
+    detail.board.nodes.push(
+      { id: "script", type: "text", position: { x: 0, y: 0 }, data: { text: "欢迎来到雾港。", instruction: "" } },
+      { id: "narration", type: "speech", position: { x: 320, y: 0 }, data: {
+        text: "请留意潮汐。", promptSource: { type: "node", nodeId: "script" }, model,
+        voiceId: "zh_female_vv_uranus_bigtts", speed: 25,
+      } },
+    );
+    detail.board.editorLayout.nodes.script = { x: 0, y: 0 };
+    detail.board.editorLayout.nodes.narration = { x: 320, y: 0 };
+    await store.saveBoard(project.id, detail.board, detail.revision);
+
+    await store.generateNode(project.id, boardId, "narration");
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    expect(generate).toHaveBeenCalledWith({
+      operation: "speech",
+      text: "欢迎来到雾港。\n\n请留意潮汐。",
+      model,
+      voiceId: "zh_female_vv_uranus_bigtts",
+      speed: 25,
+    }, expect.any(AbortSignal));
+    const saved = (await store.board(project.id, boardId)).board.nodes.find((node) => node.id === "narration");
+    expect(saved?.type).toBe("speech");
+    expect(saved?.data).toHaveProperty("assetId", expect.any(String));
+  });
+  it("generates sound effects and music from their saved node settings", async () => {
+    const generate = vi.fn().mockImplementation(async (input) => ({
+      bytes: Buffer.from("audio"), mediaType: "audio/mpeg" as const, model: input.model ?? { provider: "audio-lab", id: input.operation },
+    }));
+    const { store, project, boardId } = await runtime(fakeGenerator, "asset-canvas", undefined, {
+      catalog: () => ({ models: [], providers: [] }),
+      generate,
+    });
+    const detail = await store.board(project.id, boardId);
+    detail.board.nodes.push(
+      { id: "brief", type: "text", position: { x: 0, y: 0 }, data: { text: "Rainy harbor", instruction: "" } },
+      { id: "rain", type: "sound-effect", position: { x: 320, y: 0 }, data: {
+        prompt: "close perspective", promptSource: { type: "node", nodeId: "brief" }, durationSeconds: 10, loop: true, negativePrompt: "thunder",
+      } },
+      { id: "theme", type: "music", position: { x: 320, y: 240 }, data: {
+        prompt: "warm strings", instrumental: false, lyrics: "Follow the tide", durationSeconds: 60,
+      } },
+    );
+    detail.board.editorLayout.nodes.brief = { x: 0, y: 0 };
+    detail.board.editorLayout.nodes.rain = { x: 320, y: 0 };
+    detail.board.editorLayout.nodes.theme = { x: 320, y: 240 };
+    await store.saveBoard(project.id, detail.board, detail.revision);
+
+    await store.generateNode(project.id, boardId, "rain");
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    await store.generateNode(project.id, boardId, "theme");
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    expect(generate).toHaveBeenNthCalledWith(1, {
+      operation: "sound-effect", prompt: "Rainy harbor\n\nclose perspective", durationSeconds: 10, loop: true, negativePrompt: "thunder",
+    }, expect.any(AbortSignal));
+    expect(generate).toHaveBeenNthCalledWith(2, {
+      operation: "music", prompt: "warm strings", instrumental: false, lyrics: "Follow the tide", durationSeconds: 60,
+    }, expect.any(AbortSignal));
+    const saved = (await store.board(project.id, boardId)).board.nodes;
+    expect(saved.find((node) => node.id === "rain")?.data).toHaveProperty("assetId", expect.any(String));
+    expect(saved.find((node) => node.id === "theme")?.data).toHaveProperty("assetId", expect.any(String));
   });
   it("generates animation from a connected 3D node and validates its actual media type", async () => {
     const { store, project, boardId, tools, library } = await runtime(), board = await store.board(project.id, boardId);
