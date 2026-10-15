@@ -1,8 +1,11 @@
 import { app } from "electron";
 import electronUpdater, { type UpdateInfo } from "electron-updater";
-import type { DesktopUpdateErrorCode, DesktopUpdatePhase, DesktopUpdateRetry, DesktopUpdateState } from "../shared/desktop-update.js";
+import type { DesktopUpdateErrorCode, DesktopUpdatePhase, DesktopUpdateRetry, DesktopUpdateState, DesktopUpdateStatus } from "../shared/desktop-update.js";
 
 const { autoUpdater } = electronUpdater;
+
+/** `skipped` means the updater was not in a state a scheduled check may disturb. */
+export type DesktopUpdateCheckOutcome = "checked" | "failed" | "skipped";
 
 export class DesktopUpdatePreparationError extends Error {
   constructor(readonly reason: "save" | "shutdown", message: string) {
@@ -11,10 +14,18 @@ export class DesktopUpdatePreparationError extends Error {
   }
 }
 
+/** A scheduled check must not discard a found release or interrupt a transfer. */
+function allowsScheduledCheck(status: DesktopUpdateStatus): boolean {
+  return status.type === "idle"
+    || status.type === "up-to-date"
+    || (status.type === "error" && status.phase === "check");
+}
+
 export class DesktopUpdater {
   #state: DesktopUpdateState;
   #listeners = new Set<(state: DesktopUpdateState) => void>();
   #installing = false;
+  #checking = false;
   #operation: DesktopUpdatePhase = "check";
 
   constructor(currentVersion: string, private readonly onInstall: () => Promise<void> | void) {
@@ -62,17 +73,23 @@ export class DesktopUpdater {
     return () => this.#listeners.delete(listener);
   }
 
-  async check(): Promise<void> {
+  async check(automatic = false): Promise<DesktopUpdateCheckOutcome> {
     if (!app.isPackaged) {
       this.#set({ type: "up-to-date" });
-      return;
+      return "checked";
     }
+    if (automatic && (this.#checking || !allowsScheduledCheck(this.#state.status))) return "skipped";
+    this.#checking = true;
     this.#operation = "check";
     try {
       await autoUpdater.checkForUpdates();
     } catch (error) {
       this.#setError(error, "check", "check");
+    } finally {
+      this.#checking = false;
     }
+    const status = this.#state.status;
+    return status.type === "error" && status.phase === "check" ? "failed" : "checked";
   }
 
   async download(): Promise<void> {
