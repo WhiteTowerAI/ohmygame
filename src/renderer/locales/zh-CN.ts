@@ -224,6 +224,8 @@ const zhCN: typeof en = {
       title: "连接",
       description: "选择 OhMyGame 连接这个服务商的方式。",
       oauthHint: "在浏览器中用你的账户登录",
+      oauthHintOpenAI: "使用你的 ChatGPT 订阅 · 仅支持语言模型，生成图片需要 API key",
+      oauthHintAnthropic: "使用你的 Claude 付费订阅 · 需在 Claude 中开启用量额度（usage credits），Anthropic 可能从中扣费",
       apiKeyHint: "粘贴服务商控制台里的密钥",
     },
     notice: {

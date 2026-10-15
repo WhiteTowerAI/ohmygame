@@ -700,6 +700,12 @@ function authMethodLabel(method: ModelProviderSummary["methods"][number]): strin
   return method.label;
 }
 
+function oauthHint(providerId: string): string {
+  if (providerId === "openai") return t("providers.connect.oauthHintOpenAI");
+  if (providerId === "anthropic") return t("providers.connect.oauthHintAnthropic");
+  return t("providers.connect.oauthHint");
+}
+
 function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProviderSummary; onBack: () => void; onChoose: (method: ModelAuthMethod) => void }) {
   return (
     <section className="settings-panel settings-provider-detail">
@@ -714,7 +720,7 @@ function AuthMethodChoice({ provider, onBack, onChoose }: { provider: ModelProvi
                 <span className="settings-method-icon"><Icon size={15} /></span>
                 <span className="settings-method-copy">
                   <strong>{authMethodLabel(method)}</strong>
-                  <small>{method.type === "oauth" ? t("providers.connect.oauthHint") : t("providers.connect.apiKeyHint")}</small>
+                  <small>{method.type === "oauth" ? oauthHint(provider.id) : t("providers.connect.apiKeyHint")}</small>
                 </span>
                 <ChevronRight size={14} />
               </button>

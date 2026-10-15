@@ -227,6 +227,8 @@ const en = {
       title: "Connect",
       description: "Choose how OhMyGame should connect to this provider.",
       oauthHint: "Sign in with your account in the browser",
+      oauthHintOpenAI: "Uses your ChatGPT plan · Language models only; image generation needs an API key",
+      oauthHintAnthropic: "Uses your paid Claude plan · Turn on usage credits in Claude; Anthropic may bill this use to them",
       apiKeyHint: "Paste a key from your provider dashboard",
     },
     notice: {
