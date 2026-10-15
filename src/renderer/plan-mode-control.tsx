@@ -30,7 +30,8 @@ interface PlanCommandMenuProps {
 
 export function PlanCommandMenu({ planning, onToggle, showPlan = true, showCompact = false, onCompact, selected, contextPercent }: PlanCommandMenuProps) {
   return (
-    <div className="composer-command-menu" role="listbox" aria-label={t("planMode.commands")}>
+    <div className="composer-command-menu composer-context-menu" role="listbox" aria-label={t("planMode.commands")}>
+      <div className="composer-context-menu-section" role="presentation">{t("contextMenu.section.Commands")}</div>
       {showPlan ? <button className={selected === "plan" ? "is-selected" : ""} type="button" role="option" aria-selected={selected === "plan"} onClick={onToggle}>
         <Lightbulb size={15} aria-hidden="true" />
         <span>{t("planMode.mode")}</span>

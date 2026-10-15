@@ -285,9 +285,11 @@ export function Composer({
     onFiles: addAttachments,
     onDesignReference: supportsDesign ? () => { void referenceDesign(); } : undefined,
     onTogglePlanning: () => { void togglePlanning(false); },
+    onCompact: conversationReady && !running && !stopping && !selectedSkill && !selectedPlugin ? () => { void runCompact(); } : undefined,
     onMention: selectMention,
     onChange: changePrompt,
     onSelectionChange: setMentionCursor,
+    contextPercent,
   });
 
   useEffect(() => {

@@ -1262,6 +1262,7 @@ const zhCN: typeof en = {
   contextMenu: {
     section: {
       Add: "添加",
+      Commands: "命令",
       Plugins: "插件",
       Skills: "Skills",
     },

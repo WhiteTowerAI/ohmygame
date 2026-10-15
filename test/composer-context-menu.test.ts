@@ -24,6 +24,12 @@ describe("unified composer context menu", () => {
     expect(composerContextItems({ ...options, query: mentionQuery("@unknown", 8) })).toEqual([]);
   });
 
+  it("offers plan commands and skills from a leading slash query", () => {
+    const query = mentionQuery("/", 1);
+    expect(composerContextItems({ ...options, query, showCompact: true }).map((item) => item.id)).toEqual(["plan", "compact", "skill:game-design"]);
+    expect(composerContextItems({ ...options, query: mentionQuery("/design", 7), showCompact: true }).map((item) => item.id)).toEqual(["skill:game-design"]);
+  });
+
   it("restricts $ to skills and keeps planning's skill restriction", () => {
     const query = mentionQuery("$", 1);
     expect(composerContextItems({ ...options, query }).map((item) => item.id)).toEqual(["skill:game-design"]);
