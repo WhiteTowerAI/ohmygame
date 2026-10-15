@@ -73,6 +73,7 @@ import {
   type Model3DModel,
   type Model3DAnimationAction,
 } from "../shared/contracts.js";
+import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
@@ -375,6 +376,44 @@ export async function updateMinimaxApiKey(providerId: string, apiKey: string): P
   });
 }
 
+export async function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> {
+  return request("/settings/models/providers/volcengine-tts");
+}
+
+export async function updateVolcengineTtsApiKey(apiKey: string): Promise<{ configured: boolean; defaultVoiceId?: string }> {
+  const result = await request<{ configured: boolean; defaultVoiceId?: string }>("/settings/models/providers/volcengine-tts", {
+    method: "PUT",
+    body: JSON.stringify({ apiKey }),
+  });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function saveVolcengineTtsDefaultVoiceId(defaultVoiceId: string | null): Promise<{ configured: boolean; defaultVoiceId?: string }> {
+  return request<{ configured: boolean; defaultVoiceId?: string }>("/settings/models/providers/volcengine-tts", {
+    method: "PUT",
+    body: JSON.stringify(defaultVoiceId ? { defaultVoiceId } : { defaultVoiceId: null }),
+  });
+}
+
+export interface VolcengineTtsPreviewInput {
+  text: string;
+  voiceId?: string;
+  language?: string;
+  style?: string;
+  speed?: number;
+}
+
+export async function previewVolcengineTtsSpeech(input: VolcengineTtsPreviewInput): Promise<Blob> {
+  const response = await fetch(apiUrl("/settings/models/providers/volcengine-tts/preview"), {
+    method: "POST",
+    headers: { "content-type": "application/json", ...runtimeHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
 export async function startModelProviderLogin(providerId: string, method: ModelAuthMethod): Promise<string> {
   const result = await request<{ operationId: string }>(`/settings/models/providers/${encodeURIComponent(providerId)}/login`, {
     method: "POST",
@@ -428,6 +467,10 @@ export async function updateProjectMediaModelDefaults(projectId: string, default
 
 export async function listVideoModelCatalog(): Promise<MediaModelCatalog<VideoModel>> {
   return request("/video-models/catalog");
+}
+
+export async function listAudioModelCatalog(): Promise<AudioModelCatalog> {
+  return request("/audio-models/catalog");
 }
 
 export async function listModel3DCatalog(): Promise<MediaModelCatalog<Model3DModel>> {

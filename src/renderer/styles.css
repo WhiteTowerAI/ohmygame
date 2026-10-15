@@ -1608,6 +1608,17 @@ body {
   font-size: 12px;
 }
 
+.settings-loading-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-audio-preview {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .settings-provider-detail {
   display: grid;
   max-width: 760px;

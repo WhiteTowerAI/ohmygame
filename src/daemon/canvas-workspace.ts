@@ -449,7 +449,8 @@ export class CanvasStore {
       const detail = await this.board(id, boardId);
       if (expectedRevision && detail.revision !== expectedRevision) throw new CanvasError("The node settings changed before generation. Read the current board and try again.", 409);
       const node = detail.board.nodes.find((node) => node.id === nodeId);
-      if (!node || ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d" } as Record<string, string>)[toolId] !== node.type) throw new CanvasError("Generation node not found", 404);
+      const expectedNodeType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d" } as Partial<Record<ToolId, string>>)[toolId];
+      if (!node || !expectedNodeType || expectedNodeType !== node.type) throw new CanvasError("Generation node not found", 404);
       const jobs = await this.#loadJobs(id);
       if (jobs.some((job) => job.context?.boardId === boardId && job.context.nodeId === nodeId && job.status === "running")) throw new CanvasError("This node is already generating", 409);
       const resolved = await this.tools.prepare(toolId, input, id);
@@ -539,8 +540,8 @@ export class CanvasStore {
         await ensureCanvasAssets(this.#project(id), this.projects, this.library, [output.assetId!]);
         if ((await readCanvasIndex(workspace))?.boards.some((board) => board.id === boardId)) {
           const detail = await readCanvasBoard(workspace, boardId), node = detail?.board.nodes.find((node) => node.id === job.context!.nodeId);
-          const expectedType = { "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d" }[job.toolId];
-          if (detail && node?.type === expectedType) { Object.assign(node.data, { assetId: output.assetId }); await writeCanvasBoard(workspace, detail.board); }
+          const expectedType = ({ "generate-image": "image", "generate-video": "video", "image-to-3d": "model-3d", "animate-3d": "animate-3d" } as Partial<Record<ToolId, string>>)[job.toolId];
+          if (detail && node && expectedType && node.type === expectedType) { Object.assign(node.data, { assetId: output.assetId }); await writeCanvasBoard(workspace, detail.board); }
         }
         job.run = run; job.status = "succeeded"; delete job.input; await this.#saveJobs(id);
       });

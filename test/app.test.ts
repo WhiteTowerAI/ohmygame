@@ -1562,6 +1562,92 @@ describe("daemon", () => {
     expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/openrouter/seedance-key" })).statusCode).toBe(404);
   });
 
+  it("stores the Doubao Speech key and default voice without exposing them", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-tts-settings-")) });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
+      models: [],
+      providers: [expect.objectContaining({ provider: "volcengine-tts", configured: false, state: "not_configured" })],
+    });
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { defaultVoiceId: "zh_female_vv_uranus_bigtts" },
+    })).statusCode).toBe(400);
+
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { apiKey: "doubao-key" },
+    })).json()).toEqual({ configured: true });
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { defaultVoiceId: "zh_female_vv_uranus_bigtts" },
+    })).json()).toEqual({ configured: true, defaultVoiceId: "zh_female_vv_uranus_bigtts" });
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
+      .toEqual({ configured: true, defaultVoiceId: "zh_female_vv_uranus_bigtts" });
+
+    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
+    expect(providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "volcengine-tts", configured: true, capabilities: ["audio"] }),
+    ]));
+    expect(JSON.stringify(providers)).not.toContain("doubao-key");
+
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
+      models: [expect.objectContaining({ provider: "volcengine-tts", id: "seed-tts-2.0" })],
+      providers: [expect.objectContaining({ provider: "volcengine-tts", state: "ready" })],
+    });
+
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { defaultVoiceId: null },
+    })).json()).toEqual({ configured: true });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/volcengine-tts" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
+      models: [],
+      providers: [expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" })],
+    });
+  });
+
+  it("previews Doubao Speech audio through the saved connection", async () => {
+    const audioFetch = vi.fn<typeof fetch>();
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-tts-preview-")),
+      audioFetch,
+    });
+    apps.push(app);
+
+    const unconfigured = await app.inject({
+      method: "POST",
+      url: "/settings/models/providers/volcengine-tts/preview",
+      payload: { text: "hello" },
+    });
+    expect(unconfigured.statusCode).toBe(503);
+
+    await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-tts", payload: { apiKey: "doubao-key" } });
+    audioFetch.mockResolvedValue(new Response(
+      `${JSON.stringify({ code: 0, data: Buffer.from("preview audio").toString("base64") })}\n`,
+      { status: 200, headers: { "x-tt-logid": "preview-log-1" } },
+    ));
+    const preview = await app.inject({
+      method: "POST",
+      url: "/settings/models/providers/volcengine-tts/preview",
+      payload: { text: "你好，雾港", voiceId: "zh_female_vv_uranus_bigtts" },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.headers["content-type"]).toBe("audio/mpeg");
+    expect(preview.headers["x-provider-request-id"]).toBe("preview-log-1");
+    expect(preview.body).toBe("preview audio");
+    expect(audioFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("offers 3D models once Meshy is configured", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model3d-catalog-")) });
     apps.push(app);
