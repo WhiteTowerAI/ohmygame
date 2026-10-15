@@ -6,15 +6,16 @@ import { menuPlacement } from "./popover-placement.js";
 import type { ProjectAssetFilters, BrowsableAsset } from "./asset-browser.js";
 import { t } from "./i18n.js";
 
-export function LibraryCollectionFilters({ assets, filters, onChange, defaultIncludeReferences = false }: {
+export function LibraryCollectionFilters({ assets, filters, onChange, defaultIncludeReferences = false, defaultProjectId }: {
   assets: readonly LibraryAsset[];
   filters: LibraryAssetFilters;
   onChange: (filters: LibraryAssetFilters) => void;
   defaultIncludeReferences?: boolean;
+  defaultProjectId?: string;
 }) {
   const projects = libraryAssetProjects(assets);
-  const active = (filters.origin ?? "saved") !== "saved" || Boolean(filters.projectId) || (filters.includeReferences ?? false) !== defaultIncludeReferences;
-  return <AssetFilterPopover active={active} onReset={() => onChange({ includeReferences: defaultIncludeReferences })}>
+  const active = (filters.origin ?? "saved") !== "saved" || (filters.projectId ?? "") !== (defaultProjectId ?? "") || (filters.includeReferences ?? false) !== defaultIncludeReferences;
+  return <AssetFilterPopover active={active} onReset={() => onChange({ includeReferences: defaultIncludeReferences, ...(defaultProjectId ? { projectId: defaultProjectId } : {}) })}>
     <label>{t("libraryFilters.source")}<select value={filters.origin ?? "saved"} onChange={(event) => onChange({ ...filters, origin: event.target.value as LibraryAssetFilters["origin"] })}>
       <option value="saved">{t("libraryFilters.saved")}</option>
       <option value="generated">{t("libraryFilters.generated")}</option>
