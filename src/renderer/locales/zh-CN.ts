@@ -2352,6 +2352,15 @@ const zhCN: typeof en = {
     wouldContinue: "将在 {{title}} 继续",
     wouldOpen: "将打开 {{title}}",
     noScenes: "这个项目还没有场景。",
+    timeline: {
+      label: "背景视频",
+      backgroundVideo: "背景视频",
+      play: "播放视频",
+      pause: "暂停视频",
+      position: "视频位置",
+      mark: "标记",
+      markTitle: "把这一刻放进对话，说说这里应该发生什么",
+    },
   },
   assets: {
     origin: {

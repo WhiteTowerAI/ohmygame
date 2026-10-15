@@ -15731,6 +15731,76 @@ button {
   font-size: 10px;
   white-space: nowrap;
 }
+/* The background video's timeline, above the tools. */
+.playable-video-timeline {
+  display: flex;
+  width: clamp(280px, 42vw, 520px);
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--story-editor-surface);
+  pointer-events: auto;
+}
+.playable-video-timeline-time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.playable-video-timeline-track {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  height: 22px;
+  cursor: pointer;
+  touch-action: none;
+}
+.playable-video-timeline-track::before,
+.playable-video-timeline-played {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  transform: translateY(-50%);
+  content: "";
+}
+.playable-video-timeline-track::before {
+  right: 0;
+  background: var(--border-strong);
+}
+.playable-video-timeline-played {
+  background: var(--text-muted);
+}
+.playable-video-timeline-playhead {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.playable-video-timeline-moment {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: #ff5a1f;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.playable-video-timeline-track:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
 /* Popovers over the preview, such as the Media menu. */
 .playable-preview-popover {
   position: absolute;

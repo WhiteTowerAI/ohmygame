@@ -308,7 +308,7 @@ const promptSchema = {
           additionalProperties: false,
           required: ["kind", "label", "text"],
           properties: {
-            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset", "design-document", "canvas-board"] },
+            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset", "playable-moment", "design-document", "canvas-board"] },
             label: { type: "string", minLength: 1, maxLength: 200 },
             text: { type: "string", minLength: 1, maxLength: 16_000 },
           },

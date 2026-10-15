@@ -23,11 +23,11 @@ import {
   type PlayableNode,
 } from "../shared/playable-nodes.js";
 import { playableNodeById } from "../shared/playable-graph.js";
-import type { NodePlayerDefinition, PlayableMove, PlayablePreviewOptions, PlayableTextEdit } from "../shared/playable-player-protocol.js";
+import type { NodePlayerDefinition, PlayableMediaCommand, PlayableMediaState, PlayableMove, PlayablePreviewOptions, PlayableTextEdit } from "../shared/playable-player-protocol.js";
 import type { PlayablePickResult } from "../shared/playable-picker.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import type { PromptContext } from "../shared/contracts.js";
-import { playableElementContext, playableMoveRequest, playableTextEditRequest } from "../shared/playable-chat-context.js";
+import { playableElementContext, playableMoveRequest, playableTextEditRequest, type PlayableMoment } from "../shared/playable-chat-context.js";
 import {
   playableAssetType,
   playableRuntimeKey,
@@ -42,12 +42,17 @@ import { playablePickKey, usePlayableChatReport, type PlayableChatState, type Pl
 import { isTextEntry } from "./editor-canvas.js";
 import { t } from "./i18n.js";
 import { PlaytestControls, type PlaytestAction, type PlaytestStart } from "./playable-playtest.js";
+import { VideoTimeline, type TimelineMedia } from "./playable-video-timeline.js";
 
 const ASSET_UPLOAD_ACCEPT = ".png,.jpg,.jpeg,.webp,.mp4,.mov,.webm";
 const TOAST_LIMIT = 3;
 const TOAST_MS = 3500;
 const TOAST_LONG_MS = 6000;
 const PICK_LIMIT = 8;
+/** How long a screenshot waits for the background video to reach a marked moment. */
+const SEEK_WAIT_MS = 1500;
+/** How close, in seconds, the video must be to a marked moment to show it. */
+const SEEK_TOLERANCE = 0.05;
 
 export interface PlayableAssetRequest extends PlayableAssetDefinition {
   name: string;
@@ -153,6 +158,10 @@ export function PlayableNodeWorkbench({
   const [picks, setPicks] = useState<PlayablePickResult[]>([]);
   const [strokes, setStrokes] = useState<PlayableStroke[]>([]);
   const [media, setMedia] = useState<PlayableMediaAttachment[]>([]);
+  const [video, setVideo] = useState<TimelineMedia>();
+  const [moment, setMoment] = useState<PlayableMoment>();
+  const mediaControl = useRef<((command: PlayableMediaCommand) => void) | null>(null);
+  const videoWaiters = useRef(new Set<(media: PlayableMediaState | undefined) => void>());
   const [storage] = useState(createMemoryStorage);
   const { toasts, show: showToast, dismiss: dismissToast } = usePreviewToasts();
   const page = useRef<HTMLElement>(null);
@@ -169,6 +178,7 @@ export function PlayableNodeWorkbench({
     setPicks([]);
     setStrokes([]);
     setMedia([]);
+    setMoment(undefined);
   }, [node.id]);
 
   // Esc puts the pointer back to playing. The preview frame reports its own Esc.
@@ -194,6 +204,34 @@ export function PlayableNodeWorkbench({
     seenReport.current = snapshot.reports.at(-1)?.at ?? seenReport.current;
   }, [graph, showToast, snapshot]);
 
+  const onMedia = useCallback((next: PlayableMediaState | undefined) => {
+    setVideo(next && { ...next, receivedAt: performance.now() });
+    for (const waiter of videoWaiters.current) waiter(next);
+  }, []);
+  const controlVideo = useCallback((command: PlayableMediaCommand) => mediaControl.current?.(command), []);
+  const markMoment = useCallback((time: number) => {
+    if (!video) return;
+    controlVideo({ action: "pause" });
+    controlVideo({ action: "seek", time });
+    setMoment({ nodeId: node.id, ...(video.assetId ? { assetId: video.assetId } : {}), time, duration: video.duration });
+  }, [controlVideo, node.id, video]);
+  /** Pauses the background video at the moment, so the screenshot shows that frame. */
+  const showMoment = useCallback((target: PlayableMoment) => new Promise<void>((resolve) => {
+    if (!mediaControl.current) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      videoWaiters.current.delete(waiter);
+      resolve();
+    };
+    const waiter = (state: PlayableMediaState | undefined) => {
+      if (state?.paused && Math.abs(state.time - target.time) <= SEEK_TOLERANCE) done();
+    };
+    const timer = setTimeout(done, SEEK_WAIT_MS);
+    videoWaiters.current.add(waiter);
+    controlVideo({ action: "pause" });
+    controlVideo({ action: "seek", time: target.time });
+  }), [controlVideo]);
+
   const removePick = useCallback((key: string) => setPicks((current) => current.filter((pick) => playablePickKey(pick) !== key)), []);
   usePlayableChatReport({
     graph,
@@ -201,11 +239,14 @@ export function PlayableNodeWorkbench({
     picks,
     strokes,
     media,
+    ...(moment ? { moment } : {}),
     onRemovePick: removePick,
     onClearPicks: () => setPicks([]),
     onClearDrawing: () => setStrokes([]),
     onRemoveMedia: (assetId) => setMedia((current) => current.filter((item) => item.assetId !== assetId)),
     onClearMedia: () => setMedia([]),
+    onClearMoment: () => setMoment(undefined),
+    onShowMoment: showMoment,
     stage: page,
     onChange: onChatContextChange,
   });
@@ -317,6 +358,12 @@ export function PlayableNodeWorkbench({
         onTool={setTool}
         onUndoStroke={() => setStrokes((current) => current.slice(0, -1))}
         onClearStrokes={() => setStrokes([])}
+        {...(video && ready ? { timeline: <VideoTimeline
+          media={video}
+          {...(moment ? { moment: moment.time } : {})}
+          onCommand={controlVideo}
+          onMark={markMoment}
+        /> } : {})}
         media={<MediaMenu
           disabled={!ready}
           uploading={chooser.uploading}
@@ -350,6 +397,8 @@ export function PlayableNodeWorkbench({
       onPickCancel={onPickCancel}
       onSnapshot={setSnapshot}
       onDiagnostic={onDiagnostic}
+      onMedia={onMedia}
+      mediaControl={mediaControl}
     /> : <div className={`playable-workbench-stage-state${runtime.error ? " is-error" : ""}`} role={runtime.error ? "alert" : undefined}>
       {runtime.error ?? t("sceneWorkbench.loadingPreview")}
     </div>}
@@ -392,7 +441,7 @@ const TOOL_HINTS: Record<Exclude<PreviewTool, "play">, string> = {
 };
 
 /** Floats over the bottom of the preview. */
-export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoStroke, onClearStrokes, media }: {
+export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoStroke, onClearStrokes, media, timeline }: {
   tool: PreviewTool;
   disabled: boolean;
   strokes: number;
@@ -402,8 +451,11 @@ export function PreviewToolbar({ tool, disabled, strokes, picks, onTool, onUndoS
   onClearStrokes: () => void;
   /** An action after the tools, such as the Media menu. */
   media?: ReactNode;
+  /** The background video's timeline, above the tools. */
+  timeline?: ReactNode;
 }) {
   return <div className="playable-preview-toolbar">
+    {timeline}
     {tool !== "play" ? <p className="playable-preview-toolbar-hint">{TOOL_HINTS[tool]}{tool === "select" && picks ? ` · ${t("sceneWorkbench.pickedCount", { count: picks })}` : ""}</p> : null}
     <div role="toolbar" aria-label={t("sceneWorkbench.tools")}>
       {TOOLS.map(({ tool: value, label, title, icon: Icon }) => <button

@@ -593,7 +593,7 @@ export interface PromptReference {
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "design-document" | "canvas-board";
+  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board";
   label: string;
   text: string;
 }
