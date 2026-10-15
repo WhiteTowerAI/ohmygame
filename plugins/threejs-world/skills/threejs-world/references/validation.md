@@ -22,6 +22,20 @@ Use `game_use` against the current project preview. Open a session, batch relate
 - `game_use` cannot drag, scroll, or move the pointer. Do not make close inspection depend on those operations: walk and turn with supported input, and reuse or adjust named close-up views when needed to expose risk positions. Independently verify the actual walking route even when a named view helps observation. Report pointer-only behavior, such as drag-to-orbit or wheel zoom, as unverified rather than claiming it works.
 - If `game_use` is unavailable, run the strongest build checks available and record in `.world/validation-report.md` that visual review is incomplete and why.
 
+## Batch-oriented observation and repair
+
+Use the soft checkpoints and batch records from [the expansion guide](world-expansion.md) while validating. Prefer one reused preview session for a ready integration batch. Combine adjacent movement, waits, and screenshots in the same round of actions so that each observation covers several relevant views or regions. First collect the issues visible in that round; do not stop to repair the first isolated problem before checking the rest of the batch.
+
+Group findings into:
+
+1. overall composition and focal hierarchy;
+2. terrain, roads, and water-system relationships;
+3. asset grounding, supports, and placement;
+4. materials and close-range detail;
+5. presentation and themed UI.
+
+Repair the broader composition and spatial relationships before local detail. After each group, recheck only the affected views, routes, entrances, contact points, and interactions. Keep independent asset failures marked as `blocked` in the existing report while other batch members continue. Once all local groups are addressed, run the full five-stage review in [Look, compare, repair](#look-compare-repair) one final time, including the narrow-viewport and presentation checks. This batching changes the observation cadence only; it never removes major-subject, road-clearance, grounding, narrow-viewport, or final full-review requirements.
+
 ## Semantic environmental fill checks
 
 Before final review, confirm the [fill pass](world-contract.md#semantic-environmental-fill) happened after terrain, roads, visible water, major assets, and key buildings were complete. Observe panorama, overhead, midrange, routes, and low angles before additions; identify each region's use, surface type, current information, and deficiencies. After additions, repeat panorama, route, midrange, low-angle, and local-contact inspection. Every major visible region, including low-density open water, farmland, plaza centers, hillsides, roads, banks, wetlands, and distant areas, must have appropriate environmental and transition information.

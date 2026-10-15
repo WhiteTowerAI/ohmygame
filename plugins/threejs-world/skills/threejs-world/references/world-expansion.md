@@ -17,6 +17,25 @@ State the user's required theme, places, functions, style, and exclusions. Disti
 
 List the major regions, main routes, and hero subjects first. Identify which regions each route connects and where each hero belongs. This inventory is the coverage checklist for the expansion; an overall atmosphere paragraph is not enough.
 
+### Asset batch planning record
+
+Keep a lightweight asset-planning table in the existing `.world/expanded-prompt.md` design record alongside the key visible features table. It is the working inventory for batch production, not a second world specification, database, or separate persistence protocol. Add one row for each major generated subject and update it as work advances:
+
+| Field | What to record |
+| --- | --- |
+| Subject name | The building, bridge, vehicle, tree subject, landmark, or other major generated object. |
+| Region | The world region served by the subject. |
+| Subject category | Building, transportation, natural landmark, core vegetation, or another significant category. |
+| Required generation | Whether the subject is a required major generated subject in the design. |
+| Reference image path | The actual reference image used for generation or review. |
+| Terrain dependency | Whether final terrain or a bearing surface is needed before placement can be resolved. |
+| Road/water dependency | Whether placement depends on roads, riverbanks, bridges, shorelines, or another spatial relationship. |
+| Can run in parallel | Whether it can be submitted with the other subjects in the current batch. |
+| Integration location | The final project resource path and scene-code location. |
+| Current status | `planned`, `submitted`, `generating`, `ready`, `integrated`, `validated`, or `blocked`. |
+
+Use the dependency and parallel fields to form batches. A blocked row records the reason and does not prevent independent rows from progressing. Keep this table adjustable through the design and spatial-foundation checkpoints; do not treat it as a frozen commitment before terrain, roads, and water relationships are observed.
+
 ## 2. Develop every major region and hero subject
 
 Organize the expansion into chapters suited to the inventory. Develop every major region and its core subjects individually; a region overview does not replace the design of its buildings, structures, or other defining subjects. Let depth follow complexity and expected viewing distance, designing open surfaces and distant regions with readable terrain, material, ecological, structural, or activity information. Resolve the dimensions below for these major items, applying support requirements where relevant; minor props do not need separate specifications:
