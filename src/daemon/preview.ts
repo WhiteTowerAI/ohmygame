@@ -68,8 +68,10 @@ export class PreviewManager {
 
   async withWorkspaceStopped<T>(project: ProjectState, operation: () => Promise<T>): Promise<T> {
     const resume = ["ready", "starting"].includes(project.preview.status);
+    // Only stop work that exists, so a waiting or stopped preview keeps its state and stop reason.
+    const active = resume || [this.#running, this.#static, this.#starting, this.#stopping, this.#operations].some((entries) => entries.has(project.id));
     this.#suspended.add(project.id);
-    try { await this.stop(project, "settings"); return await operation(); }
+    try { if (active) await this.stop(project, "settings"); return await operation(); }
     finally {
       this.#suspended.delete(project.id);
       if (resume && !this.#session(project).paused) void this.ensureStarted(project, false).catch(() => {});
