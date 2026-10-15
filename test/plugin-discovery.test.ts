@@ -71,6 +71,35 @@ describe("plugin discovery", () => {
     expect(candidate!.manifest.interface?.icon).toEqual({ type: "asset", path: "./plugins/level-tools/assets/logo.png" });
   });
 
+  it.each([
+    [".agents/plugins/marketplace.json", ".codex-plugin/plugin.json", "codex"],
+    [".claude-plugin/marketplace.json", ".claude-plugin/plugin.json", "claude"],
+  ] as const)("skips incompatible %s marketplace entries", async (marketplacePath, pluginManifestPath, format) => {
+    const root = await temporaryDirectory();
+    await writeJson(path.join(root, marketplacePath), {
+      name: "game-tools",
+      plugins: [
+        { name: "new-format", source: "./plugins/new-format" },
+        { name: "new-host", source: "./plugins/new-host" },
+        { name: "old-tools", source: "./plugins/old-tools" },
+      ],
+    });
+    await writeJson(path.join(root, "plugins", "new-format", pluginManifestPath), {
+      name: "new-format", description: "New format", formatVersion: 2,
+    });
+    await writeJson(path.join(root, "plugins", "new-host", pluginManifestPath), {
+      name: "new-host", description: "New host", minimumHostVersion: "999.0.0",
+    });
+    await writeJson(path.join(root, "plugins", "old-tools", pluginManifestPath), {
+      name: "old-tools", description: "Old tools", version: "1.0.0",
+    });
+
+    const candidates = await discoverPlugins(root);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ format, name: "old-tools" });
+  });
+
   it("rejects nested remote marketplace sources explicitly", async () => {
     const root = await temporaryDirectory();
     await writeJson(path.join(root, ".agents", "plugins", "marketplace.json"), {

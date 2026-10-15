@@ -230,6 +230,21 @@ describe("plugin portability", () => {
     ).rejects.toMatchObject({ statusCode: 409 });
   });
 
+  it("exports installed plugins after a host downgrade", async () => {
+    const env = await environment();
+    const root = path.join(env.directory, "source");
+    await packageAt(root);
+    const plugin = await env.local.install(root);
+    const indexPath = path.join(env.directory, "data", "plugins", "installed-plugins.json");
+    const records = JSON.parse(await readFile(indexPath, "utf8")) as Array<{ manifest: Record<string, unknown> }>;
+    records[0]!.manifest.minimumHostVersion = "999.0.0";
+    await writeFile(indexPath, JSON.stringify(records));
+
+    const bytes = await env.portability.export(plugin.id);
+
+    expect(bytes.length).toBeGreaterThan(0);
+  });
+
   it("normalizes imported metadata, retains marketplace identity, and masks MCP literals", async () => {
     const env = await environment();
     const root = path.join(env.directory, "source");
@@ -462,12 +477,13 @@ describe("plugin contract and dependency checks", () => {
     );
     const args = servers.local!.args as string[];
     expect(args.slice(1, 4).every((arg) => arg.includes("${config."))).toBe(true);
+    expect(args[2]).toMatch(/^--key=\$\{config\./);
     expect(args.slice(4)).toEqual(["--token-file", "./token.txt", "--verbose"]);
     expect(servers.remote!.url).toMatch(/^\$\{config\./);
     expect(Object.values(values)).toEqual(
       expect.arrayContaining([
         "plain-flag-value",
-        "--key=inline-value",
+        "inline-value",
         "sk-live-0123456789abcdefghij",
         "https://host.example/mcp/Ab3dEf6hIj9kLm2nOp5qRs8t/sse",
       ]),

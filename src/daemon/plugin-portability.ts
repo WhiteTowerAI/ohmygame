@@ -120,7 +120,7 @@ export class PluginPortability {
       );
       if (bytes.length > PLUGIN_ARCHIVE_MAX_BYTES)
         throw new LocalPluginError("Plugin archive is larger than 50 MB");
-      const preview = await this.inspect(bytes);
+      const preview = await this.#inspect(bytes, false);
       if (
         JSON.stringify(preview.plugin.skills.map((skill) => skill.id)) !==
         JSON.stringify(plugin.skills.map((skill) => skill.id))
@@ -144,15 +144,20 @@ export class PluginPortability {
   }
 
   inspect(bytes: Buffer): Promise<PluginArchivePreview> {
-    return this.#archive(bytes, (root, backup) => this.#preview(root, backup));
+    return this.#inspect(bytes, true);
+  }
+
+  #inspect(bytes: Buffer, enforceCompatibility: boolean): Promise<PluginArchivePreview> {
+    return this.#archive(bytes, (root, backup) => this.#preview(root, backup, enforceCompatibility));
   }
 
   async #preview(
     root: string,
     backup?: PluginPortableSettings,
+    enforceCompatibility = true,
   ): Promise<PluginArchivePreview> {
     const manifest = await readPluginManifest(root);
-    assertPluginCompatible(manifest);
+    if (enforceCompatibility) assertPluginCompatible(manifest);
     // Archives are user imports, even if their metadata was copied from a
     // catalog entry that was marked public.
     const marketplace = backup?.marketplace

@@ -8,6 +8,7 @@ import {
   type PluginInstallCandidate,
   type PluginManifest,
   type ResolvedPluginManifest,
+  isPluginVersion,
 } from "../shared/plugins.js";
 import { LocalPluginError } from "./local-plugins.js";
 import { parseSkillMetadata } from "./skill-metadata.js";
@@ -80,15 +81,15 @@ async function discoverMarketplace(root: string, manifestPath: string): Promise<
     const claudePath = path.join(sourceRoot, ".claude-plugin", "plugin.json");
     if (await exists(nativePath)) {
       manifest = await readOhMyGameManifest(nativePath);
-      // One plugin that needs a newer host must not hide the rest of the marketplace.
-      const issue = pluginCompatibilityIssue(manifest);
-      if (issue) {
-        incompatible ??= issue;
-        continue;
-      }
     } else if (await exists(codexPath)) manifest = await normalizeManifest(sourceRoot, await readJson(codexPath), "codex");
     else if (await exists(claudePath)) manifest = await normalizeManifest(sourceRoot, await readJson(claudePath), "claude");
     else manifest = await normalizeManifest(sourceRoot, entry, format, rawSkills.length ? rawSkills : undefined);
+    // One plugin that needs a newer host must not hide the rest of the marketplace.
+    const issue = pluginCompatibilityIssue(manifest);
+    if (issue) {
+      incompatible ??= issue;
+      continue;
+    }
     const icon = manifest.interface?.icon;
     manifest = { ...manifest, skills: rebasePaths(root, sourceRoot, manifest.skills), ...(icon?.type === "asset" ? {
       interface: { ...manifest.interface, icon: { type: "asset", path: relativePath(path.relative(root, path.resolve(sourceRoot, icon.path))) } },
@@ -112,8 +113,12 @@ async function normalizeManifest(
   const skills = declaredSkills ?? stringArray(source.skills);
   const discovered = skills.length ? skills.map(relativePath) : await conventionalSkills(root);
   const description = stringValue(ui.shortDescription) || stringValue(source.description) || `${displayName(name)} plugin`;
+  const formatVersion = source.formatVersion;
+  const minimumHostVersion = stringValue(source.minimumHostVersion);
   return {
     name,
+    ...(typeof formatVersion === "number" && Number.isInteger(formatVersion) && formatVersion >= 1 ? { formatVersion } : {}),
+    ...(isPluginVersion(minimumHostVersion) ? { minimumHostVersion } : {}),
     ...(semver(stringValue(source.version)) ? { version: stringValue(source.version)! } : {}),
     description,
     ...(discovered.length ? { skills: discovered.length === 1 ? discovered[0] : discovered } : {}),

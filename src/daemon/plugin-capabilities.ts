@@ -512,8 +512,9 @@ function protectDefinitions(
         label: parts.join(" / "),
         required: true,
       };
-      values[key] = value;
-      return `\${config.${key}}`;
+      const argumentPrefix = parts.at(-2) === "args" ? sensitiveArgumentPrefix(value) : undefined;
+      values[key] = argumentPrefix ? value.slice(argumentPrefix.length) : value;
+      return `${argumentPrefix ?? ""}\${config.${key}}`;
     }
     if (Array.isArray(value))
       return value.map((v, i) => visit(v, [...parts, String(i)], sensitive ||
@@ -551,6 +552,10 @@ function sensitiveArgument(value: string, previous: unknown): boolean {
   if (value.startsWith("-")) return false;
   return (typeof previous === "string" && /^--?[^=]+$/.test(previous) && SECRET_NAME.test(previous.replace(/^--?/, ""))) ||
     looksLikeSecret(value);
+}
+
+function sensitiveArgumentPrefix(value: string): string | undefined {
+  return /^--?[^=]+=/.exec(value)?.[0];
 }
 
 function looksLikeSecret(value: string): boolean {
