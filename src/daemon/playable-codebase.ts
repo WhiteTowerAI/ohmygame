@@ -120,42 +120,37 @@ export function createPlayableStarterCodebase(
   return blankCodebase(title, viewport);
 }
 
+/**
+ * Adds the files of a new project that the workspace does not have yet and
+ * never overwrites one it has. A workspace that already holds graph.json is
+ * an existing project, such as one removed from OhMyGame and opened again: it
+ * keeps its own graph and Scenes, even when they need repair in the editor.
+ */
 export async function createNodeCodebase(
   workspacePath: string,
   codebase: NodeCodebase,
 ): Promise<void> {
   await withCodebaseLock(workspacePath, async () => {
     await validateCodebase(workspacePath, codebase, false);
-    const sources = starterSources(codebase.graph);
-    const generatedFiles = [GRAPH_FILE, LAYOUT_FILE, ...Object.keys(sources)];
-    const collisions = await existingGeneratedFiles(workspacePath, [
-      ...generatedFiles,
-    ]);
-    if (collisions.length) {
-      throw new NodeCodebaseError(
-        `Playable project files already exist: ${collisions.join(", ")}`,
-      );
-    }
-    const touchedFiles = [
-      ...generatedFiles,
+    const existingProject = await workspaceFileExists(workspacePath, GRAPH_FILE);
+    const files: Record<string, string> = existingProject
+      ? { [LAYOUT_FILE]: jsonText(layout({})) }
+      : {
+          [GRAPH_FILE]: jsonText(codebase.graph),
+          [LAYOUT_FILE]: jsonText(codebase.editorLayout),
+          ...starterSources(codebase.graph),
+        };
+    const snapshot = await snapshotFiles(workspacePath, [
+      ...Object.keys(files),
       "AGENTS.md",
       "README.md",
       GRAPH_SCHEMA_FILE,
       LAYOUT_SCHEMA_FILE,
       PROJECT_STYLE_MIGRATION_FILE,
-    ];
-    const snapshot = await snapshotFiles(workspacePath, touchedFiles);
+    ]);
     try {
-      for (const file of generatedFiles) {
-        await mkdir(path.dirname(path.join(workspacePath, file)), { recursive: true });
-      }
-      await writeJson(path.join(workspacePath, GRAPH_FILE), codebase.graph, "wx");
-      await writeJson(path.join(workspacePath, LAYOUT_FILE), codebase.editorLayout, "wx");
-      for (const [file, content] of Object.entries(sources)) {
-        await writeFile(path.join(workspacePath, file), content, {
-          encoding: "utf8",
-          flag: "wx",
-        });
+      for (const [file, content] of Object.entries(files)) {
+        await ensureFile(await resolveWorkspaceMutationPath(workspacePath, file), content);
       }
       await ensureNodeCodebaseContract(workspacePath);
     } catch (cause) {
@@ -454,16 +449,17 @@ function jsonText(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-async function existingGeneratedFiles(
+async function workspaceFileExists(
   workspacePath: string,
-  files: string[],
-): Promise<string[]> {
-  const available = new Set(
-    (await listWorkspaceFiles(workspacePath))
-      .filter((file) => !file.directory)
-      .map((file) => file.path),
-  );
-  return files.filter((file) => available.has(file));
+  relative: string,
+): Promise<boolean> {
+  try {
+    await lstat(await resolveWorkspaceMutationPath(workspacePath, relative));
+    return true;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw cause;
+  }
 }
 
 async function ensureFile(file: string, content: string): Promise<void> {
@@ -484,17 +480,6 @@ async function writeJsonIfChanged(file: string, value: unknown): Promise<void> {
     if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
   }
   await writeFile(file, expected, "utf8");
-}
-
-async function writeJson(
-  file: string,
-  value: unknown,
-  flag?: "wx",
-): Promise<void> {
-  await writeFile(file, jsonText(value), {
-    encoding: "utf8",
-    ...(flag ? { flag } : {}),
-  });
 }
 
 async function writeTextAtomic(

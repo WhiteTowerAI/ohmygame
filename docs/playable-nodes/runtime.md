@@ -42,6 +42,11 @@ with no nodes, new or after the author deletes them all, is a valid draft:
 `entryNodeId` then names nothing, and the first node added becomes the Entry
 Node.
 
+Creating a project in an existing folder adds only the files the folder does
+not have and never overwrites one. A folder that already holds `graph.json`,
+such as the workspace of a removed project, opens as that project with its own
+graph and nodes; if they need repair, the editor reports it.
+
 ## Graph document
 
 `graph.json` contains only runtime meaning:

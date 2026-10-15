@@ -204,18 +204,48 @@ describe("Playable codebase", () => {
     expect(await readJson(workspace, "schemas/graph.schema.json")).toEqual(PLAYABLE_GRAPH_SCHEMA);
   });
 
-  it("rejects collisions without changing unrelated workspace files", async () => {
+  it("opens a workspace that already holds a project without changing its files", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(workspace, createStarterCodebaseWithScene("Story", { width: 720, height: 1280 }));
+    await writeFile(path.join(workspace, "nodes/start/node.js"), "export function mount() {}\n");
+    await writeFile(path.join(workspace, "notes.txt"), "keep me\n");
+    const before = await readNodeCodebaseDetail(workspace);
+
+    await createNodeCodebase(workspace, createPlayableStarterCodebase("Other", { width: 1280, height: 720 }));
+
+    expect(await readNodeCodebaseDetail(workspace)).toEqual(before);
+    expect(await readFile(path.join(workspace, "nodes/start/node.js"), "utf8")).toBe("export function mount() {}\n");
+    expect(await readFile(path.join(workspace, "notes.txt"), "utf8")).toBe("keep me\n");
+  });
+
+  it("keeps an existing graph that needs repair and adds only the missing files", async () => {
     const workspace = await temporaryWorkspace();
     await writeFile(path.join(workspace, "graph.json"), "existing graph\n");
-    await writeFile(path.join(workspace, "notes.txt"), "keep me\n");
+    await mkdir(path.join(workspace, "shared/style"), { recursive: true });
+    await writeFile(path.join(workspace, "shared/style/theme.css"), "/* mine */\n");
 
-    await expect(createNodeCodebase(
+    await createNodeCodebase(
       workspace,
       createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
-    )).rejects.toThrow("Playable project files already exist: graph.json");
+    );
 
     expect(await readFile(path.join(workspace, "graph.json"), "utf8")).toBe("existing graph\n");
-    expect(await readFile(path.join(workspace, "notes.txt"), "utf8")).toBe("keep me\n");
+    expect(await readFile(path.join(workspace, "shared/style/theme.css"), "utf8")).toBe("/* mine */\n");
+    expect(await readJson(workspace, "editor/layout.json")).toEqual({ version: 1, nodes: {}, viewport: { x: 0, y: 0, zoom: 1 }, view: "canvas" });
+    expect(await readJson(workspace, "schemas/graph.schema.json")).toEqual(PLAYABLE_GRAPH_SCHEMA);
+    await expect(readFile(path.join(workspace, "nodes/start/node.js"), "utf8")).rejects.toThrow();
+  });
+
+  it("starts a new graph next to files left from an earlier project", async () => {
+    const workspace = await temporaryWorkspace();
+    await mkdir(path.join(workspace, "editor"));
+    await writeFile(path.join(workspace, "editor/layout.json"), `${JSON.stringify({ version: 1, nodes: { gone: { x: 0, y: 0 } }, viewport: { x: 0, y: 0, zoom: 1 }, view: "canvas" })}\n`);
+
+    await createNodeCodebase(workspace, createPlayableStarterCodebase("Story", { width: 1280, height: 720 }));
+
+    const codebase = await readNodeCodebase(workspace);
+    expect(codebase.graph).toMatchObject({ title: "Story", nodes: [] });
+    expect(codebase.editorLayout.nodes).toEqual({});
   });
 
   it("rejects malformed graph files, missing sources, and mismatched layout IDs", async () => {

@@ -2047,22 +2047,28 @@ describe("Playable Nodes projects", () => {
     expect(invalid.json()).toMatchObject({ ok: false, issues: expect.arrayContaining([expect.objectContaining({ phase: "graph", code: "missing-node", path: "/entryNodeId" })]) });
   });
 
-  it("rolls back project creation without changing a conflicting external workspace", async () => {
+  it("opens an Interactive Story workspace again after its project was deleted", async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-codebase-workspace-"));
-    await writeFile(path.join(workspacePath, "graph.json"), "user graph\n");
     await writeFile(path.join(workspacePath, "notes.txt"), "keep me\n");
-    const app = await createPlayableApp("ohmygame-codebase-collision-");
+    const app = await createPlayableApp("ohmygame-codebase-reopen-");
+    const first = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-story", workspacePath },
+    })).json();
+    const graph = await readFile(path.join(workspacePath, "graph.json"), "utf8");
+    expect((await app.inject({ method: "DELETE", url: `/projects/${first.id}` })).statusCode).toBe(204);
 
     const response = await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { type: "interactive-story", workspacePath },
+      payload: { name: "Story", type: "interactive-story", workspacePath },
     });
 
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "Playable project files already exist: graph.json" });
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
-    expect(await readFile(path.join(workspacePath, "graph.json"), "utf8")).toBe("user graph\n");
+    expect(response.statusCode).toBe(201);
+    const codebase = await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable/codebase` });
+    expect(codebase.statusCode).toBe(200);
+    expect(await readFile(path.join(workspacePath, "graph.json"), "utf8")).toBe(graph);
     expect(await readFile(path.join(workspacePath, "notes.txt"), "utf8")).toBe("keep me\n");
     await rm(workspacePath, { recursive: true, force: true });
   });
