@@ -325,7 +325,14 @@ function requirePreviewLayout(value: unknown): WebGamePreviewLayout {
 async function resolvePlayerTarget(projectId: string): Promise<WebGamePlayerTarget> {
   if (!daemon) throw new Error("The game service is unavailable.");
   const headers = { authorization: `Bearer ${daemon.runtime.token}` };
-  const response = await fetch(`${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST", headers });
+  const projectUrl = `${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}`;
+  const current = await fetch(projectUrl, { headers });
+  const project = await current.json() as { error?: string; message?: string };
+  if (!current.ok) throw new Error(project.message ?? project.error ?? "The project could not be loaded.");
+  const version = current.headers.get("x-workspace-version") ?? "0";
+  const response = await fetch(`${projectUrl}/preview?reuse=1`, {
+    method: "POST", headers: { ...headers, "x-workspace-version": version },
+  });
   const result = await response.json() as { url?: string; title?: string; error?: string; message?: string };
   if (!response.ok || !result.url || !result.title) throw new Error(result.message ?? result.error ?? "The game server could not start.");
   return { url: result.url, title: result.title };

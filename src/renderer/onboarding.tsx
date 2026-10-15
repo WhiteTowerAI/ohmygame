@@ -5,18 +5,33 @@ import type {
   ProviderSummary,
 } from "../shared/contracts.js";
 import type { OnboardingStatus, OnboardingStep } from "../shared/onboarding.js";
-import { preferredAgentModel } from "../shared/agent-models.js";
+import {
+  findAgentModel,
+  preferredAgentModel,
+  recommendedAgentModel,
+} from "../shared/agent-models.js";
+import { clampReasoningLevel } from "../shared/reasoning.js";
 import {
   getCustomProvider,
   listModels,
   listProviders,
   MODELS_CHANGED_EVENT,
   setProviderEnabled,
+  updateAgentDefaults,
 } from "./api.js";
-import { Check, LoaderCircle, Plus, Search, Server } from "./icons.js";
+import {
+  Check,
+  ChevronDown,
+  LoaderCircle,
+  Plus,
+  Search,
+  Server,
+} from "./icons.js";
 import { ActiveProviderAuth } from "./models-settings.js";
 import { CustomProviderForm } from "./custom-provider-dialog.js";
+import { groupModelsByProvider } from "./model-selector.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
+import { groupProviders } from "./provider-groups.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { WindowDragRegion } from "./window-drag-region.js";
 import { OnboardingDemo } from "./onboarding-demo.js";
@@ -43,7 +58,9 @@ export function Onboarding({
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
   const [loadError, setLoadError] = useState<string>();
-  const [busy, setBusy] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [savingProvider, setSavingProvider] = useState(false);
+  const busy = running || savingProvider;
   const failedAction = useRef<(() => Promise<void>) | undefined>(undefined);
   const [connection, setConnection] = useState<Connection>();
   const [adding, setAdding] = useState(false);
@@ -55,8 +72,11 @@ export function Onboarding({
     phase === "ready"
       ? preferredAgentModel(catalog.models, undefined, catalog.defaultModel)
       : undefined;
-  const languageProviders = providers.filter((provider) =>
-    provider.capabilities.includes("language"),
+  const languageProviders = providers.filter(
+    (provider) =>
+      provider.capabilities.includes("language") &&
+      // Signing in to OpenAI covers ChatGPT subscriptions; keep the legacy entry only once saved.
+      (provider.id !== "openai-codex" || chatConnected(provider)),
   );
   useEffect(() => {
     if (!adding) heading.current?.focus({ preventScroll: true });
@@ -93,8 +113,8 @@ export function Onboarding({
   }, [step, generation, refresh]);
 
   async function run(action: () => Promise<void>) {
-    if (busy) return;
-    setBusy(true);
+    if (running) return;
+    setRunning(true);
     setError(undefined);
     try {
       await action();
@@ -103,7 +123,7 @@ export function Onboarding({
       failedAction.current = action;
       setError(errorMessage(cause));
     } finally {
-      setBusy(false);
+      setRunning(false);
     }
   }
 
@@ -113,7 +133,10 @@ export function Onboarding({
     const current = latest.find((item) => item.id === provider.id);
     if (!current) throw new Error(t("onboarding.providerUnavailable"));
     if (chatConnected(current)) {
-      if (current.enabled === false) await setProviderEnabled(current.id, true);
+      if (current.enabled === false) {
+        await setProviderEnabled(current.id, true);
+      }
+      await selectProviderModel(current.id);
       setRefresh((value) => value + 1);
     } else if (current.custom) {
       setCustomSettings(await getCustomProvider(current.id));
@@ -123,12 +146,37 @@ export function Onboarding({
     }
   }
 
-  function completed() {
+  /** The provider connected last during setup supplies the default model. */
+  async function selectProviderModel(providerId: string) {
+    const latest = await listModels();
+    const next = recommendedAgentModel(latest.models, providerId);
+    if (next) await chooseModel(latest, next);
+  }
+
+  async function chooseModel(
+    current: AgentModelCatalog,
+    next: AgentModelCatalog["models"][number],
+  ) {
+    if (findAgentModel([next], current.defaultModel)) return;
+    await updateAgentDefaults({
+      model: next,
+      reasoningLevel: clampReasoningLevel(
+        current.defaultReasoningLevel,
+        next.reasoningLevels,
+      ),
+    });
+  }
+
+  function completed(providerId: string) {
     setConnection(undefined);
-    setError(undefined);
-    failedAction.current = undefined;
     setPhase("loading");
-    setRefresh((value) => value + 1);
+    void run(async () => {
+      try {
+        await selectProviderModel(providerId);
+      } finally {
+        setRefresh((value) => value + 1);
+      }
+    });
   }
 
   function navigate(next: OnboardingStep) {
@@ -160,10 +208,10 @@ export function Onboarding({
       <CustomProviderForm
         settings={customSettings}
         onClose={() => setAdding(false)}
-        onSavingChange={setBusy}
-        onSaved={() => {
+        onSavingChange={setSavingProvider}
+        onSaved={(saved) => {
           setAdding(false);
-          completed();
+          completed(saved.id);
         }}
       />
     </>
@@ -184,7 +232,7 @@ export function Onboarding({
           method={connection.method}
           inline
           onBack={() => setConnection(undefined)}
-          onCompleted={completed}
+          onCompleted={() => completed(connection.provider.id)}
           onFailed={(message) => {
             failedAction.current = () =>
               connect(connection.provider, connection.method);
@@ -221,12 +269,18 @@ export function Onboarding({
         />
       ) : null}
       {model ? (
-        <p className="onboarding-ready" role="status">
-          <Check size={16} />
-          {t("onboarding.readyWith", { name: model.name })}
-        </p>
-      ) : phase === "ready" &&
-        languageProviders.some(chatConnected) ? (
+        <ReadyModel
+          models={catalog.models}
+          model={model}
+          busy={busy}
+          onChange={(next) =>
+            void run(async () => {
+              await chooseModel(catalog, next);
+              setRefresh((value) => value + 1);
+            })
+          }
+        />
+      ) : phase === "ready" && languageProviders.some(chatConnected) ? (
         <p className="onboarding-lede">{t("onboarding.needsLanguageModel")}</p>
       ) : null}
     </>
@@ -304,14 +358,16 @@ export function Onboarding({
               >
                 {t("onboarding.startCreating")}
               </button>
-              <button
-                className="onboarding-text-button onboarding-skip-button"
-                type="button"
-                disabled={busy}
-                onClick={() => void run(() => onFinish("skipped"))}
-              >
-                {t("onboarding.skipAndStart")}
-              </button>
+              {model ? null : (
+                <button
+                  className="onboarding-text-button onboarding-skip-button"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void run(() => onFinish("skipped"))}
+                >
+                  {t("onboarding.skipAndStart")}
+                </button>
+              )}
             </>
           )}
         </footer>
@@ -357,6 +413,58 @@ function ProviderMark({ id }: { id: string }) {
   );
 }
 
+function ReadyModel({
+  models,
+  model,
+  busy,
+  onChange,
+}: {
+  models: AgentModelCatalog["models"];
+  model: AgentModelCatalog["models"][number];
+  busy: boolean;
+  onChange: (model: AgentModelCatalog["models"][number]) => void;
+}) {
+  const groups = groupModelsByProvider(models);
+  return (
+    <div className="onboarding-ready" role="status">
+      <Check size={16} />
+      {t("onboarding.readyWith")}{" "}
+      {models.length > 1 ? (
+        <span className="onboarding-model-select">
+          <select
+            aria-label={t("onboarding.defaultModel")}
+            value={`${model.provider}/${model.id}`}
+            disabled={busy}
+            onChange={(event) => {
+              const next = models.find(
+                (item) => `${item.provider}/${item.id}` === event.target.value,
+              );
+              if (next) onChange(next);
+            }}
+          >
+            {groups.map((group) => (
+              <optgroup label={group.providerName} key={group.provider}>
+                {group.models.map((item) => (
+                  <option
+                    value={`${item.provider}/${item.id}`}
+                    key={`${item.provider}/${item.id}`}
+                  >
+                    {item.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <ChevronDown size={12} aria-hidden="true" />
+        </span>
+      ) : (
+        <strong>{model.name}</strong>
+      )}{" "}
+      <span className="onboarding-ready-provider">· {model.providerName}</span>
+    </div>
+  );
+}
+
 function ProviderPicker({
   providers,
   busy,
@@ -369,10 +477,65 @@ function ProviderPicker({
   onAdd: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const filtering = Boolean(query.trim());
   const visible = providers.filter((provider) =>
     `${provider.name} ${provider.id}`
       .toLowerCase()
       .includes(query.trim().toLowerCase()),
+  );
+  // Setup has no free or local groups; those providers stay under More.
+  const { connected, popular, more } = groupProviders(visible, {
+    isConnected: chatConnected,
+    isFree: () => false,
+    isLocal: () => false,
+  });
+  const featured = [...connected, ...popular];
+  const collapsed = !filtering && featured.length > 0 && more.length > 0;
+  const row = (provider: ProviderSummary) => (
+    <div
+      className="onboarding-provider-row"
+      key={provider.id}
+      role="group"
+      aria-label={provider.name}
+    >
+      <span>
+        <ProviderMark id={provider.id} />
+        {provider.name}
+      </span>
+      <div>
+        {chatConnected(provider) || provider.custom ? (
+          <button
+            className="onboarding-text-button"
+            type="button"
+            disabled={
+              busy || (chatConnected(provider) && provider.enabled !== false)
+            }
+            onClick={() => onChoose(provider, "api_key")}
+          >
+            {chatConnected(provider)
+              ? provider.enabled === false
+                ? t("common.enable")
+                : t("providers.status.connected")
+              : t("onboarding.configure")}
+          </button>
+        ) : (
+          provider.methods.map((method) => (
+            <button
+              className="onboarding-text-button"
+              type="button"
+              key={method.type}
+              disabled={busy}
+              onClick={() => onChoose(provider, method.type)}
+            >
+              {method.type === "oauth"
+                ? t("common.signIn")
+                : t("providers.apiKey")}
+            </button>
+          ))
+        )}
+      </div>
+    </div>
   );
   return (
     <div className="onboarding-picker">
@@ -399,51 +562,19 @@ function ProviderPicker({
         </button>
       </div>
       <div className="onboarding-provider-list">
-        {visible.map((provider) => (
-          <div
-            className="onboarding-provider-row"
-            key={provider.id}
-            role="group"
-            aria-label={provider.name}
+        {(collapsed ? featured : visible).map(row)}
+        {collapsed ? (
+          <button
+            className="onboarding-text-button onboarding-more-providers"
+            type="button"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((open) => !open)}
           >
-            <span>
-              <ProviderMark id={provider.id} />
-              {provider.name}
-            </span>
-            <div>
-              {chatConnected(provider) || provider.custom ? (
-                <button
-                  className="onboarding-text-button"
-                  type="button"
-                  disabled={
-                    busy || (chatConnected(provider) && provider.enabled !== false)
-                  }
-                  onClick={() => onChoose(provider, "api_key")}
-                >
-                  {chatConnected(provider)
-                    ? provider.enabled === false
-                      ? t("common.enable")
-                      : t("providers.status.connected")
-                    : t("onboarding.configure")}
-                </button>
-              ) : (
-                provider.methods.map((method) => (
-                  <button
-                    className="onboarding-text-button"
-                    type="button"
-                    key={method.type}
-                    disabled={busy}
-                    onClick={() => onChoose(provider, method.type)}
-                  >
-                    {method.type === "oauth"
-                      ? t("common.signIn")
-                      : t("providers.apiKey")}
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-        ))}
+            {t("providers.group.more")} <small>({more.length})</small>
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+        ) : null}
+        {collapsed && moreOpen ? more.map(row) : null}
         {!visible.length ? (
           <p className="onboarding-lede">{t("onboarding.noProviders")}</p>
         ) : null}

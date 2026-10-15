@@ -5,6 +5,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
+import { CHECKPOINT_ENTRY, TURN_END_ENTRY } from "../src/daemon/checkpoint-extension.js";
 import { ConversationManager } from "../src/daemon/conversations.js";
 import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
@@ -1762,6 +1763,55 @@ describe("daemon", () => {
         ],
       }],
       cursor: 1,
+    });
+    finishPrompt();
+  });
+
+  it("keeps what an earlier turn changed when the conversation is loaded while the next turn runs", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-turn-end-conversation-"));
+    let finishPrompt!: () => void;
+    const session: CodingSession = {
+      messages: [],
+      prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
+      abort: async () => { finishPrompt(); },
+      dispose: () => {},
+      subscribe: () => () => {},
+    };
+    const app = createApp({ dataDirectory, createSession: async () => session });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const sessionDirectory = path.join(dataDirectory, "projects", project.id, "session");
+    await mkdir(sessionDirectory);
+    const oldTimestamp = new Date(Date.now() - 10_000).toISOString();
+    // The end of a turn is written as its run is closed, which is when a message that waited for that starts the
+    // next run: its time is not before the start of that run.
+    const endTimestamp = new Date(Date.now() + 10_000).toISOString();
+    const custom = (id: string, parentId: string | null, timestamp: string, customType: string, data: object) => JSON.stringify({ type: "custom", id, parentId, timestamp, customType, data });
+    await writeFile(path.join(sessionDirectory, "session.jsonl"), [
+      JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: new Date(0).toISOString(), cwd: project.workspacePath }),
+      custom("checkpoint-1", null, oldTimestamp, CHECKPOINT_ENTRY, { version: 1, commit: "a".repeat(40) }),
+      sessionEntry("user-1", "checkpoint-1", oldTimestamp, { role: "user", content: "Build", timestamp: 0 }),
+      sessionEntry("assistant-1", "user-1", oldTimestamp, { role: "assistant", content: [{ type: "text", text: "Built" }], stopReason: "stop", timestamp: 1 }),
+      custom("end-1", "assistant-1", endTimestamp, TURN_END_ENTRY, { version: 1, checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 2 }),
+    ].join("\n") + "\n");
+    const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/session-1/turns`, payload: { prompt: "Polish" } });
+
+    const response = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/session-1` });
+
+    expect(response.json()).toMatchObject({
+      agent: { status: "running" },
+      turns: [{
+        id: "user-1",
+        status: "completed",
+        items: [
+          { id: "user-1", type: "userMessage", text: "Build", checkpointId: "checkpoint-1", changes: { files: 2 } },
+          { id: "assistant-1:assistant:0", type: "agentMessage", text: "Built" },
+        ],
+      }, {
+        id: turn.json().turnId,
+        status: "inProgress",
+        items: [{ type: "userMessage", text: "Polish" }],
+      }],
     });
     finishPrompt();
   });

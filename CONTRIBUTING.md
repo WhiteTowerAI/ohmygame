@@ -114,6 +114,10 @@ refactor. Use the [module map](docs/README.md#where-to-change-things) to find
 related code, documents, and tests. Update public behavior documentation when
 your change affects it.
 
+Maintainers update [CHANGELOG.md](CHANGELOG.md) during release preparation.
+Ordinary contribution PRs do not need a changelog entry; explain user-visible
+changes in the PR description so they can be summarized for the next release.
+
 | Change                                    | Local verification                                                                                                                                           |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Documentation only                        | Check local links, examples, and formatting; run `git diff --check`. Application builds and tests are optional locally.                                      |
@@ -126,6 +130,7 @@ For changes that need the public checks, run:
 
 ```bash
 bun run prepare:preinstalled-plugins
+bun run changelog:check
 bun run typecheck
 bun run test
 bun run build:renderer
@@ -134,8 +139,8 @@ bun run test:node-runtime
 
 For example, run a focused suite with `bun run test -- test/preview.test.ts`.
 The [CI workflow](.github/workflows/ci.yml) runs on PRs and pushes to `dev` and
-`main`, including documentation PRs. It checks plugin preparation, types, tests,
-the renderer build, and the Node daemon/player build and startup.
+`main`, including documentation PRs. It checks the changelog, plugin preparation,
+types, tests, the renderer build, and the Node daemon/player build and startup.
 `test:node-runtime` builds the host and player before checking Node startup, so
 this sequence covers the full application build without building them twice.
 
@@ -241,8 +246,10 @@ their PR so a maintainer can complete it.
 
 - Removing a project that uses an existing workspace folder never deletes
   that folder.
-- The daemon honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` (either case)
-  and keeps local traffic off the proxy. See [network proxy](docs/runtime.md#network-proxy).
+- Network defaults to Direct. Select Automatic in **Settings → Network** to
+  honor `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` (either case), or select Manual
+  to set a proxy URL. Local traffic bypasses the proxy. See
+  [network proxy](docs/runtime.md#network-proxy).
 - The desktop app manages its own authenticated daemon; the renderer has no
   Node.js access.
 - Signing, hosted update feeds, and release credentials are maintainer tasks.

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { applyNetworkProxyEnvironment, networkBypassList, normalizeProxyUrl, proxyUrlsFromEnvironment, resolveNetworkProxy } from "../src/daemon/proxy.js";
 import { DEFAULT_NETWORK_SETTINGS } from "../src/shared/network-settings.js";
 
+const automaticSettings = { ...DEFAULT_NETWORK_SETTINGS, mode: "auto" as const };
+
 describe("normalizeProxyUrl", () => {
   it("accepts URLs with http:// scheme", () => {
     expect(normalizeProxyUrl("http://127.0.0.1:7890")).toBe("http://127.0.0.1:7890");
@@ -50,12 +52,12 @@ describe("proxyUrlsFromEnvironment", () => {
 
 describe("Electron system proxy", () => {
   it("honors DIRECT before later fallback proxies", () => {
-    expect(resolveNetworkProxy(DEFAULT_NETWORK_SETTINGS, {}, "DIRECT; PROXY 127.0.0.1:7890").source).toBe("direct");
+    expect(resolveNetworkProxy(automaticSettings, {}, "DIRECT; PROXY 127.0.0.1:7890").source).toBe("direct");
   });
   it("uses the first supported proxy", () => {
-    expect(resolveNetworkProxy(DEFAULT_NETWORK_SETTINGS, {}, "SOCKS5 127.0.0.1:1080; PROXY 127.0.0.1:7890; DIRECT"))
+    expect(resolveNetworkProxy(automaticSettings, {}, "SOCKS5 127.0.0.1:1080; PROXY 127.0.0.1:7890; DIRECT"))
       .toMatchObject({ source: "system", httpProxy: "http://127.0.0.1:7890" });
-    expect(resolveNetworkProxy(DEFAULT_NETWORK_SETTINGS, {}, "HTTPS proxy.example:443; DIRECT"))
+    expect(resolveNetworkProxy(automaticSettings, {}, "HTTPS proxy.example:443; DIRECT"))
       .toMatchObject({ source: "system", httpsProxy: "https://proxy.example" });
   });
 });

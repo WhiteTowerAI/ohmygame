@@ -271,13 +271,13 @@ describePublishContract("remote publish", () => {
   });
 
   it("recovers a remote update when local publication is stale", async () => {
-    let loseListingResponses = false;
+    let loseDeploymentResponses = false;
     let lost = 0;
     const publishFetch: typeof fetch = async (input, init) => {
       const response = await fetch(input, init);
-      if (loseListingResponses && String(input).endsWith("/listing") && lost < 2) {
+      if (loseDeploymentResponses && String(input).endsWith("/deployments") && lost < 2) {
         lost += 1;
-        throw new Error("connection closed after listing");
+        throw new Error("connection closed after deployment activation");
       }
       return response;
     };
@@ -285,7 +285,7 @@ describePublishContract("remote publish", () => {
     const project = await createProject(runtime.daemon, "Recover update");
     await writeFile(path.join(project.workspacePath, "index.html"), "one");
     const first = await publishProject(runtime.daemon, project.id);
-    loseListingResponses = true;
+    loseDeploymentResponses = true;
     await writeFile(path.join(project.workspacePath, "index.html"), "two");
 
     const failed = await publishProject(runtime.daemon, project.id);
@@ -299,13 +299,13 @@ describePublishContract("remote publish", () => {
   });
 
   it("uploads current workspace changes instead of recovering a different remote artifact", async () => {
-    let loseListingResponses = false;
+    let loseDeploymentResponses = false;
     let lost = 0;
     const publishFetch: typeof fetch = async (input, init) => {
       const response = await fetch(input, init);
-      if (loseListingResponses && String(input).endsWith("/listing") && lost < 2) {
+      if (loseDeploymentResponses && String(input).endsWith("/deployments") && lost < 2) {
         lost += 1;
-        throw new Error("connection closed after listing");
+        throw new Error("connection closed after deployment activation");
       }
       return response;
     };
@@ -313,7 +313,7 @@ describePublishContract("remote publish", () => {
     const project = await createProject(runtime.daemon, "Latest workspace");
     await writeFile(path.join(project.workspacePath, "index.html"), "one");
     await publishProject(runtime.daemon, project.id);
-    loseListingResponses = true;
+    loseDeploymentResponses = true;
     await writeFile(path.join(project.workspacePath, "index.html"), "two");
     const failed = await publishProject(runtime.daemon, project.id);
     await writeFile(path.join(project.workspacePath, "index.html"), "three");
@@ -370,6 +370,77 @@ describePublishContract("remote publish", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(games);
     expect(publishFetch).toHaveBeenCalledOnce();
+    const related = await daemon.inject({ method: "GET", url: "/community/games?metrics=true&limit=10&excludeGameId=game%201", headers: { "x-publish-access-token": token } });
+    expect(related.statusCode).toBe(200);
+    expect(publishFetch).toHaveBeenLastCalledWith(
+      "https://publish.example/v1/community/games?metrics=true&limit=10&excludeGameId=game+1",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
+  });
+
+  it("unpublishes remote works without deleting local files and can publish the same artifact again", async () => {
+    const runtime = await testRuntime();
+    const project = await createProject(runtime.daemon, "Managed game");
+    await writeFile(path.join(project.workspacePath, "index.html"), "first release");
+    const cover = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WEBPVP8 ")]);
+    await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/cover`, headers: { "content-type": "image/webp" }, payload: cover });
+    const first = (await publishProject(runtime.daemon, project.id)).json();
+    const headers = { "x-publish-access-token": token };
+    const visitorId = "12345678-1234-4123-8123-123456789abc";
+    const view = () => runtime.daemon.inject({ method: "POST", url: `/community/games/${first.game.id}/view`, payload: { visitorId } });
+    expect((await view()).json()).toMatchObject({ viewerCount: 1, likeCount: 0 });
+    expect((await view()).json()).toMatchObject({ viewerCount: 1 });
+    const like = await runtime.daemon.inject({ method: "PUT", url: `/community/games/${first.game.id}/like`, payload: { accessToken: token, liked: true } });
+    expect(like.json()).toMatchObject({ viewerCount: 1, likeCount: 1, liked: true });
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games?metrics=true", headers })).json()[0].stats).toEqual({ viewerCount: 1, likeCount: 1, liked: true });
+
+    expect((await runtime.daemon.inject({ method: "PUT", url: `/community/games/${first.game.id}`, payload: { accessToken: token, title: "Edited title", description: "Edited description" } })).statusCode).toBe(200);
+    expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication).toMatchObject({ title: "Edited title", description: "Edited description" });
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/me/games", headers })).json().games[0].id).toBe(first.game.id);
+
+    await writeFile(path.join(project.workspacePath, "index.html"), "second release");
+    const savedMetadata = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication;
+    const updated = await runtime.daemon.inject({ method: "POST", url: `/projects/${project.id}/publish`, payload: { accessToken: token, title: savedMetadata.title, description: savedMetadata.description } });
+    expect(updated.statusCode, updated.body).toBe(201);
+    expect(updated.json().game).toMatchObject({ id: first.game.id, title: "Edited title", description: "Edited description", playUrl: first.game.playUrl });
+
+    const stablePlay = new URL(first.game.playUrl);
+    const play = await runtime.publishServer.inject({ method: "GET", url: stablePlay.pathname, headers: { host: stablePlay.host } });
+    expect(play.statusCode, play.body).toBe(200);
+    expect(play.body).toBe("second release");
+    const unpublish = () => runtime.daemon.inject({ method: "DELETE", url: `/community/games/${first.game.id}`, payload: { accessToken: token } });
+    expect((await unpublish()).statusCode).toBe(204);
+    expect((await unpublish()).statusCode).toBe(204);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games" })).json()).toEqual([]);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/me/games", headers })).json().games).toEqual([]);
+    const kept = (await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json();
+    expect(kept.publication).toBeUndefined();
+    expect(await readFile(path.join(kept.workspacePath, "index.html"), "utf8")).toBe("second release");
+    const stopped = await runtime.publishServer.inject({ method: "GET", url: stablePlay.pathname, headers: { host: stablePlay.host } });
+    expect(stopped.statusCode).toBe(404);
+    expect(existsSync(path.join(runtime.publishData, "artifacts", updated.json().deployment.id))).toBe(false);
+    const republished = await publishProject(runtime.daemon, project.id, { title: "Edited title", description: "Edited description" });
+    expect(republished.statusCode, republished.body).toBe(201);
+    expect(republished.json().game.id).not.toBe(first.game.id);
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games" })).json()).toHaveLength(1);
+  });
+
+  it("opens legacy hidden works from the owner's profile without exposing them publicly", async () => {
+    const runtime = await testRuntime();
+    const project = await createProject(runtime.daemon, "Hidden legacy game");
+    await writeFile(path.join(project.workspacePath, "index.html"), "Legacy game");
+    const published = (await publishProject(runtime.daemon, project.id)).json();
+    await runtime.publishServer.inject({ method: "PUT", url: `/v1/games/${published.game.id}/listing`, headers: { authorization: `Bearer ${token}` }, payload: { status: "unlisted" } });
+    const headers = { "x-publish-access-token": token };
+    const profile = (await runtime.daemon.inject({ method: "GET", url: "/community/me/games", headers })).json();
+    const detailUrl = `/community/games/${profile.games[0].id}?metrics=true`;
+    const detail = await runtime.daemon.inject({ method: "GET", url: detailUrl, headers });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json()).toMatchObject({ id: published.game.id, listingStatus: "unlisted", deploymentId: published.deployment.id });
+    expect((await runtime.daemon.inject({ method: "GET", url: detailUrl })).statusCode).toBe(404);
+    const edit = await runtime.daemon.inject({ method: "PUT", url: `/community/games/${published.game.id}`, payload: { accessToken: token, title: "Edited hidden work" } });
+    expect(edit.statusCode).toBe(200);
+    expect((await runtime.daemon.inject({ method: "GET", url: detailUrl, headers })).json().title).toBe("Edited hidden work");
   });
 
   it("loads a remote Community game by id", async () => {

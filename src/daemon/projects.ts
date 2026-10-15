@@ -658,7 +658,7 @@ export class ProjectManager {
     }
   }
 
-  async setPublication(id: string, publication: PublicationState): Promise<void> {
+  async setPublication(id: string, publication: PublicationState | undefined): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     await this.#save(project, { publication, updatedAt: new Date().toISOString() });

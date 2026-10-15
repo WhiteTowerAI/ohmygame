@@ -82,15 +82,39 @@ current step across restarts. Completing setup requires a language model in
 the same enabled, visible catalog used by the home composer. This checks
 configuration and catalog availability, without sending an inference request.
 The provider screen enables **Start creating** only when a language model is
-available; it records `completed`. The separate **Skip and start** action
-is a text button without a hover background. It records `skipped` and allows
-configuration later in Settings. **Next** and the provider screen's actions
-sit near the bottom, above the step indicators. Saved built-in
-and custom connections show **Connected** instead of offering setup again.
-Disabled connections offer **Enable** without changing credentials. Before
-starting or retrying setup, the renderer refreshes the provider's saved state to avoid
-reopening a connection that changed since the list loaded. Existing provider
-credentials and models can be edited from Settings.
+available; it records `completed`. Until then, a separate **Skip and start**
+text button without a hover background records `skipped` and allows
+configuration later in Settings; it is hidden once a model is ready.
+**Next** and the provider screen's actions sit near the bottom, above the
+step indicators.
+
+Settings → Providers and the setup list share one grouping. Every working
+connection, including free cloud and local services, is under **Connected
+providers**. Unconnected providers follow as **Free cloud**, **Popular
+providers** (OpenAI, Anthropic, OpenRouter, Google, DeepSeek, Meshy, Tripo,
+filtered by capability), **Local providers**, and the collapsed **More
+providers**.
+
+The setup list shows language providers only. Without a search, connected and
+popular providers come first, and the rest, including local services, stay
+under **More providers**. The legacy OpenAI Codex entry is hidden unless it is
+already connected, because OpenAI sign-in covers ChatGPT subscriptions.
+Searching lists every match. Saved
+built-in and custom connections show **Connected** instead of offering setup
+again. Disabled connections offer **Enable** without changing credentials.
+Before starting or retrying setup, the renderer refreshes the provider's saved
+state to avoid reopening a connection that changed since the list loaded.
+Existing provider credentials and models can be edited from Settings.
+
+Connecting, adding, or enabling a provider during setup makes its recommended
+language model the global default. Navigation and completion stay disabled
+until the default is saved, including during catalog refreshes. If saving
+fails, **Retry** saves the default again without repeating authorization.
+The recommendation mirrors Pi's
+per-provider defaults for the popular providers and falls back to the
+provider's first visible model. The ready line names the default model and its
+provider; with more than one model available, it is a menu that changes the
+default.
 
 An installation with no preference but existing projects or a configured
 language provider is marked completed once. Media credentials alone do not
@@ -123,18 +147,30 @@ in Settings and do not change the language-only completion requirement.
 agent sessions and model requests run in the local daemon, so proxying only the
 renderer would not cover the agent.
 
-![Network settings with a manual proxy and Restart now](assets/network-settings.webp)
+![Network settings with Manual selected and a saved proxy URL](assets/network-settings.webp)
 
-- **Automatic** uses `HTTP_PROXY` / `HTTPS_PROXY` (including lowercase variants)
-  first, then a system HTTP/HTTPS proxy detected by Electron, then a direct
-  connection. Both desktop development and packaged apps detect the system
-  proxy. Browser-only development uses environment variables.
+- **Direct** is the default for new installations. It clears inherited
+  application proxy variables. System TUN and VPN routing still apply. An
+  installation that already has projects, agent settings or a setup record but
+  never saved network settings keeps **Automatic**, its earlier behavior. The
+  first start records the chosen mode in `network-settings.json`.
 - **Manual proxy** uses one HTTP/HTTPS proxy URL for both request schemes. For
   Clash, enter its HTTP or Mixed port, such as `http://127.0.0.1:7890`.
-- **Direct** clears inherited application proxy variables. System TUN and VPN
-  routing still apply.
+- **Automatic** uses `HTTP_PROXY` / `HTTPS_PROXY` (including lowercase variants)
+  first, then a system HTTP/HTTPS proxy detected by Electron, then a direct
+  connection. Desktop development and packaged apps detect the system proxy
+  only when Automatic needs it. Browser-only development uses environment
+  variables.
+
+Existing saved modes are retained. Users who previously used the default
+Automatic mode without saving settings now start with Direct; select and save
+Automatic to keep inheriting proxy settings.
 
 Settings are stored in `network-settings.json` under the daemon data directory.
+The panel opens with the saved proxy mode selected, or Direct when no settings
+have been saved. Unsaved edits are marked. Switching to Automatic refreshes
+system detection when there is no environment proxy; later bypass-list edits
+reuse the detected route.
 Saving or detecting a new proxy does not change active connections. When the
 effective proxy URLs or bypass list change, restart the desktop app (or the
 standalone daemon) to apply them. Changing an inactive proxy draft or selecting
@@ -158,11 +194,13 @@ returned to the renderer.
 an isolated connection. It makes a bounded HTTPS HEAD request to
 `https://api.openai.com/v1/models` without model credentials or redirects. An
 HTTP response, including 401 or 403, confirms transport reachability, not model
-access or successful inference. It neither saves the draft nor changes the
-global dispatcher or the next-startup configuration. Automatic tests refresh
-system detection only for the test when no environment proxy is set.
-**Detect system proxy** asks Electron over private
-child-process IPC and leaves the active connection unchanged.
+access or successful inference. Results show elapsed time, with the tested
+connection and HTTP status in a tooltip. The test neither saves the draft nor
+changes the global dispatcher or the next-startup configuration. Automatic tests
+refresh system detection only for the test when no environment proxy is set.
+**Detect system proxy** is available for saved Automatic settings without an
+environment proxy. It asks Electron over private child-process IPC and leaves
+the active connection unchanged.
 
 This first version accepts HTTP/HTTPS proxies. Manual SOCKS proxies, proxy
 authentication fields, and `ALL_PROXY` are not supported. System detection
@@ -333,11 +371,31 @@ projects/<project-id>/
 ├── cover-frozen.webp frozen automatic cover or Interactive Story thumbnail
 ├── cover-state.json explicit cover mode, including when no cover exists
 ├── preview-origin.json stable local preview port
+├── checkpoints/   snapshots of the workspace, one bare Git repository
 ├── workspace/     the project files (or an existing folder in the desktop app)
 └── session/       Pi session files, one per conversation
 ```
 
 Removing a project never deletes an existing folder used as its workspace.
+
+## Checkpoints
+
+All project types record private workspace snapshots before each consumed user
+message and when its run ends. Finished, failed and cancelled turns show their
+net file changes in Chat. The project does not need Git; snapshot storage stays
+beside the workspace without changing its `.git`, branches or index.
+
+**Undo** takes back one turn's files while preserving the conversation, and
+**Reapply** restores their exact pre-undo contents. Editing a message preserves
+files. **Restore to before this message** explicitly restores the workspace and
+rewinds the selected conversation. These operations coordinate project writes,
+check later edits for conflicts, and retain recovery data if interrupted.
+
+See [turn file changes and recovery](checkpoints.md) for the UI, file scope,
+workspace versions, model notices, storage limits, and API routes, and
+[Git changes in Code](workspace-git.md) for the read-only repository view.
+
+## Project covers
 
 Project covers are saved independently of publishing. Selecting an image in the
 publish dialog previews it; **Apply cover** saves it and stops automatic cover
@@ -369,6 +427,80 @@ The workspace, Pi sessions, conversations, and credentials are never sent.
 Each publish creates an immutable Deployment of the same Game, so the play link
 stays the same. The project stores only the publication identity: Game ID,
 Deployment ID, play URL, publish time, and the published title and description.
+
+### Community and creator profiles
+
+![Creator profile with published game covers](assets/community-profile.webp)
+
+Community uses the original mosaic of large, medium, and small square covers.
+Full groups use the existing 28-card layout; additional works continue in the
+same pattern rather than being truncated. Narrow layouts use equal square
+cards, with two columns on small screens. Clicking or tapping the cover opens
+the game detail, including on the owner's profile. Covers are requested
+only when cards approach the visible area. Desktop overlays retain the original
+gradient, hover animation, and centered title and author, with viewer and like counts
+below. Small mosaic cards omit the author to leave room for the title and
+counts. Overlays appear on hover or keyboard focus; hidden links and likes
+do not intercept cover clicks. Narrow layouts and touch devices show the
+overlay directly. Long titles and author names truncate within the card.
+The filter button beside **My profile** and **Refresh** supports title,
+description, and author search, sorting by first listing, viewers, or likes,
+and first-listing periods.
+
+Author links open their public profile with listed works. **My profile** requires
+sign-in and includes deployed works. Profile cards open the game detail; they
+have no editing or unpublish controls. The game detail header shows **Edit game**
+and a **More game actions → Unpublish** menu only for the signed-in author,
+using the existing user and game author IDs without an extra ownership request.
+These controls are available as soon as game metadata loads, independently of
+related games and the game iframe. Owners can edit published titles and
+descriptions without reuploading files. A matching local project also provides
+**Open project** and **Publish update**; replacing game files or the cover requires
+that project.
+The current editor draft carries into **Publish update** without first saving
+metadata. Related games request at most ten other listed works from the service.
+
+![Publish update preserves the title and description from the editor](assets/community-publish-update.webp)
+
+Metadata edits update the local publication record when it exists.
+Local project matching starts only when the owner opens the editor, so
+unavailable local projects do not block viewing or editing published metadata.
+Successful metadata edits update the detail directly without restarting the game;
+a published file update reloads the player with its new deployment. Late reads
+preserve completed edits and cannot restore an unpublished game.
+
+**Unpublish** removes the uploaded game, its deployment files, and engagement
+records from the cloud. Community and profile entries disappear, and old play
+and cover URLs stop working. Local project files are kept; the daemon clears
+only their saved publication state. Publishing again creates a new cloud game
+with a new play URL and fresh engagement counts. The game detail asks for
+confirmation before unpublishing and returns to the owner's profile on success.
+The legacy Cloud listing endpoint remains part of the initial publish protocol;
+the desktop has no hide/relist control.
+Legacy hidden works remain accessible to their signed-in author through the
+same detail page, with read-only engagement counts. Other visitors cannot read
+their Community details or covers.
+
+Viewer counts are cumulative unique viewers per work, recorded when the app
+successfully opens the Community game detail. Refreshes and repeat visits do
+not add viewers. Signed-in visits use the account identity; anonymous visits
+use a random browser identifier. Logging in merges that browser's anonymous
+visit with the account, and signed-out returns from it reuse the same identity.
+Authenticated creator visits do not increment their own count. Shared play HTML
+does not include an injected tracking script, so direct shared-link visits are
+not included in this count. Clearing browser storage or visiting from another
+browser can count an anonymous viewer again.
+
+Likes require sign-in, support undo, and are unique per account and work. A
+completed like updates the card, sort order, and profile total together, even
+when an earlier refresh is still in flight.
+Community reads opt in to metrics with `?metrics=true`; older service responses
+without metrics show unavailable counts. Cloud access tokens are forwarded
+transiently and never stored in project files. Local development provides the
+same flows through temporary debug snapshots.
+
+Hosted use requires the Community engagement migration and matching Cloud API
+before releasing the updated client. See the Cloud contract for rollout order.
 
 The Publish v1 contract is in the
 [`ohmygame-cloud` repository](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md).

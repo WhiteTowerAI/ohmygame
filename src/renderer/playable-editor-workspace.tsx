@@ -1,8 +1,9 @@
+import { workspaceVersion } from "./workspace-version.js";
 import {
+  ArrowLeft,
   Clapperboard,
   Code2,
   FileText,
-  House,
   LoaderCircle,
   PanelToggle,
   Share2,
@@ -73,6 +74,7 @@ import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEmptyCanvas } fr
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
 import { t } from "./i18n.js";
+import { WorkspaceBackButton } from "./workspace-shell.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -99,7 +101,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   agentBusy: boolean;
@@ -113,6 +115,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   chatOnRight?: boolean;
   chatCollapsed?: boolean;
   onHome?: () => void;
+  homeLabel?: string;
   onToggleChat?: () => void;
   designOpen?: boolean;
   onDesignOpenChange?: (open: boolean) => void;
@@ -126,6 +129,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
 }) {
   const projectId = project.id;
+  const [writeVersion] = useState(() => workspaceVersion(projectId));
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [notice, setNotice] = useState<string>();
   const [graphMeta, setGraphMeta] = useState<GraphMeta>();
@@ -374,7 +378,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           throw new Error(PROJECT_CHANGED);
         }
         try {
-          const saved = await updateNodeCodebase(projectId, { ...outgoing, revision: disk.revision });
+          const saved = await updateNodeCodebase(projectId, { ...outgoing, revision: disk.revision }, writeVersion);
           if (generation === diskGeneration.current) {
             diskCodebase.current = { codebase: { graph: outgoing.graph, editorLayout: outgoing.editorLayout }, revision: saved.revision };
           }
@@ -809,7 +813,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         preset: presetId,
         id: uniqueNodeId(presetId, new Set(nodes.map((node) => node.id))),
         position: snapCanvasPosition(position),
-      });
+      }, writeVersion);
       const loaded = await getNodeCodebase(projectId);
       applyCodebase(loaded, { diskRevision: loaded.revision });
       setCodeRevision((revision) => revision + 1);
@@ -921,7 +925,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setBuilding(true);
     try {
       await save(codebase);
-      const artifact = await buildInteractiveStory(projectId);
+      const artifact = await buildInteractiveStory(projectId, writeVersion);
       const url = URL.createObjectURL(artifact);
       const link = window.document.createElement("a");
       link.href = url;
@@ -994,7 +998,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   ];
   const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
     {chatOnRight && onHome ? (
-      <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title={t("sidebar.home")} aria-label={t("sidebar.home")}><House size={14} /></button>
+      <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} />
     ) : null}
     <WorkspaceTabs
       tabs={tabs} active={designOpen ? "design" : workspaceView}

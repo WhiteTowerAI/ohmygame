@@ -47,13 +47,15 @@ export class ConversationCache {
     for (const file of this.#metadata.keys()) if (file.startsWith(`${directory}/`)) this.#metadata.delete(file);
   }
 
-  async read(project: ProjectState, file: string): Promise<SessionManager | undefined> {
-    const loading = this.#loading.get(file);
-    if (loading) return loading;
-    const promise = this.#read(project, file);
+  read(project: ProjectState, file: string): Promise<SessionManager | undefined> {
+    // A reader that starts after a turn closes must validate the file again:
+    // an earlier read may have checked it just before the final append.
+    const read = () => this.#read(project, file);
+    const promise = (this.#loading.get(file) ?? Promise.resolve()).then(read, read);
     this.#loading.set(file, promise);
-    try { return await promise; }
-    finally { this.#loading.delete(file); }
+    const settled = () => { if (this.#loading.get(file) === promise) this.#loading.delete(file); };
+    void promise.then(settled, settled);
+    return promise;
   }
 
   async #read(project: ProjectState, file: string): Promise<SessionManager | undefined> {

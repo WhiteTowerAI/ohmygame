@@ -65,7 +65,11 @@ time, directory, command, manager and the last 8 KiB of process output.
 and starts a runnable preview. Files are observed while a project has users;
 when output becomes runnable, automatic preview starts. Agent completion uses
 the same policy and requires a file change. A failed startup does not repeatedly
-retry without a change. Generated dependencies, hidden/build folders and common
+retry without a change. Before a workspace has any project files (hidden entries and
+`node_modules`, `dist` or `build` do not count), an automatic check that finds
+nothing runnable stays waiting without an error, so a new project shows the
+empty preview. Once files exist, the waiting state keeps the reason, such as a
+missing dev script; Start and Play always report it. Generated dependencies, hidden/build folders and common
 runtime log/PID/temp files do not trigger retries.
 
 **Stop preview** cancels installation/startup or stops the running service.
@@ -77,6 +81,8 @@ Inspection and launch are one cancellable operation: stopping, disabling automat
 startup or losing the last lease cancels an unfinished automatic launch. An explicit
 Start/Play request takes over that launch under manual policy. Reopening during idle
 cleanup waits for the old server to close before starting again.
+If the replacement fails configuration inspection, the closed preview remains
+stopped and its old URL is cleared.
 Saving viewport, default route, automatic policy or idle policy does not restart
 the server. Changing effective launch settings restarts a currently active server.
 

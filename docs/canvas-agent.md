@@ -140,3 +140,10 @@ Both editors share nodes, documents, metadata, generation, history, clipboard,
 file uploads and external file synchronization. Asset Canvas uses one default
 board and retains automatic covers and sending assets to projects. Game
 projects expose multiple boards and an optional main game design document.
+
+Hold Option (Alt on Windows and Linux) when starting a node drag to pull out
+copies. Copies keep node content and Library resources, use new IDs, and drop
+all connections, including connections within a copied selection. The originals
+stay in place. Releasing at the starting position cancels the copies; a completed
+drag is one board undo step. If the copies would exceed the 2,000-node limit,
+the editor rejects the drag and keeps the originals in place.

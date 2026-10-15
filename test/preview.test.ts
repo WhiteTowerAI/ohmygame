@@ -12,12 +12,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreviewManager } from "../src/daemon/preview.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
+import * as projects from "../src/daemon/projects.js";
 
 const managers: PreviewManager[] = [];
 
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((manager) => manager.stopAll()));
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe("PreviewManager", () => {
@@ -371,6 +373,49 @@ describe("PreviewManager", () => {
     project.startupScript = "missing";
     await expect(manager.start(project)).rejects.toThrow("no missing script");
     await finalStop;
+    expect(project.preview.status).toBe("stopped");
+  });
+
+  it("publishes stopped when a replacement is still being inspected and later fails", async () => {
+    const workspacePath = await createWorkspace(false);
+    const project = createProject(workspacePath);
+    const manager = new PreviewManager(new RuntimeEventBus(), {
+      readinessTimeoutMs: 2_000,
+    });
+    managers.push(manager);
+    const url = await manager.start(project);
+    type Workspace = Awaited<ReturnType<typeof projects.resolvePreviewWorkspace>>;
+    let resolveInspection!: (workspace: Workspace) => void;
+    const inspection = new Promise<Workspace>((resolve) => {
+      resolveInspection = resolve;
+    });
+    vi.spyOn(projects, "resolvePreviewWorkspace").mockReturnValueOnce(
+      inspection,
+    );
+    const stopping = manager.stop(project);
+    const replacement = manager.start(project);
+    const failed = expect(replacement).rejects.toThrow("no missing script");
+    try {
+      await stopping;
+      expect(project.preview).toMatchObject({
+        status: "stopped",
+        url: undefined,
+        stopReason: "manual",
+      });
+      await expect(
+        fetch(url, { signal: AbortSignal.timeout(200) }),
+      ).rejects.toThrow();
+    } finally {
+      resolveInspection({
+        absolutePath: workspacePath,
+        relativePath: ".",
+        mode: "script",
+        runnable: false,
+        error:
+          "This folder has no missing script that starts a preview server.",
+      });
+      await failed;
+    }
     expect(project.preview.status).toBe("stopped");
   });
 

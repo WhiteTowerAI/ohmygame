@@ -46,6 +46,8 @@ describe("network settings API", () => {
       });
       if (source === "manual") {
         await networkSettings.store.update({ mode: "manual", proxyUrl: "http://127.0.0.1:7890", noProxy: "" });
+      } else if (source !== "direct") {
+        await networkSettings.store.update({ ...DEFAULT_NETWORK_SETTINGS, mode: "auto" });
       }
       const app = createApp({
         dataDirectory, networkSettings,
@@ -90,6 +92,8 @@ describe("network settings API", () => {
       active: { source: "direct" },
       requiresRestart: false,
     });
+    const automatic = { ...DEFAULT_NETWORK_SETTINGS, mode: "auto" };
+    await app.inject({ method: "PUT", url: "/settings/network", payload: automatic });
     const detect = await app.inject({
       method: "POST",
       url: "/settings/network/detect",
@@ -118,7 +122,7 @@ describe("network settings API", () => {
     expect(
       (await app.inject({ method: "GET", url: "/settings/network" })).json()
         .settings,
-    ).toEqual(DEFAULT_NETWORK_SETTINGS);
+    ).toEqual(automatic);
     const saved = await app.inject({
       method: "PUT",
       url: "/settings/network",

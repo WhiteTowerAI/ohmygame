@@ -5,8 +5,9 @@ configured by `CLOUD_API_URL`, independently of the user's provider credentials
 and the paid account wallet. Hyper3D is the first integration (`cloud-hyper3d`),
 with all ten Rodin tiers. Existing default models and provider preferences are kept.
 
-The desktop offers free access before sign-in. Hyper3D has one settings entry
-in **Free cloud**, with account sign-in, daily credits, and an optional API key on one page. A verified Supabase
+The desktop offers free access before sign-in. Hyper3D has one settings entry,
+listed in **Free cloud** until it connects and then under **Connected
+providers**, with account sign-in, daily credits, and an optional API key on one page. A verified Supabase
 session activates the connection automatically. Its access token stays in daemon
 memory, is refreshed from product auth, and is removed on sign-out. Local debug
 sign-in does not authorize free cloud generation. Provider keys are never sent

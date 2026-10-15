@@ -1,4 +1,6 @@
+import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
+import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
 import {
   RUNTIME_EVENT_TYPES,
@@ -7,6 +9,10 @@ import {
   type AgentModelCatalog,
   type AgentModelRef,
   type AgentReasoningLevel,
+  type CheckpointChangeItem,
+  type CheckpointFileView,
+  type CheckpointUndoRequest,
+  type CheckpointUndoResponse,
   type ConversationAgentSettings,
   type ConversationCapabilities,
   type CreateLibraryImageRequest,
@@ -68,6 +74,7 @@ import {
   type Model3DAnimationAction,
 } from "../shared/contracts.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
@@ -361,6 +368,13 @@ export async function updateSeedanceApiKey(providerId: string, apiKey: string): 
   });
 }
 
+export async function updateMinimaxApiKey(providerId: string, apiKey: string): Promise<{ configured: boolean }> {
+  return request(`/settings/models/providers/${encodeURIComponent(providerId)}/minimax-key`, {
+    method: "PUT",
+    body: JSON.stringify({ apiKey }),
+  });
+}
+
 export async function startModelProviderLogin(providerId: string, method: ModelAuthMethod): Promise<string> {
   const result = await request<{ operationId: string }>(`/settings/models/providers/${encodeURIComponent(providerId)}/login`, {
     method: "POST",
@@ -439,21 +453,52 @@ export async function updateWebSearchSettings(input: UpdateWebSearchSettings): P
   return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
 }
 
-export async function listExploreGames(): Promise<CommunityGame[]> {
-  return request("/community/games");
+export async function listExploreGames(accessToken?: string, options: CommunityGamesQuery = {}): Promise<CommunityGame[]> {
+  const query = new URLSearchParams({ metrics: "true" });
+  if (options.limit !== undefined) query.set("limit", String(options.limit));
+  if (options.excludeGameId) query.set("excludeGameId", options.excludeGameId);
+  return request(`/community/games?${query}`, { headers: communityHeaders(accessToken) });
 }
 
-export async function getExploreGame(gameId: string): Promise<CommunityGame> {
-  return request(`/community/games/${encodeURIComponent(gameId)}`);
+export async function getExploreGame(gameId: string, accessToken?: string): Promise<CommunityGame> {
+  return request(`/community/games/${encodeURIComponent(gameId)}?metrics=true`, { headers: communityHeaders(accessToken) });
 }
 
-export async function getExploreGameCover(gameId: string, deploymentId: string): Promise<Blob | undefined> {
+export async function getExploreGameCover(gameId: string, deploymentId: string, accessToken?: string): Promise<Blob | undefined> {
   const response = await fetch(apiUrl(
     `/community/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
-  ), { headers: runtimeHeaders() });
+  ), { headers: { ...runtimeHeaders(), ...communityHeaders(accessToken) } });
   if (response.status === 404) return undefined;
   if (!response.ok) throw await responseError(response);
   return response.blob();
+}
+
+export function getCommunityProfile(authorId: string, accessToken?: string): Promise<CommunityProfile> {
+  return request(`/community/authors/${encodeURIComponent(authorId)}`, { headers: communityHeaders(accessToken) });
+}
+
+export function getMyCommunityGames(accessToken: string): Promise<CommunityProfile> {
+  return request("/community/me/games", { headers: communityHeaders(accessToken) });
+}
+
+export function recordCommunityView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/view`, { method: "POST", body: JSON.stringify({ visitorId, ...(accessToken ? { accessToken } : {}) }) });
+}
+
+export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
+}
+
+export function unpublishCommunityGame(gameId: string, accessToken: string): Promise<void> {
+  return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "DELETE", body: JSON.stringify({ accessToken }) });
+}
+
+export function updateCommunityGame(gameId: string, accessToken: string, metadata: { title: string; description: string }): Promise<Pick<CommunityGame, "title" | "description">> {
+  return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "PUT", body: JSON.stringify({ accessToken, ...metadata }) });
+}
+
+function communityHeaders(accessToken?: string): Record<string, string> {
+  return accessToken ? { "x-publish-access-token": accessToken } : {};
 }
 
 export async function listPlugins(): Promise<PluginCatalog> {
@@ -510,10 +555,10 @@ export async function publishProject(projectId: string, accessToken: string, met
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
 }
 
-export async function buildInteractiveStory(projectId: string): Promise<Blob> {
+export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {
   const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/build`), {
     method: "POST",
-    headers: runtimeHeaders(),
+    headers: projectRuntimeHeaders(projectId, version),
   });
   if (!response.ok) throw await responseError(response);
   return response.blob();
@@ -562,10 +607,12 @@ export async function listPlayablePresets(): Promise<{ presets: PlayablePresetSu
 export async function addPlayableNode(
   projectId: string,
   body: { preset: string; id: string; title?: string; position?: { x: number; y: number } },
+  version?: string,
 ): Promise<PlayableAddedNode> {
   return request(`/projects/${projectId}/playable/nodes`, {
     method: "POST",
     body: JSON.stringify(body),
+    workspaceVersion: version,
   });
 }
 
@@ -581,10 +628,10 @@ export async function getPlayableThumbnail(projectId: string, nodeId: string): P
   return response.blob();
 }
 
-export async function setPlayableThumbnail(projectId: string, nodeId: string, hash: string, image: Blob): Promise<void> {
+export async function setPlayableThumbnail(projectId: string, nodeId: string, hash: string, image: Blob, version?: string): Promise<void> {
   const response = await fetch(apiUrl(`/projects/${projectId}/playable/thumbnails/${encodeURIComponent(nodeId)}?hash=${encodeURIComponent(hash)}`), {
     method: "PUT",
-    headers: { "content-type": "image/webp", ...runtimeHeaders() },
+    headers: { "content-type": "image/webp", ...projectRuntimeHeaders(projectId, version) },
     body: image,
   });
   if (!response.ok) throw await responseError(response);
@@ -594,9 +641,11 @@ export async function setPlayableThumbnail(projectId: string, nodeId: string, ha
 export async function updateNodeCodebase(
   projectId: string,
   codebase: NodeCodebaseUpdate & { revision: string },
+  version?: string,
 ): Promise<{ revision: string }> {
   return request(`/projects/${projectId}/playable/codebase`, {
     method: "PUT",
+    workspaceVersion: version,
     body: JSON.stringify(codebase),
   });
 }
@@ -616,7 +665,7 @@ export async function setProjectCover(projectId: string, cover: Blob, source: Pr
   const suffix = source === "auto" ? "?source=auto" : "";
   const response = await fetch(apiUrl(`/projects/${projectId}/cover${suffix}`), {
     method: "PUT",
-    headers: { "content-type": "image/webp", ...runtimeHeaders() },
+    headers: { "content-type": "image/webp", ...projectRuntimeHeaders(projectId) },
     body: cover,
   });
   if (!response.ok) throw await responseError(response);
@@ -628,6 +677,14 @@ export async function setProjectCoverMode(projectId: string, mode: ProjectCoverM
 
 export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFile[]> {
   return request(`/projects/${projectId}/files`);
+}
+
+export async function getWorkspaceGitChanges(projectId: string): Promise<WorkspaceGitChanges> {
+  return request(`/projects/${encodeURIComponent(projectId)}/git/changes`);
+}
+
+export async function getWorkspaceGitFile(projectId: string, filePath: string): Promise<WorkspaceGitFileView> {
+  return request(`/projects/${encodeURIComponent(projectId)}/git/file?path=${encodeURIComponent(filePath)}`);
 }
 
 export async function createWorkspaceEntry(projectId: string, parent: string, name: string, kind: "file" | "folder"): Promise<{ path: string }> {
@@ -807,7 +864,7 @@ export async function uploadProjectAttachment(
   if (relativePath) query.set("relativePath", relativePath);
   const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/attachments?${query}`), {
     method: "POST",
-    headers: { "content-type": "application/vnd.ohmygame.attachment", ...runtimeHeaders() },
+    headers: { "content-type": "application/vnd.ohmygame.attachment", ...projectRuntimeHeaders(projectId) },
     body: file,
   });
   if (!response.ok) throw await responseError(response);
@@ -864,6 +921,66 @@ export async function reviseLastPrompt(
   });
 }
 
+/** Puts the workspace and the conversation back to just before the message the checkpoint was taken for. */
+export async function restoreCheckpoint(projectId: string, conversationId: string, checkpointId: string): Promise<void> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/restore`, { method: "POST" });
+}
+
+/** Lists the files the turn of the checkpoint's message changed. */
+export async function getCheckpointChanges(projectId: string, conversationId: string, checkpointId: string): Promise<CheckpointChangeItem[]> {
+  const { changes } = await request<{ changes: CheckpointChangeItem[] }>(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/changes`);
+  return changes;
+}
+
+/** Reads one of those files as it was before the turn and as the turn left it. */
+export async function getCheckpointFile(projectId: string, conversationId: string, checkpointId: string, filePath: string): Promise<CheckpointFileView> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/file?path=${encodeURIComponent(filePath)}`);
+}
+
+/**
+ * Takes back the file changes of one turn and keeps the conversation. Without
+ * `conflicts` it rejects with status 409 and the paths in `ApiError.conflicts`
+ * when files were changed again after the turn. To overwrite them, `expected`
+ * names the paths the user was shown; it rejects the same way when other files
+ * were changed by now.
+ */
+export async function undoCheckpoint(projectId: string, conversationId: string, checkpointId: string, conflicts?: CheckpointUndoRequest["conflicts"], expected?: string[]): Promise<CheckpointUndoResponse> {
+  return changeCheckpointFiles("undo", projectId, conversationId, checkpointId, conflicts, expected);
+}
+
+/** Reapplies only undone paths, with the same conflict checks as Undo. */
+export async function reapplyCheckpoint(projectId: string, conversationId: string, checkpointId: string, conflicts?: CheckpointUndoRequest["conflicts"], expected?: string[]): Promise<CheckpointUndoResponse> {
+  return changeCheckpointFiles("reapply", projectId, conversationId, checkpointId, conflicts, expected);
+}
+
+function changeCheckpointFiles(direction: "undo" | "reapply", projectId: string, conversationId: string, checkpointId: string, conflicts?: CheckpointUndoRequest["conflicts"], expected?: string[]): Promise<CheckpointUndoResponse> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/${direction}`, {
+    method: "POST",
+    body: JSON.stringify({ conflicts, expected } satisfies CheckpointUndoRequest),
+  });
+}
+
+/** Whether a restore or an undo was cut off and may have left the project's files partly changed. */
+export async function getUnfinishedRestore(projectId: string): Promise<boolean> {
+  const { unfinished } = await request<{ unfinished: boolean }>(`/projects/${projectId}/checkpoints/unfinished`);
+  return unfinished;
+}
+
+/**
+ * Lists what putting the files back after a restore or an undo that was cut
+ * off would do: "added" brings a file back, "removed" takes it away. The
+ * items say nothing about how a file stands.
+ */
+export async function getUnfinishedChanges(projectId: string): Promise<CheckpointChangeItem[]> {
+  const { changes } = await request<{ changes: CheckpointChangeItem[] }>(`/projects/${projectId}/checkpoints/unfinished/changes`);
+  return changes;
+}
+
+/** Puts the files back as they were before the restore or undo that was cut off. */
+export async function restoreUnfinished(projectId: string): Promise<void> {
+  return request(`/projects/${projectId}/checkpoints/unfinished/restore`, { method: "POST" });
+}
+
 export async function removePendingPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {
   await request(`/projects/${projectId}/conversations/${conversationId}/queue/${turnId}`, { method: "DELETE" });
 }
@@ -896,28 +1013,39 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    /** The workspace paths the request was refused for. */
+    readonly conflicts?: string[],
+    /** Those paths cannot be put back, whatever the request says to do with them. */
+    readonly blocked?: boolean,
   ) {
     super(message);
   }
 }
 
-export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: WorkspaceRequestInit = {}): Promise<T> {
+  const projectId = /^\/projects\/([^/?]+)/.exec(path)?.[1];
+  const observedVersion = projectId ? workspaceVersion(projectId) : undefined;
+  if (projectId && init.workspaceVersion !== undefined) assertWorkspaceVersion(projectId, init.workspaceVersion);
   const response = await fetch(apiUrl(path), {
     ...init,
     headers: {
       ...(init.body ? { "content-type": "application/json" } : {}),
       ...runtimeHeaders(),
+      ...(projectId ? { "x-workspace-version": init.workspaceVersion ?? observedVersion! } : {}),
       ...init.headers,
     },
   });
+  const version = response.headers.get("x-workspace-version");
+  if (projectId && version && (!init.method || init.method === "GET") && workspaceVersion(projectId) === observedVersion) observeWorkspaceVersion(projectId, version);
   if (!response.ok) throw await responseError(response);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
 async function responseError(response: Response): Promise<ApiError> {
-  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string };
-  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code);
+  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown };
+  const conflicts = Array.isArray(body.conflicts) && body.conflicts.every((path) => typeof path === "string") ? body.conflicts as string[] : undefined;
+  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined);
 }
 
 async function streamProjectEvents(
@@ -1100,6 +1228,11 @@ export function playableSandboxUrl(): string {
 function apiUrl(path: string): string {
   const runtime = desktopRuntime();
   return runtime ? `${runtime.daemonUrl}${path}` : `${API_BASE}${path}`;
+}
+
+function projectRuntimeHeaders(projectId: string, version = workspaceVersion(projectId)): HeadersInit {
+  assertWorkspaceVersion(projectId, version);
+  return { ...runtimeHeaders(), "x-workspace-version": version };
 }
 
 function runtimeHeaders(): HeadersInit {

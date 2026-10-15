@@ -24,6 +24,8 @@ Repository administrators should complete these steps when adopting the workflow
 - [ ] Enable rules for both `dev` and `main`: require a PR, at least one review,
       and the `check` status from CI. Confirm the status name in GitHub's selector.
 - [ ] Block branch deletion and force pushes on both long-lived branches.
+      These rules also keep GitHub's automatic head-branch deletion from
+      removing them.
       Keep merge commits enabled for release and synchronization PRs.
 - [ ] Verify a fork PR into `dev` runs CI without release or cloud secrets.
       Run the same public checks for docs PRs; contributors may use the lighter
@@ -86,20 +88,34 @@ remaining work and an actionable next step before closing it.
 
 ## Release preparation
 
-1. Prepare version and release documentation changes through a focused
-   `chore/<short-name>` branch and PR into `dev`.
+1. Prepare the version in `package.json` and its user-visible release notes in
+   [CHANGELOG.md](../CHANGELOG.md) through a focused `chore/<short-name>` branch
+   and PR into `dev`. Collect changes from merged PRs since the previous release;
+   ordinary PRs do not update the changelog. Follow the
+   [changelog format and checks](desktop-releases.md#release-notes).
 2. Verify the release candidate's public checks and relevant platform, model,
    OAuth, and cloud integration behavior. Record environment-dependent checks
    that remain outstanding.
-3. Open a release PR from `dev` into `main`, with a title such as
+3. Push a temporary branch at `dev`'s current commit, for example
+   `git push origin origin/dev:refs/heads/chore/release-v0.0.0-beta.4.7`, and
+   open the release PR from that branch into `main`, with a title such as
    `chore(release): prepare v0.0.0-beta.4.7`. Review the included changes and
-   merge with a merge commit.
+   merge with a merge commit. Never use `dev` itself as the head: the
+   repository deletes head branches after merge, and deleting `dev` closes fork
+   PRs that target it and retargets the rest to `main`.
 4. Create the matching version tag on the reviewed `main` commit. Pushing a
-   `v*` tag starts the desktop release workflow. See
+   `v*` tag starts the desktop release workflow, which validates the version and
+   changelog before either platform builds. See
    [desktop-releases.md](desktop-releases.md) for credentials, packaging,
    publication, and rollback.
-5. If release work introduced commits only on `main`, open a synchronization
-   PR from `main` into `dev` and merge it with a merge commit.
+5. Synchronize `main` into `dev`, since the release merge commit exists only on
+   `main`. Push a temporary branch at `main`'s commit, for example
+   `chore/sync-main-v0.0.0-beta.4.7`, open a PR from it into `dev`, and merge
+   it with a merge commit.
+
+If `dev` is deleted anyway, push it back at its last commit
+(`git push origin <sha>:refs/heads/dev`), reopen the PRs GitHub closed when it
+disappeared, and retarget any PRs that GitHub moved to `main` back to `dev`.
 
 For an urgent released-version fix, start a `fix/<short-name>` branch from
 `main` and open a PR into `main`. After review and verification, synchronize

@@ -9,6 +9,11 @@ their code, documentation, and tests.
 - Keep PRs focused on one feature, bug fix, documentation change, chore, or refactor.
 - Start contribution branches from `dev` and target ordinary PRs at `dev`.
   `main` receives maintainer release PRs from `dev`.
+- Never open a PR whose head branch is `dev` or `main`. The repository deletes
+  head branches after merge, and deleting `dev` closes or retargets every PR
+  based on it. Release and synchronization PRs use a temporary `chore/` branch
+  pushed from the source branch; see
+  [release preparation](docs/maintaining.md#release-preparation).
 - Use `feat/<short-name>`, `fix/<short-name>`, `chore/<short-name>`,
   `refactor/<short-name>`, or `docs/<short-name>` for contribution branches.
 - Use Conventional Commit PR titles, for example

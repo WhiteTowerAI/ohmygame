@@ -44,7 +44,8 @@
 .runtime-notice button,
 .pane-error-boundary button,
 .preview-recovery-actions button,
-.paused-initial-prompt button {
+.paused-initial-prompt button,
+.unfinished-restore button {
   border: 1px solid var(--border, #666);
   border-radius: 6px;
   padding: 7px 12px;
@@ -64,17 +65,40 @@
   padding: 32px;
 }
 .pane-error-boundary > div,
-.preview-recovery-actions {
+.preview-recovery-actions,
+.unfinished-restore-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.paused-initial-prompt {
+.paused-initial-prompt,
+.unfinished-restore {
   margin: 8px 16px;
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 12px;
+}
+.unfinished-restore p {
+  margin: 0 0 8px;
+}
+.unfinished-restore-error {
+  color: var(--danger);
+}
+.unfinished-restore-files {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+.unfinished-restore-files span {
+  display: inline-block;
+  min-width: 92px;
+  color: var(--text-muted);
+}
+.unfinished-restore button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 .preview-status-panel {
   display: flex;

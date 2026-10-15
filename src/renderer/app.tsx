@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
+import { CommunityProfilePage } from "./community-profile.js";
 import { GamePlayer, GamesPage } from "./games.js";
 import { Home } from "./home.js";
 import { LibraryPage } from "./library.js";
 import { ProjectsPage } from "./projects.js";
 import { ProjectShell } from "./project-shell.js";
-import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+import { communityHash, createdProjectView, conversationHash, DEFAULT_SETTINGS_SECTION, gameHash, parseAppRoute, pluginHash, projectHash, projectsHash, settingsHash, sidebarHash, type AppNavigationTarget, type SettingsSection } from "./routes.js";
+import { historyState, useAppNavigation } from "./app-navigation.js";
 import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { GameStudioHome } from "./game-studio-home.js";
@@ -21,7 +23,7 @@ import { useOnboarding } from "./use-onboarding.js";
 
 export function App() {
   const serviceGeneration = useReadyRuntimeGeneration();
-  const [route, setRoute] = useState(() => parseAppRoute(window.location.hash));
+  const { route, navigate, projectReturnTo, projectBackLabel } = useAppNavigation();
   const onboarding = useOnboarding(route.page === "home");
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
@@ -37,27 +39,10 @@ export function App() {
     return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
   }, [serviceGeneration]);
 
-  useEffect(() => {
-    const updateRoute = () => {
-      const next = parseAppRoute(window.location.hash);
-      if (next.page === "settings" && next.section === "plugins" && window.location.hash.startsWith("#/plugins")) {
-        window.history.replaceState(window.history.state, "", next.pluginId ? pluginHash(next.pluginId) : settingsHash("plugins"));
-      }
-      setRoute(next);
-    };
-    updateRoute();
-    window.addEventListener("hashchange", updateRoute);
-    window.addEventListener("popstate", updateRoute);
-    return () => {
-      window.removeEventListener("hashchange", updateRoute);
-      window.removeEventListener("popstate", updateRoute);
-    };
-  }, []);
-
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
       onStepChange={(step) => onboarding.save({ status: "pending", step })}
-      onFinish={async (status) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); goHome(); }} />;
+      onFinish={async (status) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); navigate("#/"); }} />;
   }
   if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
   if (route.page === "plugin-builder") return <PluginBuilder key={route.sessionId} sessionId={route.sessionId} />;
@@ -70,8 +55,9 @@ export function App() {
   if (route.page === "community") {
     return <GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
   }
+  if (route.page === "community-profile") return <CommunityProfilePage authorId={route.authorId} onNavigate={navigateToSidebarPage} onBack={goToGames} onOpenGame={ohMyGame} />;
   if (route.page === "game") return <GamePlayer gameId={route.gameId} onBack={goToGames} onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
-  if (route.page === "projects") return <ProjectsPage projectType={route.projectType} onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
+  if (route.page === "projects") return <ProjectsPage projectType={route.projectType} query={route.query} sort={route.sort} onFiltersChange={(filters, replace) => navigate(projectsHash(filters), { replace })} onNavigate={navigateToSidebarPage} onOpenProject={openProject} />;
   if (route.page === "general" || route.page === "web-game" || route.page === "interactive-story" || route.page === "godot") return <GameStudioHome key={route.page} projectType={route.page === "godot" ? "godot-game" : route.page} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpenProject={openProject} />;
   if (route.page === "asset-canvas") return <AssetCanvasHome onNavigate={navigateToSidebarPage} onOpenProject={openAssetCanvasProject} />;
   if (route.page === "library") return <LibraryPage onNavigate={navigateToSidebarPage} />;
@@ -84,11 +70,9 @@ export function App() {
       conversationId={route.conversationId}
       view={route.view}
       onViewChange={(view, options) => {
-        const next = { ...route, view: view === "design" ? "design" as const : undefined };
-        const hash = next.conversationId ? conversationHash(next.projectId, next.conversationId, next.view) : projectHash(next.projectId, next.view);
-        if (options?.replace) window.history.replaceState(null, "", hash);
-        else window.history.pushState(null, "", hash);
-        setRoute(next);
+        const nextView = view === "design" ? "design" : undefined;
+        const hash = route.conversationId ? conversationHash(route.projectId, route.conversationId, nextView) : projectHash(route.projectId, nextView);
+        navigate(hash, { replace: options?.replace });
       }}
       initialPrompt={initialPrompt && initialPrompt.conversationId === route.conversationId ? initialPrompt : undefined}
       initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
@@ -97,7 +81,8 @@ export function App() {
       onInitialPromptHandled={clearInitialPrompt}
       onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}
-      onHome={goHome}
+      onHome={() => navigate(projectReturnTo)}
+      homeLabel={projectBackLabel}
     />
   );
 
@@ -111,14 +96,14 @@ export function App() {
     setInitialPrompt(undefined);
     setInitialDraft(undefined);
     setInitialCanvasNode(undefined);
-    navigateToProject(projectId, view);
+    navigate(projectHash(projectId, view));
   }
 
   function openAssetCanvasProject(projectId: string, nodeId?: string): void {
     setInitialPrompt(undefined);
     setInitialDraft(undefined);
     setInitialCanvasNode(nodeId ? { projectId, nodeId } : undefined);
-    navigateToProject(projectId);
+    navigate(projectHash(projectId));
   }
 
   async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
@@ -141,62 +126,38 @@ export function App() {
     setInitialPrompt(undefined);
   }
 
-  function navigateToProject(projectId: string, view?: "design"): void {
-    window.history.pushState(null, "", projectHash(projectId, view));
-    setRoute({ page: "project", projectId, ...(view ? { view } : {}) });
-  }
-
   function navigateToConversation(projectId: string, conversationId: string, replace = false, initialView?: "design"): void {
     const current = parseAppRoute(window.location.hash);
     const view = initialView ?? (current.page === "project" && current.projectId === projectId ? current.view : undefined);
-    window.history[replace ? "replaceState" : "pushState"](null, "", conversationHash(projectId, conversationId, view));
-    setRoute({ page: "project", projectId, conversationId, ...(view ? { view } : {}) });
-  }
-
-  function goHome(): void {
-    window.history.pushState(null, "", "#/");
-    setRoute({ page: "home" });
+    navigate(conversationHash(projectId, conversationId, view), { replace });
   }
 
   function ohMyGame(gameId: string): void {
-    window.history.pushState(null, "", gameHash(gameId));
-    setRoute({ page: "game", gameId });
+    navigate(gameHash(gameId));
   }
 
   function goToGames(): void {
     const hash = communityHash();
-    window.history.replaceState(null, "", hash);
-    setRoute({ page: "community" });
+    navigate(hash, { replace: true });
   }
 
   function navigateToSidebarPage(page: AppNavigationTarget): void {
     if (page === "settings") {
       const hash = settingsHash(DEFAULT_SETTINGS_SECTION);
-      window.history.pushState({ ...historyState(), settingsEntry: true }, "", hash);
-      setRoute({ page: "settings", section: DEFAULT_SETTINGS_SECTION });
-      return;
-    }
-    if (page === "community") {
-      const hash = communityHash();
-      if (window.location.hash === hash) return;
-      window.history.pushState(null, "", hash);
-      setRoute({ page: "community" });
+      navigate(hash, { state: { settingsEntry: true } });
       return;
     }
     const hash = sidebarHash(page);
     if (window.location.hash === hash) return;
-    window.history.pushState(null, "", hash);
-    setRoute({ page });
+    navigate(hash);
   }
 
   function navigateToSettingsSection(section: SettingsSection): void {
-    window.history.replaceState(historyState(), "", settingsHash(section));
-    setRoute({ page: "settings", section });
+    navigate(settingsHash(section), { replace: true, state: historyState() });
   }
 
   function navigateToPlugin(pluginId?: string): void {
-    window.history.replaceState(historyState(), "", pluginId ? pluginHash(pluginId) : settingsHash("plugins"));
-    setRoute({ page: "settings", section: "plugins", ...(pluginId ? { pluginId } : {}) });
+    navigate(pluginId ? pluginHash(pluginId) : settingsHash("plugins"), { replace: true, state: historyState() });
   }
 
   function leaveSettings(): void {
@@ -205,13 +166,6 @@ export function App() {
       window.history.back();
       return;
     }
-    window.history.replaceState(null, "", "#/");
-    setRoute({ page: "home" });
+    navigate("#/", { replace: true });
   }
-}
-
-function historyState(): Record<string, unknown> {
-  return window.history.state && typeof window.history.state === "object"
-    ? window.history.state as Record<string, unknown>
-    : {};
 }

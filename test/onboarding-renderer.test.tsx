@@ -30,6 +30,7 @@ const api = vi.hoisted(() => ({
   discoverCustomProviderModels: vi.fn(),
   saveCustomProvider: vi.fn(),
   setProviderEnabled: vi.fn(),
+  updateAgentDefaults: vi.fn(),
 }));
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
@@ -107,6 +108,7 @@ beforeEach(() => {
   });
   api.saveCustomProvider.mockResolvedValue(customProvider);
   api.setProviderEnabled.mockResolvedValue(undefined);
+  api.updateAgentDefaults.mockResolvedValue(undefined);
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -406,7 +408,7 @@ describe("first-run screens", () => {
     expect(stepButton("welcome").hasAttribute("aria-current")).toBe(false);
   });
 
-  it("shows providers equally and starts the chosen provider's authorization", async () => {
+  it("hides the legacy Codex entry and starts the chosen provider's authorization", async () => {
     api.listProviders.mockResolvedValue(
       ["openai-codex", "openai"].map((id) => ({
         ...provider,
@@ -423,8 +425,9 @@ describe("first-run screens", () => {
     expect(container.querySelector("h1")?.textContent).toBe(
       "Choose your provider.",
     );
-    expect(providerButton("openai-codex", "Sign in")).toBeDefined();
     expect(providerButton("openai", "Sign in")).toBeDefined();
+    expect(container.querySelector('[aria-label="openai-codex"]')).toBeNull();
+    expect(container.textContent).not.toContain("More providers");
     await act(async () => providerButton("openai", "Sign in").click());
     expect(api.startModelProviderLogin).toHaveBeenCalledWith("openai", "oauth");
   });
@@ -538,6 +541,282 @@ describe("first-run screens", () => {
     expect(button("Start creating").disabled).toBe(false);
     await act(async () => button("Start creating").click());
     expect(finish).toHaveBeenCalledWith("completed");
+  });
+
+  it("makes the provider connected during setup supply its recommended default model", async () => {
+    const anthropic: ProviderSummary = {
+      ...provider,
+      id: "anthropic",
+      name: "Anthropic",
+    };
+    const models: AgentModelCatalog["models"] = [
+      {
+        provider: "openai",
+        id: "gpt-5.5",
+        name: "GPT-5.5",
+        providerName: "OpenAI",
+        reasoningLevels: ["low", "medium"],
+      },
+      {
+        provider: "anthropic",
+        id: "claude-3-haiku",
+        name: "Claude 3 Haiku",
+        providerName: "Anthropic",
+        reasoningLevels: ["off"],
+      },
+      {
+        provider: "anthropic",
+        id: "claude-opus-4-8",
+        name: "Claude Opus 4.8",
+        providerName: "Anthropic",
+        reasoningLevels: ["off", "high"],
+      },
+    ];
+    let defaultModel = { provider: "openai", id: "gpt-5.5" };
+    api.listProviders.mockResolvedValue([anthropic]);
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+    await act(async () => providerButton("Anthropic", "API key").click());
+    api.listProviders.mockResolvedValue([
+      { ...anthropic, configured: true, status: "connected" },
+    ]);
+    api.listModels.mockImplementation(async () => ({
+      ...catalog,
+      models,
+      defaultModel,
+    }));
+    api.updateAgentDefaults.mockImplementation(async ({ model }) => {
+      defaultModel = { provider: model.provider, id: model.id };
+    });
+    await event({ type: "completed" });
+    expect(api.updateAgentDefaults).toHaveBeenCalledWith({
+      model: models[2],
+      reasoningLevel: "high",
+    });
+    const ready = container.querySelector(".onboarding-ready")!;
+    expect(ready.textContent).toContain("Anthropic");
+    expect(
+      ready.querySelector<HTMLSelectElement>(
+        'select[aria-label="Default model"]',
+      )!.value,
+    ).toBe("anthropic/claude-opus-4-8");
+    expect(container.textContent).not.toContain("Skip and start");
+  });
+
+  it("keeps setup busy while saving the connected provider's default across catalog refreshes", async () => {
+    const save = deferred<void>();
+    const finish = vi.fn();
+    const models: AgentModelCatalog["models"] = [
+      {
+        provider: provider.id,
+        providerName: provider.name,
+        id: "test-model",
+        name: "Test model",
+        reasoningLevels: ["medium"],
+      },
+    ];
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={finish} />,
+      ),
+    );
+    await act(async () => providerButton(provider.name, "API key").click());
+    api.listProviders.mockResolvedValue([
+      { ...provider, configured: true, status: "connected" },
+    ]);
+    api.listModels.mockResolvedValue({ ...catalog, models });
+    api.updateAgentDefaults.mockReturnValue(save.promise);
+    api.notifyAgentModelsChanged.mockImplementation(() => {
+      window.dispatchEvent(new Event("ohmygame-models-changed"));
+    });
+
+    await event({ type: "completed" });
+    expect(api.updateAgentDefaults).toHaveBeenCalledOnce();
+    expect(button("Start creating").disabled).toBe(true);
+    expect(stepButton("welcome").disabled).toBe(true);
+    await act(async () => button("Start creating").click());
+    expect(finish).not.toHaveBeenCalled();
+
+    await act(async () => save.resolve());
+    expect(button("Start creating").disabled).toBe(false);
+  });
+
+  it("retries saving the connected provider's default without repeating authorization", async () => {
+    const models: AgentModelCatalog["models"] = [
+      {
+        provider: provider.id,
+        providerName: provider.name,
+        id: "test-model",
+        name: "Test model",
+        reasoningLevels: ["medium"],
+      },
+    ];
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+    await act(async () => providerButton(provider.name, "API key").click());
+    api.listProviders.mockResolvedValue([
+      { ...provider, configured: true, status: "connected" },
+    ]);
+    api.listModels.mockResolvedValue({ ...catalog, models });
+    api.updateAgentDefaults.mockRejectedValueOnce(
+      new Error("Saving default failed"),
+    );
+
+    await event({ type: "completed" });
+    expect(container.textContent).toContain("Saving default failed");
+    await act(async () => button("Retry").click());
+    expect(api.updateAgentDefaults).toHaveBeenCalledTimes(2);
+    expect(api.startModelProviderLogin).toHaveBeenCalledOnce();
+    expect(container.textContent).not.toContain("Saving default failed");
+  });
+
+  it("retries selecting a re-enabled provider's default after the enable has already succeeded", async () => {
+    api.listProviders.mockResolvedValue([
+      { ...provider, configured: true, enabled: false },
+    ]);
+    api.listModels.mockResolvedValue({
+      ...catalog,
+      models: [
+        {
+          provider: provider.id,
+          providerName: provider.name,
+          id: "test-model",
+          name: "Test model",
+          reasoningLevels: ["medium"],
+        },
+      ],
+    });
+    api.setProviderEnabled.mockImplementation(async () => {
+      api.listProviders.mockResolvedValue([
+        { ...provider, configured: true, enabled: true },
+      ]);
+    });
+    api.updateAgentDefaults.mockRejectedValueOnce(
+      new Error("Saving default failed"),
+    );
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+
+    await act(async () => providerButton(provider.name, "Enable").click());
+    expect(container.textContent).toContain("Saving default failed");
+    await act(async () => button("Retry").click());
+    expect(api.updateAgentDefaults).toHaveBeenCalledTimes(2);
+    expect(api.setProviderEnabled).toHaveBeenCalledOnce();
+  });
+
+  it("finishes saving a custom provider's default after the provider form has stopped saving", async () => {
+    const saveDefault = deferred<void>();
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+    await openCustomProvider();
+    await fillCustomProvider();
+    api.listModels.mockResolvedValue({
+      ...catalog,
+      models: [
+        {
+          provider: customProvider.id,
+          providerName: customProvider.name,
+          id: "test-model",
+          name: "Test model",
+          reasoningLevels: ["off"],
+        },
+      ],
+    });
+    api.updateAgentDefaults.mockReturnValue(saveDefault.promise);
+
+    await act(async () => button("Add provider").click());
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    expect(api.saveCustomProvider).toHaveBeenCalledOnce();
+    expect(api.updateAgentDefaults).toHaveBeenCalledOnce();
+    expect(button("Start creating").disabled).toBe(true);
+    expect(stepButton("welcome").disabled).toBe(true);
+
+    await act(async () => saveDefault.resolve());
+    expect(button("Start creating").disabled).toBe(false);
+  });
+
+  it("changes the default model from the ready line", async () => {
+    const models: AgentModelCatalog["models"] = [
+      {
+        provider: "openrouter",
+        id: "first",
+        name: "First",
+        providerName: "OpenRouter",
+        reasoningLevels: ["medium"],
+      },
+      {
+        provider: "openrouter",
+        id: "second",
+        name: "Second",
+        providerName: "OpenRouter",
+        reasoningLevels: ["off"],
+      },
+    ];
+    api.listProviders.mockResolvedValue([
+      { ...provider, configured: true, status: "connected" },
+    ]);
+    api.listModels.mockResolvedValue({
+      ...catalog,
+      models,
+      defaultModel: { provider: "openrouter", id: "first" },
+    });
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+    const select = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="Default model"]',
+    )!;
+    expect(select.value).toBe("openrouter/first");
+    await act(async () => {
+      select.value = "openrouter/second";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(api.updateAgentDefaults).toHaveBeenCalledWith({
+      model: models[1],
+      reasoningLevel: "off",
+    });
+    expect(api.listModels).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists connected and popular providers first and keeps the rest under More", async () => {
+    api.listProviders.mockResolvedValue(
+      [
+        { id: "anthropic", name: "Anthropic" },
+        { id: "baseten", name: "Baseten", configured: true },
+        { id: "cerebras", name: "Cerebras" },
+        { id: "openrouter", name: "OpenRouter" },
+      ].map((item) => ({ ...provider, ...item })),
+    );
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+    const rows = () =>
+      [...container.querySelectorAll('[role="group"]')].map((row) =>
+        row.getAttribute("aria-label"),
+      );
+    expect(rows()).toEqual(["Baseten", "Anthropic", "OpenRouter"]);
+    await act(async () => button("More providers (1)").click());
+    expect(rows()).toEqual(["Baseten", "Anthropic", "OpenRouter", "Cerebras"]);
+    await act(async () => button("More providers (1)").click());
+    await fillInput("Search providers…", "cere");
+    expect(rows()).toEqual(["Cerebras"]);
+    expect(container.textContent).not.toContain("More providers");
   });
 
   it("retries failed authorization and lets users return to enter without a model", async () => {

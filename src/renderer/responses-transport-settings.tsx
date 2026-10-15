@@ -56,7 +56,7 @@ export function ProviderResponsesTransport({
         </label>
         <select
           id={id}
-          className="settings-search-input"
+          className="settings-provider-inline-select"
           value={mode}
           disabled={disabled || loading || saving}
           onChange={(event) =>
@@ -65,12 +65,17 @@ export function ProviderResponsesTransport({
         >
           <option value="auto">{t("customProvider.automatic")}</option>
           <option value="sse">HTTP / SSE</option>
-          <option value="websocket">{t("responsesTransport.preferWebSocket")}</option>
+          <option value="websocket">
+            {t("responsesTransport.preferWebSocket")}
+          </option>
         </select>
-        <small className="settings-detail-hint">
-          {t("responsesTransport.hint")}
-        </small>
       </div>
+      <small
+        className="settings-detail-hint"
+        title={t("responsesTransport.hint")}
+      >
+        {t("responsesTransport.shortHint")}
+      </small>
       {error ? (
         <p className="settings-error" role="alert">
           {error}

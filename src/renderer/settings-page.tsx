@@ -15,6 +15,8 @@ import { SegmentedControl } from "./segmented-control.js";
 import { PluginsSettings } from "./plugins.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
+import { ChangelogPanel } from "./changelog-panel.js";
+import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
 const CHAT_LAYOUT_OPTIONS: readonly { value: ChatLayout; label: string }[] = [
@@ -261,8 +263,7 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
         : status?.type === "downloading" ? t("settings.about.downloading", { percent: status.percent })
           : status?.type === "ready" ? t("settings.about.ready", { version: status.version })
             : status?.type === "installing" ? t("settings.about.installing")
-              : status?.type === "error" ? status.title : t("settings.about.notChecked");
-  const busy = status?.type === "checking" || status?.type === "downloading" || status?.type === "installing";
+              : status?.type === "error" ? status.title : null;
   const retry = () => {
     if (status?.type !== "error" || !updates) return;
     if (status.retry === "download") void updates.download();
@@ -280,47 +281,57 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
     window.setTimeout(() => setCopied(false), 2_000);
   };
   return (
-    <section className="settings-panel settings-overview-panel">
-      <header className="settings-panel-header"><h3>{t("settings.nav.about")}</h3></header>
-      {onOpenOnboarding ? <div className="settings-detail-section"><button className="settings-secondary-button" type="button" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</button></div> : null}
-      <div className="settings-about-list">
-        <div className="settings-about-row">
-          <span>{t("settings.about.version")}</span>
-          <strong>{update?.currentVersion ?? __APP_VERSION__}</strong>
-        </div>
-        <div className="settings-about-row">
-          <span>{t("settings.about.updates")}</span>
-          <div className="settings-about-update">
-            <div className="settings-about-status">
-              <span>{message}</span>
-              {status?.type === "error" ? (
-                <div className="settings-update-error" role="alert">
-                  <p>{status.message}</p>
-                  {status.dataSafe ? <p className="settings-update-data-safe">{t("settings.about.dataSafe")}</p> : null}
-                  <details>
-                    <summary>{t("common.technicalDetails")}</summary>
-                    <code>{status.detail}</code>
-                  </details>
-                </div>
-              ) : null}
-            </div>
-            {updates ? (
-              <div className="settings-about-actions">
-                {status?.type === "available" ? <button className="settings-primary-button" type="button" onClick={() => void updates.download()}>{t("settings.about.download")}</button> : null}
-                {status?.type === "ready" ? <button className="settings-primary-button" type="button" onClick={() => void updates.install()}>{t("settings.about.restart")}</button> : null}
-                {status?.type === "error" ? <>
-                  <button className="settings-primary-button" type="button" onClick={retry}>{t("common.tryAgain")}</button>
-                  {status.code === "network" ? <button className="settings-secondary-button" type="button" onClick={onOpenNetwork}>{t("settings.about.networkSettings")}</button> : null}
-                  <button className="settings-secondary-button" type="button" onClick={() => void copyDetails()}>{copied ? t("common.copied") : t("common.copyDetails")}</button>
-                </> : (
-                  <button className="settings-secondary-button" type="button" disabled={busy} onClick={() => void updates.check()}>{t("settings.about.check")}</button>
-                )}
+    <>
+      <section className="settings-panel settings-overview-panel">
+        <header className="settings-panel-header"><h3>{t("settings.nav.about")}</h3></header>
+        <div className="settings-about-summary">
+          <div className="settings-about-identity">
+            <img className="settings-about-logo" src={brandMark} alt="" />
+            <div className="settings-about-copy">
+              <div className="settings-about-product">
+                <strong>OhMyGame</strong>
+                <span>v{update?.currentVersion ?? __APP_VERSION__}</span>
               </div>
-            ) : null}
+              {updates && message ? <p className="settings-about-status" role="status">{message}</p> : null}
+            </div>
           </div>
+          {updates && status?.type !== "downloading" && status?.type !== "installing" ? (
+            <div className="settings-about-actions">
+              {status?.type === "available" ? (
+                <button className="settings-primary-button" type="button" onClick={() => void updates.download()}>{t("settings.about.download")}</button>
+              ) : status?.type === "ready" ? (
+                <button className="settings-primary-button" type="button" onClick={() => void updates.install()}>{t("settings.about.restart")}</button>
+              ) : status?.type === "error" ? (
+                <button className="settings-primary-button" type="button" onClick={retry}>{t("common.tryAgain")}</button>
+              ) : (
+                <button className="settings-secondary-button" type="button" disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</button>
+              )}
+            </div>
+          ) : null}
         </div>
-      </div>
-    </section>
+        {status?.type === "error" ? (
+          <div className="settings-update-error" role="alert">
+            <p>{status.message}</p>
+            {status.dataSafe ? <p className="settings-update-data-safe">{t("settings.about.dataSafe")}</p> : null}
+            <details>
+              <summary>{t("common.technicalDetails")}</summary>
+              <code>{status.detail}</code>
+            </details>
+            <div className="settings-about-actions">
+              {status.code === "network" ? <button className="settings-secondary-button" type="button" onClick={onOpenNetwork}>{t("settings.about.networkSettings")}</button> : null}
+              <button className="settings-secondary-button" type="button" onClick={() => void copyDetails()}>{copied ? t("common.copied") : t("common.copyDetails")}</button>
+            </div>
+          </div>
+        ) : null}
+        <nav className="settings-about-links" aria-label={t("settings.about.projectLinks")}>
+          <a href="https://github.com/WhiteTowerAI/ohmygame" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://ohmygame.ai" target="_blank" rel="noreferrer">{t("settings.about.website")}</a>
+          <a href="https://github.com/WhiteTowerAI/ohmygame/issues" target="_blank" rel="noreferrer">{t("settings.about.reportIssue")}</a>
+        </nav>
+        {onOpenOnboarding ? <div><button className="settings-secondary-button" type="button" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</button></div> : null}
+      </section>
+      <ChangelogPanel currentVersion={update?.currentVersion ?? __APP_VERSION__} availableRelease={update?.availableRelease} />
+    </>
   );
 }
 

@@ -73,7 +73,7 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
   const next = { ...state, lastEventId: event.id, notice: undefined };
   const project = state.project;
   const conversation = state.conversation;
-  const conversationScopedEvent = event.type.startsWith("agent.") || event.type.startsWith("item.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type === "conversation.model.changed";
+  const conversationScopedEvent = event.type.startsWith("agent.") || event.type.startsWith("item.") || event.type.startsWith("plan.") || event.type.startsWith("prompt.") || event.type === "conversation.model.changed" || event.type === "checkpoint.created" || event.type === "checkpoint.completed" || event.type === "workspace.undone" || event.type === "workspace.reapplied";
   if (conversationScopedEvent && (!conversation || event.conversationId !== conversation.id)) return next;
 
   switch (event.type) {
@@ -92,6 +92,37 @@ export function reduceRuntimeEvent(state: RendererState, event: RuntimeEvent): R
           items: [{ ...event.data.item, timestamp: eventTime(event) }],
         }],
       };
+    case "checkpoint.created":
+      return {
+        ...next,
+        turns: state.turns.map((turn) => turn.id !== event.turnId ? turn : {
+          ...turn,
+          items: turn.items.map((item) => item.type === "userMessage" ? { ...item, checkpointId: event.data.checkpointId } : item),
+        }),
+      };
+    case "checkpoint.completed": {
+      // Found by its checkpoint: a reloaded conversation has other turn ids than the run that reports this.
+      const ended = (item: ThreadItem) => item.type === "userMessage" && item.checkpointId === event.data.checkpointId;
+      return {
+        ...next,
+        turns: state.turns.map((turn) => turn.items.some(ended)
+          ? { ...turn, items: turn.items.map((item) => ended(item) ? { ...item, changes: { files: event.data.files, ...(event.data.items ? { items: event.data.items } : {}) } } : item) }
+          : turn),
+      };
+    }
+    case "workspace.undone":
+    case "workspace.reapplied": {
+      // Marked here and not by reading the conversation again, which would drop a turn that started in the meantime.
+      const { checkpointId, kept } = event.data;
+      const undone = event.data.undone !== false;
+      const mark = (item: ThreadItem): ThreadItem => item.type === "userMessage" && item.checkpointId === checkpointId && item.changes
+        ? { ...item, changes: { files: item.changes.files, ...(item.changes.items ? { items: item.changes.items } : {}), ...(undone ? { undone: true, ...(kept > 0 ? { kept } : {}) } : {}) } }
+        : item;
+      return {
+        ...next,
+        turns: state.turns.map((turn) => turn.items.some((item) => mark(item) !== item) ? { ...turn, items: turn.items.map(mark) } : turn),
+      };
+    }
     case "project.renamed":
     case "project.updated":
       return project?.id === event.data.project.id

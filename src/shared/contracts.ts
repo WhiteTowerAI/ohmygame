@@ -1,6 +1,7 @@
 import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
+import type { DiffHunk } from "./line-diff.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -669,7 +670,7 @@ export interface PlanState {
 }
 
 export type ThreadItem = (
-  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[] }
+  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges }
   | { id: string; turnId: string; type: "imageRead"; count: number; status: "completed" }
   | { id: string; turnId: string; type: "modelChange"; model: AgentModelRef; name?: string }
   | {
@@ -707,6 +708,10 @@ export type ThreadItem = (
       artifact?: ToolArtifact;
       images?: PromptImage[];
       webSearch?: WebSearchToolMetadata;
+      /** Actual text lines changed by this file tool, when available. */
+      lineChanges?: LineChanges;
+      /** Bounded preview of this tool's actual file mutation, independent of turn checkpoints. */
+      fileDiff?: { hunks: DiffHunk[]; truncated?: boolean };
     }
   | {
       id: string;
@@ -932,6 +937,71 @@ export interface CreateLibraryImageRequest {
   image: PromptImage & { mediaType: Extract<LibraryUploadMediaType, `image/${string}`> };
 }
 
+export interface LineChanges {
+  added: number;
+  removed: number;
+}
+
+/** The file changes of one Agent turn. */
+export interface TurnChanges {
+  /** How many files the turn added, modified or removed. */
+  files: number;
+  /** Immutable file summary saved when the turn ended. Absent in older sessions. */
+  items?: CheckpointChangeItem[];
+  /** The changes were taken back with Undo. */
+  undone?: boolean;
+  /** How many of the files that undo left as they are, because they were changed again after the turn. */
+  kept?: number;
+}
+
+export interface CheckpointChangeItem {
+  /** Workspace path with forward slashes. */
+  path: string;
+  kind: "added" | "modified" | "removed";
+  /** Omitted for binary files or text beyond the preview limit. */
+  lines?: LineChanges;
+  /**
+   * How the file stands now: as the turn left it, as it was before the turn,
+   * or changed again afterwards. Left out while the Agent is working.
+   */
+  state?: "applied" | "undone" | "changed";
+}
+
+/** A file as one checkpoint holds it. */
+export interface CheckpointFile {
+  binary: boolean;
+  content?: string;
+  truncated?: boolean;
+}
+
+/** A changed file before and after a turn. A side is null when the file was not there. */
+export interface CheckpointFileView {
+  path: string;
+  before: CheckpointFile | null;
+  after: CheckpointFile | null;
+}
+
+export interface CheckpointUndoRequest {
+  /** What to do with files that were changed again after the turn. Without it an undo with such files is refused. */
+  conflicts?: "keep" | "overwrite";
+  /**
+   * The files the player was shown before choosing to overwrite. Required
+   * with "overwrite": when other files are in the way by now, the undo is
+   * refused again with the new list instead of overwriting what was not shown.
+   */
+  expected?: string[];
+}
+
+export interface CheckpointUndoResponse {
+  /** Remaining reversible Undo state, also returned by Reapply. */
+  undone?: boolean;
+  kept?: number;
+  /** Workspace paths that were put back. */
+  changed: string[];
+  /** Workspace paths that were left as they are. */
+  conflicts: string[];
+}
+
 export interface WorkspaceFileContent {
   path: string;
   size: number;
@@ -1092,6 +1162,11 @@ export interface RuntimeEventData {
   "project.updated": { project: ProjectState };
   "preview.updated": { preview: PreviewRuntimeState };
   "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
+  "checkpoint.created": { checkpointId: string };
+  "checkpoint.completed": { checkpointId: string } & Pick<TurnChanges, "files" | "items">;
+  "workspace.restored": { version: string; changed: string[]; recovery?: boolean; checkpointId?: string };
+  "workspace.undone": { checkpointId: string; kept: number; undone?: boolean };
+  "workspace.reapplied": { checkpointId: string; undone: boolean; kept: number };
   "plan.mode.changed": PlanSessionState;
   "item.started": { item: ThreadItem };
   "item.updated": { item: ThreadItem };
@@ -1118,6 +1193,11 @@ export const RUNTIME_EVENT_TYPES = [
   "project.updated",
   "preview.updated",
   "agent.started",
+  "checkpoint.created",
+  "checkpoint.completed",
+  "workspace.restored",
+  "workspace.undone",
+  "workspace.reapplied",
   "item.started",
   "item.updated",
   "item.completed",

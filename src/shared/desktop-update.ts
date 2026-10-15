@@ -32,5 +32,6 @@ export type DesktopUpdateStatus =
 
 export interface DesktopUpdateState {
   currentVersion: string;
+  availableRelease?: { version: string; notes: string };
   status: DesktopUpdateStatus;
 }

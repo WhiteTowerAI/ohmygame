@@ -1,3 +1,5 @@
+import { ChangeCounts } from "./change-counts.js";
+import { FileDiff } from "./file-diff.js";
 import {
   Check,
   ChevronRight,
@@ -9,6 +11,7 @@ import {
   Image,
   LoaderCircle,
   Pencil,
+  Undo2,
   Plug,
   Search,
   Terminal,
@@ -36,6 +39,7 @@ import { MarkdownContent } from "./markdown-content.js";
 import { LazyDetails } from "./lazy-details.js";
 import { agentErrorDiagnosticRows, agentErrorDiagnosticText, agentErrorPresentation } from "./agent-error-presentation.js";
 import { language, t } from "./i18n.js";
+import { TurnChangesFooter, TurnChangesViews, type TurnChangesControls } from "./turn-changes.js";
 
 type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
 
@@ -46,6 +50,12 @@ interface AgentTimelineProps {
   onOpenWorkspaceFile?: (path: string) => void;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
+  /** Puts the project back to before the message the checkpoint was taken for. */
+  onRestore?: (checkpointId: string) => void;
+  /** Shows under each finished turn what it changed in the workspace, with a way to undo it. */
+  changeControls?: TurnChangesControls;
+  /** Changes whenever the files of the workspace may have changed, so that what the turns show of them is read again. */
+  workspaceRevision?: number;
   onAddToChat?: (text: string) => void;
   waitingForInput?: boolean;
 }
@@ -60,7 +70,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onRestore, changeControls, workspaceRevision, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -123,32 +133,36 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
   return (
     <WorkspaceLinkContext.Provider value={workspaceLinks}>
       <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
-        {turns.map((turn, index) => (
-          <Turn
-            key={turn.id}
-            projectId={projectId}
-            turn={turn}
-            waitingForInput={turn.status === "inProgress" && waitingForInput}
-            steeringPending={steeringPending && index === latestSteeringIndex}
-            assistantControls={{
-              copiedItemId: copiedAssistantId,
-              latestItemId: latestAssistantId,
-              onCopy: copyAssistant,
-            }}
-            userControls={{
-              editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
-              draft: displays[index].user?.id === editingItemId ? draft : "",
-              copied: displays[index].user?.id === copiedItemId,
-              canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
-              disabled: Boolean(revisionDisabled || submitting),
-              onCopy: copy,
-              onEdit: edit,
-              onDraftChange: setDraft,
-              onCancel: cancelEdit,
-              onSubmit: submitRevision,
-            }}
-          />
-        ))}
+        <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
+          {turns.map((turn, index) => (
+            <Turn
+              key={turn.id}
+              projectId={projectId}
+              turn={turn}
+              waitingForInput={turn.status === "inProgress" && waitingForInput}
+              steeringPending={steeringPending && index === latestSteeringIndex}
+              changeControls={changeControls}
+              assistantControls={{
+                copiedItemId: copiedAssistantId,
+                latestItemId: latestAssistantId,
+                onCopy: copyAssistant,
+              }}
+              userControls={{
+                editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
+                draft: displays[index].user?.id === editingItemId ? draft : "",
+                copied: displays[index].user?.id === copiedItemId,
+                canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
+                disabled: Boolean(revisionDisabled || submitting),
+                onRestore,
+                onCopy: copy,
+                onEdit: edit,
+                onDraftChange: setDraft,
+                onCancel: cancelEdit,
+                onSubmit: submitRevision,
+              }}
+            />
+          ))}
+        </TurnChangesViews>
         {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
       </div>
     </WorkspaceLinkContext.Provider>
@@ -161,6 +175,7 @@ interface UserControls {
   canEdit: boolean;
   disabled: boolean;
   draft: string;
+  onRestore?: (checkpointId: string) => void;
   onCopy: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onEdit: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onDraftChange: (value: string) => void;
@@ -174,13 +189,14 @@ interface AssistantControls {
   onCopy: (id: string, text: string) => void;
 }
 
-const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPending = false, userControls, assistantControls }: {
+const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPending = false, userControls, assistantControls, changeControls }: {
   turn: ThreadTurn;
   projectId: string;
   waitingForInput: boolean;
   steeringPending?: boolean;
   userControls: UserControls;
   assistantControls: AssistantControls;
+  changeControls?: TurnChangesControls;
 }) {
   const [now, setNow] = useState(Date.now());
   const active = turn.status === "inProgress";
@@ -191,6 +207,9 @@ const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPend
     return () => window.clearInterval(timer);
   }, [active]);
   const display = useMemo(() => active ? projectTurnDisplay(turn, now, waitingForInput) : turnDisplay(turn), [turn, active, now, waitingForInput]);
+  const fileChanges = changeControls && display.status !== "inProgress" && display.user?.checkpointId && display.user.changes && display.user.changes.files > 0
+    ? <TurnChangesFooter checkpointId={display.user.checkpointId} changes={display.user.changes} controls={changeControls} />
+    : null;
   return (
     <article className="agent-turn">
       <UserInput item={display.user} controls={userControls} />
@@ -198,14 +217,16 @@ const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPend
       {display.status !== "inProgress" && (display.work.length > 0 || display.status === "cancelled") ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
       {display.finalMessages.length > 0
-        ? <FinalResponse projectId={projectId} items={display.finalMessages} artifacts={display.artifacts} controls={assistantControls} />
+        ? <FinalResponse projectId={projectId} items={display.finalMessages} artifacts={display.artifacts} controls={assistantControls} changes={fileChanges} />
         : display.artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={display.artifacts} /> : null}
+      {display.finalMessages.length === 0 ? fileChanges : null}
       {steeringPending ? <SteeringActivity /> : null}
     </article>
   );
 }, (previous, next) => previous.turn === next.turn && previous.projectId === next.projectId &&
   previous.waitingForInput === next.waitingForInput && previous.steeringPending === next.steeringPending &&
-  equalControls(previous.userControls, next.userControls) && equalControls(previous.assistantControls, next.assistantControls));
+  equalControls(previous.userControls, next.userControls) && equalControls(previous.assistantControls, next.assistantControls) &&
+  previous.changeControls === next.changeControls);
 
 function equalControls<T extends object>(previous: T, next: T): boolean {
   return (Object.keys(previous) as (keyof T)[]).every((key) => previous[key] === next[key]);
@@ -219,11 +240,12 @@ function SteeringActivity() {
   );
 }
 
-function FinalResponse({ projectId, items, artifacts, controls }: {
+function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   projectId: string;
   items: Extract<ThreadItem, { type: "agentMessage" }>[];
   artifacts: ToolArtifact[];
   controls: AssistantControls;
+  changes: ReactNode;
 }) {
   const copyable = items.filter((item) => item.status === "completed" && Boolean(item.text.trim()));
   const responseId = copyable.at(-1)?.id;
@@ -233,6 +255,7 @@ function FinalResponse({ projectId, items, artifacts, controls }: {
     <div className={`assistant-response${responseId === controls.latestItemId ? " assistant-response-latest" : ""}`}>
       {items.map((item) => <TimelineItem key={item.id} item={item} />)}
       {artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={artifacts} /> : null}
+      {changes}
       {responseId ? (
         <div className="assistant-response-footer">
           <button type="button" aria-label={t("timeline.copyResponse")} title={t("common.copy")} onClick={() => controls.onCopy(responseId, text)}>
@@ -301,6 +324,11 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
             {controls.canEdit ? (
               <button type="button" aria-label={t("timeline.editMessage")} title={t("common.edit")} onClick={() => controls.onEdit(item)} disabled={controls.disabled}>
                 <Pencil size={13} />
+              </button>
+            ) : null}
+            {controls.onRestore && item.checkpointId ? (
+              <button type="button" aria-label={t("checkpoints.restoreToMessage")} title={t("checkpoints.restoreToMessage")} onClick={() => controls.onRestore!(item.checkpointId!)} disabled={controls.disabled}>
+                <Undo2 size={13} />
               </button>
             ) : null}
           </div>
@@ -652,6 +680,7 @@ function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, {
     <div className={`tool-activity tool-row${expandable ? " tool-row-expandable" : ""} timeline-activity tool-${item.status}`}>
       <Icon size={13} aria-hidden="true" />
       <span className="tool-label" title={label}>{label}</span>
+      {item.type === "dynamicToolCall" && ["edit", "write"].includes(item.tool) && item.status === "completed" && item.lineChanges ? <ChangeCounts lines={item.lineChanges} /> : null}
       {expandable ? <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" /> : null}
       <span className="tool-result" aria-label={item.status}>
         {item.status === "failed" ? <X size={12} /> : null}
@@ -706,8 +735,13 @@ function FileOperationDetails({ item, args }: { item: ToolCallItem; args: Record
 }
 
 function FileChangeDetails({ item, args }: { item: ToolCallItem; args: Record<string, unknown> | undefined }) {
+  const diff = item.type === "dynamicToolCall" && item.status === "completed" ? item.fileDiff : undefined;
   return <div className="tool-details">
     <ToolDetailBlock label={t("timeline.detail.file")}><code>{text(args?.path) || text(args?.file_path) || t("timeline.detail.unknownFile")}</code></ToolDetailBlock>
+    {diff ? <ToolDetailBlock label={t("timeline.detail.diff")}>
+      {diff.hunks.length ? <FileDiff hunks={diff.hunks} /> : <p className="turn-changes-note">{t("checkpoints.sameLines")}</p>}
+      {diff.truncated ? <p className="tool-details-truncated">{t("timeline.detail.diffTruncated")}</p> : null}
+    </ToolDetailBlock> : null}
     {item.output ? <ToolDetailBlock label={t("timeline.detail.result")}><pre>{item.output}</pre></ToolDetailBlock> : null}
     {item.truncated ? <p className="tool-details-truncated">{t("timeline.detail.resultTruncated")}</p> : null}
     {!item.output && item.status === "failed" ? <p className="tool-details-error">{t("timeline.detail.fileChangeFailed")}</p> : null}
@@ -755,7 +789,8 @@ function hasToolDetails(item: ToolCallItem): boolean {
   if (item.status === "failed" || item.truncated) return true;
   if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
-  if (["read", "grep", "find", "ls", "edit", "write"].includes(item.tool)) return Boolean(item.output);
+  if (["edit", "write"].includes(item.tool)) return Boolean(item.output || item.fileDiff);
+  if (["read", "grep", "find", "ls"].includes(item.tool)) return Boolean(item.output);
   return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
 }
 

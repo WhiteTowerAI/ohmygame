@@ -1,3 +1,4 @@
+import { observeWorkspaceVersion } from "../src/renderer/workspace-version.js";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetCanvasDocument } from "../src/shared/contracts.js";
@@ -16,6 +17,7 @@ let entries: Map<string, string>;
 let browserStorage: { getItem: ReturnType<typeof vi.fn>; setItem: ReturnType<typeof vi.fn>; removeItem: ReturnType<typeof vi.fn> };
 beforeEach(() => {
   vi.resetAllMocks();
+  observeWorkspaceVersion("project", "0");
   entries = new Map();
   browserStorage = {
     getItem: vi.fn((key: string) => entries.get(key) ?? null),
@@ -103,7 +105,7 @@ describe("canvas board storage", () => {
     const onConflict = vi.fn(), storage = adapter(onConflict), merged = await storage.load();
     expect(merged.nodes[0]).toMatchObject({ title: "My title", description: "Disk description" });
     await storage.save(merged);
-    expect(api.saveCanvasBoard).toHaveBeenCalledWith("project", detail(merged));
+    expect(api.saveCanvasBoard).toHaveBeenCalledWith("project", detail(merged), "0");
     expect(entries.has(recoveryKey)).toBe(false);
     expect(onConflict).not.toHaveBeenCalled();
   });
@@ -145,7 +147,7 @@ describe("canvas board storage", () => {
     await Promise.all([first, second]);
     await expect(saving).resolves.toEqual(local);
     expect(api.getCanvasBoard).toHaveBeenCalledTimes(1);
-    expect(api.saveCanvasBoard).toHaveBeenCalledWith("project", detail(local));
+    expect(api.saveCanvasBoard).toHaveBeenCalledWith("project", detail(local), "0");
   });
 
   it("can reload after an initial read fails during an agent edit", async () => {
@@ -259,7 +261,7 @@ describe("canvas board storage", () => {
     expect(flushDocuments).toHaveBeenCalledTimes(1);
     expect(api.generateCanvasMedia).not.toHaveBeenCalled();
     finish(); await expect(generation).resolves.toEqual({ id: "job" });
-    expect(api.generateCanvasMedia).toHaveBeenCalledWith("project", "board", "node");
+    expect(api.generateCanvasMedia).toHaveBeenCalledWith("project", "board", "node", "0");
   });
 
   it("does not generate when linked documents cannot be saved", async () => {
@@ -267,4 +269,25 @@ describe("canvas board storage", () => {
     await expect(adapter(vi.fn(), flushDocuments).generate("node")).rejects.toThrow("Document conflict");
     expect(api.generateCanvasMedia).not.toHaveBeenCalled();
   });
+});
+
+
+it("refuses delayed saves and generations after undo, and ignores old recovery drafts", async () => {
+  const base = canvas(), local = structuredClone(base);
+  local.nodes[0]!.title = "Old draft";
+  entries.set(recoveryKey, JSON.stringify({ base, local }));
+  api.getCanvasBoard.mockResolvedValue(detail(base));
+  let release!: () => void;
+  const storage = adapter(vi.fn(), vi.fn(() => new Promise<void>((resolve) => { release = resolve; })));
+  await storage.load();
+  const generation = storage.generate("node");
+  await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+  observeWorkspaceVersion("project", "restored");
+  release();
+  await expect(generation).rejects.toMatchObject({ code: "workspace_stale" });
+  await expect(storage.save(local)).rejects.toMatchObject({ code: "workspace_stale" });
+  expect(api.saveCanvasBoard).not.toHaveBeenCalled();
+  expect(api.generateCanvasMedia).not.toHaveBeenCalled();
+  expect(await adapter().load()).toEqual(base);
+  expect(entries.has(recoveryKey)).toBe(true);
 });

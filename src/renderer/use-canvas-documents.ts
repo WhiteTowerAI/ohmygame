@@ -1,3 +1,4 @@
+import { workspaceVersion } from "./workspace-version.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AGENT_REASONING_LEVELS, type AgentModelRef, type AgentReasoningLevel, type AssetCanvasTextGenerationSource } from "../shared/contracts.js";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
@@ -55,7 +56,8 @@ export function useCanvasDocuments(projectId: string) {
   const chain = useRef(Promise.resolve());
   const mounted = useRef(true);
   const refreshCounter = useRef(0);
-  const recoveryKey = `canvas-documents:${projectId}`;
+  const [version] = useState(() => workspaceVersion(projectId));
+  const recoveryKey = `canvas-documents:${projectId}${version === "0" ? "" : `:${version}`}`;
   const generationKey = `canvas-document-generations:${projectId}`;
   const [generations, setGenerations] = useState<
     Record<string, DocumentGenerationState>
@@ -245,10 +247,11 @@ export function useCanvasDocuments(projectId: string) {
                     projectId,
                     { document: outgoing, revision: base.revision },
                     entry.id,
+                    version,
                   );
                   break;
                 } catch (cause) {
-                  if ((cause as { status?: number }).status !== 409)
+                  if ((cause as { status?: number }).status !== 409 || (cause as { code?: string }).code === "workspace_stale")
                     throw cause;
                   const remote = await getCanvasDocument(projectId, entry.id);
                   if (!remote) throw cause;
@@ -317,14 +320,14 @@ export function useCanvasDocuments(projectId: string) {
   }, [workspace, flush, conflict, closing]);
   const create = useCallback(async () => {
     await flush();
-    const detail = await createCanvasDocument(projectId, t("canvasDocs.untitled"));
+    const detail = await createCanvasDocument(projectId, t("canvasDocs.untitled"), version);
     await refresh();
     return detail.document.id;
   }, [projectId, flush, refresh]);
   const insertImage = useCallback(
     async (documentId: string, assetId: string) => {
       await flush();
-      await insertCanvasImage(projectId, documentId, assetId);
+      await insertCanvasImage(projectId, documentId, assetId, version);
       await refresh();
     },
     [projectId, flush, refresh],
@@ -332,7 +335,7 @@ export function useCanvasDocuments(projectId: string) {
   const setMain = useCallback(
     async (documentId: string) => {
       await flush();
-      await setMainCanvasDocument(projectId, documentId);
+      await setMainCanvasDocument(projectId, documentId, version);
       await refresh();
     },
     [projectId, flush, refresh],
@@ -376,7 +379,7 @@ export function useCanvasDocuments(projectId: string) {
           reasoningLevel,
           referenceSource,
           revision: base.revision,
-        });
+        }, version);
         if (result.status === "empty") {
           changeGeneration(id, { error: result.error });
           return;

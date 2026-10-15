@@ -7,7 +7,7 @@ import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { projectDeletionConfirmation } from "./project-deletion.js";
-import { createdProjectView, projectsHash, type AppNavigationTarget } from "./routes.js";
+import { createdProjectView, type AppNavigationTarget, type ProjectListFilters, type ProjectSort } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { PROJECT_TYPES } from "./project-types.js";
 import { useProjectActivity } from "./use-project-activity.js";
@@ -15,20 +15,19 @@ import { t } from "./i18n.js";
 
 interface ProjectsPageProps {
   projectType?: ProjectType | "all";
+  query?: string;
+  sort?: ProjectSort;
+  onFiltersChange: (filters: ProjectListFilters, replace?: boolean) => void;
   onNavigate: (page: AppNavigationTarget) => void;
   onOpenProject: (projectId: string, view?: "design") => void;
 }
 
-type ProjectSort = "updated" | "name";
-
-export function ProjectsPage({ projectType = "all", onNavigate, onOpenProject }: ProjectsPageProps) {
+export function ProjectsPage({ projectType = "all", query = "", sort = "updated", onFiltersChange, onNavigate, onOpenProject }: ProjectsPageProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const activity = useProjectActivity(phase === "ready" && projects.length > 0);
   const [error, setError] = useState<string>();
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<ProjectSort>("updated");
   const [sortOpen, setSortOpen] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
@@ -60,6 +59,7 @@ export function ProjectsPage({ projectType = "all", onNavigate, onOpenProject }:
   }, [sortOpen]);
 
   const visibleProjects = useMemo(() => filterAndSortProjects(projects, query, sort, projectType), [projects, query, sort, projectType]);
+  const filters = { projectType: projectType === "all" ? undefined : projectType, query, sort };
 
   async function runAction(action: () => Promise<unknown>): Promise<void> {
     setActionError(undefined);
@@ -94,14 +94,14 @@ export function ProjectsPage({ projectType = "all", onNavigate, onOpenProject }:
           <div className="projects-controls">
             <select className="projects-type-filter" aria-label={t("creator.projectType")} value={projectType} onChange={(event) => {
               const type = event.target.value as ProjectType | "all";
-              window.location.hash = projectsHash(type === "all" ? undefined : type);
+              onFiltersChange({ ...filters, projectType: type === "all" ? undefined : type });
             }}>
               <option value="all">{t("projects.allTypes")}</option>
               {PROJECT_TYPES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
             </select>
             <label className="projects-search" htmlFor="projects-search-input">
               <Search size={14} aria-hidden="true" />
-              <input id="projects-search-input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("projects.search")} />
+              <input id="projects-search-input" value={query} onChange={(event) => onFiltersChange({ ...filters, query: event.target.value }, true)} placeholder={t("projects.search")} />
             </label>
             <div className="projects-sort" ref={sortControl}>
               <button className="projects-icon-button" type="button" aria-label={t("projects.sort")} aria-expanded={sortOpen} onClick={() => setSortOpen((current) => !current)}>
@@ -109,8 +109,8 @@ export function ProjectsPage({ projectType = "all", onNavigate, onOpenProject }:
               </button>
               {sortOpen ? (
                 <div className="projects-sort-menu" role="menu">
-                  <button className={sort === "updated" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { setSort("updated"); setSortOpen(false); }}>{t("projects.recentlyUpdated")}</button>
-                  <button className={sort === "name" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { setSort("name"); setSortOpen(false); }}>{t("common.name")}</button>
+                  <button className={sort === "updated" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { onFiltersChange({ ...filters, sort: "updated" }, true); setSortOpen(false); }}>{t("projects.recentlyUpdated")}</button>
+                  <button className={sort === "name" ? "is-active" : undefined} type="button" role="menuitem" onClick={() => { onFiltersChange({ ...filters, sort: "name" }, true); setSortOpen(false); }}>{t("common.name")}</button>
                 </div>
               ) : null}
             </div>

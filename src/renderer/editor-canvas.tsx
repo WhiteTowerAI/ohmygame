@@ -123,7 +123,7 @@ export function EditorCanvas<N extends Node>({
       onInit={(value) => { instance.current = value; onInit?.(value); }}
       onNodeDragStart={(event, node, dragged) => { setGuides(undefined); onNodeDragStart?.(event, node, dragged); }}
       onNodeDrag={(_event, node) => {
-        const [active, ...candidates] = alignmentNodesFromDom([node, ...nodes]);
+        const [active, ...candidates] = alignmentNodesFromDom([node, ...nodes.filter((candidate) => !candidate.dragging)]);
         setGuides(active ? findCanvasAlignmentGuides(active, candidates) : undefined);
       }}
       onNodeDragStop={(event, node, dragged) => { setGuides(undefined); onNodeDragStop?.(event, node, dragged); }}

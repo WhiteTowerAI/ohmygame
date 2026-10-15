@@ -1,5 +1,5 @@
 diff --git a/dist/api/anthropic-messages.js b/dist/api/anthropic-messages.js
-index 106f2b9617fa3b810261e067a3c965f209907af3..b297525040391f8d4c3da9a4aa893fa0c84ecf1e 100644
+index d0a5b0f1bcd77e4afff2c92b068a6e3150dcdd86..73c1bdb2b203d2acb366f79cd775ef02faf35ea6 100644
 --- a/dist/api/anthropic-messages.js
 +++ b/dist/api/anthropic-messages.js
 @@ -1,3 +1,4 @@
@@ -15,15 +15,15 @@ index 106f2b9617fa3b810261e067a3c965f209907af3..b297525040391f8d4c3da9a4aa893fa0
          const output = {
              role: "assistant",
              content: [],
-@@ -440,6 +442,7 @@ export const stream = (model, context, options) => {
-                 maxRetryDelayMs: options?.maxRetryDelayMs,
-                 signal: options?.signal,
-             });
+@@ -472,6 +474,7 @@ export const stream = (model, context, options) => {
+                     });
+                 }
+             }
 +            failureResponse = response;
              await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
              stream.push({ type: "start", partial: output });
              const blocks = output.content;
-@@ -682,6 +685,7 @@ export const stream = (model, context, options) => {
+@@ -714,6 +717,7 @@ export const stream = (model, context, options) => {
                  delete block.partialJson;
              }
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
@@ -32,7 +32,7 @@ index 106f2b9617fa3b810261e067a3c965f209907af3..b297525040391f8d4c3da9a4aa893fa0
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
 diff --git a/dist/api/azure-openai-responses.js b/dist/api/azure-openai-responses.js
-index dc2d8f9be2f47dc73dde758c630fe12dd7749d5d..3778fdc8fa2da23d068fdd5d68be28d7c4c93674 100644
+index 4615b1e502429ca4fb911dd8318658265b429c8d..44a540950b9ee19ee444fb935937692b775f1c43 100644
 --- a/dist/api/azure-openai-responses.js
 +++ b/dist/api/azure-openai-responses.js
 @@ -1,3 +1,4 @@
@@ -40,7 +40,7 @@ index dc2d8f9be2f47dc73dde758c630fe12dd7749d5d..3778fdc8fa2da23d068fdd5d68be28d7
  import { AzureOpenAI } from "openai";
  import { clampThinkingLevel } from "../models.js";
  import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
-@@ -49,6 +50,7 @@ export const stream = (model, context, options) => {
+@@ -26,6 +27,7 @@ export const stream = (model, context, options) => {
      // Start async processing
      (async () => {
          const deploymentName = resolveDeploymentName(model, options);
@@ -48,7 +48,7 @@ index dc2d8f9be2f47dc73dde758c630fe12dd7749d5d..3778fdc8fa2da23d068fdd5d68be28d7
          const output = {
              role: "assistant",
              content: [],
-@@ -89,6 +91,7 @@ export const stream = (model, context, options) => {
+@@ -66,6 +68,7 @@ export const stream = (model, context, options) => {
                  maxRetryDelayMs: options?.maxRetryDelayMs,
                  signal: options?.signal,
              });
@@ -56,7 +56,7 @@ index dc2d8f9be2f47dc73dde758c630fe12dd7749d5d..3778fdc8fa2da23d068fdd5d68be28d7
              await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
              stream.push({ type: "start", partial: output });
              await processResponsesStream(openaiStream, output, stream, model, {
-@@ -115,6 +118,7 @@ export const stream = (model, context, options) => {
+@@ -92,6 +95,7 @@ export const stream = (model, context, options) => {
                  delete block.customInput;
              }
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
@@ -99,7 +99,7 @@ index b51f64e88b2d7b5eb7a921f2fa6da246b6f3a084..4466ec0b4f2f4553b7d2f2e73e576d36
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
 diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
-index 40014b3b7eacb3a8e5e43daac2cec6446e8810c2..4a7afa56616d7b4d288080700e04d6b077f7321b 100644
+index 42aac9d5f61edf7254c975d47abb42eca59bdad8..3e0d83408f66f94c85b2116c18da62b549785873 100644
 --- a/dist/api/openai-codex-responses.js
 +++ b/dist/api/openai-codex-responses.js
 @@ -1,3 +1,4 @@
@@ -107,7 +107,7 @@ index 40014b3b7eacb3a8e5e43daac2cec6446e8810c2..4a7afa56616d7b4d288080700e04d6b0
  import { clampThinkingLevel } from "../models.js";
  import { registerSessionResourceCleanup } from "../session-resources.js";
  import { combineAbortSignals } from "../utils/abort-signals.js";
-@@ -144,6 +145,7 @@ export const stream = (model, context, options) => {
+@@ -145,6 +146,7 @@ export const stream = (model, context, options) => {
      const stream = new AssistantMessageEventStream();
      const normalizedContext = resolveTranscript(context, model.compat?.supportsMidConvoSystemMessages);
      (async () => {
@@ -115,7 +115,7 @@ index 40014b3b7eacb3a8e5e43daac2cec6446e8810c2..4a7afa56616d7b4d288080700e04d6b0
          const output = {
              role: "assistant",
              content: [],
-@@ -257,6 +259,7 @@ export const stream = (model, context, options) => {
+@@ -258,6 +260,7 @@ export const stream = (model, context, options) => {
              let lastError;
              const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
              for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -123,7 +123,7 @@ index 40014b3b7eacb3a8e5e43daac2cec6446e8810c2..4a7afa56616d7b4d288080700e04d6b0
                  if (options?.signal?.aborted) {
                      throw new Error("Request was aborted");
                  }
-@@ -280,6 +283,7 @@ export const stream = (model, context, options) => {
+@@ -281,6 +284,7 @@ export const stream = (model, context, options) => {
                      finally {
                          combinedSignal.cleanup();
                      }
@@ -131,7 +131,7 @@ index 40014b3b7eacb3a8e5e43daac2cec6446e8810c2..4a7afa56616d7b4d288080700e04d6b0
                      await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
                      if (response.ok) {
                          break;
-@@ -344,6 +348,7 @@ export const stream = (model, context, options) => {
+@@ -345,6 +349,7 @@ export const stream = (model, context, options) => {
                  delete block.customInput;
              }
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
@@ -140,7 +140,7 @@ index 40014b3b7eacb3a8e5e43daac2cec6446e8810c2..4a7afa56616d7b4d288080700e04d6b0
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
 diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
-index eecd83c753e3b758b8e44628f560b862f8252839..cd6242ad5d16ef73fc232764d25f40447bc03d3e 100644
+index a60f39352b776d71497e55b33b3334bacfbeb2f5..b71c8808e9fbe66a1e21f43e72e54624de6b3e68 100644
 --- a/dist/api/openai-completions.js
 +++ b/dist/api/openai-completions.js
 @@ -1,3 +1,4 @@
@@ -173,7 +173,7 @@ index eecd83c753e3b758b8e44628f560b862f8252839..cd6242ad5d16ef73fc232764d25f4044
              // Some providers via OpenRouter give additional information in this field.
              // normalizeProviderError already stringifies the parsed body (error.error)
 diff --git a/dist/api/openai-responses.js b/dist/api/openai-responses.js
-index 4d58c9772b49f0d40e31d42c251a6d993a4a673f..1713bddc4f106fad0ebc7b7f341fe40cc7d639c4 100644
+index 2a6b4e408498e33fd7685471559fbd4696755f0a..c729cebdb1a0ec60b39beb75c53c2b8f27ce54a8 100644
 --- a/dist/api/openai-responses.js
 +++ b/dist/api/openai-responses.js
 @@ -1,3 +1,4 @@
@@ -206,15 +206,15 @@ index 4d58c9772b49f0d40e31d42c251a6d993a4a673f..1713bddc4f106fad0ebc7b7f341fe40c
              // Sign in with ChatGPT shares the subscription's usage limit with other apps.
              output.errorMessage = errorMessage.includes("subscription_sharing_usage_limit_exceeded")
 diff --git a/dist/api/system-one-shared.js b/dist/api/system-one-shared.js
-index 5735aee8c487e5b11f94abf8db6b18c4f71184e2..69343a23abad907eb2bf9521dafcb30d0825c8b2 100644
+index 824e39517978d66496b5b6b369844bc485170d94..9d7cd223b9dab361ff163fcf0e97a76835adcd0c 100644
 --- a/dist/api/system-one-shared.js
 +++ b/dist/api/system-one-shared.js
 @@ -1,3 +1,4 @@
 +import { appendProviderFailureDiagnostic } from "../utils/provider-failure.js";
- import { calculateCost } from "../models.js";
  import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
- import { headersToRecord, providerHeadersToRecord } from "../utils/headers.js";
-@@ -176,6 +177,7 @@ export async function classifySystemOne(transport, model, context, options) {
+ import { isRecord, parseClassifierUsage, postClassifierRequest, requiredNumber } from "./classifier-shared.js";
+ function probabilities(label, value, id) {
+@@ -92,6 +93,7 @@ export async function classifySystemOne(transport, model, context, options) {
      }
      catch (error) {
          output.stopReason = options?.signal?.aborted ? "aborted" : "error";
@@ -235,7 +235,7 @@ index 0000000000000000000000000000000000000000..6da4ff5c32329db4bb4ffb0ac9f1a451
 +export declare function appendProviderFailureDiagnostic(output: { diagnostics?: AssistantMessageDiagnostic[] }, error: unknown, endpoint?: string, response?: { status: number; headers: Headers }): void;
 diff --git a/node_modules/@earendil-works/pi-ai/dist/utils/provider-failure.js b/dist/utils/provider-failure.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..e2c7d4f02f897d88d00f6146c67a1fb5556cf6df
+index 0000000000000000000000000000000000000000..53fb4cb64fa706f8a19a8e6fbac1ea2e75c03809
 --- /dev/null
 +++ b/dist/utils/provider-failure.js
 @@ -0,0 +1,77 @@
@@ -317,9 +317,10 @@ index 0000000000000000000000000000000000000000..e2c7d4f02f897d88d00f6146c67a1fb5
 +    output.diagnostics = [...(output.diagnostics ?? []), createProviderFailureDiagnostic(error, endpoint, response)];
 +}
 diff --git a/dist/utils/retry.js b/dist/utils/retry.js
+index a0e9b83609417e117662a40797153c1b1e71dc01..d1929ae81111f2c861b73e7e97504e374e0fac6b 100644
 --- a/dist/utils/retry.js
 +++ b/dist/utils/retry.js
-@@ -182,6 +182,13 @@ export function isRetryableAssistantError(message) {
+@@ -189,6 +189,13 @@ export async function retryAssistantCall(produce, policy, signal, callbacks) {
  export function isRetryableAssistantError(message) {
      if (message.stopReason !== "error" || !message.errorMessage)
          return false;

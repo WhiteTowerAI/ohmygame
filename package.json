@@ -1,6 +1,6 @@
 {
   "name": "ohmygame",
-  "version": "0.0.0-beta.4.7",
+  "version": "0.0.0-beta.4.8",
   "description": "An open-source local-first agent for creating and publishing games.",
   "author": "WhiteTowerAI",
   "license": "Apache-2.0",
@@ -21,7 +21,7 @@
     "build:renderer": "bun --bun node_modules/vite/bin/vite.js build && bun --bun node_modules/vite/bin/vite.js build --config vite.sandbox.config.ts --outDir dist/renderer",
     "build:player": "bun --bun node_modules/vite/bin/vite.js build --config vite.player.config.ts && bun --bun node_modules/vite/bin/vite.js build --config vite.sandbox.config.ts --outDir dist/player",
     "clean:desktop-build": "bun scripts/clean-desktop-build.mjs",
-    "build:desktop-app": "bun run clean:desktop-build && bun run prepare:preinstalled-plugins && bun run prepare:examples && bun run build:host && bun run build:renderer && bun run build:player",
+    "build:desktop-app": "bun run clean:desktop-build && bun run release:notes --output .runtime/release-notes.md && bun run prepare:preinstalled-plugins && bun run prepare:examples && bun run build:host && bun run build:renderer && bun run build:player",
     "dev": "bun run build:player && bun --bun node_modules/concurrently/dist/bin/index.js --kill-others --names daemon,renderer --prefix-colors cyan,green \"bun run dev:daemon\" \"bun run dev:renderer\"",
     "dev:daemon": "bun run prepare:preinstalled-plugins && bun run prepare:examples && node --import tsx --watch src/daemon/server.ts --dev",
     "dev:desktop": "bun run prepare:preinstalled-plugins && bun run prepare:examples && bun run build:host && bun run build:player && bun --bun node_modules/concurrently/dist/bin/index.js --kill-others --names renderer,desktop --prefix-colors green,cyan \"bun run dev:renderer\" \"bun --bun node_modules/electron/cli.js .\"",
@@ -31,6 +31,8 @@
     "prepare:preinstalled-plugins": "node --import tsx scripts/prepare-preinstalled-plugins.ts",
     "prepare:examples": "bun scripts/prepare-examples.ts",
     "prepare:desktop-runtime": "node scripts/prepare-desktop-runtime.mjs",
+    "changelog:check": "node scripts/release-notes.mjs --check",
+    "release:notes": "node scripts/release-notes.mjs",
     "build:win-icon": "node scripts/build-win-icon.mjs",
     "package:mac:dir": "bun run prepare:desktop-runtime darwin-arm64 && bun run build:desktop-app && bun --bun node_modules/electron-builder/cli.js --mac dir --arm64 --publish never --config.mac.notarize=false --config.mac.identity=null",
     "package:mac": "bun run prepare:desktop-runtime darwin-arm64 && bun run build:desktop-app && bun --bun node_modules/electron-builder/cli.js --mac --arm64",
@@ -43,8 +45,8 @@
     "test:desktop-game": "bun run build:host && bun run build:renderer && node scripts/test-web-game-runtime.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.99.2",
-    "@earendil-works/pi-coding-agent": "0.99.2",
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-coding-agent": "1.2.0",
     "@gltf-transform/core": "4.5.1",
     "@gltf-transform/extensions": "4.5.1",
     "@sentry/electron": "^7.20.0",
@@ -99,7 +101,7 @@
     "bun": ">=1.4.2"
   },
   "patchedDependencies": {
-    "@earendil-works/pi-ai@0.99.2": "patches/@earendil-works%2Fpi-ai@0.99.2.patch",
+    "@earendil-works/pi-ai@1.2.0": "patches/@earendil-works%2Fpi-ai@1.2.0.patch",
     "electron-updater@6.8.9": "patches/electron-updater@6.8.9.patch"
   }
 }

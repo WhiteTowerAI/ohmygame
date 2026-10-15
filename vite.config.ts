@@ -4,6 +4,7 @@ import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { build as buildWithEsbuild } from "esbuild";
 import { defineConfig, type Plugin } from "vite";
+import { parseChangelog } from "./src/shared/changelog.js";
 
 const packageJson = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
 
@@ -11,6 +12,7 @@ export default defineConfig({
   base: "./",
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),
+    __APP_CHANGELOG__: JSON.stringify(parseChangelog(readFileSync(new URL("./CHANGELOG.md", import.meta.url), "utf8"))),
   },
   plugins: [playableSandboxDevPlugin(), react()],
   build: {

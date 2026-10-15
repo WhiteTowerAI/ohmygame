@@ -51,7 +51,7 @@ afterEach(async () => {
 it("stores a successful capture after the ready frame has painted", async () => {
   const image = new Blob(["image"], { type: "image/webp" });
   await act(async () => finishImage(image));
-  expect(upload).toHaveBeenCalledExactlyOnceWith("p", "start", playableThumbnailHash(definition, "start"), image);
+  expect(upload).toHaveBeenCalledExactlyOnceWith("p", "start", playableThumbnailHash(definition, "start"), image, "0");
   expect(finish).toHaveBeenCalledExactlyOnceWith(true);
 });
 

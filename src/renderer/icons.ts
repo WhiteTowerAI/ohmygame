@@ -161,6 +161,7 @@ export {
   DownloadIcon as Download,
   FileTextIcon as FileText,
   EyeIcon as Eye,
+  HeartIcon as Heart,
   SidebarCodeIcon as Columns2,
   FlagIcon as Flag,
   FolderIcon as Folder,

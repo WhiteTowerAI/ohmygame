@@ -59,7 +59,7 @@ it("flushes pending playable layout and waits for persistence before allowing cl
   });
   expect(update).toHaveBeenCalledExactlyOnceWith("p", expect.objectContaining({
     revision: "disk", editorLayout: expect.objectContaining({ viewport: { x: 32, y: 64, zoom: 1.2 } }),
-  }));
+  }), "0");
   expect(closed).toBe(false);
   await act(async () => { finish({ revision: "saved" }); await closing; });
   expect(closed).toBe(true);
@@ -73,7 +73,7 @@ it("rejects close on a playable save failure and retries the pending edit", asyn
   expect(update).toHaveBeenCalledTimes(2);
   expect(update).toHaveBeenLastCalledWith("p", expect.objectContaining({
     editorLayout: expect.objectContaining({ viewport: { x: 32, y: 64, zoom: 1.2 } }),
-  }));
+  }), "0");
 });
 
 it("saves the displayed viewport when close precedes the delayed move-end event", async () => {
@@ -81,5 +81,5 @@ it("saves the displayed viewport when close precedes the delayed move-end event"
   await act(async () => desktopSave.prepare());
   expect(update).toHaveBeenCalledExactlyOnceWith("p", expect.objectContaining({
     editorLayout: expect.objectContaining({ viewport }),
-  }));
+  }), "0");
 });

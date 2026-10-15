@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { CUSTOM_MODEL_APIS, type CustomProviderModel, type ProviderModelSettings, type ModelRef } from "../shared/contracts.js";
-import { addCustomProviderModel, getCloudQuotas, getProviderModels, notifyAgentModelsChanged, removeCustomProviderModel, resetProviderModel3D, setProviderModelVisibility, updateProviderModel3D } from "./api.js";
+import { addCustomProviderModel, getCloudQuotas, getProviderModels, listModels, notifyAgentModelsChanged, removeCustomProviderModel, resetProviderModel3D, setProviderModelVisibility, updateProviderModel3D } from "./api.js";
 import { ProviderModel3DForm } from "./provider-model3d-form.js";
 import { Check, ChevronDown, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
 import { SegmentedControl } from "./segmented-control.js";
@@ -23,7 +23,15 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
   const [error, setError] = useState<string>();
   const [deleting, setDeleting] = useState<ModelRef>();
   const [editingModel, setEditingModel] = useState<ModelRef>();
+  const [defaultModel, setDefaultModel] = useState<ModelRef>();
+  const [hiddenOpen, setHiddenOpen] = useState(false);
   const providerRef = useRef(providerId);
+  useEffect(() => {
+    let active = true;
+    // Only marks the default; the list works without it.
+    void listModels().then((catalog) => { if (active) setDefaultModel(catalog.defaultModel); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [providerId]);
   const reloadRef = useRef<(force?: boolean) => void>(() => {});
   providerRef.current = providerId;
   useEffect(() => {
@@ -76,10 +84,15 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
   }
 
   const search = query.trim().toLowerCase();
-  const models = settings?.models.filter((model) => (
-    (onEditModels ? true : editing ? filter === "all" || (filter === "shown" ? model.visible : model.custom) : model.visible)
-    && (!search || `${model.name} ${model.id} ${sourceLabels?.[model.provider] ?? ""}`.toLowerCase().includes(search))
+  const matches = (model: ProviderModelSettings["models"][number]) => !search || `${model.name} ${model.id} ${sourceLabels?.[model.provider] ?? ""}`.toLowerCase().includes(search);
+  const isDefault = (model: ModelRef) => model.provider === defaultModel?.provider && model.id === defaultModel.id;
+  const browsing = !editing && !onEditModels;
+  const listed = settings?.models.filter((model) => (
+    (onEditModels ? true : editing ? filter === "all" || (filter === "shown" ? model.visible : model.custom) : model.visible) && matches(model)
   )) ?? [];
+  // While browsing, the default model leads the list; editing keeps the catalog order.
+  const models = browsing ? [...listed.filter(isDefault), ...listed.filter((model) => !isDefault(model))] : listed;
+  const hiddenModels = browsing ? settings?.models.filter((model) => !model.visible && matches(model)) ?? [] : [];
   const shown = settings?.models.filter((model) => model.visible).length ?? 0;
   function toggleEditing(): void {
     setEditing((value) => !value);
@@ -140,12 +153,12 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
         <button type="button" disabled={busy || !models.some((model) => model.visible)} onClick={() => changeVisibility(models, false)}>{t("models.hideAll")}</button>
       </div> : null}
       <div className="provider-models-list" role="list" aria-label={editing ? t("models.providerModels") : t("models.shownProviderModels")} aria-busy={busy}>
-        {models.map((model) => {
+        {[...models, ...(hiddenOpen ? hiddenModels : [])].map((model) => {
           const credits = model.model3d?.settings.protocol === "hyper3d" ? hyper3DCredits(model.id) : undefined;
           const description = model.model3d ? `${model.id}${credits !== undefined ? ` · ${t("models.creditsPerGeneration", { credits })}` : ""} · ${t("models.upToReferences", { count: model.model3d.settings.maxReferenceImages })} · ${t("models.faceRange", { min: model.model3d.settings.polycount.min.toLocaleString(language), max: model.model3d.settings.polycount.max.toLocaleString(language) })}` : model.description ? `${model.id} · ${model.description}` : model.name !== model.id ? model.id : undefined;
-          const copy = <span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{description ? <small title={description}>{description}</small> : null}</span>;
+          const copy = <span className="provider-model-copy"><strong title={model.name}>{model.name}</strong>{isDefault(model) ? <small className="provider-model-default">{t("models.default")}</small> : null}{description ? <small title={description}>{description}</small> : null}</span>;
           const selected = (ref?: ModelRef) => ref?.provider === model.provider && ref.id === model.id;
-          return <div className={`provider-model-row${model.visible ? "" : " is-hidden"}`} key={`${model.provider}/${model.id}`} role="listitem">
+          return <div className={`provider-model-row${model.visible ? "" : " is-hidden"}${description === model.id ? " is-compact" : ""}`} key={`${model.provider}/${model.id}`} role="listitem">
             {editing || onEditModels ? <label>
               <input type="checkbox" checked={model.visible} disabled={busy || model.capabilities?.length === 0} onChange={(event) => changeVisibility([model], event.target.checked)} aria-label={t("plugins.enableName", { name: model.name })} />
               {copy}
@@ -161,6 +174,9 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
         })}
         {!models.length ? <p className="settings-empty">{!settings.models.length ? t("models.empty.none") : !editing && !shown ? t("models.empty.noneShown") : t("models.empty.noMatch")}</p> : null}
       </div>
+      {hiddenModels.length ? <button className="provider-models-hidden-toggle" type="button" aria-expanded={hiddenOpen} onClick={() => setHiddenOpen((open) => !open)}>
+        {t("models.hiddenCount", { count: hiddenModels.length })}<ChevronDown size={12} aria-hidden="true" />
+      </button> : null}
     </> : !error ? <div className="settings-loading"><LoaderCircle className="spin" size={16} />{t("providers.loadingModels")}</div> : null}
   </section>;
 }

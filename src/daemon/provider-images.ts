@@ -1,5 +1,5 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { CUSTOM_IMAGE_MODEL_APIS, type CustomProviderDetails, type ImageModel, type ImageModelCatalog, type ImageModelRef, type MediaProviderStatus } from "../shared/contracts.js";
+import { CUSTOM_IMAGE_MODEL_APIS, type CustomProviderDetails, type ImageAspectRatio, type ImageModel, type ImageModelCatalog, type ImageModelRef, type ImageResolution, type ImageSize, type MediaProviderStatus } from "../shared/contracts.js";
 import { customImageModel } from "../shared/custom-models.js";
 import { imageModelsForProvider } from "./image-models.js";
 import { createImageProtocolAdapters, type ImageSource } from "./image-adapters.js";
@@ -9,6 +9,15 @@ import { listOpenRouterImageModels, listPublicOpenRouterImageModels, resolveOpen
 import { SEEDREAM_BASE_URL, SEEDREAM_PROVIDER_ID, SEEDREAM_PROVIDER_NAME, seedreamModel, seedreamModels } from "./seedream-models.js";
 
 const CAPABILITY_TTL_MS = 10 * 60_000;
+
+// Models without fixed pixel sizes (Seedream) take resolution + aspect ratio instead.
+const LEGACY_SIZE_ASPECT_RATIOS: Record<ImageSize, ImageAspectRatio> = {
+  "1024x1024": "1:1",
+  "1536x1024": "3:2",
+  "1024x1536": "2:3",
+};
+// Legacy sizes are about 1K; use the nearest resolution a model offers, preferring larger output.
+const LEGACY_SIZE_RESOLUTIONS: readonly ImageResolution[] = ["1K", "2K", "4K", "512"];
 
 interface ProviderImagesOptions {
   openAIConnection?: () => Promise<{ source?: ImageSource; models?: ImageModel[]; message?: string; connected?: boolean }>;
@@ -133,9 +142,21 @@ export class ProviderImages implements ImageGenerator {
     if (!selection || !definition) throw new ImageGenerationError(requested
       ? "The selected image model is unavailable. Choose a connected image provider or update the default image model in Providers."
       : "Image generation is not configured", 503);
-    if (input.size && !definition.sizes.includes(input.size)) throw new ImageGenerationError("Image size is not supported by the selected model", 400);
-    if (input.resolution || input.aspectRatio) {
-      const supported = definition.generationOptions.some((option) => option.resolution === input.resolution && option.aspectRatio === input.aspectRatio);
+    let { size, resolution, aspectRatio } = input;
+    if (size !== undefined && definition.sizes.length === 0 && resolution === undefined && aspectRatio === undefined) {
+      const ratio = LEGACY_SIZE_ASPECT_RATIOS[size];
+      const mapped = LEGACY_SIZE_RESOLUTIONS
+        .map((candidate) => definition.generationOptions.find((option) => option.resolution === candidate && option.aspectRatio === ratio))
+        .find((option) => option !== undefined);
+      if (mapped) {
+        resolution = mapped.resolution;
+        aspectRatio = mapped.aspectRatio;
+        size = undefined;
+      }
+    }
+    if (size && !definition.sizes.includes(size)) throw new ImageGenerationError("Image size is not supported by the selected model", 400);
+    if (resolution || aspectRatio) {
+      const supported = definition.generationOptions.some((option) => option.resolution === resolution && option.aspectRatio === aspectRatio);
       if (!supported) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
     }
     if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
@@ -144,6 +165,9 @@ export class ProviderImages implements ImageGenerator {
     const { imageModel: _, ...generationInput } = input;
     return adapter.generate(selection.source, selection.model.id, {
       ...generationInput,
+      size,
+      resolution,
+      aspectRatio,
       ...(definition.supportsResolution === false ? { resolution: undefined } : {}),
       ...(definition.supportsAspectRatio === false ? { aspectRatio: undefined } : {}),
     }, signal, definition);

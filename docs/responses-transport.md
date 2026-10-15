@@ -8,7 +8,8 @@ when the connection or proxy cannot sustain WebSocket.
 ## Provider choices
 
 Model provider settings expose Responses connection for OpenAI and custom
-Responses providers. Choices are saved with other provider preferences in
+Responses providers, inside the collapsed **Advanced** section near the end of
+the provider page. Choices are saved with other provider preferences in
 `model-visibility.json` under `responsesTransports`, and apply to the next model
 request in existing sessions. Provider deletion uses the same transaction as
 other provider preferences; no separate transport settings file needs cleanup.

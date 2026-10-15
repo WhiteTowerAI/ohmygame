@@ -8,6 +8,7 @@ export class ErrorBoundary extends Component<
     label: string;
     resetKey?: string;
     onHome?: () => void;
+    homeLabel?: string;
   },
   { error?: Error }
 > {
@@ -47,7 +48,7 @@ export class ErrorBoundary extends Component<
                 this.setState({ error: undefined });
               }}
             >
-              {t("errorBoundary.back")}
+              {this.props.homeLabel ?? t("errorBoundary.back")}
             </button>
           ) : null}
         </div>

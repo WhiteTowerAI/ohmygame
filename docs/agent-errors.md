@@ -36,10 +36,10 @@ without native error codes still give useful diagnostics.
 
 ## Pi compatibility patch
 
-The pinned `@earendil-works/pi-ai@0.99.2` loses nested connection causes when it
+The pinned `@earendil-works/pi-ai@1.2.0` loses nested connection causes when it
 converts SDK errors into `AssistantMessage.errorMessage`. For example, the OpenAI
 SDK wraps DNS and TLS failures alike as `Connection error.`. The Bun patch in
-`patches/@earendil-works%2Fpi-ai@0.99.2.patch` captures public error metadata in Pi's
+`patches/@earendil-works%2Fpi-ai@1.2.0.patch` captures public error metadata in Pi's
 existing `AssistantMessage.diagnostics` before conversion.
 
 The patch covers the OpenAI completions and Responses adapters (including Codex

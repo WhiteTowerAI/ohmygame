@@ -1,4 +1,9 @@
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
+import { CheckpointStore } from "./checkpoints.js";
+import { ProjectWrites } from "./project-writes.js";
+import { registerCheckpointRoutes } from "./checkpoint-routes.js";
+import { readWorkspaceVersion } from "./workspace-notice.js";
+import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
 import { PluginSetupManager, registerPluginSetupRoutes } from "./plugin-setup.js";
@@ -14,7 +19,7 @@ import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
@@ -26,6 +31,7 @@ import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
+import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY } from "./checkpoint-extension.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
@@ -41,6 +47,7 @@ import { ArtifactBuilder, PublishError } from "./publish/archive.js";
 import { PlayableDraftServer } from "./playable-draft-server.js";
 import { promptContextBlock } from "./prompt-context.js";
 import { RemotePublisher, RemotePublishError } from "./publish/client.js";
+import { registerCommunityRoutes } from "./publish/community-routes.js";
 import { LocalPublisher } from "./publish/local.js";
 import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager, PreviewCancelledError } from "./preview.js";
@@ -53,6 +60,7 @@ import { openAIImageConnection, registerOpenAIImageRoutes } from "./openai-image
 import { RESPONSES_TRANSPORT_MODES, type ResponsesTransportSettings } from "../shared/contracts.js";
 import { NetworkSettingsService } from "./network-settings.js";
 import type { NetworkSettings } from "../shared/network-settings.js";
+import { migrateAzureProviderId } from "./azure-provider-migration.js";
 import { normalizeCustomProvider, normalizeCustomProviderModel, ProviderModelSettingsStore } from "./provider-model-settings.js";
 import { discoverProviderModels } from "./provider-model-discovery.js";
 import { customModelCatalog } from "./custom-model-capabilities.js";
@@ -75,6 +83,8 @@ import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
 import { isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
+import { isMinimaxProviderId, MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
+import { MinimaxSettingsStore } from "./minimax-settings.js";
 import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService, pluginSummary } from "./plugin-catalog.js";
 import { BundledPluginStore } from "./bundled-plugins.js";
 import { LocalPluginError, LocalPluginStore } from "./local-plugins.js";
@@ -86,6 +96,7 @@ import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile
 import { LegacyMcpConfiguration } from "./legacy-mcp.js";
 import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
+import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import type { GameRuntimeAdapter } from "../shared/playtest.js";
@@ -536,6 +547,8 @@ export function createApp(options: AppOptions = {}) {
     fetch: options.publishFetch,
   });
   const previews = new PreviewManager(events);
+  const checkpoints = new CheckpointStore();
+  const projectWrites = new ProjectWrites();
   const webSearchSettings = new WebSearchSettingsStore(dataDirectory);
   const onboarding = new OnboardingStore(dataDirectory);
   const networkSettings = options.networkSettings ?? new NetworkSettingsService(dataDirectory);
@@ -544,6 +557,7 @@ export function createApp(options: AppOptions = {}) {
   const hyper3dSettings = new MediaProviderKeyStore(dataDirectory, "hyper3d", "Hyper3D");
   const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings], ["hyper3d", "Hyper3D", hyper3dSettings]] as const;
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
+  const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
@@ -617,6 +631,7 @@ export function createApp(options: AppOptions = {}) {
   });
   const providerVideos = new ProviderVideos(getModelRuntime, options.videoFetch, (providerId) => seedanceSettings.key(providerId), providerEnabled, {
     customProviders: () => providerModelSettings.customProviderCatalog(), defaultModel: () => providerModelSettings.defaultVideoModel(),
+    minimaxApiKey: (providerId) => minimaxSettings.key(providerId),
   });
   const providerModels3D = new ProviderModels3D({
     runtime: getModelRuntime,
@@ -685,6 +700,12 @@ export function createApp(options: AppOptions = {}) {
   ], pluginSettings, (plugin) => preinstalledPlugins.decorate(plugin));
   const withPluginCapabilities = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => plugin ? pluginCapabilities.decorate(plugin) : plugin;
   let agents: AgentManager;
+  const snapshotWorkspace = (project: ProjectState) => projectWrites.snapshot(project.id, async () => {
+    if (!projects.get(project.id)) throw new Error("Project not found");
+    if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
+    await canvasStore.waitForProject(project.id);
+    return previews.withWorkspaceStopped(project, () => withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project)));
+  });
   agents = new AgentManager(events, {
     errorDiagnostics: () => {
       const route = networkSettings.get().active;
@@ -745,6 +766,7 @@ export function createApp(options: AppOptions = {}) {
         () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type),
         Object.keys(effectiveMcp.mcpServers).length ? { factory: await pluginCapabilities.host.extension(effectiveMcp), host: pluginCapabilities.host } : undefined,
         (provider) => providerModelSettings.responsesTransport(provider),
+        () => snapshotWorkspace(project),
       );
     }),
     activeToolNames: (project, mode, session) => {
@@ -753,6 +775,10 @@ export function createApp(options: AppOptions = {}) {
     },
     onRunFinished: async (project, conversationId) => {
       await agentPlaytests.get(`${project.id}:${conversationId}`)?.cleanup();
+    },
+    checkpoints: {
+      snapshot: snapshotWorkspace,
+      changed: (project, from, to) => checkpoints.summarize(project, from, to),
     },
     onRunCompleted: (project) => {
       void previews.automatic(project, true).catch(() => {});
@@ -765,6 +791,7 @@ export function createApp(options: AppOptions = {}) {
     logger: options.logger ?? false,
     ajv: { customOptions: { coerceTypes: false } },
   });
+  projectWrites.install(app);
   const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
   registerPluginCapabilityRoutes(app, { capabilities: pluginCapabilities, plugins, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginCapabilities, plugins, localPlugins, invalidatePluginSessions, async ref => {
@@ -791,11 +818,14 @@ export function createApp(options: AppOptions = {}) {
   const loadOpenAIImages = () => openAIImages.load().catch((err) => app.log.warn({ err }, "Could not load OpenAI image settings"));
   app.addHook("onReady", async () => {
     await networkSettings.load();
+    // Runs before any model lookup so saved Azure sign-ins resolve under Pi's current provider ID.
+    await migrateAzureProviderId(piAgentDirectory, dataDirectory).catch((err) => app.log.warn({ err }, "Could not migrate Azure provider settings"));
     // A damaged welcome preference must not prevent projects from opening.
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), providerModelSettings.load()]);
+    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), providerModelSettings.load()]);
+    await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
@@ -808,7 +838,8 @@ export function createApp(options: AppOptions = {}) {
     const origin = request.headers.origin;
     if (origin && allowedOrigins.has(origin)) {
       reply.header("access-control-allow-origin", origin);
-      reply.header("access-control-allow-headers", "authorization, content-type, last-event-id");
+      reply.header("access-control-allow-headers", "authorization, content-type, last-event-id, x-workspace-version, x-publish-access-token");
+      reply.header("access-control-expose-headers", "x-workspace-version");
       reply.header("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
       reply.header("vary", "Origin");
     }
@@ -820,6 +851,12 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  registerCheckpointRoutes(app, {
+    store: checkpoints,
+    snapshot: snapshotWorkspace, writes: projectWrites, projects, conversations, agents, previews, events,
+    busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
+  });
 
   // The page Scenes run in. The desktop app loads its own pages from file://,
   // where a sandboxed frame may not load its script, so the frame comes from
@@ -1460,7 +1497,10 @@ export function createApp(options: AppOptions = {}) {
   app.delete<{ Params: { projectId: string } }>("/projects/:projectId", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
+    // A project reads as idle from the end of a run, a little before its turn is closed; what is asked of it then waits.
+    await agents.turnsClosed(project.id);
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before deleting this project" });
+    return projectWrites.exclusive(project.id, async () => {
     await previews.forget(project);
     agents.forgetProject(project.id);
     conversations.forget(project);
@@ -1471,43 +1511,15 @@ export function createApp(options: AppOptions = {}) {
     }
     await conversationImages.removeProject(project.id);
     await canvasStore.cancelProject(project.id);
+    await canvasStore.waitForProject(project.id);
+    // A snapshot that is still being taken writes into the folder that is about to be removed.
+    await checkpoints.settled(project);
     await projects.delete(project.id);
     return reply.code(204).send();
+    });
   });
 
-  app.get("/community/games", async (_request, reply) => {
-    try {
-      return await publisher.community();
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-    }
-  });
-
-  app.get<{ Params: { gameId: string } }>("/community/games/:gameId", async (request, reply) => {
-    try {
-      return await publisher.communityGame(request.params.gameId);
-    } catch (cause) {
-      const error = cause instanceof Error ? cause.message : String(cause);
-      return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-    }
-  });
-
-  app.get<{ Params: { gameId: string; deploymentId: string } }>(
-    "/community/games/:gameId/deployments/:deploymentId/cover",
-    async (request, reply) => {
-      try {
-        const cover = await publisher.communityGameCover(request.params.gameId, request.params.deploymentId);
-        reply.header("content-type", "image/webp");
-        reply.header("cache-control", "private, max-age=31536000, immutable");
-        reply.header("x-content-type-options", "nosniff");
-        return reply.send(cover);
-      } catch (cause) {
-        const error = cause instanceof Error ? cause.message : String(cause);
-        return reply.code(cause instanceof RemotePublishError ? cause.statusCode : 502).send({ error });
-      }
-    },
-  );
+  registerCommunityRoutes(app, publisher, projects);
 
   app.get("/library/assets", async (request) => {
     const associations = await projects.libraryAssetAssociations((project, cause) => request.log.warn({ projectId: project.id, err: cause }, "Could not read Library asset usage"));
@@ -1715,6 +1727,26 @@ export function createApp(options: AppOptions = {}) {
     await projects.setCoverMode(request.params.projectId, "auto");
     return reply.code(204).send();
   });
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/git/changes", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    return listWorkspaceGitChanges(project.workspacePath);
+  });
+
+  app.get<{ Params: { projectId: string }; Querystring: { path: string } }>(
+    "/projects/:projectId/git/file",
+    { schema: { querystring: assetPathQuerySchema } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      try { return await readWorkspaceGitFile(project.workspacePath, request.query.path); }
+      catch (cause) {
+        if (cause instanceof WorkspaceError) return reply.code(cause.code === "ENOENT" ? 404 : 400).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
 
   app.get<{ Params: { projectId: string } }>("/projects/:projectId/files", async (request, reply) => {
     const project = projects.get(request.params.projectId);
@@ -1972,6 +2004,20 @@ export function createApp(options: AppOptions = {}) {
         credentialType: "api_key" as const,
         capabilities: providerId === "volcengine-ark" ? ["image", "video"] as const : ["video"] as const,
       };
+    }), ...MINIMAX_PROVIDER_IDS.map((providerId) => {
+      const definition = MINIMAX_PROVIDERS[providerId];
+      const configured = minimaxSettings.get(providerId).configured;
+      return {
+        id: definition.id,
+        name: definition.name,
+        configured,
+        enabled: providerEnabled(providerId),
+        custom: false,
+        status: configured ? "connected" as const : "not_configured" as const,
+        methods: [{ type: "api_key" as const, label: `${definition.name} API key` }],
+        credentialType: "api_key" as const,
+        capabilities: ["video"] as const,
+      };
     })];
     return [...providers, ...directProviders, ...await cloudModels.providers(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
@@ -2089,7 +2135,8 @@ export function createApp(options: AppOptions = {}) {
     const runtime = await getModelRuntime();
     const native = native3DProviders.find(([id]) => id === providerId);
     const seedance = isSeedanceProviderId(providerId);
-    if (!native && !seedance && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    const minimax = isMinimaxProviderId(providerId);
+    if (!native && !seedance && !minimax && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
       await providerModelSettings.removeProviderSettings(providerId, async () => {
@@ -2097,6 +2144,7 @@ export function createApp(options: AppOptions = {}) {
         if (previousEndpoint) await openAIEndpoint.update(openAIEndpoint.defaultBaseUrl);
         if (native) await native[2].clear();
         else if (seedance) await seedanceSettings.clear(providerId);
+        else if (minimax) await minimaxSettings.clear(providerId);
         else await runtime.logout(providerId);
         await syncOpenAIEndpoint(runtime);
         if (providerId === "openai") await openAIImages.clear(false);
@@ -2144,6 +2192,21 @@ export function createApp(options: AppOptions = {}) {
   app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/seedance-key", async (request, reply) => {
     if (!isSeedanceProviderId(request.params.providerId)) return reply.code(404).send({ error: "Seedance provider not found" });
     await seedanceSettings.clear(request.params.providerId);
+    return reply.code(204).send();
+  });
+
+  app.put<{ Params: { providerId: string }; Body: { apiKey: string } }>(
+    "/settings/models/providers/:providerId/minimax-key",
+    { schema: apiKeySettingsSchema },
+    async (request, reply) => {
+      if (!isMinimaxProviderId(request.params.providerId)) return reply.code(404).send({ error: "MiniMax provider not found" });
+      try { return await minimaxSettings.update(request.params.providerId, request.body.apiKey); }
+      catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+    },
+  );
+  app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/minimax-key", async (request, reply) => {
+    if (!isMinimaxProviderId(request.params.providerId)) return reply.code(404).send({ error: "MiniMax provider not found" });
+    await minimaxSettings.clear(request.params.providerId);
     return reply.code(204).send();
   });
 
@@ -2449,13 +2512,29 @@ export function createApp(options: AppOptions = {}) {
           ),
         } : {}),
       };
-      const branch = (await conversations.view(project, conversation)).getBranch();
+      // Cache reads revalidate after earlier readers settle. Retry only when a
+      // run or a delayed turn end changed during this read, so the response's
+      // event cursor cannot skip checkpoint metadata missing from its branch.
+      let branch: SessionEntry[];
+      let run = agents.activeStart(project.id, conversation.summary.id);
+      let ends = agents.turnEndsRecorded(project.id, conversation.summary.id);
+      for (;;) {
+        branch = (await conversations.view(project, conversation)).getBranch();
+        const now = agents.activeStart(project.id, conversation.summary.id);
+        const endsNow = agents.turnEndsRecorded(project.id, conversation.summary.id);
+        if ((!run || run.id === now?.id) && ends === endsNow) break;
+        run = now;
+        ends = endsNow;
+      }
       // Capture live state and its cursor together after all asynchronous reads.
       const currentRun = agents.activeStart(project.id, conversation.summary.id);
       const activeItems = agents.activeItems(project.id, conversation.summary.id);
       const activePlanState = agents.planState(conversation);
+      // The end of an earlier turn is kept whatever its time: it is written when a run is over, in the very
+      // millisecond in which a message that waited for that starts the next run.
+      const before = (entry: SessionEntry) => !currentRun || entry.timestamp < currentRun.timestamp || (entry.type === "custom" && (entry.customType === TURN_END_ENTRY || entry.customType === CHECKPOINT_UNDONE_ENTRY));
       const loadedItems = [
-        ...conversationItems(currentRun ? branch.filter((entry) => entry.timestamp < currentRun.timestamp) : branch, !currentRun),
+        ...conversationItems(branch.filter(before), !currentRun),
         // A reset must be a complete snapshot. Replaying from the active turn's
         // start is unsafe once a chat produces more events than the replay buffer.
         ...(currentRun ? activeItems : []),

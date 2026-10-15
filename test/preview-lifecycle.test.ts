@@ -317,12 +317,36 @@ describe("preview policy and lifecycle", () => {
     expect(project.preview.status).toBe("ready");
   });
 
+  it("waits without an error while a new project has no files", async () => {
+    const { directory, project } = await fixture();
+    await rm(path.join(directory, "index.html"));
+    await mkdir(path.join(directory, ".git"));
+    const preview = manager();
+    preview.acquire(project, "editor:new", true);
+    await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));
+    expect(project.preview.error).toBeUndefined();
+    await expect(preview.ensureStarted(project)).rejects.toThrow(
+      "no package.json dev script",
+    );
+  });
+
+  it("explains why existing files cannot start a preview", async () => {
+    const { directory, project } = await fixture();
+    await rm(path.join(directory, "index.html"));
+    await writeFile(path.join(directory, "README.md"), "# Notes");
+    const preview = manager();
+    preview.acquire(project, "editor:imported", true);
+    await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));
+    expect(project.preview.error).toContain("no package.json dev script");
+  });
+
   it("starts an open General project when static browser output appears", async () => {
     const { directory, project } = await fixture();
     await rm(path.join(directory, "index.html"));
     const preview = manager();
     preview.acquire(project, "editor:creating", true);
     await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));
+    expect(project.preview.error).toBeUndefined();
     await writeFile(
       path.join(directory, "index.html"),
       "<head></head><p>Created by agent</p>",
