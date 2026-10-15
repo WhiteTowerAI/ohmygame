@@ -75,38 +75,54 @@ describe("ModelSelector interaction", () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
-  it.each(["chat", "canvas"] as const)("opens reasoning directly and switches menus in the %s variant", async (variant) => {
+  it.each(["chat", "canvas"] as const)("shows the model and reasoning in one button and changes depth through its menu in the %s variant", async (variant) => {
     const onChange = vi.fn(), onReasoningChange = vi.fn();
-    await act(async () => root.render(<ModelSelector variant={variant} models={[reasoningModel]} value={reasoningModel} reasoningLevel="high" onChange={onChange} onReasoningChange={onReasoningChange} />));
-    const [modelButton, reasoningButton] = container.querySelectorAll<HTMLButtonElement>("button");
-    await act(async () => reasoningButton.click());
+    function Selector() {
+      const [level, setLevel] = useState<AgentReasoningLevel>("high");
+      return <ModelSelector variant={variant} models={[reasoningModel]} value={reasoningModel} reasoningLevel={level} onChange={onChange} onReasoningChange={(next) => { onReasoningChange(next); setLevel(next); }} />;
+    }
+    await act(async () => root.render(<Selector />));
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+    const button = container.querySelector<HTMLButtonElement>("button")!;
+    expect(button.textContent).toContain(model.name);
+    expect(button.querySelector(".model-selector-reasoning-value")?.textContent).toBe("High");
+    await act(async () => button.click());
+    expect(document.querySelector('[role="menu"]')?.getAttribute("aria-label")).toBe("Models");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe("Search models");
+    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
     const menu = document.querySelector('[role="menu"]')!;
     expect(menu.getAttribute("aria-label")).toBe("Reasoning levels");
-    expect(menu.textContent).toContain("xhigh");
+    expect(menu.parentElement?.id).toBe(button.getAttribute("aria-controls"));
+    expect(menu.textContent).toContain("xHigh");
     expect(menu.textContent).not.toContain("Extra high");
-    expect(modelButton.getAttribute("aria-expanded")).toBe("false");
-    expect(reasoningButton.getAttribute("aria-expanded")).toBe("true");
+    expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(document.activeElement?.textContent).toBe("High");
-    await act(async () => modelButton.click());
-    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1);
-    expect(document.querySelector('[role="menu"]')?.getAttribute("aria-label")).toBe("Models");
-    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain("Reasoning");
-    expect(modelButton.getAttribute("aria-expanded")).toBe("true");
-    expect(reasoningButton.getAttribute("aria-expanded")).toBe("false");
-    await act(async () => reasoningButton.click());
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect(document.activeElement?.textContent).toBe("xhigh");
+    expect(document.activeElement?.textContent).toBe("xHigh");
     await act(async () => (document.activeElement as HTMLButtonElement).click());
     expect(onReasoningChange).toHaveBeenCalledExactlyOnceWith("xhigh");
     expect(onChange).not.toHaveBeenCalled();
     expect(document.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(reasoningButton);
+    expect(document.activeElement).toBe(button);
+    expect(button.querySelector(".model-selector-reasoning-value")?.textContent).toBe("xHigh");
+    expect(button.getAttribute("aria-description")).toBe("Reasoning: xHigh");
   });
 
-  it("dismisses reasoning on Escape and outside clicks, and restores its own trigger focus", async () => {
+  it("returns from reasoning with Escape, arrow keys or Back, and restores focus when closing", async () => {
     await act(async () => root.render(<ModelSelector models={[reasoningModel]} value={reasoningModel} onChange={() => {}} onReasoningChange={() => {}} />));
-    const button = container.querySelector<HTMLButtonElement>('[aria-label="Reasoning: Medium"]')!;
+    const button = container.querySelector<HTMLButtonElement>("button")!;
     await act(async () => button.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(document.querySelector('[role="menu"]')?.getAttribute("aria-label")).toBe("Models");
+    expect(document.activeElement).toBe(document.querySelector(".model-selector-reasoning"));
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(document.querySelector('[role="menu"]')?.getAttribute("aria-label")).toBe("Reasoning levels");
+    await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
+    expect(document.activeElement).toBe(document.querySelector(".model-selector-reasoning"));
+    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Back to models"]')!.click());
+    expect(document.activeElement).toBe(document.querySelector(".model-selector-reasoning"));
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(button);
@@ -115,7 +131,7 @@ describe("ModelSelector interaction", () => {
     expect(button.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("clamps the level when switching models and hides the button for a single supported level", async () => {
+  it("clamps the level when switching models and hides reasoning for a single supported level", async () => {
     const limited: AgentModel = { ...model, id: "limited", name: "Limited", reasoningLevels: ["off", "low", "high"] };
     const fixed: AgentModel = { ...model, id: "fixed", name: "Fixed", reasoningLevels: ["off"] };
     const onChange = vi.fn();
@@ -131,18 +147,22 @@ describe("ModelSelector interaction", () => {
     await act(async () => modelButton.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[title="openai/limited"]')!.click());
     expect(onChange).toHaveBeenLastCalledWith(limited, "high");
-    expect(container.querySelector('[aria-label="Reasoning: High"]')).not.toBeNull();
+    expect(modelButton.querySelector(".model-selector-reasoning-value")?.textContent).toBe("High");
     expect(document.activeElement).toBe(modelButton);
     await act(async () => modelButton.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[title="openai/fixed"]')!.click());
     expect(onChange).toHaveBeenLastCalledWith(fixed, "off");
     expect(container.querySelectorAll("button")).toHaveLength(1);
+    expect(modelButton.querySelector(".model-selector-reasoning-value")).toBeNull();
+    await act(async () => modelButton.click());
+    expect(document.querySelector(".model-selector-reasoning")).toBeNull();
   });
 
-  it("disables both buttons and closes an open menu while the composer is busy", async () => {
+  it("disables the button and closes an open reasoning menu while the composer is busy", async () => {
     const props = { models: [reasoningModel], value: reasoningModel, onChange: () => {}, onReasoningChange: () => {} };
     await act(async () => root.render(<ModelSelector {...props} />));
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Reasoning: Medium"]')!.click());
+    await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
     await act(async () => root.render(<ModelSelector {...props} disabled />));
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect([...container.querySelectorAll<HTMLButtonElement>("button")].every((button) => button.disabled)).toBe(true);

@@ -376,7 +376,7 @@ const en = {
     low: "Low",
     medium: "Medium",
     high: "High",
-    xhigh: "xhigh",
+    xhigh: "xHigh",
     max: "Max",
   },
   customProvider: {

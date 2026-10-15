@@ -167,13 +167,12 @@ different model applies its generation defaults; existing nodes keep their choic
 Enabled models appear in their corresponding canvas node's model selector.
 Choose defaults in the Providers overview or Project settings, as described below.
 
-Chat and canvas text composers have separate model and reasoning buttons. The
-reasoning button shows the current level and lists only levels supported by the
-selected model; it is hidden when the model has just one supported level. Choosing
-a different model keeps the current level when supported, or adjusts it to a
-supported level. The extra-high level is displayed as **xhigh**.
-
-![Separate model and reasoning buttons in Chat and canvas text composers; model names are illustrative](assets/composer-model-reasoning.webp)
+Chat and canvas text composers use one button showing the model name and current
+reasoning level. Open it to choose a model, or choose **Reasoning** in the menu to
+adjust the depth. Only levels supported by the selected model are listed; models
+with just one supported level show only their name. Choosing a different model
+keeps the current level when supported, or adjusts it to a supported level. The
+extra-high level is displayed as **xHigh**.
 
 ## Existing configuration
 
