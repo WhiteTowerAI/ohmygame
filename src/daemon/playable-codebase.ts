@@ -198,19 +198,33 @@ export async function writeNodeCodebase(
 }
 
 /**
+ * Files a daemon-side change writes besides the sources Nodes declare, such as
+ * a Template's script and the shared player it imports. Keyed by workspace
+ * path. The editor's writes never carry them.
+ */
+export interface NodeCodebaseFiles {
+  /** Written whether or not they exist. */
+  files?: Record<string, string>;
+  /** Written only when the workspace lacks them, so the author's edits stay. */
+  missingFiles?: Record<string, string>;
+}
+
+/**
  * Reads the codebase, lets `change` make an update from it, and writes that
  * update, all in one step that no other read or write through the daemon can
  * land inside. `change` returns undefined to write nothing.
  */
 export async function changeNodeCodebase(
   workspacePath: string,
-  change: (codebase: NodeCodebaseDetail) => NodeCodebaseUpdate | undefined,
+  change: (codebase: NodeCodebaseDetail) => (NodeCodebaseUpdate & NodeCodebaseFiles) | undefined,
 ): Promise<void> {
   await withCodebaseLock(workspacePath, async () => {
     const current = await readCodebase(workspacePath);
     const update = change(current);
+    if (!update) return;
+    const { files, missingFiles, ...codebase } = update;
     // The revision still refuses to write over a file the Agent edited in the meantime.
-    if (update) await writeCodebase(workspacePath, { ...update, revision: current.revision });
+    await writeCodebase(workspacePath, { ...codebase, revision: current.revision }, { files, missingFiles });
   });
 }
 
@@ -227,6 +241,7 @@ async function readCodebase(workspacePath: string): Promise<NodeCodebaseDetail> 
 async function writeCodebase(
   workspacePath: string,
   update: NodeCodebaseUpdate,
+  extra: NodeCodebaseFiles = {},
 ): Promise<string> {
   if (update.revision !== undefined) {
     const [graphText, layoutText] = await readCodebaseTexts(workspacePath);
@@ -247,11 +262,16 @@ async function writeCodebase(
     update.sourceDeletions,
     Object.keys(sources),
   );
-  await validateCodebase(workspacePath, codebase, true, Object.keys(sources));
+  const files = { ...extra.files };
+  for (const [relative, content] of Object.entries(extra.missingFiles ?? {})) {
+    if (!(await workspaceFileExists(workspacePath, relative))) files[relative] = content;
+  }
+  await validateCodebase(workspacePath, codebase, true, [...Object.keys(sources), ...Object.keys(files)]);
   const touchedFiles = [
     GRAPH_FILE,
     LAYOUT_FILE,
     ...Object.keys(sources),
+    ...Object.keys(files),
     ...sourceDeletions,
     "AGENTS.md",
     "README.md",
@@ -262,7 +282,7 @@ async function writeCodebase(
   ];
   const snapshot = await snapshotFiles(workspacePath, touchedFiles);
   try {
-    for (const [relative, content] of Object.entries(sources)) {
+    for (const [relative, content] of Object.entries({ ...files, ...sources })) {
       await writeTextAtomic(workspacePath, relative, content);
     }
     for (const relative of sourceDeletions) {

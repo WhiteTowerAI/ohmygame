@@ -54,6 +54,7 @@ export async function addPlayableNode(
     javascript: `nodes/${request.id}/node.js`,
   };
   let title = "";
+  let nodeFiles: string[] = [];
   // Read and written as one step, so a save from the editor cannot land in between and be lost.
   await changeNodeCodebase(workspacePath, (codebase) => {
     // Nodes are named in order, not after their Preset: a Preset is only a starting point.
@@ -87,6 +88,11 @@ export async function addPlayableNode(
         [request.id]: request.position ?? freePlayablePosition(codebase.editorLayout, codebase.graph.viewport),
       },
     };
+    // A Template's further files belong to the new Node, so they replace any left by a removed Node of the same ID.
+    const files = Object.fromEntries(
+      Object.entries(starter.files ?? {}).map(([name, content]) => [`nodes/${request.id}/${name}`, content]),
+    );
+    nodeFiles = Object.keys(files);
     return {
       graph,
       editorLayout,
@@ -95,13 +101,15 @@ export async function addPlayableNode(
         [source.css]: starter.css,
         [source.javascript]: starter.javascript,
       },
+      files,
+      ...(preset.sharedFiles ? { missingFiles: preset.sharedFiles } : {}),
     };
   });
   return {
     id: request.id,
     title,
     preset: preset.id,
-    files: [source.html, source.css, source.javascript],
+    files: [source.html, source.css, source.javascript, ...nodeFiles],
     signals: preset.signals.map((signal) => signal.id),
     brief: preset.brief,
   };

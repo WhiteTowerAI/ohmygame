@@ -1,4 +1,5 @@
 import type { PlayableSignal, PlayableStoryOptions } from "../shared/playable-nodes.js";
+import { VISUAL_NOVEL_SHARED_FILES, visualNovelSource } from "./playable-visual-novel.js";
 
 /**
  * Presets are starting points, not Node types: the chosen name is never
@@ -15,6 +16,7 @@ export const PLAYABLE_PRESET_IDS = [
   "hotspot",
   "ending",
   "story-map",
+  "visual-novel",
 ] as const;
 
 export type PlayablePresetId = (typeof PLAYABLE_PRESET_IDS)[number];
@@ -29,8 +31,10 @@ export interface PlayablePreset {
   signals: PlayableSignal[];
   /** How a Node made from this Preset starts out on the Story Map. */
   story?: PlayableStoryOptions;
-  /** Source for `nodes/<id>/`, keyed by file name. */
-  source: (title: string) => { html: string; css: string; javascript: string };
+  /** Source for `nodes/<id>/`; `files` are further files there, keyed by file name. */
+  source: (title: string) => { html: string; css: string; javascript: string; files?: Record<string, string> };
+  /** Shared files the source imports, keyed by workspace path. Added only when the project lacks them. */
+  sharedFiles?: Record<string, string>;
 }
 
 export function playablePreset(id: string): PlayablePreset | undefined {
@@ -525,6 +529,16 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "",
       ].join("\n"),
     }),
+  },
+  {
+    id: "visual-novel",
+    label: "Visual Novel",
+    summary: "Dialogue lines with characters, then answers",
+    brief:
+      "A Scene that plays `script.txt` in its folder: dialogue with names, narration, character pictures, background and music changes, and answers that leave through Signals; the player has Auto, Skip, and a Log. The script format is at the top of `shared/vn/player.js`, and characters with their looks (image Asset IDs) are in `shared/vn/characters.json`. The author writes the lines: never write, rewrite, or extend dialogue or narration unless asked, and keep their wording when restructuring. Declare every Asset the script or its characters use in this Node's `assets`, every Variable it reads or sets in `initialState`, and one Signal per answer or `->` exit, renaming `option-a` and `option-b` to the outcomes. Change the player's look in `shared/vn/player.css`, which every Visual Novel Scene shares.",
+    signals: [signal("option-a", "Option A"), signal("option-b", "Option B")],
+    source: visualNovelSource,
+    sharedFiles: VISUAL_NOVEL_SHARED_FILES,
   },
 ];
 

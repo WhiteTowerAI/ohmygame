@@ -122,7 +122,7 @@ Start.
 
 1. The author chooses **Add Scene** on the canvas.
 2. The **Add a Scene** window shows each Template (Blank, Main menu,
-   Choice, QTE, Hotspot, Ending, Story map) as a
+   Choice, QTE, Hotspot, Ending, Story map, Visual Novel) as a
    picture with one line of summary, and they pick one. The right-click
    menu offers the same Templates as a list.
 3. The Scene appears on the canvas with working starter content, and the
@@ -454,13 +454,14 @@ an asset side panel on the Flow canvas can be reconsidered then.
 
 ### Templates
 
-v1 ships seven Templates (Presets). Each contains starter source that
+v1 ships eight Templates (Presets). Each contains starter source that
 already uses the Project Style, its expected Signals, a one-line summary
 for the author, and a brief that tells the Agent what the author usually
 wants next. The brief is not shown to the author. Each Template's picture in
 **Add a Scene** is a capture of the Scene it creates: the starter source
 with the default Project Style and no background. The Story map's shows a
-sample story partly played, since a new one has nothing seen to show.
+sample story partly played, since a new one has nothing seen to show, and
+the Visual Novel's shows its first line of dialogue.
 
 | Template  | Starter content                                        | Starter Signals        |
 | --------- | ------------------------------------------------------ | ---------------------- |
@@ -471,6 +472,7 @@ sample story partly played, since a new one has nothing seen to show.
 | Hotspot   | A picture with pulsing spots, one Signal per spot      | `door`, `window`       |
 | Ending    | Stamped ending title, closing lines, and Play again    | none                   |
 | Story map | The branches seen so far, locked ones, endings found   | none (Back)            |
+| Visual Novel | Lines from `script.txt` with names and characters, then answers | `option-a`, `option-b` |
 
 Starter Signals are ordinary declared Signals; the author or Agent renames
 and adds them freely. The set follows the old editor's story nodes: Open UI
@@ -482,6 +484,47 @@ small game, start from Blank plus a description.
 Templates live in OhMyGame, not in projects. Creating a Scene copies the
 Template's source into `nodes/<id>/`; later Template changes do not affect
 existing Scenes.
+
+### Visual Novel Scenes
+
+A Visual Novel Scene plays its own script, so a chapter of dialogue is one
+Scene and its answers are its Exits. The author writes the lines in
+`nodes/<id>/script.txt`, edited in the **Code** tab or through the Agent:
+
+```text
+@bg street
+@show mio smile left
+@music rain
+The rain had not stopped since noon.
+mio: You came alone.
+? [trust >= 3] I trust you. -> trust-her {trust += 1}
+? Who else would come? -> walk-away
+```
+
+Each line is one step: a command (`@bg`, `@show`, `@hide`, `@music`, `@sfx`,
+`@set`), a line of dialogue (`who: words`), narration, an answer (`? words ->
+exit`), or an exit (`-> exit`). Answers and exits may carry a condition on a
+Variable, and answers may change Variables. The full format is at the top of
+`shared/vn/player.js`. Characters, with the name players see, its colour,
+and a picture (an image Asset) for each look, are listed once in
+`shared/vn/characters.json`.
+
+The player is ordinary shared project source under `shared/vn/`, like the
+Project Style: the first Visual Novel Scene adds it, later ones leave the
+author's changes to it alone, and changing `player.css` restyles every
+Visual Novel Scene. It types each line out, advances on a click, Space, or
+Enter, and offers Auto, Skip, and a Log of the Scene's lines. An answer whose
+Exit is not connected shows disabled. A script mistake, or an Asset,
+Variable, or character the script uses but the project does not declare,
+stops the Scene when it opens, naming the line.
+
+Two limits keep it to content, with no Runtime changes:
+
+- Variables the script changes are saved when the Scene is left. Continue
+  picks a saved game up at the start of its Scene, with the Variables it
+  started with, so nothing is counted twice.
+- Music belongs to the Scene and stops when it ends; the next Scene starts
+  its own.
 
 ### Scene thumbnails
 

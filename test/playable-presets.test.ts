@@ -42,9 +42,10 @@ describe("Playable Presets", () => {
       expect(source.javascript).toContain("mount");
       // Every Template has one background the editor can set.
       expect(playableBackdrop(source.html)).toBe("missing");
-      // Declared Signals are the ones the starter source emits, from either file.
+      // Declared Signals are the ones the starter source emits, from any of its files.
+      const files = [source.html, source.javascript, ...Object.values(source.files ?? {})].join("");
       for (const signal of preset.signals) {
-        expect(`${source.html}${source.javascript}`).toContain(signal.id);
+        expect(files).toContain(signal.id);
       }
     }
     expect(playablePreset("nope")).toBeUndefined();

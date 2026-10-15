@@ -138,6 +138,14 @@ outside the story are `story.hidden`, and that the endings are right. Change
 how the map looks in that node's code; `context.story.map()` already gives
 the layout and what the player has seen.
 
+**Build a visual novel chapter.** Create a node from the `visual-novel`
+Preset. Put the author's lines in its `script.txt` in the format described
+at the top of `shared/vn/player.js`, and list characters and their looks in
+`shared/vn/characters.json`. The author writes the dialogue and narration:
+do not write, rewrite, or extend them unless asked. Declare every Asset the
+script and its characters use in the node's `assets`, every Variable in
+`initialState`, and one Signal per answer or `->` exit.
+
 ## Tools
 
 The Agent has two Playable Nodes tools, and `game_use` when a Playtest
