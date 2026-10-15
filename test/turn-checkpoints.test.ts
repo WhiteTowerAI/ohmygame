@@ -347,6 +347,29 @@ it("projects real edit/write diffs before the turn ends and restores them from d
   });
 });
 
+it("sanitizes leaked thinking before saving and sending the next prompt", async () => {
+  const { manager, project, conversation, sessionManager, runtime } = await fixture();
+  const contexts: unknown[] = [];
+  let calls = 0;
+  runtime.streamSimple = (_model, context) => {
+    contexts.push(context);
+    calls += 1;
+    return stream(assistant([{ type: "text", text: calls === 1 ? "<thinking>private</thinking>Answer" : "Follow-up" }]));
+  };
+
+  await expect(manager.prompt(project, conversation, "Build").result).resolves.toBe("completed");
+  const saved = sessionManager.getBranch().findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
+  expect(saved?.type === "message" && saved.message.role === "assistant" ? saved.message.content : undefined).toEqual([
+    { type: "text", text: "Answer" },
+  ]);
+
+  await expect(manager.prompt(project, conversation, "Continue").result).resolves.toBe("completed");
+  const previous = contexts[1] as { messages: Array<{ role: string; content: unknown }> } | undefined;
+  expect(previous?.messages.findLast((message) => message.role === "assistant")?.content).toEqual([
+    { type: "text", text: "Answer" },
+  ]);
+});
+
 it("captures consumed follow-ups and steering at file boundaries, rather than enqueue time", async () => {
   const {
     events,
