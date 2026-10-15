@@ -174,13 +174,14 @@ describe("daemon", () => {
     expect(conversation.statusCode).toBe(201);
     expect((await stat(path.join(dataDirectory, "projects", project.id, "session"))).isDirectory()).toBe(true);
 
-    const duplicateWorkspace = await app.inject({
+    const sameWorkspace = await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { name: "Duplicate workspace", workspacePath },
+      payload: { name: "Same workspace", type: "interactive-story", workspacePath },
     });
-    expect(duplicateWorkspace.statusCode).toBe(400);
-    expect(duplicateWorkspace.json()).toEqual({ error: "This folder overlaps with another OhMyGame workspace" });
+    expect(sameWorkspace.statusCode).toBe(200);
+    expect(sameWorkspace.json()).toMatchObject({ id: project.id, name: "Existing files", type: "web-game" });
+    await expect(stat(path.join(workspacePath, "graph.json"))).rejects.toThrow();
 
     const nestedWorkspace = path.join(workspacePath, "nested");
     await mkdir(nestedWorkspace);
@@ -189,8 +190,10 @@ describe("daemon", () => {
       url: "/projects",
       payload: { name: "Nested workspace", workspacePath: nestedWorkspace },
     });
-    expect(nested.statusCode).toBe(400);
-    expect(nested.json()).toEqual({ error: "This folder overlaps with another OhMyGame workspace" });
+    expect(nested.statusCode).toBe(201);
+    expect(nested.json().workspacePath).toBe(await realpath(nestedWorkspace));
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toHaveLength(2);
+    expect((await app.inject({ method: "DELETE", url: `/projects/${nested.json().id}` })).statusCode).toBe(204);
 
     expect((await app.inject({ method: "DELETE", url: `/projects/${project.id}` })).statusCode).toBe(204);
     expect(await readFile(path.join(workspacePath, "README.md"), "utf8")).toBe("Existing project files\n");

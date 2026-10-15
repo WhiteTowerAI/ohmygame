@@ -376,6 +376,9 @@ projects/<project-id>/
 ```
 
 Removing a project never deletes an existing folder used as its workspace.
+Choosing a folder that is already a project's workspace when creating a project
+opens that project instead; a folder inside another workspace can hold a
+project of its own.
 
 Project covers are saved independently of publishing. Selecting an image in the
 publish dialog previews it; **Apply cover** saves it and stops automatic cover

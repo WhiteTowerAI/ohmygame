@@ -1075,6 +1075,8 @@ export function createApp(options: AppOptions = {}) {
       if (request.body?.viewport && request.body.type !== "interactive-story") {
         return reply.code(400).send({ error: "A viewport requires an Interactive Story project" });
       }
+      const existing = request.body?.workspacePath ? await projects.findByWorkspace(request.body.workspacePath) : undefined;
+      if (existing) return reply.code(200).send(existing);
       const project = await projects.create(request.body?.name, request.body?.type, request.body?.workspacePath);
       if (project.type === "interactive-story") {
         try {
