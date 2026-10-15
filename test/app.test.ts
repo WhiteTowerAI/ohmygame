@@ -2117,6 +2117,24 @@ describe("Playable Nodes projects", () => {
     await rm(workspacePath, { recursive: true, force: true });
   });
 
+  it("exports an Interactive Story as an editable project archive", async () => {
+    const app = await createPlayableApp("ohmygame-playable-export-project-");
+    const webGame = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Web" } })).json();
+    const story = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-story" },
+    })).json();
+
+    const exported = await app.inject({ method: "POST", url: `/projects/${story.id}/interactive-story/export-project` });
+    const rejected = await app.inject({ method: "POST", url: `/projects/${webGame.id}/interactive-story/export-project` });
+
+    expect(exported.statusCode).toBe(200);
+    expect(exported.headers["content-type"]).toBe("application/zip");
+    expect(exported.rawPayload.subarray(0, 2).toString()).toBe("PK");
+    expect(rejected.statusCode).toBe(409);
+  });
+
   it("protects Library assets declared by a Playable Nodes graph", async () => {
     const app = await createPlayableApp("ohmygame-playable-library-api-");
     const source = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Source" } })).json();

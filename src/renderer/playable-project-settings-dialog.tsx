@@ -31,13 +31,14 @@ export function PlayableProjectSettingsDialog({
   exporting: boolean;
   canExport: boolean;
   onSave: (viewport: Viewport) => Promise<void>;
-  onExport: () => Promise<void>;
+  onExport: (kind: "game" | "project") => Promise<void>;
   onClose: () => void;
 }) {
   const [selection, setSelection] = useState<CanvasFormatPresetId | undefined>(
     () => canvasFormatForViewport(graph.viewport)?.id,
   );
   const [saving, setSaving] = useState(false);
+  const [exportKind, setExportKind] = useState<"game" | "project">("game");
   const [error, setError] = useState<string>();
   const viewport = selection
     ? canvasFormatPreset(selection).viewport
@@ -61,10 +62,11 @@ export function PlayableProjectSettingsDialog({
     }
   }
 
-  async function exportProject(): Promise<void> {
+  async function exportProject(kind: "game" | "project"): Promise<void> {
     setError(undefined);
+    setExportKind(kind);
     try {
-      await onExport();
+      await onExport(kind);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -139,19 +141,27 @@ export function PlayableProjectSettingsDialog({
               {t("storySettings.saveBeforeExport")}
             </p>
           ) : null}
-          <button
-            className="project-settings-browser"
-            type="button"
-            disabled={!canExport || saving || exporting || changed}
-            onClick={() => void exportProject()}
-          >
-            {exporting ? (
-              <LoaderCircle className="spin" size={14} />
-            ) : (
-              <Download size={14} />
-            )}
-            {exporting ? t("storySettings.exporting") : t("storySettings.exportGame")}
-          </button>
+          <p className="project-settings-hint">{t("storySettings.exportHint")}</p>
+          <div className="project-settings-export-actions">
+            {(["game", "project"] as const).map((kind) => (
+              <button
+                key={kind}
+                className="project-settings-browser"
+                type="button"
+                disabled={!canExport || saving || exporting || changed}
+                onClick={() => void exportProject(kind)}
+              >
+                {exporting && exportKind === kind ? (
+                  <LoaderCircle className="spin" size={14} />
+                ) : (
+                  <Download size={14} />
+                )}
+                {exporting && exportKind === kind
+                  ? t("storySettings.exporting")
+                  : t(kind === "game" ? "storySettings.exportGame" : "storySettings.exportProject")}
+              </button>
+            ))}
+          </div>
         </fieldset>
         {error ? (
           <p className="project-settings-error" role="alert">

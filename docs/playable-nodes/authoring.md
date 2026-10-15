@@ -49,6 +49,12 @@ The workspace keeps the current Interactive Story layout:
   project-list filters, search, and sorting. Opening a project link directly
   uses **Projects** as the return destination. **Playtest** opens the real
   Runtime; the chat toggle and **Publish** follow it.
+- **Export game** downloads a build that players can play anywhere.
+  **Export project** downloads the editable project: its source files without
+  `node_modules/` or hidden folders such as `.data/` and `.ohmygame/`, with
+  each Library asset copied to `assets/library/` and `graph.json` pointing at
+  the copy. Choosing the unzipped folder in **New project** opens the same
+  project on another computer.
 
 ### Source files
 

@@ -973,6 +973,10 @@ const en = {
     saveBeforeExport: "Save screen size changes before exporting.",
     exporting: "Exporting...",
     exportGame: "Export game",
+    exportProject: "Export project",
+    exportHint:
+      "Export game makes a build that players can play. Export project keeps everything editable: open the unzipped folder with New project to continue it in OhMyGame.",
+    projectFileSuffix: "project",
     canvasFormat: "Canvas format",
   },
   library: {

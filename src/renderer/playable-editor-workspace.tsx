@@ -54,6 +54,7 @@ import {
   addPlayableNode,
   ApiError,
   buildInteractiveStory,
+  exportInteractiveStoryProject,
   getNodeCodebase,
   getPlayableValidation,
   getWorkspaceFile,
@@ -920,16 +921,18 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     }
   }
 
-  async function exportGame(): Promise<void> {
+  async function exportGame(kind: "game" | "project"): Promise<void> {
     if (!codebase || building) return;
     setBuilding(true);
     try {
       await save(codebase);
-      const artifact = await buildInteractiveStory(projectId, writeVersion);
+      const artifact = kind === "game"
+        ? await buildInteractiveStory(projectId, writeVersion)
+        : await exportInteractiveStoryProject(projectId, writeVersion);
       const url = URL.createObjectURL(artifact);
       const link = window.document.createElement("a");
       link.href = url;
-      link.download = `${project.name}.zip`;
+      link.download = kind === "game" ? `${project.name}.zip` : `${project.name} (${t("storySettings.projectFileSuffix")}).zip`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
     } finally {
