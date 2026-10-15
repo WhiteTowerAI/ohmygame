@@ -332,6 +332,13 @@ Provider language model catalog, and a native reasoning value is never coerced i
 `AgentReasoningLevel`. Existing Pi model and reasoning values remain available when a user
 switches back from a native runtime.
 
+The create-conversation request accepts these fields as optional additions, with omitted
+`runtime` meaning `pi`. Add a runtime update route such as
+`PUT /projects/:projectId/conversations/:conversationId/runtime` with the native selection
+and reasoning fields. The existing `/model` and `/reasoning` routes stay backwards-compatible
+Pi routes; they do not try to validate or persist a native model. Runtime and native values
+are validated against the selected runtime's capability result before being written.
+
 Every native adapter must provide a persistent transcript through the shared
 `SessionManager` contract used by `CodingSession`:
 
@@ -415,6 +422,11 @@ Every child has an independent process group. Cancellation terminates the comple
 tree. The daemon records owned process metadata and reclaims orphaned processes on startup.
 The supervisor limits process count by runtime and project without blocking Pi's request
 queue.
+
+Discovery resolves each selected executable to an absolute path and records the version used
+for the capability result. The supervisor starts that resolved path instead of resolving a
+binary from the project workspace or an untrusted child `PATH`; the child may receive a
+minimal safe `PATH` only for its own helper processes.
 
 ### Environment policy
 
