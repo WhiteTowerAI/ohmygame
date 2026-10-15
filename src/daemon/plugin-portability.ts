@@ -18,6 +18,7 @@ import type {
 import {
   LocalPluginError,
   LocalPluginStore,
+  assertPluginCompatible,
   inspectPluginBundle,
   readPluginManifest,
 } from "./local-plugins.js";
@@ -91,10 +92,8 @@ export class PluginPortability {
           path.resolve(root, manifest.mcpServers),
           JSON.stringify({ mcpServers: definitions }, null, 2),
         );
-      // Native metadata replaces imported manifests, which can contain inline credentials.
-      for (const directory of [".codex-plugin", ".claude-plugin"])
-        for (const file of ["plugin.json", "marketplace.json"])
-          await rm(path.join(root, directory, file), { force: true });
+      // copyForAuthoring already removed imported manifests, which can contain
+      // inline credentials; this writes the redacted native manifest.
       await writeFile(
         path.join(root, PLUGIN_MANIFEST_PATH),
         JSON.stringify(manifest, null, 2),
@@ -144,72 +143,76 @@ export class PluginPortability {
     }
   }
 
-  async inspect(bytes: Buffer): Promise<PluginArchivePreview> {
-    return this.#archive(bytes, async (root, backup) => {
-      const manifest = await readPluginManifest(root);
-      // Archives are user imports, even if their metadata was copied from a
-      // catalog entry that was marked public.
-      const marketplace = backup?.marketplace
-        ? { ...backup.marketplace, visibility: "personal" as const }
-        : PERSONAL_MARKETPLACE;
-      if (marketplace.id === "ohmygame")
-        throw new LocalPluginError(
-          "An imported archive must be a Personal plugin",
-        );
-      const idPrefix =
-        marketplace.id === "personal"
-          ? "personal:"
-          : `marketplace:${marketplace.id}:`;
-      const plugin = {
-        ...(await inspectPluginBundle(
-          root,
-          { idPrefix, marketplace, source: { type: "archive" } },
-          manifest,
-        )),
-        // The preview describes the package in the archive. Installation state
-        // is represented separately by existingRevision.
-        installed: false,
-      };
-      if (backup) {
-        const valid = this.settings.resolve(plugin).components;
+  inspect(bytes: Buffer): Promise<PluginArchivePreview> {
+    return this.#archive(bytes, (root, backup) => this.#preview(root, backup));
+  }
+
+  async #preview(
+    root: string,
+    backup?: PluginPortableSettings,
+  ): Promise<PluginArchivePreview> {
+    const manifest = await readPluginManifest(root);
+    assertPluginCompatible(manifest);
+    // Archives are user imports, even if their metadata was copied from a
+    // catalog entry that was marked public.
+    const marketplace = backup?.marketplace
+      ? { ...backup.marketplace, visibility: "personal" as const }
+      : PERSONAL_MARKETPLACE;
+    if (marketplace.id === "ohmygame")
+      throw new LocalPluginError(
+        "An imported archive must be a Personal plugin",
+      );
+    const idPrefix =
+      marketplace.id === "personal"
+        ? "personal:"
+        : `marketplace:${marketplace.id}:`;
+    const plugin = {
+      ...(await inspectPluginBundle(
+        root,
+        { idPrefix, marketplace, source: { type: "archive" } },
+        manifest,
+      )),
+      // The preview describes the package in the archive. Installation state
+      // is represented separately by existingRevision.
+      installed: false,
+    };
+    if (backup) {
+      const valid = this.settings.resolve(plugin).components;
+      if (
+        Object.keys(backup.settings.components).some(
+          (key) => !Object.hasOwn(valid, key),
+        )
+      )
+        throw new LocalPluginError("Backup contains unknown plugin components");
+      for (const [key, value] of Object.entries(backup.values)) {
+        const field = manifest.configuration?.[key];
         if (
-          Object.keys(backup.settings.components).some(
-            (key) => !Object.hasOwn(valid, key),
-          )
+          !field ||
+          field.type === "secret" ||
+          (field.type === "boolean"
+            ? typeof value !== "boolean"
+            : typeof value !== "string") ||
+          (field.type === "select" && !field.options?.includes(String(value)))
         )
           throw new LocalPluginError(
-            "Backup contains unknown plugin components",
+            "Backup contains invalid or secret configuration values",
           );
-        for (const [key, value] of Object.entries(backup.values)) {
-          const field = manifest.configuration?.[key];
-          if (
-            !field ||
-            field.type === "secret" ||
-            (field.type === "boolean"
-              ? typeof value !== "boolean"
-              : typeof value !== "string") ||
-            (field.type === "select" && !field.options?.includes(String(value)))
-          )
-            throw new LocalPluginError(
-              "Backup contains invalid or secret configuration values",
-            );
-        }
       }
-      const installedPath = await this.local.installedPath(plugin.id);
-      return {
-        plugin,
-        marketplace,
-        restoresSettings: Boolean(backup),
-        existingRevision: installedPath
-          ? (await inspectPluginFiles(installedPath)).revision
-          : undefined,
-      };
-    });
+    }
+    const installedPath = await this.local.installedPath(plugin.id);
+    return {
+      plugin,
+      marketplace,
+      restoresSettings: Boolean(backup),
+      existingRevision: installedPath
+        ? (await inspectPluginFiles(installedPath)).revision
+        : undefined,
+    };
   }
 
   async restore(bytes: Buffer, expectedRevision?: string) {
-    const preview = await this.inspect(bytes);
     return this.#archive(bytes, async (root, backup) => {
+      const preview = await this.#preview(root, backup);
       const plugin = await this.local.installPortable(
         root,
         preview.marketplace,

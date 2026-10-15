@@ -11,7 +11,7 @@ import {
 } from "../shared/plugins.js";
 import { LocalPluginError } from "./local-plugins.js";
 import { parseSkillMetadata } from "./skill-metadata.js";
-import { assertPluginCompatibility } from "./plugin-contract.js";
+import { pluginCompatibilityIssue } from "./plugin-contract.js";
 
 export interface DiscoveredPlugin extends PluginInstallCandidate {
   manifest: ResolvedPluginManifest;
@@ -34,6 +34,8 @@ export async function discoverPlugins(root: string): Promise<DiscoveredPlugin[]>
     const manifest = candidate.format === "ohmygame"
       ? await readOhMyGameManifest(path.join(root, candidate.path))
       : await normalizeManifest(root, await readJson(path.join(root, candidate.path)), candidate.format);
+    const issue = pluginCompatibilityIssue(manifest);
+    if (issue) throw new LocalPluginError(issue);
     return [await installCandidate(root, candidate.format, manifest, PERSONAL_MARKETPLACE)];
   }
 
@@ -67,6 +69,7 @@ async function discoverMarketplace(root: string, manifestPath: string): Promise<
   const marketplaceRef = marketplaceReference(marketplace);
   const format: DiscoveredPlugin["format"] = manifestPath.includes(".claude-plugin") ? "claude" : "codex";
   const candidates: DiscoveredPlugin[] = [];
+  let incompatible: string | undefined;
   for (const rawEntry of marketplace.plugins) {
     const entry = asRecord(rawEntry);
     const sourceRoot = marketplaceSourceRoot(root, entry.source);
@@ -75,8 +78,15 @@ async function discoverMarketplace(root: string, manifestPath: string): Promise<
     const nativePath = path.join(sourceRoot, PLUGIN_MANIFEST_PATH);
     const codexPath = path.join(sourceRoot, ".codex-plugin", "plugin.json");
     const claudePath = path.join(sourceRoot, ".claude-plugin", "plugin.json");
-    if (await exists(nativePath)) manifest = await readOhMyGameManifest(nativePath);
-    else if (await exists(codexPath)) manifest = await normalizeManifest(sourceRoot, await readJson(codexPath), "codex");
+    if (await exists(nativePath)) {
+      manifest = await readOhMyGameManifest(nativePath);
+      // One plugin that needs a newer host must not hide the rest of the marketplace.
+      const issue = pluginCompatibilityIssue(manifest);
+      if (issue) {
+        incompatible ??= issue;
+        continue;
+      }
+    } else if (await exists(codexPath)) manifest = await normalizeManifest(sourceRoot, await readJson(codexPath), "codex");
     else if (await exists(claudePath)) manifest = await normalizeManifest(sourceRoot, await readJson(claudePath), "claude");
     else manifest = await normalizeManifest(sourceRoot, entry, format, rawSkills.length ? rawSkills : undefined);
     const icon = manifest.interface?.icon;
@@ -85,7 +95,7 @@ async function discoverMarketplace(root: string, manifestPath: string): Promise<
     } : {}) };
     candidates.push({ ...await installCandidate(root, format, manifest, marketplaceRef), key: `marketplace:${marketplaceRef.id}:${manifest.name}` });
   }
-  if (!candidates.length) throw new LocalPluginError("Plugin marketplace does not contain any plugins");
+  if (!candidates.length) throw new LocalPluginError(incompatible ?? "Plugin marketplace does not contain any plugins");
   return candidates;
 }
 
@@ -243,7 +253,6 @@ function rebasePaths(repositoryRoot: string, pluginRoot: string, value: Resolved
 async function readOhMyGameManifest(manifestPath: string): Promise<PluginManifest> {
   const value = await readJson(manifestPath);
   if (!isPluginManifest(value)) throw new LocalPluginError("OhMyGame Plugin manifest is invalid");
-  assertPluginCompatibility(value);
   return value;
 }
 

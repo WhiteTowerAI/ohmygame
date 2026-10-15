@@ -1,5 +1,4 @@
-import { access, stat } from "node:fs/promises";
-import { constants } from "node:fs";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { PluginDetail } from "../shared/plugins.js";
 import { isPluginVersion } from "../shared/plugins.js";
@@ -8,39 +7,22 @@ import type {
   PluginDiagnostics,
 } from "../shared/plugin-portability.js";
 import type { PluginCapabilities } from "./plugin-capabilities.js";
+import { findExecutable, windowsExecutableNames } from "./package-manager.js";
 
 export async function executableExists(
   command: string,
   searchPath = process.env.PATH ?? "",
   cwd = process.cwd(),
 ): Promise<boolean> {
-  const extensions =
+  const candidates =
     process.platform === "win32"
-      ? ["", ...(process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";")]
-      : [""];
-  const hasPath = command.includes("/") || command.includes("\\");
-  const roots = hasPath
-    ? [cwd]
-    : [
-        ...new Set([
-          ...searchPath.split(path.delimiter).filter(Boolean),
-          path.dirname(process.execPath),
-        ]),
-      ];
-  for (const directory of roots)
-    for (const extension of extensions) {
-      const filename = path.resolve(directory, `${command}${extension}`);
-      try {
-        await access(
-          filename,
-          process.platform === "win32" ? constants.F_OK : constants.X_OK,
-        );
-        if ((await stat(filename)).isFile()) return true;
-      } catch {
-        /* Try the next PATH entry. */
-      }
-    }
-  return false;
+      ? [command, ...windowsExecutableNames(command, process.env.PATHEXT)]
+      : [command];
+  const directories =
+    command.includes("/") || command.includes("\\")
+      ? [cwd]
+      : [...searchPath.split(path.delimiter), path.dirname(process.execPath)];
+  return Boolean(await findExecutable(candidates, directories));
 }
 
 export async function inspectPluginDependencies(

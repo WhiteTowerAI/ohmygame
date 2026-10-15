@@ -517,9 +517,7 @@ function protectDefinitions(
     }
     if (Array.isArray(value))
       return value.map((v, i) => visit(v, [...parts, String(i)], sensitive ||
-        (parts.at(-1) === "args" && typeof v === "string" &&
-          (/^--?(?:api[_-]?key|token|secret|password|client[_-]?secret)=/i.test(v) ||
-            (typeof value[i - 1] === "string" && /^--?(?:api[_-]?key|token|secret|password|client[_-]?secret)$/i.test(value[i - 1]))))));
+        (parts.at(-1) === "args" && typeof v === "string" && sensitiveArgument(v, value[i - 1]))));
     if (value && typeof value === "object")
       return Object.fromEntries(
         Object.entries(value).map(([k, v]) => [
@@ -543,9 +541,29 @@ function protectDefinitions(
   return visit(servers, []) as Record<string, McpServerDefinition>;
 }
 
+const SECRET_NAME = /^(?:[a-z0-9]+[-_])*(?:api[-_]?key|key|token|secret|password|passwd|pat|auth|authorization|credentials?|bearer|signature|sig)(?:[-_](?!(?:file|path|dir|url|uri)$)[a-z0-9]+)*$/i;
+
+// Names catch flagged credentials; the value shape catches positional ones and
+// URL path segments, so exported packages do not carry literal tokens.
+function sensitiveArgument(value: string, previous: unknown): boolean {
+  const flag = /^--?([^=]+)=(.*)$/.exec(value);
+  if (flag) return SECRET_NAME.test(flag[1]!) || looksLikeSecret(flag[2]!);
+  if (value.startsWith("-")) return false;
+  return (typeof previous === "string" && /^--?[^=]+$/.test(previous) && SECRET_NAME.test(previous.replace(/^--?/, ""))) ||
+    looksLikeSecret(value);
+}
+
+function looksLikeSecret(value: string): boolean {
+  if (/^(?:sk|pk|rk)[-_][A-Za-z0-9_-]{16,}$|^(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}$|^github_pat_[A-Za-z0-9_]{20,}$|^glpat-[A-Za-z0-9_-]{16,}$|^xox[abposr]-[A-Za-z0-9-]{10,}$|^AKIA[A-Z0-9]{16}$|^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\./.test(value))
+    return true;
+  return value.length >= 24 && /^[A-Za-z0-9_-]+$/.test(value) && /[A-Z]/.test(value) && /[a-z]/.test(value) && /[0-9]/.test(value);
+}
+
 function sensitiveUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return Boolean(url.username || url.password) || [...url.searchParams.keys()].some(key => /^(?:api[_-]?key|token|secret|password|signature)$/i.test(key));
+    return Boolean(url.username || url.password) ||
+      [...url.searchParams].some(([key, item]) => SECRET_NAME.test(key) || looksLikeSecret(item)) ||
+      url.pathname.split("/").some(looksLikeSecret);
   } catch { return false; }
 }

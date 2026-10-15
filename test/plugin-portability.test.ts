@@ -12,8 +12,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ZipFile } from "yazl";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
+import { LocalPluginError, LocalPluginStore } from "../src/daemon/local-plugins.js";
+import {
+  PluginCapabilities,
+  mcpPluginPackage,
+} from "../src/daemon/plugin-capabilities.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import {
   LocalPluginAdapter,
@@ -23,7 +26,7 @@ import {
   PluginPortability,
   registerPluginPortabilityRoutes,
 } from "../src/daemon/plugin-portability.js";
-import { assertPluginCompatibility } from "../src/daemon/plugin-contract.js";
+import { pluginCompatibilityIssue } from "../src/daemon/plugin-contract.js";
 import {
   inspectPluginDependencies,
   executableExists,
@@ -410,27 +413,64 @@ describe("plugin portability", () => {
 
 describe("plugin contract and dependency checks", () => {
   it("accepts old packages and enforces host/format compatibility at discovery and install", async () => {
-    expect(() => assertPluginCompatibility(manifest, "1.0.0")).not.toThrow();
-    expect(() =>
-      assertPluginCompatibility(
+    expect(pluginCompatibilityIssue(manifest, "1.0.0")).toBeUndefined();
+    expect(
+      pluginCompatibilityIssue(
         { ...manifest, minimumHostVersion: "1.0.0" },
         "1.0.0-beta.1",
       ),
-    ).toThrow("requires OhMyGame");
-    expect(() =>
-      assertPluginCompatibility(
+    ).toContain("requires OhMyGame");
+    expect(
+      pluginCompatibilityIssue(
         { ...manifest, minimumHostVersion: "1.0.0-beta.1" },
         "1.0.0",
       ),
-    ).not.toThrow();
+    ).toBeUndefined();
     const env = await environment();
     const root = path.join(env.directory, "source");
     await packageAt(root, { ...manifest, formatVersion: 2 });
+    await expect(discoverPlugins(root)).rejects.toBeInstanceOf(LocalPluginError);
     await expect(discoverPlugins(root)).rejects.toThrow("Plugin format 2");
     await expect(env.local.install(root)).rejects.toThrow("Plugin format 2");
     await packageAt(root, { ...manifest, minimumHostVersion: "999.0.0" });
     await expect(env.local.install(root)).rejects.toThrow(
       "requires OhMyGame 999.0.0",
+    );
+  });
+
+  it("moves flagged, positional, and URL-path credentials into secret fields", () => {
+    const { servers, values } = mcpPluginPackage(
+      {
+        name: "leaky",
+        servers: {
+          local: {
+            command: "server",
+            args: [
+              "--auth-token",
+              "plain-flag-value",
+              "--key=inline-value",
+              "sk-live-0123456789abcdefghij",
+              "--token-file",
+              "./token.txt",
+              "--verbose",
+            ],
+          },
+          remote: { url: "https://host.example/mcp/Ab3dEf6hIj9kLm2nOp5qRs8t/sse" },
+        },
+      },
+      true,
+    );
+    const args = servers.local!.args as string[];
+    expect(args.slice(1, 4).every((arg) => arg.includes("${config."))).toBe(true);
+    expect(args.slice(4)).toEqual(["--token-file", "./token.txt", "--verbose"]);
+    expect(servers.remote!.url).toMatch(/^\$\{config\./);
+    expect(Object.values(values)).toEqual(
+      expect.arrayContaining([
+        "plain-flag-value",
+        "--key=inline-value",
+        "sk-live-0123456789abcdefghij",
+        "https://host.example/mcp/Ab3dEf6hIj9kLm2nOp5qRs8t/sse",
+      ]),
     );
   });
 

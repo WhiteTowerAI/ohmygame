@@ -19,7 +19,7 @@ import {
 } from "../shared/plugins.js";
 import { parseSkillMetadata } from "./skill-metadata.js";
 import { readPluginIconAsset } from "./plugin-icons.js";
-import { assertPluginCompatibility } from "./plugin-contract.js";
+import { pluginCompatibilityIssue } from "./plugin-contract.js";
 
 const MAX_PLUGIN_DEPTH = 64;
 
@@ -94,9 +94,8 @@ export class LocalPluginStore {
     provenance: PluginProvenance = { type: "directory", path: sourcePath },
     manifest?: ResolvedPluginManifest,
     marketplace: PluginMarketplaceRef = PERSONAL_MARKETPLACE,
-    trustedMarketplace = false,
   ): Promise<PluginDetail> {
-    return this.#mutate(() => this.#install(sourcePath, provenance, manifest, marketplace, trustedMarketplace));
+    return this.#mutate(() => this.#install(sourcePath, provenance, manifest, marketplace));
   }
 
   async installPrepared(
@@ -159,7 +158,9 @@ export class LocalPluginStore {
         const current = await inspectPluginFiles(this.#installedPath(record.marketplace.id, record.name, record.version));
         if (!revision || current.revision !== revision) throw new LocalPluginError("The installed plugin changed. Start a new editing workspace");
       }
-      return this.#install(sourcePath, target.provenance, undefined, target.marketplace, false, id);
+      // The edited package no longer matches its directory or Git source, so a
+      // reinstall from there must not silently replace the edits.
+      return this.#install(sourcePath, { type: "authored" }, undefined, target.marketplace, false, id);
     });
   }
 
@@ -181,16 +182,19 @@ export class LocalPluginStore {
     }
     validateMarketplace(marketplace, trustedMarketplace);
     const identity = pluginIdentity(marketplace, publicSource(provenance));
-    const inspected = await inspectPluginBundle(source, identity, normalizedManifest);
-    if (replacementId && inspected.id !== replacementId) throw new LocalPluginError("An editing draft must keep the original plugin name");
     const manifest = normalizedManifest ?? await readPluginManifest(source);
+    assertPluginCompatible(manifest);
+    const inspected = await inspectPluginBundle(source, identity, manifest);
+    if (replacementId && inspected.id !== replacementId) throw new LocalPluginError("An editing draft must keep the original plugin name");
     const currentRecords = await this.#readIndex();
     const previousRecord = currentRecords.find((record) => pluginRecordId(record) === inspected.id);
     if (previousRecord && !replacementId && sourceKey(previousRecord.provenance) !== sourceKey(provenance)) {
       throw new LocalPluginError(`Plugin ${inspected.name} is already installed from another source`);
     }
-    const conflictingMarketplace = marketplace.id === PERSONAL_MARKETPLACE.id || provenance.type === "preinstalled" || provenance.type === "archive" ? undefined : currentRecords.find((record) =>
-      record.marketplace.id === marketplace.id && sourceKey(record.provenance) !== sourceKey(provenance));
+    // Only directory and Git sources own a marketplace. Archive imports and
+    // edited copies keep their marketplace label without claiming it.
+    const conflictingMarketplace = marketplace.id === PERSONAL_MARKETPLACE.id || !ownsMarketplace(provenance) ? undefined : currentRecords.find((record) =>
+      record.marketplace.id === marketplace.id && ownsMarketplace(record.provenance) && sourceKey(record.provenance) !== sourceKey(provenance));
     if (conflictingMarketplace) {
       throw new LocalPluginError(`Marketplace ${marketplace.id} is already installed from another source`);
     }
@@ -349,8 +353,6 @@ export async function inspectPluginBundle(
 ): Promise<PluginDetail> {
   await validatePluginBundle(pluginRoot);
   const manifest = normalizedManifest ?? await readPluginManifest(pluginRoot);
-  try { assertPluginCompatibility(manifest); }
-  catch (cause) { throw new LocalPluginError(cause instanceof Error ? cause.message : String(cause)); }
   let icon = manifest.interface?.icon;
   const iconAsset = await readPluginIconAsset(pluginRoot, icon).catch(() => {
     icon = undefined;
@@ -385,6 +387,12 @@ export async function inspectPluginBundle(
     defaultPrompts: manifest.interface?.defaultPrompt,
     projectTypes: manifest.interface?.projectTypes,
   };
+}
+
+/** Checked on install and import only, so a downgrade cannot hide installed plugins. */
+export function assertPluginCompatible(manifest: ResolvedPluginManifest): void {
+  const issue = pluginCompatibilityIssue(manifest);
+  if (issue) throw new LocalPluginError(issue);
 }
 
 export async function readPluginManifest(pluginRoot: string): Promise<PluginManifest> {
@@ -545,6 +553,10 @@ function publicSource(provenance: PluginProvenance): PluginSource {
   if (provenance.type === "directory") return { type: "directory" };
   if (provenance.type === "git") return { type: "git", url: provenance.url, commit: provenance.commit };
   return provenance;
+}
+
+function ownsMarketplace(provenance: PluginProvenance): boolean {
+  return provenance.type === "directory" || provenance.type === "git";
 }
 
 function sourceKey(provenance: PluginProvenance): string {

@@ -483,7 +483,7 @@ export class PluginSetupManager {
         model: compatibleRuntimeModel(selected.model),
         sessionManager: this.#sessionManager(state.id),
         customTools: [this.#tool(cwd, state)],
-        ...(state.mode === "configure" ? { tools: [] } : {}),
+        ...(state.mode === "configure" ? { noTools: "builtin" as const } : {}),
       });
       session = created.session;
       this.#sessions.set(state.id, session);

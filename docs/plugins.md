@@ -99,9 +99,12 @@ The host resolves `${config.field-id}` from the user's configuration. Missing in
 `formatVersion` describes the package contract, independently of the plugin's
 SemVer `version`. The host currently supports format `1`; an omitted field also
 means `1`, so existing native packages remain readable. A newer format is
-rejected during discovery and installation with an upgrade message. Optional
+rejected during discovery, installation, and archive import with an upgrade
+message; in a marketplace, only the incompatible plugins are skipped. Optional
 `minimumHostVersion` is a SemVer release of OhMyGame required by the package.
 It is checked against the running application's version, including prereleases.
+Already installed plugins remain listed after a downgrade, so they can still be
+exported or uninstalled.
 
 Keep plugin names, configuration field IDs/types, and component IDs stable
 across compatible updates. The host preserves user configuration by plugin ID;
@@ -147,7 +150,7 @@ Game projects and Plugin Builder share `WorkspaceShell`, `WorkspaceAgentPane`, `
 
 The builder exposes plugin enable/disable, conversation deletion, workspace deletion, and Uninstall as independent operations. Deleting only the conversation clears persisted history and unsent input while preserving draft files, configuration, and the installed package. Deleting a workspace removes its conversation, draft files, and private draft configuration; installed packages and their saved configuration remain. Workspace deletion is also available directly from the AI workspace list. Destructive actions require confirmation. Busy workspaces must finish or stop before deletion.
 
-Uninstalling preserves the workspace and restores its draft for reinstallation, including when the plugin was removed from its detail page. A deleted authoring workspace can be replaced with Edit with AI from the installed plugin. AI-created packages have stable authored provenance rather than a conversation-directory identity. Editing updates the original plugin ID and retains configuration and component settings. An update is rejected when the installed package has changed since the editing workspace was created. Preview views show plugin content, configuration fields, and actual check results; empty views use a single short status.
+Uninstalling preserves the workspace and restores its draft for reinstallation, including when the plugin was removed from its detail page. A deleted authoring workspace can be replaced with Edit with AI from the installed plugin. AI-created packages have stable authored provenance rather than a conversation-directory identity. Editing updates the original plugin ID and retains configuration and component settings. An edited plugin gets authored provenance, so reinstalling or updating it from its original folder or Git repository is rejected instead of overwriting the edits. An update is rejected when the installed package has changed since the editing workspace was created. Preview views show plugin content, configuration fields, and actual check results; empty views use a single short status.
 
 The assistant authors Skills and supporting files in its workspace, then uses `plugin_manage prepare` to expose and validate the draft. `create-mcp` also prepares an uninstalled draft. The user reviews the overview and files and chooses Install plugin; further changes to the same authored package can be applied with Update plugin. Installation verifies a content revision so an outdated preview cannot install a changed draft. Package validation and MCP connection checks are displayed separately from workflow behavior, which must be tried in a project.
 
@@ -168,7 +171,9 @@ preview. Public plugins cannot be replaced by imported archives.
 Exports contain native package metadata, Skills and supporting files, effective
 MCP templates, nonsecret configuration, and plugin/component switches. Imported
 formats are normalized to native metadata and retain their original Personal
-or third-party marketplace identity. `.ohmygame-plugin/backup.json` holds the
+or third-party marketplace identity. An imported plugin does not take ownership
+of that marketplace, so the marketplace can still be installed from its folder
+or Git repository. `.ohmygame-plugin/backup.json` holds the
 versioned nonsecret restore data; ordinary native ZIP packages without this
 file can also be imported. Executable file permission is preserved without
 special permission bits. ZIP files are limited to 50 MB and extraction rejects
@@ -176,8 +181,9 @@ unsafe paths, symbolic links, private hidden files, and `node_modules`.
 
 Platform-stored credentials, OAuth sessions, AI conversation history, and
 builder workspaces are excluded. Sensitive MCP literals in environment,
-headers, credential URLs, and common credential arguments become required
-secret fields. Authors must still avoid embedding credentials in arbitrary
+headers, credential URLs, credential-named arguments, and token-shaped
+positional arguments or URL path segments become required secret fields.
+Detection is heuristic. Authors must still avoid embedding credentials in arbitrary
 scripts/assets or ordinary text fields. Exports exclude private hidden files
 and dependency directories; dependencies must be installed on the destination.
 Manifest-declared Skills and the MCP file are checked in the completed export
