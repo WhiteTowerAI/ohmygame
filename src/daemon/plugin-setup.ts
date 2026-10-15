@@ -26,6 +26,7 @@ import type {
   PluginSetupSummary,
   PluginDraft,
   PluginIconUpdate,
+  PluginSetupMode,
 } from "../shared/plugin-setup.js";
 import type {
   CreateMcpPluginRequest,
@@ -36,12 +37,12 @@ import type { ThreadItem, Turn } from "../shared/contracts.js";
 import type { RuntimeModel } from "./agent.js";
 import type { PluginCapabilities } from "./plugin-capabilities.js";
 import type { PluginCatalogService } from "./plugin-catalog.js";
-import type { LocalPluginStore } from "./local-plugins.js";
+import type { LocalPluginStore, PluginAuthoringSource } from "./local-plugins.js";
 import { mcpPluginPackage } from "./plugin-capabilities.js";
 import { inspectPluginDraft, pluginDraftPath, readPluginDraftFile } from "./plugin-draft.js";
 import { PLUGIN_AUTHORING_RULES } from "./plugin-authoring.js";
 import { openRouterAttributionExtension } from "./openrouter-attribution.js";
-import { isPluginIcon, isPluginManifest, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
+import { isPluginIcon, isPluginManifest, pluginCollection, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
 import { PLUGIN_ICON_MAX_BYTES } from "../shared/plugin-icons.js";
 import { readPluginIconAsset, validatePluginIconImage } from "./plugin-icons.js";
 
@@ -50,7 +51,9 @@ ${PLUGIN_AUTHORING_RULES}
 Use plugin_manage for structured operations. Call list/read before changing an existing plugin. Use bash/read/write/edit to author Skills and scripts in this workspace. Call prepare with input {path: "relative/plugin-directory"} when the draft is ready; fix its reported errors. create-mcp prepares an uninstalled draft for existing MCP services. The user reviews the preview and clicks Install plugin; do not claim a draft has been installed. After changes call prepare again so the preview stays current. Never modify credentials or session files.
 For installed plugins you may configure nonsecret values, inspect or edit MCP templates and test connections. Keep answers concise, explain what changed and what input is still required, and match the user's language.`;
 
-type SetupRuntimeState = PluginSetupSummary & { busy: boolean; configurationId: string; error?: string; draftPath?: string; installedRevision?: string; checks?: PluginDraft["checks"] };
+const CONFIGURE_PROMPT = `You help users understand, configure and diagnose the selected OhMyGame plugin. Use plugin_manage read and read-skill to inspect it before suggesting changes. Configure only this plugin's nonsecret fields and MCP templates, and test its connections. Explain changes and required input. Never ask for secrets in chat; direct the user to the configuration form or OAuth controls. Do not author or install packages. Match the user's language.`;
+
+type SetupRuntimeState = PluginSetupSummary & { busy: boolean; configurationId: string; error?: string; draftPath?: string; installedRevision?: string; baseRevision?: string; editSource?: PluginAuthoringSource; checks?: PluginDraft["checks"] };
 
 export class PluginSetupManager {
   #states = new Map<string, SetupRuntimeState>();
@@ -75,22 +78,40 @@ export class PluginSetupManager {
   #directory(id: string): string {
     return path.join(this.dataDirectory, "plugin-setup", id);
   }
-  async create(pluginId?: string): Promise<PluginSetupState> {
+  async create(pluginId?: string, mode: PluginSetupMode = pluginId ? "configure" : "create"): Promise<PluginSetupState> {
     if (this.#closed) throw new Error("Plugin assistant is closed");
     const plugin = pluginId ? await this.plugins.read(pluginId) : undefined;
     if (pluginId && !plugin) throw new Error("Plugin not found");
+    if (mode !== "create" && !plugin?.installed) throw new Error("Select an installed plugin");
+    if (mode === "create" && pluginId) throw new Error("Create a new plugin without an installed target");
+    if (mode === "edit" && plugin && pluginCollection(plugin) === "public") throw new Error("Public plugins cannot be edited in place");
     const id = randomUUID();
     const state: SetupRuntimeState = {
       id,
+      mode,
       pluginId,
       configurationId: pluginId ?? `draft:${id}`,
       busy: false,
       title: plugin?.displayName ?? "New plugin",
       createdAt: Date.now(), updatedAt: Date.now(), status: "idle",
     };
-    this.#states.set(state.id, state);
     await mkdir(this.#directory(state.id), { recursive: true });
-    await mkdir(path.join(this.#directory(state.id), "workspace"), { recursive: true });
+    const workspace = path.join(this.#directory(state.id), "workspace");
+    await mkdir(workspace, { recursive: true });
+    try {
+      if (mode === "edit" && plugin) {
+        const copied = await this.localPlugins.copyForAuthoring(plugin.id, path.join(workspace, plugin.name));
+        state.baseRevision = copied.revision;
+        state.editSource = copied.source;
+        state.draftPath = plugin.name;
+        state.installedRevision = (await inspectPluginDraft(path.join(workspace, plugin.name))).revision;
+        state.status = "installed";
+      }
+    } catch (cause) {
+      await rm(this.#directory(state.id), { recursive: true, force: true });
+      throw cause;
+    }
+    this.#states.set(state.id, state);
     await this.#save(state);
     return this.read(state.id);
   }
@@ -108,6 +129,7 @@ export class PluginSetupManager {
       ) as SetupRuntimeState;
       state = {
         id,
+        mode: stored.mode ?? (stored.draftPath ? "create" : stored.pluginId ? "configure" : "create"),
         pluginId: stored.pluginId,
         configurationId: stored.configurationId ?? stored.pluginId ?? `draft:${id}`,
         error: stored.error,
@@ -117,6 +139,7 @@ export class PluginSetupManager {
         status: stored.status === "working" ? "interrupted" : stored.status ?? "idle",
         model: stored.model, reasoningLevel: stored.reasoningLevel,
         draftPath: stored.draftPath, installedRevision: stored.installedRevision,
+        baseRevision: stored.baseRevision ?? stored.installedRevision, editSource: stored.editSource,
         checks: stored.checks,
       };
       // Keep the first concurrent reader's state so a prompt cannot be hidden
@@ -131,6 +154,7 @@ export class PluginSetupManager {
       if (!plugin?.installed && state.pluginId === pluginId && !state.busy) {
         state.pluginId = undefined;
         state.installedRevision = undefined;
+        state.baseRevision = undefined;
         state.checks = {};
         if (state.status === "installed") state.status = state.draftPath ? "ready" : "idle";
         state.updatedAt = Date.now();
@@ -156,8 +180,6 @@ export class PluginSetupManager {
     if (state.busy) throw new Error("Wait for the builder to finish before deleting its workspace");
     state.busy = true;
     try {
-      if (state.pluginId && (await this.plugins.read(state.pluginId))?.installed)
-        throw new Error("Uninstall the plugin before deleting its workspace");
       await this.#writes.get(id);
       this.#sessions.get(id)?.dispose();
       this.#sessions.delete(id);
@@ -177,6 +199,24 @@ export class PluginSetupManager {
       this.#live.delete(id);
       await rm(removed, { recursive: true, force: true });
     } finally { state.busy = false; }
+  }
+  async clearConversation(id: string): Promise<PluginSetupState> {
+    const state = await this.#loadState(id);
+    if (state.busy) throw new Error("Stop the assistant before deleting its conversation");
+    state.busy = true;
+    try {
+      await this.#writes.get(id);
+      this.#sessions.get(id)?.dispose();
+      this.#sessions.delete(id);
+      await rm(path.join(this.#directory(id), "sessions"), { recursive: true, force: true });
+      this.#history.delete(id);
+      this.#live.delete(id);
+      this.#aborted.delete(id);
+      state.error = undefined;
+      state.status = state.pluginId && state.installedRevision ? "installed" : state.draftPath ? "ready" : "idle";
+      state.updatedAt = Date.now();
+    } finally { state.busy = false; await this.#save(state); }
+    return this.read(id);
   }
   #turns(id: string, state: SetupRuntimeState): Turn[] {
     const items = conversationItems(this.#sessionManager(id).getBranch(), !state.busy);
@@ -202,10 +242,16 @@ export class PluginSetupManager {
     const state = await this.#loadState(id);
     if (!state.draftPath) return { files: [], errors: [] };
     const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
-    return { ...await inspectPluginDraft(root, state.installedRevision), path: state.draftPath, checks: state.checks };
+    const draft = await inspectPluginDraft(root, state.installedRevision);
+    if (draft.plugin && state.editSource) {
+      if (draft.plugin.name !== state.editSource.name) draft.errors.push("An editing draft must keep the original plugin name");
+      draft.plugin = { ...draft.plugin, id: state.configurationId, marketplace: state.editSource.marketplace };
+    }
+    return { ...draft, path: state.draftPath, checks: state.checks };
   }
   async prepare(id: string, requested: string): Promise<PluginDraft> {
     const state = await this.#loadState(id);
+    if (state.mode === "configure") throw new Error("Configuration sessions cannot author plugin packages");
     const workspace = path.join(this.#directory(id), "workspace");
     const root = await pluginDraftPath(workspace, requested);
     state.draftPath = path.relative(workspace, root) || ".";
@@ -311,6 +357,7 @@ export class PluginSetupManager {
   }
   async installDraft(id: string, revision: string): Promise<PluginSetupState> {
     const state = await this.#loadState(id);
+    if (state.mode === "configure") throw new Error("Configuration sessions cannot install plugin packages");
     if (state.busy) throw new Error("Wait for the builder to finish before installing");
     state.busy = true;
     let packageInstalled = false;
@@ -320,9 +367,12 @@ export class PluginSetupManager {
       if (draft.revision !== revision) throw new Error("The draft changed. Review it again before installing");
       const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
       const configurable = this.#configurationPlugin(state, draft.plugin);
-      const plugin = await this.localPlugins.install(root);
+      const plugin = state.editSource || state.pluginId
+        ? await this.localPlugins.updateFromDraft(state.pluginId ?? state.configurationId, root, state.baseRevision ?? state.installedRevision, state.editSource)
+        : await this.localPlugins.installAuthored(root);
       packageInstalled = true;
       state.pluginId = plugin.id;
+      state.baseRevision = revision;
       // Record the installed package before migrating configuration. A failed
       // migration must still expose uninstall and allow a retry after restart.
       await this.#save(state);
@@ -358,6 +408,7 @@ export class PluginSetupManager {
     const state = await this.#loadState(id);
     if (state.busy) throw new Error("The plugin assistant is already working");
     if (this.#closed) throw new Error("Plugin assistant is closed");
+    if (state.mode === "configure" && !state.pluginId) throw new Error("This plugin is no longer installed");
     state.busy = true;
     state.status = "working";
     state.model = input.model;
@@ -413,7 +464,7 @@ export class PluginSetupManager {
         noThemes: true,
         noContextFiles: true,
         systemPrompt:
-          SETUP_PROMPT +
+          (state.mode === "configure" ? CONFIGURE_PROMPT : SETUP_PROMPT) +
           (state.pluginId ? `\nThe selected plugin is ${state.pluginId}.` : ""),
         extensionFactories: [
           {
@@ -432,6 +483,7 @@ export class PluginSetupManager {
         model: compatibleRuntimeModel(selected.model),
         sessionManager: this.#sessionManager(state.id),
         customTools: [this.#tool(cwd, state)],
+        ...(state.mode === "configure" ? { tools: [] } : {}),
       });
       session = created.session;
       this.#sessions.set(state.id, session);
@@ -477,11 +529,12 @@ export class PluginSetupManager {
       name: "plugin_manage",
       label: "Manage plugin",
       description:
-        "Native plugin operations. Actions: list, read (id), create-mcp (input: name,displayName,description,servers,configuration) prepares an uninstalled MCP draft, prepare (input: path) validates an authored directory and updates the preview, configure (id,input: values excluding secrets), definition (id,server), configure-server (id,server,input: complete MCP definition with configuration templates), test (id,server). Read includes configuration state and declared fields; secrets never appear. The user installs drafts from the builder.",
+        "Native plugin operations. Actions: list, read (id), read-skill (id,server: skill ID), create-mcp (input: name,displayName,description,servers,configuration) prepares an uninstalled MCP draft, prepare (input: path) validates an authored directory and updates the preview, configure (id,input: values excluding secrets), definition (id,server), configure-server (id,server,input: complete MCP definition with configuration templates), test (id,server). Read includes configuration state and declared fields; secrets never appear. The user installs drafts from the builder.",
       parameters: Type.Object({
         action: Type.Union([
           Type.Literal("list"),
           Type.Literal("read"),
+          Type.Literal("read-skill"),
           Type.Literal("create-mcp"),
           Type.Literal("prepare"),
           Type.Literal("configure"),
@@ -501,6 +554,8 @@ export class PluginSetupManager {
           input?: unknown;
         };
         try {
+          if (state.mode === "configure" && (["prepare", "create-mcp"].includes(params.action) || (params.action !== "list" && params.id !== state.pluginId)))
+            throw new Error("This session can only configure the selected plugin");
           let result: unknown;
           if (params.action === "list") result = await this.plugins.list();
           else if (params.action === "create-mcp") {
@@ -520,6 +575,7 @@ export class PluginSetupManager {
               ? await this.plugins.read(params.id)
               : undefined;
             if (!plugin) throw new Error("Plugin not found");
+            if (params.action === "read-skill") result = await this.capabilities.skillContent(plugin, params.server ?? "");
             if (params.action === "read")
               result = {
                 plugin: await this.capabilities.decorate(plugin),
@@ -624,8 +680,8 @@ export class PluginSetupManager {
 }
 
 function summary(state: PluginSetupSummary): PluginSetupSummary {
-  const { id, pluginId, title, createdAt, updatedAt, status, model, reasoningLevel } = state;
-  return { id, pluginId, title, createdAt, updatedAt, status, model, reasoningLevel };
+  const { id, mode, pluginId, title, createdAt, updatedAt, status, model, reasoningLevel } = state;
+  return { id, mode, pluginId, title, createdAt, updatedAt, status, model, reasoningLevel };
 }
 
 export function registerPluginSetupRoutes(
@@ -633,14 +689,14 @@ export function registerPluginSetupRoutes(
   manager: PluginSetupManager,
 ) {
   app.get("/plugins/setup-sessions", () => manager.list());
-  app.post<{ Body: { pluginId?: string } }>(
+  app.post<{ Body: { pluginId?: string; mode?: PluginSetupMode } }>(
     "/plugins/setup-sessions",
     {
       schema: {
         body: {
           type: "object",
           additionalProperties: false,
-          properties: { pluginId: { type: "string" } },
+          properties: { pluginId: { type: "string" }, mode: { enum: ["create", "configure", "edit"] } },
         },
       },
     },
@@ -648,7 +704,7 @@ export function registerPluginSetupRoutes(
       try {
         return reply
           .code(201)
-          .send(await manager.create(request.body?.pluginId));
+          .send(await manager.create(request.body?.pluginId, request.body?.mode));
       } catch (cause) {
         return reply.code(400).send({ error: String(cause) });
       }
@@ -706,6 +762,11 @@ export function registerPluginSetupRoutes(
       return reply.code((cause as NodeJS.ErrnoException).code === "ENOENT" ? 404 : 409)
         .send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
+  });
+  app.delete<{ Params: { id: string } }>("/plugins/setup-sessions/:id/conversation", async (request, reply) => {
+    try { return await manager.clearConversation(request.params.id); }
+    catch (cause) { return reply.code((cause as NodeJS.ErrnoException).code === "ENOENT" ? 404 : 409)
+      .send({ error: cause instanceof Error ? cause.message : String(cause) }); }
   });
   app.get<{ Params: { id: string }; Querystring: { path: string } }>("/plugins/setup-sessions/:id/file", {
     schema: { querystring: { type: "object", required: ["path"], additionalProperties: false, properties: { path: { type: "string", minLength: 1 } } } },

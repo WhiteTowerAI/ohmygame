@@ -7,6 +7,7 @@ import {
 import { isPluginIcon, type PluginDetail } from "../shared/plugins.js";
 import type { PluginIconChange } from "../shared/plugin-setup.js";
 import { PluginIcon, PLUGIN_PRESET_GLYPHS } from "./plugin-icons.js";
+import { PluginFilePicker } from "./plugin-file-picker.js";
 import { t } from "./i18n.js";
 
 export function PluginIconPicker({
@@ -61,7 +62,7 @@ export function PluginIconPicker({
       if (event.key !== "Tab" || !dialog.current) return;
       const elements = [
         ...dialog.current.querySelectorAll<HTMLElement>(
-          "button:not(:disabled), input:not(:disabled)",
+          "button:not(:disabled), input:not(:disabled):not([tabindex='-1'])",
         ),
       ];
       const first = elements[0],
@@ -265,29 +266,29 @@ export function PluginIconPicker({
               </>
             ) : mode === "upload" ? (
               <>
-                <label>
-                  {t("pluginIconPicker.imageFile")}
-                  <input
-                    type="file"
-                    accept="image/png,image/webp,.png,.webp"
-                    aria-label={t("pluginIconPicker.imageInput")}
-                    onChange={(event) => {
-                      const selected = event.target.files?.[0];
-                      setFile(undefined);
-                      setError(undefined);
-                      if (!selected) return;
-                      if (
-                        !/\.(png|webp)$/i.test(selected.name) ||
-                        selected.size > PLUGIN_ICON_MAX_BYTES ||
-                        !selected.size
-                      ) {
-                        setError(t("pluginIconPicker.invalidFile"));
-                        return;
-                      }
-                      setFile(selected);
-                    }}
-                  />
-                </label>
+                <PluginFilePicker
+                  label={t("pluginIconPicker.imageFile")}
+                  inputLabel={t("pluginIconPicker.imageInput")}
+                  chooseLabel={t("common.chooseFile")}
+                  emptyLabel={t("common.noFileSelected")}
+                  file={file}
+                  accept="image/png,image/webp,.png,.webp"
+                  disabled={busy || disabled}
+                  onChange={(selected) => {
+                    setFile(undefined);
+                    setError(undefined);
+                    if (!selected) return;
+                    if (
+                      !/\.(png|webp)$/i.test(selected.name) ||
+                      selected.size > PLUGIN_ICON_MAX_BYTES ||
+                      !selected.size
+                    ) {
+                      setError(t("pluginIconPicker.invalidFile"));
+                      return;
+                    }
+                    setFile(selected);
+                  }}
+                />
                 <p className="plugin-icon-help">
                   {t("pluginIconPicker.fileHelp")}
                 </p>

@@ -8,6 +8,7 @@ export type PluginOrigin =
   | { type: "claude-marketplace"; marketplace: string; repository?: string };
 
 export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";
+export const PLUGIN_FORMAT_VERSION = 1;
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
 export const PLUGIN_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
 export const PLUGIN_SKILL_CONTENT_MAX_BYTES = 512 * 1024;
@@ -20,6 +21,8 @@ export const PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES: readonly string[] = [
 
 export type PluginSource =
   | { type: "builtIn" }
+  | { type: "authored" }
+  | { type: "archive" }
   | { type: "directory" }
   | { type: "git"; url: string; commit: string }
   | { type: "preinstalled"; pluginId: string; releaseId: string };
@@ -45,6 +48,8 @@ export interface PluginInstallInspection {
 export interface PluginMarketplaceRef {
   id: string;
   displayName: string;
+  /** Trusted catalog adapters may mark official community marketplaces public. */
+  visibility?: "public" | "personal";
 }
 
 export const OHMYGAME_MARKETPLACE: PluginMarketplaceRef = { id: "ohmygame", displayName: "OhMyGame" };
@@ -117,6 +122,12 @@ export interface PluginSummary {
   mcpServerCount?: number;
 }
 
+export function pluginCollection(plugin: Pick<PluginSummary, "source" | "marketplace">): "public" | "personal" {
+  if (plugin.source.type === "builtIn" || plugin.source.type === "preinstalled" || plugin.marketplace.id === OHMYGAME_MARKETPLACE.id)
+    return "public";
+  return plugin.marketplace.visibility ?? "personal";
+}
+
 export interface PluginComponentSummary {
   id: string;
   name: string;
@@ -143,6 +154,7 @@ export function pluginComponentKey(type: ConfigurablePluginComponentType, id: st
 }
 
 export interface PluginDetail extends PluginSummary {
+  requirements?: PluginManifest["requirements"];
   longDescription?: string;
   skills: PluginComponentSummary[];
   connections: PluginConnectionSummary[];
@@ -236,6 +248,12 @@ export interface PluginMcpResult {
 }
 
 export const PluginManifestSchema = Type.Object({
+  formatVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+  minimumHostVersion: Type.Optional(SemVerSchema),
+  requirements: Type.Optional(Type.Object({
+    commands: Type.Optional(Type.Array(Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }), { maxItems: 30, uniqueItems: true })),
+    platforms: Type.Optional(Type.Array(Type.Union([Type.Literal("darwin"), Type.Literal("win32"), Type.Literal("linux")]), { minItems: 1, uniqueItems: true })),
+  }, { additionalProperties: false })),
   name: Type.String({ pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }),
   version: SemVerSchema,
   description: Type.String({ minLength: 1 }),

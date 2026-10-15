@@ -18,6 +18,17 @@ import {
 import { LoaderCircle, Plug, Trash2, WandSparkles } from "./icons.js";
 import { t } from "./i18n.js";
 
+export function PluginEnabledSwitch({ plugin, disabled, onToggle }: {
+  plugin: Pick<PluginDetail, "displayName" | "enabled" | "installed">;
+  disabled?: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  if (!plugin.installed) return null;
+  const label = `${plugin.enabled ? t("common.disable") : t("common.enable")} ${plugin.displayName}`;
+  return <button className="plugin-switch" type="button" role="switch" aria-checked={plugin.enabled}
+    aria-label={label} title={label} disabled={disabled} onClick={() => onToggle(!plugin.enabled)}><span /></button>;
+}
+
 export function PluginUninstallButton({ plugin, disabled, compact = false, onUninstall }: {
   plugin: Pick<PluginDetail, "displayName" | "installed" | "source">;
   disabled?: boolean;

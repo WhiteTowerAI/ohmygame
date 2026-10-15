@@ -8,7 +8,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PluginSetupManager, registerPluginSetupRoutes } from "../src/daemon/plugin-setup.js";
 import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { LocalPluginAdapter, PluginCatalogService } from "../src/daemon/plugin-catalog.js";
+import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "../src/daemon/plugin-catalog.js";
+import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
+import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
@@ -23,10 +25,12 @@ async function environment() {
   const settings = new PluginSettingsStore(directory);
   await settings.load();
   const local = new LocalPluginStore(directory);
-  const capabilities = new PluginCapabilities(directory, agentDir, [local], local, settings);
+  const bundled = new BundledPluginStore(path.resolve("plugins"));
+  await bundled.load();
+  const capabilities = new PluginCapabilities(directory, agentDir, [bundled, local], local, settings);
   await capabilities.configuration.load();
   cleanup.push(() => capabilities.host.close());
-  const catalog = new PluginCatalogService([new LocalPluginAdapter(local)], settings);
+  const catalog = new PluginCatalogService([new BundledPluginAdapter(bundled), new LocalPluginAdapter(local)], settings);
   const invalidate = vi.fn();
   function manager() { return new PluginSetupManager(directory, agentDir, capabilities, catalog, local, invalidate, async () => { throw new Error("No test model"); }); }
   const setup = manager();
@@ -292,7 +296,7 @@ describe("Plugin Builder", () => {
     expect(await setup.read(state.id)).toMatchObject({ pluginId: "personal:design-review", status: "error", busy: false, error: "Configuration write failed" });
     expect((await local.list()).plugins).toHaveLength(1);
     expect(invalidate).toHaveBeenCalledOnce();
-    expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` })).statusCode).toBe(409);
+    expect((await setup.read(state.id)).busy).toBe(false);
     expect((await setup.configuration(state.id)).configuredSecrets).toEqual(["key"]);
     await setup.close();
     const resumed = manager(); cleanup.push(() => resumed.close());
@@ -345,19 +349,104 @@ describe("Plugin Builder", () => {
     expect((await resumed.list()).map(item => item.id)).toEqual([second.id]);
   });
 
-  it("blocks workspace deletion while its plugin is installed", async () => {
-    const { setup, directory, app, local } = await environment();
+  it("deletes an installed workspace while preserving its package, configuration and ability to edit again", async () => {
+    const { setup, directory, app, local, capabilities, manager } = await environment();
     const state = await setup.create();
-    const root = await writeDraft(directory, state.id);
-    const draft = await setup.prepare(state.id, root);
+    const draft = await setup.prepare(state.id, await writeDraft(directory, state.id, true));
+    await setup.configuration(state.id, { key: "saved-key" });
     await setup.installDraft(state.id, draft.revision!);
-    const blocked = await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` });
-    expect(blocked.statusCode).toBe(409);
-    expect(blocked.json().error).toContain("Uninstall");
-    expect(await setup.file(state.id, "skills/review/SKILL.md")).toHaveProperty("content");
-    expect((await local.list()).plugins).toHaveLength(1);
-    await local.remove("personal:design-review");
     expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` })).statusCode).toBe(204);
+    const plugin = (await local.read("personal:design-review"))!;
+    expect(plugin.source).toEqual({ type: "authored" });
+    expect(capabilities.configuration.resolved(plugin).key).toBe("saved-key");
+    await expect(readFile(path.join(directory, "plugin-setup", state.id, "state.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    await setup.close();
+    const resumed = manager(); cleanup.push(() => resumed.close());
+    const editing = await resumed.create(plugin.id, "edit");
+    const root = path.join(directory, "plugin-setup", editing.id, "workspace", plugin.name);
+    await writeFile(path.join(root, "skills/review/SKILL.md"), "---\nname: review\ndescription: Updated review.\n---\nNew instructions.");
+    const updated = await resumed.draft(editing.id);
+    await resumed.installDraft(editing.id, updated.revision!);
+    expect((await local.list()).plugins.map(item => item.id)).toEqual([plugin.id]);
+    expect(capabilities.configuration.resolved((await local.read(plugin.id))!).key).toBe("saved-key");
+    expect(await readFile(path.join((await local.installedPath(plugin.id))!, "skills/review/SKILL.md"), "utf8")).toContain("New instructions");
+  });
+
+  it("deletes a built-in plugin's configuration workspace and guards configuration mode from authoring", async () => {
+    const { setup, app } = await environment();
+    const created = await app.inject({ method: "POST", url: "/plugins/setup-sessions", payload: { pluginId: "ohmygame:web-game-studio", mode: "configure" } });
+    expect(created.statusCode).toBe(201);
+    const state = created.json();
+    expect(state.mode).toBe("configure");
+    await expect(setup.prepare(state.id, ".")).rejects.toThrow("cannot author");
+    await expect(setup.installDraft(state.id, "a".repeat(64))).rejects.toThrow("cannot install");
+    expect((await app.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}` })).statusCode).toBe(204);
+    expect((await setup.list()).map(item => item.id)).not.toContain(state.id);
+    await expect(setup.create("ohmygame:web-game-studio", "edit")).rejects.toThrow("Public");
+    expect((await setup.create("ohmygame:web-game-studio")).mode).toBe("configure");
+  });
+
+  it("deletes conversation history across restart while retaining the draft and its credentials", async () => {
+    const { setup, directory, app, manager } = await environment();
+    const state = await setup.create();
+    const draft = await setup.prepare(state.id, await writeDraft(directory, state.id, true));
+    await setup.configuration(state.id, { key: "draft-key" });
+    await setup.close();
+    const history = SessionManager.continueRecent(path.join(directory, "plugin-setup", state.id, "workspace"), path.join(directory, "plugin-setup", state.id, "sessions"));
+    history.appendMessage({ role: "user", content: "Review my plugin", timestamp: Date.now() });
+    history.appendMessage({ role: "assistant", content: [{ type: "text", text: "Reviewed." }], api: "openai-completions", provider: "fixture", model: "fixture", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() });
+    const resumed = manager(); cleanup.push(() => resumed.close());
+    expect((await resumed.read(state.id)).turns.length).toBeGreaterThan(0);
+    const routes = Fastify(); registerPluginSetupRoutes(routes, resumed); cleanup.push(() => routes.close());
+    const cleared = await routes.inject({ method: "DELETE", url: `/plugins/setup-sessions/${state.id}/conversation` });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().turns).toEqual([]);
+    expect((await resumed.draft(state.id)).revision).toBe(draft.revision);
+    expect((await resumed.configuration(state.id)).configuredSecrets).toEqual(["key"]);
+    const restarted = manager(); cleanup.push(() => restarted.close());
+    expect((await restarted.read(state.id)).turns).toEqual([]);
+    expect((await restarted.draft(state.id)).revision).toBe(draft.revision);
+  });
+
+  it("edits a Codex marketplace import in place and keeps its identity when reinstalling the edited draft", async () => {
+    const { setup, directory, local } = await environment();
+    const source = path.join(directory, "imported");
+    await mkdir(path.join(source, ".codex-plugin"), { recursive: true });
+    await mkdir(path.join(source, "skills/review"), { recursive: true });
+    await writeFile(path.join(source, ".codex-plugin/plugin.json"), JSON.stringify({ name: "review", description: "Review designs", skills: "./skills/" }));
+    await writeFile(path.join(source, "skills/review/SKILL.md"), "---\nname: review\ndescription: Review designs.\n---\nReview carefully.");
+    const candidate = (await discoverPlugins(source))[0]!;
+    const plugin = await local.install(source, { type: "directory", path: source }, candidate.manifest, { id: "game-tools", displayName: "Game Tools" });
+    const editing = await setup.create(plugin.id, "edit");
+    const draft = await setup.draft(editing.id);
+    expect(draft.errors).toEqual([]);
+    expect(draft.plugin).toMatchObject({ id: plugin.id, marketplace: plugin.marketplace });
+    const older = await setup.create(plugin.id, "edit");
+    const file = path.join(directory, "plugin-setup", editing.id, "workspace", "review", "skills/review/SKILL.md");
+    await writeFile(file, "---\nname: review\ndescription: Review designs.\n---\nUpdated imported instructions.");
+    await setup.installDraft(editing.id, (await setup.draft(editing.id)).revision!);
+    expect((await local.list()).plugins.map(item => item.id)).toEqual([plugin.id]);
+    await expect(readFile(path.join(directory, "plugin-setup", editing.id, "workspace", "review", ".codex-plugin/plugin.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(setup.installDraft(older.id, (await setup.draft(older.id)).revision!)).rejects.toThrow("installed plugin changed");
+    await local.remove(plugin.id);
+    expect((await setup.read(editing.id)).pluginId).toBeUndefined();
+    const reinstalled = await setup.installDraft(editing.id, (await setup.draft(editing.id)).revision!);
+    expect(reinstalled.pluginId).toBe(plugin.id);
+    expect((await local.read(plugin.id))!.marketplace).toEqual(plugin.marketplace);
+  });
+
+  it("rejects overwriting another draft's installed plugin and rejects updates from an outdated editing workspace", async () => {
+    const { setup, directory } = await environment();
+    const first = await setup.create();
+    const draft = await setup.prepare(first.id, await writeDraft(directory, first.id));
+    await setup.installDraft(first.id, draft.revision!);
+    const second = await setup.create();
+    const other = await setup.prepare(second.id, await writeDraft(directory, second.id));
+    await expect(setup.installDraft(second.id, other.revision!)).rejects.toThrow("already installed");
+    const editing = await setup.create("personal:design-review", "edit");
+    await writeFile(path.join(directory, "plugin-setup", first.id, "workspace", "design-review", "skills/review/SKILL.md"), "---\nname: review\ndescription: New review.\n---\nChanged outside the editing workspace.");
+    await setup.installDraft(first.id, (await setup.draft(first.id)).revision!);
+    await expect(setup.installDraft(editing.id, (await setup.draft(editing.id)).revision!)).rejects.toThrow("installed plugin changed");
   });
 
   it("blocks deleting a workspace with an in-progress configuration operation", async () => {

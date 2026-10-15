@@ -247,6 +247,25 @@ export class PluginConfigurationStore {
   async remove(pluginId: string): Promise<void> {
     await this.#mutate(next => this.#remove(next, pluginId));
   }
+  /** Adopt the archive's templates and nonsecret values while retaining only
+   * credentials still declared as secret by the restored package. */
+  async restorePortable(plugin: PluginDetail, values: Record<string, string | boolean>): Promise<void> {
+    await this.#mutate(next => {
+      const fields = plugin.configuration ?? {};
+      const stored = next.plugins[plugin.id];
+      const secretRefs = Object.fromEntries(Object.entries(stored?.secretRefs ?? {}).filter(([key]) => fields[key]?.type === "secret"));
+      for (const [key, ref] of Object.entries(stored?.secretRefs ?? {}))
+        if (!Object.hasOwn(secretRefs, key)) delete next.credentials[ref];
+      next.plugins[plugin.id] = { values: {}, secretRefs };
+      if (next.extraFields) delete next.extraFields[plugin.id];
+      for (const [key, ref] of Object.entries(next.serverOverrides ?? {})) {
+        if (!key.startsWith(`${plugin.id}/`)) continue;
+        delete next.credentials[ref];
+        delete next.serverOverrides![key];
+      }
+      this.#applyValues(next, plugin.id, fields, values);
+    });
+  }
   /** Transfer draft values and retire their private identity in one write. */
   async promoteDraft(draft: PluginDetail, plugin: PluginDetail): Promise<void> {
     if (draft.id === plugin.id) return;

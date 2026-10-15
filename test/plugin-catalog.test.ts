@@ -4,9 +4,24 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { LocalPluginAdapter, PluginCatalogService, type PluginCatalogAdapter } from "../src/daemon/plugin-catalog.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
-import type { PluginDetail } from "../src/shared/plugins.js";
+import { pluginCollection, type PluginDetail } from "../src/shared/plugins.js";
 
 describe("plugin catalog", () => {
+  it("uses trusted marketplace visibility for official community plugins", () => {
+    expect(pluginCollection({
+      source: { type: "git", url: "https://example.com/plugin.git", commit: "abc" },
+      marketplace: { id: "official-community", displayName: "Official Community", visibility: "public" },
+    })).toBe("public");
+    expect(pluginCollection({
+      source: { type: "git", url: "https://example.com/plugin.git", commit: "abc" },
+      marketplace: { id: "community", displayName: "Community" },
+    })).toBe("personal");
+    expect(pluginCollection({
+      source: { type: "builtIn" },
+      marketplace: { id: "community", displayName: "Community", visibility: "personal" },
+    })).toBe("public");
+  });
+
   it("exposes personal plugins behind the catalog", async () => {
     const personal = localPlugin();
     const settings = new PluginSettingsStore(await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-catalog-")));

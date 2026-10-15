@@ -5794,6 +5794,58 @@ button.home-nav-item-active:hover {
   font: inherit;
   font-size: 11px;
 }
+.plugin-file-picker {
+  display: grid;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+.plugin-file-picker-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+.plugin-file-picker-button {
+  display: inline-flex;
+  height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+}
+.plugin-file-picker-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.plugin-file-picker-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.plugin-file-picker-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.plugin-file-picker-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plugin-file-picker-name.is-empty {
+  color: var(--text-faint);
+}
 .plugin-install-candidates {
   display: grid;
   max-height: min(420px, 55dvh);
@@ -6064,6 +6116,8 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-catalog-card {
+  display: flex;
+  align-items: center;
   position: relative;
   min-width: 0;
   min-height: 84px;
@@ -6077,7 +6131,7 @@ button.home-nav-item-active:hover {
 
 .plugin-card-open {
   display: grid;
-  width: 100%;
+  flex: 1;
   min-width: 0;
   min-height: 84px;
   grid-template-columns: 52px minmax(0, 1fr);
@@ -6091,6 +6145,11 @@ button.home-nav-item-active:hover {
   cursor: pointer;
   font: inherit;
   text-align: left;
+}
+
+.plugin-catalog-card > .plugin-switch {
+  flex-shrink: 0;
+  margin-right: 14px;
 }
 
 .plugin-catalog-card:hover {

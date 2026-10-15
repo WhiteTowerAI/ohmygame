@@ -11,6 +11,7 @@ import {
 } from "../shared/plugins.js";
 import { LocalPluginError } from "./local-plugins.js";
 import { parseSkillMetadata } from "./skill-metadata.js";
+import { assertPluginCompatibility } from "./plugin-contract.js";
 
 export interface DiscoveredPlugin extends PluginInstallCandidate {
   manifest: ResolvedPluginManifest;
@@ -242,6 +243,7 @@ function rebasePaths(repositoryRoot: string, pluginRoot: string, value: Resolved
 async function readOhMyGameManifest(manifestPath: string): Promise<PluginManifest> {
   const value = await readJson(manifestPath);
   if (!isPluginManifest(value)) throw new LocalPluginError("OhMyGame Plugin manifest is invalid");
+  assertPluginCompatibility(value);
   return value;
 }
 

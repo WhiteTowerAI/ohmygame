@@ -1149,8 +1149,30 @@ export async function savePluginConfiguration(id: string, values: import("../sha
 export async function testPluginMcp(id: string, server: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/${encodeURIComponent(id)}/mcp/${encodeURIComponent(server)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
 }
-export async function createPluginSetup(pluginId?: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  return request("/plugins/setup-sessions", { method: "POST", body: JSON.stringify({ pluginId }) });
+export async function createPluginSetup(pluginId?: string, mode?: import("../shared/plugin-setup.js").PluginSetupMode): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+  return request("/plugins/setup-sessions", { method: "POST", body: JSON.stringify({ pluginId, mode }) });
+}
+export async function exportPluginArchive(id: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugins/${encodeURIComponent(id)}/export`), { headers: runtimeHeaders() });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+export async function inspectPluginArchive(file: Blob): Promise<import("../shared/plugin-portability.js").PluginArchivePreview> {
+  return uploadPluginArchive("/plugins/import/inspect", file);
+}
+export async function restorePluginArchive(file: Blob, revision?: string): Promise<PluginDetail> {
+  return uploadPluginArchive(`/plugins/import${revision ? `?revision=${encodeURIComponent(revision)}` : ""}`, file);
+}
+async function uploadPluginArchive<T>(route: string, file: Blob): Promise<T> {
+  const response = await fetch(apiUrl(route), { method: "POST", headers: { "content-type": "application/zip", ...runtimeHeaders() }, body: file });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<T>;
+}
+export async function checkPluginDependencies(id: string): Promise<import("../shared/plugin-portability.js").PluginDiagnostics> {
+  return request(`/plugins/${encodeURIComponent(id)}/dependencies`);
+}
+export async function clearPluginSetupConversation(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/conversation`, { method: "DELETE" });
 }
 export async function readPluginSetup(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}`);

@@ -18,7 +18,7 @@ import {
   readPluginMcpServers,
   type LocalPluginStore,
 } from "./local-plugins.js";
-import type { PluginSkillSource } from "./plugin-runtime.js";
+import { readPluginSkillContent, type PluginSkillSource } from "./plugin-runtime.js";
 import type { PluginSettingsStore } from "./plugin-settings.js";
 import {
   PluginConfigurationError,
@@ -35,6 +35,16 @@ interface PluginMcpPackage {
 export class PluginCapabilities {
   readonly configuration: PluginConfigurationStore;
   readonly host = new PluginMcpHost();
+  async skillContent(plugin: PluginDetail, id: string): Promise<string | undefined> {
+    return readPluginSkillContent(plugin, id, this.sources);
+  }
+  async packageRoot(plugin: PluginDetail): Promise<string> {
+    for (const source of this.sources) {
+      const root = await source.installedPath(plugin.id);
+      if (root) return root;
+    }
+    throw new LocalPluginError("Installed plugin files not found", 404);
+  }
   constructor(
     private readonly dataDirectory: string,
     private readonly agentDirectory: string,
@@ -278,6 +288,13 @@ export class PluginCapabilities {
         ],
     };
   }
+
+  async portableTemplates(plugin: PluginDetail) {
+    const fields = this.configuration.fields(plugin);
+    const definitions = Object.fromEntries(await Promise.all((plugin.mcpServers ?? []).map(async server => [server.id, structuredClone(await this.template(plugin, server.id))])));
+    const values: PluginConfigurationValues = {};
+    return { fields, definitions: protectDefinitions(definitions, fields, values, true) };
+  }
   async setDefinition(
     plugin: PluginDetail,
     serverId: string,
@@ -470,10 +487,7 @@ function protectDefinitions(
     if (
       typeof value === "string" &&
       (sensitive ||
-        (parts.at(-1) === "url" &&
-          /[?&](?:api[_-]?key|token|secret|password|signature)=/i.test(
-            value,
-          ))) &&
+        (parts.at(-1) === "url" && sensitiveUrl(value))) &&
       !value.includes("${config.")
     ) {
       if (!allowSecrets)
@@ -502,7 +516,10 @@ function protectDefinitions(
       return `\${config.${key}}`;
     }
     if (Array.isArray(value))
-      return value.map((v, i) => visit(v, [...parts, String(i)], sensitive));
+      return value.map((v, i) => visit(v, [...parts, String(i)], sensitive ||
+        (parts.at(-1) === "args" && typeof v === "string" &&
+          (/^--?(?:api[_-]?key|token|secret|password|client[_-]?secret)=/i.test(v) ||
+            (typeof value[i - 1] === "string" && /^--?(?:api[_-]?key|token|secret|password|client[_-]?secret)$/i.test(value[i - 1]))))));
     if (value && typeof value === "object")
       return Object.fromEntries(
         Object.entries(value).map(([k, v]) => [
@@ -524,4 +541,11 @@ function protectDefinitions(
     return value;
   }
   return visit(servers, []) as Record<string, McpServerDefinition>;
+}
+
+function sensitiveUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return Boolean(url.username || url.password) || [...url.searchParams.keys()].some(key => /^(?:api[_-]?key|token|secret|password|signature)$/i.test(key));
+  } catch { return false; }
 }

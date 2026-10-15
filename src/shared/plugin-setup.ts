@@ -4,8 +4,10 @@ export type PluginIconChange =
   | { icon: PluginIcon | null }
   | { image: { mediaType: "image/png" | "image/webp"; data: string } };
 export type PluginIconUpdate = PluginIconChange & { revision: string };
+export type PluginSetupMode = "create" | "configure" | "edit";
 export interface PluginSetupSummary {
   id: string;
+  mode?: PluginSetupMode;
   pluginId?: string;
   title: string;
   createdAt: number;

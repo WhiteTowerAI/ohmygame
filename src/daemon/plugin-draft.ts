@@ -19,22 +19,7 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
     await validatePluginBundle(root);
     const manifest = await readPluginManifest(root);
     await readPluginIconAsset(root, manifest.interface?.icon);
-    const hash = createHash("sha256");
-    async function visit(directory: string): Promise<void> {
-      const entries = (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
-      for (const entry of entries) {
-        const target = path.join(directory, entry.name);
-        if (entry.isDirectory()) await visit(target);
-        else {
-          const relative = path.relative(root, target).split(path.sep).join("/");
-          const bytes = await readFile(target);
-          draft.files.push({ path: relative, size: bytes.length });
-          hash.update(relative).update("\0").update(String(bytes.length)).update("\0").update(bytes);
-        }
-      }
-    }
-    await visit(root);
-    draft.revision = hash.digest("hex");
+    Object.assign(draft, await inspectPluginFiles(root));
     draft.plugin = { ...await inspectPluginBundle(root, {
       idPrefix: "personal:", marketplace: PERSONAL_MARKETPLACE, source: { type: "directory" },
     }, manifest), installed: false };
@@ -42,6 +27,29 @@ export async function inspectPluginDraft(root: string, installedRevision?: strin
     draft.errors.push(cause instanceof Error ? cause.message : String(cause));
   }
   return draft;
+}
+
+// Fingerprint the package independently of its manifest format. Installed
+// imports may use Codex or Claude manifests instead of a native draft manifest.
+export async function inspectPluginFiles(root: string): Promise<{ files: PluginDraft["files"]; revision: string }> {
+  await validatePluginBundle(root);
+  const files: PluginDraft["files"] = [];
+  const hash = createHash("sha256");
+  async function visit(directory: string): Promise<void> {
+    const entries = (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) await visit(target);
+      else {
+        const relative = path.relative(root, target).split(path.sep).join("/");
+        const bytes = await readFile(target);
+        files.push({ path: relative, size: bytes.length });
+        hash.update(relative).update("\0").update(String(bytes.length)).update("\0").update(bytes);
+      }
+    }
+  }
+  await visit(root);
+  return { files, revision: hash.digest("hex") };
 }
 
 export async function readPluginDraftFile(root: string, requested: string): Promise<{ path: string; content: string }> {

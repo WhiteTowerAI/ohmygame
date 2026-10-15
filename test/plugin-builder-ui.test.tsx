@@ -25,6 +25,10 @@ let container: HTMLDivElement;
 let installed: boolean;
 let installationFailed: boolean;
 let requests: string[];
+let configuring: boolean;
+let builtIn: boolean;
+let hasConversation: boolean;
+let enabled: boolean;
 let draftIcon: PluginDetail["icon"];
 let iconChanged: boolean;
 let savedIcon: unknown;
@@ -35,6 +39,7 @@ beforeEach(() => {
   installed = true;
   installationFailed = false;
   requests = [];
+  configuring = false; builtIn = false; hasConversation = false; enabled = true;
   draftIcon = undefined; iconChanged = false; savedIcon = undefined;
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const route = new URL(url, "http://localhost").pathname.replace(/^\/api/, "");
@@ -52,14 +57,24 @@ beforeEach(() => {
       installationFailed = true;
       return Response.json({ error: "Configuration could not be saved" }, { status: 409 });
     }
+    const currentState = { ...state, mode: configuring ? "configure" : "create", turns: hasConversation ? [{ id: "turn", conversationId: sessionId, status: "completed", items: [] }] : [] };
+    if (route === `/plugins/setup-sessions/${sessionId}/conversation` && method === "DELETE") {
+      hasConversation = false;
+      return Response.json({ ...currentState, turns: [] });
+    }
+    if (route === `/plugins/${encodeURIComponent(plugin.id)}/configuration`) return Response.json({ fields: {}, values: {}, configuredSecrets: [], missing: [] });
+    if (route === `/plugins/${encodeURIComponent(plugin.id)}/settings` && method === "PUT") {
+      enabled = JSON.parse(init.body as string).enabled;
+      return Response.json({ ...plugin, enabled });
+    }
     if (method === "DELETE") {
       if (route === `/plugins/${encodeURIComponent(plugin.id)}`) installed = false;
       else if (route !== `/plugins/setup-sessions/${sessionId}`) throw new Error(`Unexpected request: ${route}`);
       return new Response(null, { status: 204 });
     }
-    if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, status: "error", error: "Configuration could not be saved" } : installed ? state : { ...state, pluginId: undefined, status: "ready" });
-    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json({ path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: installed && !installationFailed ? revision : undefined, plugin: { ...plugin, installed: false, icon: draftIcon }, files: [], errors: [] });
-    if (route === `/plugins/${encodeURIComponent(plugin.id)}`) return Response.json(plugin);
+    if (route === `/plugins/setup-sessions/${sessionId}`) return Response.json(installationFailed ? { ...state, status: "error", error: "Configuration could not be saved" } : installed ? currentState : { ...currentState, pluginId: undefined, status: "ready" });
+    if (route === `/plugins/setup-sessions/${sessionId}/draft`) return Response.json(configuring ? { files: [], errors: [] } : { path: "review", revision: iconChanged ? "b".repeat(64) : revision, installedRevision: installed && !installationFailed ? revision : undefined, plugin: { ...plugin, installed: false, icon: draftIcon }, files: [], errors: [] });
+    if (route === `/plugins/${encodeURIComponent(plugin.id)}`) return Response.json({ ...plugin, enabled, source: builtIn ? { type: "builtIn" } : plugin.source });
     throw new Error(`Unexpected request: ${route}`);
   }));
   container = document.createElement("div");
@@ -76,6 +91,53 @@ afterEach(async () => {
 const button = (label: string) => container.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 
 describe("Plugin Builder removal controls", () => {
+  it("deletes an installed workspace independently of uninstalling its plugin", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
+    await act(async () => button("Delete plugin draft").click());
+    expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([]);
+    confirm.mockReturnValue(true);
+    await act(async () => button("Delete plugin draft").click());
+    expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([`DELETE /plugins/setup-sessions/${sessionId}`]);
+    expect(installed).toBe(true);
+    expect(window.location.hash).toBe("#/settings/plugins");
+  });
+
+  it("opens built-in configuration on Setup with configuration prompts and independent workspace deletion", async () => {
+    configuring = true; builtIn = true;
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
+    expect(container.querySelector('[aria-label="Plugin preview"]')?.getAttribute("data-active-tab")).toBe("configuration");
+    expect(container.querySelector("textarea")?.placeholder).toContain("configuration problem");
+    expect(button("Uninstall plugin")).toBeNull();
+    expect(button("Disable Review")).not.toBeNull();
+    expect(container.textContent).not.toContain("Install plugin");
+    await act(async () => button("Delete workspace").click());
+    expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
+    expect(installed).toBe(true);
+  });
+
+  it("deletes only conversation history and keeps the installed draft open", async () => {
+    hasConversation = true;
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
+    await act(async () => button("Delete conversation").click());
+    expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}/conversation`);
+    expect(requests).not.toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
+    expect(button("Delete conversation").disabled).toBe(true);
+    expect(button("Delete plugin draft")).not.toBeNull();
+    expect(installed).toBe(true);
+    expect(window.location.hash).toBe(`#/plugins/builder/${sessionId}`);
+  });
+
+  it("toggles the installed plugin from Builder without uninstalling it", async () => {
+    await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
+    await act(async () => button("Disable Review").click());
+    expect(button("Enable Review").getAttribute("aria-checked")).toBe("false");
+    expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([]);
+    expect(installed).toBe(true);
+  });
+
   it("honors cancellation and changes the installed view back to an installable draft after uninstalling", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
@@ -112,7 +174,7 @@ describe("Plugin Builder removal controls", () => {
     const install = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Install plugin")!;
     await act(async () => install.click());
     expect(button("Uninstall plugin")).not.toBeNull();
-    expect(button("Delete plugin draft")).toBeNull();
+    expect(button("Delete plugin draft")).not.toBeNull();
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Configuration could not be saved");
     const retry = [...container.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Update plugin");
     expect(retry?.disabled).toBe(false);
@@ -182,8 +244,11 @@ describe("Plugin Builder icons", () => {
     await act(async () => root.render(<PluginBuilder sessionId={sessionId} />));
     await act(async () => button("Change plugin icon").click());
     await act(async () => modalButton("Upload image").click());
+    expect(modalButton("Choose file")).not.toBeNull();
+    expect(document.querySelector(".plugin-file-picker-name")?.textContent).toBe("No file selected");
     const file = new File(["test-image"], "logo.webp", { type: "image/webp" });
     await act(async () => { Object.defineProperty(input("Plugin icon image"), "files", { value: [file] }); input("Plugin icon image").dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(document.querySelector(".plugin-file-picker-name")?.textContent).toBe("logo.webp");
     expect(createUrl).toHaveBeenCalledWith(file);
     await act(async () => { modalButton("Save icon").click(); await vi.waitFor(() => expect(savedIcon).toBeDefined()); });
     expect(savedIcon).toEqual({ revision, image: { mediaType: "image/webp", data: btoa("test-image") } });

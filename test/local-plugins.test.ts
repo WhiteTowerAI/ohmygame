@@ -57,6 +57,23 @@ describe("local plugins", () => {
     await expect(store.directoryPath(installed.id)).resolves.toBeUndefined();
   });
 
+  it("only accepts public marketplace visibility from a trusted installer", async () => {
+    const root = await temporaryDirectory();
+    const source = path.join(root, "official-community-plugin");
+    await writePlugin(source, {
+      name: "official-community-plugin",
+      version: "1.0.0",
+      description: "Official community plugin",
+    });
+    const store = new LocalPluginStore(path.join(root, "data"));
+    const marketplace = { id: "official-community", displayName: "Official Community", visibility: "public" as const };
+
+    await expect(store.install(source, { type: "directory", path: source }, undefined, marketplace))
+      .rejects.toThrow("trusted catalog adapters");
+    await expect(store.install(source, { type: "directory", path: source }, undefined, marketplace, true))
+      .resolves.toMatchObject({ id: "marketplace:official-community:official-community-plugin", marketplace });
+  });
+
   it("uses root Skill frontmatter instead of the installed version directory", async () => {
     const root = await temporaryDirectory();
     const source = path.join(root, "image-to-threejs");

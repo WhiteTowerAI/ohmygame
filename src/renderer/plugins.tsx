@@ -1,5 +1,5 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { AddMcpPluginDialog, PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton } from "./plugin-controls.js";
+import { AddMcpPluginDialog, PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton, PluginEnabledSwitch } from "./plugin-controls.js";
 import { PluginBuilderSessions } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import {
@@ -19,6 +19,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   pluginComponentKey,
+  pluginCollection,
   type PluginComponentSummary,
   type PluginDetail,
   type InstallPluginRequest,
@@ -33,6 +34,7 @@ import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { PluginIcon, PluginGlyph } from "./plugin-icons.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { t } from "./i18n.js";
+import { PluginDependencyPanel, PluginExportButton, PluginImportDialog } from "./plugin-portability.js";
 
 export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   pluginId?: string;
@@ -46,6 +48,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const [detailRetry, setDetailRetry] = useState(0);
   const detailRequest = useRef({ pluginId, retry: detailRetry });
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [query, setQuery] = useState("");
   const [updating, setUpdating] = useState<string>();
@@ -115,7 +118,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
     };
   }, [addMenuOpen]);
 
-  async function updatePlugin(plugin: PluginDetail, settings: PluginSettings): Promise<void> {
+  async function updatePlugin(plugin: Pick<PluginDetail, "id">, settings: PluginSettings): Promise<void> {
     if (updating) return;
     setUpdating(plugin.id);
     setError(undefined);
@@ -225,7 +228,6 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
 
   const normalizedQuery = query.trim().toLowerCase();
   const visible = plugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
-  const installed = visible.filter((plugin) => plugin.installed);
   const currentDetail = detailResult?.pluginId === pluginId ? detailResult : undefined;
   const detail = currentDetail?.plugin;
   const detailTitle = pluginId
@@ -250,6 +252,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
               <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setMcpOpen(true); }}><Plug size={14} /><span><strong>{t("plugins.addMcp")}</strong><small>{t("plugins.addMcpHint")}</small></span></button>
               {window.ohMyGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>{t("plugins.fromFolder")}</strong><small>{t("plugins.fromFolderHint")}</small></span></button> : null}
               <button type="button" role="menuitem" onClick={openGitInstallDialog}><GitBranch size={14} /><span><strong>{t("plugins.fromGit")}</strong><small>{t("plugins.fromGitHint")}</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setImportOpen(true); }}><Package size={14} /><span><strong>{t("pluginPortability.import")}</strong><small>{t("pluginPortability.importMenuHint")}</small></span></button>
             </div> : null}
           </div>
         </div>
@@ -280,14 +283,14 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
       {phase === "ready" ? <>
         <PluginBuilderSessions />
-        <InstalledPlugins
-          plugins={installed}
-          collapsible={!normalizedQuery}
-          onOpenPlugin={onPluginChange}
-        />
+        {(["public", "personal"] as const).map(collection => <PluginCollection key={collection} collection={collection}
+          plugins={visible.filter(plugin => pluginCollection(plugin) === collection)} collapsible={!normalizedQuery}
+          updating={Boolean(updating)} onOpenPlugin={onPluginChange}
+          onToggle={(plugin, enabled) => void updatePlugin(plugin, { enabled, components: {} })} />)}
       </> : null}
     </>}
     {mcpOpen ? <AddMcpPluginDialog onClose={() => setMcpOpen(false)} onInstalled={id => { setMcpOpen(false); capabilitiesChanged(); onPluginChange(id); }} /> : null}
+    {importOpen ? <PluginImportDialog onClose={() => setImportOpen(false)} onInstalled={plugin => { setImportOpen(false); capabilitiesChanged(); onPluginChange(plugin.id); }} /> : null}
     {gitDialogOpen ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !adding) closeInstallDialog();
     }}>
@@ -332,24 +335,27 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
 
 const INSTALLED_PLUGIN_LIMIT = 6;
 
-function InstalledPlugins({ plugins, collapsible, onOpenPlugin }: {
+function PluginCollection({ collection, plugins, collapsible, updating, onOpenPlugin, onToggle }: {
+  collection: "public" | "personal";
   plugins: PluginSummary[];
   collapsible: boolean;
+  updating: boolean;
   onOpenPlugin: (id: string) => void;
+  onToggle: (plugin: PluginSummary, enabled: boolean) => void;
 }): ReactNode {
   const [expanded, setExpanded] = useState(false);
   const limited = collapsible && !expanded && plugins.length > INSTALLED_PLUGIN_LIMIT;
   const displayed = limited ? plugins.slice(0, INSTALLED_PLUGIN_LIMIT) : plugins;
-  return <section className="plugins-installed" aria-labelledby="installed-plugins-title">
-    <h2 id="installed-plugins-title">{t("plugins.installed")}</h2>
+  return <section className="plugins-installed" aria-labelledby={`${collection}-plugins-title`}>
+    <h2 id={`${collection}-plugins-title`}>{t(`plugins.${collection}`)}</h2>
     {plugins.length ? <div className="plugins-installed-grid">
-      {displayed.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} onOpen={() => onOpenPlugin(plugin.id)} />)}
+      {displayed.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} disabled={updating} onToggle={enabled => onToggle(plugin, enabled)} onOpen={() => onOpenPlugin(plugin.id)} />)}
     </div> : <p className="plugins-empty">{t("plugins.noMatch")}</p>}
     {collapsible && plugins.length > INSTALLED_PLUGIN_LIMIT ? <button className="plugins-show-more" type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? t("plugins.showLess") : t("plugins.showMore", { count: plugins.length - INSTALLED_PLUGIN_LIMIT })}</button> : null}
   </section>;
 }
 
-function PluginCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: () => void }): ReactNode {
+function PluginCard({ plugin, disabled, onToggle, onOpen }: { plugin: PluginSummary; disabled: boolean; onToggle: (enabled: boolean) => void; onOpen: () => void }): ReactNode {
   return <article className={`plugin-catalog-card${plugin.installed && !plugin.enabled ? " is-disabled" : ""}`}>
     <button className="plugin-card-open" type="button" onClick={onOpen}>
       <PluginIcon plugin={plugin} />
@@ -358,6 +364,7 @@ function PluginCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: () => v
         <span className="plugin-card-description">{plugin.description}</span>
       </span>
     </button>
+    <PluginEnabledSwitch plugin={plugin} disabled={disabled} onToggle={onToggle} />
   </article>;
 }
 
@@ -496,6 +503,10 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
       </header>
       {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
       <PluginManagement plugin={plugin} updating={updating} onBrowse={onBrowse} onRemove={onRemove} onToggle={togglePlugin} />
+      {plugin.installed && pluginCollection(plugin) === "personal" ? <div className="plugin-section-actions">
+        <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={() => void openPluginBuilder(plugin.id, "edit").catch(cause => setProjectError(errorMessage(cause)))}><WandSparkles size={13} />{t("plugins.editWithAi")}</button>
+        {projectError ? <p role="alert">{projectError}</p> : null}
+      </div> : null}
       {plugin.longDescription ? <section className="plugin-about"><h2>{t("plugins.about")}</h2><p>{plugin.longDescription}</p></section> : null}
       {prompts.length ? <section className="plugin-prompts">
         <h2>{t("plugins.tryIt")}</h2>
@@ -510,9 +521,10 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
       </section> : null}
       <SkillSection pluginId={plugin.id} items={plugin.skills} installed={plugin.installed} disabled={updating || !plugin.enabled} onBrowse={onBrowseSkill} onToggle={onToggleComponent} />
       <PluginConfigurationPanel plugin={plugin} onChanged={onCapabilitiesChanged} />
+      <PluginDependencyPanel plugin={plugin} />
       <PluginMcpPanel plugin={plugin} onToggle={onMcpToggle} onAssist={onAssist} onChanged={onCapabilitiesChanged} />
       {!plugin.mcpServers?.length && !plugin.connections.length ? <div className="plugin-section-actions">
-        <button className="plugin-detail-secondary" type="button" aria-haspopup="dialog" onClick={onAssist}><WandSparkles size={13} aria-hidden="true" />{t("plugins.configureWithAi")}</button>
+        <button className="plugin-detail-secondary" type="button" onClick={onAssist}><WandSparkles size={13} aria-hidden="true" />{t("plugins.askAboutPlugin")}</button>
       </div> : null}
     </> : null}
   </section>;
@@ -616,7 +628,7 @@ function PluginManagement({ plugin, updating, onBrowse, onRemove, onToggle }: {
 }): ReactNode {
   const repository = plugin.origin?.repository;
   const version = plugin.version;
-  const canBrowse = (plugin.source.type === "directory" || plugin.source.type === "git") && Boolean(window.ohMyGameDesktop);
+  const canBrowse = pluginCollection(plugin) === "personal" && Boolean(window.ohMyGameDesktop);
   let source: ReactNode;
   if (plugin.preinstalled || plugin.source.type === "builtIn") {
     source = t("plugins.includedWithOhMyGame");
@@ -626,6 +638,10 @@ function PluginManagement({ plugin, updating, onBrowse, onRemove, onToggle }: {
     source = t("plugins.claudeMarketplace", { marketplace: plugin.origin.marketplace });
   } else if (plugin.source.type === "preinstalled") {
     source = t("plugins.includedWithOhMyGame");
+  } else if (plugin.source.type === "authored") {
+    source = t("plugins.createdWithAi");
+  } else if (plugin.source.type === "archive") {
+    source = t("pluginPortability.archiveSource");
   } else if (plugin.source.type === "directory") {
     source = t("plugins.localFolder");
   } else {
@@ -642,6 +658,7 @@ function PluginManagement({ plugin, updating, onBrowse, onRemove, onToggle }: {
     {plugin.installed ? <div className="plugin-section-actions">
       <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={() => onToggle(!plugin.enabled)}>{plugin.enabled ? t("common.disable") : t("common.enable")}</button>
       <PluginUninstallButton plugin={plugin} disabled={updating} onUninstall={onRemove} />
+      {pluginCollection(plugin) === "personal" ? <PluginExportButton plugin={plugin} /> : null}
       {canBrowse ? <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={onBrowse}>{t("plugins.openFolder")}</button> : null}
     </div> : null}
   </section>;
