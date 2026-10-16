@@ -33,7 +33,8 @@ export async function exportPlayableProject(
     throw new PlayableProjectExportError("graph.json is not valid JSON.");
   }
 
-  const taken = new Set(files);
+  // Exports must also extract safely on case-insensitive filesystems.
+  const taken = new Set(files.map((file) => file.toLowerCase()));
   const copies = new Map<string, { path: string; absolutePath: string }>();
   for (const [id, asset] of Object.entries(isRecord(graph) && isRecord(graph.assets) ? graph.assets : {})) {
     if (!isRecord(asset) || !isRecord(asset.source) || asset.source.kind !== "library") continue;
@@ -51,7 +52,7 @@ export async function exportPlayableProject(
         throw cause;
       }
       copy = { path: freePath(taken, content.asset.name), absolutePath: content.absolutePath };
-      taken.add(copy.path);
+      taken.add(copy.path.toLowerCase());
       copies.set(libraryId, copy);
     }
     asset.source = { kind: "workspace", path: copy.path };
@@ -89,7 +90,7 @@ function freePath(taken: Set<string>, name: string): string {
   const stem = path.basename(name, path.extname(name)).replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "") || "asset";
   for (let index = 1; ; index += 1) {
     const candidate = `${LIBRARY_ASSET_DIRECTORY}/${stem}${index > 1 ? `-${index}` : ""}${extension}`;
-    if (!taken.has(candidate)) return candidate;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
   }
 }
 
