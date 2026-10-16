@@ -29,6 +29,13 @@ describe("assistant thinking compatibility", () => {
     expect(normalizer.push("ing>Answer")).toBe("Answer");
     expect(normalizer.text).toBe("Answer");
   });
+
+  it("replaces visible text when a hidden block follows an earlier delta", () => {
+    const normalizer = new AssistantTextStreamNormalizer();
+    expect(normalizer.push(" ")).toBe(" ");
+    expect(normalizer.push("<thinking>private</thinking>Answer")).toBe("");
+    expect(normalizer.text).toBe("Answer");
+  });
 });
 
 describe("lastAssistantError", () => {
@@ -1383,6 +1390,34 @@ describe("AgentManager", () => {
     expect(JSON.stringify(published)).not.toContain("<thinking>");
     expect(published.findLast((event) => event.type === "item.completed" && event.data.item.type === "agentMessage")).toMatchObject({
       data: { item: { text: "A", status: "completed" } },
+    });
+    await manager.close();
+  });
+
+  it("replaces a visible prefix when streaming later reveals leaked thinking", async () => {
+    const session = new FakeSession();
+    session.prompt.mockImplementation(async () => {
+      session.emit(messageUpdate({ type: "text_start", contentIndex: 0, partial: assistantPartial([{ type: "text", text: "" }]) }));
+      session.emit(messageUpdate({ type: "text_delta", contentIndex: 0, delta: " ", partial: assistantPartial([{ type: "text", text: " " }]) }));
+      session.emit(messageUpdate({ type: "text_delta", contentIndex: 0, delta: "<thinking>private</thinking>Answer", partial: assistantPartial([{ type: "text", text: " <thinking>private</thinking>Answer" }]) }));
+      session.emit(messageUpdate({ type: "text_end", contentIndex: 0, content: " <thinking>private</thinking>Answer", partial: assistantPartial([{ type: "text", text: " <thinking>private</thinking>Answer" }]) }));
+      session.emit({ type: "message_end", message: assistantPartial([{ type: "text", text: " <thinking>private</thinking>Answer" }]) } as AgentSessionEvent);
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+
+    await manager.prompt(project, createConversation(project), "Build").result;
+
+    const published = events.since(project.id);
+    expect(published.filter((event) => event.type === "item.agentMessage.delta")).toMatchObject([
+      { data: { delta: " " } },
+    ]);
+    expect(published.find((event) => event.type === "item.updated")).toMatchObject({
+      data: { item: { type: "agentMessage", text: "Answer" } },
+    });
+    expect(published.findLast((event) => event.type === "item.completed" && event.data.item.type === "agentMessage")).toMatchObject({
+      data: { item: { text: "Answer", status: "completed" } },
     });
     await manager.close();
   });

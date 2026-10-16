@@ -1705,8 +1705,10 @@ export class AgentManager {
       const normalizer = active.assistantTextNormalizers.get(contentIndex) ?? new AssistantTextStreamNormalizer();
       active.assistantTextNormalizers.set(contentIndex, normalizer);
       const delta = normalizer.push(event.assistantMessageEvent.delta);
-      if (!delta) return;
-      const itemId = active.assistantItemIds.get(contentIndex) ?? `${active.turnId}:assistant:${active.assistantSequence++}`;
+      const itemId = active.assistantItemIds.get(contentIndex) ?? (normalizer.text
+        ? `${active.turnId}:assistant:${active.assistantSequence++}`
+        : undefined);
+      if (!itemId) return;
       if (!active.assistantItemIds.has(contentIndex)) {
         active.assistantItemIds.set(contentIndex, itemId);
         this.#startItem(projectId, active, {
@@ -1717,8 +1719,14 @@ export class AgentManager {
           status: "inProgress",
         });
       }
-      this.#appendItemText(active, itemId, delta);
-      this.events.publish(projectId, "item.agentMessage.delta", { itemId, delta }, eventScope(active));
+      if (delta) {
+        this.#appendItemText(active, itemId, delta);
+        this.events.publish(projectId, "item.agentMessage.delta", { itemId, delta }, eventScope(active));
+      }
+      const item = active.items.get(itemId);
+      if (item?.type === "agentMessage" && item.text !== normalizer.text) {
+        this.#updateItem(projectId, active, { ...item, text: normalizer.text });
+      }
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_end") {
       const contentIndex = event.assistantMessageEvent.contentIndex;
       const normalizer = active.assistantTextNormalizers.get(contentIndex) ?? new AssistantTextStreamNormalizer();

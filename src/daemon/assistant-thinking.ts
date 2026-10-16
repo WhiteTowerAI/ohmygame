@@ -36,7 +36,9 @@ export function normalizeAssistantMessage(
 
 /**
  * Incrementally normalizes one text block while keeping an incomplete opening
- * or closing pair out of the UI. The caller emits only the returned delta.
+ * or closing pair out of the UI. The caller emits only the returned delta. If
+ * a later scan replaces already-visible text, the caller should use `text` to
+ * update the current item instead of treating the replacement as an append.
  */
 export class AssistantTextStreamNormalizer {
   #raw = "";
@@ -61,11 +63,11 @@ export class AssistantTextStreamNormalizer {
 
   #update(next: ScanResult): string {
     // A scan can only reveal more text as the provider appends to a block. If
-    // an adapter replaces the partial content, use the complete value instead
-    // of manufacturing a duplicated delta.
+    // an adapter replaces the partial content, report no append delta. The
+    // caller can replace its current item with `text`.
     if (!next.visible.startsWith(this.#visible)) {
       this.#visible = next.visible;
-      return next.visible;
+      return "";
     }
     const delta = next.visible.slice(this.#visible.length);
     this.#visible = next.visible;
