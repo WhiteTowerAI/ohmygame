@@ -114,6 +114,8 @@ describe("workspace inspection", () => {
 
     await expect(readWorkspaceFile(workspace, "../secret.txt")).rejects.toThrow("Invalid workspace path");
     await expect(readWorkspaceFile(workspace, path.resolve(outside))).rejects.toThrow("Invalid workspace path");
+    await expect(readWorkspaceFile(workspace, "C:\\secret.txt")).rejects.toThrow("Invalid workspace path");
+    await expect(readWorkspaceFile(workspace, "C:secret.txt")).rejects.toThrow("Invalid workspace path");
     await expect(readWorkspaceFile(workspace, "link.txt")).rejects.toThrow("Symbolic links cannot be opened");
   });
 

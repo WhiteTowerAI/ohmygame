@@ -134,7 +134,8 @@ export function workspaceMediaInfo(filePath: string): (typeof MEDIA_TYPES)[strin
 
 export async function resolveWorkspaceEntry(workspacePath: string, requestedPath: string): Promise<{ absolutePath: string; relativePath: string }> {
   const normalized = requestedPath.replaceAll("\\", "/");
-  if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").some((part) => part === ".." || !part)) {
+  // A drive letter makes a Windows path absolute (C:/x) or relative to that drive's own folder (C:x).
+  if (!normalized || path.posix.isAbsolute(normalized) || /^[A-Za-z]:/.test(normalized) || normalized.split("/").some((part) => part === ".." || !part)) {
     throw new WorkspaceError("Invalid workspace path");
   }
   const root = await realpath(workspacePath);
