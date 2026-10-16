@@ -82,6 +82,9 @@ const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module)
 
 const HISTORY_LIMIT = 50;
 const SAVE_ATTEMPTS = 3;
+/** Loading again while a workspace checkpoint or restore runs longer than the daemon waits for it. */
+const WORKSPACE_BUSY_RETRIES = 5;
+const WORKSPACE_BUSY_RETRY_MS = 3000;
 const PROJECT_CHANGED = t("storyEditor.projectChanged");
 
 /** A step to undo or redo: the codebase, and the source files as they were, when the step wrote any. */
@@ -243,7 +246,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     resetHistory();
     setCanvasContextMenu(undefined);
     setCopiedNode(undefined);
-    void Promise.all([
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => void Promise.all([
       getNodeCodebase(projectId),
       listPlayablePresets().catch(() => ({ presets: [] as PlayablePresetSummary[] })),
     ]).then(([loaded, catalog]) => {
@@ -253,10 +257,19 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       setPhase("ready");
     }).catch((error) => {
       if (disposed) return;
+      // A checkpoint or restore that outlasted the daemon's wait still finishes; load again after it.
+      if (error instanceof ApiError && error.code === "workspace_busy" && attempt < WORKSPACE_BUSY_RETRIES) {
+        retry = setTimeout(() => load(attempt + 1), WORKSPACE_BUSY_RETRY_MS);
+        return;
+      }
       setNotice(errorMessage(error));
       setPhase("error");
     });
-    return () => { disposed = true; };
+    load(0);
+    return () => {
+      disposed = true;
+      clearTimeout(retry);
+    };
   }, [projectId, workspaceRevision]);
 
   useEffect(() => {
