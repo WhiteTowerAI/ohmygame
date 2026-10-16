@@ -29,3 +29,23 @@ jobs:
       - run: bun run test
       - run: bun run build:renderer
       - run: bun run test:node-runtime
+
+  platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run prepare:preinstalled-plugins
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run test:node-runtime
