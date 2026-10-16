@@ -150,3 +150,39 @@ describe("static preview directory URLs", () => {
     },
   );
 });
+
+describe("static preview byte ranges", () => {
+  it("answers byte ranges, so media can seek", async () => {
+    const root = await directory();
+    await writeFile(path.join(root, "clip.mp4"), "0123456789");
+    const url = `${await preview(root)}/clip.mp4`;
+
+    const whole = await fetch(url);
+    expect(whole.status).toBe(200);
+    expect(whole.headers.get("accept-ranges")).toBe("bytes");
+    expect(whole.headers.get("content-length")).toBe("10");
+    expect(await whole.text()).toBe("0123456789");
+
+    const middle = await fetch(url, { headers: { range: "bytes=2-5" } });
+    expect(middle.status).toBe(206);
+    expect(middle.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(middle.headers.get("content-type")).toBe("video/mp4");
+    expect(await middle.text()).toBe("2345");
+
+    const open = await fetch(url, { headers: { range: "bytes=7-" } });
+    expect(await open.text()).toBe("789");
+    const suffix = await fetch(url, { headers: { range: "bytes=-3" } });
+    expect(suffix.headers.get("content-range")).toBe("bytes 7-9/10");
+    expect(await suffix.text()).toBe("789");
+    const clamped = await fetch(url, { headers: { range: "bytes=8-99" } });
+    expect(await clamped.text()).toBe("89");
+
+    const outside = await fetch(url, { headers: { range: "bytes=10-" } });
+    expect(outside.status).toBe(416);
+    expect(outside.headers.get("content-range")).toBe("bytes */10");
+    // Several ranges at once are not needed by media; the whole file answers them.
+    const several = await fetch(url, { headers: { range: "bytes=0-1,4-5" } });
+    expect(several.status).toBe(200);
+    expect(await several.text()).toBe("0123456789");
+  });
+});
