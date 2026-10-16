@@ -18,9 +18,9 @@ export function isReleaseVersion(value: unknown): value is string {
 
 const pullRequestLink =
   /\[[^\]\n]*\]\(https:\/\/github\.com\/WhiteTowerAI\/ohmygame\/pull\/(\d+)\)/g;
-// A plain-text @login, not a link, so GitHub notifies the author on release.
+// A plain-text GitHub login: at most 39 characters, with single internal hyphens.
 const pullRequestAuthor =
-  /^\s+by @[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?(?![A-Za-z0-9-])/;
+  /^\s+by @[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}(?![A-Za-z0-9_-])/;
 
 export function parseChangelog(markdown: string): ChangelogEntry[] {
   const sections = new Map<
@@ -77,15 +77,21 @@ export function parseChangelog(markdown: string): ChangelogEntry[] {
       .replace(/^#{1,6} .*$|^\[[^\]\n]+\]:.*$/gm, "")
       .trim();
     if (!content) throw new Error(`Changelog section for ${version} is empty.`);
-    checkPullRequestAuthors(
-      version,
-      prose.join("\n").replace(/<!--[\s\S]*?-->/g, ""),
-    );
+    checkPullRequestAuthors(version, prose.join("\n"));
     return { version, date, notes };
   });
 }
 
 function checkPullRequestAuthors(version: string, text: string): void {
+  // Process code spans before comments so literal <!-- inside code stays literal.
+  // Code delimiters must have equal lengths; escaped backticks stay literal.
+  text = text.replace(
+    /\\[\s\S]|<!--[\s\S]*?-->|(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g,
+    (match) => {
+      if (match.startsWith("\\")) return match;
+      return match.startsWith("<!--") ? "" : "\0";
+    },
+  );
   for (const link of text.matchAll(pullRequestLink)) {
     if (!pullRequestAuthor.test(text.slice(link.index + link[0].length)))
       throw new Error(

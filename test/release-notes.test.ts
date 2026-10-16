@@ -111,6 +111,27 @@ describe("release notes CLI", () => {
   });
 
   it.each([
+    `\`${pullRequest(1)}\``,
+    `\`\`A literal \` and ${pullRequest(1)}\`\``,
+    `\`${pullRequest(1)}\nacross lines\``,
+  ])("ignores pull request examples in inline code: %s", (example) => {
+    const notes = `- Explain ${example}. (${pullRequest(212)} by @dogxii)`;
+    const result = runNotes(`## [${version}] - 2026-10-13\n\n${notes}\n`);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe(`${notes}\n`);
+  });
+
+  it.each(["a", "82228", "a-b-c", "a".repeat(39)])(
+    "accepts the valid author login %s",
+    (login) => {
+      const result = runNotes(
+        `## [${version}] - 2026-10-13\n\n- Recover requests. (${pullRequest(212)} by @${login})\n`,
+      );
+      expect(result.status, result.stderr).toBe(0);
+    },
+  );
+
+  it.each([
     ["no author", `(${pullRequest(212)})`],
     [
       "an author on only the first link",
@@ -121,6 +142,20 @@ describe("release notes CLI", () => {
       `(${pullRequest(212)} by [@dogxii](https://github.com/dogxii))`,
     ],
     ["an invalid login", `(${pullRequest(212)} by @-dogxii)`],
+    ["consecutive hyphens", `(${pullRequest(212)} by @foo--bar)`],
+    ["a trailing hyphen", `(${pullRequest(212)} by @dogxii-)`],
+    ["an underscore", `(${pullRequest(212)} by @dogxii_test)`],
+    [
+      "a login over 39 characters",
+      `(${pullRequest(212)} by @${"a".repeat(40)})`,
+    ],
+    ["an author in inline code", `(${pullRequest(212)} by \`@dogxii\`)`],
+    [
+      "a literal HTML comment opener in inline code",
+      `Handle \`<!--\` safely. (${pullRequest(212)}) <!-- internal note -->`,
+    ],
+    ["an unmatched code delimiter", `\`\`${pullRequest(212)}\``],
+    ["escaped code delimiters", `\\\`${pullRequest(212)}\\\``],
   ])("rejects a pull request link with %s", (_name, credit) => {
     const result = runNotes(
       `## [${version}] - 2026-10-13\n\n### Fixed\n\n- Recover requests. ${credit}\n\n## [0.0.0-beta.4.6] - 2026-10-12\n\n${body}\n`,

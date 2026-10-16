@@ -142,6 +142,7 @@ release's contributors on GitHub. Write the handle as plain text, not a link,
 because GitHub does not treat a linked handle as a mention. Take the login from
 `gh pr view <number> --json author`. `changelog:check` fails when a PR link in
 any release has no author after it.
+Links inside code examples and HTML comments are ignored by this check.
 
 Omit empty categories; use `Removed`, `Deprecated`, or `Security` when needed.
 Each release needs a valid date, a unique SemVer version, and nonempty notes.
