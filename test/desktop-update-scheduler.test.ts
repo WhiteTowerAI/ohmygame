@@ -11,10 +11,12 @@ class CheckRecorder {
   calls: Array<"automatic" | "manual"> = [];
   outcome: DesktopUpdateCheckOutcome = "checked";
   block: Promise<void> | undefined;
+  error: Error | undefined;
 
   async check(automatic = false): Promise<DesktopUpdateCheckOutcome> {
     this.calls.push(automatic ? "automatic" : "manual");
     await this.block;
+    if (this.error) throw this.error;
     return this.outcome;
   }
 }
@@ -67,6 +69,20 @@ it("retries a failed check twice with a bounded delay, then returns to the perio
 
   await vi.advanceTimersByTimeAsync(PERIODIC_INTERVAL_MS);
   expect(recorder.calls).toHaveLength(4);
+});
+
+it("treats a thrown background check as failed and keeps scheduling", async () => {
+  recorder.error = new Error("update feed unavailable");
+  scheduler.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(recorder.calls).toHaveLength(1);
+
+  recorder.error = undefined;
+  await vi.advanceTimersByTimeAsync(FIRST_RETRY_MS);
+  expect(recorder.calls).toHaveLength(2);
+
+  await vi.advanceTimersByTimeAsync(PERIODIC_INTERVAL_MS);
+  expect(recorder.calls).toHaveLength(3);
 });
 
 it("restarts the retry ladder after a successful check", async () => {

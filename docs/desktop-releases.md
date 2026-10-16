@@ -49,10 +49,12 @@ or code-signing credentials in the application or the public update bucket.
 A packaged build checks once after its main window opens, then every four hours,
 and again on window focus or reveal when the previous check is more than thirty
 minutes old. A failed check retries twice, after one and five minutes, then waits
-for the next focus or periodic attempt. Scheduled checks never run while a
-release is already available, downloading, ready, or installing, so they cannot
-discard the update the sidebar is offering. **Settings → About → Check for
-updates** bypasses that throttle and remains available in every state.
+for the next focus or periodic attempt. Background failures are silent and keep
+the previous update status; a failed manual check remains visible so the user
+can retry it. Scheduled checks never run while a release is already available,
+downloading, ready, or installing, so they cannot discard the update the sidebar
+is offering. **Settings → About → Check for updates** bypasses that throttle
+and remains available in every state.
 
 Development builds never reach the feed: `DesktopUpdater.check` reports the
 current version as installed unless `app.isPackaged`.

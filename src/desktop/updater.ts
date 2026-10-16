@@ -26,6 +26,8 @@ export class DesktopUpdater {
   #listeners = new Set<(state: DesktopUpdateState) => void>();
   #installing = false;
   #checking = false;
+  #automaticChecking = false;
+  #automaticCheckFailed = false;
   #operation: DesktopUpdatePhase = "check";
 
   constructor(currentVersion: string, private readonly onInstall: () => Promise<void> | void) {
@@ -37,6 +39,7 @@ export class DesktopUpdater {
     autoUpdater.channel = "latest";
     autoUpdater.on("checking-for-update", () => {
       this.#operation = "check";
+      if (this.#automaticChecking) return;
       this.#set({ type: "checking" });
     });
     autoUpdater.on("update-not-available", () => {
@@ -60,6 +63,10 @@ export class DesktopUpdater {
     });
     autoUpdater.on("error", (error) => {
       this.#installing = false;
+      if (this.#automaticChecking && this.#operation === "check") {
+        this.#automaticCheckFailed = true;
+        return;
+      }
       this.#setError(error, this.#operation, retryFor(this.#operation), this.#state.availableRelease?.version);
     });
   }
@@ -78,16 +85,23 @@ export class DesktopUpdater {
       this.#set({ type: "up-to-date" });
       return "checked";
     }
-    if (automatic && (this.#checking || !allowsScheduledCheck(this.#state.status))) return "skipped";
+    if (this.#checking || (automatic && !allowsScheduledCheck(this.#state.status))) return "skipped";
     this.#checking = true;
+    this.#automaticChecking = automatic;
+    this.#automaticCheckFailed = false;
     this.#operation = "check";
     try {
       await autoUpdater.checkForUpdates();
     } catch (error) {
-      this.#setError(error, "check", "check");
+      if (automatic) this.#automaticCheckFailed = true;
+      else this.#setError(error, "check", "check");
     } finally {
       this.#checking = false;
+      this.#automaticChecking = false;
     }
+    const automaticCheckFailed = automatic && this.#automaticCheckFailed;
+    this.#automaticCheckFailed = false;
+    if (automaticCheckFailed) return "failed";
     const status = this.#state.status;
     return status.type === "error" && status.phase === "check" ? "failed" : "checked";
   }

@@ -54,6 +54,8 @@ export class DesktopUpdateCheckScheduler {
     let outcome: DesktopUpdateCheckOutcome = "checked";
     try {
       outcome = await this.target.check(true);
+    } catch {
+      outcome = "failed";
     } finally {
       this.#running = false;
     }
