@@ -171,7 +171,8 @@ describe("Tripo connection and custom models", () => {
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models).toEqual([]);
     const saved = await app.inject({ method: "PUT", url: "/settings/models/providers/tripo", payload: { apiKey: "  tripo-key  " } });
     expect(saved.statusCode, saved.body).toBe(200); expect(saved.body).not.toContain("tripo-key");
-    expect((await stat(path.join(directory, "tripo.json"))).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(path.join(directory, "tripo.json"))).mode & 0o777).toBe(0o600);
     const restored = new MediaProviderKeyStore(directory, "tripo", "Tripo"); await restored.load(); expect(restored.key()).toBe("tripo-key");
     expect((await app.inject({ method: "GET", url: "/model3d-models/catalog" })).json().models).toEqual(MODEL_3D_MODELS.filter((model) => model.provider === "tripo"));
     expect((await app.inject({ method: "PUT", url: "/model3d-models/default", payload: model })).statusCode).toBe(204);

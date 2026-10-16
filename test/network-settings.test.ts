@@ -89,7 +89,8 @@ describe("network settings", () => {
       detected: { source: "manual" },
       requiresRestart: true,
     });
-    expect((await stat(service.store.filePath)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(service.store.filePath)).mode & 0o777).toBe(0o600);
     expect(
       JSON.parse(await readFile(service.store.filePath, "utf8")),
     ).toMatchObject({ version: 1, mode: "manual" });
