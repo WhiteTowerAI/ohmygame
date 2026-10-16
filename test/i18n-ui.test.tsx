@@ -138,3 +138,15 @@ it("localizes the combined model and reasoning button while keeping the xHigh la
   expect(html).toContain('title="文本模型：OpenAI · Test · xHigh"');
   expect(html).toContain("xHigh</span>");
 });
+
+it("localizes the model selector back action", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const model: AgentModel = { provider: "openai", providerName: "OpenAI", id: "test", name: "Test", reasoningLevels: ["medium", "high"] };
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+  await act(async () => root!.render(<ModelSelector models={[model]} value={model} reasoningLevel="medium" onChange={() => {}} onReasoningChange={() => {}} />));
+  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+  await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
+  expect(document.querySelector<HTMLButtonElement>(".model-selector-back")?.getAttribute("aria-label")).toBe("返回模型列表");
+});

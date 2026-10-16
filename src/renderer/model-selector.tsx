@@ -215,7 +215,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
             </div>
           ) : (
             <div className="model-selector-reasoning-menu" role="menu" aria-label={t("customProvider.reasoningLevels")}>
-              <button className="model-selector-back" type="button" role="menuitem" aria-label="Back to models" onClick={backToModels}>
+              <button className="model-selector-back" type="button" role="menuitem" aria-label={t("modelSelector.backToModels")} onClick={backToModels}>
                 <ChevronLeft aria-hidden="true" size={12} />
                 <span>{t("models.reasoning")}</span>
               </button>
