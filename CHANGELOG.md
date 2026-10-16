@@ -4,6 +4,54 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.4.9] - 2026-10-16
+
+### Added
+
+- Per-turn file diffs with Undo and Reapply, plus a read-only Git Changes view
+  in Code. ([#246](https://github.com/WhiteTowerAI/ohmygame/pull/246))
+- Export Interactive Stories as editable projects.
+  ([#253](https://github.com/WhiteTowerAI/ohmygame/pull/253))
+- A background video timeline in the Scene workbench, with playback, scrubbing,
+  and Mark to attach a specific moment to an agent message.
+  ([#264](https://github.com/WhiteTowerAI/ohmygame/pull/264))
+- Doubao speech generation with voice selection and preview, plus speech,
+  sound-effect, and music nodes on Asset Canvas. Audio generation requires a
+  compatible connected provider.
+  ([#259](https://github.com/WhiteTowerAI/ohmygame/pull/259))
+- Skills in the composer's slash menu.
+  ([#257](https://github.com/WhiteTowerAI/ohmygame/pull/257))
+
+### Changed
+
+- Plugins have Public and Personal collections, separate AI setup sessions,
+  enable/disable controls, Personal plugin editing, and ZIP import/export.
+  ([#250](https://github.com/WhiteTowerAI/ohmygame/pull/250))
+- Model selection and reasoning controls share a compact composer control.
+  ([#252](https://github.com/WhiteTowerAI/ohmygame/pull/252))
+- The Asset Canvas Library picker starts with the current project selected.
+  ([#261](https://github.com/WhiteTowerAI/ohmygame/pull/261))
+- OpenAI and Anthropic browser sign-in options explain subscription limits.
+  ([#267](https://github.com/WhiteTowerAI/ohmygame/pull/267))
+
+### Fixed
+
+- Desktop apps check for updates periodically and on return to the window,
+  with retries after failed checks.
+  ([#260](https://github.com/WhiteTowerAI/ohmygame/pull/260))
+- Provider settings open without waiting for cloud verification.
+  ([#262](https://github.com/WhiteTowerAI/ohmygame/pull/262))
+- Leaked thinking tags no longer appear in agent conversations or Canvas text.
+  ([#263](https://github.com/WhiteTowerAI/ohmygame/pull/263))
+- The mouse wheel pans the canvas over node content.
+  ([#255](https://github.com/WhiteTowerAI/ohmygame/pull/255))
+- New project can open an existing workspace folder.
+  ([#251](https://github.com/WhiteTowerAI/ohmygame/pull/251))
+- Removed the empty-state prompt overlay from the Story canvas.
+  ([#254](https://github.com/WhiteTowerAI/ohmygame/pull/254))
+
+**Full Changelog**: https://github.com/WhiteTowerAI/ohmygame/compare/v0.0.0-beta.4.8...v0.0.0-beta.4.9
+
 ## [0.0.0-beta.4.8] - 2026-10-14
 
 ### Added
