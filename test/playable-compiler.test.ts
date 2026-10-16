@@ -203,7 +203,8 @@ describe("Node compiler", () => {
     await writeFile(outside, '<svg xmlns="http://www.w3.org/2000/svg"/>');
     await writeFile(
       path.join(workspace, "nodes", "menu", "style.css"),
-      `.menu { background: url("${outside}"); }\n`,
+      // CSS strings treat backslashes as escapes, so a Windows path is written with forward slashes.
+      `.menu { background: url("${outside.replaceAll("\\", "/")}"); }\n`,
     );
 
     await expect(compileNodeGraph(workspace, graph)).rejects.toMatchObject({
