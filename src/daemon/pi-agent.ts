@@ -11,15 +11,11 @@ description: Create or update an OhMyGame plugin from a natural-language request
 
 # OhMyGame Plugin Creator
 
-Create a normal plugin directory inside the current workspace. Use a short kebab-case directory name.
+Create or update a plugin directory inside the current workspace. Read existing files before editing.
 
 ${PLUGIN_AUTHORING_RULES}
 
-OhMyGame's built-in media generation capabilities are available to Skills automatically and are not declared in the manifest. The built-in Godot connection ID is \`ohmygame-godot\`.
-
-After creating the files, call \`install_plugin\` with the plugin directory relative to the workspace. Installation is part of the requested workflow and does not require another confirmation. Fix validation errors and retry if necessary.
-
-In the final response, state what was created and installed, summarize its Skills and MCP services, and include its source directory.
+Call \`install_plugin\` with the directory relative to the workspace to validate and install the completed package. Correct reported validation errors before retrying. Summarize the installed capabilities, checks and source directory.
 `;
 const pendingConfiguration = new Map<string, Promise<void>>();
 
