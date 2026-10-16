@@ -14,9 +14,10 @@ the source, upstream terms, and any preparation in
 `assets/NOTICE.md`. These notices travel with exported and imported packages.
 TapTap Maker currently uses the official TapTap app mark to identify the service.
 
-Game Studio, Web Game Studio, and Image to Three.js use the user-selected
-**Vectors Anchor Rectangle** artwork from Streamline Ultimate color (CC BY 4.0),
-with its original geometry, colors, and attribution retained. Three.js World uses
+Game Studio, Web Game Studio, and Image to Three.js use user-selected
+Streamline Ultimate color (CC BY 4.0) artwork: **Module Puzzle**, **Card Game Heart**,
+and **Vectors Anchor Rectangle**, respectively. Original geometry, colors, and
+attribution are retained. Three.js World uses
 the upstream Three.js mark and retains its MIT license.
 
 Image to Three.js is a preinstalled third-party package from `img2threejs/img2threejs`,
