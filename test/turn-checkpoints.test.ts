@@ -322,9 +322,21 @@ it("projects real edit/write diffs before the turn ends and restores them from d
     SessionManager.open(sessionManager.getSessionFile()!).getBranch(),
   ).filter((item) => item.type === "dynamicToolCall");
   expect(
-    restored.map(({ lineChanges, fileDiff }) => ({ lineChanges, fileDiff })),
+    restored
+      .map(({ tool, lineChanges, fileDiff }) => ({
+        tool,
+        lineChanges,
+        fileDiff,
+      }))
+      .sort((left, right) => left.tool.localeCompare(right.tool)),
   ).toEqual(
-    live.map(({ lineChanges, fileDiff }) => ({ lineChanges, fileDiff })),
+    live
+      .map(({ tool, lineChanges, fileDiff }) => ({
+        tool,
+        lineChanges,
+        fileDiff,
+      }))
+      .sort((left, right) => left.tool.localeCompare(right.tool)),
   );
   const olderEntries = SessionManager.open(
     sessionManager.getSessionFile()!,
