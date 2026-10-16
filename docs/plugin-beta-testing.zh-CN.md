@@ -208,3 +208,16 @@ Failure: exact error, reproduction steps, expected versus observed behavior
 
 建议顺序：Cocos Web → 微信 → 抖音 → Aseprite → Tiled → Unity → UE。
 微信/抖音的上传是额外账号能力检查，审核和正式发行由你另行决定。
+
+## TapTap Maker 接入与原生预览
+
+需要 Git、Python 3.8+（含 venv/pip）和 Maker 账号。
+
+1. 在插件页启用 Maker，点击「准备环境」并完成「连接账号」。应通过官方浏览器授权，不能要求在对话中提供 token，也不能修改 Codex/Cursor/Claude 配置。
+2. 首页引用 Maker，确认类型切换为 General。填写需求并发送，应先打开项目连接面板；明确选择已有 Maker 项目后再初始化空目录。取消后需求应保留，重试不得静默选择列表第一项。
+3. 导入已经绑定的 Maker 目录，应识别为插件项目，保留原绑定；将 Maker 引用用于已有 Web 项目应提示类型不兼容。
+4. 在 View 安装 Runtime、启动、刷新、查看日志、停止。游戏在独立原生窗口中运行，不能出现 Web iframe 或 Web Play 按钮。刷新会重启游戏。
+5. 关闭并重开项目，检查绑定仍在；关闭 View 后不得继续轮询预览状态。准备过程取消或失败后应能显式重试。
+6. 实际运行和检查一个 Lua 改动；远端 build/提交只在你明确要求时执行，检查提交、推送和构建各阶段结果，再去 Maker 发布页完成发布。
+
+**通过标准：** 完成「启用 → 环境 → 授权 → 明确选项目 → 开发 → 原生预览」闭环；已有绑定不会被替换。CLI 0.0.36 不支持 `preview validate` 或原生截图，不能以进程存活代替游戏验证。

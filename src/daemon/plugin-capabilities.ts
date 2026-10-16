@@ -35,6 +35,9 @@ interface PluginMcpPackage {
 export class PluginCapabilities {
   readonly configuration: PluginConfigurationStore;
   readonly host = new PluginMcpHost();
+  dataPath(pluginId: string): string {
+    return path.join(this.dataDirectory, "plugin-data", createHash("sha256").update(pluginId).digest("hex").slice(0, 24));
+  }
   async skillContent(plugin: PluginDetail, id: string): Promise<string | undefined> {
     return readPluginSkillContent(plugin, id, this.sources);
   }
@@ -108,6 +111,9 @@ export class PluginCapabilities {
       );
     const values = this.configuration.resolved(plugin);
     const resolved = substitute(template, values) as McpServerDefinition;
+    if (plugin.integration && resolved.command) {
+      resolved.env = { ...(resolved.env as Record<string, string> | undefined), OHMYGAME_PLUGIN_DATA_DIR: this.dataPath(plugin.id) };
+    }
     if (!isMcpServerDefinition(resolved))
       throw new PluginConfigurationError("Resolved MCP definition is invalid");
     if (typeof resolved.cwd === "string" && !path.isAbsolute(resolved.cwd))

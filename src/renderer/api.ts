@@ -1422,3 +1422,16 @@ export async function releasePreview(projectId: string, leaseId: string): Promis
 export async function inspectProjectPreview(projectId: string, settings: ProjectRunSettings): Promise<{ mode?: string; manager?: string; source?: string; error?: string }> {
   return request(`/projects/${projectId}/preview/inspect`, { method: "POST", body: JSON.stringify(settings) });
 }
+
+export function getPluginIntegration(pluginId: string, projectId?: string): Promise<import("../shared/plugin-integration.js").PluginIntegrationState> {
+  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`);
+}
+export function runPluginIntegration(pluginId: string, action: import("../shared/plugin-integration.js").PluginIntegrationAction, projectId?: string, remoteProjectId?: string): Promise<import("../shared/plugin-integration.js").PluginIntegrationState> {
+  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { method: "POST", body: JSON.stringify({ action, ...(remoteProjectId ? { projectId: remoteProjectId } : {}) }) });
+}
+export function cancelPluginIntegration(pluginId: string, projectId?: string): Promise<{ ok: true }> {
+  return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { method: "DELETE" });
+}
+export function setProjectIntegration(projectId: string, pluginId: string): Promise<ProjectState> {
+  return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "PUT", body: JSON.stringify({ pluginId }) });
+}

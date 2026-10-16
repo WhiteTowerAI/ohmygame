@@ -1,3 +1,4 @@
+import { ExternalProjectPreview } from "./plugin-integration.js";
 import { previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
 import {
   ArrowLeft,
@@ -38,7 +39,7 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { isWebRuntimeProjectType, supportsWebPreview, supportsProjectPreview } from "../shared/project-runtime.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
@@ -123,12 +124,13 @@ export function CodingWorkspace({
   onToggleChat,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
-  const publishingUnavailable = project?.type === "godot-game";
+  const hasPreview = supportsProjectPreview(project);
+  const publishingUnavailable = project?.type === "godot-game" || !!project?.integration;
   const publishLabel = project?.type === "godot-game"
     ? t("workspace.godotPublishing")
     : publishing ? t("workspace.publishing") : t("workspace.publish");
-  const [selectedTab, setSelectedTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
-  const activeTab = selectedTab === "preview" && !supportsPreview ? "code" : selectedTab;
+  const [selectedTab, setSelectedTab] = useState<WorkspaceTab>(hasPreview ? "preview" : "code");
+  const activeTab = selectedTab === "preview" && !hasPreview ? "code" : selectedTab;
   const shownTab = designOpen ? "design" : activeTab;
   const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
   const designLeave = useRef<((action: () => void) => void) | undefined>(undefined);
@@ -297,7 +299,7 @@ export function CodingWorkspace({
   }
 
   const tabs: WorkspaceTabOption<WorkspaceTab | "design">[] = [
-    ...(supportsPreview ? [{ id: "preview" as const, label: t("workspace.tab.preview"), icon: Globe2 }] : []),
+    ...(hasPreview ? [{ id: "preview" as const, label: t("workspace.tab.preview"), icon: Globe2 }] : []),
     ...(onDesignOpenChange ? [{ id: "design" as const, label: t("workspace.tab.design"), icon: FileText }] : []),
     { id: "code", label: t("workspace.tab.code"), icon: Code2 },
     { id: "assets", label: t("workspace.tab.assets"), icon: Layers3 },
@@ -341,7 +343,7 @@ export function CodingWorkspace({
           ) : null}
         </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {project && isWebRuntimeProjectType(project.type) && shownTab !== "preview" ? <button
+          {project && !project.integration && isWebRuntimeProjectType(project.type) && shownTab !== "preview" ? <button
             className="icon-button pane-header-action"
             type="button"
             aria-label={t("projectSettings.title")}
@@ -397,6 +399,7 @@ export function CodingWorkspace({
         project={project} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : null}
 
+      {project?.integration?.preview === "external" && shownTab === "preview" ? <ExternalProjectPreview key={project.id} project={project} /> : null}
       {supportsPreview ? (
         <div
           className="coding-workspace-preview-panel"

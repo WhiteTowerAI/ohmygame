@@ -266,19 +266,34 @@ saved switch choices are preserved.
   Maker's own local store. Read project `.agents/skills` explicitly as needed;
   they are not automatically added to OhMyGame's Skill catalog.
 
-Maker Runtime provides a separate native preview window; disable General's web
-preview for these workspaces. Local preview and tests do not imply a remote
-submission. `maker_build_current_directory` commits, pushes, and remotely builds
-the project; a build does not mean the game has been published. Use Maker's own
-project page for the publishing step.
+Maker's connection panel prepares a private pinned CLI and Python/Lua diagnostics,
+then opens official browser authorization. Python 3.8+ with venv/pip and Git are
+required. Enable the plugin to reveal this panel; enabling alone does not install
+dependencies or log in. The plugin does not install configurations into other AI
+editors. Private dependencies survive package updates and stay outside exported
+plugin packages. Credentials remain in Maker's own store.
 
-Maker initialization uses an empty directory and `init --skip-mcp-install`.
-In pinned CLI 0.0.36, this flag does not skip Lua LSP setup, which may configure
-Codex, Cursor, and Claude outside the project. The setup Skill explains these
-changes and requires authorization for that scope before init; users who do not
-want them can connect an already initialized directory. The plugin does not run
-the standalone multi-client MCP installer. See the
-[Maker setup reference](../plugins/taptap-maker/skills/taptap-maker/references/setup.md).
+![Maker connection panel](assets/maker-connection.png)
+
+Reference Maker when creating a project to select General automatically. Before
+the first prompt, choose an existing Maker project explicitly and connect its
+empty local directory, or import an already bound directory. Existing bindings
+are preserved. Recognized imports use the plugin's compatible type; existing
+OhMyGame projects are never silently converted. Conflicting plugin references
+require a compatible selection. Remote project creation stays in Maker's service.
+
+View provides install/start/refresh/stop/status/log controls for Maker's separate
+native Runtime window. Web preview is disabled for these projects. Controls load
+only while View is open; idle status refreshes every ten seconds, while setup task
+polls read in-memory state. Agents use the same adapter through `project_preview`.
+The pinned release does not provide `preview validate` or native screenshots.
+Local previews do not submit remotely. `maker_build_current_directory` commits,
+pushes, and builds the bound branch; use Maker's own page to publish. OhMyGame
+Community publishing is unavailable for integrated projects.
+
+![Native preview controls, exercised with a test adapter](assets/plugin-native-preview.png)
+
+See the [Maker setup reference](../plugins/taptap-maker/skills/taptap-maker/references/setup.md).
 
 For a local Blender integration check, set `BLENDER_EXECUTABLE` to its absolute
 executable path and run `bun run test -- test/blender-export.test.ts`. This
@@ -334,3 +349,34 @@ must follow the user's requested destination and scope.
 ## Validation
 
 `test/plugin-capabilities.test.ts` covers credential isolation, reinstall and restart persistence, switches and shared ownership, migration, real STDIO/HTTP tool discovery, tool execution, a simulated OAuth provider, and a simulated model making a real assistant tool call. `test:node-runtime` also exercises MCP installation and connection in the compiled Node daemon.
+
+## Optional project integrations
+
+A native manifest can declare an integration without adding a host project type:
+
+```json
+"integration": {
+  "entry": "./scripts/integration.mjs",
+  "projectFiles": ["./.maker-mcp/config.json"],
+  "preview": "external"
+}
+```
+
+`entry` is an installed `.mjs` file within the package. The host launches it with
+its Node runtime and writes one version-1 JSON request to stdin. It receives
+JSON-lines progress/result/error messages, validated against
+[`plugin-integration.ts`](../src/shared/plugin-integration.ts). Requests contain
+an action, private data directory, resolved plugin configuration, and (for project
+actions) the registered workspace path. `projectId` on a bind request is the
+explicitly selected service project; the HTTP query uses the OhMyGame project ID.
+The renderer cannot submit arbitrary filesystem paths.
+
+The adapter owns service-specific dependencies, credentials, binding and preview
+identity. The host owns task cancellation, time/output limits, write exclusion,
+and presentation. No adapters run on app startup: import recognition only checks
+that every declared `projectFiles` marker exists inside the workspace, resolving
+symlinks. Project metadata saves the plugin ID and optional preview presentation;
+the service's binding file remains authoritative. Only one integration may own a
+workspace. The host retains task outcomes in memory, without an automatic mutation
+retry; disabling/removing the plugin cancels its active tasks. Native preview
+windows remain service-owned and are stopped through View or `project_preview`.

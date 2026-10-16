@@ -1,6 +1,7 @@
 # Preview configuration and lifecycle
 
-Web Game and newly created General Game projects have browser preview enabled.
+Web Game and newly created General Game projects have browser preview enabled,
+except projects that select a plugin external preview.
 New General projects open on Design; prompt-based creation also keeps chat open.
 Existing General projects keep their saved switch, and older projects without a
 switch remain disabled. **Project settings**, available from Design, Code and
@@ -144,3 +145,12 @@ Preview state is delivered through one `preview.updated` event containing the
 complete runtime state. Browser reports use a typed message envelope for activity,
 navigation, lifecycle and diagnostics; obsolete standalone diagnostic messages
 are not accepted.
+
+## External plugin preview
+
+A project's optional `integration` selects its plugin and `external` presentation.
+These projects expose View with the plugin's native preview controls and do not
+acquire Web leases or create a Web player. Browser runtime configuration and
+leases retain their existing lifecycle. See [plugin integrations](plugins.md#optional-project-integrations)
+for the adapter contract and Maker's current limits. External controls mount only
+while View is visible; they do not capture or embed the native game window.

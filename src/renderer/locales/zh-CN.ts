@@ -2575,6 +2575,16 @@ const zhCN: typeof en = {
     recheck: "重新检查 {{name}}",
     detailsFor: "节点详情：{{label}}",
   },
+  integration: {
+    promptNotSent: "初始需求尚未发送。", title: "插件接入", description: "开发前，先准备本地环境并连接账号。",
+    working: "处理中…", openAuthorization: "打开授权页面", prepare: "准备环境", connect: "连接账号", connected: "账号已连接",
+    refresh: "刷新状态", bound: "已连接项目：{{id}}", chooseProject: "请选择已有项目。尚未绑定的本地目录必须为空。",
+    loadProjects: "获取项目列表", project: "项目", selectProject: "选择项目…", noProjects: "请先在服务端创建项目，再刷新列表。",
+    bind: "连接此目录", continue: "继续", conflict: "一个工作目录只能使用一个接入插件。请为其他接入创建独立项目。", incompatible: "引用的插件需要不同项目类型，请选择兼容的插件。",
+    preview: "本地预览", externalWindow: "游戏将在独立原生窗口中打开。刷新会重启游戏并重置运行状态。",
+    installRuntime: "安装 Runtime", start: "启动预览", restart: "刷新预览", stop: "停止", logs: "获取日志",
+    previewStatus: { missing: "尚未安装 Runtime", stopped: "预览已停止", running: "预览运行中", error: "请先检查预览状态再重试" },
+  },
   textComposer: {
     label: "文本生成指令",
     placeholder: "描述你想生成的文本",

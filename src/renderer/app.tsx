@@ -89,7 +89,7 @@ export function App() {
   function openCreatedProject(project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
     const connection = runtimeConnection();
     setInitialPrompt({ generation: connection.status === "ready" ? connection.generation : -1, conversationId, prompt, mentions, images, mode, attachments });
-    navigateToConversation(project.id, conversationId, false, createdProjectView(project.type));
+    navigateToConversation(project.id, conversationId, false, project.integration ? undefined : createdProjectView(project.type));
   }
 
   function openProject(projectId: string, view?: "design"): void {
@@ -107,7 +107,7 @@ export function App() {
   }
 
   async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
-    const project = projectId ? { id: projectId, type: undefined } : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game" });
+    const project = projectId ? { id: projectId, type: undefined, integration: undefined } : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game", ...(plugin.integration ? { pluginId: plugin.id } : {}) });
     const conversation = await createConversation(project.id);
     const mention: PluginMention = {
       name: plugin.name,
@@ -119,7 +119,7 @@ export function App() {
       conversationId: conversation.id,
       draft: { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] },
     });
-    navigateToConversation(project.id, conversation.id, false, createdProjectView(project.type));
+    navigateToConversation(project.id, conversation.id, false, project.integration ? undefined : createdProjectView(project.type));
   }
 
   function clearInitialPrompt(): void {

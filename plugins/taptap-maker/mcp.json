@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "taptap-maker": {
-      "command": "npx",
-      "args": ["-y", "--package=@taptap/maker@0.0.36", "taptap-maker"],
+      "command": "node",
+      "args": ["./scripts/mcp.mjs"],
       "env": { "TAPTAP_MAKER_DISTRIBUTION": "ohmygame_plugin" },
       "lifecycle": "lazy",
       "requestTimeoutMs": 3600000

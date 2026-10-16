@@ -1,3 +1,4 @@
+import { PluginIntegrationPanel } from "./plugin-integration.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { AddMcpPluginDialog, PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton, PluginEnabledSwitch } from "./plugin-controls.js";
 import { PluginBuilderSessions } from "./plugin-builder.js";
@@ -126,6 +127,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       const updated = await updatePluginSettings(plugin.id, settings);
       setDetailResult((current) => current?.pluginId === updated.id ? { pluginId: updated.id, plugin: updated } : current);
       setPlugins((items) => items.map((item) => item.id === updated.id ? pluginSummary(updated) : item));
+      if (updated.enabled && updated.integration) onPluginChange(updated.id);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -522,6 +524,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
       </section> : null}
       <SkillSection pluginId={plugin.id} items={plugin.skills} installed={plugin.installed} disabled={updating || !plugin.enabled} onBrowse={onBrowseSkill} onToggle={onToggleComponent} />
       <PluginConfigurationPanel plugin={plugin} onChanged={onCapabilitiesChanged} />
+      {plugin.enabled && plugin.integration ? <PluginIntegrationPanel key={plugin.id} pluginId={plugin.id} /> : null}
       <PluginDependencyPanel plugin={plugin} />
       <PluginMcpPanel plugin={plugin} onToggle={onMcpToggle} onAssist={onAssist} onChanged={onCapabilitiesChanged} />
       {!plugin.mcpServers?.length && !plugin.connections.length ? <div className="plugin-section-actions">
@@ -612,7 +615,7 @@ function componentSettings(plugin: PluginDetail): PluginSettings {
 }
 
 function pluginSummary(plugin: PluginDetail): PluginSummary {
-  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, projectTypes: _projectTypes, mcpServers: _mcpServers, mcpConfigPath: _mcpConfigPath, configuration: _configuration, ...summary } = plugin;
+  const { longDescription: _longDescription, skills: _skills, connections: _connections, defaultPrompts: _defaultPrompts, mcpServers: _mcpServers, mcpConfigPath: _mcpConfigPath, configuration: _configuration, ...summary } = plugin;
   return summary;
 }
 
