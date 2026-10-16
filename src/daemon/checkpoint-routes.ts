@@ -102,13 +102,13 @@ export function registerCheckpointRoutes(
       // this set empty, while publish/build need that snapshot to finish.
       if (/\/(?:publish|interactive-story\/build)(?:\?|$)/.test(request.url))
         await agents.turnsClosed(id);
+      const read = request.method === "GET" || request.method === "HEAD";
       writes.track(
         request,
-        writes.enter(
+        await writes.enter(
           id,
-          request.method === "GET"
-            ? writes.version(id)
-            : (request.headers["x-workspace-version"] as string | undefined),
+          read,
+          read ? undefined : (request.headers["x-workspace-version"] as string | undefined),
         ),
       );
     } catch (cause) {

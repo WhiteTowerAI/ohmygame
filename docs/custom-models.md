@@ -171,8 +171,7 @@ Chat and canvas text composers use one button showing the model name and current
 reasoning level. Open it to choose a model, or choose **Reasoning** in the menu to
 adjust the depth. Only levels supported by the selected model are listed; models
 with just one supported level show only their name. Choosing a different model
-keeps the current level when supported, or adjusts it to a supported level. The
-extra-high level is displayed as **xHigh**.
+keeps the current level when supported, or adjusts it to a supported level.
 
 ## Existing configuration
 
