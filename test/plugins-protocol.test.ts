@@ -14,6 +14,7 @@ describe("plugin protocol", () => {
     expect(PLUGIN_MANIFEST_PATH).toBe(".ohmygame-plugin/plugin.json");
     expect(isPluginManifest({
       name: "character-writer",
+      enabledByDefault: false,
       version: "1.0.0",
       description: "Reusable character writing workflow",
       skills: "./skills/",
@@ -60,6 +61,7 @@ describe("plugin protocol", () => {
     expect(isPluginManifest({ ...base, homepage: "https://ohmygame.ai" })).toBe(false);
     expect(isPluginManifest({ ...base, version: "" })).toBe(false);
     expect(isPluginManifest({ ...base, enabled: true })).toBe(false);
+    expect(isPluginManifest({ ...base, enabledByDefault: "false" })).toBe(false);
     expect(isPluginManifest({ ...base, mcpServers: "../mcp.json" })).toBe(false);
     expect(isPluginManifest({ ...base, apps: "./apps.json" })).toBe(false);
     expect(isPluginManifest({ ...base, hooks: "./hooks.json" })).toBe(false);

@@ -13,15 +13,18 @@ describe("bundled plugins", () => {
       "blender", "godot", "taptap-maker",
     ]);
     expect(store.read("ohmygame:blender")).toMatchObject({
+      enabled: true,
       skills: [{ id: "skills/blender-assets/SKILL.md" }],
       mcpServers: [],
     });
     expect(store.read("ohmygame:godot")).toMatchObject({
+      enabled: true,
       skills: [{ id: "skills/godot-game/SKILL.md" }],
       mcpServers: [{ id: "godot" }],
       configuration: { "godot-path": { default: "godot" } },
     });
     expect(store.read("ohmygame:taptap-maker")).toMatchObject({
+      enabled: false,
       skills: [{ id: "skills/taptap-maker/SKILL.md" }],
       mcpServers: [{ id: "taptap-maker" }],
       projectTypes: ["general"],

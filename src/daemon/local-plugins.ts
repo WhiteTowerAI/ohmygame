@@ -378,7 +378,7 @@ export async function inspectPluginBundle(
     marketplace: identity.marketplace,
     source: identity.source,
     installed: true,
-    enabled: true,
+    enabled: manifest.enabledByDefault ?? true,
     skills,
     connections,
     mcpServers: Object.entries(definitions).map(([id, definition]) => ({ id, name: displayName(id), enabled: definition.disabled !== true, transport: definition.url ? "http" as const : "stdio" as const })),

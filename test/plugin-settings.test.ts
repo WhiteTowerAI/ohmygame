@@ -6,6 +6,27 @@ import { InvalidPluginSettingsError, PluginSettingsStore } from "../src/daemon/p
 import type { PluginDetail } from "../src/shared/plugins.js";
 
 describe("plugin settings", () => {
+  it("uses package defaults until the user saves a switch and preserves that choice after reload", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-"));
+    const plugin = { ...godotPlugin(), enabled: false };
+    const store = new PluginSettingsStore(directory);
+    await store.load();
+    expect(store.resolve(plugin).enabled).toBe(false);
+    expect(store.decorate(plugin).enabled).toBe(false);
+    expect(store.decorateSummary(plugin).enabled).toBe(false);
+
+    await store.update(plugin, { enabled: true, components: {} });
+    const reloaded = new PluginSettingsStore(directory);
+    await reloaded.load();
+    expect(reloaded.resolve(plugin).enabled).toBe(true);
+    expect(reloaded.decorateSummary(plugin).enabled).toBe(true);
+
+    await reloaded.update(plugin, { enabled: false, components: {} });
+    const disabled = new PluginSettingsStore(directory);
+    await disabled.load();
+    expect(disabled.resolve({ ...plugin, enabled: true }).enabled).toBe(false);
+  });
+
   it("persists the plugin switch separately from skill switches", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-settings-"));
     const plugin = godotPlugin();

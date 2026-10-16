@@ -49,7 +49,7 @@ async function environment() {
 }
 describe("native plugin capabilities", () => {
   it("resolves Godot configuration and scopes Maker to General projects", async () => {
-    const { service, bundled } = await environment();
+    const { service, bundled, settings } = await environment();
     const godot = bundled.read("ohmygame:godot")!;
     const godotName = service.runtimeName(godot.id, "godot");
     expect(await service.definition(godot, "godot")).toMatchObject({
@@ -65,6 +65,9 @@ describe("native plugin capabilities", () => {
     expect(service.runtimeName(godot.id, "godot")).toBe("ohmygame-godot");
     const maker = bundled.read("ohmygame:taptap-maker")!;
     const makerName = service.runtimeName(maker.id, "taptap-maker");
+    expect((await service.effective()).mcpServers).not.toHaveProperty(makerName);
+    expect((await service.effective("general")).mcpServers).not.toHaveProperty(makerName);
+    await settings.update(maker, { enabled: true, components: {} });
     expect((await service.effective("general")).mcpServers[makerName]).toMatchObject({
       args: ["-y", "--package=@taptap/maker@0.0.36", "taptap-maker"],
       env: { TAPTAP_MAKER_DISTRIBUTION: "ohmygame_plugin" },

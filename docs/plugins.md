@@ -41,6 +41,13 @@ detail page. Omit it or set it to false for plugins without that label; it does
 not change installation, configuration, or enablement behavior.
 See the [bundled engine plugin cards](assets/engine-plugins-beta.png).
 
+Optional `enabledByDefault` sets a package's initial plugin switch (default:
+`true`). A saved user choice takes precedence across restarts and package
+updates. Disabled plugins contribute neither Skills nor MCP services to agent
+conversations. Enabled Skills become candidates for compatible project types;
+their full instructions are read when needed rather than injected into every
+message. A lazy MCP service connects when requested.
+
 ### Plugin icons
 
 `interface.icon` is optional display metadata. Use a Solar preset with
@@ -221,6 +228,9 @@ The migration reader never modifies the old file or creates a missing one. A ret
 
 Blender, Godot, and TapTap Maker are marked Beta while their platform workflows
 are being validated. They use the standard Skill/MCP package contract.
+Blender and Godot default to enabled. TapTap Maker defaults to disabled: turn it
+on in Settings → Plugins when testing or developing Maker projects. Existing
+saved switch choices are preserved.
 
 - **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
   GLB delivery, and preview images. The export helper accepts an optional

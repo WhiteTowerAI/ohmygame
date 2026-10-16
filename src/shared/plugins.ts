@@ -250,6 +250,7 @@ export interface PluginMcpResult {
 }
 
 export const PluginManifestSchema = Type.Object({
+  enabledByDefault: Type.Optional(Type.Boolean()),
   formatVersion: Type.Optional(Type.Integer({ minimum: 1 })),
   minimumHostVersion: Type.Optional(SemVerSchema),
   requirements: Type.Optional(Type.Object({
