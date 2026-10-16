@@ -27,13 +27,13 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 });
 `;
 
-async function start() {
+async function start(source = FAKE_CLAUDE) {
   const dataDirectory = await mkdtemp(
     path.join(tmpdir(), "ohmygame-agent-routes-"),
   );
   cleanup.push(() => rm(dataDirectory, { recursive: true, force: true }));
   const claude = path.join(dataDirectory, "fake-claude");
-  await writeFile(claude, FAKE_CLAUDE);
+  await writeFile(claude, source);
   await chmod(claude, 0o755);
   const app = createApp({
     dataDirectory,
@@ -70,12 +70,39 @@ async function start() {
 }
 
 describe("coding agent routes", () => {
+  it("accepts models returned by Claude initialize without requesting list_models", async () => {
+    const { call, claude } = await start(FAKE_CLAUDE.replace('=== "list_models"', '=== "initialize"'));
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const catalog = await call<AgentModelCatalog>("GET", "/models?runtimes=1");
+    expect(catalog.body.models.filter((model) => model.runtime).map((model) => model.id)).toEqual(["sonnet", "haiku"]);
+  });
+
+  it("keeps arbitrary native efforts and defaults out of Pi settings and unrelated models", async () => {
+    const { call, claude } = await start(FAKE_CLAUDE.replace('["low", "high"]', '["low", "high", "balanced-custom"]'));
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    expect((await call("PUT", "/models/default", { model: { provider: "claude-code-cli", id: "sonnet" }, reasoningLevel: "off", nativeReasoningLevel: "balanced-custom" })).status).toBe(204);
+    const catalog = await call<AgentModelCatalog>("GET", "/models?runtimes=1");
+    expect(catalog.body.defaultNativeReasoningLevel).toBe("balanced-custom");
+    const plain = await call<AgentModelCatalog>("GET", "/models");
+    expect(plain.body.defaultModel?.provider).not.toBe("claude-code-cli");
+    const project = await call<{ id: string }>("POST", "/projects", { name: "Native defaults", type: "general" });
+    const created = await call<{ id: string }>("POST", `/projects/${project.body.id}/conversations`, {});
+    const base = `/projects/${project.body.id}/conversations/${created.body.id}`;
+    expect((await call<{ settings: unknown }>("GET", base)).body.settings).toEqual({ model: { provider: "claude-code-cli", id: "sonnet" }, nativeReasoningLevel: "balanced-custom" });
+    expect((await call("PUT", base + "/native-reasoning", { level: "high" })).status).toBe(200);
+    expect((await call("PUT", base + "/native-reasoning", { level: "not-supported" })).status).toBe(400);
+    expect((await call("POST", `/projects/${project.body.id}/conversations`, { model: { provider: "claude-code-cli", id: "haiku" } })).status).toBe(201);
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
+    const fallback = await call<{ id: string }>("POST", `/projects/${project.body.id}/conversations`, {});
+    expect((await call<{ settings: { model?: { provider: string } } }>("GET", `/projects/${project.body.id}/conversations/${fallback.body.id}`)).body.settings.model?.provider).not.toBe("claude-code-cli");
+  });
+
   it("reports each agent's installation, sign-in and billing, and keeps the person's choices", async () => {
     const { call, claude } = await start();
     const updated = await call<AgentRuntimeStatus>(
       "PATCH",
       "/agent-runtimes/claude-code-cli",
-      { binaryPath: claude },
+      { binaryPath: claude, enabled: true },
     );
     expect(updated.body).toMatchObject({
       id: "claude-code-cli",
@@ -128,6 +155,7 @@ describe("coding agent routes", () => {
     const { call, claude } = await start();
     await call("PATCH", "/agent-runtimes/claude-code-cli", {
       binaryPath: claude,
+      enabled: true,
     });
     const plain = await call<AgentModelCatalog>("GET", "/models");
     expect(plain.body.models.some((model) => model.runtime)).toBe(false);
@@ -142,6 +170,7 @@ describe("coding agent routes", () => {
         name: "Sonnet",
         providerName: "Claude Code",
         reasoningLevels: ["low", "high"],
+        nativeReasoningLevels: ["low", "high"],
         runtime: "claude-code-cli",
       },
       {
@@ -150,6 +179,7 @@ describe("coding agent routes", () => {
         name: "Haiku",
         providerName: "Claude Code",
         reasoningLevels: [],
+        nativeReasoningLevels: [],
         runtime: "claude-code-cli",
       },
     ]);
@@ -188,7 +218,7 @@ describe("coding agent routes", () => {
     );
     expect(detail.body.settings).toEqual({
       model: { provider: "claude-code-cli", id: "sonnet" },
-      reasoningLevel: "high",
+      nativeReasoningLevel: "high",
     });
     const switched = await call(
       "PUT",

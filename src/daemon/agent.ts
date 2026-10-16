@@ -203,6 +203,19 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       turnFinished = true;
       continue;
     }
+    if (entry.type === "custom" && entry.customType === "ohmygame-approval") {
+      const data = record(entry.data);
+      const item = record(data?.item);
+      if (data?.version === 1 && item?.type === "approvalRequest" && item.status !== "inProgress" && record(item.request)) {
+        items.push({ ...item, id: entry.id, turnId: turnId ?? entry.id, timestamp: Date.parse(entry.timestamp) } as ThreadItem);
+      }
+      continue;
+    }
+    if (entry.type === "custom" && entry.customType === "ohmygame-native-compaction") {
+      const data = record(entry.data);
+      if (data?.version === 1) items.push({ id: entry.id, turnId: turnId ?? entry.id, type: "contextCompaction", status: data.aborted ? "cancelled" : data.error ? "failed" : "completed", ...(typeof data.summary === "string" ? { summary: data.summary } : {}), ...(typeof data.tokensBefore === "number" ? { tokensBefore: data.tokensBefore } : {}), ...(typeof data.error === "string" ? { error: normalizeAgentError(data.error) } : {}), timestamp: Date.parse(entry.timestamp) });
+      continue;
+    }
     if (entry.type !== "message") continue;
     const message = entry.message;
     const timestamp = messageTime(entry);
@@ -2057,6 +2070,10 @@ export class AgentManager {
   }
 
   #completeItem(projectId: string, active: ActiveTurn, item: ThreadItem): void {
+    const previous = active.items.get(item.id);
+    if (item.type === "approvalRequest" && previous?.type === "approvalRequest" && previous.status === "inProgress") {
+      this.#sessions.get(conversationKey(projectId, active.conversationId))?.session.sessionManager?.appendCustomEntry("ohmygame-approval", { version: 1, item });
+    }
     active.items.set(item.id, item);
     this.events.publish(projectId, "item.completed", { item }, eventScope(active));
   }

@@ -70,7 +70,7 @@ describe("coding agent approval policy", () => {
         },
         policy,
       ),
-    ).toBe("allow");
+    ).toBe("ask");
     expect(
       judgeApproval(
         {
@@ -239,7 +239,7 @@ describe("coding agent approval policy", () => {
         },
         policy,
       ),
-    ).toBe("allow");
+    ).toBe("ask");
   });
 });
 

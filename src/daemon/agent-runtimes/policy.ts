@@ -1,12 +1,13 @@
 import os from "node:os";
 import path from "node:path";
+import { realpathSync } from "node:fs";
 import type { ApprovalRequestDetails } from "../../shared/agent-runtimes.js";
 
 export type PolicyVerdict = "allow" | "deny" | "ask";
 
 export interface AgentPolicyContext {
   workspacePath: string;
-  /** Places no agent reaches in any mode: sign-ins, OhMyGame's own data, other projects. */
+  /** Protected roots checked when the native runtime requests permission. */
   neverTouch: readonly string[];
 }
 
@@ -30,6 +31,7 @@ export function neverTouchPaths(
     path.join(home, ".gnupg"),
     path.join(home, ".config", "gh"),
     path.join(home, "Library", "Keychains"),
+    ...[process.env.CODEX_HOME, process.env.CLAUDE_CONFIG_DIR, process.env.XDG_CONFIG_HOME ? path.join(process.env.XDG_CONFIG_HOME, "opencode") : undefined, process.env.XDG_DATA_HOME ? path.join(process.env.XDG_DATA_HOME, "opencode") : undefined].filter((value): value is string => !!value),
     path.resolve(dataDirectory),
     ...otherWorkspaces.map((workspace) => path.resolve(workspace)),
   ];
@@ -45,26 +47,29 @@ export function judgeApproval(
   details: ApprovalRequestDetails,
   context: AgentPolicyContext,
 ): PolicyVerdict {
-  const workspace = path.resolve(context.workspacePath);
+  if (details.paths?.length) {
+    const verdicts = details.paths.map((entry) => judgeApproval({ ...details, paths: undefined, path: entry.path }, context));
+    if (verdicts.includes("deny")) return "deny";
+    if (verdicts.includes("ask")) return "ask";
+  }
+  const workspace = canonicalPath(context.workspacePath);
+  const protectedPaths = context.neverTouch.map(canonicalPath);
   if (details.path) {
-    const target = path.resolve(workspace, expandHome(details.path));
+    const target = canonicalPath(path.resolve(workspace, expandHome(details.path)));
+    if (protectedPaths.some((root) => inside(root, workspace) && reaches(target, [root]))) return "deny";
     // The workspace may itself be inside OhMyGame's data folder, which is otherwise out of bounds.
     if (inside(target, workspace))
       return details.kind === "file" || details.kind === "other"
         ? "allow"
         : "ask";
-    if (reaches(target, context.neverTouch)) return "deny";
+    if (reaches(target, protectedPaths)) return "deny";
     return "ask";
   }
   if (details.command !== undefined) {
     const command = details.command;
-    const named = commandPaths(command, workspace);
-    if (
-      named.some(
-        (target) =>
-          !inside(target, workspace) && reaches(target, context.neverTouch),
-      )
-    )
+    const named = commandPaths(command, workspace).map(canonicalPath);
+    const protectedInWorkspace = protectedPaths.filter((root) => inside(root, workspace));
+    if (named.some((target) => reaches(target, inside(target, workspace) ? protectedInWorkspace : protectedPaths)))
       return "deny";
     if (RISKY_COMMAND.test(command)) return "ask";
     if (
@@ -75,9 +80,30 @@ export function judgeApproval(
       )
     )
       return "ask";
-    return "allow";
+    return SAFE_COMMAND.test(command.trim()) && !SHELL_CONTROL.test(command) ? "allow" : "ask";
   }
   return details.kind === "tool" ? "allow" : "ask";
+}
+
+// Commands that cannot be scoped from their syntax (interpreters, build scripts,
+// compound commands) require a person's decision. This is not an OS sandbox.
+const SAFE_COMMAND = /^(?:pwd|ls|cat|head|tail|wc|rg|grep)\b/;
+const SHELL_CONTROL = /[\n;&|<>`$]|(?:^|\s)--(?:pre|exec|hostname-bin)(?:=|\s|$)|(?:^|\s)(?:-exec|-execdir|-delete)(?:\s|$)/;
+
+/** Resolve links even when the final file has not been created yet. */
+export function canonicalPath(value: string): string {
+  const absolute = path.resolve(value);
+  let current = absolute;
+  const suffix: string[] = [];
+  for (;;) {
+    try { return path.join(realpathSync.native(current), ...suffix); }
+    catch {
+      const parent = path.dirname(current);
+      if (parent === current) return absolute;
+      suffix.unshift(path.basename(current));
+      current = parent;
+    }
+  }
 }
 
 /** Commands that act beyond this machine's project or with more rights than the agent was given. */
@@ -112,6 +138,7 @@ function commandPaths(command: string, workspace: string): string[] {
     else if (path.isAbsolute(word)) paths.push(path.resolve(word));
     else if (word === ".." || word.startsWith("../"))
       paths.push(path.resolve(workspace, word));
+    else if (!word.startsWith("-")) paths.push(path.resolve(workspace, word));
   }
   return paths;
 }

@@ -56,6 +56,7 @@ import {
   steerPendingPrompt,
   setConversationModel,
   setConversationReasoning,
+  setConversationNativeReasoning,
   startPreview,
   subscribeToProject,
   undoCheckpoint,
@@ -471,9 +472,10 @@ export function ProjectShell({
     }
   }
 
-  async function currentContextPercent(): Promise<number | undefined> {
+  async function currentContextPercent(): Promise<number | import("../shared/contracts.js").AgentContextUsage | undefined> {
     if (!project || !conversation) return undefined;
     const usage = await getConversationContextUsage(project.id, conversation.id);
+    if (isAgentRuntimeId(displayedModel?.provider)) return usage;
     return usage?.percent === null || usage?.percent === undefined
       ? undefined
       : Math.round(Math.max(0, Math.min(100, usage.percent)));
@@ -718,6 +720,16 @@ export function ProjectShell({
     }
   }
 
+  async function changeNativeReasoning(level: string) {
+    if (!project || !conversation || !displayedModel || agentBusy || modelChanging) return;
+    setModelChanging(true);
+    try {
+      const nativeReasoningLevel = await setConversationNativeReasoning(project.id, conversation.id, level);
+      dispatch({ type: "conversation-settings", settings: { model: displayedModel, nativeReasoningLevel } });
+    } catch (error) { dispatch({ type: "notice", message: errorMessage(error) }); }
+    finally { setModelChanging(false); }
+  }
+
   async function rename(conversationId: string, title: string): Promise<void> {
     if (!project) return;
     const renamed = await renameConversation(project.id, conversationId, title);
@@ -883,6 +895,7 @@ export function ProjectShell({
             modelStatus={modelCatalog.status}
             model={effectiveModel}
             reasoningLevel={state.settings.reasoningLevel}
+            nativeReasoningLevel={state.settings.nativeReasoningLevel}
             modelChanging={modelChanging}
             promptHistory={[
               ...items.flatMap((item) => item.type === "userMessage" && item.text.trim()
@@ -907,6 +920,7 @@ export function ProjectShell({
             onCancelPlan={discardPlan}
             onModelChange={(model) => void changeModel(model)}
             onReasoningChange={(level) => void changeReasoning(level)}
+            onNativeReasoningChange={(level) => void changeNativeReasoning(level)}
             onStop={() => void stopAgent()}
             onRemovePending={removeFollowUp}
             onSteerPending={steerFollowUp}

@@ -5,26 +5,28 @@ import { t } from "./i18n.js";
 interface MessageQueueProps {
   items: PendingPrompt[];
   disabled: boolean;
+  prioritizeOnly?: boolean;
   onRemove: (turnId: string) => void;
   onSteer: (turnId: string) => void;
   onEdit: (item: PendingPrompt) => void;
 }
 
-export function MessageQueue({ items, disabled, onRemove, onSteer, onEdit }: MessageQueueProps) {
+export function MessageQueue({ items, disabled, prioritizeOnly = false, onRemove, onSteer, onEdit }: MessageQueueProps) {
   if (items.length === 0) return null;
 
   return (
     <div className="message-queue" aria-label={t("queue.label")}>
       {items.map((item) => (
-        <QueueRow key={item.turnId} item={item} disabled={disabled} onEdit={onEdit} onSteer={onSteer} onRemove={onRemove} />
+        <QueueRow key={item.turnId} item={item} disabled={disabled} prioritizeOnly={prioritizeOnly} onEdit={onEdit} onSteer={onSteer} onRemove={onRemove} />
       ))}
     </div>
   );
 }
 
-function QueueRow({ item, disabled, onEdit, onSteer, onRemove }: {
+function QueueRow({ item, disabled, prioritizeOnly, onEdit, onSteer, onRemove }: {
   item: PendingPrompt;
   disabled: boolean;
+  prioritizeOnly: boolean;
   onEdit: (item: PendingPrompt) => void;
   onSteer: (turnId: string) => void;
   onRemove: (turnId: string) => void;
@@ -46,9 +48,9 @@ function QueueRow({ item, disabled, onEdit, onSteer, onRemove }: {
         >
           <Pencil size={12} />
         </button>
-        <button type="button" disabled={disabled} onClick={() => onSteer(item.turnId)} title={t("queue.steerTitle")}>
+        <button type="button" disabled={disabled} onClick={() => onSteer(item.turnId)} title={t(prioritizeOnly ? "queue.prioritizeTitle" : "queue.steerTitle")}>
           <CornerDownRight size={12} />
-          <span>{t("queue.steer")}</span>
+          <span>{t(prioritizeOnly ? "queue.prioritize" : "queue.steer")}</span>
         </button>
         <button type="button" disabled={disabled} onClick={() => onRemove(item.turnId)} title={t("queue.remove")} aria-label={t("queue.remove")}>
           <Trash2 size={12} />

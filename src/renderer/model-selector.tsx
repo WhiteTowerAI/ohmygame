@@ -1,7 +1,7 @@
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Settings } from "./icons.js";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, type AgentModel, type AgentModelCatalog, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { reasoningLabel } from "./reasoning-label.js";
 import { t } from "./i18n.js";
@@ -14,16 +14,18 @@ interface ModelSelectorProps {
   status?: AgentModelCatalogStatus;
   value?: AgentModelRef | AgentModel;
   reasoningLevel?: AgentReasoningLevel;
+  nativeReasoningLevel?: string;
   disabled?: boolean;
   variant?: "chat" | "canvas";
   placement?: "above" | "below";
   onChange: (model: AgentModel, reasoningLevel: AgentReasoningLevel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
+  onNativeReasoningChange?: (level: string) => void;
 }
 
 type ModelPanel = "models" | "reasoning";
 
-export function ModelSelector({ models, status = "ready", value, reasoningLevel, disabled, variant = "chat", placement = "above", onChange, onReasoningChange }: ModelSelectorProps) {
+export function ModelSelector({ models, status = "ready", value, reasoningLevel, nativeReasoningLevel, disabled, variant = "chat", placement = "above", onChange, onReasoningChange, onNativeReasoningChange }: ModelSelectorProps) {
   const [panel, setPanel] = useState<ModelPanel>();
   const [position, setPosition] = useState<{ top: number; left: number }>();
   const [query, setQuery] = useState("");
@@ -39,8 +41,12 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const visibleModels = status === "ready" ? filterModels(models, query) : [];
   const providerGroups = groupModelsByProvider(visibleModels);
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? "medium", current?.reasoningLevels ?? []);
-  const reasoningText = reasoningLabel(effectiveReasoning);
-  const supportsReasoning = !!current && current.reasoningLevels.length > 1;
+  const native = !!current?.runtime && !!current.nativeReasoningLevels && variant !== "canvas";
+  const levels = native ? current.nativeReasoningLevels! : current?.reasoningLevels ?? [];
+  const effectiveLevel = native ? (nativeReasoningLevel && levels.includes(nativeReasoningLevel) ? nativeReasoningLevel : levels[0]) : effectiveReasoning;
+  const label = (level: string | undefined) => level && (AGENT_REASONING_LEVELS as readonly string[]).includes(level) ? reasoningLabel(level as AgentReasoningLevel) : level ?? "";
+  const reasoningText = label(effectiveLevel);
+  const supportsReasoning = levels.length > 1;
   const open = !!panel;
   const showReasoning = panel === "reasoning";
   const positioned = position !== undefined;
@@ -219,8 +225,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 <ChevronLeft aria-hidden="true" size={12} />
                 <span>{t("models.reasoning")}</span>
               </button>
-              {(current?.reasoningLevels ?? []).map((level) => {
-                const selected = level === effectiveReasoning;
+              {levels.map((level) => {
+                const selected = level === effectiveLevel;
                 return (
                   <button
                     className={selected ? "active" : ""}
@@ -229,11 +235,11 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                     aria-checked={selected}
                     key={level}
                     onClick={() => {
-                      if (!selected) onReasoningChange(level);
+                      if (!selected) { if (native) onNativeReasoningChange?.(level); else onReasoningChange(level as AgentReasoningLevel); }
                       close(true);
                     }}
                   >
-                    <span>{reasoningLabel(level)}</span>
+                    <span>{label(level)}</span>
                     {selected ? <Check aria-hidden="true" size={12} /> : null}
                   </button>
                 );

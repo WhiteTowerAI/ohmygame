@@ -1,4 +1,4 @@
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { defineTool, SessionManager } from "@earendil-works/pi-coding-agent";
 import { EventEmitter } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,6 +19,7 @@ import type {
 } from "../src/daemon/agent-runtimes/native-session.js";
 import { setAgentProcessSpawner } from "../src/daemon/agent-runtimes/process.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
+import { NativeCodingSession, NativeSessionExpiredError } from "../src/daemon/agent-runtimes/native-session.js";
 
 const cleanup: Array<() => Promise<unknown> | void> = [];
 afterEach(async () => {
@@ -27,6 +28,7 @@ afterEach(async () => {
 });
 
 interface FakeCli {
+  exited?: boolean;
   args: string[];
   env: Record<string, string>;
   send(message: unknown): void;
@@ -67,6 +69,7 @@ function fakeCli(
       send: (message) => stdout.write(`${JSON.stringify(message)}\n`),
       line: (text) => stdout.write(`${text}\n`),
       exit: (code) => {
+        cli.exited = true;
         child.exitCode = code;
         stdout.end();
         child.emit("close", code, null);
@@ -114,6 +117,7 @@ function recordingSink(
       calls.push(`toolResult:${callId}:${isError}`);
       results.set(callId, { result, isError });
     },
+    limits: (limits) => calls.push(`limits:${JSON.stringify(limits)}`),
     usage: (usage, contextWindow, tokens) =>
       calls.push(
         `usage:${usage.input}:${usage.output}:${contextWindow ?? ""}:${tokens ?? ""}`,
@@ -166,6 +170,75 @@ async function context(
 }
 
 describe("Claude Code adapter", () => {
+  it("reports a missing resumed session returned as a terminal CLI error", async () => {
+    fakeCli((message, cli) => {
+      if (message.type === "control_request") cli.send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
+      if (message.type === "user") cli.send({ type: "result", subtype: "error_during_execution", errors: ["No conversation found with session ID: expired"] });
+    });
+    const driver = new ClaudeCodeDriver(await context({ resume: "expired" }));
+    cleanup.push(() => driver.dispose());
+    await expect(driver.runTurn({ text: "continue", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal)).rejects.toBeInstanceOf(NativeSessionExpiredError);
+  });
+
+  it("checks every tool through the policy hook, including reads that need no native approval", async () => {
+    let decision: unknown;
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request") cli.send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
+      if (message.type === "user") cli.send({ type: "control_request", request_id: "hook", request: { subtype: "hook_callback", callback_id: "ohmygame-policy", tool_use_id: "read-1", input: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "/tmp/secrets/auth.json" } } } });
+      if (message.type === "control_response" && (message.response as Record<string, unknown>).request_id === "hook") {
+        decision = ((message.response as Record<string, unknown>).response as Record<string, unknown>).hookSpecificOutput;
+        cli.send({ type: "result", subtype: "success" });
+      }
+    });
+    const driver = new ClaudeCodeDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink(() => "allow");
+    await driver.runTurn({ text: "read protected file", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    expect(clis).toHaveLength(1);
+    expect(decision).toMatchObject({ permissionDecision: "deny" });
+    expect(recorded.asked).toEqual([]);
+  });
+
+  it("stops a native process when interrupt is acknowledged without a terminal result", async () => {
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => { started = resolve; });
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "control_request") cli.send({ type: "control_response", response: { subtype: "success", request_id: message.request_id, response: {} } });
+      if (message.type === "user") started();
+    });
+    const ctx = await context();
+    const session = new NativeCodingSession({ runtime: "claude-code-cli", model: "sonnet", sessionManager: SessionManager.inMemory(ctx.workspacePath), toolNames: [], cancellationTimeoutMs: 10, createDriver: () => new ClaudeCodeDriver(ctx), requestApproval: async () => "deny" });
+    cleanup.push(() => session.dispose());
+    const run = session.prompt("wait");
+    await ready;
+    await session.abort(); await run;
+    expect(clis[0]!.exited).toBe(true);
+  });
+
+  it("does not send input after cancellation during initialize", async () => {
+    let spawned!: () => void;
+    const ready = new Promise<void>((resolve) => { spawned = resolve; });
+    const users: unknown[] = [];
+    fakeCli((message) => { if (message.type === "spawned") spawned(); if (message.type === "user") users.push(message); });
+    const ctx = await context();
+    const session = new NativeCodingSession({ runtime: "claude-code-cli", model: "sonnet", sessionManager: SessionManager.inMemory(ctx.workspacePath), toolNames: [], cancellationTimeoutMs: 10, createDriver: () => new ClaudeCodeDriver(ctx), requestApproval: async () => "deny" });
+    cleanup.push(() => session.dispose());
+    const run = session.prompt("cancel during startup");
+    await ready; await session.abort(); await run;
+    expect(users).toEqual([]);
+  });
+
+  it("does not launch any CLI for an already aborted turn", async () => {
+    const clis = fakeCli(() => {});
+    const ctx = await context();
+    const controller = new AbortController(); controller.abort();
+    for (const Driver of [ClaudeCodeDriver, CodexDriver, OpenCodeDriver]) {
+      const driver = new Driver(ctx);
+      expect(await driver.runTurn({ text: "cancelled", images: [], readOnly: false }, recordingSink().sink, controller.signal)).toEqual({ status: "aborted" });
+      await driver.dispose();
+    }
+    expect(clis).toEqual([]);
+  });
   it("streams a turn, answers OhMyGame's tools over its pipe and asks before risky commands", async () => {
     const pending = new Map<
       string,
@@ -433,6 +506,62 @@ describe("Claude Code adapter", () => {
 });
 
 describe("Codex adapter", () => {
+  it("projects quota windows from initial limits and live updates", async () => {
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined) return;
+      const result = message.method === "thread/start" ? { thread: { id: "thread-1" } }
+        : message.method === "account/rateLimits/read" ? { rateLimitsByLimitId: { codex: { primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 1234 } } } }
+        : {};
+      cli.send({ id: message.id, result });
+      if (message.method === "turn/start") setTimeout(() => {
+        cli.send({ method: "account/rateLimits/updated", params: { rateLimits: { secondary: { usedPercent: 120, windowDurationMins: 10080 } } } });
+        cli.send({ method: "turn/completed", params: { turn: { status: "completed" } } });
+      }, 0);
+    });
+    const driver = new CodexDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    await driver.runTurn({ text: "quota", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    expect(recorded.calls).toContain('limits:[{"id":"codex/primary","usedPercent":25,"windowMinutes":300,"resetsAt":1234}]');
+    expect(recorded.calls).toContain('limits:[{"id":"codex/secondary","usedPercent":100,"windowMinutes":10080}]');
+  });
+
+  it("reports expired resume to the shared session without silently creating an empty thread", async () => {
+    const methods: string[] = [];
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined) return;
+      methods.push(message.method);
+      cli.send(message.method === "thread/resume" ? { id: message.id, error: { message: "thread not found" } } : { id: message.id, result: {} });
+    });
+    const driver = new CodexDriver(await context({ resume: "expired" }));
+    cleanup.push(() => driver.dispose());
+    await expect(driver.runTurn({ text: "continue", images: [], readOnly: false }, recordingSink().sink, new AbortController().signal)).rejects.toBeInstanceOf(NativeSessionExpiredError);
+    expect(methods).not.toContain("thread/start");
+  });
+
+  it("denies protected permission roots and shows all allowed roots before granting", async () => {
+    const answers: Array<Record<string, unknown>> = [];
+    fakeCli((message, cli) => {
+      if (typeof message.id === "string" && message.id.startsWith("grant-")) {
+        answers.push(message.result as Record<string, unknown>);
+        if (message.id === "grant-denied") cli.send({ id: "grant-glob", method: "item/permissions/requestApproval", params: { permissions: { fileSystem: { read: ["/tmp/**"], write: null } } } });
+        else if (message.id === "grant-glob") cli.send({ id: "grant-visible", method: "item/permissions/requestApproval", params: { permissions: { fileSystem: { read: ["/tmp/reference"], write: null }, network: { enabled: true } }, reason: "Read reference files" } });
+        else cli.send({ method: "turn/completed", params: { turn: { id: "turn-1", status: "completed" } } });
+        return;
+      }
+      if (!message.method || message.id === undefined) return;
+      cli.send({ id: message.id, result: message.method === "thread/start" ? { thread: { id: "thread-1" } } : message.method === "turn/start" ? { turn: { id: "turn-1" } } : {} });
+      if (message.method === "turn/start") setTimeout(() => cli.send({ id: "grant-denied", method: "item/permissions/requestApproval", params: { permissions: { fileSystem: { read: ["/tmp/secrets/auth.json"], write: null } } } }), 0);
+    });
+    const driver = new CodexDriver(await context());
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink(() => "allow");
+    await driver.runTurn({ text: "permissions", images: [], readOnly: false }, recorded.sink, new AbortController().signal);
+    expect(answers[0]).toEqual({ permissions: {}, scope: "turn" });
+    expect(answers[1]).toEqual({ permissions: {}, scope: "turn" });
+    expect(recorded.asked).toEqual([expect.objectContaining({ paths: [{ path: "/tmp/reference", access: "read" }], network: true, canAllowSession: false })]);
+    expect(answers[2]).toMatchObject({ permissions: { fileSystem: { read: ["/tmp/reference"] }, network: { enabled: true } }, scope: "turn" });
+  });
   it("runs a turn on a thread with OhMyGame's tools and asks before anything its sandbox would stop", async () => {
     const requests: Array<{ method: string; params: Record<string, unknown> }> =
       [];
@@ -637,8 +766,10 @@ describe("OpenCode adapter", () => {
         ? JSON.parse(Buffer.concat(chunks).toString())
         : undefined;
       expect(request.headers.authorization).toMatch(/^Basic /);
+      if (request.url === "/path") return response.end(JSON.stringify({ worktree: "/tmp/workspace" }));
       if (request.url === "/event") {
         response.writeHead(200, { "content-type": "text/event-stream" });
+        response.write(": connected\n\n");
         events = response;
         return;
       }
@@ -817,9 +948,8 @@ describe("OpenCode adapter", () => {
       }),
     ]);
     expect(replies).toEqual([{ id: "per_1", body: { reply: "reject" } }]);
-    expect(recorded.asked).toEqual([
-      expect.objectContaining({ kind: "command", command: "sudo ls" }),
-    ]);
+    // Planning turns deny shell execution without offering an override.
+    expect(recorded.asked).toEqual([]);
     expect(recorded.sessionId()).toBe("ses_1");
     expect(recorded.calls).toEqual([
       "thinking:prt_r:Thinking",

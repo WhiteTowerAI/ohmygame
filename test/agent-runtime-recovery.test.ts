@@ -1,0 +1,166 @@
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  symlink,
+  writeFile,
+  readdir,
+} from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, expect, it } from "vitest";
+import {
+  canonicalPath,
+  judgeApproval,
+  neverTouchPaths,
+} from "../src/daemon/agent-runtimes/policy.js";
+import { AgentRuntimeSettingsStore } from "../src/daemon/agent-runtimes/settings.js";
+import {
+  processIdentity,
+  recoverAgentProcesses,
+  trackAgentProcess,
+} from "../src/daemon/agent-runtimes/process-recovery.js";
+import { terminateProjectProcess } from "../src/daemon/process-lifecycle.js";
+
+const cleanup: Array<() => Promise<unknown>> = [];
+afterEach(async () => {
+  for (const close of cleanup.splice(0).reverse()) await close();
+});
+async function folder() {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-native-policy-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+it("resolves workspace symlinks, including missing descendants, before protecting credentials", async () => {
+  const root = await folder();
+  const workspace = path.join(root, "workspace"),
+    secrets = path.join(root, "secrets");
+  await mkdir(workspace);
+  await mkdir(secrets);
+  await symlink(
+    secrets,
+    path.join(workspace, "linked"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  const policy = { workspacePath: workspace, neverTouch: [secrets] };
+  expect(
+    canonicalPath(path.join(workspace, "linked", "new", "auth.json")),
+  ).toBe(path.join(canonicalPath(secrets), "new", "auth.json"));
+  expect(
+    judgeApproval(
+      {
+        kind: "file",
+        tool: "Read",
+        path: "linked/auth.json",
+        canAllowSession: true,
+      },
+      policy,
+    ),
+  ).toBe("deny");
+  expect(
+    judgeApproval(
+      {
+        kind: "command",
+        tool: "Bash",
+        command: `cat ${path.join(workspace, "linked", "auth.json")}`,
+        canAllowSession: true,
+      },
+      policy,
+    ),
+  ).toBe("deny");
+  expect(
+    judgeApproval(
+      {
+        kind: "command",
+        tool: "Bash",
+        command: "cat linked/auth.json",
+        canAllowSession: true,
+      },
+      policy,
+    ),
+  ).toBe("deny");
+  for (const command of [
+    "node -e 'process.exit()'",
+    "npm run build",
+    "rg --pre=sh pattern",
+    "git status; echo hi",
+    "cat $(echo file)",
+  ]) {
+    expect(
+      judgeApproval(
+        { kind: "command", tool: "Bash", command, canAllowSession: true },
+        policy,
+      ),
+    ).toBe("ask");
+  }
+});
+it("protects custom CLI credential roots", () => {
+  const before = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = "/tmp/custom-codex-auth";
+  try {
+    expect(neverTouchPaths("/tmp/app")).toContain("/tmp/custom-codex-auth");
+  } finally {
+    if (before === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = before;
+  }
+});
+it("keeps runtimes opt-in and persists native defaults independently of Pi", async () => {
+  const root = await folder();
+  const store = new AgentRuntimeSettingsStore(root);
+  await store.load();
+  expect(store.get("codex-cli").enabled).toBe(false);
+  await store.update("codex-cli", { enabled: true });
+  await store.setDefaults({
+    model: { provider: "codex-cli", id: "test" },
+    nativeReasoningLevel: "custom-effort",
+  });
+  const restarted = new AgentRuntimeSettingsStore(root);
+  await restarted.load();
+  expect(restarted.defaults()?.nativeReasoningLevel).toBe("custom-effort");
+  expect(restarted.get("codex-cli").enabled).toBe(true);
+  expect(restarted.get("opencode-cli").enabled).toBe(false);
+});
+it("reclaims a verified orphan, preserving a live daemon and unrelated PID identities", async () => {
+  const root = await folder();
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    detached: process.platform !== "win32",
+    stdio: "ignore",
+  });
+  trackAgentProcess(root, child);
+  cleanup.push(() => terminateProjectProcess(child));
+  await once(child, "spawn");
+  const identity = processIdentity(child.pid!)!;
+  expect(identity).toBeTruthy();
+  expect(await readdir(root)).toHaveLength(1);
+  await recoverAgentProcesses(root);
+  expect(processIdentity(child.pid!)).toBe(identity);
+  const journal = path.join(root, `2147483647-${child.pid}.json`);
+  await writeFile(
+    journal,
+    JSON.stringify({
+      version: 1,
+      owner: 2147483647,
+      ownerIdentity: "dead",
+      pid: child.pid,
+      identity: "different birth time",
+    }),
+  );
+  await recoverAgentProcesses(root);
+  expect(processIdentity(child.pid!)).toBe(identity);
+  const closed = once(child, "close");
+  await writeFile(
+    journal,
+    JSON.stringify({
+      version: 1,
+      owner: 2147483647,
+      ownerIdentity: "dead",
+      pid: child.pid,
+      identity,
+    }),
+  );
+  await recoverAgentProcesses(root);
+  await closed;
+  expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+});

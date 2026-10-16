@@ -830,14 +830,16 @@ export function createApp(options: AppOptions = {}) {
       skillFolders(path.join(piAgentDirectory, "skills")),
       loadPiSkills(project.workspacePath, piAgentDirectory, resolvePlugins).catch(() => []),
       pluginCapabilities.effective(project.type),
-      conversations.reasoningLevel(project, conversation),
+      conversations.nativeReasoningLevel(project, conversation, { provider: runtime, id: modelId }),
     ]);
     const model = await agentRuntimes.model(runtime, modelId);
-    const levels = model?.reasoningLevels ?? [];
+    const levels = model?.nativeReasoningLevels ?? model?.reasoningLevels ?? [];
+    const preferred = reasoningLevel;
     return agentRuntimes.createSession({
       runtime,
       model: modelId,
-      ...(levels.length ? { reasoningLevel: clampReasoningLevel(reasoningLevel ?? defaultReasoningLevel(project.workspacePath, piAgentDirectory), levels) } : {}),
+      ...(levels.length ? { reasoningLevel: preferred && levels.includes(preferred) ? preferred : levels[0] } : {}),
+      ...(model?.contextWindow ? { contextWindow: model.contextWindow } : {}),
       workspacePath: project.workspacePath,
       sessionManager: conversations.open(project, conversation),
       tools: projectAgentTools(project, conversation),
@@ -2062,11 +2064,13 @@ export function createApp(options: AppOptions = {}) {
     });
     // Conversations also list coding agents' models; canvas text and other one-off generation use Pi's only.
     const agents = request.query.runtimes === "1" ? await agentRuntimes.models() : { models: [], loading: [] };
+    const nativeDefaults = request.query.runtimes === "1" ? agentRuntimes.settings.defaults() : undefined;
+    const nativeDefault = nativeDefaults ? findAgentModel(agents.models, nativeDefaults.model) : undefined;
     return {
       models: [...models.map(summary), ...agents.models],
       ...(agents.loading.length ? { loadingRuntimes: agents.loading } : {}),
       ...(hidden.length ? { hiddenModels: hidden.map(summary) } : {}),
-      ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
+      ...(nativeDefault ? { defaultModel: { provider: nativeDefault.provider, id: nativeDefault.id }, ...(nativeDefaults?.nativeReasoningLevel ? { defaultNativeReasoningLevel: nativeDefaults.nativeReasoningLevel } : {}) } : defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
       defaultReasoningLevel: defaultReasoningLevel(dataDirectory, piAgentDirectory),
     };
   });
@@ -2075,6 +2079,16 @@ export function createApp(options: AppOptions = {}) {
     if (!isUpdateAgentDefaultsRequest(request.body)) {
       return reply.code(400).send({ error: "Invalid agent defaults" });
     }
+    if (isAgentRuntimeId(request.body.model.provider)) {
+      const native = await agentRuntimes.model(request.body.model.provider, request.body.model.id);
+      if (!native) return reply.code(400).send({ error: "Model is not available" });
+      const levels = native.nativeReasoningLevels ?? native.reasoningLevels;
+      const level = request.body.nativeReasoningLevel ?? (levels.includes(request.body.reasoningLevel) ? request.body.reasoningLevel : levels[0]);
+      if (level && !levels.includes(level)) return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+      await agentRuntimes.settings.setDefaults({ model: request.body.model, ...(level ? { nativeReasoningLevel: level } : {}) });
+      return reply.code(204).send();
+    }
+    if (request.body.nativeReasoningLevel !== undefined) return reply.code(400).send({ error: "Native reasoning is only available for coding agents" });
     if (!providerEnabled(request.body.model.provider)) return reply.code(400).send({ error: "Provider is disabled" });
     const model = await availableModel(request.body.model.provider, request.body.model.id);
     if (!model) return reply.code(400).send({ error: "Model is not available" });
@@ -2087,6 +2101,7 @@ export function createApp(options: AppOptions = {}) {
     await settings.flush();
     const failure = settings.drainErrors()[0];
     if (failure) throw failure.error;
+    await agentRuntimes.settings.setDefaults(undefined);
     return reply.code(204).send();
   });
 
@@ -2655,16 +2670,22 @@ export function createApp(options: AppOptions = {}) {
       if (!isCreateConversationRequest(request.body)) {
         return reply.code(400).send({ error: "Invalid conversation request" });
       }
-      const requestedModel = request.body?.model;
+      const defaults = agentRuntimes.settings.defaults();
+      const requestedModel = request.body?.model ?? (defaults && isAgentRuntimeId(defaults.model.provider) && agentRuntimes.settings.get(defaults.model.provider).enabled ? defaults.model : undefined);
       if (requestedModel && isAgentRuntimeId(requestedModel.provider)) {
         const agentModel = await agentRuntimes.model(requestedModel.provider, requestedModel.id);
         if (!agentModel) return reply.code(400).send({ error: "Model is not available" });
-        if (request.body?.reasoningLevel && !agentModel.reasoningLevels.includes(request.body.reasoningLevel)) {
+        const levels = agentModel.nativeReasoningLevels ?? agentModel.reasoningLevels;
+        const matchingDefaults = defaults?.model.provider === agentModel.provider && defaults.model.id === agentModel.id;
+        const nativeLevel = request.body?.nativeReasoningLevel ?? request.body?.reasoningLevel ?? (matchingDefaults ? defaults?.nativeReasoningLevel : undefined);
+        if (nativeLevel && !levels.includes(nativeLevel)) {
           return reply.code(400).send({ error: "Reasoning level is not available for this model" });
         }
-        const conversation = await conversations.create(project, { provider: agentModel.provider, id: agentModel.id }, request.body?.reasoningLevel);
+        const conversation = await conversations.create(project, { provider: agentModel.provider, id: agentModel.id });
+        if (nativeLevel) conversations.setNativeReasoningLevel(project, conversation, agentModel, nativeLevel);
         return reply.code(201).send(conversation.summary);
       }
+      if (request.body?.nativeReasoningLevel !== undefined) return reply.code(400).send({ error: "Native reasoning is only available for coding agents" });
       let selectedModel: RuntimeModel | undefined;
       if (requestedModel) {
         selectedModel = await availableModel(requestedModel.provider, requestedModel.id);
@@ -2716,10 +2737,12 @@ export function createApp(options: AppOptions = {}) {
       const agentModel = agentRuntime && modelRef ? await Promise.race([agentRuntimes.model(agentRuntime, modelRef.id), new Promise<undefined>((resolve) => setTimeout(resolve, 2_000))]) : undefined;
       const storedLevel = model || agentModel ? await conversations.reasoningLevel(project, conversation) : undefined;
       const fallbackLevel = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
+      const nativeLevels = agentModel?.nativeReasoningLevels ?? agentModel?.reasoningLevels ?? [];
+      const nativeStoredLevel = agentRuntime && modelRef ? await conversations.nativeReasoningLevel(project, conversation, modelRef) : undefined;
       const settings = {
         ...(modelRef ? { model: modelRef } : {}),
         ...(model ? { reasoningLevel: effectiveReasoningLevel(model, storedLevel, fallbackLevel) } : {}),
-        ...(agentModel?.reasoningLevels.length ? { reasoningLevel: clampReasoningLevel(storedLevel ?? fallbackLevel, agentModel.reasoningLevels) } : {}),
+        ...(nativeLevels.length ? { nativeReasoningLevel: nativeStoredLevel && nativeLevels.includes(nativeStoredLevel) ? nativeStoredLevel : nativeLevels[0] } : {}),
       };
       // Cache reads revalidate after earlier readers settle. Retry only when a
       // run or a delayed turn end changed during this read, so the response's
@@ -2832,9 +2855,11 @@ export function createApp(options: AppOptions = {}) {
         const stored = await conversations.reasoningLevel(project, conversation);
         const fallback = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
         const levels = agentModel ? agentModel.reasoningLevels : supportedReasoningLevels(model!);
+        const nativeLevels = agentModel?.nativeReasoningLevels ?? agentModel?.reasoningLevels ?? [];
+        const nativeLevel = agentModel ? await conversations.nativeReasoningLevel(project, conversation, agentModel) : undefined;
         return {
           model: request.body,
-          ...(levels.length ? { reasoningLevel: clampReasoningLevel(stored ?? fallback, levels) } : {}),
+          ...(agentModel ? (nativeLevels.length ? { nativeReasoningLevel: nativeLevel && nativeLevels.includes(nativeLevel) ? nativeLevel : nativeLevels[0] } : {}) : levels.length ? { reasoningLevel: clampReasoningLevel(stored ?? fallback, levels) } : {}),
         } satisfies ConversationAgentSettings;
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -2860,6 +2885,10 @@ export function createApp(options: AppOptions = {}) {
         return reply.code(400).send({ error: "Reasoning level is not available for this model" });
       }
       try {
+        if (agentModel) {
+          await agents.replaceSession(project.id, conversation.summary.id, () => conversations.setNativeReasoningLevel(project, conversation, agentModel, request.body.level));
+          return { level: request.body.level };
+        }
         const active = await agents.setReasoningLevel(project.id, conversation.summary.id, request.body.level, () => {
           conversations.setReasoningLevel(project, conversation, request.body.level);
         });
@@ -2867,6 +2896,24 @@ export function createApp(options: AppOptions = {}) {
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
+    },
+  );
+
+  app.put<{ Params: { projectId: string; conversationId: string }; Body: { level: string } }>(
+    "/projects/:projectId/conversations/:conversationId/native-reasoning",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["level"], properties: { level: { type: "string", minLength: 1, maxLength: 100 } } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const selected = await conversations.model(project, conversation);
+      const model = selected && isAgentRuntimeId(selected.provider) ? await agentRuntimes.model(selected.provider, selected.id) : undefined;
+      if (!model || !(model.nativeReasoningLevels ?? model.reasoningLevels).includes(request.body.level)) return reply.code(400).send({ error: "Native reasoning level is not available for this model" });
+      try {
+        await agents.replaceSession(project.id, conversation.summary.id, () => conversations.setNativeReasoningLevel(project, conversation, model, request.body.level));
+        return { level: request.body.level };
+      } catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
     },
   );
 
@@ -3517,7 +3564,8 @@ function isCreateConversationRequest(value: unknown): value is CreateConversatio
   if (value === undefined) return true;
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => key !== "model" && key !== "reasoningLevel")) return false;
+  if (Object.keys(body).some((key) => key !== "model" && key !== "reasoningLevel" && key !== "nativeReasoningLevel")) return false;
+  if (body.nativeReasoningLevel !== undefined && (typeof body.nativeReasoningLevel !== "string" || !body.nativeReasoningLevel || body.nativeReasoningLevel.length > 100)) return false;
   if (body.reasoningLevel !== undefined && !AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel)) return false;
   if (body.model === undefined) return true;
   return isAgentModelRef(body.model);
@@ -3526,7 +3574,8 @@ function isCreateConversationRequest(value: unknown): value is CreateConversatio
 function isUpdateAgentDefaultsRequest(value: unknown): value is UpdateAgentDefaultsRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  return Object.keys(body).every((key) => key === "model" || key === "reasoningLevel") &&
+  if (body.nativeReasoningLevel !== undefined && (typeof body.nativeReasoningLevel !== "string" || !body.nativeReasoningLevel || body.nativeReasoningLevel.length > 100)) return false;
+  return Object.keys(body).every((key) => key === "model" || key === "reasoningLevel" || key === "nativeReasoningLevel") &&
     isAgentModelRef(body.model) && AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel);
 }
 

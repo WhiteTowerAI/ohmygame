@@ -266,7 +266,7 @@ export async function answerApproval(projectId: string, conversationId: string, 
 export async function updateAgentDefaults(input: UpdateAgentDefaultsRequest): Promise<void> {
   await request("/models/default", {
     method: "PUT",
-    body: JSON.stringify({ model: modelRef(input.model), reasoningLevel: input.reasoningLevel }),
+    body: JSON.stringify({ model: modelRef(input.model), reasoningLevel: input.reasoningLevel, ...(input.nativeReasoningLevel ? { nativeReasoningLevel: input.nativeReasoningLevel } : {}) }),
   });
 }
 
@@ -907,6 +907,11 @@ export async function setConversationReasoning(
     method: "PUT",
     body: JSON.stringify({ level }),
   });
+  return result.level;
+}
+
+export async function setConversationNativeReasoning(projectId: string, conversationId: string, level: string): Promise<string> {
+  const result = await request<{ level: string }>(`/projects/${projectId}/conversations/${conversationId}/native-reasoning`, { method: "PUT", body: JSON.stringify({ level }) });
   return result.level;
 }
 

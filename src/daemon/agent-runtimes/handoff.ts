@@ -52,6 +52,8 @@ export function handoffSummary(
     length += text.length;
   }
   const omitted = turns.length - kept.length;
+  const plan = entries.findLast((entry) => entry.type === "custom" && entry.customType === "ohmygame-plan");
+  const restored = entries.some((entry) => entry.type === "custom" && (entry.customType === "ohmygame-checkpoint-restored" || entry.customType === "ohmygame-checkpoint-undone"));
   return [
     "<conversation-handoff>",
     "This conversation began with another agent in OhMyGame. You are continuing it. Here is what was said so far; the workspace files show what was built. Do not redo finished work.",
@@ -59,6 +61,8 @@ export function handoffSummary(
       ? [`(${omitted} earlier turn${omitted === 1 ? "" : "s"} omitted)`]
       : []),
     ...kept,
+    ...(plan?.type === "custom" ? [`Current structured plan state:\n${clip(JSON.stringify(plan.data))}`] : []),
+    ...(restored ? ["The workspace has been restored or a turn was undone. Inspect the current files before continuing; earlier descriptions may no longer match them."] : []),
     ...(files.size
       ? [
           `Files the earlier agent worked on: ${[...files].slice(-40).join(", ")}`,

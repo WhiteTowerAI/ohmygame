@@ -11803,6 +11803,15 @@ button {
   gap: 6px;
 }
 
+.composer-runtime-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 4px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .composer-context {
   display: inline-flex;
   max-width: 100%;

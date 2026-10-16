@@ -64,6 +64,15 @@ it("shows what the agent wants to run and sends one answer", async () => {
   expect(decide).toHaveBeenCalledWith("allow-session");
 });
 
+it("shows every read/write root and network scope before a permission grant", async () => {
+  await act(async () => root.render(<ApprovalCard request={{ ...request, request: { kind: "other", tool: "permissions", paths: [{ path: "/reference", access: "read" }, { path: "/export", access: "write" }], network: true, canAllowSession: false } }} waiting={0} onDecide={async () => true} />));
+  expect(container.textContent).toContain("/reference");
+  expect(container.textContent).toContain("/export");
+  expect(container.querySelectorAll("li")).toHaveLength(2);
+  expect(container.textContent).toContain("Allow network access for this turn");
+  expect(container.textContent).not.toContain("Allow for this conversation");
+});
+
 it("offers only a single answer when the agent cannot remember one", async () => {
   await act(async () =>
     root.render(
@@ -83,7 +92,7 @@ it("offers only a single answer when the agent cannot remember one", async () =>
     ),
   );
   expect(container.textContent).toContain(
-    "The agent wants to change files outside the project",
+    "The agent wants to access files outside the project",
   );
   expect(
     [...container.querySelectorAll("button")].map(

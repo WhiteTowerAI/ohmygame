@@ -74,6 +74,8 @@ export function ApprovalCard({
       {details.reason ? (
         <p className="approval-card-reason">{details.reason}</p>
       ) : null}
+      {details.paths?.length ? <ul>{details.paths.map((entry, index) => <li key={`${entry.path}:${index}`}><span>{t(entry.access === "read" ? "approval.readAccess" : "approval.writeAccess")}</span> <code>{entry.path}</code></li>)}</ul> : null}
+      {details.network ? <p>{t("approval.networkAccess")}</p> : null}
       <footer>
         <button
           type="button"

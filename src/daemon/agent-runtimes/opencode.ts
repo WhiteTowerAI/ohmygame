@@ -21,6 +21,7 @@ import {
   type DriverContext,
 } from "./driver-context.js";
 import { stageSkills } from "./skills.js";
+import { NativeSessionExpiredError } from "./native-session.js";
 
 const START_TIMEOUT_MS = 30_000;
 
@@ -43,6 +44,8 @@ interface OpenCodeTurn {
   tools: Set<string>;
   busy: boolean;
   error?: string;
+  manualCompaction?: boolean;
+  readOnly?: boolean;
 }
 
 /**
@@ -54,9 +57,11 @@ interface OpenCodeTurn {
  * this conversation runs.
  */
 export class OpenCodeDriver implements NativeDriver {
+  #disposed = false;
   #server?: OpenCodeServer;
   #starting?: Promise<OpenCodeServer>;
   #sessionId?: string;
+  #worktree?: string;
   #turn?: OpenCodeTurn;
   #bridge?: { url: string; token: string; revoke: () => void };
   #userMessages = new Set<string>();
@@ -75,11 +80,15 @@ export class OpenCodeDriver implements NativeDriver {
     sink: NativeTurnSink,
     signal: AbortSignal,
   ): Promise<NativeTurnOutcome> {
+    if (signal.aborted) return { status: "aborted" };
     let sessionId: string;
     try {
       await this.#start();
+      if (signal.aborted) return { status: "aborted" };
       sessionId = await this.#session(sink);
+      if (signal.aborted) return { status: "aborted" };
     } catch (cause) {
+      if (cause instanceof NativeSessionExpiredError) throw cause;
       return {
         status: "failed",
         error: cause instanceof Error ? cause.message : String(cause),
@@ -93,24 +102,19 @@ export class OpenCodeDriver implements NativeDriver {
         parts: new Map(),
         tools: new Set(),
         busy: false,
+        readOnly: input.readOnly,
       };
       this.#turn = turn;
-      this.#prompt(sessionId, input).catch((cause) => {
+      this.#connectBridge(turn).then(() => this.#prompt(sessionId, input)).catch((cause) => {
         if (this.#turn !== turn) return;
         this.#turn = undefined;
+        this.#bridge?.revoke();
         resolve({
           status: "failed",
           error: cause instanceof Error ? cause.message : String(cause),
         });
       });
     });
-  }
-
-  async steer(input: NativeTurnInput): Promise<boolean> {
-    if (!this.#turn || !this.#sessionId) return false;
-    // OpenCode takes a prompt sent while it is busy at the next step of the running turn.
-    await this.#prompt(this.#sessionId, input);
-    return true;
   }
 
   async interrupt(): Promise<void> {
@@ -133,6 +137,7 @@ export class OpenCodeDriver implements NativeDriver {
         parts: new Map(),
         tools: new Set(),
         busy: true,
+        manualCompaction: true,
       };
       this.#turn = turn;
       this.#api("POST", `/session/${sessionId}/summarize`, {
@@ -154,18 +159,15 @@ export class OpenCodeDriver implements NativeDriver {
     if (outcome.status === "failed") throw new Error(outcome.error);
   }
 
-  reset(): void {
-    this.#sessionId = undefined;
-  }
-
-  dispose(): void {
+  async dispose(): Promise<void> {
+    this.#disposed = true;
     const turn = this.#turn;
     this.#turn = undefined;
-    turn?.resolve({ status: "aborted" });
     this.#bridge?.revoke();
     this.#bridge = undefined;
     this.#server?.events.abort();
-    void this.#server?.process.stop();
+    await this.#server?.process.stop();
+    turn?.resolve({ status: "aborted" });
     this.#server = undefined;
   }
 
@@ -201,8 +203,9 @@ export class OpenCodeDriver implements NativeDriver {
         await this.#api("GET", `/session/${this.#sessionId}`);
         sink.nativeSession(this.#sessionId);
         return this.#sessionId;
-      } catch {
-        this.#sessionId = undefined;
+      } catch (cause) {
+        if (cause instanceof OpenCodeHttpError && cause.status === 404) throw new NativeSessionExpiredError(cause.message);
+        throw cause;
       }
     }
     const created = (await this.#api("POST", "/session", {
@@ -216,25 +219,17 @@ export class OpenCodeDriver implements NativeDriver {
   }
 
   async #start(): Promise<OpenCodeServer> {
+    if (this.#disposed) throw new Error("The agent session was closed");
     if (this.#server?.process.running) return this.#server;
     return (this.#starting ??= (async () => {
       try {
         const password = randomBytes(24).toString("base64url");
-        this.#bridge ??= await this.context.httpBridge?.({
-          active: () => Boolean(this.#turn),
-          observe: (call, outcome) => {
-            const key = bridgedKey(call.name, call.args);
-            this.#bridged.set(key, [
-              ...(this.#bridged.get(key) ?? []),
-              outcome,
-            ]);
-          },
-        });
         const env = {
           ...this.context.env,
           ...(await this.#environment()),
           OPENCODE_SERVER_PASSWORD: password,
         };
+        if (this.#disposed) throw new Error("The agent session was closed");
         let listening: (url: string) => void = () => {};
         const url = new Promise<string>((resolve) => {
           listening = resolve;
@@ -251,6 +246,7 @@ export class OpenCodeDriver implements NativeDriver {
           ],
           cwd: this.context.workspacePath,
           env,
+          processDirectory: this.context.processDirectory,
           onLine: (line) => {
             const match = line.match(
               /listening on (http:\/\/127\.0\.0\.1:\d+)/,
@@ -263,13 +259,15 @@ export class OpenCodeDriver implements NativeDriver {
               processFailure("OpenCode", code, signal, stderr),
             ),
         });
+        let startTimer: ReturnType<typeof setTimeout> | undefined;
         const address = await Promise.race([
           url,
           child.exited().then(() => undefined),
           new Promise<undefined>((resolve) =>
-            setTimeout(resolve, START_TIMEOUT_MS),
+            startTimer = setTimeout(() => resolve(undefined), START_TIMEOUT_MS),
           ),
         ]);
+        clearTimeout(startTimer);
         if (!address) {
           await child.stop();
           throw new Error(
@@ -289,7 +287,17 @@ export class OpenCodeDriver implements NativeDriver {
           events,
         };
         this.#server = server;
-        void this.#listen(server);
+        let connected!: () => void;
+        let failed!: (cause: unknown) => void;
+        const ready = new Promise<void>((resolve, reject) => { connected = resolve; failed = reject; });
+        const connectTimer = setTimeout(() => events.abort(new Error("OpenCode event stream did not connect")), START_TIMEOUT_MS);
+        void this.#listen(server, connected, failed);
+        try { await ready; }
+        finally { clearTimeout(connectTimer); }
+        if (this.#disposed) throw new Error("The agent session was closed");
+        const nativePath = record(await this.#api("GET", "/path"));
+        if (typeof nativePath?.worktree !== "string" || !path.isAbsolute(nativePath.worktree)) throw new Error("OpenCode did not report its permission path root");
+        this.#worktree = nativePath.worktree;
         return server;
       } finally {
         this.#starting = undefined;
@@ -309,37 +317,17 @@ export class OpenCodeDriver implements NativeDriver {
       share: "disabled",
       snapshot: false,
       permission: {
-        edit: "allow",
-        read: "allow",
-        glob: "allow",
-        grep: "allow",
-        list: "allow",
+        edit: "ask",
+        read: "ask",
+        glob: "ask",
+        grep: "ask",
+        list: "ask",
         webfetch: "allow",
-        // Commands are allowed and judged by OhMyGame when OpenCode asks; it asks for these.
-        bash: {
-          "*": "allow",
-          "sudo *": "ask",
-          "git push*": "ask",
-          "npm publish*": "ask",
-          "rm -rf /*": "ask",
-          "rm -rf ~*": "ask",
-        },
+        // Every native file/shell request reaches the shared policy first.
+        bash: "ask",
         external_directory: "ask",
       },
       ...(staged.length ? { skills: { paths: [skills] } } : {}),
-      ...(this.#bridge
-        ? {
-            mcp: {
-              [BRIDGE_SERVER_NAME]: {
-                type: "remote",
-                url: this.#bridge.url,
-                enabled: true,
-                oauth: false,
-                headers: { Authorization: `Bearer ${this.#bridge.token}` },
-              },
-            },
-          }
-        : {}),
     };
     const env: Record<string, string> = {
       OPENCODE_CONFIG_CONTENT: JSON.stringify(config),
@@ -372,13 +360,15 @@ export class OpenCodeDriver implements NativeDriver {
       method,
       headers: {
         authorization: server.auth,
+        "x-opencode-directory": encodeURIComponent(this.context.workspacePath),
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.any([AbortSignal.timeout(30_000), server.events.signal]),
     });
     const text = await response.text();
     if (!response.ok)
-      throw new Error(
+      throw new OpenCodeHttpError(response.status,
         `OpenCode refused ${route}: ${text.slice(0, 500) || response.status}`,
       );
     if (!text) return {};
@@ -389,13 +379,35 @@ export class OpenCodeDriver implements NativeDriver {
     }
   }
 
-  async #listen(server: OpenCodeServer): Promise<void> {
+  async #connectBridge(turn: OpenCodeTurn): Promise<void> {
+    this.#bridge?.revoke();
+    this.#bridged.clear();
+    if (!this.context.httpBridge) return;
+    turn.signal.throwIfAborted();
+    const bridge = await this.context.httpBridge({
+      signal: turn.signal,
+      active: () => this.#turn === turn && !turn.signal.aborted,
+      observe: (call, outcome) => {
+        if (this.#turn !== turn || turn.signal.aborted) return;
+        const key = bridgedKey(call.name, call.args);
+        this.#bridged.set(key, [...(this.#bridged.get(key) ?? []), outcome]);
+      },
+    });
+    this.#bridge = bridge;
+    try {
+      await this.#api("POST", "/mcp", { name: BRIDGE_SERVER_NAME, config: { type: "remote", url: bridge.url, enabled: true, oauth: false, headers: { Authorization: `Bearer ${bridge.token}` } } });
+      turn.signal.throwIfAborted();
+    } catch (cause) { bridge.revoke(); throw cause; }
+  }
+
+  async #listen(server: OpenCodeServer, connected: () => void, failed: (cause: unknown) => void): Promise<void> {
     try {
       const response = await fetch(`${server.url}/event`, {
-        headers: { authorization: server.auth },
+        headers: { authorization: server.auth, "x-opencode-directory": encodeURIComponent(this.context.workspacePath) },
         signal: server.events.signal,
       });
-      if (!response.body) return;
+      if (!response.ok || !response.body) throw new Error(`OpenCode event stream failed (${response.status})`);
+      connected();
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -425,8 +437,15 @@ export class OpenCodeDriver implements NativeDriver {
           }
         }
       }
-    } catch {
-      // The stream ends with the server; the process exit reports why.
+      if (!server.events.signal.aborted) throw new Error("OpenCode event stream disconnected");
+    } catch (cause) {
+      failed(cause);
+      if (!server.events.signal.aborted) {
+        const turn = this.#turn;
+        this.#turn = undefined;
+        await server.process.stop();
+        turn?.resolve({ status: "failed", error: cause instanceof Error ? cause.message : String(cause) });
+      }
     }
   }
 
@@ -479,7 +498,7 @@ export class OpenCodeDriver implements NativeDriver {
               cacheRead: number(cache?.read),
               cacheWrite: number(cache?.write),
             },
-            undefined,
+            this.context.contextWindow,
             number(tokens.input) + number(cache?.read) + number(cache?.write) ||
               undefined,
           );
@@ -495,6 +514,7 @@ export class OpenCodeDriver implements NativeDriver {
         void this.#permission(turn, properties);
         return;
       case "session.compacted":
+        if (!turn.manualCompaction) { sink.compaction("start"); sink.compaction("end", {}); }
         return;
       case "session.error": {
         const error = record(properties.error);
@@ -509,6 +529,7 @@ export class OpenCodeDriver implements NativeDriver {
         if (!turn.busy && !turn.parts.size && !turn.tools.size && !turn.error)
           return;
         this.#turn = undefined;
+        this.#bridge?.revoke();
         if (turn.signal.aborted) turn.resolve({ status: "aborted" });
         else if (turn.error && !/aborted/i.test(turn.error))
           turn.resolve({ status: "failed", error: turn.error });
@@ -614,6 +635,10 @@ export class OpenCodeDriver implements NativeDriver {
       ? request.patterns.map(String)
       : [];
     const metadata = record(request.metadata) ?? {};
+    // File permission patterns are relative to OpenCode's Git worktree,
+    // which can be an ancestor of the app workspace. Search patterns are not paths.
+    const filePermission = ["external_directory", "edit", "read", "list"].includes(permission);
+    const resolvePattern = (value: string) => path.resolve(this.#worktree!, value);
     const command =
       typeof metadata.command === "string"
         ? metadata.command
@@ -625,14 +650,16 @@ export class OpenCodeDriver implements NativeDriver {
         ? metadata.filepath
         : typeof metadata.filePath === "string"
           ? metadata.filePath
-          : permission === "external_directory" || permission === "edit"
-            ? patterns[0]
+          : filePermission && patterns[0]
+            ? resolvePattern(patterns[0])
             : undefined;
     const details: ApprovalRequestDetails = {
       kind: command !== undefined ? "command" : file ? "file" : "other",
       tool: permission || "tool",
       ...(command !== undefined ? { command } : {}),
       ...(file ? { path: file } : {}),
+      ...(!file && command === undefined && patterns.length ? { reason: `Native ${permission} request: ${patterns.join(", ")}` } : {}),
+      ...(filePermission && patterns.length > 1 ? { paths: patterns.map((value) => ({ path: resolvePattern(value), access: permission === "edit" ? "write" as const : "read" as const })) } : {}),
       canAllowSession:
         Array.isArray(request.always) && request.always.length > 0,
     };
@@ -642,7 +669,7 @@ export class OpenCodeDriver implements NativeDriver {
         : undefined;
     let decision: ApprovalDecision;
     try {
-      decision = await decideApproval(details, this.context, turn.sink, {
+      decision = turn.readOnly && !["read", "glob", "grep", "list", "external_directory"].includes(permission) ? "deny" : await decideApproval(details, this.context, turn.sink, {
         ...(callId ? { callId } : {}),
         signal: turn.signal,
       });
@@ -654,7 +681,7 @@ export class OpenCodeDriver implements NativeDriver {
         decision === "allow"
           ? "once"
           : decision === "allow-session"
-            ? "always"
+            ? "once"
             : "reject",
     }).catch(() => {});
   }
@@ -663,6 +690,7 @@ export class OpenCodeDriver implements NativeDriver {
     if (this.#server?.process !== child) return;
     this.#server.events.abort();
     this.#server = undefined;
+    this.#bridge?.revoke();
     const turn = this.#turn;
     this.#turn = undefined;
     turn?.resolve(
@@ -671,6 +699,10 @@ export class OpenCodeDriver implements NativeDriver {
         : { status: "failed", error: failure },
     );
   }
+}
+
+class OpenCodeHttpError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
 }
 
 /** OpenCode names models `provider/model`; the provider comes first, the rest is the model. */

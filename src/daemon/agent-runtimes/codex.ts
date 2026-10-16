@@ -17,6 +17,9 @@ import {
   type DriverContext,
 } from "./driver-context.js";
 import { stageSkills } from "./skills.js";
+import { NativeSessionExpiredError } from "./native-session.js";
+import { judgeApproval } from "./policy.js";
+import type { AgentContextUsage } from "../../shared/contracts.js";
 
 const REQUEST_TIMEOUT_MS = 60_000;
 export const CODEX_CLIENT = {
@@ -44,6 +47,7 @@ export class CodexAppServer {
     cwd: string,
     env: Record<string, string>,
     private readonly handlers: {
+      processDirectory?: string;
       notification?: (method: string, params: Record<string, unknown>) => void;
       request?: (
         method: string,
@@ -57,6 +61,7 @@ export class CodexAppServer {
       args: ["app-server"],
       cwd,
       env,
+      processDirectory: handlers.processDirectory,
       onLine: (line) => this.#receive(line),
       onExit: (code, signal, stderr) => {
         this.#closed = new Error(processFailure("Codex", code, signal, stderr));
@@ -182,6 +187,8 @@ interface CodexTurn {
  * to do beyond it comes back as an approval request.
  */
 export class CodexDriver implements NativeDriver {
+  #disposed = false;
+  #limits: NonNullable<AgentContextUsage["limits"]> = [];
   #server?: CodexAppServer;
   #starting?: Promise<CodexAppServer>;
   #threadId?: string;
@@ -197,12 +204,18 @@ export class CodexDriver implements NativeDriver {
     sink: NativeTurnSink,
     signal: AbortSignal,
   ): Promise<NativeTurnOutcome> {
+    if (signal.aborted) return { status: "aborted" };
     let server: CodexAppServer;
     let threadId: string;
     try {
       server = await this.#start();
+      if (signal.aborted) return { status: "aborted" };
       threadId = await this.#thread(server, sink);
+      if (this.#limits.length) sink.limits?.(this.#limits);
+      if (signal.aborted) return { status: "aborted" };
     } catch (cause) {
+      if (cause instanceof NativeSessionExpiredError) throw cause;
+      if (signal.aborted) return { status: "aborted" };
       return {
         status: "failed",
         error: cause instanceof Error ? cause.message : String(cause),
@@ -240,21 +253,6 @@ export class CodexDriver implements NativeDriver {
     });
   }
 
-  async steer(input: NativeTurnInput): Promise<boolean> {
-    const turn = this.#turn;
-    if (!turn?.turnId || !this.#server || !this.#threadId) return false;
-    try {
-      await this.#server.request("turn/steer", {
-        threadId: this.#threadId,
-        expectedTurnId: turn.turnId,
-        input: codexInput(input),
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   async interrupt(): Promise<void> {
     const turn = this.#turn;
     if (!turn?.turnId || !this.#server || !this.#threadId) return;
@@ -289,19 +287,17 @@ export class CodexDriver implements NativeDriver {
     if (outcome.status === "failed") throw new Error(outcome.error);
   }
 
-  reset(): void {
-    this.#threadId = undefined;
-  }
-
-  dispose(): void {
+  async dispose(): Promise<void> {
+    this.#disposed = true;
     const turn = this.#turn;
     this.#turn = undefined;
+    await this.#server?.stop();
     turn?.resolve({ status: "aborted" });
-    void this.#server?.stop();
     this.#server = undefined;
   }
 
   async #start(): Promise<CodexAppServer> {
+    if (this.#disposed) throw new Error("The agent session was closed");
     if (this.#server?.process.running) return this.#server;
     return (this.#starting ??= (async () => {
       try {
@@ -310,6 +306,7 @@ export class CodexDriver implements NativeDriver {
           this.context.workspacePath,
           this.context.env,
           {
+            processDirectory: this.context.processDirectory,
             notification: (method, params) =>
               this.#notification(method, params),
             request: (method, params) => this.#request(method, params),
@@ -327,6 +324,8 @@ export class CodexDriver implements NativeDriver {
         );
         this.#server = server;
         await server.initialize();
+        if (this.#disposed) throw new Error("The agent session was closed");
+        await server.request("account/rateLimits/read", {}, 5_000).then((value) => this.#readLimits(value)).catch(() => {});
         if (this.context.skillDirectories.length) {
           const root = path.join(this.context.privateDirectory, "codex-skills");
           if ((await stageSkills(this.context.skillDirectories, root)).length) {
@@ -369,9 +368,9 @@ export class CodexDriver implements NativeDriver {
         this.#threadId = id;
         sink.nativeSession(id);
         return id;
-      } catch {
-        // A thread Codex no longer has: start again; the conversation's record is still OhMyGame's.
-        this.#threadId = undefined;
+      } catch (cause) {
+        if (/thread (?:not found|.*does not exist)|no rollout found|failed to (?:load|find).*rollout|not found.*thread/i.test(String(cause))) throw new NativeSessionExpiredError(String(cause));
+        throw cause;
       }
     }
     const started = await server.request<{ thread?: { id?: string } }>(
@@ -401,13 +400,14 @@ export class CodexDriver implements NativeDriver {
       for (const name of Object.keys(servers))
         config[`mcp_servers.${name}.enabled`] = false;
     } catch {
-      // Without the list, the person's servers start as they would in their own terminal.
+      throw new Error("Codex configuration could not be checked. Retry, or explicitly enable your own CLI configuration in Settings.");
     }
     // Codex has no way to leave out the person's Skills, plugins and AGENTS.md from its own folder.
     return config;
   }
 
   #notification(method: string, params: Record<string, unknown>): void {
+    if (method === "account/rateLimits/updated") { this.#readLimits(params); this.#turn?.sink.limits?.(this.#limits); return; }
     const turn = this.#turn;
     if (!turn) return;
     if (typeof params.turnId === "string") turn.turnId ??= params.turnId;
@@ -492,6 +492,21 @@ export class CodexDriver implements NativeDriver {
       default:
         return;
     }
+  }
+
+  #readLimits(value: unknown): void {
+    const data = record(value);
+    const buckets = record(data?.rateLimitsByLimitId) ?? { codex: data?.rateLimits };
+    const limits: NonNullable<AgentContextUsage["limits"]> = [];
+    for (const [bucket, raw] of Object.entries(buckets)) {
+      const windows = record(raw);
+      for (const window of ["primary", "secondary"]) {
+        const item = record(windows?.[window]);
+        if (typeof item?.usedPercent !== "number") continue;
+        limits.push({ id: `${bucket}/${window}`, usedPercent: Math.max(0, Math.min(100, item.usedPercent)), ...(typeof item.windowDurationMins === "number" ? { windowMinutes: item.windowDurationMins } : {}), ...(typeof item.resetsAt === "number" ? { resetsAt: item.resetsAt } : {}) });
+      }
+    }
+    this.#limits = limits;
   }
 
   #itemStarted(sink: NativeTurnSink, item: Record<string, unknown>): void {
@@ -639,6 +654,7 @@ export class CodexDriver implements NativeDriver {
   ): Promise<unknown> {
     const turn = this.#turn;
     if (method === "item/tool/call") {
+      if (!turn || turn.signal.aborted) throw new Error("No turn is running");
       const callId = String(params.callId ?? "");
       const outcome = await this.context.bridge.call(
         String(params.tool ?? ""),
@@ -659,10 +675,8 @@ export class CodexDriver implements NativeDriver {
         success: !outcome.isError,
       };
     }
-    if (!turn)
-      return method === "item/tool/requestUserInput"
-        ? { answers: {} }
-        : { decision: "decline" };
+    if (!turn || turn.signal.aborted)
+      return method === "item/permissions/requestApproval" ? { permissions: {}, scope: "turn" } : method === "item/tool/requestUserInput" ? { answers: {} } : { decision: "decline" };
     if (
       method === "item/commandExecution/requestApproval" ||
       method === "execCommandApproval"
@@ -707,18 +721,38 @@ export class CodexDriver implements NativeDriver {
       return { decision: codexDecision(decision) };
     }
     if (method === "item/permissions/requestApproval") {
+      const permissions = record(params.permissions);
+      const files = record(permissions?.fileSystem);
+      const paths: NonNullable<ApprovalRequestDetails["paths"]> = [];
+      for (const access of ["read", "write"] as const) {
+        const requested = files?.[access];
+        if (requested != null && (!Array.isArray(requested) || requested.some((value) => typeof value !== "string"))) return { permissions: {}, scope: "turn" };
+        for (const value of (requested ?? []) as string[]) paths.push({ path: value, access });
+      }
+      if (files?.entries != null) {
+        if (!Array.isArray(files.entries)) return { permissions: {}, scope: "turn" };
+        for (const value of files.entries) {
+          const entry = record(value);
+          const location = record(entry?.path);
+          if (location?.type !== "path" || typeof location.path !== "string" || (entry?.access !== "read" && entry?.access !== "write")) return { permissions: {}, scope: "turn" };
+          paths.push({ path: location.path, access: entry.access });
+        }
+      }
+      if (!permissions || paths.length > 100 || paths.some((entry) => !path.isAbsolute(entry.path) || /[*?\[\]{}\0]/.test(entry.path) || judgeApproval({ kind: "file", tool: "permissions", path: entry.path, canAllowSession: false }, this.context.policy) === "deny")) return { permissions: {}, scope: "turn" };
       const details: ApprovalRequestDetails = {
         kind: "other",
         tool: "permissions",
         ...(typeof params.reason === "string" ? { reason: params.reason } : {}),
         canAllowSession: false,
+        ...(paths.length ? { paths } : {}),
+        ...(record(permissions.network)?.enabled === true ? { network: true } : {}),
       };
       const decision = await turn.sink.requestApproval(details, {
         signal: turn.signal,
       });
       return decision === "deny"
         ? { permissions: {}, scope: "turn" }
-        : { permissions: record(params.permissions) ?? {}, scope: "turn" };
+        : { permissions: { ...(files ? { fileSystem: { read: Array.isArray(files.read) ? files.read : null, write: Array.isArray(files.write) ? files.write : null, ...(Array.isArray(files.entries) ? { entries: files.entries } : {}) } } : {}), ...(details.network ? { network: { enabled: true } } : {}) }, scope: "turn" };
     }
     if (method === "item/tool/requestUserInput") return { answers: {} };
     if (method === "mcpServer/elicitation/request")
@@ -738,11 +772,9 @@ function codexInput(input: NativeTurnInput): Array<Record<string, unknown>> {
 }
 
 function codexDecision(decision: ApprovalDecision): string {
-  return decision === "allow"
-    ? "accept"
-    : decision === "allow-session"
-      ? "acceptForSession"
-      : "decline";
+  // Session grants are cached by the host for this exact request. Do not let
+  // the CLI widen one decision into a persistent command-prefix rule.
+  return decision === "deny" ? "decline" : "accept";
 }
 
 /** The command as the person would type it, without the login shell Codex wraps it in. */

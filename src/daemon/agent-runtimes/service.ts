@@ -5,10 +5,7 @@ import type {
   SessionManager,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type {
-  AgentModel,
-  AgentReasoningLevel,
-} from "../../shared/contracts.js";
+import type { AgentModel } from "../../shared/contracts.js";
 import {
   AGENT_RUNTIME_IDS,
   type AgentRuntimeDiagnostic,
@@ -32,6 +29,7 @@ import {
 } from "./discovery.js";
 import { agentEnvironment, loginShellPath } from "./environment.js";
 import { AgentProcess, stopAgentProcesses } from "./process.js";
+import { recoverAgentProcesses } from "./process-recovery.js";
 import { NativeCodingSession, type NativeDriver } from "./native-session.js";
 import { ToolBridge } from "./tool-bridge.js";
 import type { DriverContext, HttpBridgeHandlers } from "./driver-context.js";
@@ -57,7 +55,8 @@ interface ProbeCache {
 export interface NativeSessionRequest {
   runtime: AgentRuntimeId;
   model: string;
-  reasoningLevel?: AgentReasoningLevel;
+  reasoningLevel?: string;
+  contextWindow?: number;
   workspacePath: string;
   sessionManager: SessionManager;
   /** OhMyGame's tools for the project, as Pi gets them. */
@@ -99,6 +98,7 @@ export class AgentRuntimeService {
     { bridge: ToolBridge; handlers: HttpBridgeHandlers }
   >();
   #logins = new Set<AgentProcess | CodexAppServer>();
+  #modelErrors = new Map<AgentRuntimeId, string>();
   readonly #root: string;
 
   constructor(
@@ -111,6 +111,7 @@ export class AgentRuntimeService {
 
   async load(): Promise<void> {
     await this.settings.load();
+    await recoverAgentProcesses(path.join(this.#root, "processes"));
     // Folders left by sessions of a daemon that did not close are of no use to anyone.
     await rm(path.join(this.#root, "sessions"), {
       recursive: true,
@@ -166,9 +167,9 @@ export class AgentRuntimeService {
             ...(probe.auth.account ? { account: probe.auth.account } : {}),
           }
         : { status: "unknown", billing: "unknown" },
-      diagnostics: probe?.diagnostics ?? [
+      diagnostics: [...(probe?.diagnostics ?? [
         { code: "probe-failed", message: `${definition.name} did not answer` },
-      ],
+      ]), ...(this.#modelErrors.has(id) ? [{ code: "models-unavailable" as const, message: this.#modelErrors.get(id)! }] : [])],
       ...(probe ? { checkedAt: new Date(probe.checkedAt).toISOString() } : {}),
     };
   }
@@ -198,6 +199,7 @@ export class AgentRuntimeService {
     ) {
       this.#probes.delete(id);
       this.#models.delete(id);
+      this.#modelErrors.delete(id);
     }
     return this.status(id, request.binaryPath !== undefined);
   }
@@ -359,12 +361,13 @@ export class AgentRuntimeService {
     const context = (
       resume: string | undefined,
       model: string,
-      reasoningLevel: AgentReasoningLevel | undefined,
+      reasoningLevel: string | undefined,
     ): DriverContext => ({
       binaryPath: binary.path,
       workspacePath: request.workspacePath,
       env,
       privateDirectory: folder.path,
+      processDirectory: path.join(this.#root, "processes"),
       isolateUserConfig: settings.isolateUserConfig,
       instructions: request.instructions,
       bridge,
@@ -372,16 +375,19 @@ export class AgentRuntimeService {
       skillDirectories: request.skillDirectories,
       httpBridge: async (handlers) => {
         const registered = this.#registerBridge(bridge, handlers);
-        revoke.add(registered.revoke);
-        return registered;
+        const stop = () => { registered.revoke(); revoke.delete(stop); };
+        revoke.add(stop);
+        handlers.signal.addEventListener("abort", () => revoke.delete(stop), { once: true });
+        return { ...registered, revoke: stop };
       },
       model,
+      ...(request.contextWindow ? { contextWindow: request.contextWindow } : {}),
       ...(reasoningLevel ? { reasoningLevel } : {}),
       ...(resume ? { resume } : {}),
     });
     const createDriver = (
       resume: string | undefined,
-      current: { model: string; reasoningLevel?: AgentReasoningLevel },
+      current: { model: string; reasoningLevel?: string },
     ): NativeDriver => {
       const driverContext = context(
         resume,
@@ -398,7 +404,7 @@ export class AgentRuntimeService {
       runtime: request.runtime,
       model: request.model,
       ...(request.reasoningLevel
-        ? { reasoningLevel: request.reasoningLevel }
+        ? { nativeReasoningLevel: request.reasoningLevel }
         : {}),
       sessionManager: request.sessionManager,
       createDriver,
@@ -441,7 +447,7 @@ export class AgentRuntimeService {
         message && typeof message === "object"
           ? (message as { method?: unknown }).method
           : undefined;
-      if (method === "tools/call" && !entry.handlers.active()) {
+      if (method === "tools/call" && (!entry.handlers.active() || entry.handlers.signal.aborted)) {
         const id = (message as { id?: unknown }).id;
         answers.push({
           jsonrpc: "2.0",
@@ -454,7 +460,8 @@ export class AgentRuntimeService {
         continue;
       }
       const answer = await entry.bridge.handle(message, (call, outcome) =>
-        entry.handlers.observe(call, outcome),
+        { if (!entry.handlers.signal.aborted && entry.handlers.active()) entry.handlers.observe(call, outcome); },
+        entry.handlers.signal,
       );
       if (answer) answers.push(answer);
     }
@@ -477,12 +484,13 @@ export class AgentRuntimeService {
     if (!base) throw new Error("The daemon address is not known yet");
     const token = randomBytes(32).toString("base64url");
     this.#bridges.set(token, { bridge, handlers });
+    const revoke = () => { this.#bridges.delete(token); handlers.signal.removeEventListener("abort", revoke); };
+    if (handlers.signal.aborted) revoke();
+    else handlers.signal.addEventListener("abort", revoke, { once: true });
     return {
       url: `${base}/agent-runtime-bridge/mcp`,
       token,
-      revoke: () => {
-        this.#bridges.delete(token);
-      },
+      revoke,
     };
   }
 
@@ -564,7 +572,7 @@ export class AgentRuntimeService {
             "Codex always loads Skills, plugins and AGENTS.md from its own folder; OhMyGame turns off your Codex MCP servers and notification hook for its runs.",
         });
       }
-      if (recheck) this.#models.delete(id);
+      if (recheck) { this.#models.delete(id); this.#modelErrors.delete(id); }
       const result: ProbeCache = {
         signature: binary.signature,
         ...(version ? { version } : {}),
@@ -611,10 +619,15 @@ export class AgentRuntimeService {
           models,
           at: Date.now(),
         });
+        this.#modelErrors.delete(id);
+        if (!models.length) this.#modelErrors.set(id, `${AGENT_RUNTIME_DEFINITIONS[id].name} returned an empty model catalog. Check sign-in and CLI protocol support.`);
         const probe = this.#probes.get(id);
         if (account && probe && !probe.auth.account)
           probe.auth = { ...probe.auth, account };
         return models;
+      } catch (cause) {
+        this.#modelErrors.set(id, cause instanceof Error ? cause.message : String(cause));
+        throw cause;
       } finally {
         await folder.remove();
       }

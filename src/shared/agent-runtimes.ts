@@ -20,7 +20,7 @@ export function isAgentRuntimeId(value: unknown): value is AgentRuntimeId {
   );
 }
 
-/** Full agents answer approvals, compact, steer and report usage; basic ones only chat, edit files and call tools. */
+/** Full adapters handle approvals and context lifecycle; availability still depends on the CLI and account. */
 export type AgentRuntimeTier = "full" | "basic";
 
 /** Where the agent's model requests are billed, as far as OhMyGame can tell. */
@@ -94,6 +94,8 @@ export interface ApprovalRequestDetails {
   title?: string;
   command?: string;
   path?: string;
+  paths?: Array<{ path: string; access: "read" | "write" }>;
+  network?: boolean;
   reason?: string;
   /** Whether "allow for this conversation" can be offered. */
   canAllowSession: boolean;

@@ -18,6 +18,7 @@ import {
   type DriverContext,
 } from "./driver-context.js";
 import { stageSkills } from "./skills.js";
+import { NativeSessionExpiredError } from "./native-session.js";
 
 const CONTROL_TIMEOUT_MS = 30_000;
 
@@ -27,6 +28,7 @@ interface PendingTurn {
   signal: AbortSignal;
   blocks: Map<string, "text" | "thinking">;
   streamed: Set<string>;
+  readOnly: boolean;
 }
 
 /**
@@ -53,6 +55,7 @@ export class ClaudeCodeDriver implements NativeDriver {
   #messageId?: string;
   #compacting?: { tokensBefore?: number };
   #disposed = false;
+  #hookDecisions = new Map<string, "allow" | "allow-session" | "deny">();
 
   constructor(private readonly context: DriverContext) {
     this.#sessionId = context.resume;
@@ -63,15 +66,25 @@ export class ClaudeCodeDriver implements NativeDriver {
     sink: NativeTurnSink,
     signal: AbortSignal,
   ): Promise<NativeTurnOutcome> {
-    const child = await this.#start(input.readOnly);
+    if (signal.aborted) return { status: "aborted" };
+    let child: AgentProcess;
+    try { child = await this.#start(input.readOnly); }
+    catch (cause) {
+      if (signal.aborted) return { status: "aborted" };
+      if (this.context.resume && /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(String(cause))) throw new NativeSessionExpiredError(String(cause));
+      throw cause;
+    }
+    if (signal.aborted) return { status: "aborted" };
     await this.#setPermissionMode(input.readOnly ? "plan" : "acceptEdits");
-    return new Promise<NativeTurnOutcome>((resolve) => {
+    if (signal.aborted) return { status: "aborted" };
+    const outcome = await new Promise<NativeTurnOutcome>((resolve) => {
       this.#turn = {
         sink,
         resolve,
         signal,
         blocks: new Map(),
         streamed: new Set(),
+        readOnly: input.readOnly,
       };
       try {
         child.write(userMessage(input));
@@ -83,13 +96,8 @@ export class ClaudeCodeDriver implements NativeDriver {
         });
       }
     });
-  }
-
-  async steer(input: NativeTurnInput): Promise<boolean> {
-    if (!this.#turn || !this.#process?.running) return false;
-    // Claude Code takes a message that arrives during a turn into that turn at its next step.
-    this.#process.write(userMessage(input));
-    return true;
+    if (outcome.status === "failed" && this.context.resume && /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(outcome.error)) throw new NativeSessionExpiredError(outcome.error);
+    return outcome;
   }
 
   async interrupt(): Promise<void> {
@@ -130,16 +138,13 @@ export class ClaudeCodeDriver implements NativeDriver {
     if (outcome.status === "failed") throw new Error(outcome.error);
   }
 
-  reset(): void {
-    this.#sessionId = undefined;
-  }
-
-  dispose(): void {
+  async dispose(): Promise<void> {
     this.#disposed = true;
     for (const control of this.#controls.values())
       control.reject(new Error("The agent session was closed"));
     this.#controls.clear();
-    void this.#process?.stop();
+    const child = this.#process;
+    await child?.stop();
     this.#process = undefined;
   }
 
@@ -148,11 +153,13 @@ export class ClaudeCodeDriver implements NativeDriver {
     return (this.#starting ??= (async () => {
       try {
         const args = await this.#arguments(readOnly);
+        if (this.#disposed) throw new Error("The agent session was closed");
         const child = new AgentProcess({
           binaryPath: this.context.binaryPath,
           args,
           cwd: this.context.workspacePath,
           env: this.context.env,
+          processDirectory: this.context.processDirectory,
           onLine: (line) => this.#receive(line),
           onExit: (code, signal, stderr) =>
             this.#exited(child, code, signal, stderr),
@@ -162,7 +169,9 @@ export class ClaudeCodeDriver implements NativeDriver {
         await this.#control({
           subtype: "initialize",
           sdkMcpServers: [BRIDGE_SERVER_NAME],
+          hooks: { PreToolUse: [{ hookCallbackIds: ["ohmygame-policy"] }] },
         });
+        if (this.#disposed) throw new Error("The agent session was closed");
         return child;
       } finally {
         this.#starting = undefined;
@@ -429,6 +438,7 @@ export class ClaudeCodeDriver implements NativeDriver {
     const turn = this.#turn;
     if (!turn) return;
     this.#turn = undefined;
+    this.#hookDecisions.clear();
     const usage = record(message.usage);
     if (usage) {
       const models = record(message.modelUsage);
@@ -500,12 +510,29 @@ export class ClaudeCodeDriver implements NativeDriver {
   async #control_response(
     request: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
+    if (request.subtype === "hook_callback") {
+      if (request.callback_id !== "ohmygame-policy") throw new Error("Unknown hook callback");
+      const input = record(request.input) ?? {};
+      const turn = this.#turn;
+      let decision: "allow" | "allow-session" | "deny" = "deny";
+      const tool = String(input.tool_name ?? "");
+      const args = record(input.tool_input) ?? {};
+      const callId = typeof request.tool_use_id === "string" ? request.tool_use_id : undefined;
+      if (turn && !turn.signal.aborted) {
+        if (turn.readOnly && !["Read", "Glob", "Grep", "LS", "ToolSearch"].includes(tool) && !tool.startsWith(`mcp__${BRIDGE_SERVER_NAME}__`)) decision = "deny";
+        else if (tool.startsWith(`mcp__${BRIDGE_SERVER_NAME}__`) || tool === "ToolSearch") decision = "allow";
+        else decision = await decideApproval(claudeApproval(tool, args, input, this.context.workspacePath), this.context, turn.sink, { ...(callId ? { callId } : {}), signal: turn.signal });
+      }
+      if (callId) this.#hookDecisions.set(callId, decision);
+      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision === "deny" ? "deny" : "allow", permissionDecisionReason: decision === "deny" ? "OhMyGame denied this operation" : "Approved by OhMyGame" } };
+    }
     if (request.subtype === "mcp_message") {
       const turn = this.#turn;
+      if (!turn || turn.signal.aborted) throw new Error("No turn is running");
       const answer = await this.context.bridge.handle(
         request.message,
         (call, outcome) => this.#results.record(call.callId, outcome),
-        turn?.signal,
+        turn.signal,
       );
       return { mcp_response: answer ?? { jsonrpc: "2.0", result: {}, id: 0 } };
     }
@@ -518,8 +545,11 @@ export class ClaudeCodeDriver implements NativeDriver {
       const turn = this.#turn;
       if (!turn) return { behavior: "deny", message: "No turn is running" };
       const toolName = String(request.tool_name ?? "tool");
-      const details = claudeApproval(toolName, input, request);
-      const decision = await decideApproval(details, this.context, turn.sink, {
+      const toolId = typeof request.tool_use_id === "string" ? request.tool_use_id : undefined;
+      const previous = toolId ? this.#hookDecisions.get(toolId) : undefined;
+      if (toolId) this.#hookDecisions.delete(toolId);
+      const details = claudeApproval(toolName, input, request, this.context.workspacePath);
+      const decision = previous ?? await decideApproval(details, this.context, turn.sink, {
         ...(typeof request.tool_use_id === "string"
           ? { callId: request.tool_use_id }
           : {}),
@@ -600,6 +630,7 @@ function claudeApproval(
   tool: string,
   input: Record<string, unknown>,
   request: Record<string, unknown>,
+  workspace?: string,
 ): ApprovalRequestDetails {
   const file =
     typeof input.file_path === "string"
@@ -608,7 +639,7 @@ function claudeApproval(
         ? input.notebook_path
         : typeof request.blocked_path === "string"
           ? request.blocked_path
-          : undefined;
+          : typeof input.path === "string" ? input.path : ["Glob", "Grep", "LS"].includes(tool) ? workspace : undefined;
   const command = typeof input.command === "string" ? input.command : undefined;
   const kind =
     command !== undefined

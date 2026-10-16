@@ -19,6 +19,7 @@ export interface AgentContextUsage {
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
+  limits?: Array<{ id: string; usedPercent: number; windowMinutes?: number; resetsAt?: number }>;
 }
 
 export interface ModelRef {
@@ -34,6 +35,9 @@ export interface AgentModel extends AgentModelRef {
   reasoningLevels: AgentReasoningLevel[];
   /** Set when a coding agent CLI, not OhMyGame's own agent, runs conversations with this model. */
   runtime?: AgentRuntimeId;
+  /** Native effort/variant values, kept separate from Pi's reasoning enum. */
+  nativeReasoningLevels?: string[];
+  contextWindow?: number;
 }
 
 export interface AgentModelCatalog {
@@ -43,6 +47,7 @@ export interface AgentModelCatalog {
   loadingRuntimes?: AgentRuntimeId[];
   defaultModel?: AgentModelRef;
   defaultReasoningLevel: AgentReasoningLevel;
+  defaultNativeReasoningLevel?: string;
 }
 
 export const AGENT_REASONING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -874,10 +879,12 @@ export interface CreateProjectRequest {
 export interface CreateConversationRequest {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+  nativeReasoningLevel?: string;
 }
 export interface UpdateAgentDefaultsRequest {
   model: AgentModelRef;
   reasoningLevel: AgentReasoningLevel;
+  nativeReasoningLevel?: string;
 }
 export interface RenameConversationRequest { title: string }
 export type SetConversationModelRequest = AgentModelRef;
@@ -885,6 +892,7 @@ export interface SetConversationReasoningRequest { level: AgentReasoningLevel }
 export interface ConversationAgentSettings {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+  nativeReasoningLevel?: string;
 }
 export interface PromptRequest {
   prompt: string;

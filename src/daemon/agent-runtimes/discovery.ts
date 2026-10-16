@@ -207,6 +207,7 @@ export async function probeModels(
     name: label,
     providerName: name,
     reasoningLevels: reasoningLevels(levels),
+    nativeReasoningLevels: [...new Set(levels)],
     runtime: id,
   });
   if (id === "claude-code-cli") {
@@ -290,9 +291,7 @@ export async function probeModels(
     60_000,
   );
   return {
-    models: parseOpenCodeModels(stdout).map((entry) =>
-      model(entry.id, entry.name, entry.variants),
-    ),
+    models: parseOpenCodeModels(stdout).map((entry) => ({ ...model(entry.id, entry.name, entry.variants), ...(entry.contextWindow ? { contextWindow: entry.contextWindow } : {}) })),
   };
 }
 
@@ -348,11 +347,9 @@ async function claudeModels(
               error?: string;
             };
           };
-          if (
-            message.type !== "control_response" ||
-            message.response?.request_id !== id
-          )
-            return;
+          if (message.type !== "control_response" || !message.response) return;
+          const isInitialize = message.response?.request_id === `init-${id}`;
+          if (!isInitialize && message.response?.request_id !== id) return;
           if (message.response.subtype === "error")
             finish(
               new Error(
@@ -360,14 +357,17 @@ async function claudeModels(
                   "Claude Code could not list its models",
               ),
             );
-          else
-            finish(
-              (message.response.response?.models ?? []).filter(
+          else {
+            const models = (message.response?.response?.models ?? []).filter(
                 (model) =>
                   typeof model.value === "string" &&
                   typeof model.displayName === "string",
-              ),
-            );
+              );
+            // Older CLIs return the catalog during initialize; newer CLIs
+            // expose list_models. Neither operation sends a model request.
+            if (models.length || !isInitialize) finish(models);
+            else child.write({ type: "control_request", request_id: id, request: { subtype: "list_models" } });
+          }
         } catch {
           /* Not a message. */
         }
@@ -389,19 +389,14 @@ async function claudeModels(
       request_id: `init-${id}`,
       request: { subtype: "initialize" },
     });
-    child.write({
-      type: "control_request",
-      request_id: id,
-      request: { subtype: "list_models" },
-    });
   });
 }
 
 /** `opencode models --verbose` prints each model's `provider/model` line followed by its JSON. */
 export function parseOpenCodeModels(
   output: string,
-): Array<{ id: string; name: string; variants: string[] }> {
-  const models: Array<{ id: string; name: string; variants: string[] }> = [];
+): Array<{ id: string; name: string; variants: string[]; contextWindow?: number }> {
+  const models: Array<{ id: string; name: string; variants: string[]; contextWindow?: number }> = [];
   const lines = output.split("\n");
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!.trim();
@@ -422,6 +417,7 @@ export function parseOpenCodeModels(
         capabilities?: { toolcall?: unknown };
         variants?: Record<string, unknown>;
         status?: unknown;
+        limit?: { context?: number };
       };
       // An agent needs tools; a model that cannot call them cannot do the work.
       if (
@@ -433,6 +429,7 @@ export function parseOpenCodeModels(
         id: line,
         name: typeof value.name === "string" ? value.name : line,
         variants: Object.keys(value.variants ?? {}),
+        ...(typeof value.limit?.context === "number" && value.limit.context > 0 ? { contextWindow: value.limit.context } : {}),
       });
       index = end;
     } catch {

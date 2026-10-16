@@ -1,4 +1,3 @@
-import type { AgentReasoningLevel } from "../../shared/contracts.js";
 import type {
   ApprovalDecision,
   ApprovalRequestDetails,
@@ -14,6 +13,7 @@ export interface DriverContext {
   env: Record<string, string>;
   /** A folder of the daemon's for this session's generated files, outside the workspace and removed with the session. */
   privateDirectory: string;
+  processDirectory?: string;
   isolateUserConfig: boolean;
   /** OhMyGame's instructions for the project, added to the agent's own. */
   instructions: string;
@@ -23,19 +23,21 @@ export interface DriverContext {
   skillDirectories: readonly string[];
   /**
    * A loopback MCP endpoint for agents that can only reach tools over HTTP. Its
-   * token is the session's, and it answers only while `active` says a turn of
-   * this conversation is running.
+   * token belongs to one turn, is revoked when that turn ends, and answers
+   * only while `active` says this turn is running.
    */
   httpBridge?: (
     handlers: HttpBridgeHandlers,
   ) => Promise<{ url: string; token: string; revoke: () => void }>;
   model: string;
-  reasoningLevel?: AgentReasoningLevel;
+  reasoningLevel?: string;
+  contextWindow?: number;
   /** The native session to continue, if the conversation has one. */
   resume?: string;
 }
 
 export interface HttpBridgeHandlers {
+  signal: AbortSignal;
   active(): boolean;
   observe(
     call: { name: string; args: unknown; callId: string },
@@ -54,6 +56,7 @@ export async function decideApproval(
   sink: NativeTurnSink,
   options?: { callId?: string; signal?: AbortSignal; escalation?: boolean },
 ): Promise<ApprovalDecision> {
+  if (options?.signal?.aborted) return "deny";
   const verdict = judgeApproval(details, context.policy);
   // An agent asks to escalate only for what its own sandbox would stop, so the workspace rule cannot allow it.
   if (verdict === "allow" && !options?.escalation) return "allow";

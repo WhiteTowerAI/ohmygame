@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import readline from "node:readline";
+import { trackAgentProcess } from "./process-recovery.js";
 import {
   registerProjectProcess,
   terminateProjectProcess,
@@ -10,6 +11,7 @@ export interface AgentProcessOptions {
   args: string[];
   cwd: string;
   env: Record<string, string>;
+  processDirectory?: string;
   /** Called for each line the CLI writes to stdout. */
   onLine?: (line: string) => void;
   onExit?: (
@@ -56,6 +58,7 @@ export class AgentProcess {
       windowsHide: true,
     });
     registerProjectProcess(this.child);
+    if (options.processDirectory) trackAgentProcess(options.processDirectory, this.child);
     live.add(this);
     this.child.stderr?.setEncoding("utf8");
     this.child.stderr?.on("data", (chunk: string) => {

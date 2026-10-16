@@ -424,6 +424,7 @@ export function CodingAgentDetail({
           <p className="settings-detail-hint">
             {t("codingAgents.permissions")}
           </p>
+          {agent.id === "codex-cli" ? <p className="settings-detail-hint">{t("codingAgents.codexReadBoundary")}</p> : null}
         </section>
       ) : null}
       <section className="settings-detail-section">
