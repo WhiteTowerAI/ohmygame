@@ -92,6 +92,11 @@ These instructions are shipped with the product and guide its game-making
 agent. Editing them changes a plugin workflow; see the plugin verification
 guidance in [CONTRIBUTING.md](../CONTRIBUTING.md#make-and-check-your-change).
 
+- [Blender Assets](../plugins/blender/skills/blender-assets/SKILL.md),
+  [Godot Game](../plugins/godot/skills/godot-game/SKILL.md), and
+  [TapTap Maker](../plugins/taptap-maker/skills/taptap-maker/SKILL.md)
+  ([Maker setup](../plugins/taptap-maker/skills/taptap-maker/references/setup.md)).
+
 - [Game Studio](../plugins/game-studio/skills/game-studio/SKILL.md),
   [Game Foundations](../plugins/game-studio/skills/game-foundations/SKILL.md),
   and [Game QA](../plugins/game-studio/skills/game-qa/SKILL.md).

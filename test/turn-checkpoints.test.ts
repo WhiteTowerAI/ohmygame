@@ -274,16 +274,18 @@ it("projects real edit/write diffs before the turn ends and restores them from d
         : [],
     );
   expect(live).toHaveLength(2);
-  expect(live[0]).toMatchObject({
+  const edit = live.find((item) => item.tool === "edit");
+  const write = live.find((item) => item.tool === "write");
+  expect(edit).toMatchObject({
     tool: "edit",
     status: "completed",
     output: "Successfully replaced 2 block(s) in src/render.ts.",
     lineChanges: { added: 3, removed: 2 },
   });
-  expect(live[0]?.fileDiff?.hunks.flat().map((line) => line.text)).toContain(
+  expect(edit?.fileDiff?.hunks.flat().map((line) => line.text)).toContain(
     "const color = 'green';",
   );
-  expect(live[1]).toMatchObject({
+  expect(write).toMatchObject({
     tool: "write",
     lineChanges: { added: 2, removed: 0 },
     fileDiff: {

@@ -6393,6 +6393,7 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-card-title .plugin-status,
+.plugin-card-title .plugin-beta,
 .plugin-detail-badge {
   display: inline-flex;
   height: 16px;
@@ -6408,6 +6409,13 @@ button.home-nav-item-active:hover {
 
 .plugin-card-title .plugin-status {
   margin-left: auto;
+}
+
+.plugin-card-title .plugin-beta,
+.plugin-detail-badge.plugin-beta {
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  background: transparent;
 }
 
 .plugin-catalog-card.is-disabled :is(.plugin-row-icon, .plugin-card-copy) {

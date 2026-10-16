@@ -374,6 +374,7 @@ export async function inspectPluginBundle(
     icon,
     iconRevision: iconAsset?.revision,
     version: manifest.version,
+    beta: manifest.interface?.beta,
     marketplace: identity.marketplace,
     source: identity.source,
     installed: true,

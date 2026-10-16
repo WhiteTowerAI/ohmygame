@@ -1,0 +1,21 @@
+{
+  "name": "taptap-maker",
+  "version": "0.1.0",
+  "description": "Develop TapTap Maker projects locally with the official CLI and MCP.",
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json",
+  "requirements": { "commands": ["npx", "git"] },
+  "interface": {
+    "beta": true,
+    "displayName": "TapTap Maker",
+    "shortDescription": "Connect Maker projects, preview locally, and submit builds.",
+    "longDescription": "Connect an existing Maker workspace or initialize an empty directory with the official CLI. Develop against the project's UrhoX/Lua dev-kit, preview with Maker Runtime, and submit remote builds through Maker. Initialization may also configure Lua LSP for other installed AI editors; the workflow explains this before requesting approval. A Maker account is required for project access and remote operations.",
+    "icon": { "type": "preset", "id": "gamepad" },
+    "defaultPrompt": [
+      "Check this TapTap Maker project's connection and local development setup.",
+      "Connect a TapTap Maker project in this empty workspace.",
+      "Run a local preview of this Maker project and inspect its logs."
+    ],
+    "projectTypes": ["general"]
+  }
+}

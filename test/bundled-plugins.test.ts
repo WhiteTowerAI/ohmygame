@@ -6,6 +6,28 @@ import { describe, expect, it } from "vitest";
 import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
 describe("bundled plugins", () => {
+  it("loads the three beta engine plugins with their native skills and connections", async () => {
+    const store = new BundledPluginStore(path.resolve("plugins"));
+    await store.load();
+    expect(store.list().filter(plugin => plugin.beta).map(plugin => plugin.name)).toEqual([
+      "blender", "godot", "taptap-maker",
+    ]);
+    expect(store.read("ohmygame:blender")).toMatchObject({
+      skills: [{ id: "skills/blender-assets/SKILL.md" }],
+      mcpServers: [],
+    });
+    expect(store.read("ohmygame:godot")).toMatchObject({
+      skills: [{ id: "skills/godot-game/SKILL.md" }],
+      mcpServers: [{ id: "godot" }],
+      configuration: { "godot-path": { default: "godot" } },
+    });
+    expect(store.read("ohmygame:taptap-maker")).toMatchObject({
+      skills: [{ id: "skills/taptap-maker/SKILL.md" }],
+      mcpServers: [{ id: "taptap-maker" }],
+      projectTypes: ["general"],
+    });
+  });
+
   it("loads a standard skill-only OhMyGame plugin directory", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-plugins-"));
     const plugin = path.join(root, "reference-modeler");

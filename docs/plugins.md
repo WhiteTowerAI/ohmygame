@@ -36,6 +36,11 @@ A package contains `.ohmygame-plugin/plugin.json`:
 
 All paths are relative to the plugin root and start with `./`. Omit components the plugin does not use. Skills use `skills/<skill-name>/SKILL.md` with `name` and `description` frontmatter. Configuration fields support `text`, `secret`, `path`, `boolean`, and `select`. Select fields require string `options`. Nonsecret fields may provide a default of the appropriate type; secret defaults are rejected.
 
+Optional `interface.beta: true` displays a Beta badge on the plugin card and
+detail page. Omit it or set it to false for plugins without that label; it does
+not change installation, configuration, or enablement behavior.
+See the [bundled engine plugin cards](assets/engine-plugins-beta.png).
+
 ### Plugin icons
 
 `interface.icon` is optional display metadata. Use a Solar preset with
@@ -211,6 +216,52 @@ available to Plugin Builder; this change adds no separate snapshot store.
 On first startup, application-level `pi-agent/mcp.json` is backed up to `mcp.json.pre-plugins.bak`. Each existing connection becomes a native plugin with its full definition, enabled state, and original runtime server ID. Godot is owned by the bundled Godot plugin. Import progress and provider ownership are persisted so retrying migration does not duplicate packages. The original file and backup remain available for recovery; subsequent runtime configuration comes from Plugins. The old Connections UI route redirects to Plugins, and its CRUD API is retired.
 
 The migration reader never modifies the old file or creates a missing one. A retry replays credentials and switches for an unfinished import before recording ownership, including when installation succeeded but configuration persistence was interrupted.
+
+## Bundled engine workflows
+
+Blender, Godot, and TapTap Maker are marked Beta while their platform workflows
+are being validated. They use the standard Skill/MCP package contract.
+
+- **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
+  GLB delivery, and preview images. The export helper accepts an optional
+  collection, excludes cameras/lights, and requires `--overwrite` to replace an
+  existing output. It does not save the source file. Validate the exported asset
+  in its target engine; no editor bridge/add-on is required. Use
+  `--apply-modifiers` for baked static geometry; keep it off for shape-key export.
+- **Godot:** dedicated Godot Skill plus the existing pinned
+  `@coding-solo/godot-mcp@0.1.1`. The Godot executable configuration defaults to
+  `godot` for upstream automatic discovery and can be replaced with an absolute
+  executable path. Check the actual engine version and import/run logs after
+  testing the MCP connection. Viewport capture and gameplay input are not
+  supplied by this MCP or the web `game_use` integration.
+- **TapTap Maker:** General-project workflow with the official pinned
+  `@taptap/maker@0.0.36` CLI/MCP. Pass the current project's absolute `target_dir`
+  on tools and `--target-dir` on project CLI commands: the MCP process starts in
+  the plugin directory. Keep the CLI and MCP versions aligned and set
+  `TAPTAP_MAKER_DISTRIBUTION=ohmygame_plugin` for both. Authentication remains in
+  Maker's own local store. Read project `.agents/skills` explicitly as needed;
+  they are not automatically added to OhMyGame's Skill catalog.
+
+Maker Runtime provides a separate native preview window; disable General's web
+preview for these workspaces. Local preview and tests do not imply a remote
+submission. `maker_build_current_directory` commits, pushes, and remotely builds
+the project; a build does not mean the game has been published. Use Maker's own
+project page for the publishing step.
+
+Maker initialization uses an empty directory and `init --skip-mcp-install`.
+In pinned CLI 0.0.36, this flag does not skip Lua LSP setup, which may configure
+Codex, Cursor, and Claude outside the project. The setup Skill explains these
+changes and requires authorization for that scope before init; users who do not
+want them can connect an already initialized directory. The plugin does not run
+the standalone multi-client MCP installer. See the
+[Maker setup reference](../plugins/taptap-maker/skills/taptap-maker/references/setup.md).
+
+For a local Blender integration check, set `BLENDER_EXECUTABLE` to its absolute
+executable path and run `bun run test -- test/blender-export.test.ts`. This
+checks real GLB output, export scope, source preservation, and overwrite behavior;
+it skips when Blender is not provided. Godot import/runtime and authenticated
+Maker initialization/build/publication still need their respective local/account
+environments.
 
 ## Validation
 

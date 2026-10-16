@@ -112,6 +112,7 @@ export interface PluginSummary {
   icon?: PluginIcon;
   iconRevision?: string;
   version?: string;
+  beta?: boolean;
   marketplace: PluginMarketplaceRef;
   source: PluginSource;
   installed: boolean;
@@ -207,6 +208,7 @@ export function isPluginIcon(value: unknown): value is PluginIcon {
 }
 
 const InterfaceSchema = Type.Object({
+  beta: Type.Optional(Type.Boolean()),
   displayName: Type.Optional(Type.String({ minLength: 1 })),
   shortDescription: Type.Optional(Type.String({ minLength: 1 })),
   longDescription: Type.Optional(Type.String({ minLength: 1 })),

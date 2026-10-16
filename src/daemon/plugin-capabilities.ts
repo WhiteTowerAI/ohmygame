@@ -224,17 +224,19 @@ export class PluginCapabilities {
     input?: string,
   ) {
     const definition = await this.definition(plugin, serverId);
-    return this.#testDefinition(plugin, serverId, definition, `${plugin.id}:${serverId}`, action, input);
+    return this.#testDefinition(plugin, serverId, definition, await this.template(plugin, serverId), `${plugin.id}:${serverId}`, action, input);
   }
   async testDraft(plugin: PluginDetail, root: string, serverId: string, scope: string) {
     const definitions = plugin.mcpConfigPath ? await readPluginMcpServers(root, plugin.mcpConfigPath) : {};
     const definition = this.#resolve(plugin, serverId, { root, definitions });
-    return this.#testDefinition(plugin, serverId, definition, `draft:${scope}:${serverId}`, "test");
+    return this.#testDefinition(plugin, serverId, definition, definitions[serverId]!, `draft:${scope}:${serverId}`, "test");
   }
-  async #testDefinition(plugin: PluginDetail, serverId: string, definition: McpServerDefinition, key: string,
+  async #testDefinition(plugin: PluginDetail, serverId: string, definition: McpServerDefinition, template: McpServerDefinition, key: string,
     action: "test" | "auth-start" | "auth-complete", input?: string) {
     const literals: PluginConfigurationValues = {};
-    protectDefinitions({ [serverId]: definition }, {}, literals, true);
+    // Keep public configuration placeholders out of literal-secret detection.
+    // Declared secret values are redacted separately by the configuration store.
+    protectDefinitions({ [serverId]: template }, {}, literals, true);
     const redact = (text: string) =>
       this.configuration.redact(
         plugin,

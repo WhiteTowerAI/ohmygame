@@ -1639,6 +1639,7 @@ const zhCN: typeof en = {
     },
   },
   plugins: {
+    beta: "Beta",
     public: "Public",
     personal: "Personal",
     editWithAi: "使用 AI 编辑",

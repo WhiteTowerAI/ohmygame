@@ -48,6 +48,34 @@ async function environment() {
   return { directory, agentDir, settings, local, bundled, service };
 }
 describe("native plugin capabilities", () => {
+  it("resolves Godot configuration and scopes Maker to General projects", async () => {
+    const { service, bundled } = await environment();
+    const godot = bundled.read("ohmygame:godot")!;
+    const godotName = service.runtimeName(godot.id, "godot");
+    expect(await service.definition(godot, "godot")).toMatchObject({
+      env: { GODOT_PATH: "godot" }, lifecycle: "lazy",
+    });
+    const probe = vi.spyOn(service.host, "probe").mockResolvedValue({ status: "connected", toolCount: 14, message: "godot: get_godot_version" });
+    expect((await service.test(godot, "godot")).message).toBe("godot: get_godot_version");
+    probe.mockRestore();
+    await service.configuration.update(godot, { "godot-path": "/custom/Godot" });
+    expect(await service.definition(godot, "godot")).toMatchObject({ env: { GODOT_PATH: "/custom/Godot" } });
+    expect(service.runtimeName(godot.id, "godot")).toBe(godotName);
+    await service.configuration.setLegacyOwner("ohmygame-godot", godot.id, "godot");
+    expect(service.runtimeName(godot.id, "godot")).toBe("ohmygame-godot");
+    const maker = bundled.read("ohmygame:taptap-maker")!;
+    const makerName = service.runtimeName(maker.id, "taptap-maker");
+    expect((await service.effective("general")).mcpServers[makerName]).toMatchObject({
+      args: ["-y", "--package=@taptap/maker@0.0.36", "taptap-maker"],
+      env: { TAPTAP_MAKER_DISTRIBUTION: "ohmygame_plugin" },
+      lifecycle: "lazy",
+      requestTimeoutMs: 3600000,
+      cwd: path.resolve("plugins/taptap-maker"),
+    });
+    expect((await service.effective("godot-game")).mcpServers).not.toHaveProperty(makerName);
+    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(makerName);
+  });
+
   it("reads credential masks without writes and preserves them on an explicit save", async () => {
     const { service, local, directory } = await environment();
     const source = path.join(directory, "raw-service");

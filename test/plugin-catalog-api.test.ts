@@ -127,8 +127,10 @@ describe("plugin catalog API", () => {
     expect(catalog.statusCode).toBe(200);
     expect(catalog.json()).toMatchObject({
       plugins: [
+        { id: "ohmygame:blender", installed: true, beta: true },
         { id: "ohmygame:game-studio", installed: true },
-        { id: "ohmygame:godot", installed: true },
+        { id: "ohmygame:godot", installed: true, beta: true },
+        { id: "ohmygame:taptap-maker", installed: true, beta: true },
         { id: "ohmygame:threejs-world", installed: true },
         { id: "ohmygame:web-game-studio", installed: true },
       ],

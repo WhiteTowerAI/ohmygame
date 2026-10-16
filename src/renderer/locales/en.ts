@@ -1688,6 +1688,7 @@ const en = {
     },
   },
   plugins: {
+    beta: "Beta",
     public: "Public",
     personal: "Personal",
     editWithAi: "Edit with AI",

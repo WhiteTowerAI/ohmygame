@@ -360,7 +360,7 @@ function PluginCard({ plugin, disabled, onToggle, onOpen }: { plugin: PluginSumm
     <button className="plugin-card-open" type="button" onClick={onOpen}>
       <PluginIcon plugin={plugin} />
       <span className="plugin-card-copy">
-        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.configurationStatus === "needs-configuration" ? <small className="plugin-status">{t("plugins.needsConfiguration")}</small> : null}{plugin.installed && !plugin.enabled ? <small className="plugin-status">{t("common.disabled")}</small> : null}</span>
+        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.beta ? <small className="plugin-beta">{t("plugins.beta")}</small> : null}{plugin.configurationStatus === "needs-configuration" ? <small className="plugin-status">{t("plugins.needsConfiguration")}</small> : null}{plugin.installed && !plugin.enabled ? <small className="plugin-status">{t("common.disabled")}</small> : null}</span>
         <span className="plugin-card-description">{plugin.description}</span>
       </span>
     </button>
@@ -474,6 +474,7 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         <div className="plugin-detail-copy">
           <div className="plugin-detail-title">
             <h2>{plugin.displayName}</h2>
+            {plugin.beta ? <small className="plugin-detail-badge plugin-beta">{t("plugins.beta")}</small> : null}
             {plugin.preinstalled ? <small className="plugin-detail-badge">{t("plugins.included")}</small> : null}
           </div>
           <p>{plugin.description}</p>

@@ -95,6 +95,17 @@ afterEach(async () => {
 });
 
 describe("Plugin library", () => {
+  it("shows beta metadata on the matching card without marking other plugins", async () => {
+    plugins[0]!.beta = true;
+    await act(async () => root.render(<PluginsSettings onPluginChange={() => {}} onTryPlugin={async () => {}} />));
+    const cards = [...container.querySelectorAll(".plugin-catalog-card")];
+    const betaCard = cards.find(card => card.textContent?.includes("Studio"))!;
+    const stableCard = cards.find(card => card.textContent?.includes("Community Review"))!;
+    expect(betaCard.querySelector(".plugin-beta")?.textContent).toBe("Beta");
+    expect(stableCard.querySelector(".plugin-beta")).toBeNull();
+    expect(betaCard.querySelector('[aria-label="Disable Studio"]')).not.toBeNull();
+  });
+
   it("groups official plugins under Public and user marketplace imports under Personal", async () => {
     await act(async () =>
       root.render(

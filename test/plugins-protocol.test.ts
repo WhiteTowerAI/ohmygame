@@ -28,6 +28,7 @@ describe("plugin protocol", () => {
       skills: "./skills/",
       connections: ["ohmygame-godot"],
       interface: {
+        beta: true,
         displayName: "Godot",
         shortDescription: "Godot workflows",
         longDescription: "Build and edit Godot projects through the connected editor.",
@@ -64,6 +65,7 @@ describe("plugin protocol", () => {
     expect(isPluginManifest({ ...base, hooks: "./hooks.json" })).toBe(false);
     expect(isPluginManifest({ ...base, tools: ["generate-image"] })).toBe(false);
     expect(isPluginManifest({ ...base, interface: { logo: "./logo.png" } })).toBe(false);
+    expect(isPluginManifest({ ...base, interface: { beta: "true" } })).toBe(false);
   });
 
   it("accepts declared icons and rejects unknown IDs and non-package image paths", () => {
