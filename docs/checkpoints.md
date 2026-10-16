@@ -98,9 +98,8 @@ an operation rolls back when possible rather than silently overwriting them.
 The daemon stores Git-compatible objects in the project's storage directory at
 `checkpoints/`, outside its workspace. The workspace does not need Git; its
 `.git`, branches, index, and `.gitignore` files are never written. This is
-internal snapshot storage rather than a user-facing Git workflow. The store
-currently retains all snapshots without garbage collection; file modes retain
-only whether a file is executable.
+internal snapshot storage rather than a user-facing Git workflow. File modes
+retain only whether a file is executable.
 
 Snapshots include creative project files and workspace asset metadata. They
 exclude `node_modules` and `.git` anywhere, and these paths at the workspace root:
@@ -129,6 +128,27 @@ they cannot put back, so the user can keep it and undo the rest. Snapshots
 taken before this rule existed may hold files that are ignored now; Restore
 does not put these back either. Ignored generated assets, such as images
 matched by `*.png`, are not recorded, so Undo cannot bring them back.
+
+A snapshot lives as long as something names it. After a completed run, at most
+once a day, the daemon removes the stored objects that no snapshot it keeps
+needs. It keeps every snapshot named by an OhMyGame entry on any branch of any
+of the project's session files, read as text so that no file is rewritten; a
+line that is not JSON is passed over, as Pi passes it over. It also keeps the
+newest snapshot, the recovery target of an unfinished restore, every snapshot
+handed out while the prune runs, and everything written in the last 24 hours
+with all it needs: the snapshot that closes a turn is recorded only when the
+run ends. What the named snapshots need is worked out beside other operations;
+only the removal runs in the project's checkpoint queue, and it is left for a
+later run when an agent, Undo, Reapply, Restore or project removal is under
+way. A named object that exists but cannot be read stops the prune before
+anything is removed.
+
+Conversations cannot be deleted, so pruning only frees snapshots that no entry
+ever named, such as those taken to show current file states or left by failed
+runs. Turns stay undoable for as long as their conversation exists, and the
+store keeps every version of every file that a turn boundary recorded. Commits
+keep their parent links, so Git tools reading the store stop at a pruned
+parent.
 
 The global asset Library,
 generation history, and conversation session files are preserved. Snapshot
@@ -175,7 +195,8 @@ appending duplicate messages to their histories.
 - UI: `src/renderer/turn-changes.tsx`, `src/renderer/project-shell.tsx`,
   `src/renderer/workspace-version.ts`.
 - Tests: `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
-  `test/checkpoint-routes.test.ts`, and the canvas storage suites.
+  `test/checkpoint-routes.test.ts`, `test/checkpoint-references.test.ts`, and
+  the canvas storage suites.
 
 The routes under `/projects/:projectId` are:
 

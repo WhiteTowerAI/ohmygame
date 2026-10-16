@@ -44,8 +44,8 @@ view, its comparison baseline and refresh behavior.
 [Turn file changes and Undo](checkpoints.md) covers message checkpoints, file
 conflicts, workspace versions, and recovery. Start with `src/daemon/checkpoints.ts`,
 `src/daemon/agent.ts`, and `src/renderer/turn-changes.tsx`; the focused suites
-are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`, and
-`test/checkpoint-routes.test.ts`.
+are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
+`test/checkpoint-routes.test.ts`, and `test/checkpoint-references.test.ts`.
 
 | Document                                         | Purpose                                                                                                                        |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |

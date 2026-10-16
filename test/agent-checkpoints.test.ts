@@ -938,6 +938,31 @@ describe("Agent checkpoints", () => {
 });
 
 describe("Agent turn changes", () => {
+  it("prunes the checkpoints once a run is completed, and the turns stay undoable", async () => {
+    const { project, send, ended, undo, file } = await studio([
+      { write: { "notes.txt": "first" } },
+      { say: "Wrote the notes." },
+      { write: { "notes.txt": "second" } },
+      { say: "Changed the notes." },
+    ]);
+    const record = path.join(
+      checkpointDirectory(project),
+      "ohmygame-pruned.json",
+    );
+    await send("Write the notes");
+    await ended("Write the notes");
+    const pruned = await vi.waitFor(
+      async () => JSON.parse(await readFile(record, "utf8")) as { at: number },
+      { timeout: 15_000 },
+    );
+    await send("Change the notes");
+    const second = await ended("Change the notes");
+    // Within a day the next completed run leaves the store alone.
+    expect(JSON.parse(await readFile(record, "utf8"))).toEqual(pruned);
+    expect((await undo(second.checkpointId!)).statusCode).toBe(200);
+    expect(await file("notes.txt")).toBe("first");
+  });
+
   it("lists what each turn changed", async () => {
     const { project, send, ended, changes, published } = await studio([
       { write: { "notes.txt": "first", "player.txt": "changed by the Agent" } },

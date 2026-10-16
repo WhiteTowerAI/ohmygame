@@ -22,6 +22,7 @@ import {
   BUFFERED_BYTES,
   FileChangedError,
   CheckpointFileTooLargeError,
+  DamagedObjectError,
   ObjectVerifier,
   SourceError,
   TREE_MODE,
@@ -34,7 +35,11 @@ import {
   readCommitTree,
   readHead,
   readObject,
+  readObjectType,
   readTree,
+  hasObjectFile,
+  listObjects,
+  removeObject,
   writeAtomically,
   writeBlobTo,
   writeCommit,
@@ -68,6 +73,12 @@ export interface CheckpointUndoResult extends CheckpointRestoreResult {
    * as they are, and with a list of paths to overwrite they were overwritten.
    */
   conflicts: string[];
+}
+
+export interface CheckpointPruneResult {
+  /** How many stored objects were removed, and how many bytes they took on disk. */
+  removed: number;
+  bytes: number;
 }
 
 /** Two snapshots that enclose the changes to undo, such as one Agent turn. */
@@ -201,6 +212,10 @@ interface Progress {
 
 const STAT_CACHE_FILE = "ohmygame-stat-cache.json";
 const UNFINISHED_FILE = "ohmygame-unfinished.json";
+const PRUNED_FILE = "ohmygame-pruned.json";
+// A snapshot can be taken some time before the entry that names it is written: the snapshot that closes a turn is
+// recorded when the whole run is over. What was written this recently is kept, with everything it needs.
+const PRUNE_GRACE_MS = 24 * 60 * 60 * 1000;
 const FILE_CONCURRENCY = 16;
 const READ_ATTEMPTS = 3;
 // A file changed this recently can change again without its size or times showing it: file systems keep times
@@ -333,6 +348,8 @@ export class CheckpointStore {
   readonly #limit = limiter(FILE_CONCURRENCY);
   readonly #objects = new ObjectVerifier();
   readonly #gitignores = new Map<string, Ignore | undefined>();
+  /** The snapshots handed out while a prune of the store runs, by store. */
+  readonly #issued = new Map<string, Set<string>[]>();
 
   /** Records the workspace as it is now and returns the commit that holds it. */
   snapshot(project: CheckpointProject): Promise<string> {
@@ -464,6 +481,126 @@ export class CheckpointStore {
       throw new Error("Invalid checkpoint recovery record");
     await readCommit(gitdir, previous);
     return previous;
+  }
+
+  /**
+   * Removes the snapshots that nothing names any more, with the files that
+   * only they held. `referenced` lists the snapshots that something outside
+   * the store still names, such as the entries on every branch of every
+   * conversation.
+   *
+   * Kept besides are the newest snapshot, the one an unfinished restore goes
+   * back to, every snapshot this store hands out while the prune runs, and
+   * everything written in the last day, with all they need. A snapshot is not
+   * kept for being the parent of another: every snapshot is, so `git log` on
+   * the store stops where one was removed. A snapshot or folder that is named
+   * and cannot be read stops the prune before anything is removed, because
+   * what it needs is not known. One that is not there at all needs nothing.
+   *
+   * What the named snapshots need is worked out beside other operations; only
+   * the removal waits for them. `proceed` is asked once it is the removal's
+   * turn, and the prune is left for later when it says no, for example while
+   * the project is being removed or changed.
+   *
+   * Undefined when the last prune was less than `interval` ago.
+   */
+  async prune(
+    project: CheckpointProject,
+    referenced: () => Promise<Iterable<string>>,
+    options: {
+      interval?: number;
+      proceed?: () => boolean;
+    } = {},
+  ): Promise<CheckpointPruneResult | undefined> {
+    const gitdir = checkpointDirectory(project);
+    // A snapshot handed out from now on may be named before the removal although nothing named it before.
+    const issued = new Set<string>();
+    this.#issued.set(gitdir, [...(this.#issued.get(gitdir) ?? []), issued]);
+    try {
+      // A project without checkpoints does not get a store from this.
+      if (!(await present(path.join(gitdir, "HEAD"))))
+        return { removed: 0, bytes: 0 };
+      if (!(await due(gitdir, Date.now(), options.interval ?? 0)))
+        return undefined;
+      const kept = new Set<string>();
+      for (const root of await referenced())
+        if (/^[0-9a-f]{40}$/.test(root)) await this.#keep(gitdir, root, kept);
+      const remove = () =>
+        this.#serialize(project, async () => {
+          const started = Date.now();
+          if (
+            options.proceed?.() === false ||
+            !(await present(path.join(gitdir, "HEAD"))) ||
+            !(await due(gitdir, started, options.interval ?? 0))
+          )
+            return undefined;
+          const recent = started - PRUNE_GRACE_MS;
+          const objects = await listObjects(gitdir, recent);
+          const roots = [
+            ...issued,
+            (await readHead(gitdir)) ?? "",
+            (await this.#unfinished(gitdir)) ?? "",
+            ...objects
+              .filter((object) => object.changedMs >= recent)
+              .map((object) => object.oid),
+          ];
+          for (const root of roots)
+            if (/^[0-9a-f]{40}$/.test(root))
+              await this.#keep(gitdir, root, kept);
+          const result: CheckpointPruneResult = { removed: 0, bytes: 0 };
+          for (const object of objects) {
+            if (kept.has(object.oid) || object.changedMs >= recent) continue;
+            await removeObject(gitdir, object.oid);
+            result.removed += 1;
+            result.bytes += object.size;
+          }
+          await writeAtomically(
+            gitdir,
+            path.join(gitdir, PRUNED_FILE),
+            JSON.stringify({ at: started }),
+          );
+          return result;
+        });
+      return await remove();
+    } finally {
+      const left = (this.#issued.get(gitdir) ?? []).filter(
+        (set) => set !== issued,
+      );
+      if (left.length) this.#issued.set(gitdir, left);
+      else this.#issued.delete(gitdir);
+    }
+  }
+
+  /** Adds an object to `kept` with everything it needs. Reading goes on beside other reads, a few at a time. */
+  async #keep(gitdir: string, oid: string, kept: Set<string>): Promise<void> {
+    if (kept.has(oid)) return;
+    kept.add(oid);
+    let type: "blob" | "tree" | "commit";
+    try {
+      type = await this.#limit(() => readObjectType(gitdir, oid));
+    } catch (error) {
+      // An object that is not there at all needs nothing. One that is there and cannot be read stops the prune.
+      if (
+        error instanceof DamagedObjectError &&
+        !(await hasObjectFile(gitdir, oid))
+      )
+        return;
+      throw error;
+    }
+    if (type === "commit")
+      await this.#keep(
+        gitdir,
+        (await this.#limit(() => readCommit(gitdir, oid))).tree,
+        kept,
+      );
+    if (type !== "tree") return;
+    const entries = await this.#limit(() => readTree(gitdir, oid));
+    await all(
+      entries.map(async (entry) => {
+        if (entry.mode === TREE_MODE) await this.#keep(gitdir, entry.oid, kept);
+        else kept.add(entry.oid);
+      }),
+    );
   }
 
   /**
@@ -1011,6 +1148,10 @@ export class CheckpointStore {
     }
   }
 
+  #issue(gitdir: string, commit: string): void {
+    for (const issued of this.#issued.get(gitdir) ?? []) issued.add(commit);
+  }
+
   async #snapshot(project: CheckpointProject): Promise<Snapshot> {
     const gitdir = checkpointDirectory(project);
     // A project that is being removed has no workspace any more, and must not get the folder of its store back.
@@ -1049,6 +1190,7 @@ export class CheckpointStore {
       recorded?.tree === tree &&
       recorded.unreadable.join("\0") === unreadable.join("\0")
     ) {
+      this.#issue(gitdir, head);
       return {
         commit: head,
         tree,
@@ -1066,6 +1208,7 @@ export class CheckpointStore {
       walk.objects,
     );
     await writeHead(gitdir, commit);
+    this.#issue(gitdir, commit);
     return {
       commit,
       tree,
@@ -1643,6 +1786,28 @@ async function present(target: string): Promise<Stats | undefined> {
     if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
     throw error;
   });
+}
+
+/** Whether the store was last pruned at least `interval` ago, or at a time that is not known or still to come. */
+async function due(
+  gitdir: string,
+  now: number,
+  interval: number,
+): Promise<boolean> {
+  let at: unknown;
+  try {
+    ({ at } = JSON.parse(
+      await readFile(path.join(gitdir, PRUNED_FILE), "utf8"),
+    ) as { at?: unknown });
+  } catch {
+    return true;
+  }
+  return (
+    typeof at !== "number" ||
+    !Number.isFinite(at) ||
+    at > now ||
+    now - at >= interval
+  );
 }
 
 async function readStatCache(gitdir: string): Promise<StatCache> {

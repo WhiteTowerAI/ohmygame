@@ -20,6 +20,7 @@ import {
   rename,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -3256,5 +3257,220 @@ describe("Reapply plans", () => {
       "a.txt": "after a",
       "b.txt": "later b",
     });
+  });
+});
+
+describe("pruning", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  /** The ids of every object the store holds. */
+  async function objects(game: {
+    workspacePath: string;
+    storagePath: string;
+  }): Promise<string[]> {
+    const root = path.join(checkpointDirectory(game), "objects");
+    const ids: string[] = [];
+    for (const folder of await readdir(root))
+      for (const name of await readdir(path.join(root, folder)))
+        if (/^[0-9a-f]{38}$/.test(name)) ids.push(folder + name);
+    return ids.sort();
+  }
+
+  /** Lets the store see everything it holds as written more than a day ago. */
+  function later(): void {
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 2 * DAY });
+  }
+
+  async function text(
+    store: CheckpointStore,
+    game: { workspacePath: string; storagePath: string },
+    commit: string,
+    file: string,
+  ): Promise<string> {
+    return Buffer.from((await store.read(game, commit, file))!).toString();
+  }
+
+  it("removes what no named snapshot needs and keeps what one does", async () => {
+    const game = await project({ "level.bin": "one", "game.ts": "same" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    const second = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    const newest = await store.snapshot(game);
+    const held = await objects(game);
+
+    later();
+    const result = await store.prune(game, async () => [first]);
+    // The second snapshot's commit, its tree and the file only it held.
+    expect(result?.removed).toBe(3);
+    expect(result?.bytes).toBeGreaterThan(0);
+    expect((await objects(game)).length).toBe(held.length - 3);
+    expect(await text(store, game, first, "level.bin")).toBe("one");
+    expect(await text(store, game, first, "game.ts")).toBe("same");
+    // The newest snapshot is kept although nothing names it.
+    expect(await text(store, game, newest, "level.bin")).toBe("three");
+    await expect(store.read(game, second, "level.bin")).rejects.toThrow();
+
+    await store.restore(game, first);
+    expect(await contents(game.workspacePath)).toEqual({
+      "level.bin": "one",
+      "game.ts": "same",
+    });
+  });
+
+  it("keeps everything written in the last day, with all it needs", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    await store.snapshot(game);
+    const old = new Set(await objects(game));
+    await write(game.workspacePath, { "level.bin": "one" });
+    // This snapshot is written last, and its file is the one of the old snapshot that nothing names.
+    const recent = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    await store.snapshot(game);
+    // File times cannot be set back, so what is written last is set ahead: the store sees it as written just now.
+    const now = new Date(Date.now() + 2 * DAY);
+    for (const oid of await objects(game))
+      if (!old.has(oid))
+        await utimes(
+          path.join(
+            checkpointDirectory(game),
+            "objects",
+            oid.slice(0, 2),
+            oid.slice(2),
+          ),
+          now,
+          now,
+        );
+
+    later();
+    // The two old commits go, and the tree and the file only the second one held. The old tree and file that the
+    // recent snapshot shares with the first stay, although nothing names the first.
+    expect((await store.prune(game, async () => []))?.removed).toBe(4);
+    await expect(store.read(game, first, "level.bin")).rejects.toThrow();
+    expect(await text(store, game, recent, "level.bin")).toBe("one");
+  });
+
+  it("keeps a snapshot it hands out while it works, also one that nothing named before", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    later();
+    let handed: string | undefined;
+    const result = await store.prune(game, async () => {
+      // Nothing changed, so this hands out the old snapshot again, and the next one moves on from it.
+      handed = await store.snapshot(game);
+      await write(game.workspacePath, { "level.bin": "two" });
+      await store.snapshot(game);
+      return [];
+    });
+    expect(handed).toBe(first);
+    expect(result?.removed).toBe(0);
+    expect(await text(store, game, first, "level.bin")).toBe("one");
+  });
+
+  it("removes nothing and notes nothing when the removal is not to happen", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    await store.snapshot(game);
+    const held = await objects(game);
+    later();
+    expect(
+      await store.prune(game, async () => [], { proceed: () => false }),
+    ).toBeUndefined();
+    expect(await objects(game)).toEqual(held);
+    expect(
+      existsSync(path.join(checkpointDirectory(game), "ohmygame-pruned.json")),
+    ).toBe(false);
+    expect(
+      (await store.prune(game, async () => [], { proceed: () => true }))
+        ?.removed,
+    ).toBeGreaterThan(0);
+  });
+
+  it("keeps the snapshot an unfinished restore goes back to", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    await store.snapshot(game);
+    await writeFile(
+      path.join(checkpointDirectory(game), "ohmygame-unfinished.json"),
+      JSON.stringify({ previous: first }),
+    );
+    later();
+    expect((await store.prune(game, async () => []))?.removed).toBe(0);
+    expect(await text(store, game, first, "level.bin")).toBe("one");
+  });
+
+  it("passes over a named snapshot that is not there, and removes nothing when one cannot be read", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    const second = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    await store.snapshot(game);
+    later();
+    expect(
+      (await store.prune(game, async () => ["0".repeat(40), first]))?.removed,
+    ).toBe(3);
+
+    const held = await objects(game);
+    const tree = (await readCommit(checkpointDirectory(game), first)).tree;
+    const file = path.join(
+      checkpointDirectory(game),
+      "objects",
+      tree.slice(0, 2),
+      tree.slice(2),
+    );
+    await chmod(file, 0o644);
+    await writeFile(file, "damaged");
+    await expect(
+      store.prune(game, async () => [first, second]),
+    ).rejects.toThrow();
+    expect(await objects(game)).toEqual(held);
+  });
+
+  it("prunes at most once in an interval, and makes no store for a project without one", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    expect(await store.prune(game, async () => [])).toEqual({
+      removed: 0,
+      bytes: 0,
+    });
+    expect(existsSync(checkpointDirectory(game))).toBe(false);
+
+    await store.snapshot(game);
+    expect(
+      await store.prune(game, async () => [], { interval: DAY }),
+    ).toBeDefined();
+    expect(
+      await store.prune(game, async () => [], { interval: DAY }),
+    ).toBeUndefined();
+    later();
+    expect(
+      await store.prune(game, async () => [], { interval: DAY }),
+    ).toBeDefined();
+  });
+
+  it("clears away what an object write that was cut off left behind long ago", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    await store.snapshot(game);
+    const folder = path.join(checkpointDirectory(game), "objects", "ab");
+    await mkdir(folder, { recursive: true });
+    await writeFile(path.join(folder, "tmp_obj_left"), "partial");
+    await writeFile(path.join(folder, "README"), "not an object");
+    later();
+    await store.prune(game, async () => []);
+    expect(await readdir(folder)).toEqual(["README"]);
   });
 });
