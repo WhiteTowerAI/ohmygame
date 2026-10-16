@@ -1,3 +1,4 @@
+import { isAgentRuntimeId, type ApprovalDecision } from "../shared/agent-runtimes.js";
 import {
   ArrowLeft,
   LoaderCircle,
@@ -27,6 +28,7 @@ import {
   releasePreview,
   stopPreview,
   approvePlan,
+  answerApproval,
   answerQuestionnaire,
   cancelPrompt,
   cancelPlan,
@@ -68,6 +70,7 @@ import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { composerDrafts } from "./composer-drafts.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
+import { ApprovalCard } from "./approval-card.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
@@ -154,7 +157,7 @@ export function ProjectShell({
   const [dismissedDesign, setDismissedDesign] = useState<string>();
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   usePlaytestAskRequests(state.project?.id, requestPrompt);
-  const modelCatalog = useAgentModels();
+  const modelCatalog = useAgentModels({ agentRuntimes: true });
   const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
@@ -397,6 +400,11 @@ export function ProjectShell({
   const questionnaire = activeTurn?.items.find((item): item is Extract<ThreadItem, { type: "userInputRequest" }> => (
     item.type === "userInputRequest" && item.status === "inProgress"
   ));
+  const approvals = (activeTurn?.items ?? []).filter((item): item is Extract<ThreadItem, { type: "approvalRequest" }> => (
+    item.type === "approvalRequest" && item.status === "inProgress"
+  ));
+  const approval = approvals[0];
+  const approvalAgent = approval ? modelCatalog.models.find((model) => model.provider === state.settings.model?.provider)?.providerName : undefined;
   const currentConversationBusy = Boolean(activeTurn);
   const agentBusy = sendingInitialPrompt || currentConversationBusy || state.agent.status === "running" || state.agent.status === "cancelling";
   const activePlanItem = activeTurn
@@ -499,6 +507,17 @@ export function ProjectShell({
     try {
       await refinePlan(project.id, conversation.id);
       return submitPrompt(feedback.trim(), [], [], "planning");
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+      return false;
+    }
+  }
+
+  async function respondToApproval(decision: ApprovalDecision): Promise<boolean> {
+    if (!project || !conversation || !approval) return false;
+    try {
+      await answerApproval(project.id, conversation.id, approval.requestId, decision);
+      return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
       return false;
@@ -659,7 +678,9 @@ export function ProjectShell({
     setCreatingConversation(true);
     dispatch({ type: "notice", message: undefined });
     try {
-      const created = await createConversation(project.id);
+      // A new conversation stays with the coding agent the person was using; otherwise it takes the default model.
+      const current = state.settings.model;
+      const created = await createConversation(project.id, current && isAgentRuntimeId(current.provider) ? current : undefined);
       setCreatingConversation(false);
       onOpenConversation(created.id);
     } catch (error) {
@@ -794,7 +815,7 @@ export function ProjectShell({
                 workspacePath={project?.workspacePath}
                 onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
                 revisionDisabled={agentBusy || restoring || unfinishedRestore || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
-                waitingForInput={Boolean(questionnaire)}
+                waitingForInput={Boolean(questionnaire || approval)}
                 onRevise={revisePrompt}
                 onRestore={restoreToMessage}
                 changeControls={turnChanges}
@@ -804,6 +825,15 @@ export function ProjectShell({
               </ErrorBoundary>
             </Activity>
           </div>
+
+          {approval ? (
+            <ApprovalCard
+              request={approval}
+              agentName={approvalAgent}
+              waiting={approvals.length - 1}
+              onDecide={respondToApproval}
+            />
+          ) : null}
 
           {questionnaire ? (
             <QuestionnaireCard
@@ -1049,7 +1079,8 @@ function leftUnfinished(error: unknown): boolean {
 
 async function initialConversationModel(): Promise<AgentModelRef | undefined> {
   try {
-    const catalog = await listModels();
+    // OhMyGame's own models come first; with none connected, the first coding agent that is set up.
+    const catalog = await listModels({ agentRuntimes: true });
     return catalog.defaultModel ?? catalog.models[0];
   } catch {
     return undefined;

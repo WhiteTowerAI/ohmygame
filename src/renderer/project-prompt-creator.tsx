@@ -48,7 +48,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
   const [history, setHistory] = useState(() => createPromptHistory(storedHistory.map((entry) => entry.prompt)));
   const mentionHistory = new Map(storedHistory.map((entry) => [entry.prompt, entry.mentions]));
   const promptRef = useRef<HTMLTextAreaElement>(null);
-  const modelCatalog = useAgentModels();
+  const modelCatalog = useAgentModels({ agentRuntimes: true });
   const selectedModel = preferredAgentModel(modelCatalog.models, model, modelCatalog.defaultModel);
   const contextMenu = useComposerContextMenu({
     prompt,

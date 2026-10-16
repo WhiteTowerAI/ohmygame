@@ -251,27 +251,39 @@ export type AgentModelCatalogStatus = "loading" | "ready" | "error";
 export type AgentModelCatalogState = AgentModelCatalog & { status: AgentModelCatalogStatus };
 
 const EMPTY_CATALOG: AgentModelCatalogState = { models: [], defaultReasoningLevel: "medium", status: "loading" };
-export function useAgentModels(): AgentModelCatalogState {
+/** The models a picker offers. Conversations pass `agentRuntimes` to list coding agents' models with OhMyGame's own. */
+export function useAgentModels(options: { agentRuntimes?: boolean } = {}): AgentModelCatalogState {
   const [catalog, setCatalog] = useState<AgentModelCatalogState>(EMPTY_CATALOG);
+  const agentRuntimes = options.agentRuntimes === true;
   useEffect(() => {
     let disposed = false;
     let generation = 0;
-    const load = () => {
+    let retries = 0;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const load = (quiet = false) => {
       const request = ++generation;
-      setCatalog((current) => ({ ...current, status: "loading" }));
-      void waitForRuntime().then(listModels).then((available) => {
-        if (!disposed && request === generation) setCatalog({ ...available, status: "ready" });
+      if (!quiet) setCatalog((current) => ({ ...current, status: "loading" }));
+      void waitForRuntime().then(() => listModels({ agentRuntimes })).then((available) => {
+        if (disposed || request !== generation) return;
+        setCatalog({ ...available, status: "ready" });
+        // A coding agent that was slow to list its models is asked again, a few times, without hiding the others.
+        if (available.loadingRuntimes?.length && retries < 5) {
+          retries++;
+          retry = setTimeout(() => load(true), 3_000);
+        }
       }).catch(() => {
         if (!disposed && request === generation) setCatalog((current) => ({ ...current, models: [], hiddenModels: undefined, defaultModel: undefined, status: "error" }));
       });
     };
-    load();
-    window.addEventListener(MODELS_CHANGED_EVENT, load);
+    const reload = () => { retries = 0; load(); };
+    reload();
+    window.addEventListener(MODELS_CHANGED_EVENT, reload);
     return () => {
       disposed = true;
-      window.removeEventListener(MODELS_CHANGED_EVENT, load);
+      clearTimeout(retry);
+      window.removeEventListener(MODELS_CHANGED_EVENT, reload);
     };
-  }, []);
+  }, [agentRuntimes]);
   return catalog;
 }
 
