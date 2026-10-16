@@ -2,6 +2,7 @@ import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
+import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -31,11 +32,15 @@ export interface AgentModel extends AgentModelRef {
   name: string;
   providerName: string;
   reasoningLevels: AgentReasoningLevel[];
+  /** Set when a coding agent CLI, not OhMyGame's own agent, runs conversations with this model. */
+  runtime?: AgentRuntimeId;
 }
 
 export interface AgentModelCatalog {
   models: AgentModel[];
   hiddenModels?: AgentModel[];
+  /** Coding agents whose models were still loading; asking again a little later lists them. */
+  loadingRuntimes?: AgentRuntimeId[];
   defaultModel?: AgentModelRef;
   defaultReasoningLevel: AgentReasoningLevel;
 }
@@ -776,6 +781,16 @@ export type ThreadItem = (
       tokensBefore?: number;
       estimatedTokensAfter?: number;
       error?: ThreadItemError;
+    }
+  | {
+      id: string;
+      turnId: string;
+      /** A coding agent asks before it runs a command, changes a file or calls a tool. */
+      type: "approvalRequest";
+      requestId: string;
+      request: ApprovalRequestDetails;
+      status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "failed">;
+      decision?: ApprovalDecision;
     }
   | {
       id: string;
