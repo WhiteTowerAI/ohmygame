@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
@@ -17,6 +17,7 @@ interface LockedPlugin {
   version: string;
   artifactSha256: string;
   candidate: string;
+  assets?: string;
   interface?: NonNullable<ResolvedPluginManifest["interface"]>;
 }
 
@@ -30,7 +31,11 @@ const lock = JSON.parse(await readFile(path.join(repositoryRoot, "config", "prei
 if (lock.version !== 1 || !Array.isArray(lock.plugins)) throw new Error("Invalid preinstalled Plugin lock file");
 
 const output = path.join(repositoryRoot, ".runtime", "preinstalled-plugins");
-const lockSha256 = createHash("sha256").update(JSON.stringify(lock)).digest("hex");
+const lockHash = createHash("sha256").update(JSON.stringify(lock));
+for (const entry of lock.plugins) {
+  if (entry.assets) lockHash.update(await createPluginArchive(path.resolve(repositoryRoot, entry.assets)));
+}
+const lockSha256 = lockHash.digest("hex");
 
 if (await isCurrentOutput(output, lockSha256)) {
   console.log(`Reusing ${lock.plugins.length} prepared preinstalled Plugin${lock.plugins.length === 1 ? "" : "s"}`);
@@ -53,6 +58,7 @@ async function preparePlugins(destination: string, expectedLockSha256: string): 
       const actualCommit = (await git(["-C", source, "rev-parse", "HEAD"])).trim();
       if (actualCommit !== entry.commit) throw new Error(`Unexpected commit for ${entry.repository}: ${actualCommit}`);
       await rm(path.join(source, ".git"), { recursive: true, force: true });
+      if (entry.assets) await cp(path.resolve(repositoryRoot, entry.assets), path.join(source, "assets"), { recursive: true });
 
       const candidates = await discoverPlugins(source);
       const selected = candidates.find((candidate) => candidate.key === entry.candidate);

@@ -12,7 +12,7 @@
     "beta": true,
     "displayName": "TapTap Maker",
     "shortDescription": "Connect Maker projects, preview locally, and submit builds.",
-    "longDescription": "Enable this plugin in Settings > Plugins when working on TapTap Maker; it is disabled by default. Connect an existing Maker workspace or initialize an empty directory with the official CLI. Develop against the project's UrhoX/Lua dev-kit, preview with Maker Runtime, and submit remote builds through Maker. Initialization may also configure Lua LSP for other installed AI editors; the workflow explains this before requesting approval. A Maker account is required for project access and remote operations.",
+    "longDescription": "Connect an existing Maker workspace or initialize an empty directory with the official CLI. Develop UrhoX/Lua games, preview with Maker Runtime, and submit builds to Maker. A Maker account is required for project access and remote operations.",
     "icon": {
       "type": "asset",
       "path": "./assets/icon.svg"

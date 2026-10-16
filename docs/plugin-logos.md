@@ -14,11 +14,18 @@ the source, upstream terms, and any preparation in
 `assets/NOTICE.md`. These notices travel with exported and imported packages.
 TapTap Maker currently uses the official TapTap app mark to identify the service.
 
-Game Studio and Web Game Studio use the ready-made **Board Game Dice 1** and
-**Card Game Heart** artwork from Streamline Ultimate color (CC BY 4.0), with the
-original geometry, colors, and attribution retained. These workflow icons are separate from the OhMyGame
-application logo. Three.js World uses the upstream Three.js mark and retains its
-MIT license. All three keep their sources and notices in their package assets.
+Game Studio, Web Game Studio, and Image to Three.js use the user-selected
+**Vectors Anchor Rectangle** artwork from Streamline Ultimate color (CC BY 4.0),
+with its original geometry, colors, and attribution retained. Three.js World uses
+the upstream Three.js mark and retains its MIT license.
+
+Image to Three.js is a preinstalled third-party package from `img2threejs/img2threejs`,
+locked in `config/preinstalled-plugins.json`. Its build-only `assets` directory
+(`config/plugin-assets/img2threejs`) is copied into the prepared package's `assets/`.
+These files participate in the preparation fingerprint and final archive checksum.
+Change the prepared release ID and checksum when shipping updated assets so existing
+installations receive them through the normal preinstalled-package update path.
+The icon and notice then travel with the package, just like bundled plugin assets.
 
 Prefer an official resource. When using a curated collection such as Simple
 Icons, record that collection and its terms as the source. Keep original colors

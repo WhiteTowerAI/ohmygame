@@ -57,13 +57,7 @@ export const PLUGIN_PRESET_GLYPHS: Record<PluginIconPresetId, IconComponent> = {
   clipboard: Clipboard,
   flag: Flag,
 };
-const INCLUDED_ICONS: Record<string, IconComponent> = {
-  img2threejs: Image,
-};
-type IconPlugin = Pick<
-  PluginSummary,
-  "id" | "name" | "source" | "icon" | "iconRevision"
->;
+type IconPlugin = Pick<PluginSummary, "id" | "icon" | "iconRevision">;
 
 export function PluginGlyph({
   plugin,
@@ -130,12 +124,7 @@ export function PluginGlyph({
     const Icon = PLUGIN_PRESET_GLYPHS[plugin.icon.id] ?? Package;
     return <Icon size={size} aria-hidden="true" />;
   }
-  const included =
-    plugin.source.type === "builtIn" || plugin.source.type === "preinstalled";
-  const Icon =
-    (!plugin.icon && included ? INCLUDED_ICONS[plugin.name] : undefined) ??
-    Package;
-  return <Icon size={size} aria-hidden="true" />;
+  return <Package size={size} aria-hidden="true" />;
 }
 
 export function PluginIcon({
