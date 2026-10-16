@@ -195,6 +195,8 @@ const zhCN: typeof en = {
     noAudioModels: "没有可用的音频模型。",
     loadingModels: "正在加载模型",
     audioDescription: "豆包语音合成，用于生成角色配音",
+    seedAudioDescription: "使用 Seed Audio 1.0 生成游戏音效和无歌词背景音乐",
+    seedAudioHint: "Seed Audio 使用独立连接，不会替换或修改现有的豆包语音配置。",
     defaultVoiceId: "默认音色",
     voiceSelectCustom: "自定义 Speaker ID...",
     voiceIdInputLabel: "Speaker ID",
