@@ -58,9 +58,6 @@ export const PLUGIN_PRESET_GLYPHS: Record<PluginIconPresetId, IconComponent> = {
   flag: Flag,
 };
 const INCLUDED_ICONS: Record<string, IconComponent> = {
-  "game-studio": Gamepad2,
-  "web-game-studio": Globe2,
-  "threejs-world": Box,
   img2threejs: Image,
 };
 type IconPlugin = Pick<
