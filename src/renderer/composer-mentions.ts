@@ -77,6 +77,11 @@ export function mentionQuery(value: string, cursor: number): ComposerMentionQuer
   };
 }
 
+export function slashCommandQuery(value: string, cursor: number): ComposerMentionQuery | undefined {
+  if (cursor !== value.length || !value.startsWith("/") || value.includes("\n") || !/\s/.test(value.slice(1))) return undefined;
+  return { start: 0, end: cursor, trigger: "/", query: value.slice(1).toLowerCase() };
+}
+
 export function matchingMentions(capabilities: ConversationCapabilities, query: ComposerMentionQuery): ComposerMention[] {
   const plugins: ComposerMention[] = query.trigger === "@"
     ? capabilities.plugins
