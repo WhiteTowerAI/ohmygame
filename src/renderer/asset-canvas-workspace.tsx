@@ -1587,7 +1587,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               nodeTypes={STORY_NODE_TYPES}
               onInit={(instance) => { flowInstance.current = instance; }}
               addControl={<AssetCanvasAddControl
-                projectId={projectId}
+                project={project}
                 documents={documents} tables={tables}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
                 importing={importingAssets}
@@ -2484,7 +2484,7 @@ function formatPreviewTime(timeMs: number): string {
 }
 
 function AssetCanvasAddControl({
-  projectId,
+  project,
   documents,
   tables,
   libraryAssets,
@@ -2493,7 +2493,7 @@ function AssetCanvasAddControl({
   onAddAsset,
   onUpload,
 }: {
-  projectId: string;
+  project: Pick<ProjectState, "id" | "name" | "type">;
   documents: CanvasDocuments;
   tables: CanvasTables;
   libraryAssets: LibraryAsset[];
@@ -2581,7 +2581,7 @@ function AssetCanvasAddControl({
           <Plus size={18} />
         </button>
       </div>
-      {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} projectId={projectId} assets={libraryAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
+      {libraryOpen ? <LibraryAssetPicker title={t("assetCanvas.addFromLibrary")} projectId={project.id} project={project} assets={libraryAssets} onClose={() => setLibraryOpen(false)} onSelect={(asset) => {
         const position = placementPosition();
         if (position) onAddAsset(asset, position);
         setLibraryOpen(false);

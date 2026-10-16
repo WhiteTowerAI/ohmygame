@@ -35,7 +35,7 @@ afterEach(async () => {
 
 it("defaults the Library picker to the current project", async () => {
   await act(async () => root.render(
-    <LibraryAssetPicker title="From Library" projectId={project.id} assets={[asset, otherAsset]} onClose={vi.fn()} onSelect={vi.fn()} />,
+    <LibraryAssetPicker title="From Library" projectId={project.id} project={project} assets={[asset, otherAsset]} onClose={vi.fn()} onSelect={vi.fn()} />,
   ));
   expect(document.querySelectorAll<HTMLButtonElement>(".story-video-picker-list > button")).toHaveLength(1);
   expect(document.querySelector<HTMLButtonElement>(".story-video-picker-list > button")?.title).toBe("hero.png");
@@ -48,4 +48,16 @@ it("defaults the Library picker to the current project", async () => {
     { value: "saved", options: ["saved", "generated", "uploaded", "workspace", "all"] },
     { value: project.id, options: ["", "unassigned", otherProject.id, project.id] },
   ]);
+});
+
+it("keeps the current project in the filter when it has no Library assets", async () => {
+  await act(async () => root.render(
+    <LibraryAssetPicker title="From Library" projectId={project.id} project={project} assets={[otherAsset]} onClose={vi.fn()} onSelect={vi.fn()} />,
+  ));
+  expect(document.querySelectorAll<HTMLButtonElement>(".story-video-picker-list > button")).toHaveLength(0);
+  const trigger = document.querySelector<HTMLButtonElement>(".library-filter-trigger");
+  await act(async () => trigger!.click());
+  const projectSelect = document.querySelectorAll<HTMLSelectElement>(".library-filter-popover select")[1]!;
+  expect(projectSelect.value).toBe(project.id);
+  expect([...projectSelect.options].map((option) => option.value)).toEqual(["", "unassigned", otherProject.id, project.id]);
 });
