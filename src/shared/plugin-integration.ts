@@ -16,11 +16,6 @@ export const PLUGIN_INTEGRATION_ACTIONS = [
 ] as const;
 export type PluginIntegrationAction =
   (typeof PLUGIN_INTEGRATION_ACTIONS)[number];
-export type PluginPreviewAction = Extract<
-  PluginIntegrationAction,
-  `preview-${string}`
->;
-
 export interface PluginIntegrationDefinition {
   entry: string;
   /** Files relative to a workspace, all of which must exist to recognize it. */

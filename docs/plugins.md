@@ -277,8 +277,9 @@ plugin packages. Credentials remain in Maker's own store.
 
 Reference Maker when creating a project to select General automatically. Before
 the first prompt, choose an existing Maker project explicitly and connect its
-empty local directory, or import an already bound directory. Existing bindings
-are preserved. Recognized imports use the plugin's compatible type; existing
+empty local directory, or import an already bound directory. Reconnecting the
+same binding only checks its status; it does not run initialization again.
+Recognized imports use the plugin's compatible type; existing
 OhMyGame projects are never silently converted. Conflicting plugin references
 require a compatible selection. Remote project creation stays in Maker's service.
 

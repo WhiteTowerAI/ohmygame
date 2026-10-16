@@ -27,18 +27,19 @@ function useIntegration(
     setState(initial);
     setPending(false);
     setError(undefined);
-    void getPluginIntegration(pluginId, projectId)
-      .then((value) => {
-        if (current === generation.current) setState(value);
-      })
-      .catch((cause) => {
-        if (current === generation.current)
-          setError(String(cause.message ?? cause));
-      });
+    if (!initial)
+      void getPluginIntegration(pluginId, projectId)
+        .then((value) => {
+          if (current === generation.current) setState(value);
+        })
+        .catch((cause) => {
+          if (current === generation.current)
+            setError(String(cause.message ?? cause));
+        });
     return () => {
       generation.current++;
     };
-  }, [pluginId, projectId]);
+  }, [pluginId, projectId, initial]);
   useEffect(() => {
     if (!state?.running) return;
     let disposed = false;
@@ -96,13 +97,11 @@ export function PluginIntegrationPanel({
   projectId,
   initial,
   onReady,
-  children,
 }: {
   pluginId: string;
   projectId?: string;
   initial?: PluginIntegrationState;
   onReady?: () => void;
-  children?: ReactNode;
 }) {
   const integration = useIntegration(pluginId, projectId, initial);
   return (
@@ -111,9 +110,7 @@ export function PluginIntegrationPanel({
       pluginId={pluginId}
       projectId={projectId}
       onReady={onReady}
-    >
-      {children}
-    </IntegrationContents>
+    />
   );
 }
 
@@ -125,17 +122,25 @@ function IntegrationContents({
   pluginId,
   projectId,
   onReady,
-  children,
 }: ReturnType<typeof useIntegration> & {
   pluginId: string;
   projectId?: string;
   onReady?: () => void;
-  children?: ReactNode;
 }) {
   const [selected, setSelected] = useState("");
   const result = state?.result;
   const ready = result?.connection?.status === "ready";
   const bound = !!result?.project;
+  useEffect(() => {
+    if (
+      state?.action === "status" &&
+      ready &&
+      (!projectId || bound) &&
+      !busy &&
+      !error
+    )
+      onReady?.();
+  }, [state?.action, ready, bound, projectId, busy, error, onReady]);
   return (
     <section
       className="plugin-integration-panel"
@@ -257,7 +262,6 @@ function IntegrationContents({
           {t("integration.continue")}
         </button>
       ) : null}
-      {children}
     </section>
   );
 }
@@ -268,15 +272,16 @@ export function usePluginIntegrationGate(
   const [dialog, setDialog] = useState<{
     project: ProjectState;
     initial: PluginIntegrationState;
-    resolve: (ready: boolean) => void;
   }>();
-  const active = useRef<typeof dialog>(undefined);
+  const resolveDialog = useRef<((ready: boolean) => void) | undefined>(
+    undefined,
+  );
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
-      active.current?.resolve(false);
+      resolveDialog.current?.(false);
     };
   }, []);
   async function ensure(
@@ -293,12 +298,9 @@ export function usePluginIntegrationGate(
     let state = await getPluginIntegration(pluginId, project.id);
     if (!state.running && state.error)
       state = await runPluginIntegration(pluginId, "status", project.id);
-    while (state.running && mounted.current) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      state = await getPluginIntegration(pluginId, project.id);
-    }
     if (!mounted.current) return undefined;
     if (
+      !state.running &&
       state.result?.connection?.status === "ready" &&
       state.result.project &&
       !state.error
@@ -306,17 +308,14 @@ export function usePluginIntegrationGate(
       return project;
     }
     const ready = await new Promise<boolean>((resolve) => {
-      active.current = { project, initial: state, resolve };
-      setDialog(active.current);
+      resolveDialog.current = resolve;
+      setDialog({ project, initial: state });
     });
-    if (ready) {
-      return project;
-    }
-    return undefined;
+    return ready ? project : undefined;
   }
   function close(ready: boolean) {
-    active.current?.resolve(ready);
-    active.current = undefined;
+    resolveDialog.current?.(ready);
+    resolveDialog.current = undefined;
     setDialog(undefined);
   }
   return {

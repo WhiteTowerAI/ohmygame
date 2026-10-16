@@ -77,6 +77,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -162,6 +163,62 @@ describe("plugin connection UI", () => {
     await click("Send");
     expect(container.querySelector("textarea")!.value).toBe("");
     expect(actions.some((item) => item.action === "bind")).toBe(false);
+  });
+  it("shows an in-flight task immediately and lets the panel alone poll before continuing", async () => {
+    vi.useFakeTimers();
+    state = {
+      ...state,
+      action: "bind",
+      running: true,
+      message: "Connecting the selected project…",
+      result: { connection: { status: "ready" }, project: { id: "a" } },
+    };
+    const send = vi.fn();
+    function Composer() {
+      const gate = usePluginIntegrationGate();
+      return (
+        <>
+          {gate.dialog}
+          <button
+            onClick={() =>
+              void gate.ensure(project).then((ready) => {
+                if (ready) send();
+              })
+            }
+          >
+            Send
+          </button>
+        </>
+      );
+    }
+    await act(async () => root.render(<Composer />));
+    await click("Send");
+    expect(container.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(container.textContent).toContain("Connecting the selected project…");
+    const proceed = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent === "Continue",
+    )!;
+    expect(proceed.disabled).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    state = { ...state, running: false, message: undefined };
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(fetch).toHaveBeenCalledTimes(3);
+    await click("Continue");
+    expect(send).toHaveBeenCalledOnce();
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(fetch).toHaveBeenCalledTimes(3);
+    state = { ...state, action: "status", running: true };
+    await click("Send");
+    expect(container.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(send).toHaveBeenCalledOnce();
+    state = { ...state, running: false };
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(actions).toEqual([]);
   });
   it("uses native controls without an iframe and polls only while mounted", async () => {
     state.result = { connection: { status: "ready" }, project: { id: "a" } };

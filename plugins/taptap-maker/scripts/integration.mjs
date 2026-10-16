@@ -130,16 +130,19 @@ async function main(request) {
     throw new Error("Select a local project workspace first");
   if (action === "bind") {
     if (!request.projectId) throw new Error("Select a Maker project first");
-    await verifyDiagnostics(directory); // Prevent init's multi-editor LSP installer.
     const current = await binding(workspace);
-    if (current && current.id !== request.projectId)
-      throw new Error(
-        "This directory is already bound to another Maker project",
-      );
-    if (!current && (await readdir(workspace)).length)
+    if (current) {
+      if (current.id !== request.projectId)
+        throw new Error(
+          "This directory is already bound to another Maker project",
+        );
+      return status(directory, workspace);
+    }
+    if ((await readdir(workspace)).length)
       throw new Error(
         "Choose an empty directory or import an existing Maker workspace",
       );
+    await verifyDiagnostics(directory); // Prevent init's multi-editor LSP installer.
     const available = projects(await maker(directory, ["apps", "--json"]));
     if (!available.some((item) => item.id === request.projectId))
       throw new Error("Selected Maker project is unavailable to this account");
