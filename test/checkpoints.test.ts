@@ -167,6 +167,11 @@ async function locked<T>(targets: string[], run: () => Promise<T>): Promise<T> {
   }
 }
 
+/** The paths of a list of changes. */
+function paths(changes: Array<{ path: string }>): string[] {
+  return changes.map((change) => change.path);
+}
+
 /** The paths a snapshot says it could not read. */
 async function unreadable(
   game: { workspacePath: string; storagePath: string },
@@ -327,22 +332,161 @@ describe("workspace checkpoints", () => {
     });
   });
 
-  it("ignores the workspace's own .gitignore", async () => {
+  it("leaves out what the workspace's .gitignore files ignore and never touches it", async () => {
     const game = await project({
-      ".gitignore": "*.png\nsecret.txt\n",
+      ".gitignore": "*.log\nvenv/\n",
+      "assets/.gitignore": "generated/\n!keep.log\n",
       "assets/hero.png": "hero",
-      "secret.txt": "one",
+      "assets/keep.log": "kept",
+      "assets/generated/one.png": "one",
+      "venv/lib.py": "one",
+      "debug.log": "one",
     });
     const store = new CheckpointStore();
     const before = await store.snapshot(game);
-    await write(game.workspacePath, {
+    for (const ignored of [
+      "assets/generated/one.png",
+      "venv/lib.py",
+      "debug.log",
+    ])
+      expect(await store.read(game, before, ignored)).toBeUndefined();
+    expect(
+      Buffer.from(
+        (await store.read(game, before, "assets/keep.log"))!,
+      ).toString(),
+    ).toBe("kept");
+
+    const changed = {
       "assets/hero.png": "changed",
-      "secret.txt": "two",
-    });
+      "assets/keep.log": "changed",
+      "assets/generated/one.png": "two",
+      "venv/lib.py": "two",
+      "debug.log": "two",
+    };
+    await write(game.workspacePath, changed);
+    expect(
+      paths(await store.diff(game, before, await store.snapshot(game))),
+    ).toEqual(["assets/hero.png", "assets/keep.log"]);
     await store.restore(game, before);
-    expect(await contents(game.workspacePath)).toMatchObject({
+    expect(await contents(game.workspacePath)).toEqual({
+      ".gitignore": "*.log\nvenv/\n",
+      "assets/.gitignore": "generated/\n!keep.log\n",
+      ...changed,
       "assets/hero.png": "hero",
-      "secret.txt": "one",
+      "assets/keep.log": "kept",
+    });
+  });
+
+  it("keeps OhMyGame's own files and every .gitignore whatever a .gitignore says", async () => {
+    const game = await project({
+      ".gitignore": ".data/\ncanvas/\n.gitignore\n*.json\n",
+      ".data/assets.json": "{}",
+      "canvas/board.json": "{}",
+      "levels/one.json": "{}",
+      "levels/.gitignore": "*\n",
+      "levels/two.txt": "two",
+    });
+    const store = new CheckpointStore();
+    const commit = await store.snapshot(game);
+    for (const kept of [
+      ".gitignore",
+      ".data/assets.json",
+      "canvas/board.json",
+      "levels/.gitignore",
+    ])
+      expect(await store.read(game, commit, kept)).toBeDefined();
+    for (const ignored of ["levels/one.json", "levels/two.txt"])
+      expect(await store.read(game, commit, ignored)).toBeUndefined();
+  });
+
+  it("neither shows nor takes back a file that the .gitignore of only one side ignores", async () => {
+    const game = await project({
+      ".gitignore": "*.log\n",
+      "cache/data.bin": "one",
+      "game.ts": "one",
+    });
+    const store = new CheckpointStore();
+    const before = await store.snapshot(game);
+    // The turn starts to ignore one file and stops ignoring another.
+    await write(game.workspacePath, {
+      ".gitignore": "cache/\n",
+      "cache/data.bin": "two",
+      "app.log": "new",
+      "game.ts": "two",
+    });
+    const after = await store.snapshot(game);
+    expect(paths(await store.diff(game, before, after))).toEqual([
+      ".gitignore",
+      "game.ts",
+    ]);
+    expect(await store.undo(game, { before, after })).toMatchObject({
+      changed: [".gitignore", "game.ts"],
+      conflicts: [],
+    });
+    expect(await contents(game.workspacePath)).toEqual({
+      ".gitignore": "*.log\n",
+      "cache/data.bin": "two",
+      "app.log": "new",
+      "game.ts": "one",
+    });
+  });
+
+  it("names a file of the turn that a later .gitignore ignores as one an undo cannot put back", async () => {
+    const game = await project({ "notes.txt": "one", "game.ts": "one" });
+    const store = new CheckpointStore();
+    const before = await store.snapshot(game);
+    await write(game.workspacePath, { "notes.txt": "two", "game.ts": "two" });
+    const after = await store.snapshot(game);
+    await write(game.workspacePath, { ".gitignore": "notes.txt\n" });
+
+    const error = await store
+      .undo(game, { before, after })
+      .catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(CheckpointConflictError);
+    expect((error as CheckpointConflictError).blocked).toEqual(["notes.txt"]);
+    expect(
+      await store.undo(game, { before, after }, { conflicts: "keep" }),
+    ).toMatchObject({ changed: ["game.ts"], conflicts: ["notes.txt"] });
+    expect(await contents(game.workspacePath)).toEqual({
+      ".gitignore": "notes.txt\n",
+      "notes.txt": "two",
+      "game.ts": "one",
+    });
+  });
+
+  it("does not put back an ignored file from a snapshot taken before it was ignored", async () => {
+    const game = await project({ "venv/lib.py": "one", "game.ts": "one" });
+    const store = new CheckpointStore();
+    const before = await store.snapshot(game);
+    expect(await store.read(game, before, "venv/lib.py")).toBeDefined();
+    await write(game.workspacePath, {
+      ".gitignore": "venv/\n",
+      "venv/lib.py": "two",
+      "game.ts": "two",
+    });
+    expect(await store.restore(game, before)).toMatchObject({
+      changed: [".gitignore", "game.ts"],
+    });
+    expect(await contents(game.workspacePath)).toEqual({
+      "venv/lib.py": "two",
+      "game.ts": "one",
+    });
+  });
+
+  it("never removes ignored files that are where a file must come back", async () => {
+    const game = await project({ ".gitignore": "*.log\n", export: "a file" });
+    const store = new CheckpointStore();
+    const before = await store.snapshot(game);
+    await rm(path.join(game.workspacePath, "export"));
+    await write(game.workspacePath, { "export/trace.log": "trace" });
+    const error = await store
+      .restore(game, before)
+      .catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(CheckpointConflictError);
+    expect((error as CheckpointConflictError).blocked).toEqual(["export"]);
+    expect(await contents(game.workspacePath)).toEqual({
+      ".gitignore": "*.log\n",
+      "export/trace.log": "trace",
     });
   });
 
