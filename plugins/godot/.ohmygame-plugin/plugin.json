@@ -3,7 +3,9 @@
   "version": "0.2.0",
   "description": "Build Godot scenes, scripts, and asset workflows with runtime diagnostics.",
   "skills": "./skills/",
-  "requirements": { "commands": ["npx"] },
+  "requirements": {
+    "commands": ["npx"]
+  },
   "configuration": {
     "godot-path": {
       "type": "text",
@@ -14,7 +16,10 @@
   },
   "interface": {
     "beta": true,
-    "icon": { "type": "preset", "id": "gamepad" },
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.svg"
+    },
     "displayName": "Godot",
     "shortDescription": "Build Godot games and diagnose project execution.",
     "longDescription": "Create scenes and scripts, import game assets, launch the editor or game, and read debug output. Requires a local Godot installation. Visual inspection and gameplay input need a separate supported workflow.",

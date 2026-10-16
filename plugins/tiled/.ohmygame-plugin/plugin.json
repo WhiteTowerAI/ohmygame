@@ -9,7 +9,10 @@
     "displayName": "Tiled",
     "shortDescription": "Build tile maps, collisions, and gameplay object layers.",
     "longDescription": "Create or edit TMX/TMJ maps and TSX/TSJ tilesets, preserve image references and gameplay properties, export through the local Tiled CLI, and validate the result in the consuming engine. Requires Tiled for editor/CLI checks. No MCP bridge is required. Disabled by default.",
-    "icon": { "type": "preset", "id": "layers" },
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.svg"
+    },
     "defaultPrompt": [
       "Create a small Tiled level with a player spawn, collision layer, and goal, then integrate it into this game.",
       "Check this Tiled map's tilesets, object properties, and target-engine import."

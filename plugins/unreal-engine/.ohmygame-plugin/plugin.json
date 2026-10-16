@@ -18,7 +18,10 @@
     "displayName": "Unreal Engine",
     "shortDescription": "Inspect scenes and edit actors through Unreal MCP.",
     "longDescription": "Connect to the official experimental Model Context Protocol plugin documented for Unreal Engine 5.8. Requires an Editor build containing that plugin, selected toolsets, and a running local MCP server. Available scene and actor operations depend on the enabled toolsets; full Blueprint graph editing is not promised. Disabled by default; earlier engine versions need their own existing workflow.",
-    "icon": { "type": "preset", "id": "box" },
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.svg"
+    },
     "defaultPrompt": [
       "Inspect the connected Unreal project's identity, level, and available toolsets without editing.",
       "Add a named cube actor to a test level, save it, and report the verification evidence."

@@ -39,7 +39,7 @@ All paths are relative to the plugin root and start with `./`. Omit components t
 Optional `interface.beta: true` displays a Beta badge on the plugin card and
 detail page. Omit it or set it to false for plugins without that label; it does
 not change installation, configuration, or enablement behavior.
-See the [bundled engine plugin cards](assets/engine-plugins-beta.png).
+See the [bundled engine plugin cards](assets/additional-beta-plugins.png).
 
 Optional `enabledByDefault` sets a package's initial plugin switch (default:
 `true`). A saved user choice takes precedence across restarts and package
@@ -59,22 +59,33 @@ message. A lazy MCP service connects when requested.
 and `flag`. The shared catalog in `src/shared/plugin-icons.ts` supplies the
 picker, validation, and AI authoring instructions.
 
-Custom icons must be valid PNG or WebP files up to 1 MB and 2048 × 2048 pixels.
+Custom icons support PNG, WebP, and static SVG, up to 1 MB and 2048 × 2048.
+SVG files must be UTF-8 with an explicit positive `viewBox` no larger than
+2048 × 2048 units. The static subset accepts shapes, groups, gradients, clipping,
+masks, and local fragment references. Scripts, event handlers, styles, embedded
+images, external references, document types, and foreign namespaces are rejected.
+Use presentation attributes such as `fill` and `stroke`, and export editor metadata
+away before packaging. Keep pixel artwork as PNG instead of tracing it into SVG.
+
 Paths start with `./`, stay inside the plugin root, and cannot use symbolic
-links. Remote URLs, absolute paths, SVG, and unknown preset IDs are rejected.
-A square image with a transparent background is recommended. Installed images
+links. Remote URLs, absolute paths, and unknown preset IDs are rejected.
+A square image with consistent transparent padding is recommended. Installed images
 are copied with the package and served by the daemon using authenticated
 requests in the desktop app. Missing or failed image requests show the default
 package glyph. Packages without an icon retain the existing built-in/default
-appearance.
+appearance. Package artwork should remain readable in both themes, including inline
+references; any necessary backplate belongs in the asset itself. Brand resources
+belong to their plugin packages; see [logo sources and maintenance](plugin-logos.md).
 
 Missing, oversized or undecodable icon images in an imported or installed
 package do not prevent the plugin from installing or loading; their icon
 metadata is omitted so the default glyph appears. Builder preparation and icon
 saves still reject invalid assets.
 Installed image responses use content-based ETags for private revalidation.
-Successful image decoding is reused by content hash; each read still checks the
-current file and its path.
+Successful raster decoding and SVG validation are reused by content hash; each
+read still checks the current file and its path. SVG is served with its image MIME
+type, `nosniff`, and a restrictive document CSP, and displayed through `<img>`;
+plugin SVG text is never inserted into the renderer DOM.
 
 In Plugin Builder's Overview, click the icon beside the plugin name to search
 presets, enter a preset ID, upload an image, choose a package image path, or
@@ -84,7 +95,7 @@ Changes save to the draft; use Install plugin or Update plugin to apply them.
 Uploads use content-addressed filenames under `assets/` and preserve existing
 package files. Icon edits refresh the content revision and clear saved checks;
 stale icon saves and installations are rejected. Image path previews only read
-valid PNG/WebP files from that draft. AI chooses from the same preset catalog
+valid PNG/WebP/SVG files from that draft. AI chooses from the same preset catalog
 and preserves an existing user-selected icon.
 
 `mcp.json` declares existing STDIO or HTTP MCP servers:
@@ -281,7 +292,8 @@ Enable only the workflows needed for the current project in Settings → Plugins
 Their saved switches are preserved by the same settings store as other plugins.
 These packages reuse the existing runtime; they introduce no new project types,
 client installers, custom MCP bridges, or automatic engine upgrades.
-See the [additional Beta plugin cards](assets/additional-beta-plugins.png).
+See the [light](assets/additional-beta-plugins.png) and
+[dark](assets/additional-beta-plugins-dark.png) plugin cards.
 
 | Plugin | Project scope | Local integration and initial boundary |
 | --- | --- | --- |

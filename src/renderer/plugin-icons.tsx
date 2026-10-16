@@ -28,7 +28,6 @@ import {
   Wrench,
   type IconComponent,
 } from "./icons.js";
-import { GodotIcon } from "./godot-icon.js";
 import { readPluginIconImage } from "./api.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 
@@ -134,8 +133,6 @@ export function PluginGlyph({
     const Icon = PLUGIN_PRESET_GLYPHS[plugin.icon.id] ?? Package;
     return <Icon size={size} aria-hidden="true" />;
   }
-  if (!plugin.icon && plugin.id === "ohmygame:godot")
-    return <GodotIcon size={size} />;
   const included =
     plugin.source.type === "builtIn" || plugin.source.type === "preinstalled";
   const Icon =
@@ -157,7 +154,7 @@ export function PluginIcon({
 }): ReactNode {
   return (
     <span
-      className={`plugin-row-icon${!plugin.icon && plugin.id === "ohmygame:godot" ? " plugin-row-icon-godot" : ""}${large ? " plugin-row-icon-large" : ""}`}
+      className={`plugin-row-icon${large ? " plugin-row-icon-large" : ""}`}
     >
       <PluginGlyph
         plugin={plugin}

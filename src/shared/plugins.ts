@@ -198,7 +198,7 @@ export const PluginIconSchema = Type.Union([
   }, { additionalProperties: false }),
   Type.Object({
     type: Type.Literal("asset"),
-    path: Type.String({ pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|webp)$", maxLength: 1000 }),
+    path: Type.String({ pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|webp|svg)$", maxLength: 1000 }),
   }, { additionalProperties: false }),
 ]);
 export type PluginIcon = { type: "preset"; id: PluginIconPresetId } | { type: "asset"; path: string };

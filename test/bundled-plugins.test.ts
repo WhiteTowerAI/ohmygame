@@ -13,6 +13,13 @@ describe("bundled plugins", () => {
       "aseprite", "blender", "cocos-creator", "douyin-minigame", "godot",
       "taptap-maker", "tiled", "unity", "unreal-engine", "wechat-minigame",
     ]);
+    for (const plugin of store.list().filter(plugin => plugin.beta)) {
+      expect(plugin.icon?.type, plugin.name).toBe("asset");
+      const image = await store.readIcon(plugin.id);
+      expect(image, plugin.name).toBeDefined();
+      expect(image!.bytes.length).toBeGreaterThan(0);
+      expect(["image/png", "image/svg+xml"]).toContain(image!.mediaType);
+    }
     expect(store.read("ohmygame:blender")).toMatchObject({
       enabled: true,
       skills: [{ id: "skills/blender-assets/SKILL.md" }],

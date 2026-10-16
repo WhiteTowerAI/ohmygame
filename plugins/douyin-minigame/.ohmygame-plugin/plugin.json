@@ -9,7 +9,10 @@
     "displayName": "Douyin Mini Games",
     "shortDescription": "Adapt, preview, and check Douyin mini-game builds.",
     "longDescription": "Use the engine's Douyin export route, check platform configuration, and run developer-tool and device previews. Requires the official Douyin game developer tools and an authorized game account for remote operations. Includes no third-party MCP bridge. Disabled by default; test upload does not imply review or production publication.",
-    "icon": { "type": "preset", "id": "gamepad" },
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.png"
+    },
     "defaultPrompt": [
       "Check this project's Douyin Mini Game integration and local prerequisites.",
       "Build this game for Douyin and prepare a device preview without uploading a test version."

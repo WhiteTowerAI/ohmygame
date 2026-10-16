@@ -1795,15 +1795,15 @@ const zhCN: typeof en = {
     imageFile: "图片文件",
     imageInput: "插件图标图片",
     fileHelp:
-      "支持 PNG 或 WebP，最大 1 MB，尺寸不超过 2048 × 2048 像素。建议使用透明背景的正方形图片。",
+      "支持 PNG、WebP 或静态 SVG，最大 1 MB，尺寸不超过 2048 × 2048。SVG 需有 viewBox，使用图形表现属性，不含脚本、样式或外部资源。",
     imagePath: "图片路径",
     pathInput: "插件图标路径",
-    pathHelp: "选择此插件包内的 PNG 或 WebP 文件。",
+    pathHelp: "选择此插件包内的 PNG、WebP 或静态 SVG 文件。",
     useDefault: "恢复默认",
     save: "保存图标",
     readFailed: "无法读取图片",
     chooseIcon: "请选择插件图标",
-    invalidFile: "请选择不超过 1 MB 的 PNG 或 WebP 图片",
+    invalidFile: "请选择不超过 1 MB 的 PNG、WebP 或 SVG 图片",
   },
   pluginBuilder: {
     mode: { create: "创建", configure: "配置", edit: "编辑" },

@@ -126,6 +126,9 @@ For the additional engine, mini-game, and asset-tool Beta packages, use the
 - Beta asset tools: [Aseprite](../plugins/aseprite/skills/aseprite-assets/SKILL.md)
   and [Tiled](../plugins/tiled/skills/tiled-maps/SKILL.md).
 
+Plugin brand assets and their per-package source notices are described in
+[Plugin logos](plugin-logos.md).
+
 Asset-specific terms are documented in the
 [provider logo notes](../src/renderer/assets/providers/README.md) and the
 [Home](../src/renderer/assets/home/OFL.txt) and

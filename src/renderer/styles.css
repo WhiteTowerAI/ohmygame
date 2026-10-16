@@ -6447,11 +6447,6 @@ button.home-nav-item-active:hover {
   }
 }
 
-.plugin-row-icon-godot {
-  background: #252832;
-  color: #b8c7e8;
-}
-
 .plugin-row-icon-large {
   width: 96px;
   height: 96px;
@@ -15176,11 +15171,6 @@ button {
 
 :root[data-appearance="light"] .plugin-switch[aria-checked="true"] {
   border-color: var(--settings-switch-accent);
-}
-
-:root[data-appearance="light"] .plugin-row-icon-godot {
-  background: #eaedf5;
-  color: #5970aa;
 }
 
 :root[data-appearance="light"] .plugin-detail-secondary {
