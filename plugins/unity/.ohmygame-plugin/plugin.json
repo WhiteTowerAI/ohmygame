@@ -1,0 +1,19 @@
+{
+  "name": "unity",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "description": "Develop Unity projects with the official Unity CLI and local Editor pipeline.",
+  "skills": "./skills/",
+  "interface": {
+    "beta": true,
+    "displayName": "Unity",
+    "shortDescription": "Edit, test, and build Unity projects with official tools.",
+    "longDescription": "Use the official Unity CLI and Pipeline package for local Editor control, scene changes, C# diagnostics, tests, and builds. Live Editor control targets Unity 6.0 LTS or later; the upstream CLI is experimental. Requires a matching installed and licensed Editor. This OhMyGame workflow does not install a community MCP bridge or register other AI clients. Disabled by default.",
+    "icon": { "type": "preset", "id": "box" },
+    "defaultPrompt": [
+      "Check this Unity project's Editor version and official CLI readiness.",
+      "Add a rotating cube to a test scene, verify compilation, and run it in Unity."
+    ],
+    "projectTypes": ["general"]
+  }
+}

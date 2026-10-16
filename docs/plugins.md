@@ -273,6 +273,48 @@ it skips when Blender is not provided. Godot import/runtime and authenticated
 Maker initialization/build/publication still need their respective local/account
 environments.
 
+## Additional Beta workflows
+
+Cocos Creator, WeChat Mini Games, Douyin Mini Games, Unity, Unreal Engine,
+Aseprite, and Tiled are bundled Beta plugins and default to **disabled**.
+Enable only the workflows needed for the current project in Settings → Plugins.
+Their saved switches are preserved by the same settings store as other plugins.
+These packages reuse the existing runtime; they introduce no new project types,
+client installers, custom MCP bridges, or automatic engine upgrades.
+See the [additional Beta plugin cards](assets/additional-beta-plugins.png).
+
+| Plugin | Project scope | Local integration and initial boundary |
+| --- | --- | --- |
+| Cocos Creator | General | Creator's own CLI and source workflow, initially targeting 3.8 LTS. Preserve the project's editor version and exported build configurations. |
+| WeChat Mini Games | General | Engine exporter plus official WeChat DevTools. Simulator, device, test upload, review, and release are separate checks. |
+| Douyin Mini Games | General | Engine exporter plus official game developer tools; the documented mini-game CLI entrypoint is `tt-minigame-ide-cli@2.1.1` / `tmg`. |
+| Unity | General | Official Unity CLI and Pipeline package. Live Editor control requires Unity 6.0 LTS or later; the CLI is experimental. Existing older projects keep their own batch-mode workflows. |
+| Unreal Engine | General | Official experimental Unreal MCP, documented for UE 5.8. Requires an Editor build containing the plugin, enabled toolsets, and a local server. Calls must be serial. |
+| Aseprite | General, Web Game, Godot, Asset Canvas | Installed Aseprite CLI/Lua for editable source and PNG/JSON exports, followed by target-engine animation checks. |
+| Tiled | General, Web Game, Godot, Asset Canvas | Installed Tiled editor/CLI for source maps, external tilesets, runtime exports, and target-engine checks. |
+
+Engine and platform plugins compose: use Cocos Creator with WeChat or Douyin
+rather than maintaining separate copies of the engine workflow. Unity platform
+exports additionally require the platform's matching conversion SDK; a generic
+WebGL build does not establish mini-game support. Use General with web preview
+disabled for native editors and developer tools. Serve actual Web exports through
+the browser workflow only after their build and serving command are known.
+
+Only Unreal adds an MCP connection in this group. Its configurable endpoint
+defaults to `http://127.0.0.1:8000/mcp` and connects lazily. Start the official
+server in the intended Editor, keep it on loopback, and verify the actual
+project/level before editing. The default tool-search mode exposes three
+meta-tools; listing them proves neither enabled toolsets nor a working scene
+operation. Other packages use the agent's file/terminal tools and official local
+applications. CLI executables may need absolute paths when absent from PATH.
+
+The [manual acceptance checklist (中文)](plugin-beta-testing.zh-CN.md) gives
+prerequisites, copyable prompts, hands-on checks, pass criteria, and a result
+template for all seven packages. These real engine, account, and device loops
+remain pending manual acceptance. Automated package discovery and switch/scope
+tests do not claim to verify them. Upload, review, and production publication
+must follow the user's requested destination and scope.
+
 ## Validation
 
 `test/plugin-capabilities.test.ts` covers credential isolation, reinstall and restart persistence, switches and shared ownership, migration, real STDIO/HTTP tool discovery, tool execution, a simulated OAuth provider, and a simulated model making a real assistant tool call. `test:node-runtime` also exercises MCP installation and connection in the compiled Node daemon.

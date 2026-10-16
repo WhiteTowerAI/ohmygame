@@ -6,11 +6,12 @@ import { describe, expect, it } from "vitest";
 import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
 describe("bundled plugins", () => {
-  it("loads the three beta engine plugins with their native skills and connections", async () => {
+  it("loads beta plugins with their native skills and connections", async () => {
     const store = new BundledPluginStore(path.resolve("plugins"));
     await store.load();
     expect(store.list().filter(plugin => plugin.beta).map(plugin => plugin.name)).toEqual([
-      "blender", "godot", "taptap-maker",
+      "aseprite", "blender", "cocos-creator", "douyin-minigame", "godot",
+      "taptap-maker", "tiled", "unity", "unreal-engine", "wechat-minigame",
     ]);
     expect(store.read("ohmygame:blender")).toMatchObject({
       enabled: true,
@@ -29,6 +30,26 @@ describe("bundled plugins", () => {
       mcpServers: [{ id: "taptap-maker" }],
       projectTypes: ["general"],
     });
+    for (const [name, skill] of [
+      ["aseprite", "aseprite-assets"],
+      ["cocos-creator", "cocos-creator"],
+      ["douyin-minigame", "douyin-minigame"],
+      ["tiled", "tiled-maps"],
+      ["unity", "unity-game"],
+      ["unreal-engine", "unreal-game"],
+      ["wechat-minigame", "wechat-minigame"],
+    ]) {
+      const plugin = store.read(`ohmygame:${name}`)!;
+      expect(plugin).toMatchObject({
+        enabled: false,
+        beta: true,
+        skills: [{ id: `skills/${skill}/SKILL.md` }],
+        projectTypes: name === "aseprite" || name === "tiled"
+          ? ["general", "web-game", "godot-game", "asset-canvas"]
+          : ["general"],
+      });
+      expect(plugin.mcpServers?.map(server => server.id)).toEqual(name === "unreal-engine" ? ["unreal"] : []);
+    }
   });
 
   it("loads a standard skill-only OhMyGame plugin directory", async () => {
