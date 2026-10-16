@@ -5,10 +5,11 @@ import path from "node:path";
 import { build } from "esbuild";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addPlayableNode } from "../src/daemon/playable-add-node.js";
-import { createNodeCodebase, readNodeCodebase } from "../src/daemon/playable-codebase.js";
+import { createHash } from "node:crypto";
+import { createNodeCodebase, openNodeCodebaseDetail, readNodeCodebase } from "../src/daemon/playable-codebase.js";
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
-import { VISUAL_NOVEL_SHARED_FILES } from "../src/daemon/playable-visual-novel.js";
+import { VISUAL_NOVEL_PLAYER_UPGRADES, VISUAL_NOVEL_SHARED_FILES } from "../src/daemon/playable-visual-novel.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
 interface Step {
@@ -393,5 +394,34 @@ describe("Visual Novel Template", () => {
     expect(await readFile(path.join(workspacePath, "shared/vn/player.css"), "utf8")).toBe("/* mine */\n");
     expect(await readFile(path.join(workspacePath, "nodes/chapter-2/script.txt"), "utf8")).toContain("? I had no choice.");
     expect((await readNodeCodebase(workspacePath)).graph.nodes.map((node) => node.id)).toEqual(["start", "chapter-1", "chapter-2"]);
+  });
+
+  it("brings a player the author never changed up to date when the project opens, and leaves a changed one alone", async () => {
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-vn-upgrade-"));
+    await createNodeCodebase(workspacePath, createStarterCodebaseWithScene("Novel", { width: 1280, height: 720 }));
+    await addPlayableNode(workspacePath, { preset: "visual-novel", id: "chapter-1" });
+    const earlier = path.join(import.meta.dirname, "fixtures/visual-novel-player-v1");
+    await writeFile(path.join(workspacePath, "shared/vn/player.js"), await readFile(path.join(earlier, "player.js")));
+    await writeFile(path.join(workspacePath, "shared/vn/player.css"), `${await readFile(path.join(earlier, "player.css"), "utf8")}/* mine */\n`);
+    await writeFile(path.join(workspacePath, "shared/vn/characters.json"), "{}\n");
+
+    await openNodeCodebaseDetail(workspacePath);
+    expect(await readFile(path.join(workspacePath, "shared/vn/player.js"), "utf8")).toBe(VISUAL_NOVEL_SHARED_FILES["shared/vn/player.js"]);
+    expect(await readFile(path.join(workspacePath, "shared/vn/player.css"), "utf8")).toContain("/* mine */");
+    expect(await readFile(path.join(workspacePath, "shared/vn/characters.json"), "utf8")).toBe("{}\n");
+  });
+
+  it("records the player that ships now, so changing it keeps earlier copies upgradable", () => {
+    const shipped = Object.fromEntries(Object.keys(VISUAL_NOVEL_PLAYER_UPGRADES).map((relative) => [
+      relative,
+      createHash("sha256").update(VISUAL_NOVEL_SHARED_FILES[relative]!).digest("hex"),
+    ]));
+    // When this fails because a player file changed, add the old hash below to
+    // VISUAL_NOVEL_PLAYER_UPGRADES, then record the new one here.
+    expect(shipped).toEqual({
+      "shared/vn/player.js": "d164b05a476d8177749d6988b41789a487a889912a8d8cf8f036f059efaf0133",
+      "shared/vn/player.css": "aeffa88b0e3f5880af7a118d8f0657d150ce5ebdb95c347140152ff9974ef0ea",
+    });
+    for (const [relative, hash] of Object.entries(shipped)) expect(VISUAL_NOVEL_PLAYER_UPGRADES[relative]).not.toContain(hash);
   });
 });
