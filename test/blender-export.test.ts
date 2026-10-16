@@ -12,6 +12,163 @@ const blender = process.env.BLENDER_EXECUTABLE;
 
 describe("Blender GLB export", () => {
   it.skipIf(!blender)(
+    "preserves packed textures, hierarchy, skin animation and morph targets in delivered GLBs",
+    async () => {
+      const directory = await mkdtemp(
+        path.join(tmpdir(), "ohmygame-blender-assets-"),
+      );
+      try {
+        const source = path.join(directory, "assets.blend");
+        await run(
+          blender!,
+          [
+            "--background",
+            "--python-exit-code",
+            "1",
+            "--python",
+            path.resolve("test/fixtures/blender-assets.py"),
+            "--",
+            source,
+          ],
+          { timeout: 60_000 },
+        );
+        const original = await readFile(source);
+        const exported = async (collection: string) => {
+          const output = path.join(directory, `${collection}.glb`);
+          await run(
+            blender!,
+            [
+              "--background",
+              source,
+              "--python-exit-code",
+              "1",
+              "--python",
+              path.resolve(
+                "plugins/blender/skills/blender-assets/scripts/export_glb.py",
+              ),
+              "--",
+              "--output",
+              output,
+              "--collection",
+              collection,
+            ],
+            { timeout: 60_000 },
+          );
+          return new NodeIO().read(output);
+        };
+
+        const staticRoot = (await exported("StaticAsset")).getRoot();
+        const prop = staticRoot
+          .listNodes()
+          .find((node) => node.getName() === "TexturedProp")!;
+        expect(staticRoot.listMeshes()).toHaveLength(1);
+        expect(prop.getParentNode()?.getName()).toBe("AssetRoot");
+        // Blender Z-up is converted to glTF Y-up, retaining the parent's transforms.
+        prop
+          .getWorldTranslation()
+          .forEach((value, axis) =>
+            expect(value).toBeCloseTo([3, 1, 1.5][axis]!, 5),
+          );
+        const primitive = prop.getMesh()!.listPrimitives()[0]!;
+        expect(primitive.getAttribute("TEXCOORD_0")?.getCount()).toBe(
+          primitive.getAttribute("POSITION")!.getCount(),
+        );
+        const material = primitive.getMaterial()!;
+        expect(material.getMetallicFactor()).toBeCloseTo(0.2);
+        expect(material.getRoughnessFactor()).toBeCloseTo(0.35);
+        expect(material.getAlphaMode()).toBe("BLEND");
+        expect(material.getBaseColorFactor()[3]).toBeCloseTo(0.5);
+        const texture = material.getBaseColorTexture()!;
+        expect(texture.getMimeType()).toBe("image/png");
+        expect(Array.from(texture.getImage()!.slice(0, 8))).toEqual([
+          137, 80, 78, 71, 13, 10, 26, 10,
+        ]);
+        expect(staticRoot.listCameras()).toHaveLength(0);
+        const excluded = new Set([
+          "HiddenProp",
+          "AnimatedProp",
+          "PresentationCamera",
+          "PresentationLight",
+        ]);
+        expect(
+          staticRoot.listNodes().filter((node) => excluded.has(node.getName())),
+        ).toEqual([]);
+
+        const animatedRoot = (await exported("AnimatedAsset")).getRoot();
+        const animated = animatedRoot
+          .listNodes()
+          .find((node) => node.getName() === "AnimatedProp")!;
+        const skin = animated.getSkin()!;
+        expect(skin.listJoints().map((joint) => joint.getName())).toEqual([
+          "Base",
+          "Tip",
+        ]);
+        expect(skin.getInverseBindMatrices()?.getCount()).toBe(2);
+        const mesh = animated.getMesh()!.listPrimitives()[0]!;
+        expect(mesh.getAttribute("JOINTS_0")?.getCount()).toBe(
+          mesh.getAttribute("POSITION")!.getCount(),
+        );
+        const weights = mesh.getAttribute("WEIGHTS_0")!;
+        for (let index = 0; index < weights.getCount(); index++) {
+          expect(
+            weights
+              .getElement(index, [])
+              .reduce((sum, weight) => sum + weight, 0),
+          ).toBeCloseTo(1);
+        }
+        expect(mesh.listTargets()).toHaveLength(1);
+        expect(
+          mesh.listTargets()[0]!.getAttribute("POSITION")?.getCount(),
+        ).toBe(mesh.getAttribute("POSITION")!.getCount());
+        expect(
+          mesh.listTargets()[0]!.getAttribute("POSITION")!.getMax([])[1],
+        ).toBeCloseTo(0.25);
+        const animations = animatedRoot.listAnimations();
+        expect(animations.map((animation) => animation.getName())).toEqual(
+          expect.arrayContaining(["Sway", "Stretch"]),
+        );
+        const sway = animations.find(
+          (animation) => animation.getName() === "Sway",
+        )!;
+        const rotation = sway
+          .listChannels()
+          .find(
+            (channel) =>
+              channel.getTargetNode()?.getName() === "Tip" &&
+              channel.getTargetPath() === "rotation",
+          )!;
+        const sampler = rotation.getSampler()!;
+        expect(sampler.getInput()!.getMax([])[0]).toBeGreaterThan(0);
+        const rotations = sampler.getOutput()!;
+        expect(
+          new Set(
+            Array.from({ length: rotations.getCount() }, (_, index) =>
+              JSON.stringify(rotations.getElement(index, [])),
+            ),
+          ).size,
+        ).toBeGreaterThan(1);
+        const stretch = animations.find(
+          (animation) => animation.getName() === "Stretch",
+        )!;
+        const morph = stretch
+          .listChannels()
+          .find(
+            (channel) =>
+              channel.getTargetNode() === animated &&
+              channel.getTargetPath() === "weights",
+          )!;
+        expect(morph.getSampler()!.getOutput()!.getMax([])[0]).toBeGreaterThan(
+          0.9,
+        );
+        expect(await readFile(source)).toEqual(original);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+
+  it.skipIf(!blender)(
     "exports a chosen collection, preserves the source, and refuses accidental overwrite",
     async () => {
       const directory = await mkdtemp(

@@ -19,7 +19,7 @@ Assign explicit datablock names and select shader nodes by type; translated defa
 
 ## Export
 
-Prepare transforms and origin deliberately; keep armatures and animation intact. Bake procedural materials only when the runtime requires it. glTF handles the Blender-to-runtime axis conversion.
+Prepare transforms and origin deliberately; keep armatures and animation intact. Use glTF-compatible materials and bake procedural shading when needed to preserve its appearance. glTF handles the Blender-to-runtime axis conversion.
 
 For repeatable export, run the bundled helper (resolve this path relative to this Skill):
 
@@ -33,8 +33,8 @@ Use `--apply-modifiers` to bake modifiers such as bevels into static asset geome
 
 ## Verify the delivery
 
-Render a preview using an appropriate camera, lighting, and background; keep presentation-only objects out of the export collection. Open the resulting image to assess the asset.
+Render a preview that clearly shows the asset's shape and materials; keep presentation-only objects out of the export collection. Read the image and correct visible issues against the brief.
 
-Load the GLB through the project's actual loader or engine. Check scale, orientation, pivot, materials, texture availability, animation names, and errors. Godot projects should run their import check; web projects should load the asset in their established scene workflow. A Blender render or successful file write alone does not prove runtime appearance.
+Check the exported GLB's scale, orientation, pivot, materials, textures, and animation playback in the target loader or engine. Without a target runtime, reimport it into a clean Blender scene and report runtime validation as pending. Refresh and recheck affected outputs after corrections.
 
 Report artifact paths and the checks actually performed. Add collision proxies, LOD, rigging, or compression when requested or required by the target runtime.

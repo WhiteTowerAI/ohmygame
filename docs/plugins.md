@@ -247,7 +247,10 @@ saved switch choices are preserved.
   GLB delivery, and preview images. The export helper accepts an optional
   collection, excludes cameras/lights, and requires `--overwrite` to replace an
   existing output. It does not save the source file. Validate the exported asset
-  in its target engine; no editor bridge/add-on is required. Use
+  in its target engine, including material appearance and animation playback.
+  Inspect the rendered preview and refresh affected outputs after visual fixes;
+  without a target runtime, reimport the GLB into a clean Blender scene and leave
+  runtime validation pending. No editor bridge/add-on is required. Use
   `--apply-modifiers` for baked static geometry; keep it off for shape-key export.
 - **Godot:** dedicated Godot Skill plus the existing pinned
   `@coding-solo/godot-mcp@0.1.1`. The Godot executable configuration defaults to
@@ -279,7 +282,8 @@ the standalone multi-client MCP installer. See the
 
 For a local Blender integration check, set `BLENDER_EXECUTABLE` to its absolute
 executable path and run `bun run test -- test/blender-export.test.ts`. This
-checks real GLB output, export scope, source preservation, and overwrite behavior;
+checks real GLB output, packed textures, transparency, hierarchy, skin animation,
+morph targets, export scope, source preservation, and overwrite behavior;
 it skips when Blender is not provided. Godot import/runtime and authenticated
 Maker initialization/build/publication still need their respective local/account
 environments.
