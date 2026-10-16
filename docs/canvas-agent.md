@@ -4,6 +4,8 @@ Design and Asset Canvas share a project directory the agent edits with its ordin
 The canvas renders those files and autosaves user edits into the same sources.
 The agent can initialize a canvas when design or asset work needs it, without
 requiring the user to open Design first.
+The agent shows final media deliverables on the relevant board, reusing existing
+nodes and asset IDs. Local media can reference existing project-relative paths.
 
 ```text
 canvas/
