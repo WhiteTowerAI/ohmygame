@@ -55,6 +55,16 @@ describe("table display and editing", () => {
     expect(html).not.toContain('aria-label="Row 1, Name"');
   });
 
+  it("leaves the wheel to the canvas until the node is selected", () => {
+    const render = (selected: boolean) => renderToStaticMarkup(
+      <ReactFlowProvider>
+        <CanvasTableNode selected={selected} data={{ tableId: table.id, tableRuntime: { ...models, tables, table } }} />
+      </ReactFlowProvider>,
+    );
+    expect(render(false)).toContain('class="design-document-node-body is-preview"');
+    expect(render(true)).toContain('class="design-document-node-body is-preview nowheel"');
+  });
+
   it("keeps the AI panel closed for a selected node whose panel is not open", () => {
     const html = renderToStaticMarkup(
       <ReactFlowProvider>

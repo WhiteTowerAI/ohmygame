@@ -11,6 +11,10 @@ export type AudioOperation = (typeof AUDIO_OPERATIONS)[number];
 export const AUDIO_OUTPUT_FORMATS = ["mp3", "wav"] as const;
 export type AudioOutputFormat = (typeof AUDIO_OUTPUT_FORMATS)[number];
 
+export const AUDIO_VOICE_ID_MAX_LENGTH = 256;
+export const AUDIO_VOICE_ID_PATTERN = "^[A-Za-z0-9_-]+$";
+export const DOUBAO_SPEECH_PROVIDER_NAME = "Doubao Speech";
+
 export const AUDIO_SAMPLE_RATES = [
   8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000,
 ] as const;
@@ -99,6 +103,10 @@ export interface AudioModel extends ModelRef {
   providerName: string;
   protocol: string;
   capabilities: AudioModelCapabilities;
+}
+
+export function availableAudioOperations(models: readonly AudioModel[]): Set<AudioOperation> {
+  return new Set(models.flatMap((model) => model.capabilities.operations));
 }
 
 export interface AudioProviderCatalogStatus {

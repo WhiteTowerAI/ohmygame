@@ -64,6 +64,29 @@ export interface PlayableMove {
   inPlace: boolean;
 }
 
+/**
+ * The Node's background video in a preview, for the Workbench timeline.
+ * Times are seconds from the start of the video file.
+ */
+export interface PlayableMediaState {
+  /** The project Asset ID the background shows, when it names one. */
+  assetId?: string;
+  duration: number;
+  time: number;
+  paused: boolean;
+  /**
+   * The time is moving: playing, and not seeking or waiting for data. A video
+   * that was asked to play can still be standing still.
+   */
+  advancing: boolean;
+}
+
+/** What the Workbench timeline asks the preview's background video to do. */
+export type PlayableMediaCommand =
+  | { action: "play" }
+  | { action: "pause" }
+  | { action: "seek"; time: number };
+
 export interface PlayableAssetTransfer {
   contentType: string;
   bytes: ArrayBuffer;
@@ -87,7 +110,8 @@ export type PlayableHostMessage =
       error?: string;
     }
   | { kind: "ohmygame:playable:pick-start"; instanceId: string; tool: PlayablePreviewTool }
-  | { kind: "ohmygame:playable:pick-cancel"; instanceId: string };
+  | { kind: "ohmygame:playable:pick-cancel"; instanceId: string }
+  | { kind: "ohmygame:playable:media-control"; instanceId: string; command: PlayableMediaCommand };
 
 export type PlayableFrameMessage =
   | {
@@ -134,7 +158,13 @@ export type PlayableFrameMessage =
       instanceId: string;
       move: PlayableMove;
     }
-  | { kind: "ohmygame:playable:pick-cancelled"; instanceId: string };
+  | { kind: "ohmygame:playable:pick-cancelled"; instanceId: string }
+  | {
+      /** The background video changed; without `media`, the Node shows none. */
+      kind: "ohmygame:playable:media";
+      instanceId: string;
+      media?: PlayableMediaState;
+    };
 
 export function isPlayableHostMessage(
   value: unknown,
@@ -155,6 +185,8 @@ export function isPlayableHostMessage(
   if (value.kind === "ohmygame:playable:pick-start")
     return value.tool === "select" || value.tool === "text" || value.tool === "move";
   if (value.kind === "ohmygame:playable:pick-cancel") return true;
+  if (value.kind === "ohmygame:playable:media-control")
+    return isMediaCommand(value.command);
   return (
     value.kind === "ohmygame:playable:save-result" &&
     typeof value.requestId === "string" &&
@@ -197,11 +229,34 @@ export function isPlayableFrameMessage(
       typeof value.move.inPlace === "boolean"
     );
   if (value.kind === "ohmygame:playable:pick-cancelled") return true;
+  if (value.kind === "ohmygame:playable:media")
+    return value.media === undefined || isMediaState(value.media);
   return (
     (value.kind === "ohmygame:playable:error" ||
       value.kind === "ohmygame:playable:diagnostic") &&
     typeof value.error === "string"
   );
+}
+
+function isMediaCommand(value: unknown): value is PlayableMediaCommand {
+  if (!isRecord(value)) return false;
+  if (value.action === "play" || value.action === "pause") return true;
+  return value.action === "seek" && isTime(value.time);
+}
+
+function isMediaState(value: unknown): value is PlayableMediaState {
+  return (
+    isRecord(value) &&
+    (value.assetId === undefined || typeof value.assetId === "string") &&
+    isTime(value.duration) &&
+    isTime(value.time) &&
+    typeof value.paused === "boolean" &&
+    typeof value.advancing === "boolean"
+  );
+}
+
+function isTime(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

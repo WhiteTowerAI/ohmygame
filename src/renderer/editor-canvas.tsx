@@ -136,6 +136,7 @@ export function EditorCanvas<N extends Node>({
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-story-grid)" />
       <AlignmentGuides guides={guides} />
       <ZoomControls />
+      <PinchZoomOverScrollingContent />
       {fitViewOnLoad ? <InitialCanvasView onReady={onInitialFit} /> : null}
       <Panel className="story-canvas-toolbar" position="bottom-center">
         {addControl}
@@ -150,6 +151,53 @@ export function EditorCanvas<N extends Node>({
       {children}
     </ReactFlow>
   );
+}
+
+/**
+ * React Flow leaves every wheel event over `nowheel` content to that content,
+ * including a trackpad pinch, which macOS sends as a wheel event with ctrlKey.
+ * Content scrolls but never zooms, so a pinch there zooms the canvas the way
+ * React Flow zooms it everywhere else.
+ */
+function PinchZoomOverScrollingContent() {
+  const domNode = useStore((state) => state.domNode);
+  const minZoom = useStore((state) => state.minZoom);
+  const maxZoom = useStore((state) => state.maxZoom);
+  const { getViewport, setViewport } = useReactFlow();
+  useEffect(() => {
+    if (!domNode) return;
+    const pinch = (event: WheelEvent) => {
+      if (!event.ctrlKey || !(event.target instanceof Element) || !event.target.closest(".nowheel")) return;
+      event.preventDefault();
+      const bounds = domNode.getBoundingClientRect();
+      void setViewport(pinchedViewport(
+        getViewport(),
+        { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+        event,
+        { minZoom, maxZoom, mac: navigator.platform.startsWith("Mac") },
+      ));
+    };
+    domNode.addEventListener("wheel", pinch, { passive: false });
+    return () => domNode.removeEventListener("wheel", pinch);
+  }, [domNode, minZoom, maxZoom, getViewport, setViewport]);
+  return null;
+}
+
+/** The viewport after a pinch at `pointer`, which keeps the point under it in place; React Flow's own pinch step. */
+export function pinchedViewport(
+  viewport: { x: number; y: number; zoom: number },
+  pointer: CanvasPosition,
+  wheel: Pick<WheelEvent, "deltaY" | "deltaMode">,
+  { minZoom, maxZoom, mac }: { minZoom: number; maxZoom: number; mac: boolean },
+): { x: number; y: number; zoom: number } {
+  const delta = -wheel.deltaY * (wheel.deltaMode === 1 ? 0.05 : wheel.deltaMode ? 1 : 0.002) * (mac ? 10 : 1);
+  const zoom = Math.min(maxZoom, Math.max(minZoom, viewport.zoom * 2 ** delta));
+  const scale = zoom / viewport.zoom;
+  return {
+    x: pointer.x - (pointer.x - viewport.x) * scale,
+    y: pointer.y - (pointer.y - viewport.y) * scale,
+    zoom,
+  };
 }
 
 /** Wait for actual node sizes and a visible canvas before consuming a remix's fit request. */

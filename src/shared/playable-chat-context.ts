@@ -75,6 +75,40 @@ export function playableAssetContext(nodeId: string, assetId: string, asset: { n
   };
 }
 
+/** A moment the user marked on the Workbench timeline of a Node's background video. */
+export interface PlayableMoment {
+  nodeId: string;
+  /** The project Asset ID the background shows, when known. */
+  assetId?: string;
+  /** Seconds from the start of the video file. */
+  time: number;
+  duration: number;
+}
+
+/**
+ * A moment in a Node's background video. The attached screenshot shows the
+ * preview at that moment, so the agent sees the frame it is about.
+ */
+export function playableMomentContext(moment: PlayableMoment): PromptContext {
+  const asset = moment.assetId ? ` (Asset "${moment.assetId}")` : "";
+  return {
+    kind: "playable-moment",
+    label: formatMediaTime(moment.time),
+    text: [
+      `The user marked a moment in the background video${asset} of Node "${moment.nodeId}": ${moment.time.toFixed(2)} s of ${moment.duration.toFixed(2)} s, counted from the start of the video file.`,
+      "The attached screenshot shows the preview at that moment. The message says what should happen there.",
+    ].join("\n"),
+  };
+}
+
+/** A time in a video as m:ss.t, such as 1:04.2. */
+export function formatMediaTime(seconds: number): string {
+  const tenths = Math.max(0, Math.floor(seconds * 10 + 1e-6));
+  const minutes = Math.floor(tenths / 600);
+  const rest = tenths - minutes * 600;
+  return `${minutes}:${String(Math.floor(rest / 10)).padStart(2, "0")}.${rest % 10}`;
+}
+
 /**
  * The chat request for a text edit that cannot be written back to surface
  * HTML, such as text a script sets or a shared component draws.

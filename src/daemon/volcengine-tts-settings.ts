@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, DOUBAO_SPEECH_PROVIDER_NAME } from "../shared/audio.js";
 
 interface StoredVolcengineTtsSettings {
   version: 1;
@@ -23,7 +24,7 @@ export class VolcengineTtsSettingsStore {
         await readFile(this.#filePath, "utf8"),
       ) as Record<string, unknown>;
       if (parsed.version !== 1)
-        throw new Error(`Invalid Volcengine TTS settings: ${this.#filePath}`);
+        throw new Error(`Invalid ${DOUBAO_SPEECH_PROVIDER_NAME} settings: ${this.#filePath}`);
       this.#settings = {
         version: 1,
         ...(typeof parsed.apiKey === "string" && parsed.apiKey
@@ -63,19 +64,19 @@ export class VolcengineTtsSettingsStore {
       (!normalized || !/^[\x21-\x7E]+$/.test(normalized))
     )
       throw new Error(
-        "Volcengine TTS API key must contain only printable ASCII characters",
+        `${DOUBAO_SPEECH_PROVIDER_NAME} API key must contain only printable ASCII characters`,
       );
     const voice = defaultVoiceId?.trim() || undefined;
     if (
       defaultVoiceId !== undefined &&
       defaultVoiceId !== null &&
-      (!voice || !/^[A-Za-z0-9_-]{1,256}$/.test(voice))
+      (!voice || voice.length > AUDIO_VOICE_ID_MAX_LENGTH || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(voice))
     )
-      throw new Error("Volcengine TTS Speaker ID is invalid");
+      throw new Error(`${DOUBAO_SPEECH_PROVIDER_NAME} Speaker ID is invalid`);
     await this.#mutate(async () => {
       const nextApiKey = normalized ?? this.#settings.apiKey;
       if (!nextApiKey)
-        throw new Error("Connect Volcengine TTS with an API key first");
+        throw new Error(`Connect ${DOUBAO_SPEECH_PROVIDER_NAME} with an API key first`);
       const next: StoredVolcengineTtsSettings = {
         version: 1,
         apiKey: nextApiKey,

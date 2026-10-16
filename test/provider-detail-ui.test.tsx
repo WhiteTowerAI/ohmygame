@@ -95,42 +95,34 @@ const rows = () =>
     (item) => item.textContent,
   );
 
-it("leads with the connection status and keeps removal and advanced settings at the end", async () => {
+it("keeps the provider header compact and exposes advanced connection settings", async () => {
   const onViewChange = vi.fn();
   await render(onViewChange);
   expect(
     host.querySelector(".settings-provider-detail-header small")?.textContent,
-  ).toBe("Connected · ChatGPT");
+  ).toBe("Browser sign-in or API key");
+  expect(host.querySelector('.settings-provider-detail-header button[aria-label="Back"]')).toBeDefined();
+  expect(host.querySelector(".settings-provider-breadcrumb")).toBeNull();
+  expect(host.querySelector(".settings-provider-detail-header .settings-provider-delete")).toBeDefined();
+  expect(host.querySelectorAll(".settings-provider-status-dot")).toHaveLength(0);
   const connection = host.querySelector('[aria-label="Connection"]')!;
   expect(connection.textContent).toContain("Signed in with ChatGPT");
-  expect(button("Reconnect")).toBeDefined();
+  expect(connection.querySelectorAll(".settings-provider-status-dot")).toHaveLength(0);
+  expect(host.querySelector(".settings-provider-remove")).toBeNull();
   expect(button("Use API key")).toBeDefined();
-  expect(
-    host.querySelector(
-      ".settings-provider-detail-header .settings-provider-delete",
-    ),
-  ).toBeNull();
-
-  const sections = [
-    ...host.querySelector(".settings-provider-detail")!.children,
-  ];
   const advanced = host.querySelector<HTMLDetailsElement>(
     ".settings-provider-advanced",
   )!;
-  const remove = host.querySelector('[aria-label="Remove provider"]')!;
-  expect(advanced.open).toBe(false);
+  expect(advanced.open).toBe(true);
   expect(advanced.textContent).toContain("Responses connection");
-  expect(sections.indexOf(remove)).toBe(sections.length - 1);
-  expect(sections.indexOf(advanced)).toBe(sections.length - 2);
 
-  await act(async () => button("Providers & Models")!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>('.settings-provider-detail-header button[aria-label="Back"]')!.click());
   expect(onViewChange).toHaveBeenCalledWith({ page: "providers" });
 });
 
 it("confirms before removing the provider", async () => {
   await render();
-  await act(async () => button("Remove…")!.click());
-  expect(button("Remove…")).toBeUndefined();
+  await act(async () => host.querySelector<HTMLButtonElement>(".settings-provider-detail-header .settings-provider-delete")!.click());
   await act(async () => button("Delete provider")!.click());
   expect(api.removeProvider).toHaveBeenCalledWith("openai");
 });

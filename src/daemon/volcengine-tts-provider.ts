@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type {
-  AudioGenerationRequest,
-  AudioModel,
-  GeneratedAudio,
-  SpeechAudioRequest,
+import {
+  AUDIO_VOICE_ID_MAX_LENGTH,
+  AUDIO_VOICE_ID_PATTERN,
+  DOUBAO_SPEECH_PROVIDER_NAME,
+  type AudioGenerationRequest,
+  type AudioModel,
+  type GeneratedAudio,
+  type SpeechAudioRequest,
 } from "../shared/audio.js";
 import {
   AudioGenerationError,
@@ -21,7 +24,7 @@ export const VOLCENGINE_TTS_MODELS: readonly AudioModel[] = [
 
 export class VolcengineTtsProvider implements AudioProviderAdapter {
   readonly id = PROVIDER_ID;
-  readonly name = "Volcengine TTS";
+  readonly name = DOUBAO_SPEECH_PROVIDER_NAME;
 
   constructor(
     private readonly apiKey: () => string | undefined,
@@ -48,7 +51,7 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
   ): Promise<GeneratedAudio> {
     if (input.operation !== "speech")
       throw new AudioGenerationError(
-        "Volcengine TTS currently supports speech generation only",
+        `${DOUBAO_SPEECH_PROVIDER_NAME} currently supports speech generation only`,
         400,
       );
     const model = VOLCENGINE_TTS_MODELS.find(
@@ -56,12 +59,12 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
     );
     if (!model || input.model?.provider !== PROVIDER_ID)
       throw new AudioGenerationError(
-        "The selected Volcengine TTS model is unavailable",
+        `The selected ${DOUBAO_SPEECH_PROVIDER_NAME} model is unavailable`,
         400,
       );
     const key = this.apiKey();
     if (!key)
-      throw new AudioGenerationError("Volcengine TTS is not connected", 503);
+      throw new AudioGenerationError(`${DOUBAO_SPEECH_PROVIDER_NAME} is not connected`, 503);
     const voiceId = input.voiceId?.trim() || this.configuredVoiceId()?.trim();
     validateSpeech(input, voiceId);
     const requestId = randomUUID();
@@ -102,14 +105,14 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
     } catch (cause) {
       if (signal?.aborted) throw cause;
       throw new AudioGenerationError(
-        `Could not reach Volcengine TTS: ${cause instanceof Error ? cause.message : String(cause)}`,
+        `Could not reach ${DOUBAO_SPEECH_PROVIDER_NAME}: ${cause instanceof Error ? cause.message : String(cause)}`,
         502,
       );
     }
     if (!response.ok) throw await responseError(response);
     const result = await parseChunkedResponse(response);
     if (!result.bytes.length)
-      throw new AudioGenerationError("Volcengine TTS returned no audio", 502);
+      throw new AudioGenerationError(`${DOUBAO_SPEECH_PROVIDER_NAME} returned no audio`, 502);
     return {
       bytes: result.bytes,
       mediaType: format === "wav" ? "audio/wav" : "audio/mpeg",
@@ -130,7 +133,7 @@ export class VolcengineTtsProvider implements AudioProviderAdapter {
 function model(id: string, name: string): AudioModel {
   return {
     provider: PROVIDER_ID,
-    providerName: "Volcengine",
+    providerName: DOUBAO_SPEECH_PROVIDER_NAME,
     id,
     name,
     protocol: "volcengine-tts-v3",
@@ -187,7 +190,7 @@ function validateSpeech(input: SpeechAudioRequest, voiceId?: string): void {
       "Speech text must be 10,000 characters or fewer",
       400,
     );
-  if (!voiceId || voiceId.length > 256)
+  if (!voiceId || voiceId.length > AUDIO_VOICE_ID_MAX_LENGTH || !new RegExp(AUDIO_VOICE_ID_PATTERN).test(voiceId))
     throw new AudioGenerationError(
       "Choose a Volcengine Speaker ID or configure a default voice",
       400,
@@ -212,12 +215,12 @@ function validateSpeech(input: SpeechAudioRequest, voiceId?: string): void {
     )
   )
     throw new AudioGenerationError(
-      "Unsupported Volcengine TTS sample rate",
+      `Unsupported ${DOUBAO_SPEECH_PROVIDER_NAME} sample rate`,
       400,
     );
   if (input.output?.channels !== undefined && input.output.channels !== 1)
     throw new AudioGenerationError(
-      "Volcengine TTS currently returns mono audio",
+      `${DOUBAO_SPEECH_PROVIDER_NAME} currently returns mono audio`,
       400,
     );
 }
@@ -240,7 +243,7 @@ async function parseChunkedResponse(
       value = JSON.parse(line) as typeof value;
     } catch {
       throw new AudioGenerationError(
-        "Volcengine TTS returned an invalid streaming response",
+        `${DOUBAO_SPEECH_PROVIDER_NAME} returned an invalid streaming response`,
         502,
       );
     }
@@ -251,7 +254,7 @@ async function parseChunkedResponse(
       throw new AudioGenerationError(
         typeof value.message === "string" && value.message
           ? value.message
-          : `Volcengine TTS failed with code ${code}`,
+          : `${DOUBAO_SPEECH_PROVIDER_NAME} failed with code ${code}`,
         providerStatus(code),
       );
     if (typeof value.data === "string" && value.data) {
@@ -259,7 +262,7 @@ async function parseChunkedResponse(
         chunks.push(Buffer.from(value.data, "base64"));
       } catch {
         throw new AudioGenerationError(
-          "Volcengine TTS returned invalid audio data",
+          `${DOUBAO_SPEECH_PROVIDER_NAME} returned invalid audio data`,
           502,
         );
       }
@@ -269,7 +272,7 @@ async function parseChunkedResponse(
   };
   if (!response.body)
     throw new AudioGenerationError(
-      "Volcengine TTS returned an empty streaming response",
+      `${DOUBAO_SPEECH_PROVIDER_NAME} returned an empty streaming response`,
       502,
     );
   const reader = response.body.getReader();
@@ -296,16 +299,16 @@ async function responseError(
   const detail = (await response.text().catch(() => "")).slice(0, 500).trim();
   if (response.status === 401 || response.status === 403)
     return new AudioGenerationError(
-      "Volcengine TTS credentials were rejected",
+      `${DOUBAO_SPEECH_PROVIDER_NAME} credentials were rejected`,
       503,
     );
   if (response.status === 429)
     return new AudioGenerationError(
-      "Volcengine TTS rate limit was reached",
+      `${DOUBAO_SPEECH_PROVIDER_NAME} rate limit was reached`,
       429,
     );
   return new AudioGenerationError(
-    detail || `Volcengine TTS request failed (${response.status})`,
+    detail || `${DOUBAO_SPEECH_PROVIDER_NAME} request failed (${response.status})`,
     response.status >= 500 ? 502 : 400,
   );
 }

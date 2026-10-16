@@ -5,10 +5,13 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type RefObject,
 } from "react";
 import type {
   PlayableAssetTransfer,
   PlayableFrameMessage,
+  PlayableMediaCommand,
+  PlayableMediaState,
   PlayableMove,
   PlayablePreviewOptions,
   PlayablePreviewTool,
@@ -47,6 +50,10 @@ export interface NodePlayerProps {
   onPickCancel?: () => void;
   onSnapshot?: (snapshot: NodeRuntimeSnapshot) => void;
   onDiagnostic?: (error: string) => void;
+  /** The Node's background video as it plays, or undefined when it has none; requires `preview`. */
+  onMedia?: (media: PlayableMediaState | undefined) => void;
+  /** Set to a function that sends commands to the background video while the preview runs. */
+  mediaControl?: RefObject<((command: PlayableMediaCommand) => void) | null>;
 }
 
 export function NodePlayer({
@@ -66,6 +73,8 @@ export function NodePlayer({
   onPickCancel,
   onSnapshot,
   onDiagnostic = reportDiagnostic,
+  onMedia,
+  mediaControl,
 }: NodePlayerProps) {
   const iframe = useRef<HTMLIFrameElement>(null);
   const player = useRef<HTMLElement>(null);
@@ -110,13 +119,30 @@ export function NodePlayer({
         onMove?.(message.move);
       } else if (message.kind === "ohmygame:playable:pick-cancelled") {
         onPickCancel?.();
+      } else if (message.kind === "ohmygame:playable:media") {
+        onMedia?.(message.media);
       } else {
         onDiagnostic(message.error);
       }
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, saveKey, storage, seenKey, seenStorage]);
+  }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, onMedia, saveKey, storage, seenKey, seenStorage]);
+
+  // A new session starts with no video until the frame reports one.
+  useEffect(() => {
+    if (preview === undefined) return;
+    onMedia?.(undefined);
+  }, [instanceId]);
+
+  useEffect(() => {
+    if (!mediaControl || preview === undefined) return;
+    mediaControl.current = (command) => iframe.current?.contentWindow?.postMessage(
+      { kind: "ohmygame:playable:media-control", instanceId, command },
+      "*",
+    );
+    return () => { mediaControl.current = null; };
+  }, [instanceId, mediaControl, previewKey]);
 
   const activeTool = preview !== undefined ? tool : undefined;
   useEffect(() => {

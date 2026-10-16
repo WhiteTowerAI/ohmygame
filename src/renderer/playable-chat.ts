@@ -2,7 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import type { PromptContext, PromptImage, PromptReference } from "../shared/contracts.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayablePickResult } from "../shared/playable-picker.js";
-import { playableAssetContext, playableDrawingContext, playableElementContext, playableNodeContext, playableNodeReferences } from "../shared/playable-chat-context.js";
+import { playableAssetContext, playableDrawingContext, playableElementContext, playableMomentContext, playableNodeContext, playableNodeReferences, type PlayableMoment } from "../shared/playable-chat-context.js";
 import type { ChatContextChip } from "./chat-reference.js";
 import { captureElementImage } from "./page-capture.js";
 import { t } from "./i18n.js";
@@ -12,6 +12,7 @@ const ELEMENT_SCREENSHOT_WIDTH = 960;
 const MARK_COLOR = "#ff5a1f";
 const DRAWING_KEY = "drawing";
 const MEDIA_KEY = "media:";
+const MOMENT_KEY = "moment";
 
 /** One freehand stroke, in project viewport pixels. */
 export type PlayableStroke = readonly { x: number; y: number }[];
@@ -32,7 +33,8 @@ export interface PlayableChatAttachment {
 /**
  * What the Playable editor contributes to the next chat message: the Node
  * (Scene) open in its Workbench, the elements picked or drawn on in that
- * preview, and media added from it. Picks and the drawing share one screenshot.
+ * preview, media added from it, and a moment marked in its background video.
+ * Picks, the drawing, and the moment share one screenshot.
  */
 export interface PlayableChatState {
   surface?: {
@@ -43,7 +45,7 @@ export interface PlayableChatState {
     references: PromptReference[];
   };
   attachments: PlayableChatAttachment[];
-  /** A screenshot of the preview with the picks outlined and the drawing on it. */
+  /** A screenshot of the preview, at the marked moment, with the picks outlined and the drawing on it. */
   capture: () => Promise<PromptImage | undefined>;
   removeAttachment: (key: string) => void;
   clearAttachments: () => void;
@@ -58,22 +60,26 @@ export function playablePickKey(pick: PlayablePickResult): string {
  * Reports what an open Workbench adds to the next chat message, and nothing
  * once it closes. `stage` holds the preview whose frame is captured.
  */
-export function usePlayableChatReport({ graph, nodeId, picks, strokes, media, onRemovePick, onClearPicks, onClearDrawing, onRemoveMedia, onClearMedia, stage, onChange }: {
+export function usePlayableChatReport({ graph, nodeId, picks, strokes, media, moment, onRemovePick, onClearPicks, onClearDrawing, onRemoveMedia, onClearMedia, onClearMoment, onShowMoment, stage, onChange }: {
   graph: NodeGraph;
   nodeId: string;
   picks: readonly PlayablePickResult[];
   strokes: readonly PlayableStroke[];
   media: readonly PlayableMediaAttachment[];
+  moment?: PlayableMoment;
   onRemovePick: (key: string) => void;
   onClearPicks: () => void;
   onClearDrawing: () => void;
   onRemoveMedia: (assetId: string) => void;
   onClearMedia: () => void;
+  onClearMoment: () => void;
+  /** Puts the preview's background video at the moment before the screenshot. */
+  onShowMoment: (moment: PlayableMoment) => Promise<void>;
   stage: RefObject<HTMLElement | null>;
   onChange?: (state: PlayableChatState | undefined) => void;
 }): void {
-  const handlers = useRef({ onRemovePick, onClearPicks, onClearDrawing, onRemoveMedia, onClearMedia });
-  handlers.current = { onRemovePick, onClearPicks, onClearDrawing, onRemoveMedia, onClearMedia };
+  const handlers = useRef({ onRemovePick, onClearPicks, onClearDrawing, onRemoveMedia, onClearMedia, onClearMoment, onShowMoment });
+  handlers.current = { onRemovePick, onClearPicks, onClearDrawing, onRemoveMedia, onClearMedia, onClearMoment, onShowMoment };
 
   useEffect(() => {
     if (!onChange) return;
@@ -93,6 +99,10 @@ export function usePlayableChatReport({ graph, nodeId, picks, strokes, media, on
       const assetContext = playableAssetContext(nodeId, item.assetId, item);
       attachments.push({ chip: { key: `${MEDIA_KEY}${item.assetId}`, kind: "playable-asset", label: item.name, detail: item.type }, context: assetContext });
     }
+    if (moment) {
+      const momentContext = playableMomentContext(moment);
+      attachments.push({ chip: { key: MOMENT_KEY, kind: "playable-moment", label: momentContext.label, detail: t("sceneWorkbench.timeline.backgroundVideo") }, context: momentContext });
+    }
     onChange({
       ...(context ? {
         surface: {
@@ -104,12 +114,14 @@ export function usePlayableChatReport({ graph, nodeId, picks, strokes, media, on
       } : {}),
       attachments,
       capture: async () => {
-        if (!picks.length && !strokes.length) return undefined;
+        if (!picks.length && !strokes.length && !moment) return undefined;
+        if (moment) await handlers.current.onShowMoment(moment);
         const frame = stage.current?.querySelector(".playable-player-frame");
-        return frame ? capturePlayablePreview(frame, graph.viewport, picks.map((pick) => pick.box), strokes) : undefined;
+        return frame ? capturePlayablePreview(frame, graph.viewport, picks.map((pick) => pick.box), strokes, moment ? "video-moment.webp" : undefined) : undefined;
       },
       removeAttachment: (key) => {
         if (key === DRAWING_KEY) handlers.current.onClearDrawing();
+        else if (key === MOMENT_KEY) handlers.current.onClearMoment();
         else if (key.startsWith(MEDIA_KEY)) handlers.current.onRemoveMedia(key.slice(MEDIA_KEY.length));
         else handlers.current.onRemovePick(key);
       },
@@ -117,9 +129,10 @@ export function usePlayableChatReport({ graph, nodeId, picks, strokes, media, on
         handlers.current.onClearPicks();
         handlers.current.onClearDrawing();
         handlers.current.onClearMedia();
+        handlers.current.onClearMoment();
       },
     });
-  }, [graph, nodeId, picks, strokes, media, onChange]);
+  }, [graph, nodeId, picks, strokes, media, moment, onChange]);
 
   useEffect(() => () => onChange?.(undefined), [onChange]);
 }
@@ -133,6 +146,7 @@ export async function capturePlayablePreview(
   viewport: { width: number; height: number },
   boxes: readonly { x: number; y: number; width: number; height: number }[],
   strokes: readonly PlayableStroke[] = [],
+  name = strokes.length ? "preview-drawing.webp" : "picked-element.webp",
 ): Promise<PromptImage | undefined> {
   // The capture reads window pixels, so the tool bar and drawing layer over
   // the preview are hidden while it runs; the strokes are drawn on it instead.
@@ -167,7 +181,7 @@ export async function capturePlayablePreview(
     }
   }).finally(() => preview?.classList.remove("is-capturing"));
   if (!image) return undefined;
-  return { name: strokes.length ? "preview-drawing.webp" : "picked-element.webp", mediaType: "image/webp", data: await blobBase64(image) };
+  return { name, mediaType: "image/webp", data: await blobBase64(image) };
 }
 
 /** Waits for a paint, or a short while when the window is hidden and does not paint. */

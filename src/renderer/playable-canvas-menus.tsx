@@ -54,23 +54,6 @@ export function PlayableAddControl({ presets, busy, onAdd, className, children }
   </>;
 }
 
-/** What an empty canvas shows: where to start, from a Template or the chat. */
-export function PlayableEmptyCanvas({ presets, busy, onAdd }: {
-  presets: readonly PlayablePresetSummary[];
-  busy: boolean;
-  onAdd: (presetId: string, position: { x: number; y: number }) => void;
-}) {
-  return <div className="playable-canvas-empty">
-    <div>
-      <strong>{t("storyMenu.noScenes")}</strong>
-      <p>{t("storyMenu.startHint")}</p>
-      <PlayableAddControl presets={presets} busy={busy} onAdd={onAdd} className="playable-canvas-empty-add">
-        {busy ? <LoaderCircle className="spin" size={14} /> : <Plus size={14} />}<span>{t("storyMenu.addAScene")}</span>
-      </PlayableAddControl>
-    </div>
-  </div>;
-}
-
 export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, canPaste, busy, isEntry, story, onClose, onUndo, onRedo, onPaste, onAdd, onOpen, onCopy, onDuplicate, onSetEntry, onStoryOption, onDelete }: {
   menu: CanvasContextMenuState;
   presets: readonly PlayablePresetSummary[];

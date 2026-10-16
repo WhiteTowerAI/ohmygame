@@ -117,6 +117,21 @@ describe("desktop free cloud connection", () => {
     await client.quotas();
     expect(request).toHaveBeenCalledTimes(4);
   });
+  it("serves the provider snapshot while cloud verification is still pending", async () => {
+    const request = vi.fn<typeof fetch>(async (_url, init) => new Promise<Response>((resolve) => {
+      init?.signal?.addEventListener("abort", () => resolve(Response.json({})), { once: true });
+    }));
+    const client = new CloudModelsClient("https://cloud.example", request);
+    const verifying = client.setSession({ accessToken: "account-token-1", userId: "user-1" });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(client.providersSnapshot(() => true)).toContainEqual(expect.objectContaining({
+      id: HYPER3D_CONNECTION_ID,
+      configured: false,
+      status: "not_configured",
+    }));
+    await client.setSession(null);
+    await verifying;
+  });
   it("waits for the server's next status check rather than polling through its backoff", async () => {
     const base = remote();
     const request = vi.fn<typeof fetch>(async (url, init) => {
@@ -152,6 +167,9 @@ describe("desktop free cloud connection", () => {
     const { app, request, cloudFetch, directory } = await fixture(remote(0));
     expect((await app.inject("/cloud/quotas")).statusCode).toBe(401);
     expect((await request("/settings/providers")).json()).toContainEqual(expect.objectContaining({ id: HYPER3D_CONNECTION_ID, managed: "free_cloud", configured: false, methods: [], cloud: { availability: "sign_in_required" } }));
+    const beforeLoginModels = await request(`/settings/models/providers/${HYPER3D_CONNECTION_ID}/models`);
+    expect(beforeLoginModels.statusCode).toBe(200);
+    expect(beforeLoginModels.json().models).toEqual([]);
     expect((await request("/model3d-models/catalog")).json().models).toEqual([]);
     expect(cloudFetch).not.toHaveBeenCalled();
     expect((await request("/cloud/session", "PUT", { accessToken: "account-token-1", userId: "user-1" })).statusCode).toBe(204);

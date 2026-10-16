@@ -89,7 +89,7 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { VOLCENGINE_TTS_VOICES, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
+import { VOLCENGINE_TTS_VOICES, availableAudioOperations, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DAnimations, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset } from "./api.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
@@ -153,7 +153,7 @@ interface CanvasNodeCreationGroup {
   items: CanvasNodeCreationItem[];
 }
 
-const CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
+const BASE_CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
   {
     label: t("assetCanvas.group.assets"),
     items: [
@@ -173,13 +173,20 @@ function isCanvasNodeCreationLeaf(item: CanvasNodeCreationItem): item is CanvasN
   return "action" in item;
 }
 
-function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables): CanvasNodeCreationGroup[] {
+function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables, audioOperations: ReadonlySet<AudioOperation>): CanvasNodeCreationGroup[] {
   const items: CanvasNodeCreationItem[] = [{ label: t("assetCanvas.node.document"), description: t("assetCanvas.node.markdown"), icon: FileText, action: { kind: "node", type: "document" } }];
   if (documents.documents.length) items.push({ label: t("assetCanvas.node.existingDocument"), description: t("assetCanvas.node.existingDocumentHint"), icon: FileText, children: documents.documents.map((document) => ({ label: document.title || t("canvasDocs.untitled"), description: t("assetCanvas.node.markdown"), icon: FileText, action: { kind: "node", type: "document", documentId: document.id } })) });
   items.push({ label: t("assetCanvas.node.table"), description: t("assetCanvas.node.tableHint"), icon: FileText, action: { kind: "node", type: "table" } });
   const existingTables = [...tables.storage.sessions.values()].filter((session) => !session.issue);
   if (existingTables.length) items.push({ label: t("assetCanvas.node.existingTable"), description: t("assetCanvas.node.existingTableHint"), icon: FileText, children: existingTables.map(({ local: table }) => ({ label: table.title || t("canvasTable.untitled"), description: t("assetCanvas.node.sharedTable"), icon: FileText, action: { kind: "node", type: "table", tableId: table.id } })) });
-  return [{ label: t("assetCanvas.group.documents"), items }, ...CANVAS_NODE_CREATION_GROUPS];
+  const assetGroups = BASE_CANVAS_NODE_CREATION_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => {
+      if (!isCanvasNodeCreationLeaf(item)) return true;
+      return canvasNodeTypeAvailable(item.action.type, audioOperations);
+    }),
+  }));
+  return [{ label: t("assetCanvas.group.documents"), items }, ...assetGroups];
 }
 
 type AssetCanvasFlowData = {
@@ -405,6 +412,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [imageProviders, setImageProviders] = useState<MediaProviderStatus[]>([]);
   const [videoProviders, setVideoProviders] = useState<MediaProviderStatus[]>([]);
   const [audioModels, setAudioModels] = useState<AudioModel[]>([]);
+  const audioOperations = useMemo(() => availableAudioOperations(audioModels), [audioModels]);
   const [audioProviders, setAudioProviders] = useState<AudioProviderCatalogStatus[]>([]);
   const [globalDefaultVideoModel, setDefaultVideoModel] = useState<ModelRef>();
   const [model3DModels, setModel3DModels] = useState<Model3DModel[]>([]);
@@ -1523,7 +1531,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (node.type === "speech" || node.type === "sound-effect" || node.type === "music") {
       const nodeJob = canvasJobs[node.id];
       const linkedPrompt = resolveLinkedPrompt(node, nodes, documents);
-      const operation = audioOperationForNode(node.type);
+      const operation = audioOperationForNode(node.type)!;
       return {
         ...node,
         data: {
@@ -1653,6 +1661,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               onInit={(instance) => { flowInstance.current = instance; }}
               addControl={<AssetCanvasAddControl
                 documents={documents} tables={tables}
+                audioOperations={audioOperations}
                 libraryAssets={libraryAssets.filter((asset) => asset.mediaType === "image" || asset.mediaType === "video" || asset.mediaType === "audio" || asset.mediaType === "model")}
                 importing={importingAssets}
                 onAdd={addNode}
@@ -1706,6 +1715,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           ) : null}
           {canvasContextMenu ? <AssetCanvasContextMenu
             documents={documents} tables={tables}
+            audioOperations={audioOperations}
             onUseInDocument={contextMenuNode?.type === "text" && contextMenuNode.data.text ? () => documents.appendText(contextMenuNode.data.text!) : contextMenuNode?.data.assetId && (contextMenuNode.type === "image" || contextMenuNode.data.mediaType === "image") ? () => documents.appendImage(contextMenuNode.data.assetId!) : undefined}
             menu={canvasContextMenu}
             canUndo={canUndo}
@@ -1775,7 +1785,7 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
       <div data-alignment-frame className="story-text-output">
         <CanvasNodeLabel icon={FileText} label={t("assetCanvas.node.text")} details={data.nodeDetails} />
         <CanvasTextarea
-          className="nodrag nowheel"
+          className={selected ? "nodrag nowheel" : "nodrag"}
           aria-label={t("assetCanvas.textOutput")}
           rows={5}
           value={data.text ?? ""}
@@ -2149,9 +2159,15 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
   );
 }
 
-function audioOperationForNode(type: AssetCanvasNodeType): AudioOperation {
+function audioOperationForNode(type: AssetCanvasNodeType): AudioOperation | undefined {
+  if (type === "speech") return "speech";
   if (type === "sound-effect" || type === "music") return type;
-  return "speech";
+  return undefined;
+}
+
+export function canvasNodeTypeAvailable(type: AssetCanvasNodeType, audioOperations: ReadonlySet<AudioOperation>): boolean {
+  const operation = audioOperationForNode(type);
+  return operation === undefined || audioOperations.has(operation);
 }
 
 function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
@@ -2790,6 +2806,7 @@ function formatPreviewTime(timeMs: number): string {
 function AssetCanvasAddControl({
   documents,
   tables,
+  audioOperations,
   libraryAssets,
   importing,
   onAdd,
@@ -2798,13 +2815,14 @@ function AssetCanvasAddControl({
 }: {
   documents: CanvasDocuments;
   tables: CanvasTables;
+  audioOperations: ReadonlySet<AudioOperation>;
   libraryAssets: LibraryAsset[];
   importing: boolean;
   onAdd: (type: Exclude<AssetCanvasNodeType, "asset">, position: { x: number; y: number }, documentId?: string) => void;
   onAddAsset: (asset: LibraryAsset, position: { x: number; y: number }) => void;
   onUpload: (file: File, position: { x: number; y: number }) => void;
 }) {
-  const creationGroups = canvasCreationGroups(documents, tables);
+  const creationGroups = canvasCreationGroups(documents, tables, audioOperations);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -2948,6 +2966,7 @@ function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose }
 function AssetCanvasContextMenu({
   documents,
   tables,
+  audioOperations,
   onUseInDocument,
   menu,
   canUndo,
@@ -2975,6 +2994,7 @@ function AssetCanvasContextMenu({
 }: {
   documents: CanvasDocuments;
   tables: CanvasTables;
+  audioOperations: ReadonlySet<AudioOperation>;
   onUseInDocument?: () => void;
   menu: CanvasContextMenuState;
   canUndo: boolean;
@@ -3000,7 +3020,7 @@ function AssetCanvasContextMenu({
   onDelete: () => void;
   onDetails?: () => void;
 }) {
-  const creationGroups = canvasCreationGroups(documents, tables);
+  const creationGroups = canvasCreationGroups(documents, tables, audioOperations);
   const uploadInput = useRef<HTMLInputElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [openCreationBranch, setOpenCreationBranch] = useState<OpenCanvasNodeCreationBranch>();
@@ -3301,7 +3321,7 @@ export function applyRememberedSettings(
     if (settings?.model3DConfig) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig(settings.model3DConfig) } };
   }
   if (node.type === "speech" || node.type === "sound-effect" || node.type === "music") {
-    const operation = audioOperationForNode(node.type);
+    const operation = audioOperationForNode(node.type)!;
     const compatibleModels = catalogs.audioModels?.filter((candidate) => candidate.capabilities.operations.includes(operation)) ?? [];
     const reference = settings?.audioModel;
     const model = reference ? compatibleModels.find((candidate) => sameModel(candidate, reference)) : compatibleModels[0];

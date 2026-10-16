@@ -1492,19 +1492,11 @@ body {
   flex: 0 0 auto;
   grid-column: 3;
   align-items: center;
-  gap: 5px;
   color: var(--text-faint);
   font-size: 11px;
   font-weight: 500;
   font-style: normal;
   white-space: nowrap;
-}
-
-.settings-provider-status i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
 }
 
 .settings-provider-status.is-connected {
@@ -1625,42 +1617,6 @@ body {
   gap: 24px;
 }
 
-.settings-provider-detail-top {
-  display: grid;
-  min-width: 0;
-  gap: 12px;
-}
-
-.settings-provider-breadcrumb {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-faint);
-  font-size: 11px;
-}
-
-.settings-provider-breadcrumb button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  cursor: pointer;
-}
-
-.settings-provider-breadcrumb button:hover,
-.settings-provider-breadcrumb button:focus-visible {
-  color: var(--text);
-}
-
-.settings-provider-breadcrumb [aria-current] {
-  overflow: hidden;
-  color: var(--text-secondary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .settings-provider-detail-header {
   display: flex;
   min-width: 0;
@@ -1668,15 +1624,14 @@ body {
   gap: 10px;
 }
 
-.settings-provider-status-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  margin-right: 6px;
-  border-radius: 50%;
-  background: var(--success);
-  vertical-align: middle;
+.settings-provider-back {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.settings-provider-back:hover:not(:disabled) {
+  background: var(--menu-hover);
+  color: var(--text);
 }
 
 .settings-provider-heading {
@@ -1765,40 +1720,21 @@ body {
   cursor: pointer;
 }
 
-.settings-provider-remove {
+.settings-responses-transport > .settings-detail-field {
   display: grid;
-  gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-
-.settings-provider-remove-row {
-  display: flex;
+  min-height: 40px;
+  grid-template-columns: 72px minmax(0, 1fr) 28px;
   align-items: center;
   gap: 12px;
 }
 
-.settings-provider-remove-row > span {
-  display: grid;
-  min-width: 0;
-  flex: 1;
-  gap: 3px;
+.settings-responses-transport > .settings-detail-field > select {
+  grid-column: 2;
 }
 
-.settings-provider-remove-row strong {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.settings-provider-remove-row small {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.settings-provider-remove .settings-provider-delete-confirmation {
-  padding-top: 0;
-  border-top: 0;
+.settings-responses-transport > .settings-detail-hint {
+  display: block;
+  margin-left: 84px;
 }
 
 .settings-provider-setting-row {
@@ -7347,57 +7283,6 @@ button {
 
 .story-canvas-state-error {
   color: var(--danger);
-}
-
-/* An empty Story canvas: where to start. The card takes the pointer; the
-   canvas around it still pans and opens its menu. */
-.playable-canvas-empty {
-  position: absolute;
-  z-index: 4;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-}
-
-.playable-canvas-empty > div {
-  display: grid;
-  max-width: 280px;
-  justify-items: center;
-  gap: 6px;
-  padding: 20px 24px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-raised);
-  text-align: center;
-  pointer-events: auto;
-}
-
-.playable-canvas-empty strong {
-  color: var(--text);
-  font-size: 13px;
-}
-
-.playable-canvas-empty p {
-  margin: 0 0 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.playable-canvas-empty-add {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .story-save-notice {
@@ -15804,6 +15689,76 @@ button {
   color: #fff;
   font-size: 10px;
   white-space: nowrap;
+}
+/* The background video's timeline, above the tools. */
+.playable-video-timeline {
+  display: flex;
+  width: clamp(280px, 42vw, 520px);
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--story-editor-surface);
+  pointer-events: auto;
+}
+.playable-video-timeline-time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.playable-video-timeline-track {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  height: 22px;
+  cursor: pointer;
+  touch-action: none;
+}
+.playable-video-timeline-track::before,
+.playable-video-timeline-played {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  transform: translateY(-50%);
+  content: "";
+}
+.playable-video-timeline-track::before {
+  right: 0;
+  background: var(--border-strong);
+}
+.playable-video-timeline-played {
+  background: var(--text-muted);
+}
+.playable-video-timeline-playhead {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.playable-video-timeline-moment {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: #ff5a1f;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.playable-video-timeline-track:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 /* Popovers over the preview, such as the Media menu. */
 .playable-preview-popover {

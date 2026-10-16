@@ -238,6 +238,16 @@ bun run dev:desktop    # Electron 桌面应用
 中文简介见[中文快速指引](docs/contributing.zh-CN.md)，各模块的说明见[文档索引](docs/README.md)。
 安全问题请按照 [SECURITY.md](SECURITY.md) 报告。
 
+## Star 历史
+
+<a href="https://www.star-history.com/?repos=whitetowerai%2Fohmygame&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=whitetowerai/ohmygame&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=whitetowerai/ohmygame&type=date&legend=top-left" />
+    <img alt="Star 历史曲线" src="https://api.star-history.com/svg?repos=whitetowerai/ohmygame&type=date&legend=top-left" />
+  </picture>
+</a>
+
 ## 许可证
 
 [Apache-2.0](LICENSE)。OhMyGame 的名称和标志不在该许可证的授权范围内。

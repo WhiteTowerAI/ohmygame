@@ -2490,6 +2490,15 @@ const en = {
     wouldContinue: "Would continue at {{title}}",
     wouldOpen: "Would open {{title}}",
     noScenes: "This project has no Scenes yet.",
+    timeline: {
+      label: "Background video",
+      backgroundVideo: "Background video",
+      play: "Play the video",
+      pause: "Pause the video",
+      position: "Video position",
+      mark: "Mark",
+      markTitle: "Put this moment in the chat, to say what should happen here",
+    },
   },
   assets: {
     origin: {
@@ -2551,8 +2560,6 @@ const en = {
   },
   storyMenu: {
     addScene: "Add Scene",
-    noScenes: "No Scenes yet",
-    startHint: "Start from a Template, or describe your story in the chat.",
     addAScene: "Add a Scene",
     sceneActions: "Scene actions",
     copyScene: "Copy Scene",

@@ -277,6 +277,16 @@ ordinary PRs at `dev`; `main` receives releases. See
 [the documentation index](docs/README.md) for module guides.
 Report security issues using [SECURITY.md](SECURITY.md).
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=whitetowerai%2Fohmygame&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=whitetowerai/ohmygame&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=whitetowerai/ohmygame&type=date&legend=top-left" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=whitetowerai/ohmygame&type=date&legend=top-left" />
+  </picture>
+</a>
+
 ## License
 
 [Apache-2.0](LICENSE). The OhMyGame name and logo are not covered by the

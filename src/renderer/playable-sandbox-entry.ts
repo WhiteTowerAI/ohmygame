@@ -2,6 +2,8 @@ import {
   isPlayableHostMessage,
   type PlayableFrameMessage,
   type PlayableHostMessage,
+  type PlayableMediaCommand,
+  type PlayableMediaState,
   type PlayablePreviewTool,
 } from "../shared/playable-player-protocol.js";
 import {
@@ -29,6 +31,11 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (event.data.kind === "ohmygame:playable:pick-cancel") {
     if (session?.instanceId === event.data.instanceId)
       session.host.stopPicking();
+    return;
+  }
+  if (event.data.kind === "ohmygame:playable:media-control") {
+    if (session?.instanceId === event.data.instanceId && session.preview)
+      session.media?.control(event.data.command);
     return;
   }
   void startSession(event.data);
@@ -84,6 +91,8 @@ async function startSession(
       host,
       saveStore,
       assetUrls,
+      // The timeline is an authoring tool; published sessions never report media.
+      ...(message.preview ? { media: reportBackdropMedia(host, message.instanceId) } : {}),
     };
     await runtime.start();
     postSnapshot(message.instanceId);
@@ -116,6 +125,7 @@ async function disposeSession(): Promise<void> {
   session = undefined;
   if (!current) return;
   current.saveStore.dispose();
+  current.media?.stop();
   await current.runtime.dispose();
   current.host.destroy();
   for (const url of Object.values(current.assetUrls)) URL.revokeObjectURL(url);
@@ -196,6 +206,73 @@ interface SandboxSession {
   host: DocumentPlayableSurfaceHost;
   saveStore: ParentSaveStore;
   assetUrls: Record<string, string>;
+  media?: BackdropMediaReport;
+}
+
+interface BackdropMediaReport {
+  control: (command: PlayableMediaCommand) => void;
+  stop: () => void;
+}
+
+const MEDIA_EVENTS = ["loadedmetadata", "durationchange", "timeupdate", "play", "playing", "waiting", "pause", "seeking", "seeked", "ended"] as const;
+
+/**
+ * Reports the Node's background video to the Workbench timeline as it plays,
+ * and applies the timeline's commands to it.
+ */
+function reportBackdropMedia(host: DocumentPlayableSurfaceHost, instanceId: string): BackdropMediaReport {
+  let video: HTMLVideoElement | undefined;
+  const report = () => {
+    const media = video && mediaState(video);
+    post({ kind: "ohmygame:playable:media", instanceId, ...(media ? { media } : {}) });
+  };
+  const listen = (target: HTMLVideoElement | undefined, add: boolean) => {
+    for (const type of MEDIA_EVENTS) {
+      if (add) target?.addEventListener(type, report);
+      else target?.removeEventListener(type, report);
+    }
+  };
+  const stopWatching = host.watchBackdropVideo((next) => {
+    listen(video, false);
+    video = next;
+    listen(video, true);
+    report();
+  });
+  return {
+    control: (command) => {
+      if (!video) return;
+      if (command.action === "seek") video.currentTime = Math.min(command.time, video.duration || command.time);
+      else if (command.action === "pause") video.pause();
+      // Where sound may not start on its own, play muted rather than not at all.
+      else void video.play().catch((error: unknown) => {
+        if ((error as Error | undefined)?.name !== "NotAllowedError") return;
+        video!.muted = true;
+        return video!.play();
+      }).catch(() => {});
+    },
+    stop: () => {
+      stopWatching();
+      listen(video, false);
+      video = undefined;
+    },
+  };
+}
+
+/**
+ * Undefined until the video has loaded its metadata. Its length is known a
+ * moment earlier, before the Node's code can move it from the start.
+ */
+function mediaState(video: HTMLVideoElement): PlayableMediaState | undefined {
+  if (video.readyState < HTMLMediaElement.HAVE_METADATA) return undefined;
+  if (!Number.isFinite(video.duration) || video.duration <= 0) return undefined;
+  const assetId = video.closest('[data-media="backdrop"]')?.getAttribute("data-asset");
+  return {
+    ...(assetId ? { assetId } : {}),
+    duration: video.duration,
+    time: Math.min(video.currentTime, video.duration),
+    paused: video.paused || video.ended,
+    advancing: !video.paused && !video.ended && !video.seeking && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA,
+  };
 }
 
 let snapshotScheduled = false;

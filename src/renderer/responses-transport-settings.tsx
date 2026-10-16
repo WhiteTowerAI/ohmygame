@@ -47,7 +47,7 @@ export function ProviderResponsesTransport({
   }
   return (
     <section
-      className="settings-detail-section"
+      className="settings-detail-section settings-responses-transport"
       aria-label={t("responsesTransport.label")}
     >
       <div className="settings-detail-field">

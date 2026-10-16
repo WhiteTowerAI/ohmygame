@@ -18,6 +18,7 @@ import { PLAYABLE_PRESET_IDS, PLAYABLE_PRESETS } from "./playable-presets.js";
 import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
+import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -430,12 +431,12 @@ export function createAgentTools(
     description: "Generate character or narrator speech and save it into the current project. Use an exact voice ID supported by the connected speech provider.",
     parameters: Type.Object({
       text: Type.String({ minLength: 1, maxLength: 10_000, description: "The words to speak" }),
-      voiceId: Type.Optional(Type.String({ minLength: 1, maxLength: 256, description: "Provider Speaker ID; omit to use the configured default" })),
+      voiceId: Type.Optional(Type.String({ minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN, description: "Provider Speaker ID; omit to use the configured default" })),
       model: Type.Optional(mediaModelParameter()),
       language: Type.Optional(Type.String({ maxLength: 40 })),
       style: Type.Optional(Type.String({ maxLength: 2_000, description: "Delivery or emotional direction" })),
       speed: Type.Optional(Type.Number({ minimum: -50, maximum: 100 })),
-      format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")])),
+      format: Type.Optional(Type.Union([Type.Literal("mp3"), Type.Literal("wav")], { description: "Output format supported by the selected model; Doubao Speech supports mp3 only" })),
       sampleRate: Type.Optional(Type.Union([8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000].map((value) => Type.Literal(value)))),
     }),
     execute: async (_toolCallId, input, signal) => saveGeneratedAudio("generate-speech", {
@@ -557,7 +558,7 @@ export function createAgentTools(
   }), defineTool({
     name: "generate_canvas_media",
     label: "Generate Canvas Media",
-    description: "Generate a saved image, video, speech, sound-effect, music, 3D or animation node using its current prompt, model and references. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
+    description: "Generate a saved media node using its current prompt, configured model and references. Use it only for a node whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
     parameters: Type.Object({ boardId: Type.String({ minLength: 1, maxLength: 100 }), nodeId: Type.String({ minLength: 1, maxLength: 120 }) }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();

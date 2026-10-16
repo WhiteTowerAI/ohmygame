@@ -71,7 +71,7 @@ import { PlaytestControls, requestPlaytest, type PlaytestRequest } from "./playa
 import type { PlayableChatState } from "./playable-chat.js";
 import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
 import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
-import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEmptyCanvas } from "./playable-canvas-menus.js";
+import { PlayableAddControl, PlayableCanvasContextMenu } from "./playable-canvas-menus.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
 import { t } from "./i18n.js";
@@ -1090,13 +1090,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                 onNodesDelete={(deleted) => removeNodes(new Set(deleted.map((node) => node.id)))}
                 isValidConnection={(connection) => Boolean(connection.source && connection.target && connection.sourceHandle)}
                 defaultViewport={editorLayout.viewport}
-              >
-                {nodes.length ? null : <PlayableEmptyCanvas
-                  presets={presets}
-                  busy={writing}
-                  onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
-                />}
-              </EditorCanvas>
+              />
             </PlayableCanvasContext.Provider>
           ) : null}
           {canvasContextMenu ? <PlayableCanvasContextMenu

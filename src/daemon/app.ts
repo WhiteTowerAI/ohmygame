@@ -84,7 +84,7 @@ import { ProviderVideos } from "./provider-videos.js";
 import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audio-generation.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineTtsSettingsStore } from "./volcengine-tts-settings.js";
-import { AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, type AudioOperation } from "../shared/audio.js";
+import { AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, DOUBAO_SPEECH_PROVIDER_NAME, availableAudioOperations, type AudioOperation } from "../shared/audio.js";
 import { isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { isMinimaxProviderId, MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -314,7 +314,7 @@ const promptSchema = {
           additionalProperties: false,
           required: ["kind", "label", "text"],
           properties: {
-            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset", "design-document", "canvas-board"] },
+            kind: { enum: ["playable-node", "playable-element", "playable-drawing", "playable-asset", "playable-moment", "design-document", "canvas-board"] },
             label: { type: "string", minLength: 1, maxLength: 200 },
             text: { type: "string", minLength: 1, maxLength: 16_000 },
           },
@@ -437,7 +437,7 @@ const toolRunSchema = {
       outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
       duration: { type: "integer", minimum: 1, maximum: 30 },
       durationSeconds: { type: "number", minimum: 0.1, maximum: 600 },
-      voiceId: { type: "string", minLength: 1, maxLength: 200 },
+      voiceId: { type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN },
       language: { type: "string", minLength: 1, maxLength: 40 },
       style: { type: "string", minLength: 1, maxLength: 2_000 },
       speed: { type: "number", minimum: -50, maximum: 100 },
@@ -450,7 +450,7 @@ const toolRunSchema = {
         type: "object",
         additionalProperties: false,
         properties: {
-          format: { enum: [...AUDIO_OUTPUT_FORMATS] },
+          format: { enum: [...AUDIO_OUTPUT_FORMATS], description: "Must be supported by the selected model; Doubao Speech supports mp3 only." },
           sampleRate: { type: "integer", enum: [...AUDIO_SAMPLE_RATES] },
           channels: { type: "integer", enum: [1, 2] },
         },
@@ -820,7 +820,11 @@ export function createApp(options: AppOptions = {}) {
     }),
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      return projectPiToolNames(mode, TOOL_IDS, registered, webSearch.enabled());
+      const audioOperations = availableAudioOperations(providerAudio.catalog().models);
+      const enabledTools = TOOL_IDS.filter((toolId) => toolId === "generate-speech" ? audioOperations.has("speech")
+        : toolId === "generate-sound-effect" ? audioOperations.has("sound-effect")
+          : toolId === "generate-music" ? audioOperations.has("music") : true);
+      return projectPiToolNames(mode, enabledTools, registered, webSearch.enabled());
     },
     onRunFinished: async (project, conversationId) => {
       await agentPlaytests.get(`${project.id}:${conversationId}`)?.cleanup();
@@ -2009,8 +2013,10 @@ export function createApp(options: AppOptions = {}) {
   });
 
   const providerSummaries = async () => {
-    const piProviders = await modelAuth.providers();
-    const customProviders = await providerModelSettings.customProviderCatalog();
+    const [piProviders, customProviders] = await Promise.all([
+      modelAuth.providers(),
+      providerModelSettings.customProviderCatalog(),
+    ]);
     const customModels = new Map(customProviders.map((provider) => [provider.id, provider]));
     const customImageProviders = new Set(customProviders
       .filter((provider) => CUSTOM_IMAGE_MODEL_APIS.some((api) => api === provider.api)).map((provider) => provider.id));
@@ -2071,16 +2077,20 @@ export function createApp(options: AppOptions = {}) {
       };
     }), {
       id: "volcengine-tts",
-      name: "Doubao Speech",
+      name: DOUBAO_SPEECH_PROVIDER_NAME,
       configured: volcengineTtsSettings.get().configured,
       enabled: providerEnabled("volcengine-tts"),
       custom: false,
       status: volcengineTtsSettings.get().configured ? "connected" as const : "not_configured" as const,
-      methods: [{ type: "api_key" as const, label: "Volcengine Speech API key" }],
+      methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
     }];
-    return [...providers, ...directProviders, ...await cloudModels.providers(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
+    // Cloud quota/catalog verification can take tens of seconds. Refresh it in
+    // the background and serve the last known snapshot so opening Settings does
+    // not wait on the cloud service.
+    void cloudModels.refresh();
+    return [...providers, ...directProviders, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
   registerOpenAIImageRoutes(app, openAIImages, imageConnection, options.modelDiscoveryFetch);
@@ -2276,7 +2286,7 @@ export function createApp(options: AppOptions = {}) {
   app.get("/settings/models/providers/volcengine-tts", async () => volcengineTtsSettings.get());
   app.put<{ Body: { apiKey?: string; defaultVoiceId?: string | null } }>("/settings/models/providers/volcengine-tts", { schema: { body: {
     type: "object", additionalProperties: false, minProperties: 1,
-    properties: { apiKey: { type: "string", minLength: 1, maxLength: 10_000 }, defaultVoiceId: { anyOf: [{ type: "string", minLength: 1, maxLength: 256, pattern: "^[A-Za-z0-9_-]+$" }, { type: "null" }] } },
+    properties: { apiKey: { type: "string", minLength: 1, maxLength: 10_000 }, defaultVoiceId: { anyOf: [{ type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN }, { type: "null" }] } },
   } } }, async (request, reply) => {
     try { return await volcengineTtsSettings.update(request.body.apiKey, request.body.defaultVoiceId); }
     catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
@@ -2287,7 +2297,7 @@ export function createApp(options: AppOptions = {}) {
       type: "object", additionalProperties: false, required: ["text"],
       properties: {
         text: { type: "string", minLength: 1, maxLength: 500 },
-        voiceId: { type: "string", minLength: 1, maxLength: 256, pattern: "^[A-Za-z0-9_-]+$" },
+        voiceId: { type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN },
         language: { type: "string", minLength: 1, maxLength: 40 },
         style: { type: "string", minLength: 1, maxLength: 500 },
         speed: { type: "number", minimum: -50, maximum: 100 },
@@ -2341,7 +2351,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   const hasModelProvider = async (runtime: ModelRuntime, id: string) => isNative3DProvider(id) || Boolean(runtime.getProvider(id))
-    || id.startsWith("cloud-") && (await cloudModels.cloudCatalog()).providers.some((provider) => provider.id === id);
+    || id.startsWith("cloud-") && cloudModels.hasProvider(id);
   const providerModels = async (runtime: ModelRuntime, providerId: string): Promise<ProviderModelSettings> => {
     if (isNative3DProvider(providerId)) {
       const native = native3DProviders.find(([id]) => id === providerId)!;
@@ -2354,7 +2364,8 @@ export function createApp(options: AppOptions = {}) {
       catalogDocsUrl: MODEL_3D_CATALOG_DOCS[providerId] };
     }
     if (providerId.startsWith("cloud-")) {
-      const catalog = await cloudModels.cloudCatalog();
+      void cloudModels.refresh();
+      const catalog = cloudModels.catalogSnapshot();
       const provider = catalog.providers.find((provider) => provider.id === providerId);
       return { models: catalog.models.filter((model) => model.provider === providerId).map((model) => ({
         provider: providerId, providerName: provider?.name ?? providerId, id: model.id, name: model.name, reasoningLevels: [], capabilities: [model.capability],

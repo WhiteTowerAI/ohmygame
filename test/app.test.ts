@@ -797,7 +797,7 @@ describe("daemon", () => {
     expect(response.json().skills).toEqual([{ name: "godot", description: "Control Godot" }]);
   });
 
-  it("makes OhMyGame media generation available without a Plugin", async () => {
+  it("offers only configured OhMyGame media generation tools without a Plugin", async () => {
     const setActiveToolsByName = vi.fn();
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
     const app = createApp({
@@ -834,9 +834,53 @@ describe("daemon", () => {
       "generate_3d_asset",
       "generate_video",
       "animate_3d_asset",
+    ]);
+  });
+
+  it("offers only the audio operations supported by configured providers", async () => {
+    const setActiveToolsByName = vi.fn();
+    const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-audio-tools-")),
+      createSession: async () => ({
+        messages: [],
+        prompt,
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+        setActiveToolsByName,
+      }),
+    });
+    apps.push(app);
+    const settings = await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { apiKey: "test-key" },
+    });
+    expect(settings.statusCode).toBe(200);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+
+    await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Create a voice line" },
+    });
+
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
+    expect(setActiveToolsByName).toHaveBeenCalledWith([
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "web_search",
+      "update_plan",
+      "install_plugin",
+      "generate_image",
+      "generate_3d_asset",
+      "generate_video",
+      "animate_3d_asset",
       "generate_speech",
-      "generate_sound_effect",
-      "generate_music",
     ]);
   });
 
