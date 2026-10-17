@@ -330,38 +330,6 @@ describe("preview policy and lifecycle", () => {
     );
   });
 
-  it("keeps a waiting preview waiting while a turn snapshots the workspace", async () => {
-    const { directory, project } = await fixture();
-    await rm(path.join(directory, "index.html"));
-    const preview = manager();
-    preview.acquire(project, "editor:new", true);
-    await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));
-    await preview.withWorkspaceStopped(project, async () => {});
-    expect(project.preview.status).toBe("waiting");
-    expect(project.preview.stopReason).toBeUndefined();
-  });
-
-  it("keeps the manual stop reason while a turn snapshots a stopped workspace", async () => {
-    const { project } = await fixture();
-    const preview = manager();
-    preview.acquire(project, "editor:first", true);
-    await preview.ensureStarted(project);
-    await preview.stop(project);
-    await preview.withWorkspaceStopped(project, async () => {});
-    expect(project.preview).toMatchObject({ status: "stopped", stopReason: "manual" });
-  });
-
-  it("stops a running preview for a turn snapshot and starts it again", async () => {
-    const { project } = await fixture();
-    const preview = manager();
-    preview.acquire(project, "editor:first", true);
-    await preview.ensureStarted(project);
-    await preview.withWorkspaceStopped(project, async () => {
-      expect(project.preview).toMatchObject({ status: "stopped", stopReason: "settings" });
-    });
-    await vi.waitFor(() => expect(project.preview.status).toBe("ready"));
-  });
-
   it("explains why existing files cannot start a preview", async () => {
     const { directory, project } = await fixture();
     await rm(path.join(directory, "index.html"));

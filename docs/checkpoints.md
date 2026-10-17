@@ -76,9 +76,11 @@ not when enqueued. Each range is linked by checkpoint entry IDs, which remain
 the same when the live conversation is reloaded from disk.
 
 Checkpoint boundaries drain daemon HTTP handlers and canvas generation callbacks,
-including callbacks whose job already reports cancellation. They temporarily
-stop preview processes and resume an existing active preview afterward. Explicit
-Undo and Reapply leave the preview stopped until the user resumes it.
+including callbacks whose job already reports cancellation. Ordinary snapshots
+keep preview servers and pages running, including while a server is starting;
+chatting or opening a turn's file changes does not restart the game. Source edits
+use the development server's HMR or the static preview's file refresh. Explicit
+Undo, Reapply and Restore stop the preview until the user resumes it.
 
 Requests that arrive during a checkpoint wait or go on depending on what it
 does to the files. A snapshot only reads them: project reads go on, and
@@ -158,7 +160,8 @@ appending duplicate messages to their histories.
 - UI: `src/renderer/turn-changes.tsx`, `src/renderer/project-shell.tsx`,
   `src/renderer/workspace-version.ts`.
 - Tests: `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
-  `test/checkpoint-routes.test.ts`, and the canvas storage suites.
+  `test/checkpoint-routes.test.ts`, `test/preview-checkpoints.test.ts`, and the
+  canvas storage suites.
 
 The routes under `/projects/:projectId` are:
 
