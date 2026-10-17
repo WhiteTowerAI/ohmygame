@@ -2,35 +2,43 @@ import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type Key
 import type { ConversationCapabilities } from "../shared/contracts.js";
 import { FileText, Lightbulb, Package, Plus, Upload, WandSparkles } from "./icons.js";
 import { attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
-import { matchingMentions, mentionQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
+import { matchingMentions, mentionQuery, slashCommandQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { t } from "./i18n.js";
 
-type ContextAction = "files" | "design" | "plan";
+type ContextAction = "files" | "design" | "plan" | "compact";
 interface ContextMenuItem {
   id: string;
-  section: "Add" | "Plugins" | "Skills";
+  section: "Add" | "Commands" | "Plugins" | "Skills";
   label: string;
   description: string;
   source?: string;
+  command?: "plan" | "compact";
   action?: ContextAction;
   mention?: ComposerMention;
 }
 
-export function composerContextItems({ capabilities, query, planning, canTogglePlanning, supportsDesign }: {
+export function composerContextItems({ capabilities, query, planning, canTogglePlanning, supportsDesign, showCompact = false, contextPercent }: {
   capabilities: ConversationCapabilities;
   query?: ComposerMentionQuery;
   planning: boolean;
   canTogglePlanning: boolean;
   supportsDesign: boolean;
+  showCompact?: boolean;
+  contextPercent?: number;
 }): ContextMenuItem[] {
-  const actions: ContextMenuItem[] = query?.trigger === "$" ? [] : [
+  const actions: ContextMenuItem[] = query?.trigger === "$" ? [] : query?.trigger === "/" ? [
+    ...(canTogglePlanning ? [{ id: "plan", command: "plan" as const, section: "Commands" as const, label: t("planMode.mode"), description: planning ? t("planMode.turnOff") : t("planMode.turnOn"), action: "plan" as const }] : []),
+    ...(showCompact ? [{ id: "compact", command: "compact" as const, section: "Commands" as const, label: t("planMode.compact"), description: `${t("planMode.compactHint")}${contextPercent === undefined ? "" : t("planMode.full", { percent: contextPercent })}`, action: "compact" as const }] : []),
+  ] : [
     { id: "files", section: "Add", label: t("contextMenu.attachFiles"), description: t("contextMenu.attachFilesHint"), action: "files" },
     ...(supportsDesign ? [{ id: "design", section: "Add" as const, label: t("contextMenu.design"), description: t("contextMenu.designHint"), action: "design" as const }] : []),
     ...(canTogglePlanning ? [{ id: "plan", section: "Add" as const, label: t("planMode.mode"), description: planning ? t("planMode.turnOff") : t("planMode.turnOn"), action: "plan" as const }] : []),
   ];
   const search = query?.query ?? "";
   return [
-    ...actions.filter((item) => `${item.label} ${item.description}`.toLowerCase().includes(search)),
+    ...actions.filter((item) => item.command
+      ? item.command.startsWith(search) || (item.command === "compact" && search.startsWith("compact "))
+      : `${item.label} ${item.description}`.toLowerCase().includes(search)),
     ...matchingMentions(planning ? { plugins: capabilities.plugins, skills: [] } : capabilities, query ?? { start: 0, end: 0, trigger: "@", query: "" }).map((mention): ContextMenuItem => {
       const skillName = mention.type === "skill" ? skillDisplayName(mention.value.name) : undefined;
       return {
@@ -45,7 +53,7 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   ];
 }
 
-export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onMention, onChange, onSelectionChange }: {
+export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onMention, onChange, onSelectionChange, contextPercent }: {
   prompt: string;
   cursor: number;
   textarea: RefObject<HTMLTextAreaElement | null>;
@@ -56,9 +64,11 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
   onFiles: (files: ComposerAttachment[]) => void;
   onDesignReference?: () => void;
   onTogglePlanning: () => void;
+  onCompact?: () => void;
   onMention: (mention: ComposerMention, query?: ComposerMentionQuery) => void;
   onChange: (value: string) => void;
   onSelectionChange: (cursor: number) => void;
+  contextPercent?: number;
 }) {
   const id = useId();
   const menu = useRef<HTMLDivElement>(null);
@@ -67,11 +77,11 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
   const [openedByButton, setOpenedByButton] = useState(false);
   const [dismissed, setDismissed] = useState<string>();
   const [selected, setSelected] = useState(0);
-  const candidate = mentionQuery(prompt, cursor);
+  const candidate = mentionQuery(prompt, cursor) ?? slashCommandQuery(prompt, cursor);
   const mentionKey = candidate ? `${candidate.start}:${candidate.trigger}:${candidate.query}` : undefined;
   const query = mentionKey === dismissed ? undefined : candidate;
   const open = !disabled && (openedByButton || Boolean(query));
-  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, supportsDesign: Boolean(onDesignReference) });
+  const items = composerContextItems({ capabilities, query, planning, canTogglePlanning, supportsDesign: Boolean(onDesignReference), showCompact: Boolean(onCompact), contextPercent });
   const selectedIndex = Math.min(selected, Math.max(0, items.length - 1));
 
   useEffect(() => setSelected(0), [query?.start, query?.trigger, query?.query, openedByButton]);
@@ -110,6 +120,12 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
       onMention(item.mention, query);
       return;
     }
+    if (item.action === "compact") {
+      close();
+      onCompact?.();
+      textarea.current?.focus();
+      return;
+    }
     // Actions consume the search token, leaving the message draft intact.
     if (query) {
       onChange(`${prompt.slice(0, query.start)}${prompt.slice(query.end).replace(/^\s+/, "")}`);
@@ -119,6 +135,7 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
     if (item.action === "files") filesInput.current?.click();
     else if (item.action === "design") onDesignReference?.();
     else if (item.action === "plan") onTogglePlanning();
+    else if (item.action === "compact") onCompact?.();
     textarea.current?.focus();
   }
 
@@ -130,6 +147,10 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
       return true;
     }
     if (event.key === "Tab" && (event.shiftKey || !items.length)) {
+      close();
+      return false;
+    }
+    if (!items.length && query?.trigger === "/" && event.key === "Enter" && !event.shiftKey) {
       close();
       return false;
     }
@@ -241,7 +262,7 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover }
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(item)}
       >
-        {item.action === "files" ? <Upload size={16} /> : item.action === "design" ? <FileText size={16} /> : item.action === "plan" ? <Lightbulb size={16} /> : item.mention?.type === "plugin" ? <Package size={16} /> : <WandSparkles size={16} />}
+        {item.action === "files" ? <Upload size={16} /> : item.action === "design" ? <FileText size={16} /> : item.action === "plan" ? <Lightbulb size={16} /> : item.action === "compact" ? <FileText size={16} /> : item.mention?.type === "plugin" ? <Package size={16} /> : <WandSparkles size={16} />}
         <span>{item.label}</span>
         <small>{item.description}</small>
       </button>

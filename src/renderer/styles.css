@@ -1600,6 +1600,17 @@ body {
   font-size: 12px;
 }
 
+.settings-loading-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-audio-preview {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .settings-provider-detail {
   display: grid;
   max-width: 760px;
@@ -7821,8 +7832,71 @@ button {
   user-select: none;
 }
 
+.story-media-audio {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 38px;
+  align-items: center;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  color: var(--icon-secondary);
+}
+
+.story-media-audio > svg {
+  grid-row: 1;
+  justify-self: center;
+}
+
+.story-media-audio > audio {
+  display: none;
+}
+
+.story-media-audio .story-inline-video-controls {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  grid-row: 2;
+  width: 100%;
+  max-width: none;
+  height: 38px;
+  box-sizing: border-box;
+  padding: 6px 12px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--text) 3%, var(--surface-raised));
+  color: var(--text-muted);
+  filter: none;
+}
+
+.story-media-audio .story-inline-video-controls::before {
+  display: none;
+}
+
+.story-media-audio .story-inline-video-controls button:hover:not(:disabled),
+.story-media-audio .story-inline-video-controls button:focus-visible {
+  background: var(--surface-hover);
+}
+
+.story-media-audio
+  .story-inline-video-scrubber
+  input::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    var(--theme-accent) 0 var(--video-progress),
+    var(--border-strong) var(--video-progress) 100%
+  );
+}
+
+.story-media-audio
+  .story-inline-video-scrubber
+  input::-webkit-slider-thumb {
+  background: var(--theme-accent);
+}
+
 .story-media-stage.is-generating
-  > :is(img, video, .model-preview, .story-inline-video-controls) {
+  > :is(img, video, .model-preview, .story-inline-video-controls, .story-media-audio) {
   opacity: 0.4;
 }
 
@@ -12250,16 +12324,22 @@ button {
   gap: 6px;
 }
 
+.model-selector-canvas > .canvas-chip {
+  max-width: 240px;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
 .model-selector-trigger {
   display: flex;
   min-width: 0;
-  max-width: 190px;
+  max-width: 240px;
   height: 30px;
   align-items: center;
   gap: 6px;
   padding: 0 7px 0 8px;
   border: 0;
-  border-radius: var(--radius);
+  border-radius: 16px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -12267,32 +12347,10 @@ button {
   font-size: 10px;
 }
 
-.model-selector-current {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-  text-align: left;
-}
-
 .model-selector-name {
+  min-width: 0;
   overflow: hidden;
   font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.model-selector-current small {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 400;
-  line-height: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.model-selector-trigger span {
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -12317,8 +12375,10 @@ button {
   outline-offset: 1px;
 }
 
-.model-selector-reasoning-trigger {
+.model-selector-reasoning-value {
   flex: 0 0 auto;
+  color: color-mix(in srgb, var(--text-muted) 75%, var(--text-faint));
+  font-weight: 400;
 }
 
 .model-selector-popover {
@@ -12330,10 +12390,6 @@ button {
 
 .model-selector-popover-canvas {
   width: 220px;
-}
-
-.model-selector-popover-reasoning {
-  width: 150px;
 }
 
 .model-selector-menu,
@@ -12450,16 +12506,10 @@ button {
   background-clip: padding-box;
 }
 
-.prompt-box-home .model-selector-current small,
-.prompt-box-project .model-selector-current small {
-  display: none;
-}
-
 .prompt-box-home .model-selector-trigger,
 .prompt-box-project .model-selector-trigger {
-  gap: 3px;
   padding: 0 3px 0 10px;
-  color: #b1b3bc;
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 500;
 }
@@ -12487,6 +12537,26 @@ button {
 }
 
 .model-selector-reasoning-menu button {
+  color: var(--text-muted);
+}
+
+.model-selector-reasoning-menu .model-selector-back {
+  justify-content: flex-start;
+  gap: 7px;
+  margin-bottom: 2px;
+}
+
+.model-selector-menu .model-selector-reasoning {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 5px 5px;
+}
+
+.model-selector-setting-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
   color: var(--text-muted);
 }
 
@@ -12518,6 +12588,10 @@ button {
 }
 
 .model-selector-reasoning-menu button > svg {
+  flex: 0 0 auto;
+}
+
+.model-selector-setting-value svg {
   flex: 0 0 auto;
 }
 

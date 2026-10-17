@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { applyEdits, format, modify, parse, type JSONPath, type ParseError } from "jsonc-parser";
-import { CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAGES, RESPONSES_TRANSPORT_MODES, type ResponsesTransportMode, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, type ModelRef, type ImageModel, type ProviderCapability, type Model3DDefinition } from "../shared/contracts.js";
+import { CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAGES, RESPONSES_TRANSPORT_MODES, type ResponsesTransportMode, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, type ModelRef, type ImageModel, type MediaModelUsage, type Model3DDefinition } from "../shared/contracts.js";
 import { isNative3DProvider, MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DProviderId } from "../shared/model3d-presets.js";
 import { modelUsageList, modelUsages, normalizeEndpoint, normalizeModelUsages } from "../shared/custom-models.js";
 import type { RuntimeModel } from "./agent.js";
@@ -128,7 +128,7 @@ export class ProviderModelSettingsStore {
   defaultVideoModel(): ModelRef | undefined { return this.#defaultVideoModel; }
   defaultModel3D(): ModelRef | undefined { return this.#defaultModel3D; }
 
-  setDefaultMediaModel(usage: Exclude<ProviderCapability, "language">, model?: ModelRef): Promise<void> {
+  setDefaultMediaModel(usage: MediaModelUsage, model?: ModelRef): Promise<void> {
     const key = usage === "image" ? "defaultImageModel" : usage === "video" ? "defaultVideoModel" : "defaultModel3D";
     const selected = model ? { provider: model.provider, id: model.id } : undefined;
     return this.#enqueue(async () => {

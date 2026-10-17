@@ -123,7 +123,7 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
       for (const reference of node.data.references) validateReference(node.id, reference, nodes, ["image", "video", "asset"]);
     }
     if ((node.type === "animate-3d" || node.type === "model-3d") && node.data.source) validateReference(node.id, node.data.source, nodes, ["model-3d", "animate-3d", "asset"]);
-    if ((node.type === "image" || node.type === "video" || node.type === "model-3d") && node.data.promptSource) {
+    if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music") && node.data.promptSource) {
       const source = nodes.get(node.data.promptSource.nodeId);
       if (!source || (source.type !== "text" && source.type !== "document") || source.id === node.id) throw new Error(`Node ${node.id} has an invalid Text reference`);
     }

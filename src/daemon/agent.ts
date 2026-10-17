@@ -41,6 +41,7 @@ import {
   CHECKPOINT_ENTRY, CHECKPOINT_RESTORED_ENTRY, CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, checkpointExtension, parseStoredCheckpoint, parseStoredCheckpointUndone, parseStoredTurnEnd, turnRange,
   type StoredCheckpointUndone, type StoredTurnEnd, type TurnRange,
 } from "./checkpoint-extension.js";
+import { normalizeAssistantMessage, normalizeAssistantText, AssistantTextStreamNormalizer } from "./assistant-thinking.js";
 
 export interface CodingSession {
   readonly messages: readonly unknown[];
@@ -239,13 +240,15 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             });
           }
         } else if (content.type === "text" && content.text) {
+          const text = normalizeAssistantText(content.text);
+          if (!text) continue;
           hasAssistantText = true;
           const phase = assistantMessagePhase(content, message.stopReason);
           items.push({
             id: `${entry.id}:assistant:${index}`,
             turnId,
             type: "agentMessage",
-            text: content.text,
+            text,
             status: threadItemStatus(message.stopReason),
             ...(phase ? { phase } : {}),
             timestamp,
@@ -424,6 +427,7 @@ interface ActiveTurn {
   conversation: StoredConversation;
   status: Extract<AgentStatus, "running" | "cancelling">;
   assistantItemIds: Map<number, string>;
+  assistantTextNormalizers: Map<number, AssistantTextStreamNormalizer>;
   completedAssistantIndexes: Set<number>;
   assistantSequence: number;
   thinkingItemId?: string;
@@ -608,6 +612,7 @@ export class AgentManager {
       conversation,
       status: "running",
       assistantItemIds: new Map(),
+      assistantTextNormalizers: new Map(),
       completedAssistantIndexes: new Set(),
       assistantSequence: 0,
       thinkingSequence: 0,
@@ -1003,6 +1008,7 @@ export class AgentManager {
       plan,
       status: "running",
       assistantItemIds: new Map(),
+      assistantTextNormalizers: new Map(),
       completedAssistantIndexes: new Set(),
       assistantSequence: 0,
       thinkingSequence: 0,
@@ -1637,6 +1643,7 @@ export class AgentManager {
       active.attachmentContext = started.attachmentContext;
       active.attachments = started.attachments;
       active.assistantItemIds.clear();
+      active.assistantTextNormalizers.clear();
       active.completedAssistantIndexes.clear();
       active.assistantSequence = 0;
       active.thinkingItemId = undefined;
@@ -1659,16 +1666,9 @@ export class AgentManager {
       active.startedAt = Date.parse(startedEvent.timestamp);
       this.events.publish(projectId, "prompt.removed", {}, { conversationId, turnId: started.turnId });
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_start") {
-      const itemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
-      active.assistantItemIds.set(event.assistantMessageEvent.contentIndex, itemId);
-      active.completedAssistantIndexes.delete(event.assistantMessageEvent.contentIndex);
-      this.#startItem(projectId, active, {
-        id: itemId,
-        turnId: active.turnId,
-        type: "agentMessage",
-        text: "",
-        status: "inProgress",
-      });
+      const contentIndex = event.assistantMessageEvent.contentIndex;
+      active.assistantTextNormalizers.set(contentIndex, new AssistantTextStreamNormalizer());
+      active.completedAssistantIndexes.delete(contentIndex);
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "thinking_start") {
       active.thinkingItemId = `${active.turnId}:thinking:${active.thinkingSequence++}`;
       this.#startItem(projectId, active, {
@@ -1702,7 +1702,13 @@ export class AgentManager {
       }
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
       const contentIndex = event.assistantMessageEvent.contentIndex;
-      const itemId = active.assistantItemIds.get(contentIndex) ?? `${active.turnId}:assistant:${active.assistantSequence++}`;
+      const normalizer = active.assistantTextNormalizers.get(contentIndex) ?? new AssistantTextStreamNormalizer();
+      active.assistantTextNormalizers.set(contentIndex, normalizer);
+      const delta = normalizer.push(event.assistantMessageEvent.delta);
+      const itemId = active.assistantItemIds.get(contentIndex) ?? (normalizer.text
+        ? `${active.turnId}:assistant:${active.assistantSequence++}`
+        : undefined);
+      if (!itemId) return;
       if (!active.assistantItemIds.has(contentIndex)) {
         active.assistantItemIds.set(contentIndex, itemId);
         this.#startItem(projectId, active, {
@@ -1713,18 +1719,43 @@ export class AgentManager {
           status: "inProgress",
         });
       }
-      this.#appendItemText(active, itemId, event.assistantMessageEvent.delta);
-      this.events.publish(projectId, "item.agentMessage.delta", { itemId, delta: event.assistantMessageEvent.delta }, eventScope(active));
+      if (delta) {
+        this.#appendItemText(active, itemId, delta);
+        this.events.publish(projectId, "item.agentMessage.delta", { itemId, delta }, eventScope(active));
+      }
+      const item = active.items.get(itemId);
+      if (item?.type === "agentMessage" && item.text !== normalizer.text) {
+        this.#updateItem(projectId, active, { ...item, text: normalizer.text });
+      }
     } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_end") {
       const contentIndex = event.assistantMessageEvent.contentIndex;
-      const itemId = active.assistantItemIds.get(contentIndex);
+      const normalizer = active.assistantTextNormalizers.get(contentIndex) ?? new AssistantTextStreamNormalizer();
+      active.assistantTextNormalizers.set(contentIndex, normalizer);
+      const delta = normalizer.finish(event.assistantMessageEvent.content);
+      const text = normalizer.text;
+      let itemId = active.assistantItemIds.get(contentIndex);
+      if (!itemId && text) {
+        itemId = `${active.turnId}:assistant:${active.assistantSequence++}`;
+        active.assistantItemIds.set(contentIndex, itemId);
+        this.#startItem(projectId, active, {
+          id: itemId,
+          turnId: active.turnId,
+          type: "agentMessage",
+          text: "",
+          status: "inProgress",
+        });
+      }
       if (itemId) {
+        if (delta) {
+          this.#appendItemText(active, itemId, delta);
+          this.events.publish(projectId, "item.agentMessage.delta", { itemId, delta }, eventScope(active));
+        }
         const phase = assistantBlockPhase(event.assistantMessageEvent.partial.content[contentIndex]);
         const item = active.items.get(itemId);
         if (phase && item?.type === "agentMessage") {
           this.#completeItem(projectId, active, {
             ...item,
-            text: event.assistantMessageEvent.content,
+            text,
             status: "completed",
             phase,
           });
@@ -1776,14 +1807,13 @@ export class AgentManager {
       active.lastError = event.message.stopReason === "error" ? this.#turnError(active, assistantMessageError(event.message)) : undefined;
       for (const [contentIndex, itemId] of active.assistantItemIds) {
         if (status === "completed" && active.completedAssistantIndexes.has(contentIndex)) continue;
-        const phase = assistantMessagePhase(
-          Array.isArray(event.message.content) ? event.message.content[contentIndex] : undefined,
-          event.message.stopReason,
-        );
+        const content = Array.isArray(event.message.content) ? event.message.content[contentIndex] : undefined;
+        const phase = assistantMessagePhase(content, event.message.stopReason);
         const item = active.items.get(itemId);
         if (item?.type !== "agentMessage") continue;
         this.#completeItem(projectId, active, {
           ...item,
+          ...(content && content.type === "text" ? { text: normalizeAssistantText(content.text) } : {}),
           status,
           ...(phase ? { phase } : {}),
           ...(active.lastError ? { error: active.lastError } : {}),
@@ -1803,6 +1833,7 @@ export class AgentManager {
         this.#completeItem(projectId, active, item);
       }
       active.assistantItemIds.clear();
+      active.assistantTextNormalizers.clear();
       active.completedAssistantIndexes.clear();
       active.preparingToolItemIds.clear();
     } else if (event.type === "auto_retry_start") {
@@ -2711,6 +2742,14 @@ function appendPlanState(sessionManager: CodingSession["sessionManager"], state:
 
 const BASE_TOOL_NAMES = ["read", "write", "edit", "bash"];
 
+const assistantThinkingSanitizerExtension: ExtensionFactory = (pi) => {
+  pi.on("message_end", (event) => {
+    if (event.message.role !== "assistant") return;
+    const message = normalizeAssistantMessage(event.message);
+    return message === event.message ? undefined : { message };
+  });
+};
+
 export async function createPiSession(
   project: Pick<ProjectState, "workspacePath"> & Partial<Pick<ProjectState, "storagePath">> & AgentPromptProject,
   sessionManager: SessionManager,
@@ -2774,6 +2813,11 @@ export async function createPiSession(
     // Pi swallows extension exceptions and may call a provider with an aborted signal.
     assertCheckpoint();
     return streamFunction(...args);
+  };
+  const convertToLlm = session.agent.convertToLlm;
+  session.agent.convertToLlm = async (messages) => {
+    const converted = await convertToLlm(messages);
+    return converted.map((message) => message.role === "assistant" ? normalizeAssistantMessage(message) : message);
   };
   installDeepSeekImageFiles(session, agentDir);
   installSessionImageRequests(session, images, agentDir, { transportMode: responsesTransport });
@@ -2839,6 +2883,7 @@ async function createPiResourceLoader(
     agentDir,
     settingsManager: sessionSettings,
     extensionFactories: [{ name: "openrouter-attribution", factory: openRouterAttributionExtension, hidden: true },
+      { name: "assistant-thinking-sanitizer", factory: assistantThinkingSanitizerExtension, hidden: true },
       ...(options.checkpointFactory ? [{ name: "checkpoints", factory: options.checkpointFactory, hidden: true }] : []),
       ...(options.mcpFactory ? [{ name: "plugin-mcp", factory: options.mcpFactory, hidden: true }] : [])],
     additionalSkillPaths: pluginSkills.map((skill) => skill.path),

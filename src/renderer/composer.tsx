@@ -7,7 +7,7 @@ import { MessageQueue } from "./message-queue.js";
 import { PromptBox, type DroppedFile } from "./prompt-box.js";
 import { ComposerActions } from "./composer-actions.js";
 import { PlanStatus } from "./plan-status.js";
-import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
+import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 import { formatChatPrompt, PromptContextIcon, type ChatContextChip } from "./chat-reference.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
@@ -100,7 +100,6 @@ export function Composer({
   const [attachmentError, setAttachmentError] = useState<string>();
   const [history, setHistory] = useState(() => createPromptHistory(promptHistory.map((entry) => entry.prompt)));
   const [mentionHistory, setMentionHistory] = useState(() => new Map(promptHistory.map((entry) => [entry.prompt, entry.mentions])));
-  const [selectedCommand, setSelectedCommand] = useState<"plan" | "compact">("plan");
   const [contextPercent, setContextPercent] = useState<number>();
   const [mentionCursor, setMentionCursor] = useState(0);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -285,15 +284,12 @@ export function Composer({
     onFiles: addAttachments,
     onDesignReference: supportsDesign ? () => { void referenceDesign(); } : undefined,
     onTogglePlanning: () => { void togglePlanning(false); },
+    onCompact: conversationReady && !running && !stopping && !selectedSkill && !selectedPlugin ? () => { void runCompact(compactInstructions(prompt) ?? undefined); } : undefined,
     onMention: selectMention,
     onChange: changePrompt,
     onSelectionChange: setMentionCursor,
+    contextPercent,
   });
-
-  useEffect(() => {
-    if (showPlanCommand) setSelectedCommand("plan");
-    else if (showCompactCommand) setSelectedCommand("compact");
-  }, [showPlanCommand, showCompactCommand]);
 
   useEffect(() => {
     if (!showCompactCommand) {
@@ -382,27 +378,7 @@ export function Composer({
       clearSelectedPlugin();
       return true;
     }
-    if (!showPlanCommand && !showCompactCommand) return false;
-    const commands: Array<"plan" | "compact"> = [
-      ...(showPlanCommand ? ["plan" as const] : []),
-      ...(showCompactCommand ? ["compact" as const] : []),
-    ];
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const current = Math.max(0, commands.indexOf(selectedCommand));
-      const offset = event.key === "ArrowDown" ? 1 : -1;
-      setSelectedCommand(commands[(current + offset + commands.length) % commands.length]);
-      return true;
-    }
-    if (event.key !== "Enter" || event.shiftKey) return false;
-    event.preventDefault();
-    if (selectedCommand === "compact" && showCompactCommand) {
-      const instructions = compactInstructions(prompt);
-      void runCompact(instructions ?? undefined);
-    } else if (showPlanCommand) {
-      void togglePlanning();
-    }
-    return true;
+    return false;
   }
 
   return (
@@ -481,20 +457,7 @@ export function Composer({
         onDropError={(error) => setAttachmentError(t("composer.droppedFolder", { error: error.message }))}
         onSubmit={submitOrRunCommand}
         suggestions={contextMenu.suggestions}
-        overlay={contextMenu.open ? contextMenu.overlay : showPlanCommand || showCompactCommand ? (
-          <PlanCommandMenu
-            planning={planning}
-            onToggle={() => { void togglePlanning(); }}
-            showPlan={showPlanCommand}
-            showCompact={showCompactCommand}
-            selected={selectedCommand}
-            contextPercent={contextPercent}
-            onCompact={() => {
-              const instructions = compactInstructions(prompt);
-              void runCompact(instructions ?? undefined);
-            }}
-          />
-        ) : null}
+        overlay={contextMenu.open ? contextMenu.overlay : null}
         placeholder={selectedSkill || selectedPlugin ? "" : awaitingApproval ? t("composer.placeholder.review") : planMode === "executing" ? t("composer.placeholder.executing") : planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : t("composer.placeholder.change")}
         textareaRef={textarea}
         onSelectionChange={setMentionCursor}

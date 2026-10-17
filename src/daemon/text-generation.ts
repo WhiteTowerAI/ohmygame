@@ -4,6 +4,7 @@ import type { AgentReasoningLevel, PromptImage } from "../shared/contracts.js";
 import type { CanvasDocumentGenerationResult, CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasTable, type CanvasTable, type CanvasTableGenerationResult } from "../shared/canvas-table.js";
 import { isOpenRouterModel, withOpenRouterAttribution } from "./openrouter-attribution.js";
+import { normalizeAssistantText } from "./assistant-thinking.js";
 
 export type TextGenerationReference = { type: "text"; label: string; text: string } | { type: "image"; label: string; image: PromptImage };
 
@@ -69,7 +70,7 @@ type TextDraftResult = { status: "complete"; text: string } | { status: "incompl
 async function generateDraft(runtime: ModelRuntime, model: RuntimeModel, { prompt, systemPrompt, kind, reasoningLevel }: { prompt: ReturnType<typeof referenceContent>; systemPrompt: string; kind: "document" | "table"; reasoningLevel?: AgentReasoningLevel }): Promise<TextDraftResult> {
   const signal = AbortSignal.timeout(120_000);
   const blocks = new Map<number, string>();
-  const partialText = () => [...blocks.entries()].sort(([a], [b]) => a - b).map(([, text]) => text).join("").trim();
+  const partialText = () => normalizeAssistantText([...blocks.entries()].sort(([a], [b]) => a - b).map(([, text]) => text).join("")).trim();
   const failed = (text: string, error: string): TextDraftResult => ({ status: text ? "incomplete" : "empty", text, error });
   try {
     const stream = runtime.streamSimple(model, {
@@ -93,7 +94,7 @@ async function generateDraft(runtime: ModelRuntime, model: RuntimeModel, { promp
 }
 
 function responseText(response: Awaited<ReturnType<ModelRuntime["completeSimple"]>>): string {
-  return response.content.filter((content) => content.type === "text").map((content) => content.text).join("").trim();
+  return normalizeAssistantText(response.content.filter((content) => content.type === "text").map((content) => content.text).join("")).trim();
 }
 
 function draftFailure(response: Awaited<ReturnType<ModelRuntime["completeSimple"]>>, kind: "document" | "table", timedOut: boolean): string {
