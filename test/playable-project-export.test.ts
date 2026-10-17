@@ -70,7 +70,14 @@ describe("Interactive Story project export", () => {
     ["library", "hero.png", "Hero.png"],
     ["workspace", "Σ.png", "σ.png"],
     ["library", "σ.png", "Σ.png"],
-  ] as const)("keeps Library filenames distinct from differently cased %s assets (%s, %s)", async (source, originalName, portraitName) => {
+    ["workspace", "ς.png", "Σ.png"],
+    ["library", "ς.png", "Σ.png"],
+    ["workspace", "ſ.png", "S.png"],
+    ["library", "ſ.png", "S.png"],
+    ["workspace", "ẞ.png", "ß.png"],
+    ["library", "ẞ.png", "ß.png"],
+    ["workspace", "e\u0301.png", "é.png"],
+  ] as const)("keeps Library filenames distinct from case or normalization equivalent %s assets (%s, %s)", async (source, originalName, portraitName) => {
     const workspace = await temporaryDirectory();
     const library = new AssetLibrary(await temporaryDirectory());
     await library.load();
@@ -99,7 +106,8 @@ describe("Interactive Story project export", () => {
     }
     expect(await readFile(path.join(opened, assets.portrait.source.path), "utf8")).toBe("new portrait");
     expect(await readFile(path.join(opened, assets.original.source.path), "utf8")).toBe("original portrait");
-    expect(assets.portrait.source.path.toLowerCase()).not.toBe(assets.original.source.path.toLowerCase());
+    const renamed = source === "workspace" ? assets.portrait : assets.original;
+    expect(renamed.source.path).toMatch(/-2\.png$/);
   });
 
   it("skips occupied numeric suffixes without replacing existing assets", async () => {
