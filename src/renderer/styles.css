@@ -6393,6 +6393,7 @@ button.home-nav-item-active:hover {
 }
 
 .plugin-card-title .plugin-status,
+.plugin-card-title .plugin-beta,
 .plugin-detail-badge {
   display: inline-flex;
   height: 16px;
@@ -6408,6 +6409,13 @@ button.home-nav-item-active:hover {
 
 .plugin-card-title .plugin-status {
   margin-left: auto;
+}
+
+.plugin-card-title .plugin-beta,
+.plugin-detail-badge.plugin-beta {
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  background: transparent;
 }
 
 .plugin-catalog-card.is-disabled :is(.plugin-row-icon, .plugin-card-copy) {
@@ -6437,11 +6445,6 @@ button.home-nav-item-active:hover {
   .plugins-installed-grid {
     grid-template-columns: 1fr;
   }
-}
-
-.plugin-row-icon-godot {
-  background: #252832;
-  color: #b8c7e8;
 }
 
 .plugin-row-icon-large {
@@ -15170,11 +15173,6 @@ button {
   border-color: var(--settings-switch-accent);
 }
 
-:root[data-appearance="light"] .plugin-row-icon-godot {
-  background: #eaedf5;
-  color: #5970aa;
-}
-
 :root[data-appearance="light"] .plugin-detail-secondary {
   border-color: var(--border);
   background: var(--surface);
@@ -16194,3 +16192,14 @@ button {
 .provider-catalog-info summary { cursor: pointer; color: var(--text-faint); }
 .provider-catalog-info p { margin: 8px 0; }
 .provider-catalog-info a { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); }
+
+.plugin-integration-panel { padding: 20px; border-top: 1px solid var(--border); }
+.plugin-integration-panel h2, .external-project-preview h2 { font-size: 15px; margin: 0 0 12px; }
+.plugin-integration-panel p, .external-project-preview p { font-size: 13px; line-height: 1.6; color: var(--text-secondary); overflow-wrap: anywhere; }
+.plugin-integration-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+.plugin-integration-panel button, .external-project-preview button { padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: inherit; cursor: pointer; }
+.plugin-integration-panel button:disabled, .external-project-preview button:disabled { opacity: .5; cursor: default; }
+.plugin-integration-binding label { display: grid; gap: 8px; margin: 12px 0; }
+.plugin-integration-binding select { width: 100%; padding: 8px; background: var(--surface-raised); color: inherit; border: 1px solid var(--border); border-radius: 6px; }
+.external-project-preview { padding: 40px; overflow: auto; flex: 1; }
+.external-project-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }

@@ -1,0 +1,22 @@
+{
+  "name": "wechat-minigame",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "description": "Adapt game projects for WeChat Mini Games and verify their developer-tool and device builds.",
+  "skills": "./skills/",
+  "interface": {
+    "beta": true,
+    "displayName": "WeChat Mini Games",
+    "shortDescription": "Adapt, preview, and check WeChat mini-game builds.",
+    "longDescription": "Combine with the project's engine workflow to configure WeChat Mini Games, inspect packaging, and verify builds in WeChat DevTools and on a device. Requires WeChat DevTools and an authorized mini-game AppID for account-dependent operations. Includes no third-party MCP bridge. Disabled by default; build, upload, review, and release remain distinct steps.",
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.svg"
+    },
+    "defaultPrompt": [
+      "Check this project's WeChat Mini Game integration and local prerequisites.",
+      "Build this game for WeChat and prepare developer-tool and device checks without uploading."
+    ],
+    "projectTypes": ["general"]
+  }
+}

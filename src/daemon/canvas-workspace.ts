@@ -43,7 +43,7 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - Read actual image files with read when judging their appearance. A name, description, or generation prompt is not proof of what the image shows.
 - promptSource references a text or document node. Text and document nodes accept references to text, document, image, or image asset nodes as AI source material. images, references, and source declare dependencies; their canvas lines are derived. Do not duplicate these relationships in edges.
 - Speech, sound-effect, and music nodes use the shared audio model contract. Keep provider-specific credentials out of canvas files; select models by provider/id and only use options advertised by that model's capabilities.
-- To add a local image, place it under assets/, add its path to assets.json, and reference its ID from an asset node or a generation node.
+- To add local media, register its workspace-relative path in assets.json and reference its ID from an asset node or an existing generation node.
 - Do not trigger generation merely by editing a prompt or adding a reference. A game-creation request includes its needed media unless the user narrows the scope. Use generate_canvas_media with the saved boardId and nodeId for generation; it uses the node settings and shared generation history.
 - Removing a node or board keeps its documents, tables, and assets. Remove references to a deleted node from the same board.
 - An editor-context block identifies the current board and selected nodes. Read the referenced files before editing, and preserve other user changes.

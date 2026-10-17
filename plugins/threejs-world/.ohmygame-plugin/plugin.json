@@ -4,6 +4,7 @@
   "description": "Expand a scene idea into a detailed design, then build and visually inspect a rich, explorable Three.js world.",
   "skills": "./skills/",
   "interface": {
+    "icon": { "type": "asset", "path": "./assets/icon.svg" },
     "displayName": "Three.js World",
     "shortDescription": "Design and build richly detailed, explorable Three.js worlds.",
     "longDescription": "Turn a short description of a place into a written world design, realize it as a walkable Three.js scene with a themed presentation layer, and inspect the rendered result until it matches the design.",

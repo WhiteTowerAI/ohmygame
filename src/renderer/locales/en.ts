@@ -1688,6 +1688,7 @@ const en = {
     },
   },
   plugins: {
+    beta: "Beta",
     public: "Public",
     personal: "Personal",
     editWithAi: "Edit with AI",
@@ -1847,15 +1848,15 @@ const en = {
     imageFile: "Image file",
     imageInput: "Plugin icon image",
     fileHelp:
-      "PNG or WebP, up to 1 MB and 2048 × 2048 pixels. A square image with a transparent background works best.",
+      "PNG, WebP, or static SVG, up to 1 MB and 2048 × 2048. SVGs need a viewBox and presentation attributes, without scripts, styles, or external resources.",
     imagePath: "Image path",
     pathInput: "Plugin icon path",
-    pathHelp: "Choose a PNG or WebP file inside this plugin.",
+    pathHelp: "Choose a PNG, WebP, or static SVG file inside this plugin.",
     useDefault: "Use default",
     save: "Save icon",
     readFailed: "The image could not be read",
     chooseIcon: "Choose a plugin icon",
-    invalidFile: "Choose a PNG or WebP image up to 1 MB",
+    invalidFile: "Choose a PNG, WebP, or SVG image up to 1 MB",
   },
   pluginBuilder: {
     mode: { create: "Create", configure: "Configure", edit: "Edit" },
@@ -2654,6 +2655,16 @@ const en = {
     recheckDetail: "Recheck {{name}}: {{error}}",
     recheck: "Recheck {{name}}",
     detailsFor: "Node details: {{label}}",
+  },
+  integration: {
+    promptNotSent: "Your initial message has not been sent.", title: "Plugin connection", description: "Prepare the local environment and connect your account before development.",
+    working: "Working…", openAuthorization: "Open authorization page", prepare: "Prepare environment", connect: "Connect account", connected: "Account connected",
+    refresh: "Refresh status", bound: "Connected project: {{id}}", chooseProject: "Select an existing project. An unbound local directory must be empty.",
+    loadProjects: "Load projects", project: "Project", selectProject: "Select a project…", noProjects: "Create a project on the service, then refresh this list.",
+    bind: "Connect this directory", continue: "Continue", conflict: "A workspace can use one integration plugin. Create a separate project for another integration.", incompatible: "The referenced plugins need different project types. Choose compatible plugins.",
+    preview: "Local preview", externalWindow: "The game opens in its own native window. Refresh restarts it and resets game state.",
+    installRuntime: "Install Runtime", start: "Start preview", restart: "Refresh preview", stop: "Stop", logs: "Load logs",
+    previewStatus: { missing: "Runtime is not installed", stopped: "Preview stopped", running: "Preview running", error: "Check the preview state before retrying" },
   },
   textComposer: {
     label: "Text generation instruction",

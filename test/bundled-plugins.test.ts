@@ -6,6 +6,59 @@ import { describe, expect, it } from "vitest";
 import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
 describe("bundled plugins", () => {
+  it("loads beta plugins with their native skills and connections", async () => {
+    const store = new BundledPluginStore(path.resolve("plugins"));
+    await store.load();
+    expect(store.list().filter(plugin => plugin.beta).map(plugin => plugin.name)).toEqual([
+      "aseprite", "blender", "cocos-creator", "douyin-minigame", "godot",
+      "taptap-maker", "tiled", "unity", "unreal-engine", "wechat-minigame",
+    ]);
+    for (const plugin of store.list().filter(plugin => plugin.beta)) {
+      expect(plugin.icon?.type, plugin.name).toBe("asset");
+      const image = await store.readIcon(plugin.id);
+      expect(image, plugin.name).toBeDefined();
+      expect(image!.bytes.length).toBeGreaterThan(0);
+      expect(["image/png", "image/svg+xml"]).toContain(image!.mediaType);
+    }
+    expect(store.read("ohmygame:blender")).toMatchObject({
+      enabled: true,
+      skills: [{ id: "skills/blender-assets/SKILL.md" }],
+      mcpServers: [],
+    });
+    expect(store.read("ohmygame:godot")).toMatchObject({
+      enabled: true,
+      skills: [{ id: "skills/godot-game/SKILL.md" }],
+      mcpServers: [{ id: "godot" }],
+      configuration: { "godot-path": { default: "godot" } },
+    });
+    expect(store.read("ohmygame:taptap-maker")).toMatchObject({
+      enabled: false,
+      skills: [{ id: "skills/taptap-maker/SKILL.md" }],
+      mcpServers: [{ id: "taptap-maker" }],
+      projectTypes: ["general"],
+    });
+    for (const [name, skill] of [
+      ["aseprite", "aseprite-assets"],
+      ["cocos-creator", "cocos-creator"],
+      ["douyin-minigame", "douyin-minigame"],
+      ["tiled", "tiled-maps"],
+      ["unity", "unity-game"],
+      ["unreal-engine", "unreal-game"],
+      ["wechat-minigame", "wechat-minigame"],
+    ]) {
+      const plugin = store.read(`ohmygame:${name}`)!;
+      expect(plugin).toMatchObject({
+        enabled: false,
+        beta: true,
+        skills: [{ id: `skills/${skill}/SKILL.md` }],
+        projectTypes: name === "aseprite" || name === "tiled"
+          ? ["general", "web-game", "godot-game", "asset-canvas"]
+          : ["general"],
+      });
+      expect(plugin.mcpServers?.map(server => server.id)).toEqual(name === "unreal-engine" ? ["unreal"] : []);
+    }
+  });
+
   it("loads a standard skill-only OhMyGame plugin directory", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "ohmygame-bundled-plugins-"));
     const plugin = path.join(root, "reference-modeler");

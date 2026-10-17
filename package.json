@@ -52,6 +52,7 @@
     "@sentry/electron": "^7.20.0",
     "@silvia-odwyer/photon-node": "0.3.4",
     "@supabase/supabase-js": "2.57.4",
+    "@xmldom/xmldom": "0.9.12",
     "electron-updater": "6.8.9",
     "esbuild": "0.28.2",
     "fastify": "^5.12.5",

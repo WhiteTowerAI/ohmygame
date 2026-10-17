@@ -14,6 +14,7 @@ describe("plugin protocol", () => {
     expect(PLUGIN_MANIFEST_PATH).toBe(".ohmygame-plugin/plugin.json");
     expect(isPluginManifest({
       name: "character-writer",
+      enabledByDefault: false,
       version: "1.0.0",
       description: "Reusable character writing workflow",
       skills: "./skills/",
@@ -28,6 +29,7 @@ describe("plugin protocol", () => {
       skills: "./skills/",
       connections: ["ohmygame-godot"],
       interface: {
+        beta: true,
         displayName: "Godot",
         shortDescription: "Godot workflows",
         longDescription: "Build and edit Godot projects through the connected editor.",
@@ -59,19 +61,21 @@ describe("plugin protocol", () => {
     expect(isPluginManifest({ ...base, homepage: "https://ohmygame.ai" })).toBe(false);
     expect(isPluginManifest({ ...base, version: "" })).toBe(false);
     expect(isPluginManifest({ ...base, enabled: true })).toBe(false);
+    expect(isPluginManifest({ ...base, enabledByDefault: "false" })).toBe(false);
     expect(isPluginManifest({ ...base, mcpServers: "../mcp.json" })).toBe(false);
     expect(isPluginManifest({ ...base, apps: "./apps.json" })).toBe(false);
     expect(isPluginManifest({ ...base, hooks: "./hooks.json" })).toBe(false);
     expect(isPluginManifest({ ...base, tools: ["generate-image"] })).toBe(false);
     expect(isPluginManifest({ ...base, interface: { logo: "./logo.png" } })).toBe(false);
+    expect(isPluginManifest({ ...base, interface: { beta: "true" } })).toBe(false);
   });
 
   it("accepts declared icons and rejects unknown IDs and non-package image paths", () => {
     const base = { name: "icon-plugin", version: "1.0.0", description: "Icons" };
-    for (const icon of [{ type: "preset", id: "image" }, { type: "asset", path: "./assets/icon.png" }, { type: "asset", path: "./assets/icon.webp" }]) {
+    for (const icon of [{ type: "preset", id: "image" }, { type: "asset", path: "./assets/icon.png" }, { type: "asset", path: "./assets/icon.webp" }, { type: "asset", path: "./assets/icon.svg" }]) {
       expect(isPluginManifest({ ...base, interface: { icon } })).toBe(true);
     }
-    for (const icon of [{ type: "preset", id: "invented" }, { type: "asset", path: "./../icon.png" }, { type: "asset", path: "https://example.com/icon.png" }, { type: "asset", path: "./icon.svg" }]) {
+    for (const icon of [{ type: "preset", id: "invented" }, { type: "asset", path: "./../icon.png" }, { type: "asset", path: "https://example.com/icon.png" }, { type: "asset", path: "./icon.gif" }]) {
       expect(isPluginManifest({ ...base, interface: { icon } })).toBe(false);
     }
   });

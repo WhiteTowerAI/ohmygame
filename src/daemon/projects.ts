@@ -25,6 +25,7 @@ interface ProjectMetadata extends ProjectPreviewSettings {
   id: string;
   name: string;
   type: ProjectType;
+  integration?: ProjectState["integration"];
   updatedAt: string;
   webPreviewEnabled?: boolean;
   /** Present only when a Web Game starts from a directory below its workspace root. */
@@ -122,7 +123,7 @@ export class ProjectManager {
     }
   }
 
-  async create(name?: string, type: ProjectType = "web-game", selectedWorkspacePath?: string): Promise<ProjectState> {
+  async create(name?: string, type: ProjectType = "web-game", selectedWorkspacePath?: string, integration?: ProjectState["integration"]): Promise<ProjectState> {
     const id = randomUUID();
     const projectDirectory = path.join(this.#projectsDirectory, id);
     const hasExternalWorkspace = selectedWorkspacePath !== undefined;
@@ -134,7 +135,8 @@ export class ProjectManager {
       id,
       name: name?.trim() || defaultProjectName(type),
       type,
-      ...(type === "general" ? { webPreviewEnabled: true } : {}),
+      ...(integration ? { integration } : {}),
+      ...(type === "general" ? { webPreviewEnabled: integration?.preview !== "external" } : {}),
       updatedAt: new Date().toISOString(),
       ...(hasExternalWorkspace ? { workspacePath } : {}),
     };
@@ -203,6 +205,7 @@ export class ProjectManager {
     if (input.webPreviewEnabled !== undefined && typeof input.webPreviewEnabled !== "boolean") throw new ProjectWorkspaceError("Web preview enabled must be a boolean");
     try { validatePreviewSettings(input); } catch (cause) { throw new ProjectWorkspaceError((cause as Error).message); }
     const webPreviewEnabled = project.type === "general" ? input.webPreviewEnabled ?? project.webPreviewEnabled ?? false : true;
+    if (webPreviewEnabled && project.integration?.preview === "external") throw new ProjectWorkspaceError("This project uses its plugin preview");
     if (!isValidStartupDirectory(input.startupDirectory)) throw new ProjectWorkspaceError("Startup directory must be a relative path inside the project workspace");
     const startupDirectory = normalizeStartupDirectory(input.startupDirectory) ?? ".";
     const startupScript = normalizeStartupScript(input.startupScript);
@@ -248,6 +251,14 @@ export class ProjectManager {
     return project;
   }
 
+  async setIntegration(id: string, integration: NonNullable<ProjectState["integration"]>): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectWorkspaceError("Project not found");
+    if (project.integration && project.integration.pluginId !== integration.pluginId) throw new ProjectWorkspaceError("This workspace is connected through another plugin");
+    await this.#save(project, { integration, ...(integration.preview === "external" && project.type === "general" ? { webPreviewEnabled: false } : {}) });
+    return project;
+  }
+
   async duplicate(id: string): Promise<ProjectState> {
     const source = this.#projects.get(id);
     if (!source) throw new Error(`Project not found: ${id}`);
@@ -259,6 +270,7 @@ export class ProjectManager {
       id: duplicateId,
       name: `${source.name} copy`,
       type: source.type,
+      ...(source.integration ? { integration: source.integration } : {}),
       ...(source.type === "general" ? { webPreviewEnabled: source.webPreviewEnabled ?? false } : {}),
       updatedAt,
       ...previewSettings(source),
@@ -666,13 +678,14 @@ export class ProjectManager {
 
   async #save(
     project: ProjectState,
-    changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | keyof ProjectPreviewSettings>>,
+    changes: Partial<Pick<ProjectMetadata, "integration" | "name" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | keyof ProjectPreviewSettings>>,
   ): Promise<void> {
     const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       const metadata = { ...metadataFor(project), ...changes };
       await writeMetadata(this.#projectDirectory(project.id), metadata);
       for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
       Object.assign(project, previewSettings(metadata));
+      project.integration = metadata.integration;
       project.name = metadata.name;
       project.updatedAt = metadata.updatedAt;
       if (project.type === "general") project.webPreviewEnabled = metadata.webPreviewEnabled ?? false;
@@ -753,6 +766,7 @@ function projectState(
     id: metadata.id,
     name: metadata.name,
     type: metadata.type,
+    ...(metadata.integration ? { integration: metadata.integration } : {}),
     ...(metadata.type === "general" ? { webPreviewEnabled: metadata.webPreviewEnabled ?? false } : {}),
     updatedAt: metadata.updatedAt,
     workspacePath,
@@ -771,7 +785,7 @@ function projectState(
   };
 }
 
-async function isRunnableStartupWorkspace(project: Pick<ProjectState, "type" | "webPreviewEnabled" | "workspacePath" | "startupDirectory" | "startupScript" | keyof ProjectPreviewSettings>): Promise<boolean> {
+async function isRunnableStartupWorkspace(project: Pick<ProjectState, "type" | "integration" | "webPreviewEnabled" | "workspacePath" | "startupDirectory" | "startupScript" | keyof ProjectPreviewSettings>): Promise<boolean> {
   if (project.type === "general" && !supportsWebPreview(project)) return false;
   try {
     return (await resolvePreviewWorkspace(project)).runnable;
@@ -925,6 +939,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     if (
       validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
       (parsed.type === undefined || isProjectType(parsed.type)) &&
+      (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external"))) &&
       (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
       (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
       (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
@@ -952,6 +967,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
           id,
           name: parsed.name.trim(),
           type,
+          ...(parsed.integration ? { integration: parsed.integration } : {}),
           ...(type === "general" ? { webPreviewEnabled: parsed.webPreviewEnabled ?? false } : {}),
           updatedAt,
           ...(startupDirectory ? { startupDirectory } : {}),
@@ -982,6 +998,7 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     id: project.id,
     name: project.name,
     type: project.type,
+    ...(project.integration ? { integration: project.integration } : {}),
     ...(project.type === "general" ? { webPreviewEnabled: project.webPreviewEnabled ?? false } : {}),
     updatedAt: project.updatedAt,
     ...(project.startupDirectory ? { startupDirectory: project.startupDirectory } : {}),

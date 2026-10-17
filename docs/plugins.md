@@ -36,6 +36,18 @@ A package contains `.ohmygame-plugin/plugin.json`:
 
 All paths are relative to the plugin root and start with `./`. Omit components the plugin does not use. Skills use `skills/<skill-name>/SKILL.md` with `name` and `description` frontmatter. Configuration fields support `text`, `secret`, `path`, `boolean`, and `select`. Select fields require string `options`. Nonsecret fields may provide a default of the appropriate type; secret defaults are rejected.
 
+Optional `interface.beta: true` displays a Beta badge on the plugin card and
+detail page. Omit it or set it to false for plugins without that label; it does
+not change installation, configuration, or enablement behavior.
+See the [bundled engine plugin cards](assets/additional-beta-plugins.png).
+
+Optional `enabledByDefault` sets a package's initial plugin switch (default:
+`true`). A saved user choice takes precedence across restarts and package
+updates. Disabled plugins contribute neither Skills nor MCP services to agent
+conversations. Enabled Skills become candidates for compatible project types;
+their full instructions are read when needed rather than injected into every
+message. A lazy MCP service connects when requested.
+
 ### Plugin icons
 
 `interface.icon` is optional display metadata. Use a Solar preset with
@@ -47,22 +59,33 @@ All paths are relative to the plugin root and start with `./`. Omit components t
 and `flag`. The shared catalog in `src/shared/plugin-icons.ts` supplies the
 picker, validation, and AI authoring instructions.
 
-Custom icons must be valid PNG or WebP files up to 1 MB and 2048 × 2048 pixels.
+Custom icons support PNG, WebP, and static SVG, up to 1 MB and 2048 × 2048.
+SVG files must be UTF-8 with an explicit positive `viewBox` no larger than
+2048 × 2048 units. The static subset accepts shapes, groups, gradients, clipping,
+masks, and local fragment references. Scripts, event handlers, styles, embedded
+images, external references, document types, and foreign namespaces are rejected.
+Use presentation attributes such as `fill` and `stroke`, and export editor metadata
+away before packaging. Keep pixel artwork as PNG instead of tracing it into SVG.
+
 Paths start with `./`, stay inside the plugin root, and cannot use symbolic
-links. Remote URLs, absolute paths, SVG, and unknown preset IDs are rejected.
-A square image with a transparent background is recommended. Installed images
+links. Remote URLs, absolute paths, and unknown preset IDs are rejected.
+A square image with consistent transparent padding is recommended. Installed images
 are copied with the package and served by the daemon using authenticated
 requests in the desktop app. Missing or failed image requests show the default
 package glyph. Packages without an icon retain the existing built-in/default
-appearance.
+appearance. Package artwork should remain readable in both themes, including inline
+references; any necessary backplate belongs in the asset itself. Brand resources
+belong to their plugin packages; see [logo sources and maintenance](plugin-logos.md).
 
 Missing, oversized or undecodable icon images in an imported or installed
 package do not prevent the plugin from installing or loading; their icon
 metadata is omitted so the default glyph appears. Builder preparation and icon
 saves still reject invalid assets.
 Installed image responses use content-based ETags for private revalidation.
-Successful image decoding is reused by content hash; each read still checks the
-current file and its path.
+Successful raster decoding and SVG validation are reused by content hash; each
+read still checks the current file and its path. SVG is served with its image MIME
+type, `nosniff`, and a restrictive document CSP, and displayed through `<img>`;
+plugin SVG text is never inserted into the renderer DOM.
 
 In Plugin Builder's Overview, click the icon beside the plugin name to search
 presets, enter a preset ID, upload an image, choose a package image path, or
@@ -72,7 +95,7 @@ Changes save to the draft; use Install plugin or Update plugin to apply them.
 Uploads use content-addressed filenames under `assets/` and preserve existing
 package files. Icon edits refresh the content revision and clear saved checks;
 stale icon saves and installations are rejected. Image path previews only read
-valid PNG/WebP files from that draft. AI chooses from the same preset catalog
+valid PNG/WebP/SVG files from that draft. AI chooses from the same preset catalog
 and preserves an existing user-selected icon.
 
 `mcp.json` declares existing STDIO or HTTP MCP servers:
@@ -212,6 +235,149 @@ On first startup, application-level `pi-agent/mcp.json` is backed up to `mcp.jso
 
 The migration reader never modifies the old file or creates a missing one. A retry replays credentials and switches for an unfinished import before recording ownership, including when installation succeeded but configuration persistence was interrupted.
 
+## Bundled engine workflows
+
+Blender, Godot, and TapTap Maker are marked Beta while their platform workflows
+are being validated. They use the standard Skill/MCP package contract.
+Blender and Godot default to enabled. TapTap Maker defaults to disabled: turn it
+on in Settings → Plugins when testing or developing Maker projects. Existing
+saved switch choices are preserved.
+
+- **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
+  GLB delivery, and preview images. The export helper accepts an optional
+  collection, excludes cameras/lights, and requires `--overwrite` to replace an
+  existing output. It does not save the source file. Validate the exported asset
+  in its target engine, including material appearance and animation playback.
+  Inspect the rendered preview and refresh affected outputs after visual fixes;
+  without a target runtime, reimport the GLB into a clean Blender scene and leave
+  runtime validation pending. No editor bridge/add-on is required. Use
+  `--apply-modifiers` for baked static geometry; keep it off for shape-key export.
+- **Godot:** dedicated Godot Skill plus the existing pinned
+  `@coding-solo/godot-mcp@0.1.1`. The Godot executable configuration defaults to
+  `godot` for upstream automatic discovery and can be replaced with an absolute
+  executable path. Check the actual engine version and import/run logs after
+  testing the MCP connection. Viewport capture and gameplay input are not
+  supplied by this MCP or the web `game_use` integration.
+- **TapTap Maker:** General-project workflow with the official pinned
+  `@taptap/maker@0.0.36` CLI/MCP. Pass the current project's absolute `target_dir`
+  on tools and `--target-dir` on project CLI commands: the MCP process starts in
+  the plugin directory. Keep the CLI and MCP versions aligned and set
+  `TAPTAP_MAKER_DISTRIBUTION=ohmygame_plugin` for both. Authentication remains in
+  Maker's own local store. Read project `.agents/skills` explicitly as needed;
+  they are not automatically added to OhMyGame's Skill catalog.
+
+Maker's connection panel prepares a private pinned CLI and Python/Lua diagnostics,
+then opens official browser authorization. Python 3.8+ with venv/pip and Git are
+required. Enable the plugin to reveal this panel; enabling alone does not install
+dependencies or log in. The plugin does not install configurations into other AI
+editors. Private dependencies survive package updates and stay outside exported
+plugin packages. Credentials remain in Maker's own store.
+
+![Maker connection panel](assets/maker-connection.png)
+
+Reference Maker when creating a project to select General automatically. Before
+the first prompt, choose an existing Maker project explicitly and connect its
+empty local directory, or import an already bound directory. Reconnecting the
+same binding only checks its status; it does not run initialization again.
+Recognized imports use the plugin's compatible type; existing
+OhMyGame projects are never silently converted. Conflicting plugin references
+require a compatible selection. Remote project creation stays in Maker's service.
+
+View provides install/start/refresh/stop/status/log controls for Maker's separate
+native Runtime window. Web preview is disabled for these projects. Controls load
+only while View is open; idle status refreshes every ten seconds, while setup task
+polls read in-memory state. Agents use the same adapter through `project_preview`.
+The pinned release does not provide `preview validate` or native screenshots.
+Local previews do not submit remotely. `maker_build_current_directory` commits,
+pushes, and builds the bound branch; use Maker's own page to publish. OhMyGame
+Community publishing is unavailable for integrated projects.
+
+![Native preview controls, exercised with a test adapter](assets/plugin-native-preview.png)
+
+See the [Maker setup reference](../plugins/taptap-maker/skills/taptap-maker/references/setup.md).
+
+For a local Blender integration check, set `BLENDER_EXECUTABLE` to its absolute
+executable path and run `bun run test -- test/blender-export.test.ts`. This
+checks real GLB output, packed textures, transparency, hierarchy, skin animation,
+morph targets, export scope, source preservation, and overwrite behavior;
+it skips when Blender is not provided. Godot import/runtime and authenticated
+Maker initialization/build/publication still need their respective local/account
+environments.
+
+## Additional Beta workflows
+
+Cocos Creator, WeChat Mini Games, Douyin Mini Games, Unity, Unreal Engine,
+Aseprite, and Tiled are bundled Beta plugins and default to **disabled**.
+Enable only the workflows needed for the current project in Settings → Plugins.
+Their saved switches are preserved by the same settings store as other plugins.
+These packages reuse the existing runtime; they introduce no new project types,
+client installers, custom MCP bridges, or automatic engine upgrades.
+See the [light](assets/additional-beta-plugins.png) and
+[dark](assets/additional-beta-plugins-dark.png) plugin cards.
+
+| Plugin | Project scope | Local integration and initial boundary |
+| --- | --- | --- |
+| Cocos Creator | General | Creator's own CLI and source workflow, initially targeting 3.8 LTS. Preserve the project's editor version and exported build configurations. |
+| WeChat Mini Games | General | Engine exporter plus official WeChat DevTools. Simulator, device, test upload, review, and release are separate checks. |
+| Douyin Mini Games | General | Engine exporter plus official game developer tools; the documented mini-game CLI entrypoint is `tt-minigame-ide-cli@2.1.1` / `tmg`. |
+| Unity | General | Official Unity CLI and Pipeline package. Live Editor control requires Unity 6.0 LTS or later; the CLI is experimental. Existing older projects keep their own batch-mode workflows. |
+| Unreal Engine | General | Official experimental Unreal MCP, documented for UE 5.8. Requires an Editor build containing the plugin, enabled toolsets, and a local server. Calls must be serial. |
+| Aseprite | General, Web Game, Godot, Asset Canvas | Installed Aseprite CLI/Lua for editable source and PNG/JSON exports, followed by target-engine animation checks. |
+| Tiled | General, Web Game, Godot, Asset Canvas | Installed Tiled editor/CLI for source maps, external tilesets, runtime exports, and target-engine checks. |
+
+Engine and platform plugins compose: use Cocos Creator with WeChat or Douyin
+rather than maintaining separate copies of the engine workflow. Unity platform
+exports additionally require the platform's matching conversion SDK; a generic
+WebGL build does not establish mini-game support. Use General with web preview
+disabled for native editors and developer tools. Serve actual Web exports through
+the browser workflow only after their build and serving command are known.
+
+Only Unreal adds an MCP connection in this group. Its configurable endpoint
+defaults to `http://127.0.0.1:8000/mcp` and connects lazily. Start the official
+server in the intended Editor, keep it on loopback, and verify the actual
+project/level before editing. The default tool-search mode exposes three
+meta-tools; listing them proves neither enabled toolsets nor a working scene
+operation. Other packages use the agent's file/terminal tools and official local
+applications. CLI executables may need absolute paths when absent from PATH.
+
+The [manual acceptance checklist (中文)](plugin-beta-testing.zh-CN.md) gives
+prerequisites, copyable prompts, hands-on checks, pass criteria, and a result
+template for all seven packages. These real engine, account, and device loops
+remain pending manual acceptance. Automated package discovery and switch/scope
+tests do not claim to verify them. Upload, review, and production publication
+must follow the user's requested destination and scope.
+
 ## Validation
 
 `test/plugin-capabilities.test.ts` covers credential isolation, reinstall and restart persistence, switches and shared ownership, migration, real STDIO/HTTP tool discovery, tool execution, a simulated OAuth provider, and a simulated model making a real assistant tool call. `test:node-runtime` also exercises MCP installation and connection in the compiled Node daemon.
+
+## Optional project integrations
+
+A native manifest can declare an integration without adding a host project type:
+
+```json
+"integration": {
+  "entry": "./scripts/integration.mjs",
+  "projectFiles": ["./.maker-mcp/config.json"],
+  "preview": "external"
+}
+```
+
+`entry` is an installed `.mjs` file within the package. The host launches it with
+its Node runtime and writes one version-1 JSON request to stdin. It receives
+JSON-lines progress/result/error messages, validated against
+[`plugin-integration.ts`](../src/shared/plugin-integration.ts). Requests contain
+an action, private data directory, resolved plugin configuration, and (for project
+actions) the registered workspace path. `projectId` on a bind request is the
+explicitly selected service project; the HTTP query uses the OhMyGame project ID.
+The renderer cannot submit arbitrary filesystem paths.
+
+The adapter owns service-specific dependencies, credentials, binding and preview
+identity. The host owns task cancellation, time/output limits, write exclusion,
+and presentation. No adapters run on app startup: import recognition only checks
+that every declared `projectFiles` marker exists inside the workspace, resolving
+symlinks. Project metadata saves the plugin ID and optional preview presentation;
+the service's binding file remains authoritative. Only one integration may own a
+workspace. The host retains task outcomes in memory, without an automatic mutation
+retry; disabling/removing the plugin cancels its active tasks. Native preview
+windows remain service-owned and are stopped through View or `project_preview`.

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act, useEffect } from "react";
+import { act, useEffect, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopRuntimeState } from "../src/shared/desktop-runtime.js";
@@ -96,6 +96,12 @@ async function openProject(
     init: RequestInit,
   ) => Response | Promise<Response> | undefined,
   conversation = detail("live-turn", { files: 2 }),
+  shellProps: Pick<
+    ComponentProps<
+      typeof import("../src/renderer/project-shell.js").ProjectShell
+    >,
+    "initialPrompt" | "onInitialPromptHandled"
+  > = {},
 ) {
   Object.defineProperty(window, "ohMyGameDesktop", {
     configurable: true,
@@ -206,6 +212,7 @@ async function openProject(
           conversationId="conversation"
           onOpenConversation={() => {}}
           onHome={() => {}}
+          {...shellProps}
         />
       </AuthProvider>,
     ),
@@ -237,6 +244,77 @@ async function click(name: string) {
 }
 
 describe("checkpoints in the project shell", () => {
+  it("retains the initial message after cancelling plugin setup and allows sending it after connection", async () => {
+    let ready = false;
+    const handled = vi.fn();
+    const daemon = await openProject(
+      (route) => {
+        if (route === "/projects/project")
+          return Response.json({
+            id: "project",
+            name: "Native",
+            type: "general",
+            webPreviewEnabled: false,
+            workspacePath: "/tmp/project",
+            updatedAt: new Date(0).toISOString(),
+            preview: { status: "stopped" },
+            integration: { pluginId: "fixture", preview: "external" },
+          });
+        if (route.startsWith("/plugins/fixture/integration"))
+          return Response.json({
+            pluginId: "fixture",
+            action: "status",
+            running: false,
+            result: {
+              connection: { status: ready ? "ready" : "needs-setup" },
+              project: ready ? { id: "existing" } : null,
+            },
+          });
+        return undefined;
+      },
+      detail("live-turn"),
+      {
+        initialPrompt: {
+          generation: 1,
+          prompt: "Build my Maker game",
+          mentions: [],
+          images: [],
+          mode: "normal",
+        },
+        onInitialPromptHandled: handled,
+      },
+    );
+    expect(container.querySelector('[role="dialog"]')).toBeTruthy();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(
+          '[role="dialog"] [aria-label="Close"]',
+        )!
+        .click(),
+    );
+    expect(handled).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "Your initial message has not been sent.",
+    );
+    expect(
+      container.querySelector(".paused-initial-prompt pre")?.textContent,
+    ).toBe("Build my Maker game");
+    expect(
+      daemon.requests.some(
+        (request) =>
+          request.method === "POST" && request.route.endsWith("/turns"),
+      ),
+    ).toBe(false);
+    ready = true;
+    await click("Send original message");
+    expect(handled).toHaveBeenCalledOnce();
+    const sent = daemon.requests.filter(
+      (request) =>
+        request.method === "POST" && request.route.endsWith("/turns"),
+    );
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0]!.body!).prompt).toBe("Build my Maker game");
+  });
   it("undoes a turn through the conflict choice and marks it without reading the conversation again", async () => {
     const daemon = await openProject((route, init) => {
       if (route === `${BASE}/changes`)

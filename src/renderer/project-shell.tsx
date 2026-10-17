@@ -1,3 +1,4 @@
+import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
 import {
   ArrowLeft,
   LoaderCircle,
@@ -125,6 +126,7 @@ export function ProjectShell({
   const [state, dispatch] = useReducer(rendererReducer, initialRendererState);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [sendingInitialPrompt, setSendingInitialPrompt] = useState(false);
+  const [initialPromptDeferred, setInitialPromptDeferred] = useState(false);
   const [creatingConversation, setCreatingConversation] = useState(false);
   const [agentCollapsed, setAgentCollapsed] = useState(view === "design" && !initialPrompt && !initialDraft);
   const [designOpen, setDesignOpen] = useState(view === "design");
@@ -289,6 +291,7 @@ export function ProjectShell({
     };
   }, [projectId, runtime.generation, runtime.status]);
 
+  const integrationGate = usePluginIntegrationGate(project => dispatch({ type: "project-updated", project }));
   const previewSupported = supportsWebPreview(state.project);
   useEffect(() => {
     if (!previewSupported || unfinishedRestore || runtime.status !== "ready") return;
@@ -345,12 +348,19 @@ export function ProjectShell({
     if (!initialPrompt || !project || !conversation || conversation.id !== conversationId || sendingInitialPrompt || runtime.status !== "ready") return;
     initialPromptAttempted.current = true;
     setSendingInitialPrompt(true);
-    void sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments).then(() => {
-      if (initialPrompt.images.length || initialPrompt.attachments?.length) setWorkspaceRevision((value) => value + 1);
+    setInitialPromptDeferred(false);
+    let sent = false;
+    void integrationGate.ensure(project).then(ready => {
+      if (!ready) return;
+      sent = true;
+      return sendPrompt(project.id, conversation.id, initialPrompt.prompt, [], initialPrompt.images, initialPrompt.mode, initialPrompt.mentions, initialPrompt.attachments);
+    }).then(() => {
+      if (sent && (initialPrompt.images.length || initialPrompt.attachments?.length)) setWorkspaceRevision((value) => value + 1);
     }).catch((error) => {
       dispatch({ type: "notice", message: errorMessage(error) });
     }).finally(() => {
-      onInitialPromptHandled?.();
+      if (sent) onInitialPromptHandled?.();
+      else setInitialPromptDeferred(true);
       setSendingInitialPrompt(false);
     });
   }
@@ -417,6 +427,8 @@ export function ProjectShell({
     followTimeline.current = true;
     dispatch({ type: "notice", message: undefined });
     try {
+      const pluginId = referencedIntegration(mentions, capabilities.plugins);
+      if (!await integrationGate.ensure(project, pluginId)) return false;
       await saveDesign.current?.();
       const surface = playableSurface;
       const previewContexts = !canvasOpen ? playableChat?.attachments ?? [] : [];
@@ -738,6 +750,8 @@ export function ProjectShell({
   const viewerCollapsed = isGodotProject && !godotWorkspaceOpen && !designOpen;
 
   return (
+    <>
+    {integrationGate.dialog}
     <WorkspaceShell chatLayout={chatLayout} agentCollapsed={agentIsCollapsed} viewerCollapsed={viewerCollapsed}
       onHome={requestHome} homeLabel={homeLabel} homeIcon={ArrowLeft} onExpandAgent={() => setAgentCollapsed(false)}
       agent={<WorkspaceAgentPane bodyRef={timeline} onScroll={(event) => {
@@ -824,8 +838,8 @@ export function ProjectShell({
             </div>
           ) : null}
 
-          {initialPrompt && initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current ? <div className="paused-initial-prompt" role="status">
-            <p>{t("projectShell.promptPaused")}</p>
+          {initialPrompt && (initialPromptDeferred || (initialPrompt.generation !== runtime.generation && !initialPromptAttempted.current)) ? <div className="paused-initial-prompt" role="status">
+            <p>{t(initialPromptDeferred ? "integration.promptNotSent" : "projectShell.promptPaused")}</p>
             <details><summary>{t("projectShell.reviewMessage")}</summary><pre>{initialPrompt.prompt}</pre>
               {initialPrompt.images.length || initialPrompt.attachments?.length ? <p>{t("projectShell.attachmentsRetained", { count: initialPrompt.images.length + (initialPrompt.attachments?.length ?? 0) })}</p> : null}
             </details>
@@ -954,6 +968,7 @@ export function ProjectShell({
       />}
       </ErrorBoundary>
     </WorkspaceShell>
+    </>
   );
 }
 

@@ -1,0 +1,22 @@
+{
+  "name": "aseprite",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "description": "Create editable pixel-art assets and export Aseprite animation sheets into game projects.",
+  "skills": "./skills/",
+  "interface": {
+    "beta": true,
+    "displayName": "Aseprite",
+    "shortDescription": "Create pixel art and export animation sheets with metadata.",
+    "longDescription": "Use an installed Aseprite executable and its Lua/CLI workflow to create or refine editable pixel art, export PNG sheets and JSON animation metadata, and check the result in the target engine. No editor bridge is required. Disabled by default; local Aseprite and target-engine validation are required for the full workflow.",
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.png"
+    },
+    "defaultPrompt": [
+      "Create a small animated pixel-art game asset with editable Aseprite source and a PNG/JSON export.",
+      "Export this Aseprite animation for the project and verify its frame timing and tags."
+    ],
+    "projectTypes": ["general", "web-game", "godot-game", "asset-canvas"]
+  }
+}

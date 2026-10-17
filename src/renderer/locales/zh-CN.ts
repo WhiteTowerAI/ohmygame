@@ -1639,6 +1639,7 @@ const zhCN: typeof en = {
     },
   },
   plugins: {
+    beta: "Beta",
     public: "Public",
     personal: "Personal",
     editWithAi: "使用 AI 编辑",
@@ -1794,15 +1795,15 @@ const zhCN: typeof en = {
     imageFile: "图片文件",
     imageInput: "插件图标图片",
     fileHelp:
-      "支持 PNG 或 WebP，最大 1 MB，尺寸不超过 2048 × 2048 像素。建议使用透明背景的正方形图片。",
+      "支持 PNG、WebP 或静态 SVG，最大 1 MB，尺寸不超过 2048 × 2048。SVG 需有 viewBox，使用图形表现属性，不含脚本、样式或外部资源。",
     imagePath: "图片路径",
     pathInput: "插件图标路径",
-    pathHelp: "选择此插件包内的 PNG 或 WebP 文件。",
+    pathHelp: "选择此插件包内的 PNG、WebP 或静态 SVG 文件。",
     useDefault: "恢复默认",
     save: "保存图标",
     readFailed: "无法读取图片",
     chooseIcon: "请选择插件图标",
-    invalidFile: "请选择不超过 1 MB 的 PNG 或 WebP 图片",
+    invalidFile: "请选择不超过 1 MB 的 PNG、WebP 或 SVG 图片",
   },
   pluginBuilder: {
     mode: { create: "创建", configure: "配置", edit: "编辑" },
@@ -2573,6 +2574,16 @@ const zhCN: typeof en = {
     recheckDetail: "重新检查 {{name}}：{{error}}",
     recheck: "重新检查 {{name}}",
     detailsFor: "节点详情：{{label}}",
+  },
+  integration: {
+    promptNotSent: "初始需求尚未发送。", title: "插件接入", description: "开发前，先准备本地环境并连接账号。",
+    working: "处理中…", openAuthorization: "打开授权页面", prepare: "准备环境", connect: "连接账号", connected: "账号已连接",
+    refresh: "刷新状态", bound: "已连接项目：{{id}}", chooseProject: "请选择已有项目。尚未绑定的本地目录必须为空。",
+    loadProjects: "获取项目列表", project: "项目", selectProject: "选择项目…", noProjects: "请先在服务端创建项目，再刷新列表。",
+    bind: "连接此目录", continue: "继续", conflict: "一个工作目录只能使用一个接入插件。请为其他接入创建独立项目。", incompatible: "引用的插件需要不同项目类型，请选择兼容的插件。",
+    preview: "本地预览", externalWindow: "游戏将在独立原生窗口中打开。刷新会重启游戏并重置运行状态。",
+    installRuntime: "安装 Runtime", start: "启动预览", restart: "刷新预览", stop: "停止", logs: "获取日志",
+    previewStatus: { missing: "尚未安装 Runtime", stopped: "预览已停止", running: "预览运行中", error: "请先检查预览状态再重试" },
   },
   textComposer: {
     label: "文本生成指令",

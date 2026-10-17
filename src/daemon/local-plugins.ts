@@ -353,6 +353,10 @@ export async function inspectPluginBundle(
 ): Promise<PluginDetail> {
   await validatePluginBundle(pluginRoot);
   const manifest = normalizedManifest ?? await readPluginManifest(pluginRoot);
+  if (manifest.integration) {
+    const entry = await declaredPath(pluginRoot, manifest.integration.entry);
+    if (!entry.endsWith(".mjs") || !(await lstat(entry)).isFile()) throw new LocalPluginError("Integration entry must be an .mjs file");
+  }
   let icon = manifest.interface?.icon;
   const iconAsset = await readPluginIconAsset(pluginRoot, icon).catch(() => {
     icon = undefined;
@@ -374,16 +378,18 @@ export async function inspectPluginBundle(
     icon,
     iconRevision: iconAsset?.revision,
     version: manifest.version,
+    beta: manifest.interface?.beta,
     marketplace: identity.marketplace,
     source: identity.source,
     installed: true,
-    enabled: true,
+    enabled: manifest.enabledByDefault ?? true,
     skills,
     connections,
     mcpServers: Object.entries(definitions).map(([id, definition]) => ({ id, name: displayName(id), enabled: definition.disabled !== true, transport: definition.url ? "http" as const : "stdio" as const })),
     mcpConfigPath: manifest.mcpServers,
     configuration: manifest.configuration,
     requirements: manifest.requirements,
+    integration: manifest.integration,
     defaultPrompts: manifest.interface?.defaultPrompt,
     projectTypes: manifest.interface?.projectTypes,
   };

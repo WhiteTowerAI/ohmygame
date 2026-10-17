@@ -127,10 +127,19 @@ describe("plugin catalog API", () => {
     expect(catalog.statusCode).toBe(200);
     expect(catalog.json()).toMatchObject({
       plugins: [
+        { id: "ohmygame:aseprite", installed: true, beta: true, enabled: false },
+        { id: "ohmygame:blender", installed: true, beta: true },
+        { id: "ohmygame:cocos-creator", installed: true, beta: true, enabled: false },
+        { id: "ohmygame:douyin-minigame", installed: true, beta: true, enabled: false },
         { id: "ohmygame:game-studio", installed: true },
-        { id: "ohmygame:godot", installed: true },
+        { id: "ohmygame:godot", installed: true, beta: true },
+        { id: "ohmygame:taptap-maker", installed: true, beta: true, enabled: false },
         { id: "ohmygame:threejs-world", installed: true },
+        { id: "ohmygame:tiled", installed: true, beta: true, enabled: false },
+        { id: "ohmygame:unity", installed: true, beta: true, enabled: false },
+        { id: "ohmygame:unreal-engine", installed: true, beta: true, enabled: false },
         { id: "ohmygame:web-game-studio", installed: true },
+        { id: "ohmygame:wechat-minigame", installed: true, beta: true, enabled: false },
       ],
       errors: [],
     });
