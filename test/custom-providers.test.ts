@@ -554,7 +554,7 @@ describe("custom providers", () => {
       expect(abort).not.toHaveBeenCalled();
       expect((await app.inject({ method: "POST", url, payload: { prompt: "Next" } })).statusCode).toBe(409);
     } finally { finish(); }
-    await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json()).toEqual([]));
+    await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json().activity).toEqual([]));
   });
 
   it("excludes disabled media providers without issuing network requests", async () => {

@@ -381,6 +381,18 @@ Choosing a folder that is already a project's workspace when creating a project
 opens that project instead; a folder inside another workspace can hold a
 project of its own.
 
+New projects created without an explicit name can be named once from their first
+meaningful chat request, using the conversation's selected language model and
+the request's language. This separate background request has a 15-second limit
+and never blocks the agent turn. Greetings, attachment-only messages and failed
+naming requests leave the project eligible for a later message. Manual names,
+duplicates and legacy projects are preserved; a delayed AI result cannot replace
+a manual rename. The optional `nameSource` field in `project.json` records
+`default`, `ai` or `manual`; an absent field is treated as legacy data.
+Project lists use the existing two-second activity poll to receive names, even
+after a short turn finishes. `/projects/activity` returns `{ activity, names }`;
+`names` contains only each project's `id`, `name` and optional `nameSource`.
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user
@@ -399,6 +411,15 @@ workspace versions, model notices, storage limits, and API routes, and
 [Git changes in Code](workspace-git.md) for the read-only repository view.
 
 ## Project covers
+
+Projects without an image use a small Solar outline icon on a moderately saturated
+background. The project ID selects a stable combination, so sorting, filtering,
+refreshing or renaming never changes the placeholder. The same renderer is used
+on Home, Projects and the project-type entry pages. These placeholders are not
+saved as images or used for publishing. Both themes share the palette centralized
+in the `--project-cover-*` variables in `src/renderer/styles.css`.
+
+![Stable default project covers](assets/project-placeholders.webp)
 
 Project covers are saved independently of publishing. Selecting an image in the
 publish dialog previews it; **Apply cover** saves it and stops automatic cover

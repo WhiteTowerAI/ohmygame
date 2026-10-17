@@ -24,6 +24,7 @@ interface ProjectMetadata extends ProjectPreviewSettings {
   version: 1;
   id: string;
   name: string;
+  nameSource?: ProjectState["nameSource"];
   type: ProjectType;
   updatedAt: string;
   webPreviewEnabled?: boolean;
@@ -80,7 +81,7 @@ async function assetDigest(file: string): Promise<string> {
 
 export class ProjectManager {
   readonly #projects = new Map<string, ProjectState>();
-  readonly #metadataWrites = new Map<string, Promise<void>>();
+  readonly #metadataWrites = new Map<string, Promise<unknown>>();
   readonly #covers = new ProjectCovers();
   readonly #assetMetadataWrites = new Map<string, Promise<unknown>>();
   readonly #workspaceWrites = new Map<string, Promise<unknown>>();
@@ -133,6 +134,7 @@ export class ProjectManager {
       version: 1,
       id,
       name: name?.trim() || defaultProjectName(type),
+      nameSource: name?.trim() ? "manual" : "default",
       type,
       ...(type === "general" ? { webPreviewEnabled: true } : {}),
       updatedAt: new Date().toISOString(),
@@ -184,8 +186,16 @@ export class ProjectManager {
     if (!project) throw new Error(`Project not found: ${id}`);
     const normalized = name.trim();
     if (!normalized) throw new Error("Project name must not be empty");
-    await this.#save(project, { name: normalized, updatedAt: new Date().toISOString() });
+    await this.#save(project, { name: normalized, nameSource: "manual", updatedAt: new Date().toISOString() });
     return project;
+  }
+
+  async nameAutomatically(id: string, name: string): Promise<ProjectState | undefined> {
+    const project = this.#projects.get(id);
+    const normalized = name.trim();
+    if (!project || !normalized) return undefined;
+    const saved = await this.#save(project, { name: normalized, nameSource: "ai" });
+    return saved ? project : undefined;
   }
 
   async setStartupDirectory(id: string, startupDirectory: string): Promise<ProjectState> {
@@ -258,6 +268,7 @@ export class ProjectManager {
       version: 1,
       id: duplicateId,
       name: `${source.name} copy`,
+      nameSource: "manual",
       type: source.type,
       ...(source.type === "general" ? { webPreviewEnabled: source.webPreviewEnabled ?? false } : {}),
       updatedAt,
@@ -294,11 +305,16 @@ export class ProjectManager {
   async delete(id: string): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
-    if (project.workspaceLocation === "external") {
-      await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
-    }
-    await rm(this.#projectDirectory(id), { recursive: true, force: false });
-    this.#projects.delete(id);
+    const operation = (this.#metadataWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      if (project.workspaceLocation === "external") {
+        await rm(path.join(project.workspacePath, ".data", "agent-attachments"), { recursive: true, force: true });
+      }
+      await rm(this.#projectDirectory(id), { recursive: true, force: false });
+      this.#projects.delete(id);
+    });
+    this.#metadataWrites.set(id, operation);
+    try { await operation; }
+    finally { if (this.#metadataWrites.get(id) === operation) this.#metadataWrites.delete(id); }
     return project;
   }
 
@@ -666,14 +682,16 @@ export class ProjectManager {
 
   async #save(
     project: ProjectState,
-    changes: Partial<Pick<ProjectMetadata, "name" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | keyof ProjectPreviewSettings>>,
-  ): Promise<void> {
+    changes: Partial<Pick<ProjectMetadata, "name" | "nameSource" | "updatedAt" | "webPreviewEnabled" | "startupDirectory" | "startupScript" | "packageManager" | "previewPath" | "previewViewport" | "publication" | "mediaModelDefaults" | keyof ProjectPreviewSettings>>,
+  ): Promise<boolean> {
     const operation = (this.#metadataWrites.get(project.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      if (this.#projects.get(project.id) !== project || changes.nameSource === "ai" && project.nameSource !== "default") return false;
       const metadata = { ...metadataFor(project), ...changes };
       await writeMetadata(this.#projectDirectory(project.id), metadata);
       for (const key of PREVIEW_SETTING_KEYS) { delete project[key]; }
       Object.assign(project, previewSettings(metadata));
       project.name = metadata.name;
+      if (metadata.nameSource) project.nameSource = metadata.nameSource;
       project.updatedAt = metadata.updatedAt;
       if (project.type === "general") project.webPreviewEnabled = metadata.webPreviewEnabled ?? false;
       if (metadata.startupDirectory) project.startupDirectory = metadata.startupDirectory;
@@ -690,9 +708,10 @@ export class ProjectManager {
       else delete project.mediaModelDefaults;
       if (metadata.publication) project.publication = metadata.publication;
       else delete project.publication;
+      return true;
     });
     this.#metadataWrites.set(project.id, operation);
-    try { await operation; }
+    try { return await operation; }
     finally { if (this.#metadataWrites.get(project.id) === operation) this.#metadataWrites.delete(project.id); }
   }
 
@@ -752,6 +771,7 @@ function projectState(
   return {
     id: metadata.id,
     name: metadata.name,
+    ...(metadata.nameSource ? { nameSource: metadata.nameSource } : {}),
     type: metadata.type,
     ...(metadata.type === "general" ? { webPreviewEnabled: metadata.webPreviewEnabled ?? false } : {}),
     updatedAt: metadata.updatedAt,
@@ -924,6 +944,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
     if (
       validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
+      (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
       (parsed.type === undefined || isProjectType(parsed.type)) &&
       (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
       (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
@@ -951,6 +972,7 @@ async function readMetadata(projectDirectory: string, id: string, fallbackUpdate
           version: 1,
           id,
           name: parsed.name.trim(),
+          ...(parsed.nameSource ? { nameSource: parsed.nameSource } : {}),
           type,
           ...(type === "general" ? { webPreviewEnabled: parsed.webPreviewEnabled ?? false } : {}),
           updatedAt,
@@ -981,6 +1003,7 @@ function metadataFor(project: ProjectState): ProjectMetadata {
     version: 1,
     id: project.id,
     name: project.name,
+    ...(project.nameSource ? { nameSource: project.nameSource } : {}),
     type: project.type,
     ...(project.type === "general" ? { webPreviewEnabled: project.webPreviewEnabled ?? false } : {}),
     updatedAt: project.updatedAt,

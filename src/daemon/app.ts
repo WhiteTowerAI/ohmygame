@@ -36,7 +36,8 @@ import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
 import { ConversationManager, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
-import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "./text-generation.js";
+import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateProjectName } from "./text-generation.js";
+import { ProjectNaming, type ProjectNameGenerator } from "./project-naming.js";
 import { resolveCanvasTextReferences } from "./canvas-text-references.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
@@ -98,7 +99,7 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { registerPluginPortabilityRoutes } from "./plugin-portability.js";
 import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { LegacyMcpConfiguration } from "./legacy-mcp.js";
-import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
+import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
@@ -142,6 +143,7 @@ export interface AppOptions {
   /** Enabled by the development entry point only when product auth is unconfigured. */
   localDebug?: boolean;
   createSession?: SessionFactory;
+  generateProjectName?: ProjectNameGenerator;
   imageGenerator?: ImageGenerator;
   imageFetch?: typeof fetch;
   model3DGenerator?: Model3DGenerator;
@@ -639,8 +641,15 @@ export function createApp(options: AppOptions = {}) {
     );
   };
   const publishProjectRenamed = (project: ProjectState) => {
-    events.publish(project.id, "project.renamed", { project });
+    events.publish(project.id, "project.renamed", { project: { ...project } });
   };
+  const projectNaming = new ProjectNaming(projects, options.generateProjectName ?? (async (prompt, model, signal) => {
+    if (!model) return undefined;
+    const selected = await availableModel(model.provider, model.id);
+    if (!selected || signal.aborted) return undefined;
+    const runtime = await getModelRuntime();
+    return generateProjectName(runtime, selected, prompt, signal);
+  }), publishProjectRenamed);
   const openAIImages = new OpenAIImageSettingsStore(dataDirectory);
   const imageConnection = openAIImageConnection(openAIImages, getModelRuntime);
   const modelAuth = new ModelAuthManager(getModelRuntime, {
@@ -1185,7 +1194,10 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/projects", async () => projects.list());
 
-  app.get("/projects/activity", async () => agents.projectActivity());
+  app.get("/projects/activity", async () => ({
+    activity: agents.projectActivity(),
+    names: projects.list().map(({ id, name, nameSource }) => ({ id, name, nameSource })),
+  }));
 
   app.get("/examples", async () => examples.list());
 
@@ -2954,6 +2966,8 @@ export function createApp(options: AppOptions = {}) {
       }
       const titled = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
       if (titled) publishConversationRenamed(titled);
+      const namingPrompt = mentions.reduce((prompt, mention) => prompt.replaceAll(pluginMentionToken(mention), " "), request.body.prompt);
+      projectNaming.start(project, namingPrompt, selectedModel);
       return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
     },
   );
@@ -3288,6 +3302,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    await projectNaming.close();
     await pluginCapabilities.host.close();
     await cloudModels.setSession(null);
     await canvasStore.close();
