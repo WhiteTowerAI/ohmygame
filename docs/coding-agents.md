@@ -27,6 +27,13 @@ the enabled agents' models. An agent that is slow to list them is named in
 project keeps the coding agent the person was using; with no model provider
 connected, the first conversation starts with the first agent that is set up.
 
+Choosing a coding agent's model on the home composer, or through
+`PUT /models/default`, makes it the default for new conversations. It is stored
+as `defaultModel` in `agent-runtimes.json`, not in Pi's settings, because canvas
+text and other one-off generation can only use Pi's models; plain `GET /models`
+keeps reporting Pi's default. Choosing a Pi model as the default clears it, and
+an agent that is turned off no longer starts new conversations.
+
 ## What OhMyGame keeps
 
 A coding agent session (`NativeCodingSession`) implements the same

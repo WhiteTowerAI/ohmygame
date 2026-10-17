@@ -6,6 +6,20 @@ import {
   isAgentRuntimeId,
   type AgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
+import {
+  AGENT_REASONING_LEVELS,
+  type AgentReasoningLevel,
+} from "../../shared/contracts.js";
+
+/**
+ * A coding agent model chosen as the default for new conversations. It is kept
+ * here, not in Pi's settings, because canvas text and other one-off generation
+ * read Pi's default and can only use Pi's models.
+ */
+export interface AgentRuntimeDefault {
+  model: { provider: AgentRuntimeId; id: string };
+  reasoningLevel?: AgentReasoningLevel;
+}
 
 export interface AgentRuntimeSettings {
   enabled: boolean;
@@ -26,6 +40,7 @@ const DEFAULTS: AgentRuntimeSettings = {
 export class AgentRuntimeSettingsStore {
   readonly #filePath: string;
   #settings = new Map<AgentRuntimeId, AgentRuntimeSettings>();
+  #default?: AgentRuntimeDefault;
   #writes: Promise<unknown> = Promise.resolve();
 
   constructor(dataDirectory: string) {
@@ -44,6 +59,11 @@ export class AgentRuntimeSettingsStore {
         return;
       throw cause;
     }
+    this.#default = parseDefault(
+      value && typeof value === "object"
+        ? (value as { defaultModel?: unknown }).defaultModel
+        : undefined,
+    );
     const runtimes =
       value && typeof value === "object"
         ? (value as { runtimes?: unknown }).runtimes
@@ -74,6 +94,19 @@ export class AgentRuntimeSettingsStore {
     return { ...DEFAULTS, ...this.#settings.get(id) };
   }
 
+  /** The coding agent model new conversations start with, if the person chose one. */
+  defaultModel(): AgentRuntimeDefault | undefined {
+    return (
+      this.#default && { ...this.#default, model: { ...this.#default.model } }
+    );
+  }
+
+  /** Chooses a coding agent model as the default for new conversations, or clears it. */
+  setDefaultModel(value: AgentRuntimeDefault | undefined): Promise<void> {
+    this.#default = value;
+    return this.#save();
+  }
+
   update(
     id: AgentRuntimeId,
     change: Partial<AgentRuntimeSettings>,
@@ -81,6 +114,10 @@ export class AgentRuntimeSettingsStore {
     const next: AgentRuntimeSettings = { ...this.get(id), ...change };
     if (!next.binaryPath) delete next.binaryPath;
     this.#settings.set(id, next);
+    return this.#save().then(() => this.get(id));
+  }
+
+  #save(): Promise<void> {
     const snapshot = Object.fromEntries(
       AGENT_RUNTIME_IDS.filter((runtime) => this.#settings.has(runtime)).map(
         (runtime) => [runtime, this.#settings.get(runtime)],
@@ -92,7 +129,7 @@ export class AgentRuntimeSettingsStore {
       try {
         await writeFile(
           temporary,
-          `${JSON.stringify({ version: 1, runtimes: snapshot }, null, 2)}\n`,
+          `${JSON.stringify({ version: 1, runtimes: snapshot, ...(this.#default ? { defaultModel: this.#default } : {}) }, null, 2)}\n`,
         );
         await rename(temporary, this.#filePath);
       } catch (cause) {
@@ -101,6 +138,29 @@ export class AgentRuntimeSettingsStore {
       }
     });
     this.#writes = write.catch(() => {});
-    return write.then(() => this.get(id));
+    return write;
   }
+}
+
+function parseDefault(value: unknown): AgentRuntimeDefault | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const stored = value as {
+    model?: { provider?: unknown; id?: unknown };
+    reasoningLevel?: unknown;
+  };
+  if (
+    !isAgentRuntimeId(stored.model?.provider) ||
+    typeof stored.model?.id !== "string" ||
+    !stored.model.id
+  )
+    return undefined;
+  const reasoningLevel = (
+    AGENT_REASONING_LEVELS as readonly unknown[]
+  ).includes(stored.reasoningLevel)
+    ? (stored.reasoningLevel as AgentReasoningLevel)
+    : undefined;
+  return {
+    model: { provider: stored.model.provider, id: stored.model.id },
+    ...(reasoningLevel ? { reasoningLevel } : {}),
+  };
 }

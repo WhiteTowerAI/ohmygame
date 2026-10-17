@@ -2062,18 +2062,36 @@ export function createApp(options: AppOptions = {}) {
     });
     // Conversations also list coding agents' models; canvas text and other one-off generation use Pi's only.
     const agents = request.query.runtimes === "1" ? await agentRuntimes.models() : { models: [], loading: [] };
+    // Conversations may default to a coding agent's model; everything else keeps Pi's default.
+    const agentDefault = request.query.runtimes === "1" ? agentRuntimes.settings.defaultModel() : undefined;
+    const agentDefaultModel = agentDefault && findAgentModel(agents.models, agentDefault.model);
     return {
       models: [...models.map(summary), ...agents.models],
       ...(agents.loading.length ? { loadingRuntimes: agents.loading } : {}),
       ...(hidden.length ? { hiddenModels: hidden.map(summary) } : {}),
-      ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
-      defaultReasoningLevel: defaultReasoningLevel(dataDirectory, piAgentDirectory),
+      ...(agentDefaultModel ? { defaultModel: { provider: agentDefaultModel.provider, id: agentDefaultModel.id } }
+        : defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
+      defaultReasoningLevel: agentDefaultModel && agentDefault?.reasoningLevel ? agentDefault.reasoningLevel : defaultReasoningLevel(dataDirectory, piAgentDirectory),
     };
   });
 
   app.put<{ Body: UpdateAgentDefaultsRequest }>("/models/default", async (request, reply) => {
     if (!isUpdateAgentDefaultsRequest(request.body)) {
       return reply.code(400).send({ error: "Invalid agent defaults" });
+    }
+    const runtimeId = request.body.model.provider;
+    if (isAgentRuntimeId(runtimeId)) {
+      const agentModel = await agentRuntimes.model(runtimeId, request.body.model.id);
+      if (!agentModel) return reply.code(400).send({ error: "Model is not available" });
+      if (agentModel.reasoningLevels.length && !agentModel.reasoningLevels.includes(request.body.reasoningLevel)) {
+        return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+      }
+      // Pi's default stays as it is: canvas text and other one-off generation can only use Pi's models.
+      await agentRuntimes.settings.setDefaultModel({
+        model: { provider: runtimeId, id: agentModel.id },
+        ...(agentModel.reasoningLevels.length ? { reasoningLevel: request.body.reasoningLevel } : {}),
+      });
+      return reply.code(204).send();
     }
     if (!providerEnabled(request.body.model.provider)) return reply.code(400).send({ error: "Provider is disabled" });
     const model = await availableModel(request.body.model.provider, request.body.model.id);
@@ -2087,6 +2105,8 @@ export function createApp(options: AppOptions = {}) {
     await settings.flush();
     const failure = settings.drainErrors()[0];
     if (failure) throw failure.error;
+    // Choosing one of Pi's models makes it the default for conversations again.
+    if (agentRuntimes.settings.defaultModel()) await agentRuntimes.settings.setDefaultModel(undefined);
     return reply.code(204).send();
   });
 
@@ -2654,6 +2674,15 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       if (!isCreateConversationRequest(request.body)) {
         return reply.code(400).send({ error: "Invalid conversation request" });
+      }
+      // A coding agent chosen as the default starts new conversations, while it is still on and offers that model.
+      const agentDefault = request.body?.model ? undefined : agentRuntimes.settings.defaultModel();
+      const agentDefaultModel = agentDefault && await agentRuntimes.model(agentDefault.model.provider, agentDefault.model.id);
+      if (agentDefault && agentDefaultModel) {
+        const levels = agentDefaultModel.reasoningLevels;
+        const level = request.body?.reasoningLevel ?? agentDefault.reasoningLevel;
+        const conversation = await conversations.create(project, { provider: agentDefaultModel.provider, id: agentDefaultModel.id }, levels.length && level ? clampReasoningLevel(level, levels) : undefined);
+        return reply.code(201).send(conversation.summary);
       }
       const requestedModel = request.body?.model;
       if (requestedModel && isAgentRuntimeId(requestedModel.provider)) {

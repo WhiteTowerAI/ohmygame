@@ -226,6 +226,80 @@ describe("coding agent routes", () => {
     ).toBe(409);
   });
 
+  it("lets a coding agent's model be the default for new conversations, without changing Pi's default", async () => {
+    const { call, claude } = await start();
+    await call("PATCH", "/agent-runtimes/claude-code-cli", {
+      binaryPath: claude,
+    });
+    expect(
+      (
+        await call("PUT", "/models/default", {
+          model: { provider: "claude-code-cli", id: "missing" },
+          reasoningLevel: "high",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("PUT", "/models/default", {
+          model: { provider: "claude-code-cli", id: "sonnet" },
+          reasoningLevel: "max",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("PUT", "/models/default", {
+          model: { provider: "claude-code-cli", id: "sonnet" },
+          reasoningLevel: "high",
+        })
+      ).status,
+    ).toBe(204);
+    const catalog = await call<AgentModelCatalog>("GET", "/models?runtimes=1");
+    expect(catalog.body).toMatchObject({
+      defaultModel: { provider: "claude-code-cli", id: "sonnet" },
+      defaultReasoningLevel: "high",
+    });
+    // Canvas text and other one-off generation keep Pi's default.
+    expect(
+      (await call<AgentModelCatalog>("GET", "/models")).body.defaultModel,
+    ).toBeUndefined();
+
+    const project = await call<{ id: string }>("POST", "/projects", {
+      name: "Game",
+      type: "general",
+    });
+    const conversation = await call<{ id: string }>(
+      "POST",
+      `/projects/${project.body.id}/conversations`,
+      {},
+    );
+    const detail = await call<{ settings: unknown }>(
+      "GET",
+      `/projects/${project.body.id}/conversations/${conversation.body.id}`,
+    );
+    expect(detail.body.settings).toEqual({
+      model: { provider: "claude-code-cli", id: "sonnet" },
+      reasoningLevel: "high",
+    });
+
+    // Turned off, the agent no longer starts new conversations.
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
+    const later = await call<{ id: string }>(
+      "POST",
+      `/projects/${project.body.id}/conversations`,
+      {},
+    );
+    expect(
+      (
+        await call<{ settings: unknown }>(
+          "GET",
+          `/projects/${project.body.id}/conversations/${later.body.id}`,
+        )
+      ).body.settings,
+    ).toEqual({});
+  });
+
   it("answers the tool bridge only with a session's own token, never the app's", async () => {
     const { app, call } = await start();
     const anonymous = await app.inject({
