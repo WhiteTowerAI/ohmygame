@@ -8,13 +8,15 @@ import {
   WorkspaceAssetDialog,
   type MediaFilter,
 } from "./asset-browser.js";
-import { deleteLibraryAsset, forceDeleteLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, saveLibraryAsset, type LibraryAssetReference } from "./api.js";
+import { deleteLibraryAsset, forceDeleteLibraryAsset, getLibraryAsset, listLibraryAssetReferences, renameLibraryAsset, saveLibraryAsset, type LibraryAssetReference } from "./api.js";
 import { Image as ImageIcon, LoaderCircle, RefreshCw, X } from "./icons.js";
 import { filterLibraryAssets, loadLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
 import { LibraryCollectionFilters } from "./library-filters.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
+import { saveTrimmedVideo } from "./video-trimmer.js";
+import type { VideoTrim } from "./video-trim.js";
 import { t, tNodes } from "./i18n.js";
 
 interface LibraryPageProps {
@@ -98,6 +100,13 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
     }
   }
 
+  /** Saves the kept part of a video as a new Library asset and shows it. */
+  async function saveTrimmed(asset: LibraryAsset, video: Blob, trim: VideoTrim): Promise<void> {
+    const saved = await saveTrimmedVideo(video, trim, { name: asset.name, libraryAssetId: asset.id });
+    await load();
+    setSelectedAsset({ ...saved, assetId: saved.id, path: saved.name });
+  }
+
   const visibleAssets = useMemo(() => filterLibraryAssets(assets, mediaFilter, query, filters), [assets, mediaFilter, query, filters]);
 
   return (
@@ -126,6 +135,8 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
         onRename={() => beginRename(selectedAsset)}
         onDelete={() => void remove(selectedAsset)}
         onSaveToLibrary={selectedAsset.saved === false || selectedAsset.referenceOnly ? () => void save(selectedAsset) : undefined}
+        trimmer={{ loadSource: () => getLibraryAsset(selectedAsset.id), onSave: (video, trim) => saveTrimmed(selectedAsset, video, trim) }}
+        {...(selectedAsset.derivedFrom ? { trimmedFrom: assets.find((candidate) => candidate.id === selectedAsset.derivedFrom!.assetId)?.name ?? selectedAsset.derivedFrom.assetId } : {})}
       /> : null}
       {deleteTarget ? <div className="library-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteTarget(undefined); }}>
         <section className="library-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="library-delete-title" onKeyDown={(event) => { if (event.key === "Escape" && !deleting) setDeleteTarget(undefined); }}>

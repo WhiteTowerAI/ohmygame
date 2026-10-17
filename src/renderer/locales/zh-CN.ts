@@ -2428,6 +2428,23 @@ const zhCN: typeof en = {
       markTitle: "把这一刻放进对话，说说这里应该发生什么",
     },
   },
+  videoTrim: {
+    play: "播放",
+    pause: "暂停",
+    position: "视频位置",
+    start: "保留部分的起点",
+    end: "保留部分的终点",
+    hint: "拖动两端的把手，保留视频的一部分",
+    kept: "保留 {{start}}–{{end}} · {{length}} 秒",
+    reset: "还原",
+    save: "保存为新视频",
+    saveTitle: "把保留的部分保存为一个新视频，原视频不变",
+    saving: "正在保存剪辑后的视频",
+    savingPercent: "正在剪辑… {{percent}}%",
+    failed: "无法剪辑视频：{{error}}",
+    fileName: "{{name}}（剪辑）",
+    saved: "已保存 {{name}}",
+  },
   assets: {
     origin: {
       generated: "生成的",
@@ -2467,6 +2484,7 @@ const zhCN: typeof en = {
     fileMissing: "文件缺失：{{path}}",
     fileUnavailable: "文件不可用：{{path}}",
     closePreview: "关闭素材预览",
+    trimmedFrom: "剪辑自",
   },
   storyEditor: {
     projectChanged:

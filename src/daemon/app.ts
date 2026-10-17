@@ -101,7 +101,7 @@ import { LegacyMcpConfiguration } from "./legacy-mcp.js";
 import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
-import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
+import { AssetLibrary, AssetLibraryError, isLibraryAssetDerivation } from "./asset-library.js";
 import { exportPlayableProject, PlayableProjectExportError } from "./playable-project-export.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import type { GameRuntimeAdapter } from "../shared/playtest.js";
@@ -1637,7 +1637,7 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Querystring: { name: string; mediaType: string; duration?: string; purpose?: "asset" | "reference" }; Body: Buffer }>("/library/assets/upload", {
+  app.post<{ Querystring: { name: string; mediaType: string; duration?: string; purpose?: "asset" | "reference"; trimSource?: string; trimStart?: string; trimEnd?: string }; Body: Buffer }>("/library/assets/upload", {
     schema: {
       querystring: {
         type: "object",
@@ -1648,6 +1648,9 @@ export function createApp(options: AppOptions = {}) {
           mediaType: { type: "string", enum: [...LIBRARY_UPLOAD_MEDIA_TYPES] },
           duration: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
           purpose: { enum: ["asset", "reference"] },
+          trimSource: { type: "string", minLength: 1, maxLength: 200 },
+          trimStart: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
+          trimEnd: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
         },
       },
     },
@@ -1666,8 +1669,16 @@ export function createApp(options: AppOptions = {}) {
     if (duration !== undefined && (!Number.isFinite(duration) || duration < 0 || mediaType.startsWith("image/"))) {
       return reply.code(400).send({ error: "Invalid media duration" });
     }
+    // A video cut from another records where it came from: all three fields, or none.
+    const { trimSource, trimStart, trimEnd } = request.query;
+    const derivedFrom = trimSource === undefined && trimStart === undefined && trimEnd === undefined
+      ? undefined
+      : { assetId: trimSource ?? "", trim: { start: Number(trimStart), end: Number(trimEnd) } };
+    if (derivedFrom && (!mediaType.startsWith("video/") || !isLibraryAssetDerivation(derivedFrom) || !library.get(derivedFrom.assetId))) {
+      return reply.code(400).send({ error: "Invalid trim source" });
+    }
     try {
-      return reply.code(201).send(await library.add(name, contents, { origin: "uploaded", purpose: request.query.purpose, ...(duration !== undefined ? { duration } : {}) }));
+      return reply.code(201).send(await library.add(name, contents, { origin: "uploaded", purpose: request.query.purpose, ...(duration !== undefined ? { duration } : {}), ...(derivedFrom ? { derivedFrom } : {}) }));
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });

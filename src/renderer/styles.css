@@ -5677,6 +5677,193 @@ button.home-nav-item-active:hover {
   width: 100%;
   height: min(64dvh, 640px);
 }
+/* A video with handles to keep part of it, in an asset preview. */
+.library-dialog-preview > .video-trimmer {
+  display: grid;
+  width: 100%;
+  align-self: stretch;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  padding: 0 0 12px;
+}
+.video-trimmer > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: min(56dvh, 560px);
+  min-height: 200px;
+  object-fit: contain;
+  background: #000;
+  cursor: pointer;
+}
+.video-trimmer-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+}
+.video-trimmer-play {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.video-trimmer-time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.video-trimmer-track {
+  position: relative;
+  height: 48px;
+  flex: 1;
+  /* Room for the handles, which sit just outside the kept part. */
+  margin: 0 10px;
+  overflow: visible;
+  border-radius: 6px;
+  background: var(--surface-hover);
+  cursor: pointer;
+  touch-action: none;
+}
+.video-trimmer-track:focus-visible,
+.video-trimmer-handle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.video-trimmer-frames {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  border-radius: 6px;
+}
+.video-trimmer-frames > img {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+/* The parts left out, shaded; the kept part is framed with a handle at each end. */
+.video-trimmer-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgb(0 0 0 / 58%);
+  pointer-events: none;
+}
+.video-trimmer-kept {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  border-top: 2px solid #f2b705;
+  border-bottom: 2px solid #f2b705;
+  pointer-events: none;
+}
+.video-trimmer-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  background: #f2b705;
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+.video-trimmer-handle::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 14px;
+  border-radius: 1px;
+  background: rgb(0 0 0 / 50%);
+  transform: translate(-50%, -50%);
+  content: "";
+}
+.video-trimmer-handle.is-start {
+  left: -10px;
+  border-radius: 4px 0 0 4px;
+}
+.video-trimmer-handle.is-end {
+  right: -10px;
+  border-radius: 0 4px 4px 0;
+}
+.video-trimmer-handle[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+.video-trimmer-playhead {
+  position: absolute;
+  z-index: 1;
+  top: -6px;
+  bottom: -6px;
+  width: 2px;
+  border-radius: 1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 45%);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.video-trimmer-footer {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 16px 0 58px;
+}
+.video-trimmer-summary {
+  margin-right: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.video-trimmer-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.video-trimmer-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.video-trimmer-footer > button {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.video-trimmer-footer > button.video-trimmer-save:not(:disabled) {
+  border-color: transparent;
+  background: var(--text);
+  color: var(--surface);
+}
+.video-trimmer-footer > button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
 .library-dialog-state {
   display: inline-flex;
   align-items: center;

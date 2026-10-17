@@ -937,6 +937,13 @@ export interface LibraryAsset {
   purpose?: LibraryAssetPurpose;
   /** Project copies remain available by ID without appearing in the saved collection. */
   saved?: boolean;
+  /** The Library video this one was cut from, and the part of it kept, in seconds. */
+  derivedFrom?: LibraryAssetDerivation;
+}
+
+export interface LibraryAssetDerivation {
+  assetId: string;
+  trim: { start: number; end: number };
 }
 
 export interface LibraryAssetProject {
