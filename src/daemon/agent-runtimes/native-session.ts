@@ -4,10 +4,7 @@ import type {
   SessionEntry,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import type {
-  AgentContextUsage,
-  AgentReasoningLevel,
-} from "../../shared/contracts.js";
+import type { AgentContextUsage } from "../../shared/contracts.js";
 import type {
   AgentRuntimeId,
   ApprovalDecision,
@@ -122,7 +119,6 @@ export interface NativeSessionOptions {
   runtime: AgentRuntimeId;
   /** The model as the conversation names it: the runtime's own model ID. */
   model: string;
-  reasoningLevel?: AgentReasoningLevel;
   nativeReasoningLevel?: string;
   sessionManager: SessionManager;
   /** Creates the adapter for the native session the branch continues, if any. */
@@ -162,7 +158,6 @@ export class NativeCodingSession implements CodingSession {
   readonly sessionManager: SessionManager;
   readonly emitsInitialUserMessage = true;
   readonly messages: unknown[] = [];
-  #thinkingLevel?: AgentReasoningLevel;
   #driver: NativeDriver;
   #listeners = new Set<(event: AgentSessionEvent) => void>();
   #followUps: Array<{ text: string; images: PromptImage[] }> = [];
@@ -184,7 +179,6 @@ export class NativeCodingSession implements CodingSession {
         .getBranch()
         .flatMap((entry) => (entry.type === "message" ? [entry.message] : [])),
     );
-    this.#thinkingLevel = options.reasoningLevel;
     const stored = latestNativeSession(
       this.sessionManager.getBranch(),
       options.runtime,
@@ -195,24 +189,7 @@ export class NativeCodingSession implements CodingSession {
     this.#handoff = !stored && hasMessages(this.sessionManager.getBranch());
     this.#driver = options.createDriver(stored?.sessionId, {
       model: options.model,
-      reasoningLevel: options.nativeReasoningLevel ?? options.reasoningLevel,
-    });
-  }
-
-  get thinkingLevel(): AgentReasoningLevel | undefined {
-    return this.#thinkingLevel;
-  }
-
-  setThinkingLevel(level: AgentReasoningLevel): void {
-    if (this.#running)
-      throw new Error("Wait for the agent to finish before changing reasoning");
-    this.#thinkingLevel = level;
-    // Stored as Pi stores it, so the conversation reads the same level when it is opened again.
-    this.sessionManager.appendThinkingLevelChange(level);
-    void this.#driver.dispose();
-    this.#driver = this.options.createDriver(this.#nativeSessionId, {
-      model: this.options.model,
-      reasoningLevel: level,
+      reasoningLevel: options.nativeReasoningLevel,
     });
   }
 
@@ -556,7 +533,7 @@ export class NativeCodingSession implements CodingSession {
     await this.#driver.dispose();
     this.#driver = this.options.createDriver(undefined, {
       model: this.options.model,
-      reasoningLevel: this.options.nativeReasoningLevel ?? this.#thinkingLevel,
+      reasoningLevel: this.options.nativeReasoningLevel,
     });
     this.#handoff = hasMessages(this.sessionManager.getBranch());
     this.#usage = undefined;

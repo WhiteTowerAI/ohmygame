@@ -10,11 +10,7 @@ import type {
   NativeTurnSink,
 } from "./native-session.js";
 import { AgentProcess, processFailure } from "./process.js";
-import {
-  decideApproval,
-  textResult,
-  type DriverContext,
-} from "./driver-context.js";
+import { textResult, type DriverContext } from "./driver-context.js";
 import { stageSkills } from "./skills.js";
 import { NativeSessionExpiredError } from "./native-session.js";
 import { canonicalPath, judgeApproval } from "./policy.js";
