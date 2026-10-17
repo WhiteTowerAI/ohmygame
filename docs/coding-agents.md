@@ -116,7 +116,10 @@ folder variable. API keys are left out, so an ambient key never moves a
 subscription to metered billing; Claude Code keeps `CLAUDE_CODE_OAUTH_TOKEN`,
 which is a subscription sign-in. The daemon's token and `OHMYGAME_*` variables
 never reach a CLI. The executable is resolved to an absolute path from the
-person's choice, PATH, the login shell's PATH and the usual install folders.
+person's choice or, failing that, the newest of the copies on PATH, the login
+shell's PATH, the usual install folders and those other apps bundle, such as
+the Codex in the ChatGPT app. An older copy found first may not know the
+account's current models.
 
 By default each agent runs without the person's own configuration:
 

@@ -8,7 +8,11 @@ import {
   parseVersion,
   versionAtLeast,
 } from "../src/daemon/agent-runtimes/definitions.js";
-import { parseOpenCodeModels } from "../src/daemon/agent-runtimes/discovery.js";
+import {
+  parseOpenCodeModels,
+  resolveBinary,
+} from "../src/daemon/agent-runtimes/discovery.js";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { handoffSummary } from "../src/daemon/agent-runtimes/handoff.js";
 import {
   judgeApproval,
@@ -474,6 +478,33 @@ describe("coding agent tool names", () => {
 });
 
 describe("coding agent discovery", () => {
+  it("uses the newest of several installations, unless one was chosen", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-binaries-"));
+    const install = async (folder: string, version: string) => {
+      await mkdir(path.join(root, folder));
+      const file = path.join(root, folder, "opencode");
+      await writeFile(file, `#!/bin/sh\necho ${version}\n`);
+      await chmod(file, 0o755);
+      return file;
+    };
+    // Versions far above any real install, so whatever this computer has does not win.
+    const older = await install("old", "98.0.0");
+    const newer = await install("new", "99.1.0");
+    const previous = process.env.PATH;
+    process.env.PATH = [
+      path.dirname(older),
+      path.dirname(newer),
+      previous,
+    ].join(path.delimiter);
+    try {
+      expect((await resolveBinary("opencode-cli"))?.path).toBe(newer);
+      expect((await resolveBinary("opencode-cli", older))?.path).toBe(older);
+    } finally {
+      process.env.PATH = previous;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("reads versions the way each CLI prints them", () => {
     expect(parseVersion("2.1.301 (Claude Code)")).toBe("2.1.301");
     expect(parseVersion("codex-cli 0.147.0")).toBe("0.147.0");

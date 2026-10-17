@@ -4,10 +4,12 @@ import {
   access,
   constants,
   mkdir,
+  realpath,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
   AGENT_REASONING_LEVELS,
@@ -19,8 +21,16 @@ import type {
   AgentRuntimeBilling,
   AgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
-import { AGENT_RUNTIME_DEFINITIONS, parseVersion } from "./definitions.js";
-import { commonBinaryDirectories, loginShellPath } from "./environment.js";
+import {
+  AGENT_RUNTIME_DEFINITIONS,
+  parseVersion,
+  versionAtLeast,
+} from "./definitions.js";
+import {
+  agentEnvironment,
+  commonBinaryDirectories,
+  loginShellPath,
+} from "./environment.js";
 import { AgentProcess } from "./process.js";
 import { CodexAppServer } from "./codex.js";
 
@@ -33,17 +43,31 @@ export interface ResolvedBinary {
 }
 
 /**
- * Finds a CLI's executable: the one the person chose, or the first on PATH,
- * the login shell's PATH and the usual install folders. The result is an
+ * Finds a CLI's executable: the one the person chose, or else the newest of
+ * those on PATH, the login shell's PATH, the usual install folders and the
+ * copies other apps bundle. A computer often has several, such as an old
+ * global npm install next to the Codex in the ChatGPT app, and the oldest one
+ * found first may not know the account's current models. The result is an
  * absolute path that is then always run as is.
  */
 export async function resolveBinary(
   id: AgentRuntimeId,
   override?: string,
 ): Promise<ResolvedBinary | undefined> {
+  const definition = AGENT_RUNTIME_DEFINITIONS[id];
   const candidates = override
     ? [override]
-    : await searchCandidates(AGENT_RUNTIME_DEFINITIONS[id].binaries);
+    : [
+        ...(await searchCandidates(definition.binaries)),
+        ...(definition.bundledPaths?.[process.platform] ?? []).map(
+          (candidate) =>
+            candidate.startsWith("~/")
+              ? path.join(os.homedir(), candidate.slice(2))
+              : candidate,
+        ),
+      ];
+  const found: ResolvedBinary[] = [];
+  const seen = new Set<string>();
   for (const candidate of candidates) {
     try {
       await access(
@@ -52,15 +76,53 @@ export async function resolveBinary(
       );
       const info = await stat(candidate);
       if (!info.isFile()) continue;
-      return {
+      // One installation is often reachable through several links.
+      const target = await realpath(candidate);
+      if (seen.has(target)) continue;
+      seen.add(target);
+      found.push({
         path: candidate,
         signature: `${candidate}:${info.size}:${info.mtimeMs}`,
-      };
+      });
     } catch {
       continue;
     }
   }
-  return undefined;
+  if (found.length <= 1) return found[0];
+  const versions = await Promise.all(
+    found.map((binary) => cachedVersion(binary, id)),
+  );
+  // The newest wins; among equal or unreadable versions, the one found first, as PATH orders them.
+  let best = 0;
+  for (let index = 1; index < found.length; index++) {
+    const version = versions[index];
+    const current = versions[best];
+    if (
+      version &&
+      (!current || (versionAtLeast(version, current) && version !== current))
+    )
+      best = index;
+  }
+  return found[best];
+}
+
+const versions = new Map<string, Promise<string | undefined>>();
+
+/** A candidate's version, read once for each build of it. */
+function cachedVersion(
+  binary: ResolvedBinary,
+  id: AgentRuntimeId,
+): Promise<string | undefined> {
+  let version = versions.get(binary.signature);
+  if (!version) {
+    version = probeVersion(
+      binary.path,
+      id,
+      agentEnvironment(id, binary.path),
+    ).catch(() => undefined);
+    versions.set(binary.signature, version);
+  }
+  return version;
 }
 
 async function searchCandidates(names: readonly string[]): Promise<string[]> {

@@ -16,6 +16,11 @@ export interface AgentRuntimeDefinition {
   tier: AgentRuntimeTier;
   /** Executable names to look for, in order. */
   binaries: readonly string[];
+  /**
+   * Copies other apps install outside PATH, such as the Codex that ships in the
+   * ChatGPT app. `~` is the home folder.
+   */
+  bundledPaths?: Partial<Record<NodeJS.Platform, readonly string[]>>;
   versionArgs: readonly string[];
   /** The oldest version whose protocol the adapter speaks. */
   minimumVersion: string;
@@ -43,6 +48,12 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     name: "Codex",
     tier: "full",
     binaries: ["codex"],
+    bundledPaths: {
+      darwin: [
+        "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+        "~/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+      ],
+    },
     versionArgs: ["--version"],
     minimumVersion: "0.140.0",
     loginCommand: "codex login",
