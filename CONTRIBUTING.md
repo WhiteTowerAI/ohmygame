@@ -150,6 +150,41 @@ public-only checkouts; mention the skips in your PR. A passing public suite
 does not verify the hosted service. See [cloud integration](#cloud-integration)
 and the [maintainer guide](docs/maintaining.md#review-and-merge).
 
+### Keep tests and documentation focused
+
+- Each test should guard an observable behavior or a concrete regression risk.
+  Extend an existing scenario before copying its setup into a new test. Merge
+  repeated scenarios with the same setup and inputs at the same boundary,
+  retaining their assertions. Shared line coverage alone does not establish
+  redundancy.
+- Assert outcomes. Pin internal markup, styles, or call order only when they
+  protect a product contract. Preserve security, accessibility, data recovery,
+  and other distinct boundary cases when consolidating tests.
+- Establish a baseline before deleting coverage. Prefer test-impact or affected
+  test selection when the goal is a faster check; if a test is a deletion
+  candidate, compare relevant coverage and mutation or fault-injection results
+  before and after the change. A passing suite or unchanged line coverage alone
+  does not establish equivalence.
+- Treat slow or flaky tests as diagnosis and quarantine work. Do not delete a
+  test only because it is slow or intermittent, and do not hide the failure
+  behind unbounded retries.
+- When removing a test, explain which remaining test guards its behavior or why
+  that behavior is no longer supported. Keep the evidence with the PR so the
+  review can reproduce the decision.
+- AI may inventory tests, cluster likely duplicates, suggest parameterization,
+  and draft documentation merges. It produces candidates; tests, coverage,
+  mutation or fault-injection checks, and human review decide whether anything
+  is removed.
+- Maintain detailed rules in one guide and link from indexes and summaries.
+  Update an existing page before adding one; a new page needs a distinct reader
+  and question. Shared types and code define exact API fields and event names.
+- Keep stable behavior, design reasons, migrations, and operating instructions
+  in guides. Put run-specific test counts, logs, and implementation progress in
+  the PR. Mark historical designs and pending acceptance clearly.
+- Before moving or deleting documentation, check links, media, scripts, and
+  runtime consumers. Translations and shipped agent instructions have their own
+  readers and contracts; similar wording alone does not make them redundant.
+
 ## Formatting
 
 Match the surrounding style when editing an existing file and keep formatting
