@@ -121,16 +121,28 @@ Add the new version above the existing releases, using this structure. Replace
 
 ### Added
 
-- Describe a new capability and link its PR.
+- Describe a new capability.
+  ([#123](https://github.com/WhiteTowerAI/ohmygame/pull/123) by @login)
 
 ### Changed
 
-- Describe a change to existing behavior and link its PR.
+- Describe a change to existing behavior.
+  ([#124](https://github.com/WhiteTowerAI/ohmygame/pull/124) by @login)
 
 ### Fixed
 
-- Describe the resolved problem and link its PR.
+- Describe the resolved problem, across two PRs.
+  ([#125](https://github.com/WhiteTowerAI/ohmygame/pull/125) by @login,
+  [#126](https://github.com/WhiteTowerAI/ohmygame/pull/126) by @other)
 ```
+
+Credit the author of every linked PR with `by @login` right after its link, so
+contributors are notified when the release is published and appear among the
+release's contributors on GitHub. Write the handle as plain text, not a link,
+because GitHub does not treat a linked handle as a mention. Take the login from
+`gh pr view <number> --json author`. `changelog:check` fails when a PR link in
+any release has no author after it.
+Links inside code examples and HTML comments are ignored by this check.
 
 Omit empty categories; use `Removed`, `Deprecated`, or `Security` when needed.
 Each release needs a valid date, a unique SemVer version, and nonempty notes.

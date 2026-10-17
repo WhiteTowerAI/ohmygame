@@ -93,19 +93,20 @@ describe("ModelSelector interaction", () => {
     const menu = document.querySelector('[role="menu"]')!;
     expect(menu.getAttribute("aria-label")).toBe("Reasoning levels");
     expect(menu.parentElement?.id).toBe(button.getAttribute("aria-controls"));
-    expect(menu.textContent).toContain("xHigh");
-    expect(menu.textContent).not.toContain("Extra high");
+    const options = menu.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]');
+    expect(options).toHaveLength(reasoningModel.reasoningLevels.length);
     expect(button.getAttribute("aria-expanded")).toBe("true");
-    expect(document.activeElement?.textContent).toBe("High");
+    expect(document.activeElement).toBe(options[2]);
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect(document.activeElement?.textContent).toBe("xHigh");
+    expect(document.activeElement).toBe(options[3]);
+    const nextLabel = options[3]!.textContent;
     await act(async () => (document.activeElement as HTMLButtonElement).click());
     expect(onReasoningChange).toHaveBeenCalledExactlyOnceWith("xhigh");
     expect(onChange).not.toHaveBeenCalled();
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(button);
-    expect(button.querySelector(".model-selector-reasoning-value")?.textContent).toBe("xHigh");
-    expect(button.getAttribute("aria-description")).toBe("Reasoning: xHigh");
+    expect(button.querySelector(".model-selector-reasoning-value")?.textContent).toBe(nextLabel);
+    expect(button.getAttribute("aria-description")).toBe(`Reasoning: ${nextLabel}`);
   });
 
   it("returns from reasoning with Escape, arrow keys or Back, and restores focus when closing", async () => {

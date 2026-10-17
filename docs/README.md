@@ -50,6 +50,7 @@ are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`, and
 | Document                                         | Purpose                                                                                                                        |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | [runtime.md](runtime.md)                         | Process boundaries, toolchains, proxies, trust boundary, game use, persistence, and publishing.                                |
+| [agent-runtimes.md](agent-runtimes.md) | Native runtime architecture, accepted design decisions, delivery status, and validation boundaries. |
 | [preview-runtime.md](preview-runtime.md)         | Startup modes, dependency installation, leases, browser storage, and diagnostics.                                              |
 | [runtime-recovery.md](runtime-recovery.md)       | Preview isolation, daemon supervision, reconnect behavior, and recovery scenarios.                                             |
 | [canvas-agent.md](canvas-agent.md)               | Canvas files, concurrent editing, agent tools, media, and migration.                                                           |

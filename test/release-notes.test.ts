@@ -13,7 +13,9 @@ import { parse } from "yaml";
 
 const version = "0.0.0-beta.4.7";
 const body =
-  "### Fixed\n\n- Recover interrupted requests. ([#211](https://github.com/WhiteTowerAI/ohmygame/pull/211))";
+  "### Fixed\n\n- Recover interrupted requests. ([#211](https://github.com/WhiteTowerAI/ohmygame/pull/211) by @dogxii)";
+const pullRequest = (number: number) =>
+  `[#${number}](https://github.com/WhiteTowerAI/ohmygame/pull/${number})`;
 const changelog = `# Changelog\n\n## [${version}] - 2026-10-13\n\n${body}\n`;
 const script = path.resolve("scripts/release-notes.mjs");
 const directories: string[] = [];
@@ -99,6 +101,81 @@ describe("release notes CLI", () => {
     const result = runNotes(`## [${version}] - 2026-10-13\n\n${notes}`);
     expect(result.status).toBe(0);
     expect(result.stdout).toBe(`${notes}\n`);
+  });
+
+  it("accepts an author after each pull request link, across line breaks", () => {
+    const notes = `### Fixed\n\n- Recover requests and windows.\n  (${pullRequest(218)} by @dogxii,\n  ${pullRequest(219)}\n  by @82228)\n- Rename files. <!-- ${pullRequest(1)} -->\n\n\`\`\`markdown\n- Example. (${pullRequest(2)})\n\`\`\`\n\n**Full Changelog**: https://github.com/WhiteTowerAI/ohmygame/compare/v0.0.0-beta.4.6...v${version}`;
+    const result = runNotes(`## [${version}] - 2026-10-13\n\n${notes}\n`);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe(`${notes}\n`);
+  });
+
+  it.each([
+    `\`${pullRequest(1)}\``,
+    `\`\`A literal \` and ${pullRequest(1)}\`\``,
+    `\`${pullRequest(1)}\nacross lines\``,
+  ])("ignores pull request examples in inline code: %s", (example) => {
+    const notes = `- Explain ${example}. (${pullRequest(212)} by @dogxii)`;
+    const result = runNotes(`## [${version}] - 2026-10-13\n\n${notes}\n`);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe(`${notes}\n`);
+  });
+
+  it.each(["a", "82228", "a-b-c", "a".repeat(39)])(
+    "accepts the valid author login %s",
+    (login) => {
+      const result = runNotes(
+        `## [${version}] - 2026-10-13\n\n- Recover requests. (${pullRequest(212)} by @${login})\n`,
+      );
+      expect(result.status, result.stderr).toBe(0);
+    },
+  );
+
+  it.each([
+    ["no author", `(${pullRequest(212)})`],
+    [
+      "an author on only the first link",
+      `(${pullRequest(218)} by @dogxii, ${pullRequest(219)})`,
+    ],
+    [
+      "a linked author",
+      `(${pullRequest(212)} by [@dogxii](https://github.com/dogxii))`,
+    ],
+    ["an invalid login", `(${pullRequest(212)} by @-dogxii)`],
+    ["consecutive hyphens", `(${pullRequest(212)} by @foo--bar)`],
+    ["a trailing hyphen", `(${pullRequest(212)} by @dogxii-)`],
+    ["an underscore", `(${pullRequest(212)} by @dogxii_test)`],
+    [
+      "a login over 39 characters",
+      `(${pullRequest(212)} by @${"a".repeat(40)})`,
+    ],
+    ["an author in inline code", `(${pullRequest(212)} by \`@dogxii\`)`],
+    [
+      "a literal HTML comment opener in inline code",
+      `Handle \`<!--\` safely. (${pullRequest(212)}) <!-- internal note -->`,
+    ],
+    ["an unmatched code delimiter", `\`\`${pullRequest(212)}\``],
+    ["escaped code delimiters", `\\\`${pullRequest(212)}\\\``],
+  ])("rejects a pull request link with %s", (_name, credit) => {
+    const result = runNotes(
+      `## [${version}] - 2026-10-13\n\n### Fixed\n\n- Recover requests. ${credit}\n\n## [0.0.0-beta.4.6] - 2026-10-12\n\n${body}\n`,
+    );
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      `Changelog section for ${version} links PR`,
+    );
+    expect(result.stderr).toContain('Add "by @login" after the link.');
+  });
+
+  it("checks pull request authors in earlier releases", () => {
+    const result = runNotes(
+      `${changelog}\n## [0.0.0-beta.4.6] - 2026-10-12\n\n- Previous release. (${pullRequest(205)})\n`,
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "Changelog section for 0.0.0-beta.4.6 links PR #205 without its author.",
+    );
   });
 
   it("rejects a tag that differs from the package version without emitting notes", () => {

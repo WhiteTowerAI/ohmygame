@@ -389,7 +389,7 @@ const zhCN: typeof en = {
     low: "低",
     medium: "中",
     high: "高",
-    xhigh: "xHigh",
+    xhigh: "极高",
     max: "最高",
   },
   customProvider: {

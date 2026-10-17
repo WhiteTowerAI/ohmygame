@@ -80,6 +80,13 @@ including callbacks whose job already reports cancellation. They temporarily
 stop preview processes and resume an existing active preview afterward. Explicit
 Undo and Reapply leave the preview stopped until the user resumes it.
 
+Requests that arrive during a checkpoint wait or go on depending on what it
+does to the files. A snapshot only reads them: project reads go on, and
+writes wait for it to end. Undo and Reapply replace them: reads wait for the
+restored files, and writes are refused. A request that waits more than two
+minutes gets `409 workspace_busy`, which the Story editor treats as a reason
+to load again shortly rather than an error.
+
 Daemon project requests use `x-workspace-version`. Undo and Reapply change this
 version and emit `workspace.restored` with the version and changed paths. These events are
 sent after the workspace lock is released, so editors can remount and read the
