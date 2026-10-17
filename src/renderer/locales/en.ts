@@ -198,6 +198,8 @@ const en = {
     noAudioModels: "No audio models are available.",
     loadingModels: "Loading models",
     audioDescription: "Doubao speech synthesis for generating character voices",
+    seedAudioDescription: "Seed Audio 1.0 for generating game sound effects and instrumental background music",
+    seedAudioHint: "Uses a separate Seed Audio connection. This does not replace or modify your Doubao Speech setup.",
     defaultVoiceId: "Default voice",
     voiceSelectCustom: "Custom Speaker ID...",
     voiceIdInputLabel: "Speaker ID",
