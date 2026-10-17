@@ -381,6 +381,15 @@ Choosing a folder that is already a project's workspace when creating a project
 opens that project instead; a folder inside another workspace can hold a
 project of its own.
 
+## Project navigation
+
+Project workspaces return to their entry page using the top-left Back arrow.
+The destination survives conversation/view changes and refreshes in the same
+tab; a project link opened without an entry page returns to Projects. The
+Projects URL preserves its type filter, search (`q`), and name sorting
+(`sort=name`) when returning or refreshing. See the
+[workspace return example](assets/project-return-navigation.webp).
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user

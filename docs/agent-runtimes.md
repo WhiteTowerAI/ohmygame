@@ -1,21 +1,20 @@
 # Agent Runtime integration specification
 
-Status: reviewed integration design. Implementation is tracked in
-[PR #289](https://github.com/WhiteTowerAI/ohmygame/pull/289). Native runtimes are
-optional and disabled by default; implementation, automated coverage, and real
-acceptance are distinct milestones.
+Status: reviewed integration design. The implementation in
+[PR #289](https://github.com/WhiteTowerAI/ohmygame/pull/289) was reverted by
+[PR #290](https://github.com/WhiteTowerAI/ohmygame/pull/290) pending real
+acceptance. This document describes the intended integration, not enabled
+functionality in the current checkout.
 
 This document records the architecture and delivery decisions from
 [PR #258](https://github.com/WhiteTowerAI/ohmygame/pull/258). It replaces the
 initial transport examples and phased proposal with the boundary used by the
-reviewed implementation. The implementation guide is `docs/coding-agents.md`
-(delivered with #289); shared types and tests remain the source of truth for
-individual protocol fields.
+reviewed implementation. Its implementation guide and validation evidence remain
+in PR #289; shared types and tests define individual protocol fields when the
+implementation is reintroduced.
 
-Implementation acceptance is pending. PR #289 is being reverted from `dev`
-until Claude Code real inference and visual/style checks are complete. Its
-implementation and fixes are preserved for a new PR after explicit acceptance;
-this design document remains in place.
+Reintroduction requires a new PR after Claude Code real inference and visual/style
+acceptance. The implementation and fixes remain preserved in PR #289.
 
 ## Decisions and ownership
 
@@ -52,8 +51,8 @@ AgentManager: turns, queues, checkpoints, errors, cancellation
             └── ToolBridge → existing tools, canvas/media/preview, plugin MCP
 ```
 
-The implementation lives in `src/daemon/agent-runtimes/`, with public types in
-`src/shared/agent-runtimes.ts` and `src/shared/contracts.ts`. These are module
+The proposed module boundaries are `src/daemon/agent-runtimes/`, with public types
+in `src/shared/agent-runtimes.ts` and `src/shared/contracts.ts`. These are module
 boundaries, not a requirement for a new generic framework. A future SDK may
 replace a driver's transport without changing orchestration or persistence.
 
@@ -300,38 +299,19 @@ and Chinese; prompts sent to agents remain English.
 
 The three adapters have Full integration scope: OhMyGame tools, approval UI,
 resume/rebuild, manual/native compaction, queued continuation, usage where
-reported, and checkpoint recovery. Full describes implemented scope, not a
+reported, and checkpoint recovery. Full describes reviewed scope, not a
 promise of identical native features or completed platform acceptance. A Basic
 tier is reserved; adding a declarative entry alone cannot run another CLI.
 
-The reviewed #289 implementation covers shared infrastructure, all three
-drivers, plugin/Skill bridging, settings/model selection, approvals, and
-lifecycle recovery. Focused fixtures cover branch invalidation, expired resume,
-queue checkpoints, cancellation races, token revocation, SSE loss, model/default
-migration, planning writes, child approvals, staged Skill boundaries, and
-verified orphan recovery. No rewrite of the runtime architecture is required.
+The implementation, fixture coverage, historical macOS checks, CLI versions, and
+incomplete acceptance scenarios are recorded in
+[PR #289](https://github.com/WhiteTowerAI/ohmygame/pull/289). Reintroduction should
+reuse the reviewed architecture; those checks do not validate the current checkout.
 
-Validation recorded during review on macOS:
-
-- Public local checks: 2,916 tests passed and 23 skipped; typecheck, renderer
-  build, Node startup/build, plugin preparation, and changelog checks passed.
-  Private cloud contracts remain skipped where unavailable.
-- Real Codex 0.163.0-alpha.10.2 and OpenCode 1.18.33 acceptance passed: file
-  edits, shared tool use, continuation, daemon restart, compaction, message edit,
-  checkpoint restore, external dummy-file denial, approval history, and
-  cancellation during an executing shell command.
-- Actual Codex sandbox commands additionally verified workspace read/write,
-  denied external/protected/symlink reads, and denied planning writes. Actual
-  OpenCode read a staged Skill reference without manual approval.
-- Native effort selection/reload was exercised in the browser. Fixture/API
-  approval tests passed; an extra real Codex browser approval click scenario
-  did not complete and is not counted as passed.
-
-Claude real inference is pending because the local CLI is signed out; its
-protocol/discovery/permission fixtures passed. Linux/Windows real CLI acceptance,
-Electron-specific native lifecycle acceptance, paid media/game-playtest flows,
-and universal OS confinement are not established by these checks. Keep native
-runtimes opt-in and require real acceptance on a target platform before
+Protocol fixtures do not replace real Claude inference and visual/style acceptance.
+Linux/Windows real CLI acceptance, Electron-specific native lifecycle acceptance,
+paid media/game-playtest flows, and universal OS confinement remain unverified.
+Keep native runtimes opt-in and require real acceptance on a target platform before
 advertising it as validated. Latest-head CI must pass before merging; earlier
 local evidence or an old green check does not satisfy that gate.
 
