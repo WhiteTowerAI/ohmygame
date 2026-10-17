@@ -47,7 +47,7 @@ import {
   type ConversationSummary,
   type ProjectRunSettings,
   type ProjectFileOpenMode,
-  type ProjectAgentActivity,
+  type ProjectActivitySnapshot,
   type ProjectCoverMode,
   type ProjectCoverState,
   type ProjectState,
@@ -188,7 +188,7 @@ export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
 }
 
-export async function listProjectActivity(signal?: AbortSignal): Promise<ProjectAgentActivity[]> {
+export async function listProjectActivity(signal?: AbortSignal): Promise<ProjectActivitySnapshot> {
   return request("/projects/activity", { signal });
 }
 

@@ -36,7 +36,7 @@ describe("daemon", () => {
       }),
     });
     apps.push(app);
-    const activity = async () => (await app.inject({ method: "GET", url: "/projects/activity" })).json();
+    const activity = async () => (await app.inject({ method: "GET", url: "/projects/activity" })).json().activity;
     expect(await activity()).toEqual([]);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
@@ -321,7 +321,7 @@ describe("daemon", () => {
     const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Build browser output" } });
     expect(turn.statusCode).toBe(202);
     const readProject = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json();
-    await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json()).toEqual([]));
+    await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json().activity).toEqual([]));
     if (webPreviewEnabled) {
       await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"), { timeout: 3_000 });
       const url = (await readProject()).preview.url;

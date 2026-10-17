@@ -363,9 +363,13 @@ export interface PreviewRuntimeState {
   stopReason?: "manual" | "idle" | "settings" | "recovery";
 }
 
+export type ProjectNameSource = "default" | "ai" | "manual";
+
 export interface ProjectState extends ProjectPreviewSettings {
   id: string;
   name: string;
+  /** Missing on legacy projects, which are not automatically renamed. */
+  nameSource?: ProjectNameSource;
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
@@ -404,6 +408,11 @@ export interface ProjectRunSettings extends ProjectPreviewSettings {
 export interface ProjectAgentActivity {
   projectId: string;
   status: Extract<AgentStatus, "running" | "cancelling">;
+}
+
+export interface ProjectActivitySnapshot {
+  activity: ProjectAgentActivity[];
+  names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
 export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table";

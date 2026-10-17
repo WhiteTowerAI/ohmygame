@@ -2258,7 +2258,7 @@ describe("The end of a turn", () => {
     await send("Write the notes");
     await closing.reached;
     expect(
-      (await app.inject({ method: "GET", url: "/projects/activity" })).json(),
+      (await app.inject({ method: "GET", url: "/projects/activity" })).json().activity,
     ).toEqual([]);
 
     // The conversation reads as idle, so the edit is not refused. It waits for the end of the turn and then starts.

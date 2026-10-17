@@ -26,7 +26,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
-  const activity = useProjectActivity(phase === "ready" && projects.length > 0);
+  const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
   const [error, setError] = useState<string>();
   const [sortOpen, setSortOpen] = useState(false);
   const [actionError, setActionError] = useState<string>();
@@ -126,12 +126,11 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
             <span className="project-card-new-art"><FolderPlus size={24} /></span>
             <span className="project-card-copy"><strong>{t("projects.new")}</strong><span>{t("projects.newHint")}</span></span>
           </button>
-          {visibleProjects.map((project, index) => (
+          {visibleProjects.map((project) => (
             <ProjectCard
               key={project.id}
               project={project}
               agentStatus={activity.get(project.id)}
-              fallback={index % 4}
               onOpen={() => onOpenProject(project.id)}
               actions={{ onRename: () => {
                 renameTrigger.current = document.querySelector<HTMLElement>('.project-card-menu[aria-expanded="true"]');

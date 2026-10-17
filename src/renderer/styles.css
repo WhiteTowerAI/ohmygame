@@ -44,6 +44,11 @@
   --control-selected: color-mix(in srgb, var(--text) 8%, var(--surface));
   --content-column-width: 820px;
   --segmented-control-motion: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --project-cover-bg-0: #637fad;
+  --project-cover-bg-1: #6c9587;
+  --project-cover-bg-2: #8a7ead;
+  --project-cover-bg-3: #ad8777;
+  --project-cover-ink: rgb(255 255 255 / 72%);
 }
 
 :root[data-appearance="light"] {
@@ -3677,17 +3682,12 @@ button.home-nav-item-active:hover {
   object-fit: cover;
 }
 
-.project-card-preview-0 {
-  background: linear-gradient(180deg, #102720, #245c49);
-}
-.project-card-preview-1 {
-  background: linear-gradient(180deg, #101e2b, #28536a);
-}
-.project-card-preview-2 {
-  background: linear-gradient(180deg, #29171e, #613631);
-}
-.project-card-preview-3 {
-  background: linear-gradient(180deg, #29243e, #5f507d);
+.project-cover-placeholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  color: var(--project-cover-ink);
+  place-items: center;
 }
 
 .project-card-meta {

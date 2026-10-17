@@ -1,6 +1,6 @@
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "../src/daemon/text-generation.js";
+import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateProjectName } from "../src/daemon/text-generation.js";
 import { createCanvasTable } from "../src/shared/canvas-table.js";
 import type { RuntimeModel } from "../src/daemon/agent.js";
 
@@ -11,6 +11,30 @@ const model: RuntimeModel = {
 };
 
 describe("text generation", () => {
+  it("names a project using the selected model, bounded input and a separate request", async () => {
+    const { runtime, completeSimple } = fixture(assistant('{"name":"月球花园"}'));
+    const signal = new AbortController().signal;
+    await expect(generateProjectName(runtime, model, "制作月球种植游戏".repeat(1_000), signal)).resolves.toBe("月球花园");
+    const [sentModel, context, options] = completeSimple.mock.calls[0]!;
+    expect(sentModel).toBe(model);
+    expect(Buffer.byteLength(context.messages[0]!.content as string)).toBeLessThanOrEqual(6_000);
+    expect(context.systemPrompt).toContain("Use the language of the request");
+    expect(options).toMatchObject({ signal, maxRetries: 0, maxTokens: 256 });
+    expect(options).not.toHaveProperty("reasoning");
+  });
+  it("uses the lowest supported reasoning level when the model cannot disable it", async () => {
+    const { runtime, completeSimple } = fixture(assistant('{"name":"Moon Garden"}'));
+    await generateProjectName(runtime, { ...model, thinkingLevelMap: { off: null, minimal: null } }, "Make a moon garden game", new AbortController().signal);
+    expect(completeSimple.mock.calls[0]![2]).toMatchObject({ reasoning: "low", maxTokens: 2_048 });
+  });
+  it.each(['{"name":null}', 'Not JSON', '{"name":""}', '{"name":"line\\nbreak"}', JSON.stringify({ name: "中".repeat(41) }), '{"name":42}'])("ignores unusable project names: %s", async (text) => {
+    const { runtime } = fixture(assistant(text));
+    await expect(generateProjectName(runtime, model, "Make a game", new AbortController().signal)).resolves.toBeUndefined();
+  });
+  it.each(["length", "error", "aborted"] as const)("ignores project names from %s responses", async (stopReason) => {
+    const { runtime } = fixture({ ...assistant('{"name":"Partial"}'), stopReason });
+    await expect(generateProjectName(runtime, model, "Make a game", new AbortController().signal)).resolves.toBeUndefined();
+  });
   it("uses connected text and real image content for both generation paths", async () => {
     const { runtime, completeSimple, streamSimple } = fixture(assistant("Generated"));
     const visionModel: RuntimeModel = { ...model, input: ["text", "image"] };
