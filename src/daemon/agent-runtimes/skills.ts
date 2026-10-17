@@ -1,10 +1,10 @@
-import { cp, mkdir, readdir, stat } from "node:fs/promises";
+import { cp, mkdir, readdir, lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 
 /**
  * Copies Skill folders into a folder of the session's own, where a CLI is
- * told to look. Copies, not links: a CLI that resolves or watches a link
- * could otherwise reach the plugin's installed files. Names keep the first
+ * told to look. Symbolic links are excluded so staging cannot copy credential
+ * files from outside the Skill or expose the plugin's installation. Names keep the first
  * Skill that has them, as Pi does.
  */
 export async function stageSkills(
@@ -18,14 +18,15 @@ export async function stageSkills(
     const name = path.basename(directory);
     if (!name || names.has(name)) continue;
     try {
-      if (!(await stat(path.join(directory, "SKILL.md"))).isFile()) continue;
+      if (!(await lstat(path.join(directory, "SKILL.md"))).isFile()) continue;
     } catch {
       continue;
     }
     names.add(name);
-    await cp(directory, path.join(target, name), {
+    await cp(await realpath(directory), path.join(target, name), {
       recursive: true,
-      dereference: true,
+      dereference: false,
+      filter: async (source) => !(await lstat(source)).isSymbolicLink(),
       force: true,
     });
     staged.push(name);

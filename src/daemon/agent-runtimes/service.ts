@@ -382,7 +382,19 @@ export class AgentRuntimeService {
       isolateUserConfig: settings.isolateUserConfig,
       instructions: request.instructions,
       bridge,
-      policy: request.policy,
+      policy: {
+        ...request.policy,
+        readablePaths: [
+          path.join(
+            folder.path,
+            request.runtime === "claude-code-cli"
+              ? "claude-plugin/skills"
+              : request.runtime === "codex-cli"
+                ? "codex-skills"
+                : "opencode-skills",
+          ),
+        ],
+      },
       skillDirectories: request.skillDirectories,
       httpBridge: async (handlers) => {
         const registered = this.#registerBridge(bridge, handlers);

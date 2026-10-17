@@ -102,7 +102,11 @@ Pi uses, run in a model-less session in the daemon, so plugin settings,
 switches and credentials stay in the daemon. Skills (plugin Skills and
 OhMyGame's own) are copied into a private folder for the session and handed to
 the CLI: a session plugin for Claude Code, `skills/extraRoots/set` for Codex,
-`skills.paths` for OpenCode. Nothing is written to the workspace.
+`skills.paths` for OpenCode. Staging copies regular files and omits symbolic
+links, so it cannot copy an external credential through a Skill's link. The
+policy permits reading only this session's staged Skill roots, while their
+writes and adjacent app data remain protected. Running a staged script still
+requires command approval. Nothing is written to the workspace.
 
 The OpenCode tool endpoint, `POST /agent-runtime-bridge/mcp`, takes the
 turn's token instead of the app's. It is revoked permanently on completion,

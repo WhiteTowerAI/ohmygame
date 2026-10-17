@@ -9,6 +9,8 @@ export interface AgentPolicyContext {
   workspacePath: string;
   /** Protected roots checked when the native runtime requests permission. */
   neverTouch: readonly string[];
+  /** Host-owned copies of this session's Skills; reading does not grant access to adjacent app data. */
+  readablePaths?: readonly string[];
 }
 
 /**
@@ -59,7 +61,13 @@ export function judgeApproval(
   if (details.paths?.length) {
     const verdicts = details.paths.map((entry) =>
       judgeApproval(
-        { ...details, paths: undefined, path: entry.path },
+        {
+          ...details,
+          kind: "file",
+          tool: entry.access === "read" ? "Read" : "Write",
+          paths: undefined,
+          path: entry.path,
+        },
         context,
       ),
     );
@@ -68,10 +76,18 @@ export function judgeApproval(
   }
   const workspace = canonicalPath(context.workspacePath);
   const protectedPaths = context.neverTouch.map(canonicalPath);
+  const readablePaths = (context.readablePaths ?? []).map(canonicalPath);
   if (details.path) {
     const target = canonicalPath(
       path.resolve(workspace, expandHome(details.path)),
     );
+    if (
+      ["read", "glob", "grep", "ls", "list", "external_directory"].includes(
+        details.tool.toLowerCase(),
+      ) &&
+      readablePaths.some((root) => inside(target, root))
+    )
+      return "allow";
     if (
       protectedPaths.some(
         (root) => inside(root, workspace) && reaches(target, [root]),
@@ -93,11 +109,13 @@ export function judgeApproval(
       inside(root, workspace),
     );
     if (
-      named.some((target) =>
-        reaches(
-          target,
-          inside(target, workspace) ? protectedInWorkspace : protectedPaths,
-        ),
+      named.some(
+        (target) =>
+          !readablePaths.some((root) => inside(target, root)) &&
+          reaches(
+            target,
+            inside(target, workspace) ? protectedInWorkspace : protectedPaths,
+          ),
       )
     )
       return "deny";

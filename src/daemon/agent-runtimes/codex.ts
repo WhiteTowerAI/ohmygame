@@ -835,7 +835,7 @@ export class CodexDriver implements NativeDriver {
             judgeApproval(
               {
                 kind: "file",
-                tool: "permissions",
+                tool: entry.access === "read" ? "Read" : "Write",
                 path: entry.path,
                 canAllowSession: false,
               },

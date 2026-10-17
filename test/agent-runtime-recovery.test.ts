@@ -25,6 +25,7 @@ import {
   leaseAgentDirectory,
   recoverAgentDirectories,
 } from "../src/daemon/agent-runtimes/process-recovery.js";
+import { stageSkills } from "../src/daemon/agent-runtimes/skills.js";
 import { terminateProjectProcess } from "../src/daemon/process-lifecycle.js";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -218,4 +219,68 @@ it("preserves a live daemon's private folders while reclaiming verified orphan f
   );
   await recoverAgentDirectories(root);
   expect((await readdir(root)).sort()).toEqual(["legacy", "live"]);
+});
+
+it("allows reading session-owned Skills while keeping sibling app data and Skill writes protected", async () => {
+  const root = await folder();
+  const workspace = path.join(root, "workspace"),
+    skills = path.join(root, "data", "session", "skills");
+  await mkdir(workspace);
+  await mkdir(skills, { recursive: true });
+  const context = {
+    workspacePath: workspace,
+    neverTouch: [path.join(root, "data")],
+    readablePaths: [skills],
+  };
+  const details = {
+    kind: "file" as const,
+    tool: "Read",
+    path: path.join(skills, "references", "guide.md"),
+    canAllowSession: false,
+  };
+  expect(judgeApproval(details, context)).toBe("allow");
+  expect(
+    judgeApproval(
+      { ...details, tool: "external_directory", path: skills },
+      context,
+    ),
+  ).toBe("allow");
+  expect(judgeApproval({ ...details, tool: "Write" }, context)).toBe("deny");
+  expect(
+    judgeApproval(
+      { ...details, path: path.join(skills, "..", "config.json") },
+      context,
+    ),
+  ).toBe("deny");
+  expect(
+    judgeApproval(
+      {
+        ...details,
+        kind: "other",
+        tool: "permissions",
+        path: undefined,
+        paths: [{ path: details.path, access: "read" }],
+      },
+      context,
+    ),
+  ).not.toBe("deny");
+});
+
+it("copies regular Skill files without following links to external credentials", async () => {
+  const root = await folder();
+  const skill = path.join(root, "source", "test-skill"),
+    target = path.join(root, "staged");
+  await mkdir(skill, { recursive: true });
+  await writeFile(path.join(skill, "SKILL.md"), "# Test");
+  await writeFile(path.join(skill, "guide.md"), "reference");
+  await writeFile(path.join(root, "auth.json"), "DUMMY-CREDENTIAL");
+  await symlink(
+    path.join(root, "auth.json"),
+    path.join(skill, "linked-secret"),
+  );
+  expect(await stageSkills([skill], target)).toEqual(["test-skill"]);
+  expect((await readdir(path.join(target, "test-skill"))).sort()).toEqual([
+    "SKILL.md",
+    "guide.md",
+  ]);
 });
