@@ -2739,10 +2739,12 @@ export function createApp(options: AppOptions = {}) {
       const fallbackLevel = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
       const nativeLevels = agentModel?.nativeReasoningLevels ?? agentModel?.reasoningLevels ?? [];
       const nativeStoredLevel = agentRuntime && modelRef ? await conversations.nativeReasoningLevel(project, conversation, modelRef) : undefined;
+      // Slow discovery must not erase a persisted choice in the initial UI state.
+      const nativeLevel = agentModel ? nativeStoredLevel && nativeLevels.includes(nativeStoredLevel) ? nativeStoredLevel : nativeLevels[0] : nativeStoredLevel;
       const settings = {
         ...(modelRef ? { model: modelRef } : {}),
         ...(model ? { reasoningLevel: effectiveReasoningLevel(model, storedLevel, fallbackLevel) } : {}),
-        ...(nativeLevels.length ? { nativeReasoningLevel: nativeStoredLevel && nativeLevels.includes(nativeStoredLevel) ? nativeStoredLevel : nativeLevels[0] } : {}),
+        ...(nativeLevel ? { nativeReasoningLevel: nativeLevel } : {}),
       };
       // Cache reads revalidate after earlier readers settle. Retry only when a
       // run or a delayed turn end changed during this read, so the response's

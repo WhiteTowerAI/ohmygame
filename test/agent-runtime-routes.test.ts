@@ -157,6 +157,39 @@ describe("coding agent routes", () => {
     ).not.toBe("claude-code-cli");
   });
 
+  it("preserves stored native effort while model discovery is still loading on reload", async () => {
+    const responseLine = FAKE_CLAUDE.split("\n").find((line) =>
+      line.includes("process.stdout.write"),
+    )!;
+    const slow = FAKE_CLAUDE.replace(
+      responseLine,
+      `setTimeout(() => { ${responseLine} }, 2400);`,
+    );
+    const { call, claude } = await start(slow);
+    await call("PATCH", "/agent-runtimes/claude-code-cli", {
+      binaryPath: claude,
+      enabled: true,
+    });
+    const project = await call<{ id: string }>("POST", "/projects", {
+      name: "Slow native models",
+      type: "general",
+    });
+    const created = await call<{ id: string }>(
+      "POST",
+      `/projects/${project.body.id}/conversations`,
+      {
+        model: { provider: "claude-code-cli", id: "sonnet" },
+        nativeReasoningLevel: "high",
+      },
+    );
+    await call("POST", "/agent-runtimes/claude-code-cli/recheck");
+    const loaded = await call<{ settings: { nativeReasoningLevel?: string } }>(
+      "GET",
+      `/projects/${project.body.id}/conversations/${created.body.id}`,
+    );
+    expect(loaded.body.settings.nativeReasoningLevel).toBe("high");
+  }, 15_000);
+
   it("reports each agent's installation, sign-in and billing, and keeps the person's choices", async () => {
     const { call, claude } = await start();
     const updated = await call<AgentRuntimeStatus>(

@@ -788,7 +788,7 @@ export class CodexDriver implements NativeDriver {
     if (method === "item/permissions/requestApproval") {
       const permissions = record(params.permissions);
       const files = record(permissions?.fileSystem);
-      const paths: NonNullable<ApprovalRequestDetails["paths"]> = [];
+      let paths: NonNullable<ApprovalRequestDetails["paths"]> = [];
       for (const access of ["read", "write"] as const) {
         const requested = files?.[access];
         if (
@@ -815,6 +815,15 @@ export class CodexDriver implements NativeDriver {
           paths.push({ path: location.path, access: entry.access });
         }
       }
+      // New CLIs can send both legacy lists and entries for the same grant.
+      paths = [
+        ...new Map(
+          paths.map((entry) => [
+            JSON.stringify([entry.path, entry.access]),
+            entry,
+          ]),
+        ).values(),
+      ];
       if (
         !permissions ||
         (turn.readOnly && paths.some((entry) => entry.access === "write")) ||

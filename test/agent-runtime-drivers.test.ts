@@ -762,7 +762,16 @@ describe("Codex adapter", () => {
             method: "item/permissions/requestApproval",
             params: {
               permissions: {
-                fileSystem: { read: ["/tmp/reference"], write: null },
+                fileSystem: {
+                  read: ["/tmp/reference"],
+                  write: null,
+                  entries: [
+                    {
+                      path: { type: "path", path: "/tmp/reference" },
+                      access: "read",
+                    },
+                  ],
+                },
                 network: { enabled: true },
               },
               reason: "Read reference files",
