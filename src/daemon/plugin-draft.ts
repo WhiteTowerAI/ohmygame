@@ -5,6 +5,7 @@ import type { PluginDraft } from "../shared/plugin-setup.js";
 import { PERSONAL_MARKETPLACE, PLUGIN_SKILL_CONTENT_MAX_BYTES } from "../shared/plugins.js";
 import { inspectPluginBundle, readPluginManifest, validatePluginBundle } from "./local-plugins.js";
 import { readPluginIconAsset } from "./plugin-icons.js";
+import { parseSkillMetadata } from "./skill-metadata.js";
 
 export async function pluginDraftPath(workspace: string, requested: string): Promise<string> {
   const [root, target] = await Promise.all([realpath(workspace), realpath(path.resolve(workspace, requested))]);
@@ -16,13 +17,18 @@ export async function pluginDraftPath(workspace: string, requested: string): Pro
 export async function inspectPluginDraft(root: string, installedRevision?: string): Promise<PluginDraft> {
   const draft: PluginDraft = { files: [], errors: [], installedRevision };
   try {
-    await validatePluginBundle(root);
+    Object.assign(draft, await inspectPluginFiles(root));
     const manifest = await readPluginManifest(root);
     await readPluginIconAsset(root, manifest.interface?.icon);
-    Object.assign(draft, await inspectPluginFiles(root));
-    draft.plugin = { ...await inspectPluginBundle(root, {
+    const plugin = await inspectPluginBundle(root, {
       idPrefix: "personal:", marketplace: PERSONAL_MARKETPLACE, source: { type: "directory" },
-    }, manifest), installed: false };
+    }, manifest);
+    for (const skill of plugin.skills) {
+      const metadata = parseSkillMetadata(await readFile(path.join(root, skill.id), "utf8"));
+      if (!metadata.name || !metadata.description)
+        throw new Error(`${skill.id}: name and description frontmatter are required`);
+    }
+    draft.plugin = { ...plugin, installed: false };
   } catch (cause) {
     draft.errors.push(cause instanceof Error ? cause.message : String(cause));
   }

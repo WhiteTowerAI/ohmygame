@@ -12,7 +12,7 @@ import { BundledPluginAdapter, LocalPluginAdapter, PluginCatalogService } from "
 import { discoverPlugins } from "../src/daemon/plugin-discovery.js";
 import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
-import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { loadSkills, SessionManager } from "@earendil-works/pi-coding-agent";
 import { readPluginBuilderInput, savePluginBuilderInput } from "../src/renderer/plugin-builder-drafts.js";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -57,6 +57,34 @@ async function writeDraft(directory: string, sessionId: string, mcp = false) {
 }
 
 describe("Plugin Builder", () => {
+  it.each([
+    "# Review\nReview the game design.",
+    "---\nname: review\n---\n\nReview the game design.",
+    "---\ndescription: Review game design.\n---\n\nReview the game design.",
+  ])("rejects incomplete Skill metadata and installs the corrected Skill for the runtime", async content => {
+    const { setup, directory, local, agentDir } = await environment();
+    const state = await setup.create();
+    const root = await writeDraft(directory, state.id);
+    const file = path.join(root, "skills/review/SKILL.md");
+    await writeFile(file, content);
+    const invalid = await setup.prepare(state.id, root);
+    expect(invalid.errors).toEqual(["skills/review/SKILL.md: name and description frontmatter are required"]);
+    expect(invalid.plugin).toBeUndefined();
+    expect((await setup.file(state.id, "skills/review/SKILL.md")).content).toBe(content);
+    await expect(setup.installDraft(state.id, invalid.revision!)).rejects.toThrow("frontmatter");
+    expect((await local.list()).plugins).toEqual([]);
+
+    await writeFile(file, "---\nname: review\ndescription: |\n  Review a game design document.\n---\n\nPrioritize design improvements.");
+    const corrected = await setup.prepare(state.id, root);
+    expect(corrected.errors).toEqual([]);
+    const installed = await setup.installDraft(state.id, corrected.revision!);
+    const loaded = loadSkills({ cwd: root, agentDir, includeDefaults: false,
+      skillPaths: [path.join((await local.installedPath(installed.pluginId!))!, "skills/review/SKILL.md")],
+    });
+    expect(loaded.skills).toMatchObject([{ name: "review", description: "Review a game design document.\n" }]);
+    expect(loaded.diagnostics).toEqual([]);
+  });
+
   it("saves preset icons with revision checks and retains them after install and restart", async () => {
     const { setup, directory, local, app, manager } = await environment();
     const state = await setup.create();

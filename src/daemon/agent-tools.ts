@@ -19,6 +19,7 @@ import { checkCanvasWorkspace } from "./canvas-check.js";
 import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
+import { inspectPluginDraft } from "./plugin-draft.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -173,9 +174,12 @@ export function createAgentTools(
       if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
         throw new Error("Plugin directory must be inside the current workspace");
       }
+      const draft = await inspectPluginDraft(sourcePath);
+      if (draft.errors.length) throw new Error(draft.errors.join("\n"));
       const plugin = await installPlugin(sourcePath);
       const counts = [
         plugin.skills.length ? `${plugin.skills.length} Skill${plugin.skills.length === 1 ? "" : "s"}` : undefined,
+        plugin.mcpServers?.length ? `${plugin.mcpServers.length} MCP service${plugin.mcpServers.length === 1 ? "" : "s"}` : undefined,
         plugin.connections.length ? `${plugin.connections.length} Connection${plugin.connections.length === 1 ? "" : "s"}` : undefined,
       ].filter(Boolean).join(" · ") || "No components";
       return {
