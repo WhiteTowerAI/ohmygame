@@ -80,7 +80,7 @@ function installProjectRuntime(type: ProjectState["type"] = "general") {
       : route.endsWith("/conversations/conversation") ? {
         conversation, cursor: 0, agent: { status: "idle" }, settings: {}, plan: { mode: "normal" }, turns: [], pendingPrompts: [],
       }
-      : route.endsWith("/models") || route.endsWith("/catalog") ? { models: [], providers: [] }
+      : /\/models(\?|$)/.test(route) || route.endsWith("/catalog") ? { models: [], providers: [] }
       : route.includes("capabilities") ? { plugins: [], skills: [] } : []);
   }));
   return { posts, previews };
@@ -165,7 +165,7 @@ describe("renderer service recovery", () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       requests.push(new URL(url).pathname);
-      return Response.json(url.endsWith("/models") || url.endsWith("/catalog") ? { models: [], providers: [] }
+      return Response.json(/\/models(\?|$)/.test(url) || url.endsWith("/catalog") ? { models: [], providers: [] }
         : url.includes("capabilities") ? { plugins: [], skills: [] } : []);
     }));
     await initializeRuntimeConnection();
@@ -224,7 +224,7 @@ describe("renderer service recovery", () => {
       "fetch",
       vi.fn(async (url: string) =>
         Response.json(
-          url.endsWith("/models") || url.endsWith("/catalog")
+          /\/models(\?|$)/.test(url) || url.endsWith("/catalog")
             ? { models: [], providers: [] }
             : url.includes("capabilities")
               ? { plugins: [], skills: [] }

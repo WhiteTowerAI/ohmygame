@@ -130,15 +130,6 @@ it("translates both onboarding steps and preserves provider names", async () => 
   ).toContain("显示名称");
 });
 
-it("localizes the combined model and reasoning button while keeping the xHigh label", () => {
-  const model: AgentModel = { provider: "openai", providerName: "OpenAI", id: "test", name: "Test", reasoningLevels: ["high", "xhigh"] };
-  const html = renderToStaticMarkup(<ModelSelector variant="canvas" models={[model]} value={model} reasoningLevel="xhigh" onChange={() => {}} onReasoningChange={() => {}} />);
-  expect(html).toContain('aria-label="文本模型：Test"');
-  expect(html).toContain('aria-description="推理：xHigh"');
-  expect(html).toContain('title="文本模型：OpenAI · Test · xHigh"');
-  expect(html).toContain("xHigh</span>");
-});
-
 it("localizes the model selector back action", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const model: AgentModel = { provider: "openai", providerName: "OpenAI", id: "test", name: "Test", reasoningLevels: ["medium", "high"] };

@@ -11,8 +11,14 @@ export class ProjectWriteError extends Error {
   }
 }
 
-/** HTTP writes already in flight drain before an exclusive workspace operation.
- * New requests are refused, rather than queued with stale editor content. */
+/** How long a request waits for a workspace operation before it is refused. */
+const ENTER_WAIT_MS = 120_000;
+
+/** HTTP requests already in flight drain before an exclusive workspace
+ * operation. A snapshot only reads the workspace, so reads go on during one
+ * and writes wait for it. A restore replaces the files: reads wait for its
+ * result, and writes are refused rather than applied over the restored
+ * content. */
 export class ProjectWrites {
   #requests = new WeakMap<FastifyRequest, () => void>();
   #running = new WeakSet<FastifyRequest>();
@@ -87,14 +93,29 @@ export class ProjectWrites {
       );
     }
   }
-  enter(id: string, version?: string): () => void {
+  /**
+   * Admits a request to the workspace. `read` requests do not change it; a
+   * write carries the workspace version its content was made from.
+   */
+  async enter(id: string, read: boolean, version?: string): Promise<() => void> {
     const state = this.#state(id);
-    if (state.lock)
-      throw new ProjectWriteError(
-        "The workspace is being checkpointed or restored. Try again when it finishes.",
-        "workspace_busy",
-      );
-    this.assertVersion(id, version);
+    const deadline = Date.now() + ENTER_WAIT_MS;
+    while (state.lock && !(read && state.lock.kind === "snapshot")) {
+      const remaining = deadline - Date.now();
+      if (state.lock.kind === "mutation" && !read || remaining <= 0)
+        throw new ProjectWriteError(
+          "The workspace is being checkpointed or restored. Try again when it finishes.",
+          "workspace_busy",
+        );
+      let timer!: ReturnType<typeof setTimeout>;
+      await Promise.race([
+        state.lock.done,
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, remaining); }),
+      ]);
+      clearTimeout(timer);
+    }
+    // A read gets the workspace as it is now, so it has no version to match.
+    if (!read) this.assertVersion(id, version);
     state.active++;
     let released = false;
     return () => {

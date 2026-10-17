@@ -1,3 +1,4 @@
+import { approvalOutcomeLabel } from "./approval-card.js";
 import { ChangeCounts } from "./change-counts.js";
 import { FileDiff } from "./file-diff.js";
 import {
@@ -574,6 +575,15 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
     );
   }
   if (item.type === "dynamicToolCall" || item.type === "mcpToolCall") return <ToolActivity item={item} />;
+  if (item.type === "approvalRequest") {
+    const label = approvalOutcomeLabel(item);
+    return (
+      <div className={`timeline-event${item.status === "completed" && item.decision !== "deny" ? "" : " timeline-event-muted"}`} title={label}>
+        <Terminal size={13} aria-hidden="true" />
+        <span className="approval-outcome">{label}</span>
+      </div>
+    );
+  }
   if (item.type === "contextCompaction") {
     const label = compactionLabel(item);
     const icon = <Diskette size={13} aria-hidden="true" />;

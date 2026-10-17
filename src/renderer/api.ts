@@ -73,6 +73,7 @@ import {
   type Model3DModel,
   type Model3DAnimationAction,
 } from "../shared/contracts.js";
+import type { AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
@@ -234,14 +235,38 @@ export async function deleteProject(projectId: string): Promise<void> {
   composerDrafts.deleteProject(projectId);
 }
 
-export async function listModels(): Promise<AgentModelCatalog> {
-  return request("/models");
+/** Conversations list coding agents' models too; canvas text and other one-off generation use OhMyGame's own models only. */
+export async function listModels(options: { agentRuntimes?: boolean } = {}): Promise<AgentModelCatalog> {
+  return request(options.agentRuntimes ? "/models?runtimes=1" : "/models");
+}
+
+export async function listAgentRuntimes(recheck = false): Promise<AgentRuntimeStatus[]> {
+  return request(`/agent-runtimes${recheck ? "?recheck=1" : ""}`);
+}
+
+export async function updateAgentRuntime(id: AgentRuntimeId, change: UpdateAgentRuntimeRequest): Promise<AgentRuntimeStatus> {
+  return request(`/agent-runtimes/${id}`, { method: "PATCH", body: JSON.stringify(change) });
+}
+
+export async function recheckAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntimeStatus> {
+  return request(`/agent-runtimes/${id}/recheck`, { method: "POST" });
+}
+
+export async function loginAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntimeLoginResponse> {
+  return request(`/agent-runtimes/${id}/login`, { method: "POST" });
+}
+
+export async function answerApproval(projectId: string, conversationId: string, requestId: string, decision: ApprovalDecision): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/approvals/${encodeURIComponent(requestId)}`, {
+    method: "POST",
+    body: JSON.stringify({ decision } satisfies AnswerApprovalRequest),
+  });
 }
 
 export async function updateAgentDefaults(input: UpdateAgentDefaultsRequest): Promise<void> {
   await request("/models/default", {
     method: "PUT",
-    body: JSON.stringify({ model: modelRef(input.model), reasoningLevel: input.reasoningLevel }),
+    body: JSON.stringify({ model: modelRef(input.model), reasoningLevel: input.reasoningLevel, ...(input.nativeReasoningLevel ? { nativeReasoningLevel: input.nativeReasoningLevel } : {}) }),
   });
 }
 
@@ -873,12 +898,10 @@ export async function setConversationModel(
   });
 }
 
-export async function setConversationReasoning(
-  projectId: string,
-  conversationId: string,
-  level: AgentReasoningLevel,
-): Promise<AgentReasoningLevel> {
-  const result = await request<{ level: AgentReasoningLevel }>(`/projects/${projectId}/conversations/${conversationId}/reasoning`, {
+export function setConversationReasoning(projectId: string, conversationId: string, level: AgentReasoningLevel): Promise<AgentReasoningLevel>;
+export function setConversationReasoning(projectId: string, conversationId: string, level: string): Promise<string>;
+export async function setConversationReasoning(projectId: string, conversationId: string, level: string): Promise<string> {
+  const result = await request<{ level: string }>(`/projects/${projectId}/conversations/${conversationId}/reasoning`, {
     method: "PUT",
     body: JSON.stringify({ level }),
   });
