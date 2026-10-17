@@ -242,7 +242,7 @@ it("still saves document drafts when the board cannot save during desktop close"
   api.saveBoard.mockRejectedValueOnce(new Error("Board write failed"));
   await move("n");
   await act(async () => { await expect(desktopSave.prepare()).rejects.toThrow("Board write failed"); });
-  expect(api.saveDocument).toHaveBeenCalledWith("p", expect.objectContaining({ document: expect.objectContaining({ markdown: "Latest document draft" }) }), "rules");
+  expect(api.saveDocument).toHaveBeenCalledWith("p", expect.objectContaining({ document: expect.objectContaining({ markdown: "Latest document draft" }) }), "rules", "0");
   expect(localStorage.getItem("canvas-board:p:b")).toContain('"x":400');
 });
 const advance = (milliseconds: number) =>

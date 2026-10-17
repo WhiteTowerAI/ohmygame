@@ -1,11 +1,11 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { MediaModelCatalog, MediaModelDefaults, MediaModelUsage, ModelRef, ProjectState, ProviderCapability } from "../shared/contracts.js";
-import { MODEL_USAGE_LABELS } from "../shared/custom-models.js";
 import { listImageModelCatalog, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setDefaultMediaModel, updateProjectMediaModelDefaults } from "./api.js";
 import { CanvasChipSelect, type CanvasChipOption } from "./canvas-chip-select.js";
 import { LoaderCircle, SlidersHorizontal } from "./icons.js";
 import { menuPlacement } from "./popover-placement.js";
+import { t } from "./i18n.js";
 
 const USAGES = ["image", "video", "3d"] as const;
 type Catalog = MediaModelCatalog<ModelRef & { name: string; providerName: string }>;
@@ -51,16 +51,16 @@ function ModelDefaultField({ usage, catalog, selected, inherit = false, loading,
   const selectedModel = selected && catalog?.models.find((model) => modelKey(model) === modelKey(selected));
   const automatic = inherit ? catalog?.defaultModel ?? catalog?.models[0] : catalog?.models[0];
   const effective = automatic && catalog?.models.find((model) => modelKey(model) === modelKey(automatic));
-  const effectiveLabel = !catalog ? loading ? "Loading models…" : "Models unavailable" : effective?.name ?? (automatic ? `${automatic.id} · Unavailable` : "No model available");
-  const automaticLabel = catalog ? `${inherit ? "Use global" : "Automatic"} · ${effectiveLabel}` : effectiveLabel;
+  const effectiveLabel = !catalog ? loading ? t("mediaDefaults.loading") : t("mediaDefaults.unavailable") : effective?.name ?? (automatic ? t("mediaDefaults.modelUnavailable", { id: automatic.id }) : t("mediaDefaults.noModel"));
+  const automaticLabel = catalog ? inherit ? t("mediaDefaults.useGlobal", { label: effectiveLabel }) : t("mediaDefaults.automatic", { label: effectiveLabel }) : effectiveLabel;
   const options: CanvasChipOption<string>[] = [
     { value: "", label: automaticLabel, shortLabel: effectiveLabel },
-    ...(selected && !selectedModel ? [{ value: modelKey(selected), label: `${selected.id} · Unavailable`, group: selected.provider }] : []),
+    ...(selected && !selectedModel ? [{ value: modelKey(selected), label: t("mediaDefaults.modelUnavailable", { id: selected.id }), group: selected.provider }] : []),
     ...(catalog?.models.map((model) => ({ value: modelKey(model), label: model.name, group: model.providerName })) ?? []),
   ];
   return <div className="media-default-field">
-    <span>{MODEL_USAGE_LABELS[usage]}</span>
-    <CanvasChipSelect label={`${inherit ? "Project" : "Global default"} ${MODEL_USAGE_LABELS[usage]} model`}
+    <span>{t(`capability.${usage}`)}</span>
+    <CanvasChipSelect label={inherit ? t("mediaDefaults.projectModel", { usage: t(`capability.${usage}`) }) : t("mediaDefaults.globalModel", { usage: t(`capability.${usage}`) })}
       value={selected ? modelKey(selected) : ""} options={options} menuContainer={menuContainer}
       disabled={disabled || !catalog || (!catalog.models.length && !selected)}
       onChange={(value) => onChange(catalog?.models.find((model) => modelKey(model) === value))} />
@@ -80,8 +80,8 @@ export function GlobalMediaModelDefaults({ capability }: { capability: "all" | P
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
-  return <section className={`settings-generation-defaults settings-provider-group${capability === "all" ? " is-all" : ""}`} aria-label="Global generation defaults">
-    <h4>Default models</h4>
+  return <section className={`settings-generation-defaults settings-provider-group${capability === "all" ? " is-all" : ""}`} aria-label={t("mediaDefaults.globalDefaults")}>
+    <h4>{t("mediaDefaults.title")}</h4>
     <div className="settings-generation-fields">
       {usages.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={catalogs[usage]?.defaultModel} loading={loading} disabled={busy || loading} onChange={(model) => void choose(usage, model)} />)}
     </div>
@@ -148,10 +148,10 @@ export function ProjectMediaModelSettings({ project, onSaved }: {
     finally { setSaving(false); }
   }
   return <>
-    <button ref={trigger} className="icon-button pane-header-action" type="button" title="Default models" aria-label="Default models" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((next) => !next)}><SlidersHorizontal size={14} /></button>
+    <button ref={trigger} className="icon-button pane-header-action" type="button" title={t("mediaDefaults.title")} aria-label={t("mediaDefaults.title")} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((next) => !next)}><SlidersHorizontal size={14} /></button>
     {open ? createPortal(<div ref={setPopup} className="canvas-chip-menu project-media-defaults" role="dialog" aria-labelledby={titleId}
       style={position ?? { top: 0, left: 0, visibility: "hidden" }}>
-      <div className="canvas-chip-menu-heading" id={titleId}>Default models{saving ? <LoaderCircle className="spin" size={12} aria-label="Saving" /> : null}</div>
+      <div className="canvas-chip-menu-heading" id={titleId}>{t("mediaDefaults.title")}{saving ? <LoaderCircle className="spin" size={12} aria-label={t("mediaDefaults.saving")} /> : null}</div>
       {USAGES.map((usage) => <ModelDefaultField key={usage} usage={usage} catalog={catalogs[usage]} selected={defaults[usage]} inherit loading={loading} disabled={saving || loading} menuContainer={popup} onChange={(model) => void choose(usage, model)} />)}
       {error || loadError ? <p className="settings-error" role="alert">{error ?? loadError}</p> : null}
     </div>, document.body) : null}

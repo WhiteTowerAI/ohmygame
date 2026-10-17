@@ -2,6 +2,7 @@ import { ArrowLeft, ArrowRight, Check, X } from "./icons.js";
 import { useEffect, useState } from "react";
 import type { ThreadItem } from "../shared/contracts.js";
 import { InlineAnswer } from "./inline-answer.js";
+import { t } from "./i18n.js";
 
 interface QuestionnaireCardProps {
   request: Extract<ThreadItem, { type: "userInputRequest" }>;
@@ -64,14 +65,14 @@ export function QuestionnaireCard({ request, onSubmit, onSkip }: QuestionnaireCa
   }
 
   return (
-    <section className="questionnaire-card" aria-label="Planning questions">
+    <section className="questionnaire-card" aria-label={t("questionnaire.label")}>
       <header>
         <strong>{question.prompt}</strong>
         <div className="questionnaire-navigation">
-          <button type="button" onClick={() => move(index - 1)} disabled={submitting || index === 0} aria-label="Previous question"><ArrowLeft size={14} /></button>
-          <span>{index + 1} of {request.questions.length}</span>
-          <button type="button" onClick={() => move(index + 1)} disabled={submitting || index === request.questions.length - 1} aria-label="Next question"><ArrowRight size={14} /></button>
-          <button type="button" onClick={() => void skip()} disabled={submitting} aria-label="Skip questions"><X size={15} /></button>
+          <button type="button" onClick={() => move(index - 1)} disabled={submitting || index === 0} aria-label={t("questionnaire.previous")}><ArrowLeft size={14} /></button>
+          <span>{t("questionnaire.position", { current: index + 1, total: request.questions.length })}</span>
+          <button type="button" onClick={() => move(index + 1)} disabled={submitting || index === request.questions.length - 1} aria-label={t("questionnaire.next")}><ArrowRight size={14} /></button>
+          <button type="button" onClick={() => void skip()} disabled={submitting} aria-label={t("questionnaire.skipAll")}><X size={15} /></button>
         </div>
       </header>
 
@@ -86,7 +87,7 @@ export function QuestionnaireCard({ request, onSubmit, onSkip }: QuestionnaireCa
           >
             <span className="questionnaire-option-number">{answer === option.value ? <Check size={13} /> : optionIndex + 1}</span>
             <span className="questionnaire-option-copy">
-              <strong>{option.label}{option.recommended ? <small>Recommended</small> : null}</strong>
+              <strong>{option.label}{option.recommended ? <small>{t("providers.recommended")}</small> : null}</strong>
               {option.description ? <span>{option.description}</span> : null}
             </span>
           </button>
@@ -99,7 +100,7 @@ export function QuestionnaireCard({ request, onSubmit, onSkip }: QuestionnaireCa
             editing
             value={selectedOption ? "" : answer}
             disabled={submitting}
-            label="Type another answer"
+            label={t("questionnaire.other")}
             onChange={(value) => setAnswers((current) => ({ ...current, [question.id]: value }))}
             onSubmit={() => void choose(answer.trim())}
             onCancel={() => setCustom(false)}
@@ -108,11 +109,11 @@ export function QuestionnaireCard({ request, onSubmit, onSkip }: QuestionnaireCa
           <InlineAnswer
             editing={false}
             disabled={submitting}
-            label="Type another answer"
+            label={t("questionnaire.other")}
             onEdit={() => { setAnswers((current) => ({ ...current, [question.id]: "" })); setCustom(true); }}
           />
         ) : <span />}
-        <button className="questionnaire-skip" type="button" onClick={() => void skip()} disabled={submitting}>Skip</button>
+        <button className="questionnaire-skip" type="button" onClick={() => void skip()} disabled={submitting}>{t("common.skip")}</button>
       </footer>
     </section>
   );

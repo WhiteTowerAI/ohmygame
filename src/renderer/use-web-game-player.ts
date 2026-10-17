@@ -2,6 +2,7 @@ import { previewPageUrl } from "../shared/preview-page.js";
 import { useEffect, useRef, useState } from "react";
 import { ensureProjectPreview } from "./api.js";
 import { webGamePlayerUrl, type WebGamePlayerBridge, type WebGamePlayerRequest, type WebGamePlayerState } from "../shared/web-game-player.js";
+import { t } from "./i18n.js";
 
 interface BrowserPlayer {
   window: Window;
@@ -32,7 +33,7 @@ export class BrowserGamePlayers implements WebGamePlayerBridge {
     if (!player) {
       // Create synchronously in the click handler so browsers allow the popup.
       const popup = window.open("about:blank", `ohmygame-player-${projectId}`, `popup,width=${request.viewport.width},height=${request.viewport.height}`);
-      if (!popup) throw new Error("Allow popups to play this game in a new window.");
+      if (!popup) throw new Error(t("workspace.allowPopups"));
       popup.opener = null;
       player = { window: popup, ready: Promise.resolve() };
       this.#players.set(projectId, player);
@@ -42,7 +43,7 @@ export class BrowserGamePlayers implements WebGamePlayerBridge {
       }, 500);
       const opening = player;
       player.ready = ensureProjectPreview(projectId).then(({ url }) => {
-        if (opening.window.closed) throw new Error("The game window was closed.");
+        if (opening.window.closed) throw new Error(t("workspace.windowClosed"));
         opening.url = previewPageUrl(webGamePlayerUrl(url, request.path), "player");
         opening.window.location.href = opening.url;
       }).catch((error) => {

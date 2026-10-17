@@ -18,10 +18,14 @@ import {
   type PluginSource,
 } from "../shared/plugins.js";
 import { parseSkillMetadata } from "./skill-metadata.js";
+import { readPluginIconAsset } from "./plugin-icons.js";
+import { pluginCompatibilityIssue } from "./plugin-contract.js";
 
 const MAX_PLUGIN_DEPTH = 64;
 
 export type PluginProvenance =
+  | { type: "authored" }
+  | { type: "archive" }
   | { type: "directory"; path: string }
   | { type: "git"; url: string; commit: string }
   | { type: "preinstalled"; pluginId: string; releaseId: string };
@@ -33,6 +37,8 @@ interface LocalPluginRecord {
   manifest: ResolvedPluginManifest;
   marketplace: PluginMarketplaceRef;
 }
+
+export type PluginAuthoringSource = Pick<LocalPluginRecord, "name" | "marketplace" | "provenance">;
 
 export interface PluginBundleIdentity {
   idPrefix: string;
@@ -100,32 +106,95 @@ export class LocalPluginStore {
     return this.#mutate(() => this.#install(sourcePath, provenance, manifest, OHMYGAME_MARKETPLACE, true));
   }
 
+  async installAuthored(sourcePath: string): Promise<PluginDetail> {
+    return this.#mutate(async () => {
+      const manifest = await readPluginManifest(sourcePath);
+      if ((await this.#readIndex()).some(record => record.marketplace.id === PERSONAL_MARKETPLACE.id && record.name === manifest.name))
+        throw new LocalPluginError("A plugin with this name is already installed. Choose another name");
+      return this.#install(sourcePath, { type: "authored" }, manifest, PERSONAL_MARKETPLACE);
+    });
+  }
+
+  async copyForAuthoring(id: string, destination: string): Promise<{ source: PluginAuthoringSource; revision: string }> {
+    return this.#mutate(async () => {
+      const record = (await this.#readIndex()).find(item => pluginRecordId(item) === id);
+      if (!record) throw new LocalPluginError("Installed plugin not found", 404);
+      await cp(this.#installedPath(record.marketplace.id, record.name, record.version), destination, { recursive: true, errorOnExist: true, force: false });
+      const { inspectPluginFiles } = await import("./plugin-draft.js");
+      const { revision } = await inspectPluginFiles(destination);
+      // Imported formats have a normalized manifest in the index. Author native
+      // drafts so their content can be reviewed and validated independently.
+      for (const directory of [".codex-plugin", ".claude-plugin"])
+        for (const file of ["plugin.json", "marketplace.json"])
+          await rm(path.join(destination, directory, file), { force: true });
+      await mkdir(path.join(destination, ".ohmygame-plugin"), { recursive: true });
+      await writeFile(path.join(destination, PLUGIN_MANIFEST_PATH), JSON.stringify({ ...record.manifest, version: record.version ?? "0.1.0" }, null, 2));
+      return { source: { name: record.name, marketplace: record.marketplace, provenance: record.provenance }, revision };
+    });
+  }
+
+  async installPortable(sourcePath: string, marketplace: PluginMarketplaceRef, expectedRevision?: string): Promise<PluginDetail> {
+    return this.#mutate(async () => {
+      const manifest = await readPluginManifest(sourcePath);
+      const id = pluginRecordId({ name: manifest.name, marketplace });
+      const record = (await this.#readIndex()).find(item => pluginRecordId(item) === id);
+      if (record) {
+        const { inspectPluginFiles } = await import("./plugin-draft.js");
+        const current = await inspectPluginFiles(this.#installedPath(record.marketplace.id, record.name, record.version));
+        if (!expectedRevision || current.revision !== expectedRevision) throw new LocalPluginError("The installed plugin changed. Review the import again", 409);
+      } else if (expectedRevision) throw new LocalPluginError("The installed plugin changed. Review the import again", 409);
+      return this.#install(sourcePath, { type: "archive" }, manifest, marketplace, false, record ? id : undefined);
+    });
+  }
+
+  async updateFromDraft(id: string, sourcePath: string, revision?: string, source?: PluginAuthoringSource): Promise<PluginDetail> {
+    return this.#mutate(async () => {
+      const record = (await this.#readIndex()).find(item => pluginRecordId(item) === id);
+      const target = record ?? source;
+      if (!target) throw new LocalPluginError("Installed plugin not found", 404);
+      if (target.marketplace.id === OHMYGAME_MARKETPLACE.id) throw new LocalPluginError("Public plugins cannot be edited in place");
+      if (record) {
+        const { inspectPluginFiles } = await import("./plugin-draft.js");
+        const current = await inspectPluginFiles(this.#installedPath(record.marketplace.id, record.name, record.version));
+        if (!revision || current.revision !== revision) throw new LocalPluginError("The installed plugin changed. Start a new editing workspace");
+      }
+      // The edited package no longer matches its directory or Git source, so a
+      // reinstall from there must not silently replace the edits.
+      return this.#install(sourcePath, { type: "authored" }, undefined, target.marketplace, false, id);
+    });
+  }
+
   async #install(
     sourcePath: string,
     provenance: PluginProvenance,
     normalizedManifest: ResolvedPluginManifest | undefined,
     marketplace: PluginMarketplaceRef,
     trustedMarketplace = false,
+    replacementId?: string,
   ): Promise<PluginDetail> {
     if (!path.isAbsolute(sourcePath)) throw new LocalPluginError("Plugin directory must be an absolute path");
     const source = path.resolve(sourcePath);
     if (pathsOverlap(source, this.#pluginsDirectory)) {
       throw new LocalPluginError("Plugin source must be outside OhMyGame's managed plugin directory");
     }
-    if (provenance.type === "directory" && path.resolve(provenance.path) !== source) {
+    if (!replacementId && provenance.type === "directory" && path.resolve(provenance.path) !== source) {
       throw new LocalPluginError("Plugin directory provenance does not match its source");
     }
     validateMarketplace(marketplace, trustedMarketplace);
     const identity = pluginIdentity(marketplace, publicSource(provenance));
-    const inspected = await inspectPluginBundle(source, identity, normalizedManifest);
     const manifest = normalizedManifest ?? await readPluginManifest(source);
+    assertPluginCompatible(manifest);
+    const inspected = await inspectPluginBundle(source, identity, manifest);
+    if (replacementId && inspected.id !== replacementId) throw new LocalPluginError("An editing draft must keep the original plugin name");
     const currentRecords = await this.#readIndex();
     const previousRecord = currentRecords.find((record) => pluginRecordId(record) === inspected.id);
-    if (previousRecord && sourceKey(previousRecord.provenance) !== sourceKey(provenance)) {
+    if (previousRecord && !replacementId && sourceKey(previousRecord.provenance) !== sourceKey(provenance)) {
       throw new LocalPluginError(`Plugin ${inspected.name} is already installed from another source`);
     }
-    const conflictingMarketplace = marketplace.id === PERSONAL_MARKETPLACE.id || provenance.type === "preinstalled" ? undefined : currentRecords.find((record) =>
-      record.marketplace.id === marketplace.id && sourceKey(record.provenance) !== sourceKey(provenance));
+    // Only directory and Git sources own a marketplace. Archive imports and
+    // edited copies keep their marketplace label without claiming it.
+    const conflictingMarketplace = marketplace.id === PERSONAL_MARKETPLACE.id || !ownsMarketplace(provenance) ? undefined : currentRecords.find((record) =>
+      record.marketplace.id === marketplace.id && ownsMarketplace(record.provenance) && sourceKey(record.provenance) !== sourceKey(provenance));
     if (conflictingMarketplace) {
       throw new LocalPluginError(`Marketplace ${marketplace.id} is already installed from another source`);
     }
@@ -198,6 +267,13 @@ export class LocalPluginStore {
   async installedPath(id: string): Promise<string | undefined> {
     const record = (await this.#readIndex()).find((item) => pluginRecordId(item) === id);
     return record ? this.#installedPath(record.marketplace.id, record.name, record.version) : undefined;
+  }
+
+  async readIcon(id: string) {
+    await this.#mutations;
+    const record = (await this.#readIndex()).find((item) => pluginRecordId(item) === id);
+    if (!record) return undefined;
+    return readPluginIconAsset(this.#installedPath(record.marketplace.id, record.name, record.version), record.manifest.interface?.icon);
   }
 
   async directoryPath(id: string): Promise<string | undefined> {
@@ -277,6 +353,11 @@ export async function inspectPluginBundle(
 ): Promise<PluginDetail> {
   await validatePluginBundle(pluginRoot);
   const manifest = normalizedManifest ?? await readPluginManifest(pluginRoot);
+  let icon = manifest.interface?.icon;
+  const iconAsset = await readPluginIconAsset(pluginRoot, icon).catch(() => {
+    icon = undefined;
+    return undefined;
+  });
   const skills = manifest.skills
     ? (await Promise.all((Array.isArray(manifest.skills) ? manifest.skills : [manifest.skills]).map((skillPath) => skillComponents(pluginRoot, skillPath)))).flat()
     : [];
@@ -290,6 +371,8 @@ export async function inspectPluginBundle(
     displayName: manifest.interface?.displayName ?? displayName(manifest.name),
     description: manifest.interface?.shortDescription ?? manifest.description,
     longDescription: manifest.interface?.longDescription,
+    icon,
+    iconRevision: iconAsset?.revision,
     version: manifest.version,
     marketplace: identity.marketplace,
     source: identity.source,
@@ -300,12 +383,19 @@ export async function inspectPluginBundle(
     mcpServers: Object.entries(definitions).map(([id, definition]) => ({ id, name: displayName(id), enabled: definition.disabled !== true, transport: definition.url ? "http" as const : "stdio" as const })),
     mcpConfigPath: manifest.mcpServers,
     configuration: manifest.configuration,
+    requirements: manifest.requirements,
     defaultPrompts: manifest.interface?.defaultPrompt,
     projectTypes: manifest.interface?.projectTypes,
   };
 }
 
-async function readPluginManifest(pluginRoot: string): Promise<PluginManifest> {
+/** Checked on install and import only, so a downgrade cannot hide installed plugins. */
+export function assertPluginCompatible(manifest: ResolvedPluginManifest): void {
+  const issue = pluginCompatibilityIssue(manifest);
+  if (issue) throw new LocalPluginError(issue);
+}
+
+export async function readPluginManifest(pluginRoot: string): Promise<PluginManifest> {
   const manifestPath = path.join(pluginRoot, PLUGIN_MANIFEST_PATH);
   let value: unknown;
   try {
@@ -425,6 +515,7 @@ function isResolvedPluginManifest(value: unknown): value is ResolvedPluginManife
 function isPluginProvenance(value: unknown): value is PluginProvenance {
   if (!value || typeof value !== "object") return false;
   const provenance = value as Partial<PluginProvenance>;
+  if (provenance.type === "authored" || provenance.type === "archive") return true;
   if (provenance.type === "directory") return typeof provenance.path === "string" && path.isAbsolute(provenance.path);
   if (provenance.type === "git") return typeof provenance.url === "string" && typeof provenance.commit === "string";
   return provenance.type === "preinstalled" && typeof provenance.pluginId === "string" && typeof provenance.releaseId === "string";
@@ -433,7 +524,8 @@ function isPluginProvenance(value: unknown): value is PluginProvenance {
 function isPluginMarketplace(value: unknown): value is PluginMarketplaceRef {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const marketplace = value as Partial<PluginMarketplaceRef>;
-  return isPluginName(marketplace.id) && typeof marketplace.displayName === "string" && Boolean(marketplace.displayName.trim());
+  return isPluginName(marketplace.id) && typeof marketplace.displayName === "string" && Boolean(marketplace.displayName.trim()) &&
+    (marketplace.visibility === undefined || marketplace.visibility === "public" || marketplace.visibility === "personal");
 }
 
 function validateMarketplace(marketplace: PluginMarketplaceRef, trusted = false): void {
@@ -441,6 +533,8 @@ function validateMarketplace(marketplace: PluginMarketplaceRef, trusted = false)
   if (marketplace.id === "ohmygame" && !trusted) {
     throw new LocalPluginError(`Plugin marketplace name is reserved: ${marketplace.id}`);
   }
+  if (marketplace.visibility === "public" && !trusted)
+    throw new LocalPluginError("Only trusted catalog adapters may install Public marketplace plugins");
 }
 
 function isPluginName(value: unknown): value is string {
@@ -461,7 +555,12 @@ function publicSource(provenance: PluginProvenance): PluginSource {
   return provenance;
 }
 
+function ownsMarketplace(provenance: PluginProvenance): boolean {
+  return provenance.type === "directory" || provenance.type === "git";
+}
+
 function sourceKey(provenance: PluginProvenance): string {
+  if (provenance.type === "authored" || provenance.type === "archive") return provenance.type;
   if (provenance.type === "directory") return `directory:${path.resolve(provenance.path)}`;
   if (provenance.type === "git") return `git:${provenance.url}`;
   return `preinstalled:${provenance.pluginId}`;

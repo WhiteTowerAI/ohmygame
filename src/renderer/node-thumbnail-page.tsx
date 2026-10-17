@@ -1,3 +1,4 @@
+import { workspaceVersion } from "./workspace-version.js";
 import { useEffect, useRef, useState } from "react";
 import { playableThumbnailHash } from "../shared/playable-editor.js";
 import type { NodePlayerDefinition, PlayablePreviewOptions } from "../shared/playable-player-protocol.js";
@@ -28,6 +29,7 @@ export function NodeThumbnailPage({
     definition: NodePlayerDefinition;
     assets: Record<string, Blob>;
     hash: string;
+    version: string;
   }>();
   const [runningHash, setRunningHash] = useState<string>();
   const [storage] = useState(createMemoryStorage);
@@ -46,8 +48,9 @@ export function NodeThumbnailPage({
     void getNodeRuntime(projectId).then(async (result) => {
       const hash = result.available ? playableThumbnailHash(result.definition, nodeId) : undefined;
       if (!result.available || !hash) return finish(false);
+      const version = workspaceVersion(projectId);
       const assets = await loadPlayableAssets(projectId, result.definition.graph);
-      setPlayable({ definition: result.definition, assets, hash });
+      setPlayable({ definition: result.definition, assets, hash, version });
     }).catch(() => finish(false));
   }, [projectId, nodeId]);
 
@@ -65,7 +68,7 @@ export function NodeThumbnailPage({
           if (!frame || status) return finish(false);
           const image = await captureElementImage(frame, NODE_THUMBNAIL_WIDTH);
           if (cancelled || done.current || !image) return finish(false);
-          await setPlayableThumbnail(projectId, nodeId, runningHash, image);
+          await setPlayableThumbnail(projectId, nodeId, runningHash, image, playable?.version);
           finish(true);
         })
         .catch(() => finish(false));

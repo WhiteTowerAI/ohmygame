@@ -34,7 +34,7 @@ export interface NetworkConnectionTest {
 export const SYSTEM_PROXY_TARGET = "https://api.openai.com";
 export const NETWORK_TEST_URL = `${SYSTEM_PROXY_TARGET}/v1/models`;
 export const DEFAULT_NETWORK_SETTINGS: NetworkSettings = {
-  mode: "auto",
+  mode: "direct",
   proxyUrl: "",
   noProxy: "",
 };

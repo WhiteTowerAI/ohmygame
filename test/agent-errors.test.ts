@@ -5,6 +5,25 @@ import { agentErrorDiagnosticText, agentErrorPresentation } from "../src/rendere
 import type { ThreadItemErrorCode } from "../src/shared/contracts.js";
 
 describe("agent error diagnostics", () => {
+  it("shows WebSocket transport without presenting the SSE adapter's synthetic 200 as an HTTP status", () => {
+    const error = Object.assign(new Error("OpenAI WebSocket idle timeout"), { code: "WEBSOCKET_IDLE_TIMEOUT", transport: "websocket" });
+    const message = { errorMessage: error.message, diagnostics: [createProviderFailureDiagnostic(error, "https://api.openai.com/v1", new Response())] };
+    const normalized = assistantMessageError(message);
+    expect(normalized).toMatchObject({ code: "timeout", diagnostics: { transport: "websocket", errorCode: "WEBSOCKET_IDLE_TIMEOUT" } });
+    expect(normalized.diagnostics?.statusCode).toBeUndefined();
+    expect(agentErrorDiagnosticText(normalized)).toContain("Transport: WebSocket");
+    expect(agentErrorDiagnosticText(normalized)).not.toContain("HTTP status: 200");
+  });
+
+  it("corrects persisted WebSocket failures while retaining genuine provider rejection statuses", () => {
+    const legacy = normalizeAgentError("OpenAI response interrupted after streaming began. Automatic replay is disabled.", { statusCode: 200 });
+    expect(legacy).toMatchObject({ code: "stream_error", diagnostics: { transport: "websocket" } });
+    expect(legacy.diagnostics?.statusCode).toBeUndefined();
+    const rejection = normalizeAgentError("OpenAI WebSocket request rejected (401)", { statusCode: 401, transport: "websocket" });
+    expect(rejection.code).toBe("authentication_failed");
+    expect(agentErrorDiagnosticText(rejection)).toContain("Provider status: 401");
+  });
+
   it.each<[string, ThreadItemErrorCode]>([
     ["ENOTFOUND", "dns_error"], ["EAI_AGAIN", "dns_error"],
     ["ECONNREFUSED", "connection_refused"], ["ECONNRESET", "connection_reset"],

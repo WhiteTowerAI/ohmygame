@@ -2,6 +2,7 @@ import { isValidElement, memo, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Box, Check, Copy, FileCode2, FileText, Film, Image, Music2, type IconComponent } from "./icons.js";
+import { t } from "./i18n.js";
 
 export type WorkspaceFileIconKind = "code" | "text" | "image" | "video" | "audio" | "model" | "file";
 
@@ -39,7 +40,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
       if (filePath) {
         const iconKind = workspaceFileIconKind(filePath);
         const FileIcon = FILE_ICON_COMPONENTS[iconKind];
-        return <a className="workspace-file-link" data-file-kind={iconKind} href={href} title={`Open ${filePath} in Code`} onClick={(event) => {
+        return <a className="workspace-file-link" data-file-kind={iconKind} href={href} title={t("markdown.openInCode", { path: filePath })} onClick={(event) => {
           event.preventDefault();
           onOpenWorkspaceFile?.(filePath);
         }}><FileIcon size={13} aria-hidden="true" />{children}</a>;
@@ -132,12 +133,12 @@ function MarkdownCodeBlock({ children }: { children?: ReactNode }) {
   return (
     <div className="markdown-code-block">
       <div className="markdown-code-header">
-        <span>{language ?? "Code"}</span>
+        <span>{language ?? t("markdown.code")}</span>
         <button type="button" onClick={() => {
           void navigator.clipboard.writeText(code).then(() => setCopiedCode(code));
         }}>
           {copied ? <Check size={12} /> : <Copy size={12} />}
-          <span>{copied ? "Copied" : "Copy"}</span>
+          <span>{copied ? t("common.copied") : t("common.copy")}</span>
         </button>
       </div>
       <pre>{children}</pre>

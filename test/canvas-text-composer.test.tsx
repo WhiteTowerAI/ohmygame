@@ -17,8 +17,10 @@ describe("canvas text reasoning", () => {
     expect(html).not.toContain("Connect Text");
   });
   it("uses the configured default and clamps unsupported saved reasoning", () => {
-    expect(renderToStaticMarkup(<CanvasTextComposer {...props} defaultReasoningLevel="high" />)).toContain('title="Text model: OpenAI · Test · Reasoning: High"');
-    expect(renderToStaticMarkup(<CanvasTextComposer {...props} reasoningLevel="max" />)).toContain('title="Text model: OpenAI · Test · Reasoning: High"');
+    const defaultHtml = renderToStaticMarkup(<CanvasTextComposer {...props} defaultReasoningLevel="high" />);
+    expect(defaultHtml).toContain('title="Text model: OpenAI · Test · High"');
+    expect(defaultHtml).toContain('class="model-selector-reasoning-value">High</span>');
+    expect(renderToStaticMarkup(<CanvasTextComposer {...props} reasoningLevel="max" />)).toContain('aria-description="Reasoning: High"');
   });
 
   it("hides reasoning for a model with a single supported level", () => {

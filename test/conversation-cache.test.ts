@@ -4,6 +4,7 @@ import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConversationManager } from "../src/daemon/conversations.js";
+import { ConversationCache } from "../src/daemon/conversation-cache.js";
 import { ConversationImageStore } from "../src/daemon/conversation-images.js";
 import { conversationItems } from "../src/daemon/agent.js";
 import { RuntimeEventBus } from "../src/shared/events.js";
@@ -81,6 +82,20 @@ describe("conversation UI cache", () => {
       session.appendSessionInfo("Finished during read");
     });
     expect((await conversations.get(project, stored.summary.id))?.summary.title).toBe("Finished during read");
+  });
+
+  it("revalidates overlapping reads after the previous reader has settled", async () => {
+    const { project, stored, images, session } = await fixture();
+    const cache = new ConversationCache(images);
+    const first = cache.read(project, stored.sessionPath);
+    const appended = first.then(() => session.appendSessionInfo("Appended at read completion"));
+    const second = cache.read(project, stored.sessionPath);
+    const third = cache.read(project, stored.sessionPath);
+    await appended;
+    const [before, after, latest] = await Promise.all([first, second, third]);
+    expect(before!.getSessionName()).not.toBe("Appended at read completion");
+    expect(after!.getSessionName()).toBe("Appended at read completion");
+    expect(latest).toBe(after);
   });
 
   it("invalidates a rewritten prefix even when the previous file boundary is unchanged", async () => {

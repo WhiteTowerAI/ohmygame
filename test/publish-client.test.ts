@@ -43,6 +43,20 @@ describe("Publish v1 client contract", () => {
     expect((deploymentForm.get("artifact") as File).name).toBe("game.zip");
   });
 
+  it("preserves listing state when publishing an existing work", async () => {
+    const requests: Request[] = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request);
+      if (request.method === "POST") return Response.json({ game: { ...game(), currentDeploymentId: "deployment-2" }, deployment: deployment() });
+      return Response.json({ ...game(), currentDeploymentId: "deployment-old" });
+    };
+    const publisher = new RemotePublisher({ apiUrl: "https://publish.ohmygame.test", fetch: fetcher });
+    await publisher.publish({ ...project(), publication: { gameId: "game-1", deploymentId: "deployment-old", playUrl: "https://play.example", publishedAt: new Date(0).toISOString() } }, Buffer.from("zip"), "token", { title: "Updated" });
+    expect(requests.some(request => request.url.endsWith("/listing"))).toBe(false);
+    expect(requests.map(request => request.method)).toEqual(["GET", "PUT", "POST"]);
+  });
+
   it("keeps API errors typed at the desktop boundary", async () => {
     const publisher = new RemotePublisher({
       apiUrl: "https://publish.ohmygame.test",

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { t } from "./i18n.js";
 
 /** A failed pane keeps navigation and the conversation input available. */
 export class ErrorBoundary extends Component<
@@ -7,6 +8,7 @@ export class ErrorBoundary extends Component<
     label: string;
     resetKey?: string;
     onHome?: () => void;
+    homeLabel?: string;
   },
   { error?: Error }
 > {
@@ -25,10 +27,10 @@ export class ErrorBoundary extends Component<
     if (!this.state.error) return this.props.children;
     return (
       <div className="pane-error-boundary" role="alert">
-        <strong>{this.props.label} could not be displayed</strong>
-        <p>You can retry this view or return to your projects.</p>
+        <strong>{t("errorBoundary.failed", { label: this.props.label })}</strong>
+        <p>{t("errorBoundary.hint")}</p>
         <details>
-          <summary>Error details</summary>
+          <summary>{t("common.errorDetails")}</summary>
           <pre>{this.state.error.message}</pre>
         </details>
         <div>
@@ -36,7 +38,7 @@ export class ErrorBoundary extends Component<
             type="button"
             onClick={() => this.setState({ error: undefined })}
           >
-            Retry view
+            {t("errorBoundary.retry")}
           </button>
           {this.props.onHome ? (
             <button
@@ -46,7 +48,7 @@ export class ErrorBoundary extends Component<
                 this.setState({ error: undefined });
               }}
             >
-              Back to projects
+              {this.props.homeLabel ?? t("errorBoundary.back")}
             </button>
           ) : null}
         </div>

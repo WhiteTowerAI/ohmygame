@@ -72,19 +72,41 @@ export async function resolvePackageManagerExecutable(
       ? [
           ...new Set([
             command,
-            ...(
-              environment[extensionsKey ?? "PATHEXT"] ?? ".COM;.EXE;.BAT;.CMD"
-            )
-              .split(";")
-              .filter((extension) => /^\.[a-z0-9]+$/i.test(extension))
-              .map((extension) => `${manager}${extension.toLowerCase()}`),
+            ...windowsExecutableNames(
+              manager,
+              environment[extensionsKey ?? "PATHEXT"],
+            ),
           ]),
         ]
       : [command];
-  const directories = (pathKey ? (environment[pathKey] ?? "") : "")
-    .split(path.delimiter)
-    .filter(Boolean);
+  const found = await findExecutable(
+    candidates,
+    (pathKey ? (environment[pathKey] ?? "") : "").split(path.delimiter),
+  );
+  if (found) return found;
+  throw new Error(
+    `This project uses ${manager}, but ${manager} was not found in the application environment. Install or configure ${manager}, or choose a different package manager in Project settings.`,
+  );
+}
+
+/** Adds each valid PATHEXT extension; a bare name is left to the caller. */
+export function windowsExecutableNames(
+  command: string,
+  extensions = ".COM;.EXE;.BAT;.CMD",
+): string[] {
+  return extensions
+    .split(";")
+    .filter((extension) => /^\.[a-z0-9]+$/i.test(extension))
+    .map((extension) => `${command}${extension.toLowerCase()}`);
+}
+
+/** Returns the first candidate that is an executable file in one of the directories. */
+export async function findExecutable(
+  candidates: string[],
+  directories: string[],
+): Promise<string | undefined> {
   for (const directory of directories) {
+    if (!directory) continue;
     for (const filename of candidates) {
       const candidate = path.resolve(directory.replace(/^"|"$/g, ""), filename);
       try {
@@ -97,9 +119,7 @@ export async function resolvePackageManagerExecutable(
       } catch {}
     }
   }
-  throw new Error(
-    `This project uses ${manager}, but ${manager} was not found in the application environment. Install or configure ${manager}, or choose a different package manager in Project settings.`,
-  );
+  return undefined;
 }
 
 export function packageManagerCommand(manager: ProjectPackageManager): string {

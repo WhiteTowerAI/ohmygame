@@ -2,6 +2,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { OHMYGAME_MARKETPLACE, type PluginDetail } from "../shared/plugins.js";
 import { inspectPluginBundle } from "./local-plugins.js";
+import { readPluginIconAsset } from "./plugin-icons.js";
 
 const identity = {
   idPrefix: "ohmygame:",
@@ -42,5 +43,11 @@ export class BundledPluginStore {
   installedPath(id: string): string | undefined {
     const plugin = this.read(id);
     return plugin ? path.join(this.directory, plugin.name) : undefined;
+  }
+
+  async readIcon(id: string) {
+    const plugin = this.read(id);
+    if (!plugin) return undefined;
+    return readPluginIconAsset(path.join(this.directory, plugin.name), plugin.icon);
   }
 }

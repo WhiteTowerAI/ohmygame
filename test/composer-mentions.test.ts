@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, toPluginMention } from "../src/renderer/composer-mentions.js";
+import { activePluginMentions, extractLeadingPluginMention, formatComposerInvocation, formatPluginInvocation, formatSkillInvocation, insertMention, matchingMentions, mentionQuery, parseSkillInvocation, skillDisplayName, slashCommandQuery, toPluginMention } from "../src/renderer/composer-mentions.js";
 import type { ConversationCapabilities } from "../src/shared/contracts.js";
 
 const capabilities: ConversationCapabilities = {
@@ -12,6 +12,11 @@ describe("composer mentions", () => {
     expect(mentionQuery("Use @image", 10)).toEqual({ start: 4, end: 10, trigger: "@", query: "image" });
     expect(mentionQuery("mail@example", 12)).toBeUndefined();
     expect(mentionQuery("Use $review", 11)).toBeUndefined();
+    expect(mentionQuery("/review", 7)).toEqual({ start: 0, end: 7, trigger: "/", query: "review" });
+    expect(mentionQuery("Use /review", 11)).toBeUndefined();
+    expect(mentionQuery("@scope/plugin", 13)).toEqual({ start: 0, end: 13, trigger: "@", query: "scope/plugin" });
+    expect(slashCommandQuery("/compact Keep API decisions", "/compact Keep API decisions".length)).toEqual({ start: 0, end: 27, trigger: "/", query: "compact keep api decisions" });
+    expect(slashCommandQuery("/plan", 5)).toBeUndefined();
   });
 
   it("filters plugins and skills by their user-facing metadata", () => {
@@ -26,6 +31,7 @@ describe("composer mentions", () => {
     expect(matchingMentions(available, mentionQuery("@design", 7)!)).toMatchObject([{ type: "skill", value: { name: "game-design" } }]);
     expect(matchingMentions(available, mentionQuery("@studio", 7)!)).toHaveLength(1);
     expect(matchingMentions(available, mentionQuery("$image", 6)!)).toEqual([]);
+    expect(matchingMentions(available, mentionQuery("/design", 7)!)).toMatchObject([{ type: "skill", value: { name: "game-design" } }]);
   });
 
   it("inserts a stable plugin or skill token and preserves surrounding text", () => {

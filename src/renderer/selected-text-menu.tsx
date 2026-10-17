@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t } from "./i18n.js";
 
 interface SelectionState {
   text: string;
@@ -45,9 +46,9 @@ export function SelectedTextMenu({ root, onAdd }: { root: HTMLElement | null; on
   }, [root]);
   if (!selection) return null;
   return (
-    <div className="selected-text-menu" ref={menu} style={{ top: selection.top, left: selection.left }} role="toolbar" aria-label="Selected text actions">
+    <div className="selected-text-menu" ref={menu} style={{ top: selection.top, left: selection.left }} role="toolbar" aria-label={t("composer.selectedTextActions")}>
       <button type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => { onAdd(selection.text); setSelection(undefined); }}>
-        Add to chat
+        {t("sceneWorkbench.addToChat")}
       </button>
     </div>
   );

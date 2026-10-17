@@ -1,0 +1,12 @@
+diff --git a/out/differentialDownloader/multipleRangeDownloader.js b/out/differentialDownloader/multipleRangeDownloader.js
+index 56adc38fe831b39d8430ad8aabe8fd7a35c36b9f..79fd6e85b61a746029772b3a5acc3ce74822eeac 100644
+--- a/out/differentialDownloader/multipleRangeDownloader.js
++++ b/out/differentialDownloader/multipleRangeDownloader.js
+@@ -74,6 +74,7 @@ function doExecuteTasks(differentialDownloader, options, out, resolve, reject) {
+     const requestOptions = differentialDownloader.createRequestOptions();
+     requestOptions.headers.Range = ranges.substring(0, ranges.length - 2);
+     const request = differentialDownloader.httpExecutor.createRequest(requestOptions, response => {
++        response.on("error", reject);
+         if (!checkIsRangesSupported(response, reject)) {
+             return;
+         }

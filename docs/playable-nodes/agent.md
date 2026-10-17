@@ -84,7 +84,9 @@ source files also arrive as workspace file references.
 ```
 
 A picked element also attaches a screenshot of the preview with the element
-outlined. On the canvas,
+outlined. A `playable-moment` item is a moment the author marked in the
+Node's background video, in seconds from the start of the file; its
+screenshot shows the preview paused at that moment. On the canvas,
 with no Workbench open, a message carries no editor context.
 
 ## Common tasks

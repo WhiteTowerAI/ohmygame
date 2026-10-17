@@ -208,6 +208,46 @@ describe("preview policy and lifecycle", () => {
     ).toBe(Number(new URL(url).port));
   });
 
+  it("redirects static directory pages through the preview proxy and preserves their client", async () => {
+    const { directory, project } = await fixture();
+    const nested = path.join(directory, "level one");
+    await mkdir(nested);
+    await writeFile(
+      path.join(nested, "index.html"),
+      '<head></head><script type="module" src="./game.js"></script>',
+    );
+    await writeFile(path.join(nested, "game.js"), "export const ready = true;");
+    const origin = await manager().ensureStarted(project);
+    const url = previewPageUrl(
+      `${origin}/level%20one?level=2&label=a%2Fb`,
+      "editor",
+      "static-redirect",
+    );
+
+    const redirect = await fetch(url, { redirect: "manual" });
+    expect(redirect.status).toBe(301);
+    const location = new URL(redirect.headers.get("location")!);
+    expect(location.origin).toBe(origin);
+    expect(location.pathname).toBe("/level%20one/");
+    expect(location.searchParams.get("level")).toBe("2");
+    expect(location.searchParams.get("label")).toBe("a/b");
+    expect(location.searchParams.get("__ohmygame_client")).toBe(
+      "static-redirect",
+    );
+    expect(location.searchParams.get("__ohmygame_view")).toBe("editor");
+    expect(await redirect.text()).toBe("");
+
+    const response = await fetch(location, { redirect: "manual" });
+    expect(response.status).toBe(200);
+    expect(response.headers.has("location")).toBe(false);
+    const html = await response.text();
+    expect(html).toContain('src="./game.js"');
+    expect(html).toContain("__ohmygame_preview_bridge__");
+    const script = await fetch(new URL("./game.js", response.url));
+    expect(script.status).toBe(200);
+    expect(await script.text()).toBe("export const ready = true;");
+  });
+
   it("respects manual mode and keeps a manual stop across file changes and project reopen", async () => {
     const { directory, project } = await fixture();
     project.previewAutoStart = false;
@@ -277,12 +317,36 @@ describe("preview policy and lifecycle", () => {
     expect(project.preview.status).toBe("ready");
   });
 
+  it("waits without an error while a new project has no files", async () => {
+    const { directory, project } = await fixture();
+    await rm(path.join(directory, "index.html"));
+    await mkdir(path.join(directory, ".git"));
+    const preview = manager();
+    preview.acquire(project, "editor:new", true);
+    await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));
+    expect(project.preview.error).toBeUndefined();
+    await expect(preview.ensureStarted(project)).rejects.toThrow(
+      "no package.json dev script",
+    );
+  });
+
+  it("explains why existing files cannot start a preview", async () => {
+    const { directory, project } = await fixture();
+    await rm(path.join(directory, "index.html"));
+    await writeFile(path.join(directory, "README.md"), "# Notes");
+    const preview = manager();
+    preview.acquire(project, "editor:imported", true);
+    await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));
+    expect(project.preview.error).toContain("no package.json dev script");
+  });
+
   it("starts an open General project when static browser output appears", async () => {
     const { directory, project } = await fixture();
     await rm(path.join(directory, "index.html"));
     const preview = manager();
     preview.acquire(project, "editor:creating", true);
     await vi.waitFor(() => expect(project.preview.status).toBe("waiting"));
+    expect(project.preview.error).toBeUndefined();
     await writeFile(
       path.join(directory, "index.html"),
       "<head></head><p>Created by agent</p>",

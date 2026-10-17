@@ -15,6 +15,7 @@ import { LibraryCollectionFilters } from "./library-filters.js";
 import type { AppNavigationTarget } from "./routes.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
+import { t, tNodes } from "./i18n.js";
 
 interface LibraryPageProps {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -79,7 +80,7 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
         setDeleteTarget({ asset, references });
         return;
       }
-      if (!window.confirm(`Delete “${fileName(asset.path)}” from Library? This cannot be undone.`)) return;
+      if (!window.confirm(t("library.confirmDelete", { name: fileName(asset.path) }))) return;
       if (await runAssetAction(() => deleteLibraryAsset(asset.id))) setSelectedAsset(undefined);
     } catch (cause) {
       setActionError(errorMessage(cause));
@@ -101,15 +102,15 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
 
   return (
     <SidebarPageLayout active="library" onNavigate={onNavigate}>
-      <SidebarPageHeader title="Library">
+      <SidebarPageHeader title={t("library.title")}>
         <AssetToolbar mediaFilter={mediaFilter} query={query} onMediaFilterChange={setMediaFilter} onQueryChange={setQuery}>
           <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} />
         </AssetToolbar>
       </SidebarPageHeader>
       {actionError ? <p className="library-action-error" role="alert">{actionError}</p> : null}
-      {phase === "loading" && assets.length === 0 ? <LibraryState><LoaderCircle className="spin" size={18} />Loading assets</LibraryState> : null}
-      {phase === "error" ? <LibraryState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />Retry</button></LibraryState> : null}
-      {phase === "ready" && visibleAssets.length === 0 ? <LibraryState><ImageIcon size={18} />{assets.length ? "No assets match these filters" : "No media assets yet"}</LibraryState> : null}
+      {phase === "loading" && assets.length === 0 ? <LibraryState><LoaderCircle className="spin" size={18} />{t("library.loading")}</LibraryState> : null}
+      {phase === "error" ? <LibraryState error><X size={18} />{error}<button type="button" onClick={() => void load()}><RefreshCw size={14} />{t("common.retry")}</button></LibraryState> : null}
+      {phase === "ready" && visibleAssets.length === 0 ? <LibraryState><ImageIcon size={18} />{assets.length ? t("library.noMatch") : t("library.none")}</LibraryState> : null}
       {visibleAssets.length ? <div className="library-grid">{visibleAssets.map((asset) => <WorkspaceAssetCard
         asset={asset}
         key={asset.id}
@@ -128,15 +129,15 @@ export function LibraryPage({ onNavigate }: LibraryPageProps) {
       /> : null}
       {deleteTarget ? <div className="library-delete-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteTarget(undefined); }}>
         <section className="library-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="library-delete-title" onKeyDown={(event) => { if (event.key === "Escape" && !deleting) setDeleteTarget(undefined); }}>
-          <h2 id="library-delete-title">Delete asset everywhere?</h2>
-          <p><strong>{fileName(deleteTarget.asset.path)}</strong> is used by {deleteTarget.references.length === 1 ? "this project" : `${deleteTarget.references.length} projects`}.</p>
-          <p className="library-delete-warning">Deleting it removes it from these projects. Code that still uses it will need a new asset. This cannot be undone.</p>
+          <h2 id="library-delete-title">{t("library.deleteEverywhereTitle")}</h2>
+          <p>{tNodes(deleteTarget.references.length === 1 ? "library.usedByProject" : "library.usedByProjects", { name: <strong>{fileName(deleteTarget.asset.path)}</strong>, count: deleteTarget.references.length })}</p>
+          <p className="library-delete-warning">{t("library.deleteWarning")}</p>
           <ul>{deleteTarget.references.map((reference) => <li key={reference.id}>{reference.name}</li>)}</ul>
           {actionError ? <p className="library-delete-error" role="alert">{actionError}</p> : null}
-          <footer><button type="button" autoFocus disabled={deleting} onClick={() => setDeleteTarget(undefined)}>Cancel</button><button className="library-action-delete" type="button" disabled={deleting} onClick={() => void confirmForceDelete()}>{deleting ? "Deleting..." : "Delete everywhere"}</button></footer>
+          <footer><button type="button" autoFocus disabled={deleting} onClick={() => setDeleteTarget(undefined)}>{t("common.cancel")}</button><button className="library-action-delete" type="button" disabled={deleting} onClick={() => void confirmForceDelete()}>{deleting ? t("library.deletingEllipsis") : t("library.deleteEverywhere")}</button></footer>
         </section>
       </div> : null}
-      {renameTarget ? <ProjectRenameDialog title="Rename asset" name={fileStem(renameTarget.path)} returnFocus={null} onClose={() => setRenameTarget(undefined)} onConfirm={(input) => {
+      {renameTarget ? <ProjectRenameDialog title={t("library.rename")} name={fileStem(renameTarget.path)} returnFocus={null} onClose={() => setRenameTarget(undefined)} onConfirm={(input) => {
         const asset = renameTarget;
         setRenameTarget(undefined);
         const name = input.trim();

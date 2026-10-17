@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
 import { X } from "./icons.js";
 import { ModelPreview } from "./model-preview.js";
+import { t } from "./i18n.js";
 
 export type AssetMediaType = "image" | "video" | "audio" | "model";
 
@@ -108,7 +109,7 @@ export function AssetDialogShell({ title, subtitle, preview, footer, headerActio
         <div className="library-dialog-title"><h2 id={labelledBy} title={title}>{title}</h2>{subtitle ? <p>{subtitle}</p> : null}</div>
         <div className="library-dialog-header-actions" ref={headerActionsRef}>
           {headerActions}
-          <button type="button" onClick={onClose} aria-label="Close asset preview"><X size={17} /></button>
+          <button type="button" onClick={onClose} aria-label={t("assets.closePreview")}><X size={17} /></button>
         </div>
       </header>
       <div className="library-dialog-preview">{preview}</div>

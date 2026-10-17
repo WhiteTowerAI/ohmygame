@@ -9,7 +9,7 @@ describe("DesktopWindowFrame", () => {
     vi.stubGlobal("window", {
       ohMyGameDesktop: {
         platform: "win32",
-        windowMenu: { icon: vi.fn(), popup: vi.fn() },
+        windowMenu: { popup: vi.fn() },
       },
     });
 
@@ -20,6 +20,8 @@ describe("DesktopWindowFrame", () => {
     expect(html).toContain('>Edit</button>');
     expect(html).toContain('>View</button>');
     expect(html).toContain('>Window</button>');
+    expect(html).toContain('<img');
+    expect(html).toContain('src="data:image/svg+xml');
     expect(html).not.toContain("Project workspace");
     expect(html.match(/desktop-window-menu-bar/g)).toHaveLength(1);
   });

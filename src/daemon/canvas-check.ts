@@ -39,7 +39,7 @@ export async function checkCanvasWorkspace(workspace: string): Promise<CanvasChe
     for (const node of detail.board.nodes) {
       const outputId = "assetId" in node.data ? node.data.assetId : undefined;
       const output = outputId ? assets.get(outputId) : undefined;
-      const expected = node.type === "asset" ? node.data.mediaType : node.type === "model-3d" || node.type === "animate-3d" ? "model" : node.type;
+      const expected = node.type === "asset" ? node.data.mediaType : node.type === "model-3d" || node.type === "animate-3d" ? "model" : node.type === "speech" || node.type === "sound-effect" || node.type === "music" ? "audio" : node.type;
       if (output && output.mediaType !== expected) issues.push({ file, message: `Node ${node.id}: output asset must be ${expected}, found ${output.mediaType}` });
       const references = node.type === "model-3d" ? [...node.data.images, ...(node.data.source ? [node.data.source] : [])] : node.type === "image" ? node.data.images : node.type === "video" || node.type === "text" || node.type === "document" ? node.data.references ?? [] : node.type === "animate-3d" && node.data.source ? [node.data.source] : [];
       for (const reference of references) {

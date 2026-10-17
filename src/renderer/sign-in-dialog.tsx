@@ -2,6 +2,7 @@ import { LoaderCircle, X } from "./icons.js";
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
+import { t } from "./i18n.js";
 
 export type SignInProvider = "google" | "github";
 
@@ -63,23 +64,23 @@ export function SignInDialog({ allowClose = false, configured, error, pendingPro
   }, []);
 
   const canClose = !pendingProvider || allowClose;
-  const displayedError = configured ? error : "Sign-in is currently unavailable.";
+  const displayedError = configured ? error : t("signIn.unavailable");
   return createPortal(
     <div className="project-settings-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget && canClose) onClose();
     }}>
       <section ref={dialog} className="project-settings-dialog sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} tabIndex={-1}>
         <header>
-          <div className="sign-in-heading"><img src={brandMark} alt="" /><h2 id={titleId}>Join the community</h2></div>
-          <button type="button" onClick={onClose} disabled={!canClose} aria-label="Close sign in"><X size={16} /></button>
+          <div className="sign-in-heading"><img src={brandMark} alt="" /><h2 id={titleId}>{t("signIn.title")}</h2></div>
+          <button type="button" onClick={onClose} disabled={!canClose} aria-label={t("signIn.close")}><X size={16} /></button>
         </header>
         <div className="sign-in-body">
-          <p id={descriptionId} className="sign-in-description">Create games with or without an account.</p>
+          <p id={descriptionId} className="sign-in-description">{t("signIn.description")}</p>
           <div className="sign-in-actions">
             <ProviderButton provider="google" configured={configured} pendingProvider={pendingProvider} onSignIn={onSignIn} />
             <ProviderButton provider="github" configured={configured} pendingProvider={pendingProvider} onSignIn={onSignIn} />
           </div>
-          {displayedError ? <p className="project-settings-error" role="alert">{displayedError}</p> : pendingProvider ? <p className="sign-in-status" role="status">Complete {pendingProvider === "google" ? "Google" : "GitHub"} sign-in in your browser.</p> : null}
+          {displayedError ? <p className="project-settings-error" role="alert">{displayedError}</p> : pendingProvider ? <p className="sign-in-status" role="status">{t("signIn.completeInBrowser", { provider: pendingProvider === "google" ? "Google" : "GitHub" })}</p> : null}
         </div>
       </section>
     </div>, document.body,
@@ -95,9 +96,9 @@ function ProviderButton({ provider, configured, pendingProvider, onSignIn }: {
   const pending = pendingProvider === provider;
   const name = provider === "google" ? "Google" : "GitHub";
   return (
-    <button className="settings-secondary-button sign-in-provider" type="button" aria-label={`Sign in with ${name}`} disabled={!configured || Boolean(pendingProvider)} aria-busy={pending} onClick={() => onSignIn(provider)}>
+    <button className="settings-secondary-button sign-in-provider" type="button" aria-label={t("signIn.with", { provider: name })} disabled={!configured || Boolean(pendingProvider)} aria-busy={pending} onClick={() => onSignIn(provider)}>
       {pending ? <LoaderCircle className="spin" size={16} aria-hidden="true" /> : provider === "google" ? <GoogleIcon /> : <GitHubIcon />}
-      <span>Continue with {name}</span>
+      <span>{t("signIn.continueWith", { provider: name })}</span>
     </button>
   );
 }

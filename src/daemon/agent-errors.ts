@@ -17,7 +17,11 @@ export function normalizeAgentError(message: string, input?: unknown): ThreadIte
   }
   const endpoint = sanitizeDiagnosticUrl(source.endpoint);
   if (endpoint) diagnostics.endpoint = endpoint;
-  if (typeof source.statusCode === "number" && Number.isInteger(source.statusCode) && source.statusCode >= 100 && source.statusCode <= 599) diagnostics.statusCode = source.statusCode;
+  if (source.transport === "websocket" || source.transport === "sse") diagnostics.transport = source.transport;
+  // Recognize persisted beta.4.6 failures, whose Response wrapper reported a synthetic 200.
+  if (!diagnostics.transport && /OpenAI response interrupted after streaming began|OpenAI WebSocket closed before completion/i.test(message)) diagnostics.transport = "websocket";
+  if (typeof source.statusCode === "number" && Number.isInteger(source.statusCode) && source.statusCode >= 100 && source.statusCode <= 599
+    && !(diagnostics.transport === "websocket" && source.statusCode >= 200 && source.statusCode < 300)) diagnostics.statusCode = source.statusCode;
   if (typeof source.retryAttempts === "number" && Number.isInteger(source.retryAttempts) && source.retryAttempts >= 0) diagnostics.retryAttempts = source.retryAttempts;
   if (Array.isArray(source.causes)) {
     const causes: AgentErrorCause[] = source.causes.slice(0, 12).flatMap((value) => {
@@ -62,6 +66,7 @@ function providerFailureFields(failure: unknown): Record<string, unknown> {
   return {
     endpoint: details.endpoint,
     statusCode: details.status,
+    transport: details.transport,
     requestId: details.requestId,
     errorCode: details.errorCode ?? error?.code,
     causes: error ? [error, ...causes] : causes,
@@ -97,7 +102,7 @@ function classifyAgentError(message: string, diagnostics: AgentErrorDiagnostics)
   if (/ECONNREFUSED/.test(codes) || /connection refused/i.test(transportText)) return "connection_refused";
   if (/TIMEOUT|ETIMEDOUT/.test(codes) || /timed? out|timeout/i.test(transportText)) return "timeout";
   if (/ECONNRESET|EPIPE|UND_ERR_SOCKET/.test(codes) || /socket hang up|other side closed/i.test(transportText)) return "connection_reset";
-  if (/stream ended|ended without finish_reason|finish_reason: network_error/i.test(message)) return "stream_error";
+  if (/WEBSOCKET_CLOSE_/.test(codes) || /stream ended|ended without finish_reason|finish_reason: network_error|response interrupted after streaming began|WebSocket closed before completion/i.test(transportText)) return "stream_error";
   if (/connection.?error|network.?error|fetch failed/i.test(message)) return "network_error";
   return undefined;
 }

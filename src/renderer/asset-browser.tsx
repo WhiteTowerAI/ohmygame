@@ -4,6 +4,7 @@ import { Box, Code2, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCirc
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { ModelPreview } from "./model-preview.js";
+import { t } from "./i18n.js";
 
 export type MediaFilter = "all" | NonNullable<WorkspaceFile["mediaType"]>;
 
@@ -26,15 +27,15 @@ export interface BrowsableAsset extends Omit<WorkspaceFile, "mediaType"> {
 }
 
 export function libraryAssetOriginLabel(origin: LibraryAssetOrigin | undefined): string {
-  return { generated: "Generated", uploaded: "Uploaded", workspace: "Project file", builtin: "Built-in", unknown: "Unknown source" }[origin ?? "unknown"];
+  return t(`assets.origin.${origin ?? "unknown"}`);
 }
 
 const MEDIA_FILTERS: readonly { id: MediaFilter; label: string; icon: typeof Layers3 }[] = [
-  { id: "all", label: "All assets", icon: Layers3 },
-  { id: "image", label: "Images", icon: ImageIcon },
-  { id: "video", label: "Videos", icon: Film },
-  { id: "audio", label: "Audio", icon: Music2 },
-  { id: "model", label: "3D models", icon: Box },
+  { id: "all", label: t("assets.filter.all"), icon: Layers3 },
+  { id: "image", label: t("assets.filter.image"), icon: ImageIcon },
+  { id: "video", label: t("assets.filter.video"), icon: Film },
+  { id: "audio", label: t("assets.filter.audio"), icon: Music2 },
+  { id: "model", label: t("assets.filter.model"), icon: Box },
 ];
 
 export function AssetToolbar({ mediaFilter, query, onMediaFilterChange, onQueryChange, children }: {
@@ -62,7 +63,7 @@ export function AssetToolbar({ mediaFilter, query, onMediaFilterChange, onQueryC
   }, []);
   return (
     <div className="library-toolbar">
-      <nav ref={filtersRef} className="library-filters" aria-label="Media types" onFocusCapture={(event) => event.target.scrollIntoView({ block: "nearest", inline: "nearest" })}>
+      <nav ref={filtersRef} className="library-filters" aria-label={t("assets.mediaTypes")} onFocusCapture={(event) => event.target.scrollIntoView({ block: "nearest", inline: "nearest" })}>
         {MEDIA_FILTERS.map(({ id, label, icon: Icon }) => (
           <button className={mediaFilter === id ? "is-active" : undefined} type="button" key={id} aria-pressed={mediaFilter === id} onClick={() => onMediaFilterChange(id)}>
             <Icon size={15} /><span>{label}</span>
@@ -71,7 +72,7 @@ export function AssetToolbar({ mediaFilter, query, onMediaFilterChange, onQueryC
       </nav>
       <div className="library-toolbar-end"><label className="library-search" htmlFor={searchId}>
         <Search size={14} aria-hidden="true" />
-        <input id={searchId} value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Search assets" />
+        <input id={searchId} value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={t("assets.search")} />
       </label>{children}</div>
     </div>
   );
@@ -110,11 +111,11 @@ export function WorkspaceAssetCard({ asset, title, onOpen, onRename, onDelete, o
     preview={<AssetThumbnail asset={asset} visible={visible} />}
     badge={assetTypeBadge(asset.mediaType)}
     actions={onRename || onDelete || onSaveToLibrary ? <div className="library-asset-actions">
-        <button className="library-asset-menu" type="button" aria-label={`Asset actions for ${fileName(asset.path)}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
+        <button className="library-asset-menu" type="button" aria-label={t("assets.actions", { name: fileName(asset.path) })} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
         {menuOpen ? <div className="library-asset-actions-menu" role="menu">
-          {onSaveToLibrary ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSaveToLibrary(); }}>Save to Library</button> : null}
-          {onRename ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>Rename</button> : null}
-          {onDelete ? <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>Delete</button> : null}
+          {onSaveToLibrary ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSaveToLibrary(); }}>{t("workspace.saveToLibrary")}</button> : null}
+          {onRename ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>{t("common.rename")}</button> : null}
+          {onDelete ? <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>{t("common.delete")}</button> : null}
         </div> : null}
       </div> : undefined}
     articleRef={card}
@@ -139,7 +140,7 @@ export function AssetThumbnail({ asset, visible }: { asset: BrowsableAsset; visi
 
 /** The corner badge on a thumbnail, for media a still frame does not make obvious. */
 export function assetTypeBadge(mediaType: BrowsableAsset["mediaType"]): ReactNode {
-  if (mediaType === "video") return <><Play size={11} />Video</>;
+  if (mediaType === "video") return <><Play size={11} />{t("assets.video")}</>;
   if (mediaType === "model") return <><Box size={11} />3D</>;
   return undefined;
 }
@@ -173,31 +174,31 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
     onEscape={() => { if (menuOpen) setMenuOpen(false); else onClose(); }}
     headerActionsRef={actions}
     headerActions={onRename || onDelete || onSaveToLibrary ? <>
-      <button type="button" aria-label={`Asset actions for ${fileName(asset.path)}`} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={17} /></button>
+      <button type="button" aria-label={t("assets.actions", { name: fileName(asset.path) })} aria-expanded={menuOpen} aria-haspopup="menu" onClick={() => setMenuOpen((open) => !open)}><MoreHorizontal size={17} /></button>
       {menuOpen ? <div className="library-dialog-actions-menu" role="menu">
-        {onSaveToLibrary ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSaveToLibrary(); }}>Save to Library</button> : null}
-        {onRename ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>Rename</button> : null}
-        {onDelete ? <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>Delete</button> : null}
+        {onSaveToLibrary ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSaveToLibrary(); }}>{t("workspace.saveToLibrary")}</button> : null}
+        {onRename ? <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onRename(); }}>{t("common.rename")}</button> : null}
+        {onDelete ? <button className="library-action-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }}>{t("common.delete")}</button> : null}
       </div> : null}
     </> : undefined}
     preview={<>
-          {!preview.url && !preview.error ? <span className="library-dialog-state"><LoaderCircle className="spin" size={18} />Loading asset</span> : null}
+          {!preview.url && !preview.error ? <span className="library-dialog-state"><LoaderCircle className="spin" size={18} />{t("assets.loading")}</span> : null}
           {preview.error ? <span className="library-dialog-state library-dialog-error" role="alert"><X size={18} />{preview.error}</span> : null}
           {preview.url ? <AssetMedia type={asset.mediaType} url={preview.url} label={fileName(asset.path)} /> : null}
         </>}
     footer={<footer className={`library-dialog-footer${onOpenProject ? "" : " library-dialog-footer-compact"}${asset.origin || asset.projects?.length ? " library-dialog-footer-library" : ""}`}>
           <dl>
-            <div><dt>Type</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div>
-            <div><dt>Size</dt><dd>{fileSize(asset.size)}</dd></div>
-            {asset.origin ? <div><dt>Source</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></div> : null}
-            {asset.referenceOnly ? <div><dt>Use</dt><dd>Reference</dd></div> : null}
-            {asset.projects?.length ? <div className="library-dialog-projects"><dt>Projects</dt><dd title={asset.projects.map((project) => project.name).join(", ")}>{asset.projects.map((project) => project.name).join(", ")}</dd></div> : null}
-            {asset.projectName ? <div><dt>Project</dt><dd title={asset.projectName}>{asset.projectName}</dd></div> : null}
-            <div className="library-dialog-path"><dt>Path</dt><dd title={asset.path}>{asset.path}</dd></div>
+            <div><dt>{t("assets.type")}</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div>
+            <div><dt>{t("assets.size")}</dt><dd>{fileSize(asset.size)}</dd></div>
+            {asset.origin ? <div><dt>{t("assets.source")}</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></div> : null}
+            {asset.referenceOnly ? <div><dt>{t("assets.use")}</dt><dd>{t("assets.reference")}</dd></div> : null}
+            {asset.projects?.length ? <div className="library-dialog-projects"><dt>{t("assets.projects")}</dt><dd title={asset.projects.map((project) => project.name).join(", ")}>{asset.projects.map((project) => project.name).join(", ")}</dd></div> : null}
+            {asset.projectName ? <div><dt>{t("assets.project")}</dt><dd title={asset.projectName}>{asset.projectName}</dd></div> : null}
+            <div className="library-dialog-path"><dt>{t("assets.path")}</dt><dd title={asset.path}>{asset.path}</dd></div>
           </dl>
           <div className="library-dialog-footer-actions">
-            {onOpenProject ? <button type="button" onClick={onOpenProject}><ExternalLink size={15} />Open project</button> : null}
-            {onShowInCode ? <button type="button" onClick={onShowInCode}><Code2 size={15} />Show in Code</button> : null}
+            {onOpenProject ? <button type="button" onClick={onOpenProject}><ExternalLink size={15} />{t("assets.openProject")}</button> : null}
+            {onShowInCode ? <button type="button" onClick={onShowInCode}><Code2 size={15} />{t("assets.showInCode")}</button> : null}
           </div>
         </footer>}
   />;
@@ -234,8 +235,7 @@ export function fileStem(filePath: string): string {
 }
 
 export function mediaTypeLabel(mediaType: BrowsableAsset["mediaType"]): string {
-  if (mediaType === "model") return "3D model";
-  return mediaType[0]?.toUpperCase() + mediaType.slice(1);
+  return t(`assets.mediaType.${mediaType}`);
 }
 
 export function fileSize(bytes: number): string {

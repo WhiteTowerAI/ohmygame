@@ -5,6 +5,7 @@ import { stream as codex } from "@earendil-works/pi-ai/api/openai-codex-response
 import { DEEPSEEK_MODELS } from "@earendil-works/pi-ai/providers/deepseek.models";
 import { createProviderFailureDiagnostic } from "@earendil-works/pi-ai/utils/provider-failure";
 import { isRetryableAssistantError } from "@earendil-works/pi-ai/utils/retry";
+import { isContextOverflow } from "@earendil-works/pi-ai/utils/overflow";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { describe, expect, it } from "vitest";
 import { assistantMessageError } from "../src/daemon/agent-errors.js";
@@ -13,6 +14,39 @@ const model = Object.values(DEEPSEEK_MODELS)[0];
 const context = normalizeContext({ messages: [{ role: "user", content: [{ type: "text", text: "probe" }], timestamp: 1 }] });
 
 describe("patched Pi provider failures", () => {
+  it.each([
+    [401, "invalid_api_key"], [400, "invalid_request_error"], [429, "insufficient_quota"],
+  ])("does not retry an authoritative WebSocket rejection %s even if its wording suggests retry", async (status, code) => {
+    const responseModel = { ...model, api: "openai-responses" as const, provider: "openai" };
+    const message = await responses(responseModel, context, { apiKey: "test-only", fetch: async () => new Response(
+      JSON.stringify({ error: { code, message: "Please retry your request; parameter timeout" } }),
+      { status, headers: { "content-type": "application/json", "x-should-retry": "false", "x-ohmygame-response-transport": "websocket" } },
+    ) }).result();
+    expect(isRetryableAssistantError(message)).toBe(false);
+    expect(message.errorMessage).toContain("Please retry your request");
+    expect(assistantMessageError(message).diagnostics).toMatchObject({ transport: "websocket", statusCode: status, errorCode: code });
+  });
+
+  it("preserves context overflow detection when a WebSocket request is rejected", async () => {
+    const responseModel = { ...model, api: "openai-responses" as const, provider: "openai" };
+    const message = await responses(responseModel, context, { apiKey: "test-only", fetch: async () => new Response(
+      JSON.stringify({ error: { code: "invalid_request_error", message: "Your input exceeds the context window of this model" } }),
+      { status: 400, headers: { "content-type": "application/json", "x-ohmygame-response-transport": "websocket" } },
+    ) }).result();
+    expect(isRetryableAssistantError(message)).toBe(false);
+    expect(isContextOverflow(message)).toBe(true);
+  });
+
+  it.each([[429, "rate_limit_exceeded"], [503, "server_error"]])("keeps transient WebSocket provider status %s retryable", async (status, code) => {
+    const responseModel = { ...model, api: "openai-responses" as const, provider: "openai" };
+    const message = await responses(responseModel, context, { apiKey: "test-only", maxRetries: 0, fetch: async () => new Response(
+      JSON.stringify({ error: { code, message: "Please retry your request" } }),
+      { status, headers: { "content-type": "application/json", "x-ohmygame-response-transport": "websocket" } },
+    ) }).result();
+    expect(isRetryableAssistantError(message)).toBe(true);
+    expect(assistantMessageError(message).diagnostics).toMatchObject({ transport: "websocket", statusCode: status, errorCode: code });
+  });
+
   it.each(["ENOTFOUND", "ECONNREFUSED", "CERT_HAS_EXPIRED", "ECONNRESET"])("preserves %s through the actual DeepSeek adapter", async (code) => {
     const cause = new TypeError("fetch failed", { cause: Object.assign(new Error(`Synthetic ${code}`), { code }) });
     const message = await completions(model, context, { apiKey: "test-only", maxRetries: 0, fetch: async () => { throw cause; } }).result();

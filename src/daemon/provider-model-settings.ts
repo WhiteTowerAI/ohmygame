@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { applyEdits, format, modify, parse, type JSONPath, type ParseError } from "jsonc-parser";
-import { CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAGES, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, type ModelRef, type ImageModel, type ProviderCapability, type Model3DDefinition } from "../shared/contracts.js";
+import { CUSTOM_MODEL_APIS, IMAGE_MAX_REFERENCE_IMAGES, RESPONSES_TRANSPORT_MODES, type ResponsesTransportMode, type CustomProviderSettings, type CustomProviderDetails, type CustomProviderModel, type CustomThinkingLevelMap, type SaveCustomProviderRequest, type ModelRef, type ImageModel, type MediaModelUsage, type Model3DDefinition } from "../shared/contracts.js";
 import { isNative3DProvider, MODEL_3D_PRESETS, model3DPreset, normalizeNativeModel3D, type Native3DProviderId } from "../shared/model3d-presets.js";
 import { modelUsageList, modelUsages, normalizeEndpoint, normalizeModelUsages } from "../shared/custom-models.js";
 import type { RuntimeModel } from "./agent.js";
@@ -20,6 +20,7 @@ export class ProviderModelSettingsStore {
   readonly #modelsPath: string;
   #hidden: Record<string, string[]> = {};
   #disabled: string[] = [];
+  #responsesTransports: Record<string, ResponsesTransportMode> = {};
   #customProviders: CustomProviderRegistry = {};
   #nativeModels3D: Partial<Record<Native3DProviderId, Model3DDefinition[]>> = {};
   #defaultImageModel?: ModelRef;
@@ -35,12 +36,15 @@ export class ProviderModelSettingsStore {
   async load(): Promise<void> {
     const text = await readOptional(this.#preferencesPath);
     if (!text) return;
-    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; customProviders?: unknown; nativeModels3D?: unknown; defaultImageModel?: unknown; defaultVideoModel?: unknown; defaultModel3D?: unknown };
+    const stored = JSON.parse(text) as { version?: unknown; hidden?: unknown; disabled?: unknown; responsesTransports?: unknown; customProviders?: unknown; nativeModels3D?: unknown; defaultImageModel?: unknown; defaultVideoModel?: unknown; defaultModel3D?: unknown };
     if (stored.version !== 1 || !isObject(stored.hidden) || Object.values(stored.hidden).some((ids) => !Array.isArray(ids) || ids.some((id) => typeof id !== "string"))) throw new Error("Invalid model visibility settings");
     this.#hidden = stored.hidden as Record<string, string[]>;
     if (stored.disabled !== undefined && (!Array.isArray(stored.disabled) || stored.disabled.some((id) => typeof id !== "string"))) throw new Error("Invalid disabled providers");
     if (stored.customProviders !== undefined && (!isObject(stored.customProviders) || Object.values(stored.customProviders).some((item) => !isObject(item) || !["api_key", "none"].includes(String(item.authentication))))) throw new Error("Invalid custom providers");
     this.#disabled = (stored.disabled ?? []) as string[];
+    // An invalid optional transport preference must not hide all provider settings.
+    this.#responsesTransports = Object.fromEntries(Object.entries(isObject(stored.responsesTransports) ? stored.responsesTransports : {})
+      .filter(([, mode]) => RESPONSES_TRANSPORT_MODES.includes(mode as ResponsesTransportMode))) as Record<string, ResponsesTransportMode>;
     this.#customProviders = (stored.customProviders ?? {}) as CustomProviderRegistry;
     if (stored.nativeModels3D !== undefined) {
       if (!isObject(stored.nativeModels3D)) throw new Error("Invalid native 3D models");
@@ -68,6 +72,21 @@ export class ProviderModelSettingsStore {
 
   isEnabled(provider: string): boolean { return !this.#disabled.includes(provider); }
   isCustom(provider: string): boolean { return Object.hasOwn(this.#customProviders, provider); }
+
+  responsesTransport(provider: string): ResponsesTransportMode {
+    return Object.hasOwn(this.#responsesTransports, provider) ? this.#responsesTransports[provider] : "auto";
+  }
+
+  setResponsesTransport(provider: string, mode: ResponsesTransportMode): Promise<void> {
+    if (!RESPONSES_TRANSPORT_MODES.includes(mode)) return Promise.reject(new Error("Invalid Responses transport mode"));
+    return this.#enqueue(async () => {
+      if (this.responsesTransport(provider) === mode) return;
+      const responsesTransports = { ...this.#responsesTransports, [provider]: mode };
+      if (mode === "auto") delete responsesTransports[provider];
+      await this.#writePreferences({ responsesTransports });
+      this.#responsesTransports = responsesTransports;
+    });
+  }
 
   models3D(provider: Native3DProviderId): Model3DDefinition[] {
     return [...new Map([...MODEL_3D_PRESETS[provider], ...(this.#nativeModels3D[provider] ?? [])].map((model) => [model.id, model])).values()];
@@ -109,7 +128,7 @@ export class ProviderModelSettingsStore {
   defaultVideoModel(): ModelRef | undefined { return this.#defaultVideoModel; }
   defaultModel3D(): ModelRef | undefined { return this.#defaultModel3D; }
 
-  setDefaultMediaModel(usage: Exclude<ProviderCapability, "language">, model?: ModelRef): Promise<void> {
+  setDefaultMediaModel(usage: MediaModelUsage, model?: ModelRef): Promise<void> {
     const key = usage === "image" ? "defaultImageModel" : usage === "video" ? "defaultVideoModel" : "defaultModel3D";
     const selected = model ? { provider: model.provider, id: model.id } : undefined;
     return this.#enqueue(async () => {
@@ -257,8 +276,10 @@ export class ProviderModelSettingsStore {
       const customProviders = { ...this.#customProviders };
       const nativeModels3D = { ...this.#nativeModels3D };
       const hidden = { ...this.#hidden };
+      const responsesTransports = { ...this.#responsesTransports };
       delete customProviders[id];
       delete hidden[id];
+      delete responsesTransports[id];
       if (isNative3DProvider(id)) delete nativeModels3D[id];
       const disabled = this.#disabled.filter((provider) => provider !== id);
       const defaultImageModel = this.#defaultImageModel?.provider === id ? undefined : this.#defaultImageModel;
@@ -267,12 +288,13 @@ export class ProviderModelSettingsStore {
       const oldPreferences = this.#preferences();
       try {
         if (contents !== text) await writeAtomic(this.#modelsPath, contents);
-        await this.#writePreferences({ customProviders, nativeModels3D, hidden, disabled, defaultImageModel, defaultVideoModel, defaultModel3D });
+        await this.#writePreferences({ customProviders, nativeModels3D, hidden, disabled, responsesTransports, defaultImageModel, defaultVideoModel, defaultModel3D });
         await apply();
         this.#customProviders = customProviders;
         this.#nativeModels3D = nativeModels3D;
         this.#hidden = hidden;
         this.#disabled = disabled;
+        this.#responsesTransports = responsesTransports;
         this.#defaultImageModel = defaultImageModel;
         this.#defaultVideoModel = defaultVideoModel;
         this.#defaultModel3D = defaultModel3D;
@@ -285,7 +307,7 @@ export class ProviderModelSettingsStore {
   }
 
   #preferences(overrides: JsonObject = {}): string {
-    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, customProviders: this.#customProviders, nativeModels3D: this.#nativeModels3D, defaultImageModel: this.#defaultImageModel, defaultVideoModel: this.#defaultVideoModel, defaultModel3D: this.#defaultModel3D, ...overrides }, null, 2)}\n`;
+    return `${JSON.stringify({ version: 1, hidden: this.#hidden, disabled: this.#disabled, responsesTransports: this.#responsesTransports, customProviders: this.#customProviders, nativeModels3D: this.#nativeModels3D, defaultImageModel: this.#defaultImageModel, defaultVideoModel: this.#defaultVideoModel, defaultModel3D: this.#defaultModel3D, ...overrides }, null, 2)}\n`;
   }
 
   #writePreferences(overrides: JsonObject): Promise<void> {

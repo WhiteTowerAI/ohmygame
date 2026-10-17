@@ -1,3 +1,4 @@
+import { observeWorkspaceVersion } from "../src/renderer/workspace-version.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createCanvasTable,
@@ -12,6 +13,7 @@ import {
 let entries: Map<string, string>;
 beforeEach(() => {
   entries = new Map();
+  observeWorkspaceVersion("project", "0");
   vi.stubGlobal("localStorage", {
     getItem: (key: string) => entries.get(key) ?? null,
     setItem: (key: string, value: string) => entries.set(key, value),
@@ -38,7 +40,7 @@ describe("AI table editing", () => {
       model,
       reasoningLevel: "high",
       revision: "base",
-    });
+    }, "0");
     expect(storage.sessions.get("items")!.local.title).toBe("AI equipment");
     expect(storage.generations.items!.proposal).toBeUndefined();
     expect(storage.generations.items!.generating).toBe(false);
@@ -376,4 +378,19 @@ describe("canvas table storage", () => {
     expect(api.save).not.toHaveBeenCalled();
     expect(entries.has("canvas-tables:project")).toBe(false);
   });
+});
+
+
+it("refuses saves and creates from a table session opened before undo", async () => {
+  const { storage, base, api } = fixture();
+  await storage.sync(workspace(base));
+  storage.update({ ...base.table, title: "Old draft" });
+  observeWorkspaceVersion("project", "restored");
+  await expect(storage.flush()).rejects.toMatchObject({ code: "workspace_stale" });
+  await expect(storage.create()).rejects.toMatchObject({ code: "workspace_stale" });
+  expect(api.save).not.toHaveBeenCalled();
+  expect(api.create).not.toHaveBeenCalled();
+  const fresh = new CanvasTableStorage("project", api);
+  await fresh.sync(workspace(base));
+  expect(fresh.sessions.get(base.table.id)!.local.title).toBe(base.table.title);
 });

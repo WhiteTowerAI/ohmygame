@@ -1,7 +1,9 @@
+import { assertWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
 import type { AssetCanvasDocument, ToolJob } from "../shared/contracts.js";
 import { isAssetCanvasDocument, withoutContentNodeSizes } from "../shared/asset-canvas.js";
 import { mergeCanvasDocument, type CanvasBoardDetail } from "../shared/canvas-workspace.js";
 import { cancelCanvasJob, generateCanvasMedia, getCanvasBoard, listCanvasJobs, saveCanvasBoard } from "./canvas-api.js";
+import { t } from "./i18n.js";
 
 export interface CanvasBoardStorage {
   key: string;
@@ -18,7 +20,7 @@ export interface CanvasBoardStorage {
 export interface CanvasBoardConflict { local: AssetCanvasDocument; remote: CanvasBoardDetail }
 
 const canvasOnly = ({ id: _id, ...canvas }: CanvasBoardDetail["board"]): AssetCanvasDocument => canvas;
-const conflictMessage = "The board was edited elsewhere. Choose a version before saving.";
+const conflictMessage = t("canvas.boardEditedElsewhere");
 
 export function createCanvasBoardStorage({ projectId, boardId, onConflict, flushDocuments }: {
   projectId: string;
@@ -30,8 +32,10 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
   let loading: Promise<AssetCanvasDocument> | undefined;
   let operations = Promise.resolve<unknown>(undefined);
   let conflicting: (CanvasBoardConflict & { base: AssetCanvasDocument }) | undefined;
-  const recoveryKey = `canvas-board:${projectId}:${boardId}`;
+  const version = workspaceVersion(projectId);
+  const recoveryKey = `canvas-board:${projectId}:${boardId}${version === "0" ? "" : `:${version}`}`;
   const assertWritable = (local?: AssetCanvasDocument) => {
+    assertWorkspaceVersion(projectId, version);
     if (!conflicting) return;
     const serialized = JSON.stringify(local);
     if (local && serialized !== JSON.stringify(canvasOnly(conflicting.remote.board)) && serialized !== JSON.stringify(conflicting.local)) {
@@ -57,7 +61,7 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
   };
   const ready = async () => {
     if (loading) await loading;
-    if (!base) throw new Error("Reload the canvas before saving. Your edits are kept in this session.");
+    if (!base) throw new Error(t("canvas.reloadBeforeSaving"));
   };
   return {
     key: `${projectId}:${boardId}`,
@@ -93,13 +97,13 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
       for (let attempt = 0; attempt < 3; attempt++) {
         remember(outgoing);
         try {
-          const saved = await saveCanvasBoard(projectId, { board: { ...outgoing, id: boardId }, revision: base!.revision });
+          const saved = await saveCanvasBoard(projectId, { board: { ...outgoing, id: boardId }, revision: base!.revision }, version);
           base = saved;
           loading = Promise.resolve(canvasOnly(saved.board));
           try { localStorage.removeItem(recoveryKey); } catch { /* A saved board remains usable without storage. */ }
           return canvasOnly(base.board);
         } catch (cause) {
-          if ((cause as { status?: number }).status !== 409) throw cause;
+          if ((cause as { status?: number }).status !== 409 || (cause as { code?: string }).code === "workspace_stale") throw cause;
           const remote = await getCanvasBoard(projectId, boardId);
           const merged = mergeCanvasDocument(canvasOnly(base!.board), outgoing, canvasOnly(remote.board));
           if (!merged) { conflict(outgoing, remote); throw new Error(conflictMessage); }
@@ -126,17 +130,18 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
       conflict(current, base!, submitted);
       throw new Error(conflictMessage);
     },
-    resolveConflict: (version, local) => enqueue(async () => {
+    resolveConflict: (choice, local) => enqueue(async () => {
       await ready();
+      assertWorkspaceVersion(projectId, version);
       const remote = await getCanvasBoard(projectId, boardId);
-      if (version === "local") {
+      if (choice === "local") {
         const outgoing = conflicting ? mergeCanvasDocument(canvasOnly(conflicting.remote.board), local, canvasOnly(remote.board)) : local;
         if (!outgoing) {
           conflict(local, remote);
           throw new Error("The board changed again. Review the latest version before choosing.");
         }
         remember(outgoing);
-        const saved = await saveCanvasBoard(projectId, { board: { ...outgoing, id: boardId }, revision: remote.revision });
+        const saved = await saveCanvasBoard(projectId, { board: { ...outgoing, id: boardId }, revision: remote.revision }, version);
         base = saved;
       } else base = remote;
       conflicting = undefined;
@@ -149,7 +154,7 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
       assertWritable();
       await flushDocuments();
       assertWritable();
-      return generateCanvasMedia(projectId, boardId, nodeId);
+      return generateCanvasMedia(projectId, boardId, nodeId, version);
     },
     cancel: (jobId) => cancelCanvasJob(projectId, jobId),
   };

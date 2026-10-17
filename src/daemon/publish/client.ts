@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import type { CommunityGame, ProjectState, PublishResult } from "../../shared/contracts.js";
 import type {
+  CommunityGameStats,
+  CommunityGamesQuery,
+  CommunityProfile,
   CreatePublishDeploymentResult,
   PublishApiError,
   PublishDeployment,
@@ -31,23 +34,52 @@ export class RemotePublisher {
     const artifactSha256 = createHash("sha256").update(artifact).digest("hex");
     const game = await this.#game(project, metadata, accessToken);
     const created = await this.#createDeployment(project, game.id, artifact, artifactSha256, accessToken);
-    await this.#list(game.id, accessToken);
+    if (!project.publication || project.publication.gameId !== game.id) await this.#listGame(game.id, accessToken);
     return publishResult(created.game, created.deployment);
   }
 
-  async community(): Promise<CommunityGame[]> {
-    return this.#request("/v1/community/games");
+  async community(metrics = false, accessToken?: string, options: CommunityGamesQuery = {}): Promise<CommunityGame[]> {
+    const query = new URLSearchParams();
+    if (metrics) query.set("metrics", "true");
+    if (options.limit !== undefined) query.set("limit", String(options.limit));
+    if (options.excludeGameId) query.set("excludeGameId", options.excludeGameId);
+    return this.#request(`/v1/community/games${query.size ? `?${query}` : ""}`, {}, accessToken);
   }
 
-  async communityGame(gameId: string): Promise<CommunityGame> {
-    return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}`);
+  async communityGame(gameId: string, metrics = false, accessToken?: string): Promise<CommunityGame> {
+    return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}${metrics ? "?metrics=true" : ""}`, {}, accessToken);
   }
 
-  async communityGameCover(gameId: string, deploymentId: string): Promise<Buffer> {
+  async communityGameCover(gameId: string, deploymentId: string, accessToken?: string): Promise<Buffer> {
     const response = await this.#response(
-      `/v1/community/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
+      `/v1/${accessToken ? "me" : "community"}/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
+      {}, accessToken,
     );
     return Buffer.from(await response.arrayBuffer());
+  }
+
+  profile(authorId: string, accessToken?: string): Promise<CommunityProfile> {
+    return this.#request(`/v1/community/authors/${encodeURIComponent(authorId)}`, {}, accessToken);
+  }
+
+  myGames(accessToken: string): Promise<CommunityProfile> {
+    return this.#request("/v1/me/games", {}, accessToken);
+  }
+
+  async updateCommunityGame(gameId: string, accessToken: string, metadata: { title: string; description?: string }): Promise<void> {
+    await this.#request(`/v1/games/${encodeURIComponent(gameId)}`, { method: "PUT", body: JSON.stringify(metadata) }, accessToken);
+  }
+
+  recordView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
+    return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}/view`, {
+      method: "POST", body: JSON.stringify({ visitorId }),
+    }, accessToken);
+  }
+
+  setLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
+    return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}/like`, {
+      method: "PUT", body: JSON.stringify({ liked }),
+    }, accessToken);
   }
 
   async #game(project: ProjectState, metadata: { title: string; description?: string }, accessToken: string): Promise<PublishGame> {
@@ -96,7 +128,11 @@ export class RemotePublisher {
     }, accessToken);
   }
 
-  async #list(gameId: string, accessToken: string): Promise<void> {
+  async unpublish(gameId: string, accessToken: string): Promise<void> {
+    await this.#request(`/v1/games/${encodeURIComponent(gameId)}`, { method: "DELETE" }, accessToken);
+  }
+
+  async #listGame(gameId: string, accessToken: string): Promise<void> {
     await this.#request(`/v1/games/${gameId}/listing`, {
       method: "PUT",
       body: JSON.stringify({ status: "listed" }),
@@ -105,6 +141,7 @@ export class RemotePublisher {
 
   async #request<T>(pathname: string, init: RequestInit = {}, accessToken?: string): Promise<T> {
     const response = await this.#response(pathname, init, accessToken);
+    if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 

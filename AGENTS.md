@@ -9,6 +9,11 @@ their code, documentation, and tests.
 - Keep PRs focused on one feature, bug fix, documentation change, chore, or refactor.
 - Start contribution branches from `dev` and target ordinary PRs at `dev`.
   `main` receives maintainer release PRs from `dev`.
+- Never open a PR whose head branch is `dev` or `main`. The repository deletes
+  head branches after merge, and deleting `dev` closes or retargets every PR
+  based on it. Release and synchronization PRs use a temporary `chore/` branch
+  pushed from the source branch; see
+  [release preparation](docs/maintaining.md#release-preparation).
 - Use `feat/<short-name>`, `fix/<short-name>`, `chore/<short-name>`,
   `refactor/<short-name>`, or `docs/<short-name>` for contribution branches.
 - Use Conventional Commit PR titles, for example
@@ -20,5 +25,11 @@ their code, documentation, and tests.
 
 - Match existing style and keep unrelated formatting cleanup in a separate PR.
 - Update relevant documentation when public behavior or file contracts change.
+- `README.md` is the source for `README.zh-CN.md`. Update both in the same PR,
+  keeping sections, media, and links aligned; say so in the PR if the
+  translation must follow later.
+- Add new UI text to both `src/renderer/locales/en.ts` and `zh-CN.ts` in the
+  same PR, and keep text sent to the agent in English. See
+  [UI languages](docs/ui-languages.md).
 - Use the [checks guidance](CONTRIBUTING.md#make-and-check-your-change) for the
   change type. Record skipped checks and manual validation still needed.

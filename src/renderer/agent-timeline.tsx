@@ -1,3 +1,5 @@
+import { ChangeCounts } from "./change-counts.js";
+import { FileDiff } from "./file-diff.js";
 import {
   Check,
   ChevronRight,
@@ -9,6 +11,7 @@ import {
   Image,
   LoaderCircle,
   Pencil,
+  Undo2,
   Plug,
   Search,
   Terminal,
@@ -35,6 +38,8 @@ import { GodotIcon } from "./godot-icon.js";
 import { MarkdownContent } from "./markdown-content.js";
 import { LazyDetails } from "./lazy-details.js";
 import { agentErrorDiagnosticRows, agentErrorDiagnosticText, agentErrorPresentation } from "./agent-error-presentation.js";
+import { language, t } from "./i18n.js";
+import { TurnChangesFooter, TurnChangesViews, type TurnChangesControls } from "./turn-changes.js";
 
 type ToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
 
@@ -45,6 +50,12 @@ interface AgentTimelineProps {
   onOpenWorkspaceFile?: (path: string) => void;
   revisionDisabled?: boolean;
   onRevise?: (prompt: string) => Promise<boolean>;
+  /** Puts the project back to before the message the checkpoint was taken for. */
+  onRestore?: (checkpointId: string) => void;
+  /** Shows under each finished turn what it changed in the workspace, with a way to undo it. */
+  changeControls?: TurnChangesControls;
+  /** Changes whenever the files of the workspace may have changed, so that what the turns show of them is read again. */
+  workspaceRevision?: number;
   onAddToChat?: (text: string) => void;
   waitingForInput?: boolean;
 }
@@ -59,7 +70,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onRestore, changeControls, workspaceRevision, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -122,32 +133,36 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
   return (
     <WorkspaceLinkContext.Provider value={workspaceLinks}>
       <div className="agent-timeline-selection-root" ref={setSelectionRoot}>
-        {turns.map((turn, index) => (
-          <Turn
-            key={turn.id}
-            projectId={projectId}
-            turn={turn}
-            waitingForInput={turn.status === "inProgress" && waitingForInput}
-            steeringPending={steeringPending && index === latestSteeringIndex}
-            assistantControls={{
-              copiedItemId: copiedAssistantId,
-              latestItemId: latestAssistantId,
-              onCopy: copyAssistant,
-            }}
-            userControls={{
-              editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
-              draft: displays[index].user?.id === editingItemId ? draft : "",
-              copied: displays[index].user?.id === copiedItemId,
-              canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
-              disabled: Boolean(revisionDisabled || submitting),
-              onCopy: copy,
-              onEdit: edit,
-              onDraftChange: setDraft,
-              onCancel: cancelEdit,
-              onSubmit: submitRevision,
-            }}
-          />
-        ))}
+        <TurnChangesViews key={turns[0]?.conversationId} workspaceRevision={workspaceRevision}>
+          {turns.map((turn, index) => (
+            <Turn
+              key={turn.id}
+              projectId={projectId}
+              turn={turn}
+              waitingForInput={turn.status === "inProgress" && waitingForInput}
+              steeringPending={steeringPending && index === latestSteeringIndex}
+              changeControls={changeControls}
+              assistantControls={{
+                copiedItemId: copiedAssistantId,
+                latestItemId: latestAssistantId,
+                onCopy: copyAssistant,
+              }}
+              userControls={{
+                editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
+                draft: displays[index].user?.id === editingItemId ? draft : "",
+                copied: displays[index].user?.id === copiedItemId,
+                canEdit: Boolean(onRevise && displays[index].user?.text && displays[index].user?.id === latestUserId),
+                disabled: Boolean(revisionDisabled || submitting),
+                onRestore,
+                onCopy: copy,
+                onEdit: edit,
+                onDraftChange: setDraft,
+                onCancel: cancelEdit,
+                onSubmit: submitRevision,
+              }}
+            />
+          ))}
+        </TurnChangesViews>
         {onAddToChat ? <SelectedTextMenu root={selectionRoot} onAdd={onAddToChat} /> : null}
       </div>
     </WorkspaceLinkContext.Provider>
@@ -160,6 +175,7 @@ interface UserControls {
   canEdit: boolean;
   disabled: boolean;
   draft: string;
+  onRestore?: (checkpointId: string) => void;
   onCopy: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onEdit: (item: Extract<ThreadItem, { type: "userMessage" }>) => void;
   onDraftChange: (value: string) => void;
@@ -173,13 +189,14 @@ interface AssistantControls {
   onCopy: (id: string, text: string) => void;
 }
 
-const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPending = false, userControls, assistantControls }: {
+const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPending = false, userControls, assistantControls, changeControls }: {
   turn: ThreadTurn;
   projectId: string;
   waitingForInput: boolean;
   steeringPending?: boolean;
   userControls: UserControls;
   assistantControls: AssistantControls;
+  changeControls?: TurnChangesControls;
 }) {
   const [now, setNow] = useState(Date.now());
   const active = turn.status === "inProgress";
@@ -190,6 +207,9 @@ const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPend
     return () => window.clearInterval(timer);
   }, [active]);
   const display = useMemo(() => active ? projectTurnDisplay(turn, now, waitingForInput) : turnDisplay(turn), [turn, active, now, waitingForInput]);
+  const fileChanges = changeControls && display.status !== "inProgress" && display.user?.checkpointId && display.user.changes && display.user.changes.files > 0
+    ? <TurnChangesFooter checkpointId={display.user.checkpointId} changes={display.user.changes} controls={changeControls} />
+    : null;
   return (
     <article className="agent-turn">
       <UserInput item={display.user} controls={userControls} />
@@ -197,14 +217,16 @@ const Turn = memo(function Turn({ turn, projectId, waitingForInput, steeringPend
       {display.status !== "inProgress" && (display.work.length > 0 || display.status === "cancelled") ? <CompletedWork display={display} /> : null}
       {display.messages.map((item) => <TimelineItem key={item.id} item={item} />)}
       {display.finalMessages.length > 0
-        ? <FinalResponse projectId={projectId} items={display.finalMessages} artifacts={display.artifacts} controls={assistantControls} />
+        ? <FinalResponse projectId={projectId} items={display.finalMessages} artifacts={display.artifacts} controls={assistantControls} changes={fileChanges} />
         : display.artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={display.artifacts} /> : null}
+      {display.finalMessages.length === 0 ? fileChanges : null}
       {steeringPending ? <SteeringActivity /> : null}
     </article>
   );
 }, (previous, next) => previous.turn === next.turn && previous.projectId === next.projectId &&
   previous.waitingForInput === next.waitingForInput && previous.steeringPending === next.steeringPending &&
-  equalControls(previous.userControls, next.userControls) && equalControls(previous.assistantControls, next.assistantControls));
+  equalControls(previous.userControls, next.userControls) && equalControls(previous.assistantControls, next.assistantControls) &&
+  previous.changeControls === next.changeControls);
 
 function equalControls<T extends object>(previous: T, next: T): boolean {
   return (Object.keys(previous) as (keyof T)[]).every((key) => previous[key] === next[key]);
@@ -213,16 +235,17 @@ function equalControls<T extends object>(previous: T, next: T): boolean {
 function SteeringActivity() {
   return (
     <div className="thinking-activity" role="status">
-      <ShimmerText text="Waiting to steer" />
+      <ShimmerText text={t("timeline.waitingToSteer")} />
     </div>
   );
 }
 
-function FinalResponse({ projectId, items, artifacts, controls }: {
+function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   projectId: string;
   items: Extract<ThreadItem, { type: "agentMessage" }>[];
   artifacts: ToolArtifact[];
   controls: AssistantControls;
+  changes: ReactNode;
 }) {
   const copyable = items.filter((item) => item.status === "completed" && Boolean(item.text.trim()));
   const responseId = copyable.at(-1)?.id;
@@ -232,9 +255,10 @@ function FinalResponse({ projectId, items, artifacts, controls }: {
     <div className={`assistant-response${responseId === controls.latestItemId ? " assistant-response-latest" : ""}`}>
       {items.map((item) => <TimelineItem key={item.id} item={item} />)}
       {artifacts.length > 0 ? <ArtifactPreviews projectId={projectId} artifacts={artifacts} /> : null}
+      {changes}
       {responseId ? (
         <div className="assistant-response-footer">
-          <button type="button" aria-label="Copy response" title="Copy" onClick={() => controls.onCopy(responseId, text)}>
+          <button type="button" aria-label={t("timeline.copyResponse")} title={t("common.copy")} onClick={() => controls.onCopy(responseId, text)}>
             {responseId === controls.copiedItemId ? <Check size={13} /> : <Copy size={13} />}
           </button>
           {timestamp ? <time dateTime={new Date(timestamp).toISOString()}>{formatResponseTime(timestamp)}</time> : null}
@@ -245,7 +269,7 @@ function FinalResponse({ projectId, items, artifacts, controls }: {
 }
 
 function formatResponseTime(timestamp: number): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(language, {
     day: "numeric",
     month: "short",
     hour: "2-digit",
@@ -266,7 +290,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
     <div className="user-input">
       {item.images?.length ? (
         <div className="user-message-images">
-          {item.images.map((image, index) => <ConversationImage key={`${image.mediaType}:${index}`} image={image} alt={`Attached image ${index + 1}`} />)}
+          {item.images.map((image, index) => <ConversationImage key={`${image.mediaType}:${index}`} image={image} alt={t("timeline.attachedImage", { number: index + 1 })} />)}
         </div>
       ) : null}
       {attachments.length ? <UserAttachments attachments={attachments} /> : null}
@@ -283,23 +307,28 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
             }}
             onKeyDown={keyDown}
             disabled={controls.disabled}
-            aria-label="Edit message"
+            aria-label={t("timeline.editMessage")}
           />
           <div className="user-message-editor-actions">
-            <button type="button" onClick={controls.onCancel} disabled={controls.disabled}>Cancel</button>
-            <button className="primary" type="button" onClick={controls.onSubmit} disabled={controls.disabled || !controls.draft.trim()}>Send</button>
+            <button type="button" onClick={controls.onCancel} disabled={controls.disabled}>{t("common.cancel")}</button>
+            <button className="primary" type="button" onClick={controls.onSubmit} disabled={controls.disabled || !controls.draft.trim()}>{t("common.send")}</button>
           </div>
         </div>
       ) : item.text ? (
         <>
           <div className="user-message">{item.text}</div>
           <div className="user-message-actions">
-            <button type="button" aria-label="Copy message" title="Copy" onClick={() => controls.onCopy(item)}>
+            <button type="button" aria-label={t("timeline.copyMessage")} title={t("common.copy")} onClick={() => controls.onCopy(item)}>
               {controls.copied ? <Check size={13} /> : <Copy size={13} />}
             </button>
             {controls.canEdit ? (
-              <button type="button" aria-label="Edit message" title="Edit" onClick={() => controls.onEdit(item)} disabled={controls.disabled}>
+              <button type="button" aria-label={t("timeline.editMessage")} title={t("common.edit")} onClick={() => controls.onEdit(item)} disabled={controls.disabled}>
                 <Pencil size={13} />
+              </button>
+            ) : null}
+            {controls.onRestore && item.checkpointId ? (
+              <button type="button" aria-label={t("checkpoints.restoreToMessage")} title={t("checkpoints.restoreToMessage")} onClick={() => controls.onRestore!(item.checkpointId!)} disabled={controls.disabled}>
+                <Undo2 size={13} />
               </button>
             ) : null}
           </div>
@@ -310,7 +339,7 @@ function UserInput({ item, controls }: { item: Extract<ThreadItem, { type: "user
 }
 
 function UserContexts({ contexts }: { contexts: PromptContextLabel[] }) {
-  return <div className="user-message-contexts" aria-label="Editor context">
+  return <div className="user-message-contexts" aria-label={t("timeline.editorContext")}>
     {contexts.map((context, index) => <div className="user-message-context" key={`${context.kind}:${index}`} title={context.label}>
       <PromptContextIcon kind={context.kind} />
       <span>{context.label}</span>
@@ -319,7 +348,7 @@ function UserContexts({ contexts }: { contexts: PromptContextLabel[] }) {
 }
 
 function UserAttachments({ attachments }: { attachments: ConversationAttachment[] }) {
-  return <div className="user-message-attachments" aria-label="Attached files">
+  return <div className="user-message-attachments" aria-label={t("attachments.files")}>
     {attachments.map((attachment, index) => <div className="user-message-attachment" key={`${attachment.relativePath}:${index}`} title={`${attachment.relativePath} · ${formatBytes(attachment.size)}`}>
       <FileText size={13} />
       <span>{attachment.relativePath}</span>
@@ -345,7 +374,7 @@ function ShimmerText({ text, active = true, className, title, role }: {
 }
 
 function ActiveWork({ display, now }: { display: TurnDisplay; now: number }) {
-  const label = display.working ? `Working for ${activeTurnDuration(display, now)}` : "Thinking";
+  const label = display.working ? t("timeline.workingFor", { duration: activeTurnDuration(display, now) }) : t("timeline.thinking");
   return (
     <section className="work-activity work-activity-active">
       <div className={`work-summary work-summary-active${display.working ? "" : " work-summary-thinking"}`}>
@@ -368,14 +397,14 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
   const content = <div className="work-items">
     <WorkItems items={display.work} images={display.user?.images} failed={display.status === "failed"} />
     {display.status === "cancelled" && display.work.length === 0 ? (
-      <div className="stopped-work-note">{display.hadThinking ? "Stopped while thinking" : "Stopped before work began"}</div>
+      <div className="stopped-work-note">{display.hadThinking ? t("timeline.stoppedThinking") : t("timeline.stoppedBefore")}</div>
     ) : null}
   </div>;
   if (display.status === "cancelled" || display.status === "failed") {
     return (
       <section className={`work-activity ${display.status === "cancelled" ? "work-activity-stopped" : "work-activity-failed"}`}>
         <div className={`work-summary ${display.status === "cancelled" ? "work-summary-stopped" : "work-summary-failed"}`}>
-          <span>{display.status === "cancelled" ? `You stopped after ${turnDuration(display)}` : `Worked for ${turnDuration(display)}`}</span>
+          <span>{display.status === "cancelled" ? t("timeline.stoppedAfter", { duration: turnDuration(display) }) : t("timeline.workedFor", { duration: turnDuration(display) })}</span>
         </div>
         {content}
       </section>
@@ -384,7 +413,7 @@ function CompletedWork({ display }: { display: TurnDisplay }) {
   return (
     <LazyDetails className="work-activity" summary={
       <summary className="work-summary">
-        <span>Worked for {turnDuration(display)}</span>
+        <span>{t("timeline.workedFor", { duration: turnDuration(display) })}</span>
         <ChevronRight className="work-chevron" size={13} />
       </summary>}>
       {content}
@@ -420,7 +449,7 @@ function ToolActivityGroup({ tools, thinking }: { tools: ToolItem[]; thinking: b
   const Icon = runningPresentation?.icon ?? toolGroupIcon(tools);
   const runningLabel = runningTool && runningPresentation ? runningToolGroupLabel(runningTool, runningPresentation.label) : undefined;
   const showThinking = thinking && !runningTool;
-  const summaryLabel = showThinking ? "Thinking" : runningLabel ?? toolGroupSummary(tools);
+  const summaryLabel = showThinking ? t("timeline.thinking") : runningLabel ?? toolGroupSummary(tools);
   return (
     <LazyDetails className="tool-activity-group" summary={
       <summary className={`tool-group-summary${showThinking ? " tool-group-summary-thinking" : ""}`}>
@@ -455,10 +484,9 @@ function turnDuration(display: TurnDisplay): string {
 }
 
 function formatRoundedDuration(milliseconds: number): string {
-  if (milliseconds < 1_000) return "0s";
+  if (milliseconds < 1_000) return t("timeline.duration.seconds", { seconds: 0 });
   const seconds = Math.max(1, Math.round(milliseconds / 1_000));
-  const minutes = Math.floor(seconds / 60);
-  return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+  return durationLabel(seconds);
 }
 
 function activeTurnDuration(display: TurnDisplay, now: number): string {
@@ -474,31 +502,34 @@ function activeTurnDuration(display: TurnDisplay, now: number): string {
 }
 
 function compactionStats(tokensBefore: number, estimatedTokensAfter?: number): string {
-  const formatter = new Intl.NumberFormat();
+  const formatter = new Intl.NumberFormat(language);
   const before = formatter.format(tokensBefore);
   return estimatedTokensAfter === undefined
-    ? `Compacted from ${before} tokens`
-    : `Compacted from ${before} to approximately ${formatter.format(estimatedTokensAfter)} tokens`;
+    ? t("timeline.compactedFrom", { before })
+    : t("timeline.compactedFromTo", { before, after: formatter.format(estimatedTokensAfter) });
 }
 
 function compactionLabel(item: Extract<ThreadItem, { type: "contextCompaction" }>): string {
   if (item.error) return item.error.message;
-  if (item.status === "completed") return "Context compacted";
-  if (item.status === "cancelled") return "Context compaction stopped";
-  if (item.status === "failed") return "Context compaction failed";
-  return "Compacting context";
+  if (item.status === "completed") return t("timeline.compaction.completed");
+  if (item.status === "cancelled") return t("timeline.compaction.cancelled");
+  if (item.status === "failed") return t("timeline.compaction.failed");
+  return t("timeline.compaction.running");
 }
 
 function formatDuration(milliseconds: number): string {
-  const seconds = Math.floor(milliseconds / 1_000);
+  return durationLabel(Math.floor(milliseconds / 1_000));
+}
+
+function durationLabel(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
-  return minutes > 0 ? `${minutes}m ${seconds % 60}s` : `${seconds}s`;
+  return minutes > 0 ? t("timeline.duration.minutes", { minutes, seconds: seconds % 60 }) : t("timeline.duration.seconds", { seconds });
 }
 
 function ThinkingActivity() {
   return (
     <div className="thinking-activity" role="status">
-      <ShimmerText text="Thinking" />
+      <ShimmerText text={t("timeline.thinking")} />
     </div>
   );
 }
@@ -509,12 +540,12 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
   if (item.type === "modelChange") {
     return (
       <div className="model-change-event" role="status">
-        <span>Switched to {item.name ?? item.model.id}</span>
+        <span>{t("timeline.switchedTo", { model: item.name ?? item.model.id })}</span>
       </div>
     );
   }
   if (item.type === "imageRead") {
-    const label = item.count === 1 ? "Viewed an image" : `Viewed ${item.count} images`;
+    const label = item.count === 1 ? t("timeline.viewedImage") : t("timeline.viewedImages", { count: item.count });
     if (images?.length) {
       return (
         <LazyDetails className="image-read-details" summary={
@@ -528,7 +559,7 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
               <ConversationImage
                 key={`${image.mediaType}:${index}`}
                 image={image}
-                alt={image.name ?? `Viewed image ${index + 1}`}
+                alt={image.name ?? t("timeline.viewedImageName", { number: index + 1 })}
               />
             ))}
           </div>
@@ -575,8 +606,8 @@ function TimelineItem({ item, images, hideError = false }: { item: ThreadItem; i
     const message = (
       <div className={`assistant-message assistant-${item.status}`}>
         {item.text ? <MarkdownContent text={item.text} {...workspaceLinks} /> : null}
-        {item.status === "cancelled" && !item.text ? <span className="muted-text">Stopped</span> : null}
-        {item.status === "interrupted" && !item.text ? <span className="muted-text">Interrupted</span> : null}
+        {item.status === "cancelled" && !item.text ? <span className="muted-text">{t("timeline.stopped")}</span> : null}
+        {item.status === "interrupted" && !item.text ? <span className="muted-text">{t("timeline.interrupted")}</span> : null}
       </div>
     );
     if (!item.error || hideError) return message;
@@ -594,7 +625,7 @@ function AgentErrorActivity({ error, retry, active = false }: { error: ThreadIte
   const failed = !retry || retry.status === "failed";
   const shimmering = active && retry?.status === "inProgress";
   const presentation = agentErrorPresentation(error);
-  const label = failed ? presentation.title : `Reconnecting ${retry.attempt}/${retry.maxAttempts}`;
+  const label = failed ? presentation.title : t("timeline.reconnecting", { attempt: retry.attempt, max: retry.maxAttempts });
   const preview = failed && !error.code ? error.message.replace(/\s+/g, " ").trim() : "";
   const summary = preview ? `${label} — ${preview}` : label;
   const Icon = failed ? (["dns_error", "connection_refused", "connection_reset", "timeout", "tls_error", "stream_error", "network_error"].includes(error.code ?? "") ? WifiOff : X) : Wifi;
@@ -630,8 +661,8 @@ function AgentErrorDetails({ error, guidance }: { error: ThreadItemError; guidan
     <div className="connection-activity-diagnostics">
       {guidance ? <p className="connection-activity-guidance">{guidance}</p> : null}
       <dl className="connection-activity-error">{rows.map(([label, value], index) => <div key={`${label}:${index}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      {copyStatus === "failed" ? <p className="connection-activity-guidance" role="status">Could not copy. Select the details above to copy them manually.</p> : null}
-      <button type="button" className="connection-activity-copy" aria-label={copied ? "Diagnostics copied" : "Copy diagnostics"} title={copied ? "Copied" : "Copy diagnostics"} onClick={() => void copyDiagnostics()}>
+      {copyStatus === "failed" ? <p className="connection-activity-guidance" role="status">{t("timeline.copyFailed")}</p> : null}
+      <button type="button" className="connection-activity-copy" aria-label={copied ? t("timeline.diagnosticsCopied") : t("timeline.copyDiagnostics")} title={copied ? t("common.copied") : t("timeline.copyDiagnostics")} onClick={() => void copyDiagnostics()}>
         {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
       </button>
     </div>
@@ -649,6 +680,7 @@ function ToolActivity({ item, completed = false }: { item: Extract<ThreadItem, {
     <div className={`tool-activity tool-row${expandable ? " tool-row-expandable" : ""} timeline-activity tool-${item.status}`}>
       <Icon size={13} aria-hidden="true" />
       <span className="tool-label" title={label}>{label}</span>
+      {item.type === "dynamicToolCall" && ["edit", "write"].includes(item.tool) && item.status === "completed" && item.lineChanges ? <ChangeCounts lines={item.lineChanges} /> : null}
       {expandable ? <ChevronRight className="tool-detail-chevron" size={12} aria-hidden="true" /> : null}
       <span className="tool-result" aria-label={item.status}>
         {item.status === "failed" ? <X size={12} /> : null}
@@ -675,39 +707,44 @@ function ToolDetails({ item }: { item: ToolCallItem }) {
 function WebSearchDetails({ item, args }: { item: Extract<ThreadItem, { type: "dynamicToolCall" }>; args: Record<string, unknown> | undefined }) {
   const query = text(args?.query);
   return <div className="tool-details">
-    {query ? <ToolDetailBlock label="Query"><code>{query}</code></ToolDetailBlock> : null}
-    {item.webSearch ? <ToolDetailBlock label="Provider"><code>{item.webSearch.providerName}</code></ToolDetailBlock> : null}
-    {item.webSearch?.fallbackFrom ? <p className="tool-details-truncated">Fallback used after {providerLabel(item.webSearch.fallbackFrom)} was unavailable.</p> : null}
-    {item.output ? <ToolDetailBlock label="Results"><pre>{item.output}</pre></ToolDetailBlock> : null}
-    {item.truncated ? <p className="tool-details-truncated">Results truncated</p> : null}
-    {!item.output && item.status === "failed" ? <p className="tool-details-error">Web search failed without output.</p> : null}
+    {query ? <ToolDetailBlock label={t("timeline.detail.query")}><code>{query}</code></ToolDetailBlock> : null}
+    {item.webSearch ? <ToolDetailBlock label={t("timeline.detail.provider")}><code>{item.webSearch.providerName}</code></ToolDetailBlock> : null}
+    {item.webSearch?.fallbackFrom ? <p className="tool-details-truncated">{t("timeline.detail.fallback", { provider: providerLabel(item.webSearch.fallbackFrom) })}</p> : null}
+    {item.output ? <ToolDetailBlock label={t("timeline.detail.results")}><pre>{item.output}</pre></ToolDetailBlock> : null}
+    {item.truncated ? <p className="tool-details-truncated">{t("timeline.detail.resultsTruncated")}</p> : null}
+    {!item.output && item.status === "failed" ? <p className="tool-details-error">{t("timeline.detail.webSearchFailed")}</p> : null}
   </div>;
 }
 
 function ShellDetails({ item, command }: { item: ToolCallItem; command: string }) {
   return <div className="tool-details tool-shell-details">
-    <ToolDetailBlock label="Shell"><pre className="tool-shell-command"><span className="tool-shell-prompt">$</span> {command || "command"}</pre></ToolDetailBlock>
+    <ToolDetailBlock label={t("timeline.detail.shell")}><pre className="tool-shell-command"><span className="tool-shell-prompt">$</span> {command || t("timeline.detail.command")}</pre></ToolDetailBlock>
     {item.output ? <pre className="tool-shell-output">{item.output}</pre> : null}
-    {item.truncated ? <p className="tool-details-truncated">Output truncated</p> : null}
-    {!item.output && item.status === "failed" ? <p className="tool-details-error">Command failed without output.</p> : null}
+    {item.truncated ? <p className="tool-details-truncated">{t("timeline.detail.outputTruncated")}</p> : null}
+    {!item.output && item.status === "failed" ? <p className="tool-details-error">{t("timeline.detail.commandFailed")}</p> : null}
   </div>;
 }
 
 function FileOperationDetails({ item, args }: { item: ToolCallItem; args: Record<string, unknown> | undefined }) {
   return <div className="tool-details">
     {fileOperationContext(item.tool, args)}
-    {item.output ? <ToolDetailBlock label="Result"><pre>{item.output}</pre></ToolDetailBlock> : null}
-    {item.truncated ? <p className="tool-details-truncated">Result truncated</p> : null}
-    {!item.output && item.status === "failed" ? <p className="tool-details-error">Operation failed without output.</p> : null}
+    {item.output ? <ToolDetailBlock label={t("timeline.detail.result")}><pre>{item.output}</pre></ToolDetailBlock> : null}
+    {item.truncated ? <p className="tool-details-truncated">{t("timeline.detail.resultTruncated")}</p> : null}
+    {!item.output && item.status === "failed" ? <p className="tool-details-error">{t("timeline.detail.operationFailed")}</p> : null}
   </div>;
 }
 
 function FileChangeDetails({ item, args }: { item: ToolCallItem; args: Record<string, unknown> | undefined }) {
+  const diff = item.type === "dynamicToolCall" && item.status === "completed" ? item.fileDiff : undefined;
   return <div className="tool-details">
-    <ToolDetailBlock label="File"><code>{text(args?.path) || text(args?.file_path) || "Unknown file"}</code></ToolDetailBlock>
-    {item.output ? <ToolDetailBlock label="Result"><pre>{item.output}</pre></ToolDetailBlock> : null}
-    {item.truncated ? <p className="tool-details-truncated">Result truncated</p> : null}
-    {!item.output && item.status === "failed" ? <p className="tool-details-error">File change failed without output.</p> : null}
+    <ToolDetailBlock label={t("timeline.detail.file")}><code>{text(args?.path) || text(args?.file_path) || t("timeline.detail.unknownFile")}</code></ToolDetailBlock>
+    {diff ? <ToolDetailBlock label={t("timeline.detail.diff")}>
+      {diff.hunks.length ? <FileDiff hunks={diff.hunks} /> : <p className="turn-changes-note">{t("checkpoints.sameLines")}</p>}
+      {diff.truncated ? <p className="tool-details-truncated">{t("timeline.detail.diffTruncated")}</p> : null}
+    </ToolDetailBlock> : null}
+    {item.output ? <ToolDetailBlock label={t("timeline.detail.result")}><pre>{item.output}</pre></ToolDetailBlock> : null}
+    {item.truncated ? <p className="tool-details-truncated">{t("timeline.detail.resultTruncated")}</p> : null}
+    {!item.output && item.status === "failed" ? <p className="tool-details-error">{t("timeline.detail.fileChangeFailed")}</p> : null}
   </div>;
 }
 
@@ -715,10 +752,10 @@ function StructuredToolDetails({ item }: { item: ToolCallItem }) {
   return (
     <div className="tool-details">
       {item.images?.length ? <ToolImagePreviews images={item.images} /> : null}
-      {item.arguments !== undefined ? <ToolDetailBlock label="Input"><pre>{formatToolValue(item.arguments)}</pre></ToolDetailBlock> : null}
-      {item.output ? <ToolDetailBlock label="Output"><pre>{item.output}</pre></ToolDetailBlock> : null}
-      {item.truncated ? <p className="tool-details-truncated">Output truncated</p> : null}
-      {!item.output && item.status === "failed" ? <p className="tool-details-error">The tool call failed without output.</p> : null}
+      {item.arguments !== undefined ? <ToolDetailBlock label={t("timeline.detail.input")}><pre>{formatToolValue(item.arguments)}</pre></ToolDetailBlock> : null}
+      {item.output ? <ToolDetailBlock label={t("timeline.detail.output")}><pre>{item.output}</pre></ToolDetailBlock> : null}
+      {item.truncated ? <p className="tool-details-truncated">{t("timeline.detail.outputTruncated")}</p> : null}
+      {!item.output && item.status === "failed" ? <p className="tool-details-error">{t("timeline.detail.toolFailed")}</p> : null}
     </div>
   );
 }
@@ -729,7 +766,7 @@ function ToolImagePreviews({ images }: { images: PromptImage[] }) {
       <ConversationImage
         key={`${image.mediaType}:${index}`}
         image={image}
-        alt={image.name ?? (images.length === 1 ? "Tool result image" : `Tool result image ${index + 1}`)}
+        alt={image.name ?? (images.length === 1 ? t("timeline.detail.toolImage") : t("timeline.detail.toolImageNumber", { number: index + 1 }))}
       />
     ))}
   </div>;
@@ -738,10 +775,10 @@ function ToolImagePreviews({ images }: { images: PromptImage[] }) {
 function fileOperationContext(tool: string, args: Record<string, unknown> | undefined): ReactNode {
   const path = text(args?.path) || text(args?.file_path);
   const query = text(args?.pattern) || text(args?.query);
-  if (tool === "read") return path ? <ToolDetailBlock label="File"><code>{path}</code></ToolDetailBlock> : null;
-  if (query && path) return <ToolDetailBlock label="Search"><code>{query} in {path}</code></ToolDetailBlock>;
-  if (query) return <ToolDetailBlock label="Search"><code>{query}</code></ToolDetailBlock>;
-  return path ? <ToolDetailBlock label="Path"><code>{path}</code></ToolDetailBlock> : null;
+  if (tool === "read") return path ? <ToolDetailBlock label={t("timeline.detail.file")}><code>{path}</code></ToolDetailBlock> : null;
+  if (query && path) return <ToolDetailBlock label={t("timeline.detail.search")}><code>{t("timeline.detail.queryIn", { query, path })}</code></ToolDetailBlock>;
+  if (query) return <ToolDetailBlock label={t("timeline.detail.search")}><code>{query}</code></ToolDetailBlock>;
+  return path ? <ToolDetailBlock label={t("timeline.detail.path")}><code>{path}</code></ToolDetailBlock> : null;
 }
 
 function ToolDetailBlock({ label, children }: { label: string; children: ReactNode }) {
@@ -752,7 +789,8 @@ function hasToolDetails(item: ToolCallItem): boolean {
   if (item.status === "failed" || item.truncated) return true;
   if (item.type === "mcpToolCall") return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
   if (item.tool === "bash") return Boolean(text(record(item.arguments)?.command) || item.output);
-  if (["read", "grep", "find", "ls", "edit", "write"].includes(item.tool)) return Boolean(item.output);
+  if (["edit", "write"].includes(item.tool)) return Boolean(item.output || item.fileDiff);
+  if (["read", "grep", "find", "ls"].includes(item.tool)) return Boolean(item.output);
   return item.arguments !== undefined || Boolean(item.output) || Boolean(item.images?.length);
 }
 
@@ -788,23 +826,23 @@ function ArtifactPreview({ projectId, artifact }: { projectId: string; artifact:
     };
   }, [artifact.path, projectId, visible]);
   return <div ref={target} className="tool-artifact-preview">{!url ? null : artifact.type === "model"
-    ? <ModelPreview source={url} label="Generated 3D model" minHeight={320} />
+    ? <ModelPreview source={url} label={t("timeline.generated3d")} minHeight={320} />
     : artifact.type === "video"
       ? <video className="tool-artifact-video" src={url} controls preload="metadata" />
-    : <img className="tool-artifact-image" src={url} alt="Generated image" />}</div>;
+    : <img className="tool-artifact-image" src={url} alt={t("timeline.generatedImage")} />}</div>;
 }
 
 function preparingToolLabel(toolName: string): string {
   switch (toolName) {
-    case "bash": return "Preparing command";
-    case "read": return "Preparing read";
-    case "write": return "Preparing file";
-    case "edit": return "Preparing edit";
-    case "web_search": return "Preparing web search";
-    case "mcp": return "Preparing MCP";
-    case "game_use": return "Preparing game use";
-    case "tool": return "Preparing";
-    default: return `Preparing ${toolName}`;
+    case "bash":
+    case "read":
+    case "write":
+    case "edit":
+    case "web_search":
+    case "mcp":
+    case "game_use":
+    case "tool": return t(`timeline.preparing.${toolName}`);
+    default: return t("timeline.preparing.other", { tool: toolName });
   }
 }
 
@@ -812,12 +850,12 @@ function runningToolGroupLabel(item: ToolCallItem, label: string): string {
   if (item.type === "mcpToolCall") return label;
   switch (item.tool) {
     case "edit":
-    case "write": return "Edit Files";
-    case "read": return "Read Files";
+    case "write": return t("timeline.group.edit");
+    case "read": return t("timeline.group.read");
     case "grep":
-    case "find": return "Search Files";
-    case "ls": return "List Files";
-    case "web_search": return "Search Web";
+    case "find": return t("timeline.group.search");
+    case "ls": return t("timeline.group.list");
+    case "web_search": return t("timeline.group.web");
     default: return item.status === "preparing" ? preparingToolLabel(item.tool) : label;
   }
 }
@@ -830,16 +868,16 @@ function toolPresentation(item: Extract<ThreadItem, { type: "dynamicToolCall" | 
   const args = item.arguments;
   const values = record(args);
   switch (toolName) {
-    case "bash": return { icon: Terminal, label: `Running ${text(values?.command) || "command"}` };
-    case "edit": return { icon: FilePenLine, label: withTarget("Editing", values) };
-    case "write": return { icon: FileText, label: withTarget("Writing", values) };
-    case "read": return { icon: FileText, label: withTarget("Reading", values) };
-    case "grep": return { icon: Search, label: searchLabel("Searching for", values) };
-    case "find": return { icon: Search, label: searchLabel("Finding", values) };
-    case "ls": return { icon: FileText, label: withTarget("Listing", values) };
-    case "web_search": return { icon: Search, label: searchLabel("Searching the web for", values) };
+    case "bash": return { icon: Terminal, label: t("timeline.running", { command: text(values?.command) || t("timeline.detail.command") }) };
+    case "edit": return { icon: FilePenLine, label: withTarget("editing", values) };
+    case "write": return { icon: FileText, label: withTarget("writing", values) };
+    case "read": return { icon: FileText, label: withTarget("reading", values) };
+    case "grep": return { icon: Search, label: searchLabel("searchingFor", values) };
+    case "find": return { icon: Search, label: searchLabel("finding", values) };
+    case "ls": return { icon: FileText, label: withTarget("listing", values) };
+    case "web_search": return { icon: Search, label: searchLabel("searchingWeb", values) };
     case "game_use": return { icon: Gamepad2, label: playtestLabel(values, false) };
-    case "generate_image": return { icon: WandSparkles, label: "Generating image" };
+    case "generate_image": return { icon: WandSparkles, label: t("timeline.generatingImage") };
     default: return { icon: Wrench, label: toolName };
   }
 }
@@ -852,50 +890,50 @@ function completedToolPresentation(item: Extract<ThreadItem, { type: "dynamicToo
   const args = item.arguments;
   const values = record(args);
   switch (toolName) {
-    case "bash": return { icon: Terminal, label: `Ran ${text(values?.command) || "command"}` };
+    case "bash": return { icon: Terminal, label: t("timeline.ran", { command: text(values?.command) || t("timeline.detail.command") }) };
     case "edit":
-    case "write": return { icon: FilePenLine, label: withTarget("Edited", values) };
-    case "read": return { icon: FileText, label: withTarget("Read", values) };
-    case "grep": return { icon: Search, label: searchLabel("Searched for", values) };
-    case "find": return { icon: Search, label: searchLabel("Searched for", values) };
-    case "ls": return { icon: FileText, label: withTarget("Listed", values) };
-    case "web_search": return { icon: Search, label: searchLabel("Searched the web for", values) };
+    case "write": return { icon: FilePenLine, label: withTarget("edited", values) };
+    case "read": return { icon: FileText, label: withTarget("read", values) };
+    case "grep": return { icon: Search, label: searchLabel("searchedFor", values) };
+    case "find": return { icon: Search, label: searchLabel("searchedFor", values) };
+    case "ls": return { icon: FileText, label: withTarget("listed", values) };
+    case "web_search": return { icon: Search, label: searchLabel("searchedWeb", values) };
     case "game_use": return { icon: Gamepad2, label: playtestLabel(values, true) };
-    case "generate_image": return { icon: WandSparkles, label: "Generated image" };
-    default: return { icon: Wrench, label: `Used ${toolName}` };
+    case "generate_image": return { icon: WandSparkles, label: t("timeline.generatedImage") };
+    default: return { icon: Wrench, label: t("timeline.used", { tool: toolName }) };
   }
 }
 
 function playtestLabel(values: Record<string, unknown> | undefined, completed: boolean): string {
-  switch (text(values?.operation)) {
-    case "open": return completed ? "Opened game preview" : "Opening game preview";
-    case "inspect": return completed ? "Inspected game state" : "Inspecting game state";
+  const operation = text(values?.operation);
+  switch (operation) {
+    case "open":
+    case "inspect":
+    case "capture":
+    case "close": return t(`timeline.playtest.${operation}.${completed ? "done" : "running"}`);
     case "act": {
       const count = Array.isArray(values?.actions) ? values.actions.length : 0;
-      const target = count === 1 ? "a playtest action" : "playtest actions";
-      return completed ? `Ran ${target}` : `Running ${target}`;
+      return t(`timeline.playtest.${count === 1 ? "action" : "actions"}.${completed ? "done" : "running"}`);
     }
-    case "capture": return completed ? "Captured game screenshot" : "Capturing game screenshot";
-    case "close": return completed ? "Closed game preview" : "Closing game preview";
-    default: return completed ? "Used game playtest" : "Running game playtest";
+    default: return t(`timeline.playtest.other.${completed ? "done" : "running"}`);
   }
 }
 
 function providerLabel(provider: "exa" | "parallel" | "custom"): string {
-  return provider === "exa" ? "Exa" : provider === "parallel" ? "Parallel" : "the custom provider";
+  return provider === "exa" ? "Exa" : provider === "parallel" ? "Parallel" : t("timeline.detail.customProvider");
 }
 
-function searchLabel(action: string, values: Record<string, unknown> | undefined): string {
+function searchLabel(action: "searchingFor" | "finding" | "searchingWeb" | "searchedFor" | "searchedWeb", values: Record<string, unknown> | undefined): string {
   const query = text(values?.pattern) || text(values?.query);
   const target = text(values?.path) || text(values?.file_path);
-  if (query && target) return `${action} ${query} in ${target}`;
-  if (query) return `${action} ${query}`;
-  return target ? `${action} files in ${target}` : `${action} files`;
+  if (query && target) return t(`timeline.search.${action}.queryIn`, { query, target });
+  if (query) return t(`timeline.search.${action}.query`, { query });
+  return target ? t(`timeline.search.${action}.filesIn`, { target }) : t(`timeline.search.${action}.files`);
 }
 
-function withTarget(action: string, values: Record<string, unknown> | undefined): string {
+function withTarget(action: "editing" | "writing" | "reading" | "listing" | "edited" | "read" | "listed", values: Record<string, unknown> | undefined): string {
   const target = text(values?.path) || text(values?.file_path);
-  return target ? `${action} ${target}` : `${action} file`;
+  return target ? t(`timeline.target.${action}.with`, { target }) : t(`timeline.target.${action}.without`);
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

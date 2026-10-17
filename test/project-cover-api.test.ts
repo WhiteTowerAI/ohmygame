@@ -29,6 +29,41 @@ async function fixture(type = "web-game", localDebug = false) {
 }
 
 describe("project cover API", () => {
+  it("toggles automatic replacement without uploading a custom cover", async () => {
+    const { app, url, put } = await fixture();
+    const mode = (value: string) => app.inject({ method: "PUT", url: `${url}/state`, payload: { mode: value } });
+    await put(webp("automatic"), "auto");
+    expect((await mode("custom")).statusCode).toBe(204);
+    await put(webp("late capture"), "auto");
+    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("automatic"));
+    expect((await app.inject({ method: "GET", url: `${url}/state` })).json()).toEqual({ mode: "custom" });
+    expect((await mode("auto")).statusCode).toBe(204);
+    await put(webp("new capture"), "auto");
+    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("new capture"));
+    expect((await mode("unknown")).statusCode).toBe(400);
+    expect((await app.inject({ method: "PUT", url: `${url}/state`, payload: {} })).statusCode).toBe(400);
+    expect((await app.inject({ method: "PUT", url: "/projects/missing/cover/state", payload: { mode: "custom" } })).statusCode).toBe(404);
+  });
+
+  it.each([false, true])("freezes the Interactive Story cover with an existing thumbnail: %s", async (existing) => {
+    const { app, project, url } = await fixture("interactive-story");
+    await writePlayableFixtureWorkspace(project.workspacePath);
+    const thumbnail = (label: string) => app.inject({
+      method: "PUT", url: `/projects/${project.id}/playable/thumbnails/menu?hash=0123abcd0123ab`,
+      headers: { "content-type": "image/webp" }, payload: webp(label),
+    });
+    if (existing) await thumbnail("scene");
+    expect((await app.inject({ method: "PUT", url: `${url}/state`, payload: { mode: "custom" } })).statusCode).toBe(204);
+    await thumbnail("updated scene");
+    // Retrying the same preference must not populate a cover that was frozen empty.
+    expect((await app.inject({ method: "PUT", url: `${url}/state`, payload: { mode: "custom" } })).statusCode).toBe(204);
+    const frozen = await app.inject({ method: "GET", url });
+    if (existing) expect(frozen.rawPayload).toEqual(webp("scene"));
+    else expect(frozen.statusCode).toBe(404);
+    expect((await app.inject({ method: "PUT", url: `${url}/state`, payload: { mode: "auto" } })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("updated scene"));
+  });
+
   it("saves custom covers independently of publishing and resumes automatic covers on reset", async () => {
     const { app, url, put } = await fixture();
     expect((await app.inject({ method: "GET", url: `${url}/state` })).json()).toEqual({ mode: "auto" });
@@ -44,6 +79,20 @@ describe("project cover API", () => {
     expect((await put(webp("invalid source"), "unknown")).statusCode).toBe(400);
     expect((await app.inject({ method: "GET", url: "/projects/missing/cover/state" })).statusCode).toBe(404);
     expect((await app.inject({ method: "DELETE", url: "/projects/missing/cover" })).statusCode).toBe(404);
+  });
+
+  it("retains an uploaded cover while automatic mode is enabled and restores it when disabled", async () => {
+    const { app, url, put } = await fixture();
+    const mode = (value: string) => app.inject({ method: "PUT", url: `${url}/state`, payload: { mode: value } });
+    await put(webp("automatic"), "auto");
+    await put(webp("uploaded"));
+    expect((await mode("auto")).statusCode).toBe(204);
+    await put(webp("new capture"), "auto");
+    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("new capture"));
+    expect((await mode("custom")).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("uploaded"));
+    await put(webp("late capture"), "auto");
+    expect((await app.inject({ method: "GET", url })).rawPayload).toEqual(webp("uploaded"));
   });
 
   it("restores the Interactive Story thumbnail fallback without stopping node thumbnail updates", async () => {

@@ -1,5 +1,6 @@
 import { ArrowRight, Pencil } from "./icons.js";
 import type { KeyboardEvent } from "react";
+import { t } from "./i18n.js";
 
 interface InlineAnswerBaseProps {
   disabled?: boolean;
@@ -51,14 +52,14 @@ export function InlineAnswer(props: InlineAnswerProps) {
         aria-label={props.label}
         onChange={(event) => props.onChange(event.target.value)}
         onKeyDown={keyDown}
-        placeholder={props.placeholder ?? "Type another answer"}
+        placeholder={props.placeholder ?? t("questionnaire.other")}
       />
       <button
         className="inline-answer-submit"
         type="button"
         disabled={props.disabled || !props.value.trim()}
         onClick={props.onSubmit}
-        aria-label="Submit answer"
+        aria-label={t("questionnaire.submit")}
       >
         <ArrowRight size={15} />
       </button>

@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Circle, CircleDot } from "./icons.js";
 import type { PlanState } from "../shared/contracts.js";
+import { t } from "./i18n.js";
 
 interface PlanStatusProps {
   plan?: PlanState;
@@ -11,8 +12,8 @@ export function PlanStatus({ plan }: PlanStatusProps) {
   const current = plan.steps[currentIndex];
   const completed = plan.steps.filter((step) => step.status === "completed").length;
   const summary = current
-    ? `Step ${currentIndex + 1} / ${plan.steps.length} · ${current.step}`
-    : `${completed} / ${plan.steps.length} steps completed`;
+    ? t("planStatus.step", { current: currentIndex + 1, total: plan.steps.length, step: current.step })
+    : t("planStatus.completed", { completed, total: plan.steps.length });
 
   return (
     <div className="plan-status">

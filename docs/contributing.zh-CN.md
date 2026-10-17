@@ -43,6 +43,7 @@ Supabase 配置时，本地开发支持调试账户和临时本地发布。测�
 
 ```bash
 bun run prepare:preinstalled-plugins
+bun run changelog:check
 bun run typecheck
 bun run test
 bun run build:renderer
@@ -59,6 +60,9 @@ bun run test:node-runtime
 填写 PR 模板，说明改了什么、为什么改、如何验证，关联相关 Issue，并记录
 尚未完成的检查。UI 改动附截图或短录屏。显式选择上游 `dev` 作为目标分支；
 GitHub 在分支迁移期间仍可能默认选择 `main`。
+
+[更新日志](../CHANGELOG.md)由维护者在准备发布时统一整理，普通 PR 无需修改。
+在 PR 描述中说明用户可感知的变化，便于维护者编写发布说明。
 
 可以先发 Draft 获取反馈，完成后标记为可评审。评审中的后续修改继续推送到
 同一个贡献分支；遇到阻碍，在 PR 中说明。

@@ -27,6 +27,7 @@ import { Hand, Maximize, Minus, MousePointer2, Plus } from "./icons.js";
 // React Flow's own layout rules, loaded with the one canvas both editors use,
 // since either editor may be the first to load.
 import "@xyflow/react/dist/style.css";
+import { t } from "./i18n.js";
 
 type CanvasPosition = { x: number; y: number };
 type InteractionMode = "pointer" | "pan";
@@ -122,7 +123,7 @@ export function EditorCanvas<N extends Node>({
       onInit={(value) => { instance.current = value; onInit?.(value); }}
       onNodeDragStart={(event, node, dragged) => { setGuides(undefined); onNodeDragStart?.(event, node, dragged); }}
       onNodeDrag={(_event, node) => {
-        const [active, ...candidates] = alignmentNodesFromDom([node, ...nodes]);
+        const [active, ...candidates] = alignmentNodesFromDom([node, ...nodes.filter((candidate) => !candidate.dragging)]);
         setGuides(active ? findCanvasAlignmentGuides(active, candidates) : undefined);
       }}
       onNodeDragStop={(event, node, dragged) => { setGuides(undefined); onNodeDragStop?.(event, node, dragged); }}
@@ -135,13 +136,14 @@ export function EditorCanvas<N extends Node>({
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="var(--interactive-story-grid)" />
       <AlignmentGuides guides={guides} />
       <ZoomControls />
+      <PinchZoomOverScrollingContent />
       {fitViewOnLoad ? <InitialCanvasView onReady={onInitialFit} /> : null}
       <Panel className="story-canvas-toolbar" position="bottom-center">
         {addControl}
-        <button className={mode === "pointer" ? "is-active" : undefined} type="button" title="Select" aria-label="Select" aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
+        <button className={mode === "pointer" ? "is-active" : undefined} type="button" title={t("editorCanvas.select")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
           <MousePointer2 size={18} />
         </button>
-        <button className={mode === "pan" ? "is-active" : undefined} type="button" title="Pan canvas" aria-label="Pan canvas" aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>
+        <button className={mode === "pan" ? "is-active" : undefined} type="button" title={t("editorCanvas.pan")} aria-label={t("editorCanvas.pan")} aria-pressed={mode === "pan"} onClick={() => setMode("pan")}>
           <Hand size={18} />
         </button>
         <FitViewButton />
@@ -149,6 +151,53 @@ export function EditorCanvas<N extends Node>({
       {children}
     </ReactFlow>
   );
+}
+
+/**
+ * React Flow leaves every wheel event over `nowheel` content to that content,
+ * including a trackpad pinch, which macOS sends as a wheel event with ctrlKey.
+ * Content scrolls but never zooms, so a pinch there zooms the canvas the way
+ * React Flow zooms it everywhere else.
+ */
+function PinchZoomOverScrollingContent() {
+  const domNode = useStore((state) => state.domNode);
+  const minZoom = useStore((state) => state.minZoom);
+  const maxZoom = useStore((state) => state.maxZoom);
+  const { getViewport, setViewport } = useReactFlow();
+  useEffect(() => {
+    if (!domNode) return;
+    const pinch = (event: WheelEvent) => {
+      if (!event.ctrlKey || !(event.target instanceof Element) || !event.target.closest(".nowheel")) return;
+      event.preventDefault();
+      const bounds = domNode.getBoundingClientRect();
+      void setViewport(pinchedViewport(
+        getViewport(),
+        { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+        event,
+        { minZoom, maxZoom, mac: navigator.platform.startsWith("Mac") },
+      ));
+    };
+    domNode.addEventListener("wheel", pinch, { passive: false });
+    return () => domNode.removeEventListener("wheel", pinch);
+  }, [domNode, minZoom, maxZoom, getViewport, setViewport]);
+  return null;
+}
+
+/** The viewport after a pinch at `pointer`, which keeps the point under it in place; React Flow's own pinch step. */
+export function pinchedViewport(
+  viewport: { x: number; y: number; zoom: number },
+  pointer: CanvasPosition,
+  wheel: Pick<WheelEvent, "deltaY" | "deltaMode">,
+  { minZoom, maxZoom, mac }: { minZoom: number; maxZoom: number; mac: boolean },
+): { x: number; y: number; zoom: number } {
+  const delta = -wheel.deltaY * (wheel.deltaMode === 1 ? 0.05 : wheel.deltaMode ? 1 : 0.002) * (mac ? 10 : 1);
+  const zoom = Math.min(maxZoom, Math.max(minZoom, viewport.zoom * 2 ** delta));
+  const scale = zoom / viewport.zoom;
+  return {
+    x: pointer.x - (pointer.x - viewport.x) * scale,
+    y: pointer.y - (pointer.y - viewport.y) * scale,
+    zoom,
+  };
 }
 
 /** Wait for actual node sizes and a visible canvas before consuming a remix's fit request. */
@@ -260,7 +309,7 @@ function FitViewButton() {
     }
     await fitView({ padding: 0.2, duration: 200 });
   }
-  return <button type="button" title="Fit view" aria-label="Fit view" onClick={() => void fitCanvas()}><Maximize size={18} /></button>;
+  return <button type="button" title={t("editorCanvas.fit")} aria-label={t("editorCanvas.fit")} onClick={() => void fitCanvas()}><Maximize size={18} /></button>;
 }
 
 function AlignmentGuides({ guides }: { guides?: CanvasAlignmentGuides }) {
@@ -322,9 +371,9 @@ function ZoomControls() {
   const { zoom } = useViewport();
   return (
     <Panel className="story-canvas-zoom" position="bottom-left">
-      <button type="button" title="Zoom out" aria-label="Zoom out" onClick={() => void zoomOut()}><Minus size={14} /></button>
-      <button className="story-canvas-zoom-value" type="button" title="Reset zoom" onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" title="Zoom in" aria-label="Zoom in" onClick={() => void zoomIn()}><Plus size={14} /></button>
+      <button type="button" title={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size={14} /></button>
+      <button className="story-canvas-zoom-value" type="button" title={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
+      <button type="button" title={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size={14} /></button>
     </Panel>
   );
 }

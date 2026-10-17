@@ -11,7 +11,10 @@
 .plugin-builder-preview-content.is-files { display: flex; overflow: hidden; padding: 0; }
 .plugin-builder-preview-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; min-width: 0; width: 100%; min-height: 100%; color: var(--text-muted); font-size: 11px; }
 .plugin-builder-overview { max-width: 740px; margin: 0 auto; }
-.plugin-builder-overview-heading { display: flex; align-items: baseline; gap: 10px; }
+.plugin-builder-overview-heading { display: flex; align-items: center; gap: 10px; }
+.plugin-builder-icon-button { padding: 0; border: 0; border-radius: 9px; background: transparent; cursor: pointer; }
+.plugin-builder-icon-button:hover .plugin-row-icon { background: var(--control-selected); color: var(--theme-accent); }
+.plugin-builder-icon-button:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 3px; }
 .plugin-builder-overview-heading h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
 .plugin-builder-overview-heading small { color: var(--text-muted); font-size: 10px; }
 .plugin-builder-overview > section { margin-top: 20px; }
@@ -36,16 +39,24 @@
 .plugin-builder-check strong { font-size: 12px; font-weight: 500; }
 .plugin-builder-check small { color: var(--text-secondary); font-size: 10px; line-height: 1.7; }
 .plugin-builder-check > small { white-space: nowrap; }
-.plugin-builder-recents { margin-bottom: 28px; }
-.plugin-builder-recents h2 { font-size: 13px; font-weight: 500; margin: 0 0 16px; }
-.plugin-builder-recents > div { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
-.plugin-builder-recents a { display: flex; align-items: center; gap: 12px; padding: 16px; background: var(--settings-row-surface); border-radius: 8px; color: var(--text); text-decoration: none; }
-.plugin-builder-recents a:hover { background: var(--control-selected); }
-.plugin-builder-recents a > span { display: grid; gap: 6px; min-width: 0; }
-.plugin-builder-recents strong { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plugin-builder-recents small { color: var(--text-muted); font-size: 10px; }
-.plugin-builder-recents a > svg { flex-shrink: 0; color: var(--text-secondary); }
-.plugin-builder-recents a > svg:last-child { margin-left: auto; }
+.plugin-builder-sessions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-top: 10px; }
+.plugin-builder-session-card { position: relative; display: flex; min-width: 0; min-height: 60px; align-items: center; border-radius: 7px; background: var(--settings-row-surface); }
+.plugin-builder-session-card:hover { background: var(--surface-hover); }
+.plugin-builder-session-link { display: flex; min-width: 0; flex: 1; align-items: center; gap: 10px; padding: 10px 12px; border-radius: inherit; color: var(--text); text-decoration: none; }
+.plugin-builder-session-icon { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; border-radius: 7px; background: var(--surface-hover); color: var(--text-secondary); }
+.plugin-builder-session-copy { display: grid; min-width: 0; gap: 3px; }
+.plugin-builder-session-copy strong { overflow: hidden; color: var(--text); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-builder-session-copy small { overflow: hidden; color: var(--text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-builder-session-actions { position: relative; flex: 0 0 auto; margin-right: 7px; }
+.plugin-builder-session-menu-button { display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.plugin-builder-session-menu-button:hover, .plugin-builder-session-menu-button:focus-visible, .plugin-builder-session-menu-button[aria-expanded="true"] { outline: 0; background: var(--surface-hover); color: var(--text); }
+.plugin-builder-session-menu-button:disabled { cursor: default; opacity: 0.55; }
+.plugin-builder-session-menu { position: absolute; z-index: 10; top: calc(100% + 4px); right: 0; display: grid; min-width: 136px; padding: 4px; border: 1px solid var(--menu-border); border-radius: 7px; background: var(--menu-surface); box-shadow: var(--menu-shadow); }
+.plugin-builder-session-menu button { display: flex; width: 100%; height: 32px; align-items: center; gap: 7px; padding: 0 8px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 11px; font-weight: 500; text-align: left; }
+.plugin-builder-session-menu button:hover:not(:disabled), .plugin-builder-session-menu button:focus-visible:not(:disabled) { outline: 0; background: var(--menu-hover); color: var(--text); }
+.plugin-builder-session-menu button:disabled { cursor: default; opacity: 0.5; }
+.plugin-builder-session-menu .plugin-builder-session-delete { color: var(--danger); }
+@media (max-width: 760px) { .plugin-builder-sessions-grid { grid-template-columns: 1fr; } }
 @container workspace-header (min-width: 521px) {
   .plugin-builder-preview[data-active-tab="overview"] .workspace-tabs { --workspace-active-tab-width: 88px; }
 }
@@ -57,3 +68,22 @@
   .plugin-builder-check { flex-wrap: wrap; }
   .plugin-builder-check > button { margin-left: 30px; }
 }
+
+.plugin-install-dialog.plugin-icon-picker { gap: 0; width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; }
+.plugin-icon-picker > .plugin-icon-picker-heading { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.plugin-icon-picker-heading h2 { margin: 0 0 5px; }
+.plugin-icon-picker-heading p { margin: 0; color: var(--text-muted); font-size: 11px; }
+.plugin-icon-modes { display: flex; gap: 4px; margin-bottom: 18px; padding: 3px; background: var(--surface-hover); border-radius: 7px; }
+.plugin-icon-modes button { flex: 1; padding: 8px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); font: inherit; font-size: 11px; cursor: pointer; }
+.plugin-icon-modes button[aria-pressed="true"] { color: var(--text); background: var(--control-selected); }
+.plugin-icon-picker fieldset { display: grid; gap: 14px; min-width: 0; padding: 0; margin: 0; border: 0; }
+.plugin-icon-picker label { display: grid; gap: 6px; }
+.plugin-icon-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.plugin-icon-grid button { display: grid; justify-items: center; gap: 8px; min-width: 0; padding: 10px 2px; border: 1px solid transparent; border-radius: 6px; background: var(--surface-hover); color: var(--text-secondary); cursor: pointer; }
+.plugin-icon-grid button:hover { background: var(--control-selected); }
+.plugin-icon-grid button[aria-pressed="true"] { border-color: var(--theme-accent); color: var(--theme-accent); background: color-mix(in srgb, var(--theme-accent) 8%, transparent); }
+.plugin-icon-grid button span { font-size: 9px; }
+.plugin-icon-help { margin: 0; color: var(--text-muted); font-size: 11px; line-height: 1.6; }
+.plugin-icon-picker footer { display: flex; gap: 8px; margin-top: 22px; }
+.plugin-icon-picker footer > button:first-child { margin-right: auto; }
+@media (max-width: 480px) { .plugin-icon-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }

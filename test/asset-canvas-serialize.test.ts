@@ -78,10 +78,49 @@ describe("Asset Canvas node serialization", () => {
     (node.data as { reasoningLevel: string }).reasoningLevel = "turbo";
     expect(isAssetCanvasDocument(canvas)).toBe(false);
   });
-  it.each(["text", "image", "video", "model-3d", "animate-3d", "asset", "document"] as const)("preserves %s node metadata without runtime fields", (type) => {
+  it.each(["text", "image", "video", "speech", "sound-effect", "music", "model-3d", "animate-3d", "asset", "document"] as const)("preserves %s node metadata without runtime fields", (type) => {
     const node = toAssetCanvasNode({ id: "node", type, position: { x: 0, y: 0 }, title: "Player", description: "Main character", data: { documentId: "rules", assetId: "reference", text: "Rules", nodeDetails: { title: "Runtime name", label: "Runtime label", edit: () => {} } } });
     expect(node).toMatchObject({ title: "Player", description: "Main character" });
     expect(node.data).not.toHaveProperty("nodeDetails");
+  });
+  it("round-trips a speech node without runtime fields and accepts it as a saved board", () => {
+    const node = toAssetCanvasNode({ id: "narration", type: "speech", position: { x: 0, y: 0 }, data: {
+      text: "欢迎来到雾港。", promptSource: { type: "node", nodeId: "script" }, audioModel: { provider: "volcengine-tts", id: "seed-tts-2.0" },
+      voiceId: "zh_male_m191_uranus_bigtts", speed: 25, assetId: "audio-1", audioRuntime: { models: [], providers: [] },
+    } as unknown as Parameters<typeof toAssetCanvasNode>[0]["data"] });
+    expect(node.type).toBe("speech");
+    expect(node.data).toEqual({ text: "欢迎来到雾港。", promptSource: { type: "node", nodeId: "script" }, model: { provider: "volcengine-tts", id: "seed-tts-2.0" }, voiceId: "zh_male_m191_uranus_bigtts", speed: 25, assetId: "audio-1" });
+    const canvas = createAssetCanvasDocument();
+    canvas.nodes = [
+      node,
+      { id: "script", type: "text", position: { x: 0, y: 200 }, data: { text: "欢迎来到雾港。", instruction: "" } },
+    ];
+    canvas.editorLayout.nodes = { narration: { x: 0, y: 0 }, script: { x: 0, y: 200 } };
+    expect(isAssetCanvasDocument(canvas)).toBe(true);
+    if (canvas.nodes[0]!.type !== "speech") throw new Error("Expected speech node");
+    canvas.nodes[0]!.data.speed = 200;
+    expect(isAssetCanvasDocument(canvas)).toBe(false);
+  });
+  it.each([
+    ["sound-effect", { prompt: "Heavy rain", durationSeconds: 10, loop: true, negativePrompt: "thunder", assetId: "sfx-1" }],
+    ["music", { prompt: "Quiet harbor theme", instrumental: false, lyrics: "Follow the tide", durationSeconds: 60, loop: false, assetId: "music-1" }],
+  ] as const)("round-trips a %s node", (type, data) => {
+    const node = toAssetCanvasNode({ id: type, type, position: { x: 10, y: 20 }, data: { ...data, audioModel: { provider: "audio-provider", id: "audio-model" } } });
+    expect(node).toMatchObject({ type, data: { ...data, model: { provider: "audio-provider", id: "audio-model" } } });
+    const board = createAssetCanvasDocument();
+    board.nodes = [node];
+    board.editorLayout.nodes = { [type]: { x: 10, y: 20 } };
+    expect(isAssetCanvasDocument(board)).toBe(true);
+  });
+  it.each(["speech", "sound-effect", "music"] as const)("connects text and document nodes to a %s node as its prompt source", async (type) => {
+    const { connectionRelation } = await import("../src/renderer/asset-canvas-workspace.js");
+    const text = { id: "script", type: "text", position: { x: 0, y: 0 }, data: { text: "Welcome", instruction: "" } } as Parameters<typeof connectionRelation>[0];
+    const target = { id: "audio", type, position: { x: 200, y: 0 }, data: type === "speech" ? { text: "" } : type === "music" ? { prompt: "", instrumental: true } : { prompt: "" } } as Parameters<typeof connectionRelation>[1];
+    expect(connectionRelation(text, target, undefined, [], [], [])).toBe("prompt");
+    target.data.promptSource = { type: "node", nodeId: "script" };
+    expect(connectionRelation(text, target, undefined, [], [], [])).toBeUndefined();
+    const image = { id: "art", type: "image", position: { x: 0, y: 100 }, data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [] } } as Parameters<typeof connectionRelation>[0];
+    expect(connectionRelation(image, target, undefined, [], [], [])).toBeUndefined();
   });
 });
 

@@ -53,7 +53,12 @@ const electron = vi.hoisted(() => {
     /** Child frames of the page, such as a Playable Nodes sandbox. */
     readonly childFrames: { url: string; executeJavaScript: (script: string) => Promise<unknown> }[] = [];
     frameBoxes: { url: string; x: number; y: number; scaleX: number; scaleY: number }[] = [];
-    readonly webContents = {
+    // Electron throws when a destroyed window's webContents is read.
+    get webContents() {
+      if (this.destroyed) throw new TypeError("Object has been destroyed");
+      return this.contents;
+    }
+    readonly contents = {
       id: windows.length + 1,
       debugger: this.debugger,
       session: this.session,
@@ -81,7 +86,7 @@ const electron = vi.hoisted(() => {
       isDestroyed: vi.fn(() => this.destroyed),
       mainFrame: {
         frames: this.childFrames,
-        executeJavaScript: (script: string) => this.webContents.executeJavaScript(script),
+        executeJavaScript: (script: string) => this.contents.executeJavaScript(script),
       },
     };
 
@@ -256,6 +261,40 @@ describe("electron playtest driver", () => {
     expect(keyboardLock).toHaveBeenCalledWith(true);
     expect(crossOrigin).toHaveBeenCalledWith(false);
     driver.close();
+  });
+
+  it("keeps session callbacks safe after the window is destroyed", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0]!;
+    const contents = window.webContents;
+    await driver.request({ operation: "close", sessionId: opened.snapshot.sessionId });
+    expect(window.destroyed).toBe(true);
+
+    const mainFrame = { requestingUrl: "http://127.0.0.1:43123/", isMainFrame: true };
+    expect(window.session.permissionCheckHandler!(contents, "pointerLock", "http://127.0.0.1:43123", mainFrame)).toBe(true);
+    const callback = vi.fn();
+    window.session.permissionHandler!(contents, "pointerLock", callback, mainFrame);
+    expect(callback).toHaveBeenCalledWith(true);
+    expect(() => window.session.requestErrorHandler!({ webContentsId: contents.id, url: "http://127.0.0.1:43123/a.png", error: "net::ERR_FAILED", timestamp: Date.now() })).not.toThrow();
+  });
+
+  it("closes a session whose window is destroyed before the closed event", async () => {
+    const driver = new ElectronPlaytestDriver();
+    const opened = await driver.request({ operation: "open", target: { runtime: "web", url: "http://127.0.0.1:43123/" }, viewport: { width: 800, height: 600 } });
+    if (opened.operation !== "open") throw new Error("Expected open result");
+    const window = electron.windows[0]!;
+    // Keep the session registered until Electron delivers the closed event.
+    window.destroyed = true;
+    expect(driver.watchState().activeSessions).toBe(1);
+
+    await expect(driver.request({ operation: "close", sessionId: opened.snapshot.sessionId })).resolves.toEqual({ operation: "close" });
+    expect(driver.watchState().activeSessions).toBe(0);
+    expect(window.debugger.isAttached).not.toHaveBeenCalled();
+    expect(window.debugger.detach).not.toHaveBeenCalled();
+    window.closedHandler?.();
+    expect(driver.watchState().activeSessions).toBe(0);
   });
 
   it("bounds retained browser sessions", async () => {

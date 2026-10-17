@@ -1,9 +1,10 @@
 import type { ComponentProps } from "react";
 import { ModelSelector } from "./model-selector.js";
 import { SendArrow, Square } from "./icons.js";
+import { t } from "./i18n.js";
 
 /** Model controls and send/stop behavior shared by workspace composers. */
-export function ComposerActions({ showStop, stopping = false, sendDisabled, sendLabel = "Send prompt", stopLabel = "Stop agent", onStop, ...modelProps }: ComponentProps<typeof ModelSelector> & {
+export function ComposerActions({ showStop, stopping = false, sendDisabled, sendLabel = t("composer.send"), stopLabel = t("composer.stop"), onStop, ...modelProps }: ComponentProps<typeof ModelSelector> & {
   showStop: boolean;
   stopping?: boolean;
   sendDisabled: boolean;

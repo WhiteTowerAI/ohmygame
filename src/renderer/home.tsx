@@ -16,6 +16,7 @@ import { WindowDragRegion } from "./window-drag-region.js";
 import { useProjectShelfLayout } from "./use-project-shelf-layout.js";
 import { useProjectActivity } from "./use-project-activity.js";
 import "./studios.css";
+import { t } from "./i18n.js";
 
 interface HomeProps {
   onNavigate: (page: AppNavigationTarget) => void;
@@ -86,29 +87,29 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
       <section className="home-content home-content-fitted">
         <WindowDragRegion />
         <div className="home-start">
-          <h1>What are we making today?</h1>
+          <h1>{t("home.title")}</h1>
           <ProjectPromptCreator
             projectType={projectType}
             projectTypes={GAME_PROJECT_TYPES}
-            placeholder="Describe the game you want to create..."
+            placeholder={t("home.placeholder")}
             onProjectTypeChange={setProjectType}
             onOpenProject={onOpen}
             onCreate={onCreate}
           />
           <button className="home-start-blank" type="button" onClick={() => setCreateOpen(true)}>
-            <Plus size={14} />Start blank
+            <Plus size={14} />{t("home.startBlank")}
           </button>
         </div>
 
         <section ref={sectionRef} className="home-recent studio-projects" aria-labelledby="projects-heading">
           <div className="studio-section-heading">
-            <h2 id="projects-heading">Recent projects</h2>
+            <h2 id="projects-heading">{t("projects.recent")}</h2>
             {phase === "error" ? (
               <button className="studio-text-link" type="button" onClick={() => void loadProjects()}>
-                <RefreshCw size={14} />Retry
+                <RefreshCw size={14} />{t("common.retry")}
               </button>
             ) : projects.length > recentProjectLimit ? (
-              <a className="studio-text-link" href={projectsHash()}>Show all</a>
+              <a className="studio-text-link" href={projectsHash()}>{t("common.showAll")}</a>
             ) : null}
           </div>
 
@@ -116,7 +117,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           {phase === "error" ? <p className="home-project-state" role="alert">{loadError}</p> : null}
           {phase === "ready" && projects.length === 0 ? (
             <p className="home-project-state">
-              No projects yet
+              {t("projects.none")}
             </p>
           ) : null}
           {phase === "ready" && projects.length > 0 ? (
@@ -139,7 +140,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           {projectActionError ? <p className="home-notice" role="alert">{projectActionError}</p> : null}
         </section>
         {visibleExamples.length > 0 ? <section className="home-discover home-explore studio-examples" aria-labelledby="home-examples-heading">
-          <div className="studio-section-heading"><h2 id="home-examples-heading">Explore</h2></div>
+          <div className="studio-section-heading"><h2 id="home-examples-heading">{t("home.explore")}</h2></div>
           <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />
         </section> : null}
       </section>
@@ -158,7 +159,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
 
 function ProjectGridSkeleton({ count }: { count: number }) {
   return (
-    <div className="studio-project-grid" aria-label="Loading projects">
+    <div className="studio-project-grid" aria-label={t("projects.loading")}>
       {Array.from({ length: count }, (_, item) => <div className="studio-project-skeleton" key={item} />)}
     </div>
   );

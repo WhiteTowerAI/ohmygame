@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PromptImage, PromptImageMediaType } from "../shared/contracts.js";
 import { getConversationImage } from "./api.js";
 import { useNearViewport } from "./asset-gallery.js";
+import { t } from "./i18n.js";
 
 export interface ComposerImage extends PromptImage {
   id: string;
@@ -29,8 +30,8 @@ export function ImagePickerButton({
         type="button"
         disabled={disabled}
         onClick={() => input.current?.click()}
-        title="Attach images"
-        aria-label="Attach images"
+        title={t("attachments.attachImages")}
+        aria-label={t("attachments.attachImages")}
       >
         <Plus size={17} />
       </button>
@@ -55,11 +56,11 @@ export function ImagePickerButton({
 export function ImageAttachmentStrip({ images, onRemove }: { images: ComposerImage[]; onRemove: (id: string) => void }) {
   if (images.length === 0) return null;
   return (
-    <div className="composer-images" aria-label="Attached images">
+    <div className="composer-images" aria-label={t("attachments.images")}>
       {images.map((image) => (
         <div className="composer-image" key={image.id} title={image.name}>
           <img src={imageSource(image)} alt={image.name} />
-          <button type="button" onClick={() => onRemove(image.id)} title={`Remove ${image.name}`} aria-label={`Remove ${image.name}`}>
+          <button type="button" onClick={() => onRemove(image.id)} title={t("attachments.remove", { name: image.name })} aria-label={t("attachments.remove", { name: image.name })}>
             <X size={11} />
           </button>
         </div>
@@ -73,7 +74,7 @@ export function promptImages(images: ComposerImage[]): PromptImage[] {
 }
 
 export function composerImages(images: PromptImage[]): ComposerImage[] {
-  return images.map((image, index) => ({ ...image, id: crypto.randomUUID(), name: image.name ?? `Image ${index + 1}` }));
+  return images.map((image, index) => ({ ...image, id: crypto.randomUUID(), name: image.name ?? t("attachments.imageName", { number: index + 1 }) }));
 }
 
 export function imageSource(image: PromptImage): string {
@@ -103,7 +104,7 @@ export function ConversationImage({ image, alt }: { image: PromptImage; alt: str
 
 export async function readImageFiles(files: File[]): Promise<ComposerImage[]> {
   for (const file of files) {
-    if (!ACCEPTED_IMAGE_TYPES.includes(file.type as PromptImageMediaType)) throw new Error("Use PNG, JPEG, WebP, or GIF images");
+    if (!ACCEPTED_IMAGE_TYPES.includes(file.type as PromptImageMediaType)) throw new Error(t("attachments.imageTypes"));
   }
   return Promise.all(files.map(async (file) => ({
     id: crypto.randomUUID(),
@@ -116,7 +117,7 @@ export async function readImageFiles(files: File[]): Promise<ComposerImage[]> {
 function fileBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    reader.onerror = () => reject(new Error(t("attachments.readFailed", { name: file.name })));
     reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
     reader.readAsDataURL(file);
   });

@@ -1,17 +1,13 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { AddMcpPluginDialog, PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton } from "./plugin-controls.js";
+import { AddMcpPluginDialog, PluginConfigurationPanel, PluginMcpPanel, PluginUninstallButton, PluginEnabledSwitch } from "./plugin-controls.js";
 import { PluginBuilderSessions } from "./plugin-builder.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
 import {
-  Box,
   ChevronRight,
   ExternalLink,
   FolderPlus,
   FolderOpen,
-  Gamepad2,
   GitBranch,
-  Globe2,
-  Image,
   LoaderCircle,
   Package,
   Plus,
@@ -19,11 +15,11 @@ import {
   Plug,
   Search,
   WandSparkles,
-  type IconComponent,
 } from "./icons.js";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   pluginComponentKey,
+  pluginCollection,
   type PluginComponentSummary,
   type PluginDetail,
   type InstallPluginRequest,
@@ -35,8 +31,10 @@ import type { ProjectState } from "../shared/contracts.js";
 import { inspectPluginSource, installPlugin, listPlugins, listProjects, readPlugin, readPluginSkill, uninstallPlugin, updatePluginSettings, waitForRuntime } from "./api.js";
 import { SidebarPageHeader } from "./sidebar-page.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
-import { GodotIcon } from "./godot-icon.js";
+import { PluginIcon, PluginGlyph } from "./plugin-icons.js";
 import { MarkdownContent } from "./markdown-content.js";
+import { t } from "./i18n.js";
+import { PluginDependencyPanel, PluginExportButton, PluginImportDialog } from "./plugin-portability.js";
 
 export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   pluginId?: string;
@@ -50,6 +48,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const [detailRetry, setDetailRetry] = useState(0);
   const detailRequest = useRef({ pluginId, retry: detailRetry });
   const [mcpOpen, setMcpOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [query, setQuery] = useState("");
   const [updating, setUpdating] = useState<string>();
@@ -119,7 +118,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
     };
   }, [addMenuOpen]);
 
-  async function updatePlugin(plugin: PluginDetail, settings: PluginSettings): Promise<void> {
+  async function updatePlugin(plugin: Pick<PluginDetail, "id">, settings: PluginSettings): Promise<void> {
     if (updating) return;
     setUpdating(plugin.id);
     setError(undefined);
@@ -229,31 +228,31 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
 
   const normalizedQuery = query.trim().toLowerCase();
   const visible = plugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
-  const installed = visible.filter((plugin) => plugin.installed);
   const currentDetail = detailResult?.pluginId === pluginId ? detailResult : undefined;
   const detail = currentDetail?.plugin;
   const detailTitle = pluginId
-    ? detail?.displayName ?? plugins.find((plugin) => plugin.id === pluginId)?.displayName ?? "Plugin"
+    ? detail?.displayName ?? plugins.find((plugin) => plugin.id === pluginId)?.displayName ?? t("plugins.plugin")
     : undefined;
 
   return <section className="plugins-settings">
     <SidebarPageHeader
-      title={detailTitle ?? "Plugins"}
-      breadcrumb={pluginId ? { label: "Plugins", onClick: showCatalog } : undefined}
+      title={detailTitle ?? t("plugins.title")}
+      breadcrumb={pluginId ? { label: t("plugins.title"), onClick: showCatalog } : undefined}
     >
       {!pluginId ? (
         <div className="plugins-toolbar">
           <label className="plugins-search">
             <Search size={15} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search plugins..." aria-label="Search plugins" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("plugins.search")} aria-label={t("plugins.searchLabel")} />
           </label>
           <div className="plugins-add" ref={addMenu}>
-            <button className="settings-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding ? "Installing..." : "Add plugin"}</button>
+            <button className="settings-add-button" type="button" disabled={Boolean(adding)} aria-haspopup="menu" aria-expanded={addMenuOpen} onClick={() => setAddMenuOpen((current) => !current)}>{adding ? <LoaderCircle className="spin" size={13} /> : <Plus size={13} />}{adding ? t("plugins.installing") : t("plugins.add")}</button>
             {addMenuOpen ? <div className="plugins-add-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); void openPluginBuilder().catch(cause => setError(errorMessage(cause))); }}><Package size={14} /><span><strong>Create with AI</strong><small>Build a plugin with the agent</small></span></button>
-              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setMcpOpen(true); }}><Plug size={14} /><span><strong>Add MCP service...</strong><small>Connect tools through a plugin</small></span></button>
-              {window.ohMyGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>Install from folder...</strong><small>Choose a local plugin directory</small></span></button> : null}
-              <button type="button" role="menuitem" onClick={openGitInstallDialog}><GitBranch size={14} /><span><strong>Install from Git...</strong><small>Clone a public HTTPS repository</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); void openPluginBuilder().catch(cause => setError(errorMessage(cause))); }}><Package size={14} /><span><strong>{t("plugins.createWithAi")}</strong><small>{t("plugins.createWithAiHint")}</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setMcpOpen(true); }}><Plug size={14} /><span><strong>{t("plugins.addMcp")}</strong><small>{t("plugins.addMcpHint")}</small></span></button>
+              {window.ohMyGameDesktop ? <button type="button" role="menuitem" onClick={() => void installFromFolder()}><FolderOpen size={14} /><span><strong>{t("plugins.fromFolder")}</strong><small>{t("plugins.fromFolderHint")}</small></span></button> : null}
+              <button type="button" role="menuitem" onClick={openGitInstallDialog}><GitBranch size={14} /><span><strong>{t("plugins.fromGit")}</strong><small>{t("plugins.fromGitHint")}</small></span></button>
+              <button type="button" role="menuitem" onClick={() => { setAddMenuOpen(false); setImportOpen(true); }}><Package size={14} /><span><strong>{t("pluginPortability.import")}</strong><small>{t("pluginPortability.importMenuHint")}</small></span></button>
             </div> : null}
           </div>
         </div>
@@ -280,33 +279,33 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       onTry={onTryPlugin}
     /> : <>
       {phase === "ready" && ((!gitDialogOpen && error) || catalogWarning) ? <p className="plugins-inline-error" role="alert">{!gitDialogOpen && error ? error : catalogWarning}</p> : null}
-      {phase === "loading" ? <PluginState>Loading plugins</PluginState> : null}
+      {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
       {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
       {phase === "ready" ? <>
         <PluginBuilderSessions />
-        <InstalledPlugins
-          plugins={installed}
-          collapsible={!normalizedQuery}
-          onOpenPlugin={onPluginChange}
-        />
+        {(["public", "personal"] as const).map(collection => <PluginCollection key={collection} collection={collection}
+          plugins={visible.filter(plugin => pluginCollection(plugin) === collection)} collapsible={!normalizedQuery}
+          updating={Boolean(updating)} onOpenPlugin={onPluginChange}
+          onToggle={(plugin, enabled) => void updatePlugin(plugin, { enabled, components: {} })} />)}
       </> : null}
     </>}
     {mcpOpen ? <AddMcpPluginDialog onClose={() => setMcpOpen(false)} onInstalled={id => { setMcpOpen(false); capabilitiesChanged(); onPluginChange(id); }} /> : null}
+    {importOpen ? <PluginImportDialog onClose={() => setImportOpen(false)} onInstalled={plugin => { setImportOpen(false); capabilitiesChanged(); onPluginChange(plugin.id); }} /> : null}
     {gitDialogOpen ? <div className="plugin-install-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !adding) closeInstallDialog();
     }}>
       <form className="plugin-install-dialog" role="dialog" aria-modal="true" aria-labelledby="plugin-install-title" onKeyDown={(event) => {
         if (event.key === "Escape" && !adding) closeInstallDialog();
       }} onSubmit={(event) => { event.preventDefault(); void installFromGit(); }}>
-        <header><h2 id="plugin-install-title">{installCandidates.length ? "Choose a plugin" : "Install from Git"}</h2><p>{installCandidates.length ? `Select a plugin from ${installCandidates[0]!.marketplace.displayName}.` : "Enter a public HTTPS repository or marketplace URL."}</p></header>
-        {installCandidates.length ? <div className="plugin-install-candidates" role="radiogroup" aria-label="Plugins">
+        <header><h2 id="plugin-install-title">{installCandidates.length ? t("plugins.choose") : t("plugins.installFromGit")}</h2><p>{installCandidates.length ? t("plugins.selectFrom", { marketplace: installCandidates[0]!.marketplace.displayName }) : t("plugins.enterUrl")}</p></header>
+        {installCandidates.length ? <div className="plugin-install-candidates" role="radiogroup" aria-label={t("plugins.title")}>
           {installCandidates.map((candidate) => <button type="button" role="radio" aria-checked={selectedCandidate === candidate.key} className={selectedCandidate === candidate.key ? "is-selected" : ""} key={candidate.key} onClick={() => setSelectedCandidate(candidate.key)}>
             <span><strong>{candidate.displayName}</strong><small>{candidate.description}</small></span>
-            <span className="plugin-install-candidate-meta"><small>{candidate.skillCount} skill{candidate.skillCount === 1 ? "" : "s"}</small><span className="plugin-install-candidate-radio" aria-hidden="true" /></span>
+            <span className="plugin-install-candidate-meta"><small>{t("plugins.skillCount", { count: candidate.skillCount })}</small><span className="plugin-install-candidate-radio" aria-hidden="true" /></span>
           </button>)}
-        </div> : <label><span>Repository or marketplace URL</span><input autoFocus type="url" required disabled={Boolean(adding)} value={gitUrl} placeholder="https://github.com/example/plugin" onChange={(event) => setGitUrl(event.target.value)} /></label>}
+        </div> : <label><span>{t("plugins.repositoryUrl")}</span><input autoFocus type="url" required disabled={Boolean(adding)} value={gitUrl} placeholder="https://github.com/example/plugin" onChange={(event) => setGitUrl(event.target.value)} /></label>}
         {error ? <p className="plugin-install-error" role="alert">{error}</p> : null}
-        <footer><button type="button" disabled={Boolean(adding)} onClick={closeInstallDialog}>Cancel</button><button className="plugin-install-submit" type="submit" disabled={Boolean(adding) || (installCandidates.length ? !selectedCandidate : !gitUrl.trim())}>{adding === "install" ? <LoaderCircle className="spin" size={13} /> : null}{adding === "install" ? "Installing..." : "Install"}</button></footer>
+        <footer><button type="button" disabled={Boolean(adding)} onClick={closeInstallDialog}>{t("common.cancel")}</button><button className="plugin-install-submit" type="submit" disabled={Boolean(adding) || (installCandidates.length ? !selectedCandidate : !gitUrl.trim())}>{adding === "install" ? <LoaderCircle className="spin" size={13} /> : null}{adding === "install" ? t("plugins.installing") : t("plugins.install")}</button></footer>
       </form>
     </div> : null}
   </section>;
@@ -336,32 +335,36 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
 
 const INSTALLED_PLUGIN_LIMIT = 6;
 
-function InstalledPlugins({ plugins, collapsible, onOpenPlugin }: {
+function PluginCollection({ collection, plugins, collapsible, updating, onOpenPlugin, onToggle }: {
+  collection: "public" | "personal";
   plugins: PluginSummary[];
   collapsible: boolean;
+  updating: boolean;
   onOpenPlugin: (id: string) => void;
+  onToggle: (plugin: PluginSummary, enabled: boolean) => void;
 }): ReactNode {
   const [expanded, setExpanded] = useState(false);
   const limited = collapsible && !expanded && plugins.length > INSTALLED_PLUGIN_LIMIT;
   const displayed = limited ? plugins.slice(0, INSTALLED_PLUGIN_LIMIT) : plugins;
-  return <section className="plugins-installed" aria-labelledby="installed-plugins-title">
-    <h2 id="installed-plugins-title">Installed</h2>
+  return <section className="plugins-installed" aria-labelledby={`${collection}-plugins-title`}>
+    <h2 id={`${collection}-plugins-title`}>{t(`plugins.${collection}`)}</h2>
     {plugins.length ? <div className="plugins-installed-grid">
-      {displayed.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} onOpen={() => onOpenPlugin(plugin.id)} />)}
-    </div> : <p className="plugins-empty">No installed plugins match your search.</p>}
-    {collapsible && plugins.length > INSTALLED_PLUGIN_LIMIT ? <button className="plugins-show-more" type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? "Show less" : `Show more (${plugins.length - INSTALLED_PLUGIN_LIMIT})`}</button> : null}
+      {displayed.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} disabled={updating} onToggle={enabled => onToggle(plugin, enabled)} onOpen={() => onOpenPlugin(plugin.id)} />)}
+    </div> : <p className="plugins-empty">{t("plugins.noMatch")}</p>}
+    {collapsible && plugins.length > INSTALLED_PLUGIN_LIMIT ? <button className="plugins-show-more" type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? t("plugins.showLess") : t("plugins.showMore", { count: plugins.length - INSTALLED_PLUGIN_LIMIT })}</button> : null}
   </section>;
 }
 
-function PluginCard({ plugin, onOpen }: { plugin: PluginSummary; onOpen: () => void }): ReactNode {
+function PluginCard({ plugin, disabled, onToggle, onOpen }: { plugin: PluginSummary; disabled: boolean; onToggle: (enabled: boolean) => void; onOpen: () => void }): ReactNode {
   return <article className={`plugin-catalog-card${plugin.installed && !plugin.enabled ? " is-disabled" : ""}`}>
     <button className="plugin-card-open" type="button" onClick={onOpen}>
       <PluginIcon plugin={plugin} />
       <span className="plugin-card-copy">
-        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.configurationStatus === "needs-configuration" ? <small className="plugin-status">Needs configuration</small> : null}{plugin.installed && !plugin.enabled ? <small className="plugin-status">Disabled</small> : null}</span>
+        <span className="plugin-card-title"><strong>{plugin.displayName}</strong>{plugin.configurationStatus === "needs-configuration" ? <small className="plugin-status">{t("plugins.needsConfiguration")}</small> : null}{plugin.installed && !plugin.enabled ? <small className="plugin-status">{t("common.disabled")}</small> : null}</span>
         <span className="plugin-card-description">{plugin.description}</span>
       </span>
     </button>
+    <PluginEnabledSwitch plugin={plugin} disabled={disabled} onToggle={onToggle} />
   </article>;
 }
 
@@ -426,11 +429,11 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
 
   function choosePrompt(prompt: string): void {
     if (!plugin?.installed) {
-      setTryNotice("Install this plugin to try an example.");
+      setTryNotice(t("plugins.installToTry"));
       return;
     }
     if (!plugin.enabled) {
-      setTryNotice("Enable this plugin to try an example.");
+      setTryNotice(t("plugins.enableToTry"));
       return;
     }
     setTryNotice(undefined);
@@ -460,10 +463,10 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
   const prompts = plugin?.defaultPrompts ?? [];
   const firstPrompt = prompts[0];
   const emptyProjectLabel = normalizedProjectQuery
-    ? "No matching projects"
-    : plugin?.projectTypes?.length === 1 ? `No ${projectTypeLabel(plugin.projectTypes[0])} projects yet` : "No compatible projects yet";
+    ? t("plugins.noMatchingProjects")
+    : plugin?.projectTypes?.length === 1 ? t("plugins.noTypedProjects", { type: projectTypeLabel(plugin.projectTypes[0]) }) : t("plugins.noCompatibleProjects");
   return <section className="plugin-detail">
-    {phase === "loading" ? <PluginState>Loading plugin</PluginState> : null}
+    {phase === "loading" ? <PluginState>{t("plugins.loadingPlugin")}</PluginState> : null}
     {phase === "error" ? <PluginError message={error} onRetry={onRetry} /> : null}
     {phase === "ready" && plugin ? <>
       <header className="plugin-detail-hero">
@@ -471,21 +474,21 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
         <div className="plugin-detail-copy">
           <div className="plugin-detail-title">
             <h2>{plugin.displayName}</h2>
-            {plugin.preinstalled ? <small className="plugin-detail-badge">Included</small> : null}
+            {plugin.preinstalled ? <small className="plugin-detail-badge">{t("plugins.included")}</small> : null}
           </div>
           <p>{plugin.description}</p>
           <div className="plugin-detail-hero-actions" ref={tryMenu}>
-            {plugin.installed && plugin.enabled && firstPrompt ? <button className="plugin-detail-primary" type="button" aria-haspopup="dialog" aria-expanded={Boolean(tryPrompt)} onClick={() => choosePrompt(firstPrompt)}><Play size={13} />Try now</button> : null}
-            {tryPrompt ? <div className="plugin-try-popover project-switcher-popover" role="dialog" aria-label={`Try ${plugin.displayName}`}>
-              <div className="plugin-try-heading"><strong>Choose a project</strong><span>The prompt will be added to a new conversation.</span></div>
+            {plugin.installed && plugin.enabled && firstPrompt ? <button className="plugin-detail-primary" type="button" aria-haspopup="dialog" aria-expanded={Boolean(tryPrompt)} onClick={() => choosePrompt(firstPrompt)}><Play size={13} />{t("plugins.tryNow")}</button> : null}
+            {tryPrompt ? <div className="plugin-try-popover project-switcher-popover" role="dialog" aria-label={t("plugins.tryName", { name: plugin.displayName })}>
+              <div className="plugin-try-heading"><strong>{t("plugins.chooseProject")}</strong><span>{t("plugins.promptAdded")}</span></div>
               <label className="project-switcher-search">
                 <Search size={13} />
-                <input value={projectQuery} placeholder="Search projects" aria-label="Search projects" onChange={(event) => setProjectQuery(event.target.value)} />
+                <input value={projectQuery} placeholder={t("projects.search")} aria-label={t("projects.search")} onChange={(event) => setProjectQuery(event.target.value)} />
               </label>
               <div className="project-switcher-list">
-                {projectPhase === "loading" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />Loading projects</div> : null}
-                {projectPhase === "error" ? <div className="project-switcher-state is-error"><span>{projectError}</span><button type="button" onClick={() => void openProjectPicker(tryPrompt)}>Retry</button></div> : null}
-                {projectPhase === "starting" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />Starting conversation</div> : null}
+                {projectPhase === "loading" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />{t("projects.loading")}</div> : null}
+                {projectPhase === "error" ? <div className="project-switcher-state is-error"><span>{projectError}</span><button type="button" onClick={() => void openProjectPicker(tryPrompt)}>{t("common.retry")}</button></div> : null}
+                {projectPhase === "starting" ? <div className="project-switcher-state"><LoaderCircle className="spin" size={14} />{t("plugins.startingConversation")}</div> : null}
                 {projectPhase === "ready" ? visibleProjects.map((project) => <button className="project-switcher-item" type="button" key={project.id} onClick={() => void startPlugin(project.id)}>
                   <ProjectTypeIcon type={project.type} />
                   <span><strong>{project.name}</strong><small>{projectTypeLabel(project.type)}</small></span>
@@ -493,16 +496,20 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
                 </button>) : null}
                 {projectPhase === "ready" && !visibleProjects.length ? <div className="project-switcher-state">{emptyProjectLabel}</div> : null}
               </div>
-              <div className="project-switcher-footer"><button type="button" disabled={projectPhase === "starting"} onClick={() => void startPlugin()}><FolderPlus size={14} />New {projectTypeLabel(plugin.projectTypes?.[0] ?? "web-game")} project</button></div>
+              <div className="project-switcher-footer"><button type="button" disabled={projectPhase === "starting"} onClick={() => void startPlugin()}><FolderPlus size={14} />{t("plugins.newProject", { type: projectTypeLabel(plugin.projectTypes?.[0] ?? "web-game") })}</button></div>
             </div> : null}
           </div>
         </div>
       </header>
       {error ? <p className="plugins-inline-error" role="alert">{error}</p> : null}
       <PluginManagement plugin={plugin} updating={updating} onBrowse={onBrowse} onRemove={onRemove} onToggle={togglePlugin} />
-      {plugin.longDescription ? <section className="plugin-about"><h2>About</h2><p>{plugin.longDescription}</p></section> : null}
+      {plugin.installed && pluginCollection(plugin) === "personal" ? <div className="plugin-section-actions">
+        <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={() => void openPluginBuilder(plugin.id, "edit").catch(cause => setProjectError(errorMessage(cause)))}><WandSparkles size={13} />{t("plugins.editWithAi")}</button>
+        {projectError ? <p role="alert">{projectError}</p> : null}
+      </div> : null}
+      {plugin.longDescription ? <section className="plugin-about"><h2>{t("plugins.about")}</h2><p>{plugin.longDescription}</p></section> : null}
       {prompts.length ? <section className="plugin-prompts">
-        <h2>Try it</h2>
+        <h2>{t("plugins.tryIt")}</h2>
         <div>{prompts.map((prompt) => <button type="button" key={prompt} onClick={() => choosePrompt(prompt)}>
           <span className="plugin-prompt-copy">
             <span className="plugin-prompt-reference"><PluginGlyph plugin={plugin} size={14} />{plugin.displayName}</span>
@@ -514,9 +521,10 @@ function PluginDetailView({ phase, plugin, updating, error, onRetry, onTogglePlu
       </section> : null}
       <SkillSection pluginId={plugin.id} items={plugin.skills} installed={plugin.installed} disabled={updating || !plugin.enabled} onBrowse={onBrowseSkill} onToggle={onToggleComponent} />
       <PluginConfigurationPanel plugin={plugin} onChanged={onCapabilitiesChanged} />
+      <PluginDependencyPanel plugin={plugin} />
       <PluginMcpPanel plugin={plugin} onToggle={onMcpToggle} onAssist={onAssist} onChanged={onCapabilitiesChanged} />
       {!plugin.mcpServers?.length && !plugin.connections.length ? <div className="plugin-section-actions">
-        <button className="plugin-detail-secondary" type="button" aria-haspopup="dialog" onClick={onAssist}><WandSparkles size={13} aria-hidden="true" />Configure with AI</button>
+        <button className="plugin-detail-secondary" type="button" onClick={onAssist}><WandSparkles size={13} aria-hidden="true" />{t("plugins.askAboutPlugin")}</button>
       </div> : null}
     </> : null}
   </section>;
@@ -559,7 +567,7 @@ function SkillSection({ pluginId, items, installed, disabled, onBrowse, onToggle
   }
 
   if (!items.length) return null;
-  return <section className="plugin-components plugin-skills"><h2>Skills</h2><div>{items.map((item) => {
+  return <section className="plugin-components plugin-skills"><h2>{t("plugins.skills")}</h2><div>{items.map((item) => {
     const open = expanded?.id === item.id;
     return <div className="plugin-skill-item" key={item.id}>
       <div className="plugin-component-row plugin-skill-row">
@@ -568,12 +576,12 @@ function SkillSection({ pluginId, items, installed, disabled, onBrowse, onToggle
           <span className="plugin-row-copy"><strong>{item.name}</strong>{item.description ? <span>{item.description}</span> : null}</span>
           <ChevronRight size={14} aria-hidden="true" />
         </button>
-        {installed && window.ohMyGameDesktop ? <button className="plugin-skill-browse" type="button" title="Show in Finder" aria-label={`Show ${item.name} in Finder`} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></button> : null}
-        {installed ? <PluginSwitch checked={item.enabled} disabled={disabled} label={`${item.enabled ? "Disable" : "Enable"} ${item.name}`} onClick={() => onToggle(item, !item.enabled)} /> : null}
+        {installed && window.ohMyGameDesktop ? <button className="plugin-skill-browse" type="button" title={t("plugins.showInFinder")} aria-label={t("plugins.showNameInFinder", { name: item.name })} onClick={() => onBrowse(item.id)}><FolderOpen size={14} /></button> : null}
+        {installed ? <PluginSwitch checked={item.enabled} disabled={disabled} label={item.enabled ? t("plugins.disableName", { name: item.name }) : t("plugins.enableName", { name: item.name })} onClick={() => onToggle(item, !item.enabled)} /> : null}
       </div>
       {open ? <div className="plugin-skill-content">
-        {expanded.phase === "loading" ? <div className="plugin-skill-state"><LoaderCircle className="spin" size={13} />Loading skill</div> : null}
-        {expanded.phase === "error" ? <div className="plugin-skill-state is-error"><span>{expanded.error}</span><button type="button" onClick={() => void loadContent(item)}>Retry</button></div> : null}
+        {expanded.phase === "loading" ? <div className="plugin-skill-state"><LoaderCircle className="spin" size={13} />{t("plugins.loadingSkill")}</div> : null}
+        {expanded.phase === "error" ? <div className="plugin-skill-state is-error"><span>{expanded.error}</span><button type="button" onClick={() => void loadContent(item)}>{t("common.retry")}</button></div> : null}
         {expanded.phase === "ready" ? <MarkdownContent text={expanded.content ?? ""} /> : null}
       </div> : null}
     </div>;
@@ -589,7 +597,7 @@ function PluginState({ children }: { children: ReactNode }): ReactNode {
 }
 
 function PluginError({ message, onRetry }: { message?: string; onRetry: () => void }): ReactNode {
-  return <div className="plugins-state plugins-state-error" role="alert"><span>{message}</span><button type="button" onClick={onRetry}>Retry</button></div>;
+  return <div className="plugins-state plugins-state-error" role="alert"><span>{message}</span><button type="button" onClick={onRetry}>{t("common.retry")}</button></div>;
 }
 
 function componentSettings(plugin: PluginDetail): PluginSettings {
@@ -607,24 +615,6 @@ function pluginSummary(plugin: PluginDetail): PluginSummary {
   return summary;
 }
 
-const includedPluginIcons: Record<string, IconComponent> = {
-  "game-studio": Gamepad2,
-  "web-game-studio": Globe2,
-  "threejs-world": Box,
-  img2threejs: Image,
-};
-
-function PluginGlyph({ plugin, size }: { plugin: Pick<PluginSummary, "id" | "name" | "source">; size: number }): ReactNode {
-  if (plugin.id === "ohmygame:godot") return <GodotIcon size={size} />;
-  const included = plugin.source.type === "builtIn" || plugin.source.type === "preinstalled";
-  const Icon = (included ? includedPluginIcons[plugin.name] : undefined) ?? Package;
-  return <Icon size={size} aria-hidden="true" />;
-}
-
-function PluginIcon({ plugin, large = false }: { plugin: Pick<PluginSummary, "id" | "name" | "source">; large?: boolean }): ReactNode {
-  return <span className={`plugin-row-icon${plugin.id === "ohmygame:godot" ? " plugin-row-icon-godot" : ""}${large ? " plugin-row-icon-large" : ""}`}><PluginGlyph plugin={plugin} size={large ? 42 : 29} /></span>;
-}
-
 function pluginSearchText(plugin: PluginSummary): string {
   return `${plugin.name} ${plugin.displayName} ${plugin.description} ${plugin.marketplace.displayName}`.toLowerCase();
 }
@@ -638,33 +628,38 @@ function PluginManagement({ plugin, updating, onBrowse, onRemove, onToggle }: {
 }): ReactNode {
   const repository = plugin.origin?.repository;
   const version = plugin.version;
-  const canBrowse = (plugin.source.type === "directory" || plugin.source.type === "git") && Boolean(window.ohMyGameDesktop);
+  const canBrowse = pluginCollection(plugin) === "personal" && Boolean(window.ohMyGameDesktop);
   let source: ReactNode;
   if (plugin.preinstalled || plugin.source.type === "builtIn") {
-    source = "Included with OhMyGame";
+    source = t("plugins.includedWithOhMyGame");
   } else if (plugin.origin?.type === "github") {
     source = <RepositoryLink repository={plugin.origin.repository} />;
   } else if (plugin.origin?.type === "claude-marketplace") {
-    source = `Claude Marketplace · ${plugin.origin.marketplace}`;
+    source = t("plugins.claudeMarketplace", { marketplace: plugin.origin.marketplace });
   } else if (plugin.source.type === "preinstalled") {
-    source = "Included with OhMyGame";
+    source = t("plugins.includedWithOhMyGame");
+  } else if (plugin.source.type === "authored") {
+    source = t("plugins.createdWithAi");
+  } else if (plugin.source.type === "archive") {
+    source = t("pluginPortability.archiveSource");
   } else if (plugin.source.type === "directory") {
-    source = "Local folder";
+    source = t("plugins.localFolder");
   } else {
-    source = "Git repository";
+    source = t("plugins.gitRepository");
   }
   return <section className="plugin-management">
-    <h2>Management</h2>
+    <h2>{t("plugins.management")}</h2>
     <dl>
-      <div><dt>Status</dt><dd>{!plugin.installed ? "Not installed" : plugin.enabled ? "Enabled" : "Disabled"}</dd></div>
-      {version ? <div><dt>Version</dt><dd>v{version}</dd></div> : null}
-      <div><dt>Source</dt><dd>{source}</dd></div>
-      {plugin.origin?.type === "claude-marketplace" && repository ? <div><dt>Repository</dt><dd><RepositoryLink repository={repository} /></dd></div> : null}
+      <div><dt>{t("plugins.status")}</dt><dd>{!plugin.installed ? t("plugins.notInstalled") : plugin.enabled ? t("common.enabled") : t("common.disabled")}</dd></div>
+      {version ? <div><dt>{t("plugins.version")}</dt><dd>v{version}</dd></div> : null}
+      <div><dt>{t("plugins.source")}</dt><dd>{source}</dd></div>
+      {plugin.origin?.type === "claude-marketplace" && repository ? <div><dt>{t("plugins.repository")}</dt><dd><RepositoryLink repository={repository} /></dd></div> : null}
     </dl>
     {plugin.installed ? <div className="plugin-section-actions">
-      <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={() => onToggle(!plugin.enabled)}>{plugin.enabled ? "Disable" : "Enable"}</button>
+      <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={() => onToggle(!plugin.enabled)}>{plugin.enabled ? t("common.disable") : t("common.enable")}</button>
       <PluginUninstallButton plugin={plugin} disabled={updating} onUninstall={onRemove} />
-      {canBrowse ? <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={onBrowse}>Open folder</button> : null}
+      {pluginCollection(plugin) === "personal" ? <PluginExportButton plugin={plugin} /> : null}
+      {canBrowse ? <button className="plugin-detail-secondary" type="button" disabled={updating} onClick={onBrowse}>{t("plugins.openFolder")}</button> : null}
     </div> : null}
   </section>;
 }
@@ -674,5 +669,5 @@ function RepositoryLink({ repository }: { repository: string }): ReactNode {
 }
 
 function errorMessage(cause: unknown): string {
-  return cause instanceof Error ? cause.message : "Something went wrong";
+  return cause instanceof Error ? cause.message : t("common.somethingWrong");
 }

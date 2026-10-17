@@ -5,6 +5,7 @@ import { settingsHash, type AppNavigationTarget, type SidebarPage } from "./rout
 import { UserAvatar } from "./user-avatar.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
+import { t } from "./i18n.js";
 
 interface AppSidebarProps {
   active: SidebarPage;
@@ -62,11 +63,11 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
 
   const updateStatus = update?.status.type;
   const updateAction = updateStatus === "available"
-    ? { label: "Update", icon: <ArrowDownToLine size={15} />, action: () => void window.ohMyGameDesktop?.updates.download() }
+    ? { label: t("sidebar.update"), icon: <ArrowDownToLine size={15} />, action: () => void window.ohMyGameDesktop?.updates.download() }
     : updateStatus === "ready"
-      ? { label: "Restart", icon: <RefreshCw size={14} />, action: () => void window.ohMyGameDesktop?.updates.install() }
+      ? { label: t("sidebar.restart"), icon: <RefreshCw size={14} />, action: () => void window.ohMyGameDesktop?.updates.install() }
       : updateStatus === "error"
-        ? { label: "Issue", icon: <InfoCircle size={15} />, action: () => { window.location.hash = settingsHash("about"); } }
+        ? { label: t("sidebar.issue"), icon: <InfoCircle size={15} />, action: () => { window.location.hash = settingsHash("about"); } }
         : undefined;
 
   const updatePercent = updateStatus === "downloading" ? update!.status.percent : undefined;
@@ -122,28 +123,28 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <img src={brandMark} alt="OhMyGame" />
         <span>OhMyGame</span>
       </div>
-      <nav aria-label="Main navigation">
-        <NavigationItem active={active === "home"} icon="home" label="Home" onClick={() => onNavigate("home")} />
-        <NavigationItem active={active === "projects"} icon="project" label="Projects" onClick={() => onNavigate("projects")} />
-        <NavigationItem active={active === "library"} icon="library" label="Library" onClick={() => onNavigate("library")} />
-        <NavigationItem active={active === "community"} icon="community" label="Community" onClick={() => onNavigate("community")} />
-        <div className="home-nav-label home-nav-label-spaced">STUDIOS</div>
-        <NavigationItem active={active === "web-game"} icon="web-game" label="Web Game" onClick={() => onNavigate("web-game")} />
-        <NavigationItem active={active === "interactive-story"} icon="interactive-story" label="Interactive Story" onClick={() => onNavigate("interactive-story")} />
-        <NavigationItem active={active === "godot"} icon="godot" label="Godot" onClick={() => onNavigate("godot")} />
-        <NavigationItem active={active === "asset-canvas"} icon="asset-canvas" label="Asset Canvas" onClick={() => onNavigate("asset-canvas")} />
-        <NavigationItem active={active === "general"} icon="general" label="General Game" onClick={() => onNavigate("general")} />
+      <nav aria-label={t("sidebar.mainNavigation")}>
+        <NavigationItem active={active === "home"} icon="home" label={t("sidebar.home")} onClick={() => onNavigate("home")} />
+        <NavigationItem active={active === "projects"} icon="project" label={t("sidebar.projects")} onClick={() => onNavigate("projects")} />
+        <NavigationItem active={active === "library"} icon="library" label={t("sidebar.library")} onClick={() => onNavigate("library")} />
+        <NavigationItem active={active === "community"} icon="community" label={t("sidebar.community")} onClick={() => onNavigate("community")} />
+        <div className="home-nav-label home-nav-label-spaced">{t("sidebar.studios")}</div>
+        <NavigationItem active={active === "web-game"} icon="web-game" label={t("projectType.web-game")} onClick={() => onNavigate("web-game")} />
+        <NavigationItem active={active === "interactive-story"} icon="interactive-story" label={t("projectType.interactive-story")} onClick={() => onNavigate("interactive-story")} />
+        <NavigationItem active={active === "godot"} icon="godot" label={t("projectType.godot-game")} onClick={() => onNavigate("godot")} />
+        <NavigationItem active={active === "asset-canvas"} icon="asset-canvas" label={t("projectType.asset-canvas")} onClick={() => onNavigate("asset-canvas")} />
+        <NavigationItem active={active === "general"} icon="general" label={t("projectType.general")} onClick={() => onNavigate("general")} />
       </nav>
       {auth.state.status === "signed-in" ? (
         <div className="home-sidebar-account" ref={account}>
-          <button className="home-sidebar-account-main" type="button" aria-label="Open account menu" aria-expanded={accountMenuOpen} onClick={() => {
+          <button className="home-sidebar-account-main" type="button" aria-label={t("sidebar.openAccountMenu")} aria-expanded={accountMenuOpen} onClick={() => {
             setAccountMenuOpen((open) => !open);
           }}>
             <UserAvatar className="home-sidebar-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
             <span className="home-sidebar-account-name" title={auth.state.user.email}>{auth.state.user.name}</span>
           </button>
           {updateButton}
-          <button className="home-sidebar-account-menu" type="button" aria-label="Application menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
+          <button className="home-sidebar-account-menu" type="button" aria-label={t("sidebar.applicationMenu")} aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
           {accountMenuOpen ? (
             <div className="home-sidebar-account-popover" role="menu">
               <button type="button" role="menuitem" onClick={() => {
@@ -151,7 +152,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
                 onNavigate("settings");
               }}>
                 <Wrench size={16} />
-                <span>Settings</span>
+                <span>{t("common.settings")}</span>
               </button>
             </div>
           ) : null}
@@ -160,10 +161,10 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
         <div className="home-sidebar-account" ref={account}>
           <button className="home-sidebar-sign-in-main" type="button" onClick={auth.openSignIn} disabled={auth.state.status === "loading"}>
             <span className="home-sidebar-signed-out-icon" aria-hidden="true"><UserRound size={16} /></span>
-            <span className="home-sidebar-account-name">{auth.state.status === "loading" ? "Loading account" : "Sign in"}</span>
+            <span className="home-sidebar-account-name">{auth.state.status === "loading" ? t("sidebar.loadingAccount") : t("common.signIn")}</span>
           </button>
           {updateButton}
-          <button className="home-sidebar-account-menu" type="button" aria-label="Application menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
+          <button className="home-sidebar-account-menu" type="button" aria-label={t("sidebar.applicationMenu")} aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>
           {accountMenuOpen ? (
             <div className="home-sidebar-account-popover" role="menu">
               <button type="button" role="menuitem" onClick={() => {
@@ -171,7 +172,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
                 onNavigate("settings");
               }}>
                 <Wrench size={16} />
-                <span>Settings</span>
+                <span>{t("common.settings")}</span>
               </button>
             </div>
           ) : null}
@@ -180,7 +181,7 @@ export function AppSidebar({ active, onNavigate }: AppSidebarProps) {
       <div
         className="home-sidebar-resizer"
         role="separator"
-        aria-label="Resize sidebar"
+        aria-label={t("sidebar.resize")}
         aria-orientation="vertical"
         aria-valuemin={MIN_SIDEBAR_WIDTH}
         aria-valuemax={MAX_SIDEBAR_WIDTH}

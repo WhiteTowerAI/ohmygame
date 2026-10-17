@@ -1,12 +1,14 @@
 import { Type, type Static } from "typebox";
 import { Check } from "typebox/value";
 import { PROJECT_TYPE_IDS, type PluginMention, type ProjectType } from "./contracts.js";
+import { PLUGIN_ICON_PRESETS, type PluginIconPresetId } from "./plugin-icons.js";
 
 export type PluginOrigin =
   | { type: "github"; repository: string; commit: string; release?: string }
   | { type: "claude-marketplace"; marketplace: string; repository?: string };
 
 export const PLUGIN_MANIFEST_PATH = ".ohmygame-plugin/plugin.json";
+export const PLUGIN_FORMAT_VERSION = 1;
 export const PLUGIN_ARCHIVE_MAX_ENTRIES = 5_000;
 export const PLUGIN_ARCHIVE_MAX_BYTES = 50 * 1024 * 1024;
 export const PLUGIN_SKILL_CONTENT_MAX_BYTES = 512 * 1024;
@@ -19,6 +21,8 @@ export const PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES: readonly string[] = [
 
 export type PluginSource =
   | { type: "builtIn" }
+  | { type: "authored" }
+  | { type: "archive" }
   | { type: "directory" }
   | { type: "git"; url: string; commit: string }
   | { type: "preinstalled"; pluginId: string; releaseId: string };
@@ -44,6 +48,8 @@ export interface PluginInstallInspection {
 export interface PluginMarketplaceRef {
   id: string;
   displayName: string;
+  /** Trusted catalog adapters may mark official community marketplaces public. */
+  visibility?: "public" | "personal";
 }
 
 export const OHMYGAME_MARKETPLACE: PluginMarketplaceRef = { id: "ohmygame", displayName: "OhMyGame" };
@@ -103,6 +109,8 @@ export interface PluginSummary {
   name: string;
   displayName: string;
   description: string;
+  icon?: PluginIcon;
+  iconRevision?: string;
   version?: string;
   marketplace: PluginMarketplaceRef;
   source: PluginSource;
@@ -112,6 +120,12 @@ export interface PluginSummary {
   preinstalled?: boolean;
   configurationStatus?: "ready" | "needs-configuration";
   mcpServerCount?: number;
+}
+
+export function pluginCollection(plugin: Pick<PluginSummary, "source" | "marketplace">): "public" | "personal" {
+  if (plugin.source.type === "builtIn" || plugin.source.type === "preinstalled" || plugin.marketplace.id === OHMYGAME_MARKETPLACE.id)
+    return "public";
+  return plugin.marketplace.visibility ?? "personal";
 }
 
 export interface PluginComponentSummary {
@@ -140,6 +154,7 @@ export function pluginComponentKey(type: ConfigurablePluginComponentType, id: st
 }
 
 export interface PluginDetail extends PluginSummary {
+  requirements?: PluginManifest["requirements"];
   longDescription?: string;
   skills: PluginComponentSummary[];
   connections: PluginConnectionSummary[];
@@ -175,10 +190,27 @@ const SemVerSchema = Type.String({
   maxLength: 256,
 });
 
+export const PluginIconSchema = Type.Union([
+  Type.Object({
+    type: Type.Literal("preset"),
+    id: Type.Union(PLUGIN_ICON_PRESETS.map(icon => Type.Literal(icon.id))),
+  }, { additionalProperties: false }),
+  Type.Object({
+    type: Type.Literal("asset"),
+    path: Type.String({ pattern: "^\\./(?!\\.\\.(?:/|$))(?!.*\\/\\.\\.(?:/|$))[^\\\\]+\\.(?:png|webp)$", maxLength: 1000 }),
+  }, { additionalProperties: false }),
+]);
+export type PluginIcon = { type: "preset"; id: PluginIconPresetId } | { type: "asset"; path: string };
+
+export function isPluginIcon(value: unknown): value is PluginIcon {
+  return Check(PluginIconSchema, value);
+}
+
 const InterfaceSchema = Type.Object({
   displayName: Type.Optional(Type.String({ minLength: 1 })),
   shortDescription: Type.Optional(Type.String({ minLength: 1 })),
   longDescription: Type.Optional(Type.String({ minLength: 1 })),
+  icon: Type.Optional(Type.Unsafe<PluginIcon>(PluginIconSchema)),
   defaultPrompt: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
   projectTypes: Type.Optional(Type.Array(Type.Union(PROJECT_TYPE_IDS.map((type) => Type.Literal(type))), { minItems: 1, uniqueItems: true })),
 }, { additionalProperties: false });
@@ -204,6 +236,7 @@ export interface CreateMcpPluginRequest {
   name: string;
   displayName?: string;
   description?: string;
+  icon?: PluginIcon;
   servers: Record<string, McpServerDefinition>;
   configuration?: Record<string, PluginConfigurationField>;
 }
@@ -215,6 +248,12 @@ export interface PluginMcpResult {
 }
 
 export const PluginManifestSchema = Type.Object({
+  formatVersion: Type.Optional(Type.Integer({ minimum: 1 })),
+  minimumHostVersion: Type.Optional(SemVerSchema),
+  requirements: Type.Optional(Type.Object({
+    commands: Type.Optional(Type.Array(Type.String({ pattern: "^[a-zA-Z0-9][a-zA-Z0-9._-]*$", maxLength: 100 }), { maxItems: 30, uniqueItems: true })),
+    platforms: Type.Optional(Type.Array(Type.Union([Type.Literal("darwin"), Type.Literal("win32"), Type.Literal("linux")]), { minItems: 1, uniqueItems: true })),
+  }, { additionalProperties: false })),
   name: Type.String({ pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$" }),
   version: SemVerSchema,
   description: Type.String({ minLength: 1 }),

@@ -2,7 +2,7 @@ import { TEST_GLB } from "./model3d-fixture.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { activePiToolNames, createAgentTools, planningPiToolNames, projectPiToolNames } from "../src/daemon/agent-tools.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import type { ImageGenerator } from "../src/daemon/openai-image.js";
@@ -166,6 +166,39 @@ describe("agent tools", () => {
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
 
+  it("exposes configured image dimensions to the agent and forwards them to the generator", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
+    const projects = new ProjectManager(dataDirectory);
+    await projects.load();
+    const project = await projects.create("Game");
+    const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({
+      bytes: Buffer.from("generated image"),
+      mediaType: "image/png",
+    });
+    const runner = new ToolRunner(dataDirectory, { generate });
+    await runner.load();
+    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_image");
+    if (!tool) throw new Error("Expected image tool");
+
+    expect(tool.parameters).toMatchObject({
+      properties: {
+        resolution: expect.any(Object),
+        aspectRatio: expect.any(Object),
+      },
+    });
+    await tool.execute("call-configured", {
+      prompt: "A wide fantasy landscape",
+      resolution: "2K",
+      aspectRatio: "16:9",
+    }, undefined, undefined, {} as never);
+
+    expect(generate).toHaveBeenCalledWith({
+      prompt: "A wide fantasy landscape",
+      resolution: "2K",
+      aspectRatio: "16:9",
+    }, undefined);
+  });
+
   it("publishes a validated structured plan", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
@@ -261,6 +294,32 @@ describe("agent tools", () => {
     expect(relativePath).toMatch(/^assets\/generated\/video-[0-9a-f-]+\.mp4$/);
     expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp4");
     expect(result.details).toEqual({ artifact: { type: "video", path: relativePath, mediaType: "video/mp4" } });
+    expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
+  });
+
+  it("generates speech into the current project through the common audio tool", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-audio-"));
+    const library = new AssetLibrary(dataDirectory);
+    const projects = new ProjectManager(dataDirectory, library);
+    await Promise.all([library.load(), projects.load()]);
+    const project = await projects.create("Story");
+    const model = { provider: "volcengine-tts", id: "seed-tts-2.0" } as const;
+    const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("generated mp3"), mediaType: "audio/mpeg" as const, model });
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) }, undefined, undefined, library, undefined, {
+      catalog: () => ({ models: [], providers: [] }), generate,
+    });
+    await runner.load();
+    const tool = createAgentTools(project, runner, projects).find(({ name }) => name === "generate_speech");
+    if (!tool) throw new Error("Expected speech tool");
+
+    const result = await tool.execute("call-speech", { text: "Welcome", voiceId: "narrator", model, format: "mp3", sampleRate: 24_000 }, undefined, undefined, {} as never);
+    const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    const relativePath = text.replace("Generated audio saved to ", "");
+
+    expect(relativePath).toMatch(/^assets\/generated\/speech-[0-9a-f-]+\.mp3$/);
+    expect(await readFile(path.join(project.workspacePath, relativePath), "utf8")).toBe("generated mp3");
+    expect(result.details).toEqual({ artifact: { type: "audio", path: relativePath, mediaType: "audio/mpeg" } });
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "speech", text: "Welcome", voiceId: "narrator", model }), undefined);
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
   it("registers playable_add_node only for Interactive Story and creates the Node", async () => {

@@ -13,9 +13,9 @@ import { describePlayableValue } from "../shared/playable-editor.js";
 import { CanvasFormatOptions } from "./canvas-format-options.js";
 import { CircleHelp, Download, LoaderCircle } from "./icons.js";
 import { ProjectSettingsDialogFrame } from "./project-settings-dialog.js";
+import { t } from "./i18n.js";
 
-const variablesHelp =
-  "What the game remembers between Scenes. Ask the AI to add or change these values.";
+const variablesHelp = t("storySettings.variablesHelp");
 
 export function PlayableProjectSettingsDialog({
   project,
@@ -31,13 +31,14 @@ export function PlayableProjectSettingsDialog({
   exporting: boolean;
   canExport: boolean;
   onSave: (viewport: Viewport) => Promise<void>;
-  onExport: () => Promise<void>;
+  onExport: (kind: "game" | "project") => Promise<void>;
   onClose: () => void;
 }) {
   const [selection, setSelection] = useState<CanvasFormatPresetId | undefined>(
     () => canvasFormatForViewport(graph.viewport)?.id,
   );
   const [saving, setSaving] = useState(false);
+  const [exportKind, setExportKind] = useState<"game" | "project">("game");
   const [error, setError] = useState<string>();
   const viewport = selection
     ? canvasFormatPreset(selection).viewport
@@ -61,10 +62,11 @@ export function PlayableProjectSettingsDialog({
     }
   }
 
-  async function exportProject(): Promise<void> {
+  async function exportProject(kind: "game" | "project"): Promise<void> {
     setError(undefined);
+    setExportKind(kind);
     try {
-      await onExport();
+      await onExport(kind);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -73,15 +75,15 @@ export function PlayableProjectSettingsDialog({
   return (
     <ProjectSettingsDialogFrame busy={saving || exporting} onClose={onClose}>
       <form onSubmit={(event) => void submit(event)}>
-        <section className="project-settings-project" aria-label="Project">
-          <span>Project</span>
+        <section className="project-settings-project" aria-label={t("projectSettings.project")}>
+          <span>{t("projectSettings.project")}</span>
           <strong title={project.name}>{project.name}</strong>
         </section>
         <fieldset
           className="project-settings-section"
           disabled={saving || exporting}
         >
-          <legend>Screen size</legend>
+          <legend>{t("storySettings.screenSize")}</legend>
           <p className="project-settings-hint">
             {canvasFormatSummary(viewport)}
           </p>
@@ -92,17 +94,17 @@ export function PlayableProjectSettingsDialog({
           />
           {changed && graph.nodes.length > 0 ? (
             <p className="project-settings-hint">
-              Review each Scene after changing screen size.
+              {t("storySettings.reviewScenes")}
             </p>
           ) : null}
         </fieldset>
-        <fieldset className="project-settings-section" aria-label="Variables">
+        <fieldset className="project-settings-section" aria-label={t("storySettings.variables")}>
           <legend className="project-settings-section-heading">
-            Variables
+            {t("storySettings.variables")}
             <button
               className="icon-button project-settings-help"
               type="button"
-              aria-label="About variables"
+              aria-label={t("storySettings.aboutVariables")}
               aria-description={variablesHelp}
               data-tooltip={variablesHelp}
               disabled={saving || exporting}
@@ -111,13 +113,13 @@ export function PlayableProjectSettingsDialog({
             </button>
           </legend>
           {names.length ? (
-            <ul className="playable-variables" aria-label="Variables">
+            <ul className="playable-variables" aria-label={t("storySettings.variables")}>
               {names.map((name) => (
                 <li key={name}>
                   <div className="playable-variables-head">
                     <strong>{name}</strong>
                     <span title={formatStateValue(graph.initialState[name])}>
-                      Starts {describePlayableValue(graph.initialState[name]!)}
+                      {t("storySettings.starts", { value: describePlayableValue(graph.initialState[name]!) })}
                     </span>
                   </div>
                   {graph.variables?.[name] ? (
@@ -128,30 +130,38 @@ export function PlayableProjectSettingsDialog({
             </ul>
           ) : (
             <p className="playable-variables-empty">
-              Nothing yet. The game doesn't remember anything between Scenes.
+              {t("storySettings.noVariables")}
             </p>
           )}
         </fieldset>
         <fieldset className="project-settings-section">
-          <legend>Export</legend>
+          <legend>{t("storySettings.export")}</legend>
           {changed ? (
             <p className="project-settings-hint">
-              Save screen size changes before exporting.
+              {t("storySettings.saveBeforeExport")}
             </p>
           ) : null}
-          <button
-            className="project-settings-browser"
-            type="button"
-            disabled={!canExport || saving || exporting || changed}
-            onClick={() => void exportProject()}
-          >
-            {exporting ? (
-              <LoaderCircle className="spin" size={14} />
-            ) : (
-              <Download size={14} />
-            )}
-            {exporting ? "Exporting..." : "Export game"}
-          </button>
+          <p className="project-settings-hint">{t("storySettings.exportHint")}</p>
+          <div className="project-settings-export-actions">
+            {(["game", "project"] as const).map((kind) => (
+              <button
+                key={kind}
+                className="project-settings-browser"
+                type="button"
+                disabled={!canExport || saving || exporting || changed}
+                onClick={() => void exportProject(kind)}
+              >
+                {exporting && exportKind === kind ? (
+                  <LoaderCircle className="spin" size={14} />
+                ) : (
+                  <Download size={14} />
+                )}
+                {exporting && exportKind === kind
+                  ? t("storySettings.exporting")
+                  : t(kind === "game" ? "storySettings.exportGame" : "storySettings.exportProject")}
+              </button>
+            ))}
+          </div>
         </fieldset>
         {error ? (
           <p className="project-settings-error" role="alert">
@@ -164,7 +174,7 @@ export function PlayableProjectSettingsDialog({
             disabled={saving || exporting}
             onClick={onClose}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             className="project-settings-submit"
@@ -172,7 +182,7 @@ export function PlayableProjectSettingsDialog({
             disabled={saving || exporting}
           >
             {saving ? <LoaderCircle className="spin" size={14} /> : null}
-            Save
+            {t("common.save")}
           </button>
         </footer>
       </form>

@@ -16,6 +16,7 @@ import {
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
 import { EDITOR_LAYOUT_SCHEMA } from "../src/shared/editor-layout-schema.js";
+import { fitPlayableLayout, freePlayablePosition, type NodeCodebase, type NodeEditorLayout } from "../src/shared/playable-codebase.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../src/shared/playable-graph-schema.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
@@ -203,18 +204,48 @@ describe("Playable codebase", () => {
     expect(await readJson(workspace, "schemas/graph.schema.json")).toEqual(PLAYABLE_GRAPH_SCHEMA);
   });
 
-  it("rejects collisions without changing unrelated workspace files", async () => {
+  it("opens a workspace that already holds a project without changing its files", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(workspace, createStarterCodebaseWithScene("Story", { width: 720, height: 1280 }));
+    await writeFile(path.join(workspace, "nodes/start/node.js"), "export function mount() {}\n");
+    await writeFile(path.join(workspace, "notes.txt"), "keep me\n");
+    const before = await readNodeCodebaseDetail(workspace);
+
+    await createNodeCodebase(workspace, createPlayableStarterCodebase("Other", { width: 1280, height: 720 }));
+
+    expect(await readNodeCodebaseDetail(workspace)).toEqual(before);
+    expect(await readFile(path.join(workspace, "nodes/start/node.js"), "utf8")).toBe("export function mount() {}\n");
+    expect(await readFile(path.join(workspace, "notes.txt"), "utf8")).toBe("keep me\n");
+  });
+
+  it("keeps an existing graph that needs repair and adds only the missing files", async () => {
     const workspace = await temporaryWorkspace();
     await writeFile(path.join(workspace, "graph.json"), "existing graph\n");
-    await writeFile(path.join(workspace, "notes.txt"), "keep me\n");
+    await mkdir(path.join(workspace, "shared/style"), { recursive: true });
+    await writeFile(path.join(workspace, "shared/style/theme.css"), "/* mine */\n");
 
-    await expect(createNodeCodebase(
+    await createNodeCodebase(
       workspace,
       createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
-    )).rejects.toThrow("Playable project files already exist: graph.json");
+    );
 
     expect(await readFile(path.join(workspace, "graph.json"), "utf8")).toBe("existing graph\n");
-    expect(await readFile(path.join(workspace, "notes.txt"), "utf8")).toBe("keep me\n");
+    expect(await readFile(path.join(workspace, "shared/style/theme.css"), "utf8")).toBe("/* mine */\n");
+    expect(await readJson(workspace, "editor/layout.json")).toEqual({ version: 1, nodes: {}, viewport: { x: 0, y: 0, zoom: 1 }, view: "canvas" });
+    expect(await readJson(workspace, "schemas/graph.schema.json")).toEqual(PLAYABLE_GRAPH_SCHEMA);
+    await expect(readFile(path.join(workspace, "nodes/start/node.js"), "utf8")).rejects.toThrow();
+  });
+
+  it("starts a new graph next to files left from an earlier project", async () => {
+    const workspace = await temporaryWorkspace();
+    await mkdir(path.join(workspace, "editor"));
+    await writeFile(path.join(workspace, "editor/layout.json"), `${JSON.stringify({ version: 1, nodes: { gone: { x: 0, y: 0 } }, viewport: { x: 0, y: 0, zoom: 1 }, view: "canvas" })}\n`);
+
+    await createNodeCodebase(workspace, createPlayableStarterCodebase("Story", { width: 1280, height: 720 }));
+
+    const codebase = await readNodeCodebase(workspace);
+    expect(codebase.graph).toMatchObject({ title: "Story", nodes: [] });
+    expect(codebase.editorLayout.nodes).toEqual({});
   });
 
   it("rejects malformed graph files, missing sources, and mismatched layout IDs", async () => {
@@ -252,6 +283,22 @@ describe("Playable codebase", () => {
       editorLayout: { nodes: { start: { x: 80, y: 180 } } },
     });
     expect((await readNodeCodebase(mismatchedLayout)).editorLayout.nodes).not.toHaveProperty("other");
+  });
+
+  it("reports a graph without a screen when a Scene has no position yet", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(
+      workspace,
+      createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
+    );
+    const graph = await readJson(workspace, "graph.json") as { viewport?: unknown };
+    delete graph.viewport;
+    await writeFile(path.join(workspace, "graph.json"), `${JSON.stringify(graph)}\n`);
+    const layout = await readJson(workspace, "editor/layout.json") as { nodes: Record<string, unknown> };
+    layout.nodes = {};
+    await writeFile(path.join(workspace, "editor/layout.json"), `${JSON.stringify(layout)}\n`);
+
+    await expect(readNodeCodebase(workspace)).rejects.toThrow("must have required properties viewport");
   });
 
   it("updates graph and layout together and rejects invalid changes without writing", async () => {
@@ -524,6 +571,69 @@ describe("Playable codebase", () => {
       .toContain('data-media="backdrop"');
   });
 });
+
+describe("Playable Scene placement", () => {
+  const scenes = ["menu", "platform", "carriage", "good-ending", "bad-ending"];
+
+  it("places Scenes without a position clear of each other on a landscape screen", () => {
+    const { graph, editorLayout } = codebaseWithScenes({ width: 1920, height: 1080 }, scenes);
+
+    expect(overlappingCards(fitPlayableLayout(graph, editorLayout), graph.viewport)).toEqual([]);
+  });
+
+  it("places Scenes without a position clear of each other on a portrait screen", () => {
+    const { graph, editorLayout } = codebaseWithScenes({ width: 1080, height: 1920 }, scenes);
+
+    expect(overlappingCards(fitPlayableLayout(graph, editorLayout), graph.viewport)).toEqual([]);
+  });
+
+  it("places a new Scene clear of one the author moved off the grid, which stays where it is", () => {
+    const { graph, editorLayout } = codebaseWithScenes({ width: 1920, height: 1080 }, ["start", "added"]);
+    const layout = { ...editorLayout, nodes: { start: { x: 120, y: 200 } } };
+
+    const fitted = fitPlayableLayout(graph, layout);
+
+    expect(fitted.nodes.start).toEqual({ x: 120, y: 200 });
+    expect(fitted.nodes.added).toEqual(freePlayablePosition(layout, graph.viewport));
+    expect(overlappingCards(fitted, graph.viewport)).toEqual([]);
+  });
+});
+
+/** A project with these Scenes in graph.json and no canvas positions. */
+function codebaseWithScenes(viewport: { width: number; height: number }, ids: string[]): NodeCodebase {
+  const codebase = createPlayableStarterCodebase("Story", viewport);
+  return {
+    ...codebase,
+    graph: {
+      ...codebase.graph,
+      nodes: ids.map((id) => ({
+        id,
+        title: id,
+        source: { html: `nodes/${id}/index.html`, css: `nodes/${id}/style.css`, javascript: `nodes/${id}/node.js` },
+        assets: [],
+        signals: [{ id: "next", label: "Next" }],
+      })),
+    },
+  };
+}
+
+/**
+ * The pairs of Scenes whose cards cover each other. The canvas draws a card
+ * as a 28px title above a stage that fits the screen's shape into 440 by 440.
+ */
+function overlappingCards(layout: NodeEditorLayout, viewport: { width: number; height: number }): string[] {
+  const aspect = viewport.width / viewport.height;
+  const width = 440 * Math.min(1, aspect);
+  const height = 28 + 440 / Math.max(1, aspect);
+  const pairs: string[] = [];
+  const cards = Object.entries(layout.nodes);
+  for (const [index, [left, a]] of cards.entries()) {
+    for (const [right, b] of cards.slice(index + 1)) {
+      if (Math.abs(a.x - b.x) < width && Math.abs(a.y - b.y) < height) pairs.push(`${left}+${right}`);
+    }
+  }
+  return pairs;
+}
 
 async function temporaryWorkspace(): Promise<string> {
   const workspace = await mkdtemp(path.join(tmpdir(), "ohmygame-playable-codebase-"));

@@ -1,10 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const electron = vi.hoisted(() => ({ windows: [] as unknown[], dark: false, openExternal: vi.fn(async () => {}) }));
+const electron = vi.hoisted(() => ({
+  windows: [] as unknown[],
+  dark: false,
+  workArea: { x: 0, y: 0, width: 1920, height: 1080 },
+  cursorPoint: { x: 480, y: 320 },
+  getDisplayNearestPoint: vi.fn(),
+  openExternal: vi.fn(async () => {}),
+}));
 
 vi.mock("electron", () => ({
   shell: { openExternal: electron.openExternal },
   nativeTheme: { get shouldUseDarkColors() { return electron.dark; } },
+  screen: {
+    getCursorScreenPoint: () => electron.cursorPoint,
+    getDisplayNearestPoint: electron.getDisplayNearestPoint,
+  },
   BrowserWindow: class {
     readonly options: Record<string, unknown>;
     readonly webContents = {
@@ -35,12 +46,79 @@ import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport } 
 beforeEach(() => {
   electron.windows.length = 0;
   electron.dark = false;
+  electron.workArea = { x: 0, y: 0, width: 1920, height: 1080 };
+  electron.cursorPoint = { x: 480, y: 320 };
+  electron.getDisplayNearestPoint.mockReset().mockImplementation(() => ({ workArea: electron.workArea }));
   electron.openExternal.mockClear();
 });
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("desktop window", () => {
+  it("uses a native title bar to keep Playtest window controls outside the game on macOS", async () => {
+    vi.stubGlobal("process", { ...process, platform: "darwin" });
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+      contentSize: { width: 1280, height: 720 },
+      nativeTitleBar: true,
+    });
+    const window = electron.windows[0] as { options: Record<string, unknown> };
+    expect(window.options.useContentSize).toBe(true);
+    expect(window.options.titleBarStyle).toBeUndefined();
+  });
+
+  it("starts at a moderate size centered in the display work area", async () => {
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+    });
+    const window = electron.windows[0] as { options: Record<string, unknown> };
+    expect(window.options).toMatchObject({ width: 1200, height: 780, minWidth: 960, minHeight: 640, x: 360, y: 150 });
+  });
+
+  it.each([
+    { x: 0, y: 24, width: 1280, height: 696 },
+    { x: 0, y: 24, width: 800, height: 576 },
+    { x: -1440, y: 48, width: 1440, height: 852 },
+  ])("fits within the pointer display's work area %j", async (workArea) => {
+    electron.workArea = workArea;
+    electron.cursorPoint = { x: workArea.x + 100, y: workArea.y + 100 };
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+    });
+    const window = electron.windows[0] as {
+      options: { width: number; height: number; minWidth: number; minHeight: number; x: number; y: number };
+    };
+    const bounds = window.options;
+    expect(electron.getDisplayNearestPoint).toHaveBeenCalledWith(electron.cursorPoint);
+    expect(bounds.width).toBeLessThanOrEqual(Math.floor(workArea.width * 0.9));
+    expect(bounds.height).toBeLessThanOrEqual(Math.floor(workArea.height * 0.88));
+    expect(bounds.minWidth).toBeLessThanOrEqual(bounds.width);
+    expect(bounds.minHeight).toBeLessThanOrEqual(bounds.height);
+    expect(bounds.x).toBeGreaterThanOrEqual(workArea.x);
+    expect(bounds.y).toBeGreaterThanOrEqual(workArea.y);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(workArea.x + workArea.width);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(workArea.y + workArea.height);
+    expect(Math.abs((bounds.x - workArea.x) - (workArea.x + workArea.width - bounds.x - bounds.width))).toBeLessThanOrEqual(1);
+    expect(Math.abs((bounds.y - workArea.y) - (workArea.y + workArea.height - bounds.y - bounds.height))).toBeLessThanOrEqual(1);
+  });
+
+  it.each([false, true])("matches the native startup background to dark mode %s", async (dark) => {
+    electron.dark = dark;
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+    });
+    const window = electron.windows[0] as { options: Record<string, unknown> };
+    expect(window.options.backgroundColor).toBe(dark ? "#171717" : "#ffffff");
+  });
+
   it("blocks main-frame navigation away from the renderer", async () => {
     await createDesktopWindow({
       runtime: { url: "http://127.0.0.1:43110", token: "token" },
@@ -114,6 +192,7 @@ describe("desktop window", () => {
   });
 
   it("supports a fixed content aspect ratio for playtest windows", async () => {
+    electron.workArea = { x: 0, y: 24, width: 800, height: 576 };
     await createDesktopWindow({
       runtime: { url: "http://127.0.0.1:43110", token: "token" },
       preloadPath: "/tmp/preload.cjs",
@@ -136,6 +215,9 @@ describe("desktop window", () => {
       useContentSize: true,
     });
     expect(window.setAspectRatio).toHaveBeenCalledWith(16 / 9);
+    expect(electron.getDisplayNearestPoint).not.toHaveBeenCalled();
+    expect(window.options.x).toBeUndefined();
+    expect(window.options.y).toBeUndefined();
   });
 
   it.each([
@@ -182,7 +264,7 @@ describe("desktop window", () => {
   });
 
   it.each([
-    ["win32", false, "#f7f7f7"],
+    ["win32", false, "#ffffff"],
     ["win32", true, "#1f1f1f"],
     ["darwin", false, undefined],
     ["linux", false, undefined],

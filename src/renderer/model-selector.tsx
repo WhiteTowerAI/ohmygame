@@ -2,7 +2,9 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Settings } from 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
-import { clampReasoningLevel, reasoningLabel } from "../shared/reasoning.js";
+import { clampReasoningLevel } from "../shared/reasoning.js";
+import { reasoningLabel } from "./reasoning-label.js";
+import { t } from "./i18n.js";
 import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
 import { menuPlacement } from "./popover-placement.js";
 import { settingsHash } from "./routes.js";
@@ -27,6 +29,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const reasoningEntry = useRef<HTMLButtonElement>(null);
+  const returningToModels = useRef(false);
   const popover = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
@@ -35,9 +39,11 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const visibleModels = status === "ready" ? filterModels(models, query) : [];
   const providerGroups = groupModelsByProvider(visibleModels);
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? "medium", current?.reasoningLevels ?? []);
+  const reasoningText = reasoningLabel(effectiveReasoning);
   const supportsReasoning = !!current && current.reasoningLevels.length > 1;
   const open = !!panel;
   const showReasoning = panel === "reasoning";
+  const positioned = position !== undefined;
   const canvas = variant === "canvas";
   const canSelect = status === "ready" && models.length > 0;
 
@@ -48,8 +54,14 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
 
   function toggle(): void {
     if (open) { close(); return; }
+    returningToModels.current = false;
     setQuery("");
     setPosition(undefined);
+    setPanel("models");
+  }
+
+  function backToModels(): void {
+    returningToModels.current = true;
     setPanel("models");
   }
 
@@ -67,13 +79,14 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   }, [panel, canvas, placement]);
 
   useEffect(() => {
-    if (!open || !position) return;
-    if (showReasoning) {
+    if (!panel || !positioned) return;
+    if (panel === "reasoning") {
       const selected = popover.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]') ?? popover.current?.querySelector<HTMLButtonElement>('[role="menuitemradio"]');
       selected?.focus();
     }
-    else search.current?.focus();
-  }, [open, showReasoning, position]);
+    else (returningToModels.current ? reasoningEntry : search).current?.focus();
+    returningToModels.current = false;
+  }, [panel, positioned]);
 
   useEffect(() => {
     if (!open) return;
@@ -104,28 +117,27 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
     if (!supportsReasoning) setPanel((current) => current === "reasoning" ? undefined : current);
   }, [supportsReasoning]);
 
-  const unavailableLabel = status === "loading" ? "Loading models..."
-    : status === "error" ? "Could not load models"
-    : "No language model";
+  const unavailableLabel = status === "loading" ? t("modelSelector.loading")
+    : status === "error" ? t("modelSelector.error")
+    : t("modelSelector.none");
 
   return (
     <div className={`model-selector${canvas ? " model-selector-canvas" : ""}`} ref={root}>
       <button
         ref={trigger}
-        className={canvas ? "canvas-chip is-wide" : "model-selector-trigger"}
+        className={canvas ? "canvas-chip" : "model-selector-trigger"}
         type="button"
-        aria-label={canvas ? `Text model: ${current?.name ?? unavailableLabel}` : "Model"}
+        aria-label={canvas ? t("modelSelector.textModel", { name: current?.name ?? unavailableLabel }) : t("modelSelector.model")}
+        aria-description={supportsReasoning ? t("modelSelector.reasoning", { level: reasoningText }) : undefined}
         aria-controls={menuId}
         aria-expanded={open}
         aria-haspopup="menu"
         disabled={disabled || (!canvas && !canSelect)}
         onClick={toggle}
-        title={canvas && current ? `Text model: ${current.providerName} · ${current.name}${supportsReasoning ? ` · Reasoning: ${reasoningLabel(effectiveReasoning)}` : ""}` : "Model"}
+        title={current ? `${t("modelSelector.textModelTitle", { provider: current.providerName, name: current.name })}${supportsReasoning ? ` · ${reasoningText}` : ""}` : unavailableLabel}
       >
-        {canvas ? <span>{current?.name ?? unavailableLabel}</span> : <span className="model-selector-current">
-          <span className="model-selector-name">{current?.name ?? unavailableLabel}</span>
-          {current ? <small>{current.providerName}</small> : null}
-        </span>}
+        <span className="model-selector-name">{current?.name ?? unavailableLabel}</span>
+        {supportsReasoning ? <span className="model-selector-reasoning-value">{reasoningText}</span> : null}
         <ChevronDown aria-hidden="true" size={12} />
       </button>
 
@@ -135,16 +147,16 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
           if (event.key === "Escape" || (showReasoning && event.key === "ArrowLeft")) {
             event.preventDefault();
             event.stopPropagation();
-            if (showReasoning) setPanel("models");
+            if (showReasoning) backToModels();
             else close(true);
           } else moveModelFocus(event, popover.current, showReasoning ? undefined : search.current);
         }}>
           {!showReasoning ? (
-            <div className="model-selector-menu" role="menu" aria-label="Models">
+            <div className="model-selector-menu" role="menu" aria-label={t("models.title")}>
               <div className="model-selector-search-row">
                 <label className="model-selector-search">
                   <Search size={13} aria-hidden="true" />
-                  <input ref={search} value={query} placeholder="Search models" aria-label="Search models" onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+                  <input ref={search} value={query} placeholder={t("models.search")} aria-label={t("models.search")} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
                     if (event.key !== "Enter" || event.nativeEvent.isComposing || event.keyCode === 229) return;
                     event.preventDefault();
                     event.stopPropagation();
@@ -153,7 +165,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                     select(first);
                   }} />
                 </label>
-                <button className="model-selector-manage" type="button" aria-label="Manage providers" title="Manage providers" onClick={() => {
+                <button className="model-selector-manage" type="button" aria-label={t("modelSelector.manage")} title={t("modelSelector.manage")} onClick={() => {
                   close(true);
                   window.location.hash = settingsHash("providers");
                 }}><Settings aria-hidden="true" size={13} /></button>
@@ -181,22 +193,31 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                     })}
                   </div>
                 ))}
-                {visibleModels.length === 0 ? <p className="model-selector-empty" role="status">{status !== "ready" || !query.trim() ? unavailableLabel : "No matching models"}</p> : null}
+                {visibleModels.length === 0 ? <p className="model-selector-empty" role="status">{status !== "ready" || !query.trim() ? unavailableLabel : t("modelSelector.noMatch")}</p> : null}
               </div>
-              {supportsReasoning && canSelect ? (
-                <button className="model-selector-reasoning" type="button" role="menuitem" onClick={() => setPanel("reasoning")}>
-                  <span>Reasoning</span>
-                  <span className="model-selector-setting-value">{reasoningLabel(effectiveReasoning)}<ChevronRight size={12} /></span>
-                </button>
-              ) : null}
+              {supportsReasoning && canSelect ? <button
+                ref={reasoningEntry}
+                className="model-selector-reasoning"
+                type="button"
+                role="menuitem"
+                aria-haspopup="menu"
+                onClick={() => setPanel("reasoning")}
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowRight") return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setPanel("reasoning");
+                }}
+              >
+                <span>{t("models.reasoning")}</span>
+                <span className="model-selector-setting-value">{reasoningText}<ChevronRight aria-hidden="true" size={12} /></span>
+              </button> : null}
             </div>
-          ) : null}
-
-          {showReasoning ? (
-            <div className="model-selector-submenu" role="menu" aria-label="Reasoning levels">
-              <button className="model-selector-back" type="button" role="menuitem" onClick={() => setPanel("models")}>
-                <ChevronLeft size={12} />
-                <span>Reasoning</span>
+          ) : (
+            <div className="model-selector-reasoning-menu" role="menu" aria-label={t("customProvider.reasoningLevels")}>
+              <button className="model-selector-back" type="button" role="menuitem" aria-label={t("modelSelector.backToModels")} onClick={backToModels}>
+                <ChevronLeft aria-hidden="true" size={12} />
+                <span>{t("models.reasoning")}</span>
               </button>
               {(current?.reasoningLevels ?? []).map((level) => {
                 const selected = level === effectiveReasoning;
@@ -218,7 +239,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 );
               })}
             </div>
-          ) : null}
+          )}
         </div>,
         document.body,
       ) : null}

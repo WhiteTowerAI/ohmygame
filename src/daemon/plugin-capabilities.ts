@@ -18,7 +18,7 @@ import {
   readPluginMcpServers,
   type LocalPluginStore,
 } from "./local-plugins.js";
-import type { PluginSkillSource } from "./plugin-runtime.js";
+import { readPluginSkillContent, type PluginSkillSource } from "./plugin-runtime.js";
 import type { PluginSettingsStore } from "./plugin-settings.js";
 import {
   PluginConfigurationError,
@@ -35,6 +35,16 @@ interface PluginMcpPackage {
 export class PluginCapabilities {
   readonly configuration: PluginConfigurationStore;
   readonly host = new PluginMcpHost();
+  async skillContent(plugin: PluginDetail, id: string): Promise<string | undefined> {
+    return readPluginSkillContent(plugin, id, this.sources);
+  }
+  async packageRoot(plugin: PluginDetail): Promise<string> {
+    for (const source of this.sources) {
+      const root = await source.installedPath(plugin.id);
+      if (root) return root;
+    }
+    throw new LocalPluginError("Installed plugin files not found", 404);
+  }
   constructor(
     private readonly dataDirectory: string,
     private readonly agentDirectory: string,
@@ -278,6 +288,13 @@ export class PluginCapabilities {
         ],
     };
   }
+
+  async portableTemplates(plugin: PluginDetail) {
+    const fields = this.configuration.fields(plugin);
+    const definitions = Object.fromEntries(await Promise.all((plugin.mcpServers ?? []).map(async server => [server.id, structuredClone(await this.template(plugin, server.id))])));
+    const values: PluginConfigurationValues = {};
+    return { fields, definitions: protectDefinitions(definitions, fields, values, true) };
+  }
   async setDefinition(
     plugin: PluginDetail,
     serverId: string,
@@ -429,7 +446,7 @@ export function mcpPluginPackage(input: CreateMcpPluginRequest, allowSecrets = f
     description: input.description || "MCP tools",
     mcpServers: "./mcp.json",
     configuration: fields,
-    interface: { displayName: input.displayName || input.name },
+    interface: { displayName: input.displayName || input.name, icon: input.icon ?? { type: "preset", id: "plug" } },
   };
   if (!isPluginManifest(manifest)) throw new LocalPluginError("Invalid plugin name or configuration fields");
   return { manifest, servers, values };
@@ -470,10 +487,7 @@ function protectDefinitions(
     if (
       typeof value === "string" &&
       (sensitive ||
-        (parts.at(-1) === "url" &&
-          /[?&](?:api[_-]?key|token|secret|password|signature)=/i.test(
-            value,
-          ))) &&
+        (parts.at(-1) === "url" && sensitiveUrl(value))) &&
       !value.includes("${config.")
     ) {
       if (!allowSecrets)
@@ -498,11 +512,13 @@ function protectDefinitions(
         label: parts.join(" / "),
         required: true,
       };
-      values[key] = value;
-      return `\${config.${key}}`;
+      const argumentPrefix = parts.at(-2) === "args" ? sensitiveArgumentPrefix(value) : undefined;
+      values[key] = argumentPrefix ? value.slice(argumentPrefix.length) : value;
+      return `${argumentPrefix ?? ""}\${config.${key}}`;
     }
     if (Array.isArray(value))
-      return value.map((v, i) => visit(v, [...parts, String(i)], sensitive));
+      return value.map((v, i) => visit(v, [...parts, String(i)], sensitive ||
+        (parts.at(-1) === "args" && typeof v === "string" && sensitiveArgument(v, value[i - 1]))));
     if (value && typeof value === "object")
       return Object.fromEntries(
         Object.entries(value).map(([k, v]) => [
@@ -524,4 +540,35 @@ function protectDefinitions(
     return value;
   }
   return visit(servers, []) as Record<string, McpServerDefinition>;
+}
+
+const SECRET_NAME = /^(?:[a-z0-9]+[-_])*(?:api[-_]?key|key|token|secret|password|passwd|pat|auth|authorization|credentials?|bearer|signature|sig)(?:[-_](?!(?:file|path|dir|url|uri)$)[a-z0-9]+)*$/i;
+
+// Names catch flagged credentials; the value shape catches positional ones and
+// URL path segments, so exported packages do not carry literal tokens.
+function sensitiveArgument(value: string, previous: unknown): boolean {
+  const flag = /^--?([^=]+)=(.*)$/.exec(value);
+  if (flag) return SECRET_NAME.test(flag[1]!) || looksLikeSecret(flag[2]!);
+  if (value.startsWith("-")) return false;
+  return (typeof previous === "string" && /^--?[^=]+$/.test(previous) && SECRET_NAME.test(previous.replace(/^--?/, ""))) ||
+    looksLikeSecret(value);
+}
+
+function sensitiveArgumentPrefix(value: string): string | undefined {
+  return /^--?[^=]+=/.exec(value)?.[0];
+}
+
+function looksLikeSecret(value: string): boolean {
+  if (/^(?:sk|pk|rk)[-_][A-Za-z0-9_-]{16,}$|^(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}$|^github_pat_[A-Za-z0-9_]{20,}$|^glpat-[A-Za-z0-9_-]{16,}$|^xox[abposr]-[A-Za-z0-9-]{10,}$|^AKIA[A-Z0-9]{16}$|^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\./.test(value))
+    return true;
+  return value.length >= 24 && /^[A-Za-z0-9_-]+$/.test(value) && /[A-Z]/.test(value) && /[a-z]/.test(value) && /[0-9]/.test(value);
+}
+
+function sensitiveUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return Boolean(url.username || url.password) ||
+      [...url.searchParams].some(([key, item]) => SECRET_NAME.test(key) || looksLikeSecret(item)) ||
+      url.pathname.split("/").some(looksLikeSecret);
+  } catch { return false; }
 }

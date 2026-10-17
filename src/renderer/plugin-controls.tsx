@@ -16,6 +16,18 @@ import {
   testPluginMcp,
 } from "./api.js";
 import { LoaderCircle, Plug, Trash2, WandSparkles } from "./icons.js";
+import { t } from "./i18n.js";
+
+export function PluginEnabledSwitch({ plugin, disabled, onToggle }: {
+  plugin: Pick<PluginDetail, "displayName" | "enabled" | "installed">;
+  disabled?: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  if (!plugin.installed) return null;
+  const label = `${plugin.enabled ? t("common.disable") : t("common.enable")} ${plugin.displayName}`;
+  return <button className="plugin-switch" type="button" role="switch" aria-checked={plugin.enabled}
+    aria-label={label} title={label} disabled={disabled} onClick={() => onToggle(!plugin.enabled)}><span /></button>;
+}
 
 export function PluginUninstallButton({ plugin, disabled, compact = false, onUninstall }: {
   plugin: Pick<PluginDetail, "displayName" | "installed" | "source">;
@@ -25,9 +37,9 @@ export function PluginUninstallButton({ plugin, disabled, compact = false, onUni
 }) {
   if (!plugin.installed || plugin.source.type === "builtIn") return null;
   return <button className={compact ? "icon-button pane-header-action" : "plugin-detail-secondary"} type="button"
-    disabled={disabled} title="Uninstall plugin" aria-label="Uninstall plugin" onClick={() => {
-      if (window.confirm(`Uninstall “${plugin.displayName}”?`)) onUninstall();
-    }}>{compact ? <Trash2 size={14} /> : "Uninstall"}</button>;
+    disabled={disabled} title={t("pluginControls.uninstall")} aria-label={t("pluginControls.uninstall")} onClick={() => {
+      if (window.confirm(t("pluginControls.confirmUninstall", { name: plugin.displayName }))) onUninstall();
+    }}>{compact ? <Trash2 size={14} /> : t("pluginControls.uninstallShort")}</button>;
 }
 
 export function PluginConfigurationPanel({
@@ -66,7 +78,7 @@ export function PluginConfigurationPanel({
   if (!config && !Object.keys(plugin.configuration ?? {}).length) return null;
   return (
     <section className="plugin-components plugin-configuration">
-      {!compact ? <h2>Configuration</h2> : null}
+      {!compact ? <h2>{t("pluginControls.configuration")}</h2> : null}
       {config ? (
         <form
           onSubmit={(event) => {
@@ -98,7 +110,7 @@ export function PluginConfigurationPanel({
                       setValues((v) => ({ ...v, [key]: event.target.value }))
                     }
                   >
-                    <option value="">Choose an option</option>
+                    <option value="">{t("pluginControls.chooseOption")}</option>
                     {field.options?.map((option) => (
                       <option key={option}>{option}</option>
                     ))}
@@ -115,9 +127,9 @@ export function PluginConfigurationPanel({
                     placeholder={
                       field.type === "secret" &&
                       config.configuredSecrets.includes(key)
-                        ? "Configured — enter a value to replace"
+                        ? t("pluginControls.configuredReplace")
                         : field.type === "path"
-                          ? "Absolute path"
+                          ? t("pluginControls.absolutePath")
                           : undefined
                     }
                     onChange={(event) =>
@@ -134,8 +146,8 @@ export function PluginConfigurationPanel({
                     onClick={() => setValues((v) => ({ ...v, [key]: null }))}
                   >
                     {values[key] === null
-                      ? "Will be cleared"
-                      : "Clear saved value"}
+                      ? t("pluginControls.willClear")
+                      : t("pluginControls.clearSaved")}
                   </button>
                 ) : null}
               </label>
@@ -143,10 +155,11 @@ export function PluginConfigurationPanel({
           })}
           {config.missing.length ? (
             <p role="status">
-              Needs configuration:{" "}
-              {config.missing
-                .map((key) => config.fields[key]?.label)
-                .join(", ")}
+              {t("pluginControls.needsConfiguration", {
+                fields: config.missing
+                  .map((key) => config.fields[key]?.label)
+                  .join(", "),
+              })}
             </p>
           ) : null}
           <button
@@ -154,11 +167,11 @@ export function PluginConfigurationPanel({
             type="submit"
             disabled={busy || !Object.keys(values).length}
           >
-            {busy ? "Saving…" : "Save configuration"}
+            {busy ? t("common.saving") : t("pluginControls.saveConfiguration")}
           </button>
         </form>
       ) : (
-        <p>Loading configuration…</p>
+        <p>{t("pluginControls.loadingConfiguration")}</p>
       )}
       {notice ? <p role="status">{notice}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
@@ -171,7 +184,7 @@ export function PluginConfigurationPanel({
       setConfig(await (setupId ? savePluginDraftConfiguration(setupId, values) : savePluginConfiguration(plugin.id, values)));
       setValues({});
       setNotice(
-        compact ? "Saved" : setupId ? "Saved for this draft. Credentials carry over when you install it." : "Saved. Active conversations apply changes after the current turn finishes.",
+        compact ? t("common.saved") : setupId ? t("pluginControls.savedDraft") : t("pluginControls.savedActive"),
       );
       onChanged();
     } catch (cause) {
@@ -202,7 +215,7 @@ export function PluginMcpPanel({
   if (!plugin.mcpServers?.length && !plugin.connections.length) return null;
   return (
     <section className="plugin-components">
-      <h2>MCP services</h2>
+      <h2>{t("pluginControls.mcpServices")}</h2>
       {(plugin.mcpServers ?? []).map((server) => {
         const result = results[server.id];
         return (
@@ -215,16 +228,16 @@ export function PluginMcpPanel({
                 <strong>{server.name}</strong>
                 <span>
                   {server.status === "connected"
-                    ? `Connected · ${server.toolCount ?? 0} tools`
+                    ? t("pluginControls.connectedTools", { count: server.toolCount ?? 0 })
                     : server.status === "not-configured"
-                      ? "Needs configuration"
+                      ? t("plugins.needsConfiguration")
                       : server.status === "disabled"
-                        ? "Disabled"
+                        ? t("common.disabled")
                         : server.status === "needs-auth"
-                          ? "Authorization required"
+                          ? t("pluginControls.authorizationRequired")
                           : server.status === "failed"
-                            ? "Connection failed"
-                            : "Ready to connect"}
+                            ? t("providers.status.failed")
+                            : t("pluginControls.readyToConnect")}
                 </span>
               </span>
               <button
@@ -236,13 +249,13 @@ export function PluginMcpPanel({
                 {busy === server.id ? (
                   <LoaderCircle size={13} className="spin" />
                 ) : null}
-                Test
+                {t("pluginControls.test")}
               </button>
               <button
                 className="plugin-switch"
                 role="switch"
                 type="button"
-                aria-label={`Enable ${server.name}`}
+                aria-label={t("plugins.enableName", { name: server.name })}
                 aria-checked={server.enabled}
                 disabled={!plugin.enabled}
                 onClick={() => onToggle(server.id, !server.enabled)}
@@ -254,10 +267,10 @@ export function PluginMcpPanel({
               <div className="plugin-mcp-result" role="status">
                 <strong>
                   {result.status === "connected"
-                    ? `Connected · ${result.toolCount} tools`
+                    ? t("pluginControls.connectedTools", { count: result.toolCount })
                     : result.status === "needs-auth"
-                      ? "Authorization required"
-                      : "Connection failed"}
+                      ? t("pluginControls.authorizationRequired")
+                      : t("providers.status.failed")}
                 </strong>
                 {result.message ? <pre>{result.message}</pre> : null}
               </div>
@@ -269,7 +282,7 @@ export function PluginMcpPanel({
                 disabled={Boolean(busy)}
                 onClick={() => void edit(server.id)}
               >
-                Edit configuration
+                {t("pluginControls.editConfiguration")}
               </button>
               {server.transport === "http" ? (
                 <button
@@ -278,7 +291,7 @@ export function PluginMcpPanel({
                   disabled={Boolean(busy)}
                   onClick={() => void run(server.id, "auth-start")}
                 >
-                  Authorize
+                  {t("pluginControls.authorize")}
                 </button>
               ) : null}
             </div>
@@ -291,9 +304,9 @@ export function PluginMcpPanel({
                 }}
               >
                 <label>
-                  MCP service configuration
+                  {t("pluginControls.mcpConfiguration")}
                   <textarea
-                    aria-label="MCP service configuration"
+                    aria-label={t("pluginControls.mcpConfiguration")}
                     rows={10}
                     value={definition}
                     onChange={(event) => setDefinition(event.target.value)}
@@ -305,18 +318,18 @@ export function PluginMcpPanel({
                     type="button"
                     onClick={() => setEditing(undefined)}
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </button>
                   <button
                     className="plugin-detail-primary"
                     type="submit"
                     disabled={Boolean(busy)}
                   >
-                    Save configuration
+                    {t("pluginControls.saveConfiguration")}
                   </button>
                 </div>
                 <small>
-                  Saved credentials are referenced by configuration fields.
+                  {t("pluginControls.credentialsReferenced")}
                 </small>
               </form>
             ) : null}
@@ -327,10 +340,10 @@ export function PluginMcpPanel({
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Open authorization page
+                  {t("pluginControls.openAuthorization")}
                 </a>
                 <label>
-                  After authorizing, paste the callback URL or code
+                  {t("pluginControls.pasteCallback")}
                   <input
                     value={input}
                     autoComplete="off"
@@ -343,7 +356,7 @@ export function PluginMcpPanel({
                   disabled={Boolean(busy) || !input.trim()}
                   onClick={() => void run(server.id, "auth-complete")}
                 >
-                  Complete authorization
+                  {t("pluginControls.completeAuthorization")}
                 </button>
               </div>
             ) : null}
@@ -356,17 +369,17 @@ export function PluginMcpPanel({
             <strong>{connection.name}</strong>
             <span>
               {connection.status === "not-configured"
-                ? "Provider is not installed"
+                ? t("pluginControls.providerNotInstalled")
                 : connection.enabled
-                  ? "Provided by another plugin"
-                  : "Provider is disabled"}
+                  ? t("pluginControls.providedByAnother")
+                  : t("pluginControls.providerDisabled")}
             </span>
           </span>
           {connection.ownerPluginId ? (
             <a
               href={`#/settings/plugins/${encodeURIComponent(connection.ownerPluginId)}`}
             >
-              Manage provider
+              {t("pluginControls.manageProvider")}
             </a>
           ) : null}
         </div>
@@ -377,11 +390,11 @@ export function PluginMcpPanel({
         onClick={onAssist}
       >
         <WandSparkles size={13} />
-        Set up or repair with AI
+        {t("pluginControls.repairWithAi")}
       </button>
       {error ? <p role="alert">{error}</p> : null}
       <p className="plugin-change-notice">
-        Changes apply after the current conversation turn finishes.
+        {t("pluginControls.changesApply")}
       </p>
     </section>
   );
@@ -462,15 +475,15 @@ export function AddMcpPluginDialog({
         className="plugin-install-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label="Add MCP plugin"
+        aria-label={t("pluginControls.addMcpPlugin")}
         onSubmit={(event) => {
           event.preventDefault();
           void install();
         }}
       >
-        <h2>Add MCP plugin</h2>
+        <h2>{t("pluginControls.addMcpPlugin")}</h2>
         <label>
-          Plugin name
+          {t("pluginControls.pluginName")}
           <input
             required
             placeholder="my-service"
@@ -480,7 +493,7 @@ export function AddMcpPluginDialog({
           />
         </label>
         <label>
-          Connection type
+          {t("pluginControls.connectionType")}
           <select
             value={transport}
             onChange={(event) =>
@@ -488,13 +501,13 @@ export function AddMcpPluginDialog({
             }
           >
             <option value="http">HTTP</option>
-            <option value="stdio">Local command</option>
-            <option value="json">Paste MCP configuration</option>
+            <option value="stdio">{t("pluginControls.localCommand")}</option>
+            <option value="json">{t("pluginControls.pasteConfig")}</option>
           </select>
         </label>
         {transport === "http" ? (
           <label>
-            MCP URL
+            {t("pluginControls.mcpUrl")}
             <input
               required
               type="url"
@@ -506,7 +519,7 @@ export function AddMcpPluginDialog({
         ) : transport === "stdio" ? (
           <>
             <label>
-              Command
+              {t("pluginControls.command")}
               <input
                 required
                 value={command}
@@ -515,7 +528,7 @@ export function AddMcpPluginDialog({
               />
             </label>
             <label>
-              Arguments (JSON array)
+              {t("pluginControls.arguments")}
               <textarea
                 value={args}
                 onChange={(event) => setArgs(event.target.value)}
@@ -524,7 +537,7 @@ export function AddMcpPluginDialog({
           </>
         ) : (
           <label>
-            MCP configuration
+            {t("pluginControls.mcpConfig")}
             <textarea
               rows={8}
               value={json}
@@ -533,9 +546,9 @@ export function AddMcpPluginDialog({
           </label>
         )}
         <details>
-          <summary>Configuration fields</summary>
+          <summary>{t("pluginControls.configFields")}</summary>
           <label>
-            Optional field definitions (JSON)
+            {t("pluginControls.optionalFields")}
             <textarea
               rows={5}
               value={schema}
@@ -544,8 +557,7 @@ export function AddMcpPluginDialog({
           </label>
         </details>
         <p>
-          API keys in environment variables or headers are stored separately
-          from the plugin package.
+          {t("pluginControls.keysStored")}
         </p>
         {error ? (
           <p className="plugin-install-error" role="alert">
@@ -559,14 +571,14 @@ export function AddMcpPluginDialog({
             disabled={busy}
             onClick={onClose}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             className="plugin-detail-primary"
             type="submit"
             disabled={busy}
           >
-            {busy ? "Adding…" : "Add plugin"}
+            {busy ? t("pluginControls.adding") : t("plugins.add")}
           </button>
         </footer>
       </form>
@@ -600,5 +612,5 @@ export function AddMcpPluginDialog({
 }
 
 function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : "Something went wrong";
+  return cause instanceof Error ? cause.message : t("common.somethingWrong");
 }

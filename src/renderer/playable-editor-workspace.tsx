@@ -1,11 +1,11 @@
+import { workspaceVersion } from "./workspace-version.js";
 import {
+  ArrowLeft,
   Clapperboard,
   Code2,
   FileText,
-  House,
   LoaderCircle,
   PanelToggle,
-  Play,
   Share2,
   Settings,
 } from "./icons.js";
@@ -31,7 +31,7 @@ import {
 import { snapCanvasPosition } from "./canvas-alignment.js";
 import { EditorCanvas, isTextEntry, undoShortcut, type CanvasContextMenuState } from "./editor-canvas.js";
 import type { ProjectState, PromptContext } from "../shared/contracts.js";
-import { rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
+import { PLAYABLE_CARD_TITLE_HEIGHT, playableCanvasStageSize, rebasePlayableCodebase, samePlayableGraph, type NodeCodebase, type NodeCodebaseUpdate, type NodeEditorLayout } from "../shared/playable-codebase.js";
 import {
   type NodeGraph,
   type PlayableNode,
@@ -54,6 +54,7 @@ import {
   addPlayableNode,
   ApiError,
   buildInteractiveStory,
+  exportInteractiveStoryProject,
   getNodeCodebase,
   getPlayableValidation,
   getWorkspaceFile,
@@ -64,22 +65,27 @@ import {
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { WorkspaceCodeView } from "./coding-workspace.js";
 import { playtestHash } from "./routes.js";
-import { PlayableNodeWorkbench, type PlayableAssetRequest, type PlaytestStart } from "./playable-node-workbench.js";
+import { PlayableNodeWorkbench, type PlayableAssetRequest } from "./playable-node-workbench.js";
 import { PlayableProjectSettingsDialog } from "./playable-project-settings-dialog.js";
-import { requestPlaytestStart } from "./playable-playtest.js";
+import { PlaytestControls, requestPlaytest, type PlaytestRequest } from "./playable-playtest.js";
 import type { PlayableChatState } from "./playable-chat.js";
 import { buildCodebase, createFlowNode, nodeIdForIssuePath, nodeSourcePaths, toFlowEdge, toFlowNode, uniqueNodeId, type GraphMeta, type PlayableFlowData, type PlayableFlowNode } from "./playable-flow.js";
 import { PLAYABLE_NODE_TYPES, PlayableCanvasContext } from "./playable-node-card.js";
-import { PlayableAddControl, PlayableCanvasContextMenu, PlayableEmptyCanvas } from "./playable-canvas-menus.js";
+import { PlayableAddControl, PlayableCanvasContextMenu } from "./playable-canvas-menus.js";
 import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 import { useDesktopSave } from "./desktop-close-guard.js";
+import { t } from "./i18n.js";
+import { WorkspaceBackButton } from "./workspace-shell.js";
 
 const DEFAULT_CANVAS_VIEWPORT = { x: 64, y: 32, zoom: 1 };
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
 
 const HISTORY_LIMIT = 50;
 const SAVE_ATTEMPTS = 3;
-const PROJECT_CHANGED = "The project changed while you were editing, so its latest version was loaded. Make your last change again.";
+/** Loading again while a workspace checkpoint or restore runs longer than the daemon waits for it. */
+const WORKSPACE_BUSY_RETRIES = 5;
+const WORKSPACE_BUSY_RETRY_MS = 3000;
+const PROJECT_CHANGED = t("storyEditor.projectChanged");
 
 /** A step to undo or redo: the codebase, and the source files as they were, when the step wrote any. */
 interface HistoryEntry {
@@ -99,7 +105,7 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   agentBusy: boolean;
@@ -113,6 +119,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   chatOnRight?: boolean;
   chatCollapsed?: boolean;
   onHome?: () => void;
+  homeLabel?: string;
   onToggleChat?: () => void;
   designOpen?: boolean;
   onDesignOpenChange?: (open: boolean) => void;
@@ -126,6 +133,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   onSendToAgent?: (text: string, contexts: PromptContext[]) => Promise<boolean>;
 }) {
   const projectId = project.id;
+  const [writeVersion] = useState(() => workspaceVersion(projectId));
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [notice, setNotice] = useState<string>();
   const [graphMeta, setGraphMeta] = useState<GraphMeta>();
@@ -190,8 +198,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   latestCodebase.current = codebase;
   const playerViewport = graphMeta?.viewport ?? { width: 1280, height: 720 };
   const playerViewportAspect = playerViewport.width / playerViewport.height;
-  const canvasStageWidth = 440 * Math.min(1, playerViewportAspect);
-  const canvasStageHeight = 440 / Math.max(1, playerViewportAspect);
+  const canvasStage = playableCanvasStageSize(playerViewport);
   const canUndo = Boolean(historyPendingBase.current || undoHistory.current.length);
   const canRedo = !historyPendingBase.current && redoHistory.current.length > 0;
   const openedNode = !designOpen && workspaceView === "canvas" && phase === "ready"
@@ -239,7 +246,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     resetHistory();
     setCanvasContextMenu(undefined);
     setCopiedNode(undefined);
-    void Promise.all([
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) => void Promise.all([
       getNodeCodebase(projectId),
       listPlayablePresets().catch(() => ({ presets: [] as PlayablePresetSummary[] })),
     ]).then(([loaded, catalog]) => {
@@ -249,10 +257,19 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       setPhase("ready");
     }).catch((error) => {
       if (disposed) return;
+      // A checkpoint or restore that outlasted the daemon's wait still finishes; load again after it.
+      if (error instanceof ApiError && error.code === "workspace_busy" && attempt < WORKSPACE_BUSY_RETRIES) {
+        retry = setTimeout(() => load(attempt + 1), WORKSPACE_BUSY_RETRY_MS);
+        return;
+      }
       setNotice(errorMessage(error));
       setPhase("error");
     });
-    return () => { disposed = true; };
+    load(0);
+    return () => {
+      disposed = true;
+      clearTimeout(retry);
+    };
   }, [projectId, workspaceRevision]);
 
   useEffect(() => {
@@ -375,14 +392,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           throw new Error(PROJECT_CHANGED);
         }
         try {
-          const saved = await updateNodeCodebase(projectId, { ...outgoing, revision: disk.revision });
+          const saved = await updateNodeCodebase(projectId, { ...outgoing, revision: disk.revision }, writeVersion);
           if (generation === diskGeneration.current) {
             diskCodebase.current = { codebase: { graph: outgoing.graph, editorLayout: outgoing.editorLayout }, revision: saved.revision };
           }
           return true;
         } catch (cause) {
           if (!(cause instanceof ApiError) || cause.status !== 409) throw cause;
-          if (attempt === SAVE_ATTEMPTS) throw new Error("The project keeps changing. Try again in a moment.");
+          if (attempt === SAVE_ATTEMPTS) throw new Error(t("storyEditor.keepsChanging"));
         }
         const remote = await getNodeCodebase(projectId);
         if (generation !== diskGeneration.current) continue;
@@ -568,7 +585,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       },
       (error) => {
         if (queuedCodebase.current === serialized) queuedCodebase.current = undefined;
-        setNotice(`Could not save your changes: ${errorMessage(error)}`);
+        setNotice(t("storyEditor.saveFailed", { error: errorMessage(error) }));
       },
     );
     return operation;
@@ -810,7 +827,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         preset: presetId,
         id: uniqueNodeId(presetId, new Set(nodes.map((node) => node.id))),
         position: snapCanvasPosition(position),
-      });
+      }, writeVersion);
       const loaded = await getNodeCodebase(projectId);
       applyCodebase(loaded, { diskRevision: loaded.revision });
       setCodeRevision((revision) => revision + 1);
@@ -883,36 +900,52 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     }
   }
 
-  /** Opens the Playtest window; `start` plays from a Scene instead of the saved game. */
-  async function startPlaytest(start?: PlaytestStart): Promise<void> {
+  /** Saves the project, sends any requested action, and opens or focuses Playtest. */
+  async function startPlaytest(request?: PlaytestRequest): Promise<void> {
     if (!codebase || building || playtesting) return;
     setPlaytesting(true);
-    if (!start) clearSelection();
+    if (request?.action !== "start") clearSelection();
+    const desktop = window.ohMyGameDesktop;
+    let playtest: Window | null = null;
+    let openedBlankWindow = false;
     try {
+      if (!desktop) {
+        // Open during the click's user activation, before waiting for a save.
+        playtest = window.open("", "ohmygame-playtest");
+        if (!playtest) throw new Error(t("playtest.popupBlocked"));
+        openedBlankWindow = playtest.location.href === "about:blank";
+      }
       await save(codebase);
-      if (start) requestPlaytestStart(projectId, start);
-      if (window.ohMyGameDesktop) {
-        await window.ohMyGameDesktop.openPlaytest(projectId, codebase.graph.viewport);
-      } else {
-        window.open(new URL(playtestHash(projectId), window.location.href).href, "ohmygame-playtest");
+      if (playtest?.closed) return;
+      if (request) requestPlaytest(projectId, request);
+      if (desktop) {
+        await desktop.openPlaytest(projectId, codebase.graph.viewport);
+      } else if (playtest) {
+        const url = new URL(playtestHash(projectId), window.location.href).href;
+        // Focusing an open Playtest must not reload it and lose a chosen start.
+        if (playtest.location.href !== url) playtest.location.href = url;
+        playtest.focus();
       }
     } catch (cause) {
+      if (openedBlankWindow) playtest?.close();
       setNotice(errorMessage(cause));
     } finally {
       setPlaytesting(false);
     }
   }
 
-  async function exportGame(): Promise<void> {
+  async function exportGame(kind: "game" | "project"): Promise<void> {
     if (!codebase || building) return;
     setBuilding(true);
     try {
       await save(codebase);
-      const artifact = await buildInteractiveStory(projectId);
+      const artifact = kind === "game"
+        ? await buildInteractiveStory(projectId, writeVersion)
+        : await exportInteractiveStoryProject(projectId, writeVersion);
       const url = URL.createObjectURL(artifact);
       const link = window.document.createElement("a");
       link.href = url;
-      link.download = `${project.name}.zip`;
+      link.download = kind === "game" ? `${project.name}.zip` : `${project.name} (${t("storySettings.projectFileSuffix")}).zip`;
       link.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 0);
     } finally {
@@ -921,7 +954,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   }
 
   async function publishGame(details: PublishDetails): Promise<boolean> {
-    if (!codebase) throw new Error("The game is still loading. Try publishing again when it is ready.");
+    if (!codebase) throw new Error(t("storyEditor.stillLoading"));
     await save(codebase);
     return onPublish(details);
   }
@@ -975,13 +1008,13 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const canvasPlayer = useMemo(() => ({ projectId, onRenameNode: renameNode, onSelectEdge: selectEdge, onOpenNode: openNode }), [projectId]);
   const projectIssues = issues.filter((issue) => !issue.surfaceId && !nodeIdForIssuePath(issue.path, nodes));
   const tabs: WorkspaceTabOption<"canvas" | "design" | "code">[] = [
-    { id: "canvas", label: "Story", icon: Clapperboard },
-    ...(onDesignOpenChange ? [{ id: "design" as const, label: "Design", icon: FileText }] : []),
-    { id: "code", label: "Code", icon: Code2 },
+    { id: "canvas", label: t("storyEditor.tab.story"), icon: Clapperboard },
+    ...(onDesignOpenChange ? [{ id: "design" as const, label: t("workspace.tab.design"), icon: FileText }] : []),
+    { id: "code", label: t("workspace.tab.code"), icon: Code2 },
   ];
   const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
     {chatOnRight && onHome ? (
-      <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home"><House size={14} /></button>
+      <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} />
     ) : null}
     <WorkspaceTabs
       tabs={tabs} active={designOpen ? "design" : workspaceView}
@@ -1003,30 +1036,29 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     <section
       className={`viewer-pane interactive-story-workspace playable-editor-workspace${openedNode ? " is-node-editor-open" : ""}`}
       data-active-tab={designOpen ? "design" : workspaceView}
-      aria-label="Playable Nodes workspace"
+      aria-label={t("storyEditor.workspace")}
       style={{
         "--story-viewport-ratio": `${playerViewport.width} / ${playerViewport.height}`,
         "--story-viewport-aspect": playerViewportAspect,
-        "--story-canvas-stage-width": `${canvasStageWidth}px`,
-        "--story-canvas-stage-height": `${canvasStageHeight}px`,
+        "--story-canvas-stage-width": `${canvasStage.width}px`,
+        "--story-canvas-stage-height": `${canvasStage.height}px`,
+        "--story-card-title-height": `${PLAYABLE_CARD_TITLE_HEIGHT}px`,
       } as CSSProperties}
     >
       <header className="pane-header viewer-header interactive-story-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         {renderNavigation()}
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {!designOpen ? <><button className="icon-button pane-header-action" type="button" title="Project settings" aria-label="Project settings" aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
+          {!designOpen ? <><button className="icon-button pane-header-action" type="button" title={t("projectSettings.title")} aria-label={t("projectSettings.title")} aria-haspopup="dialog" disabled={phase !== "ready"} onClick={() => setProjectSettingsOpen(true)}>
             <Settings size={14} />
           </button>
-          <button className="icon-button pane-header-action" type="button" data-tooltip={playtesting ? "Opening playtest..." : "Playtest in a new window"} aria-label="Playtest" disabled={phase !== "ready" || building || playtesting} onClick={() => void startPlaytest()}>
-            {playtesting ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}
-          </button>
-          <button className="publish-button workspace-publish-button" type="button" title={publishing ? "Publishing" : "Publish"} aria-label={publishing ? "Publishing" : "Publish"} disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
+          <PlaytestControls disabled={phase !== "ready" || building} busy={playtesting} onOpen={() => void startPlaytest()} onAction={(action) => void startPlaytest({ action })} />
+          <button className="publish-button workspace-publish-button" type="button" title={publishing ? t("workspace.publishing") : t("workspace.publish")} aria-label={publishing ? t("workspace.publishing") : t("workspace.publish")} disabled={agentBusy || publishing || building} onClick={onOpenPublish}>
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
-            <span>Publish</span>
+            <span>{t("workspace.publish")}</span>
           </button>
           {chatOnRight && chatCollapsed && onToggleChat ? (
-            <button className="icon-button pane-header-action" type="button" title="Show chat" aria-label="Show chat" onClick={onToggleChat}>
+            <button className="icon-button pane-header-action" type="button" title={t("workspace.showChat")} aria-label={t("workspace.showChat")} onClick={onToggleChat}>
               <PanelToggle size={14} />
             </button>
           ) : null}
@@ -1037,7 +1069,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         project={project} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : workspaceView !== "code" ? <div className="interactive-story-body">
         <div className="interactive-story-canvas">
-          {phase === "loading" ? <div className="story-canvas-state">Loading Scenes...</div> : null}
+          {phase === "loading" ? <div className="story-canvas-state">{t("storyEditor.loadingScenes")}</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
           {phase === "ready" ? (
             <PlayableCanvasContext.Provider value={canvasPlayer}>
@@ -1071,13 +1103,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
                 onNodesDelete={(deleted) => removeNodes(new Set(deleted.map((node) => node.id)))}
                 isValidConnection={(connection) => Boolean(connection.source && connection.target && connection.sourceHandle)}
                 defaultViewport={editorLayout.viewport}
-              >
-                {nodes.length ? null : <PlayableEmptyCanvas
-                  presets={presets}
-                  busy={writing}
-                  onAdd={(presetId, position) => void addNodeFromPreset(presetId, position)}
-                />}
-              </EditorCanvas>
+              />
             </PlayableCanvasContext.Provider>
           ) : null}
           {canvasContextMenu ? <PlayableCanvasContextMenu
@@ -1104,11 +1130,11 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
           {notice && phase === "ready" ? <div className="story-save-notice" role="alert">{notice}</div> : null}
           {projectIssues.length && phase === "ready" ? (
             <div className="story-play-issue" role="alert">
-              <div><strong>The project does not compile</strong><span>{projectIssues[0]!.message}</span></div>
+              <div><strong>{t("storyEditor.noCompile")}</strong><span>{projectIssues[0]!.message}</span></div>
             </div>
           ) : null}
         </div>
-      </div> : <main className="story-code-view" aria-label="Playable Nodes code">
+      </div> : <main className="story-code-view" aria-label={t("storyEditor.code")}>
         <WorkspaceCodeView projectId={projectId} revision={workspaceRevision + codeRevision} openFileRequest={fileRequest} />
       </main>}
       {openedNode && codebase ? <PlayableNodeWorkbench
@@ -1132,7 +1158,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onSetBackdrop={(asset) => writeBackdrop(openedNode.id, asset)}
         onRemoveBackdrop={() => removeBackdrop(openedNode.id)}
         {...(backdrop ? { backdrop } : {})}
-        onPlayFromHere={(start) => void startPlaytest(start)}
+        onPlayFromHere={(start) => void startPlaytest({ action: "start", start })}
+        onPlaytestAction={(action) => void startPlaytest({ action })}
+        playtestBusy={playtesting}
+        playtestDisabled={building}
         onChatContextChange={onChatContextChange}
       /> : null}
       {openedNode && notice ? <div className="story-save-notice is-over-workbench" role="alert">{notice}</div> : null}

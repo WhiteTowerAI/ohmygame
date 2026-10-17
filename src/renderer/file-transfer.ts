@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from "react";
+import { t } from "./i18n.js";
 
 export interface TransferredFile { file: File; relativePath?: string }
 
@@ -21,7 +22,7 @@ export async function transferredFiles(transfer: DataTransfer): Promise<Transfer
 
 function filesFromEntry(entry: FileSystemEntry, prefix = ""): Promise<TransferredFile[]> {
   if (entry.isFile) return new Promise((resolve, reject) => {
-    (entry as FileSystemFileEntry).file((file) => resolve([{ file, relativePath: `${prefix}${file.name}` }]), () => reject(new Error(`Could not read ${prefix}${entry.name}`)));
+    (entry as FileSystemFileEntry).file((file) => resolve([{ file, relativePath: `${prefix}${file.name}` }]), () => reject(new Error(t("attachments.readFailed", { name: `${prefix}${entry.name}` }))));
   });
   if (!entry.isDirectory) return Promise.resolve([]);
   const reader = (entry as FileSystemDirectoryEntry).createReader();

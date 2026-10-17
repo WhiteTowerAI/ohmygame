@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,7 @@ import {
 import { getGlobalDispatcher } from "undici/index.js";
 
 const directories: string[] = [];
+const automaticSettings = { ...DEFAULT_NETWORK_SETTINGS, mode: "auto" as const };
 async function directory() {
   const value = await mkdtemp(path.join(tmpdir(), "ohmygame-network-"));
   directories.push(value);
@@ -28,6 +29,42 @@ afterEach(async () => {
 });
 
 describe("network settings", () => {
+  it("starts directly without inheriting environment or system proxies when no settings were saved", async () => {
+    const resolveSystemProxy = vi.fn(async () => "PROXY system.test:7890");
+    const service = new NetworkSettingsService(await directory(), {
+      environment: { HTTPS_PROXY: "http://environment.test:8080", NO_PROXY: "env.test" },
+      initialSystemProxy: "PROXY system.test:7890",
+      resolveSystemProxy,
+      request: async () => ({ status: 401 }),
+    });
+    await service.load();
+    expect(service.get()).toMatchObject({
+      settings: { mode: "direct", proxyUrl: "", noProxy: "" },
+      active: { source: "direct" },
+      detected: { source: "direct" },
+      requiresRestart: false,
+    });
+    expect(service.runtime().httpsProxy).toBeUndefined();
+    expect(service.runtime().noProxy).not.toContain("env.test");
+    expect(await service.test(DEFAULT_NETWORK_SETTINGS)).toMatchObject({ route: { source: "direct" } });
+    expect(resolveSystemProxy).not.toHaveBeenCalled();
+  });
+
+  it.each(["auto", "manual", "direct"] as const)("retains a saved %s configuration without rewriting it", async (mode) => {
+    const dataDirectory = await directory();
+    const store = new NetworkSettingsStore(dataDirectory);
+    const settings = { mode, proxyUrl: "http://manual.test:7890", noProxy: "internal.test" };
+    await store.update(settings);
+    const original = await readFile(store.filePath, "utf8");
+    const service = new NetworkSettingsService(dataDirectory, {
+      environment: { HTTPS_PROXY: "http://environment.test:8080" },
+    });
+    await service.load();
+    expect(service.get().settings).toEqual(settings);
+    expect(service.get().active.source).toBe(mode === "auto" ? "environment" : mode);
+    expect(await readFile(store.filePath, "utf8")).toBe(original);
+  });
+
   it("persists normalized settings privately and applies them on the next startup", async () => {
     const dataDirectory = await directory();
     const service = new NetworkSettingsService(dataDirectory);
@@ -73,6 +110,7 @@ describe("network settings", () => {
       initialSystemProxy: "DIRECT",
       resolveSystemProxy: async () => "PROXY 127.0.0.1:7890",
     });
+    await service.store.update(automaticSettings);
     await service.load();
     Object.assign(environment, { HTTP_PROXY: "http://mutated.test:8080" });
     const refreshed = await service.detect();
@@ -87,6 +125,7 @@ describe("network settings", () => {
     const service = new NetworkSettingsService(await directory(), {
       environment: { HTTPS_PROXY: "http://127.0.0.1:7890" },
     });
+    await service.store.update(automaticSettings);
     await service.load();
     expect(
       (
@@ -144,9 +183,36 @@ describe("network settings", () => {
       active: { source: "direct" },
       requiresRestart: false,
     });
-    await expect(readFile(service.store.filePath)).rejects.toMatchObject({
-      code: "ENOENT",
+    expect(JSON.parse(await readFile(service.store.filePath, "utf8"))).toEqual({
+      version: 1,
+      ...DEFAULT_NETWORK_SETTINGS,
     });
+  });
+
+  it("starts new installations Direct and keeps Automatic for earlier ones without saved settings", async () => {
+    const fresh = new NetworkSettingsStore(await directory());
+    await fresh.load();
+    expect(fresh.get().mode).toBe("direct");
+
+    for (const entry of ["projects", "pi-agent"]) {
+      const dataDirectory = await directory();
+      await mkdir(path.join(dataDirectory, entry));
+      const existing = new NetworkSettingsStore(dataDirectory);
+      await existing.load();
+      expect(existing.get().mode).toBe("auto");
+    }
+    const upgraded = await directory();
+    await writeFile(path.join(upgraded, "onboarding.json"), "{}");
+    const store = new NetworkSettingsStore(upgraded);
+    await store.load();
+    expect(store.get().mode).toBe("auto");
+
+    // The choice is saved, so data created later does not change it.
+    const freshDirectory = path.dirname(fresh.filePath);
+    await mkdir(path.join(freshDirectory, "projects"));
+    const reloaded = new NetworkSettingsStore(freshDirectory);
+    await reloaded.load();
+    expect(reloaded.get().mode).toBe("direct");
   });
 
   it("reports a proxy connection refusal without exposing transport details", async () => {
@@ -178,7 +244,7 @@ describe("network settings", () => {
     await service.load();
     const state = service.get();
     const dispatcher = getGlobalDispatcher();
-    expect(await service.test(DEFAULT_NETWORK_SETTINGS)).toMatchObject({
+    expect(await service.test(automaticSettings)).toMatchObject({
       route: { source: "system", httpsProxy: "http://127.0.0.1:7890" },
     });
     expect(resolveSystemProxy).toHaveBeenCalledTimes(1);
@@ -189,7 +255,7 @@ describe("network settings", () => {
       environment: { HTTPS_PROXY: "http://inherited.test:8080" },
     });
     await inherited.load();
-    expect(await inherited.test(DEFAULT_NETWORK_SETTINGS)).toMatchObject({
+    expect(await inherited.test(automaticSettings)).toMatchObject({
       route: {
         source: "environment",
         httpsProxy: "http://inherited.test:8080",
@@ -205,6 +271,7 @@ describe("network settings", () => {
       },
       request: async () => ({ status: 401 }),
     });
+    await service.store.update(automaticSettings);
     await service.load();
     expect(service.runtime().httpsProxy).toBe(
       "http://user:private-password@proxy.test:8080",
@@ -212,9 +279,71 @@ describe("network settings", () => {
     expect(service.get().active.httpsProxy).toBe("http://proxy.test:8080");
     expect(JSON.stringify(service.get())).not.toContain("private-password");
     expect(
-      JSON.stringify(await service.test(DEFAULT_NETWORK_SETTINGS)),
+      JSON.stringify(await service.test(automaticSettings)),
     ).not.toContain("private-password");
   });
+
+  it("resolves a newly saved automatic connection while keeping the active direct connection", async () => {
+    const resolveSystemProxy = vi.fn(async () => "PROXY 127.0.0.1:7890");
+    const service = new NetworkSettingsService(await directory(), {
+      initialSystemProxy: "DIRECT",
+      resolveSystemProxy,
+    });
+    await service.load();
+    expect(await service.update(automaticSettings)).toMatchObject({
+      settings: automaticSettings,
+      active: { source: "direct" },
+      detected: { source: "system", httpsProxy: "http://127.0.0.1:7890" },
+      requiresRestart: true,
+    });
+    expect(resolveSystemProxy).toHaveBeenCalledOnce();
+  });
+
+  it("saves Automatic bypass edits without re-detecting the system proxy", async () => {
+    const resolveSystemProxy = vi.fn(async () => {
+      throw new Error("System detection unavailable");
+    });
+    const dataDirectory = await directory();
+    const service = new NetworkSettingsService(dataDirectory, {
+      initialSystemProxy: "PROXY 127.0.0.1:7890",
+      resolveSystemProxy,
+    });
+    await service.store.update(automaticSettings);
+    await service.load();
+    const settings = { ...automaticSettings, noProxy: "internal.test" };
+    expect(await service.update(settings)).toMatchObject({
+      settings,
+      detected: { source: "system", httpsProxy: "http://127.0.0.1:7890" },
+      requiresRestart: true,
+    });
+    expect(resolveSystemProxy).not.toHaveBeenCalled();
+    const restarted = new NetworkSettingsStore(dataDirectory);
+    await restarted.load();
+    expect(restarted.get()).toEqual(settings);
+  });
+
+  it.each(["direct", "manual", "environment"] as const)(
+    "skips unused system detection for a %s connection",
+    async (source) => {
+      const resolveSystemProxy = vi.fn(async () => {
+        throw new Error("System detection unavailable");
+      });
+      const service = new NetworkSettingsService(await directory(), {
+        resolveSystemProxy,
+        environment: source === "environment" ? { HTTPS_PROXY: "http://env.test:8080" } : {},
+      });
+      await service.load();
+      const settings = {
+        ...DEFAULT_NETWORK_SETTINGS,
+        mode: source === "environment" ? "auto" as const : source,
+        proxyUrl: source === "manual" ? "http://manual.test:7890" : "",
+      };
+      const state = await service.update(settings);
+      expect(state.detected.source).toBe(source);
+      expect(await service.detect()).toEqual(state);
+      expect(resolveSystemProxy).not.toHaveBeenCalled();
+    },
+  );
 
   it("allows choosing Direct after entering an invalid manual proxy draft", () => {
     expect(

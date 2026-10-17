@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
 import { createProject } from "./api.js";
 import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel, type ProjectTypeOption } from "./project-types.js";
+import { t } from "./i18n.js";
 
 export function ProjectCreateDialog({ initialType = "web-game", fixedType, projectTypes = PROJECT_TYPES, onClose, onCreated }: {
   initialType?: ProjectType;
@@ -72,7 +73,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     if (creating || selectingWorkspace) return;
     const selectDirectory = window.ohMyGameDesktop?.selectProjectDirectory;
     if (!selectDirectory) {
-      setError("Restart the OhMyGame desktop app to enable folder selection.");
+      setError(t("createDialog.restartForFolders"));
       return;
     }
     setSelectingWorkspace(true);
@@ -99,29 +100,29 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     }}>
       <section ref={dialog} className="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
         <header>
-          <h2 id={titleId}>{fixedType ? `New ${projectTypeLabel(fixedType)}` : "New project"}</h2>
-          <button type="button" disabled={creating} onClick={onClose} aria-label="Close"><X size={16} /></button>
+          <h2 id={titleId}>{fixedType ? t("createDialog.newType", { type: projectTypeLabel(fixedType) }) : t("createDialog.newProject")}</h2>
+          <button type="button" disabled={creating} onClick={onClose} aria-label={t("common.close")}><X size={16} /></button>
         </header>
         <form onSubmit={(event) => void submit(event)}>
           <label className="project-create-name">
-            <span>Name</span>
+            <span>{t("common.name")}</span>
             <input ref={nameInput} value={name} maxLength={120} disabled={creating} placeholder={defaultProjectName(type)} onChange={(event) => setName(event.target.value)} />
           </label>
           <fieldset className="project-create-workspace">
-            <legend>Workspace</legend>
+            <legend>{t("creator.workspace")}</legend>
             <div className="project-create-workspace-selection">
               {workspacePath ? <span className="is-selected" title={workspacePath}>{workspacePath}</span> : null}
               <div>
                 <button type="button" disabled={creating || selectingWorkspace} onClick={() => void chooseWorkspace()}>
-                  {selectingWorkspace ? "Opening…" : workspacePath ? "Choose another…" : "Choose folder…"}
+                  {selectingWorkspace ? t("createDialog.opening") : workspacePath ? t("createDialog.chooseAnother") : t("creator.chooseFolder")}
                 </button>
-                {workspacePath ? <button type="button" disabled={creating || selectingWorkspace} onClick={clearWorkspace}>Clear</button> : null}
+                {workspacePath ? <button type="button" disabled={creating || selectingWorkspace} onClick={clearWorkspace}>{t("common.clear")}</button> : null}
               </div>
             </div>
           </fieldset>
           {!fixedType ? (
             <fieldset className="project-create-types">
-              <legend>Type</legend>
+              <legend>{t("createDialog.type")}</legend>
               {projectTypes.map((option) => (
                 <button className={option.value === type ? "is-active" : undefined} type="button" key={option.value} aria-pressed={option.value === type} disabled={creating} onClick={() => setType(option.value)}>
                   <ProjectTypeIcon type={option.value} size={17} />
@@ -132,10 +133,10 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
           ) : null}
           {error ? <p className="project-create-error" role="alert">{error}</p> : null}
           <footer>
-            <button type="button" disabled={creating} onClick={onClose}>Cancel</button>
+            <button type="button" disabled={creating} onClick={onClose}>{t("common.cancel")}</button>
             <button className="project-create-submit" type="submit" disabled={creating}>
               {creating ? <LoaderCircle className="spin" size={14} /> : null}
-              Create
+              {t("common.create")}
             </button>
           </footer>
         </form>

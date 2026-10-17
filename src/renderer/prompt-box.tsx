@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Keyb
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { promptHistoryDirection } from "./prompt-history.js";
 import { editPromptList, promptListLines } from "./prompt-lists.js";
+import { t } from "./i18n.js";
 
 export type DroppedFile = TransferredFile;
 
@@ -131,7 +132,7 @@ export function PromptBox({
         onDropFiles(files.map((file) => ({ file })));
       }}
     >
-      {dropActive ? <div className="prompt-box-drop-overlay">Drop files to attach</div> : null}
+      {dropActive ? <div className="prompt-box-drop-overlay">{t("composer.drop")}</div> : null}
       {overlay}
       {content}
       <div className="prompt-box-input">
@@ -146,7 +147,7 @@ export function PromptBox({
         </div> : null}
         <textarea
           ref={inputRef}
-          aria-label="Prompt"
+          aria-label={t("composer.prompt")}
           aria-controls={suggestions?.id}
           aria-activedescendant={suggestions?.activeId}
           aria-autocomplete={suggestions ? "list" : undefined}

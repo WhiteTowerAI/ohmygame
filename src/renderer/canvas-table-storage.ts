@@ -1,3 +1,4 @@
+import { assertWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
 import {
   isCanvasTable,
   mergeCanvasTable,
@@ -17,6 +18,7 @@ import {
   saveCanvasTable,
 } from "./canvas-api.js";
 import { Equal as equal } from "typebox/value";
+import { t } from "./i18n.js";
 
 export interface CanvasTableConflict {
   local: CanvasTable;
@@ -49,6 +51,7 @@ export class CanvasTableStorage {
   #chain = Promise.resolve();
   #listeners = new Set<() => void>();
   #syncRequest = 0;
+  #version: string;
   #recoveryKey: string;
   #generationKey: string;
   #recoveries: Array<{ base: CanvasTableDetail; local: CanvasTable }> = [];
@@ -61,7 +64,8 @@ export class CanvasTableStorage {
       save: saveCanvasTable,
     },
   ) {
-    this.#recoveryKey = `canvas-tables:${projectId}`;
+    this.#version = workspaceVersion(projectId);
+    this.#recoveryKey = `canvas-tables:${projectId}${this.#version === "0" ? "" : `:${this.#version}`}`;
     this.#generationKey = `canvas-table-generations:${projectId}`;
     this.generations = readTableGenerations(this.#generationKey);
     try {
@@ -123,13 +127,14 @@ export class CanvasTableStorage {
     this.#notify();
   }
   #writableSession(id: string) {
+    assertWorkspaceVersion(this.projectId, this.#version);
     const session = this.sessions.get(id);
-    if (!session) throw new Error("Table not found.");
+    if (!session) throw new Error(t("canvasTable.notFound"));
     if (session.conflict)
-      throw new Error("Resolve the table conflict before using AI changes.");
+      throw new Error(t("canvasTable.resolveFirst"));
     if (session.issue)
       throw new Error(
-        "Restore the table file before using AI changes. Your draft is kept.",
+        t("canvasTable.restoreFirst"),
       );
     return session;
   }
@@ -173,7 +178,7 @@ export class CanvasTableStorage {
         model,
         reasoningLevel,
         revision: base.revision,
-      });
+      }, this.#version);
       if (result.status !== "complete") {
         this.changeGeneration(id, { error: result.error });
         return;
@@ -198,7 +203,7 @@ export class CanvasTableStorage {
       if (!autoApply)
         this.changeGeneration(id, {
           error:
-            "Review the AI draft before replacing the table; your current edits are kept.",
+            t("canvasTable.reviewDraft"),
         });
     } catch (cause) {
       this.changeGeneration(id, { error: message(cause) });
@@ -282,11 +287,11 @@ export class CanvasTableStorage {
       if (!workspace.tables?.some((table) => table.id === id))
         session.issue =
           workspace.tableIssues?.find((issue) => issue.id === id)?.message ??
-          "Table was removed from the workspace index. Your draft is kept locally.";
+          t("canvasTable.removed");
     this.#publish();
   }
   update(table: CanvasTable, history = true) {
-    if (!isCanvasTable(table)) throw new Error("Invalid table data.");
+    if (!isCanvasTable(table)) throw new Error(t("canvasTable.invalid"));
     const session = this.sessions.get(table.id);
     if (!session || equal(session.local, table)) return false;
     if (history) {
@@ -327,7 +332,8 @@ export class CanvasTableStorage {
     this.#publish();
   }
   async create() {
-    const detail = await this.api.create(this.projectId, "Untitled table");
+    assertWorkspaceVersion(this.projectId, this.#version);
+    const detail = await this.api.create(this.projectId, t("canvasTable.untitled"), this.#version);
     this.sessions.set(detail.table.id, {
       base: detail,
       local: detail.table,
@@ -338,6 +344,7 @@ export class CanvasTableStorage {
     return detail.table.id;
   }
   async #flushSession(session: TableSession) {
+    assertWorkspaceVersion(this.projectId, this.#version);
     if (session.conflict)
       throw new Error("Resolve the table conflict before saving.");
     if (session.issue && !equal(session.base.table, session.local))
@@ -352,16 +359,16 @@ export class CanvasTableStorage {
           saved = await this.api.save(this.projectId, {
             table: outgoing,
             revision: base.revision,
-          });
+          }, this.#version);
           break;
         } catch (cause) {
-          if ((cause as { status?: number }).status !== 409) throw cause;
+          if ((cause as { status?: number }).status !== 409 || (cause as { code?: string }).code === "workspace_stale") throw cause;
           const remote = await this.api.get(this.projectId, outgoing.id);
           const merged = mergeCanvasTable(base.table, outgoing, remote.table);
           if (!merged) {
             session.conflict = { local: session.local, remote };
             throw new Error(
-              "The same table cell changed elsewhere. Choose a version to resume saving.",
+              t("canvasTable.cellConflict"),
             );
           }
           base = remote;
@@ -450,7 +457,7 @@ export function readTableGenerations(
                   : undefined,
               error:
                 state.generating || state.applying
-                  ? "AI table editing was interrupted. Your instruction and candidate draft are kept. Try again."
+                  ? t("canvasTable.interrupted")
                   : typeof state.error === "string"
                     ? state.error
                     : undefined,

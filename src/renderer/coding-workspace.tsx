@@ -1,5 +1,6 @@
 import { previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
 import {
+  ArrowLeft,
   Check,
   Copy,
   ChevronDown,
@@ -12,7 +13,6 @@ import {
   FolderOpen,
   FolderPlus,
   Globe2,
-  House,
   Image as ImageIcon,
   LaptopMinimalistic,
   Layers3,
@@ -54,6 +54,9 @@ import { useWebGamePlayer } from "./use-web-game-player.js";
 import { ErrorBoundary } from "./error-boundary.js";
 import { useRuntimeConnection } from "./runtime-connection.js";
 import { DesktopGamePreview } from "./desktop-game-preview.js";
+import { t } from "./i18n.js";
+import { GitChangesList, useWorkspaceGitChanges, WorkspaceGitDiff } from "./workspace-git-changes.js";
+import { WorkspaceBackButton } from "./workspace-shell.js";
 
 type WorkspaceTab = "preview" | "code" | "assets";
 const CanvasWorkspace = lazy(() => import("./canvas-workspace.js").then((module) => ({ default: module.CanvasWorkspace })));
@@ -89,6 +92,7 @@ interface CodingWorkspaceProps {
   chatOnRight?: boolean;
   chatCollapsed?: boolean;
   onHome?: () => void;
+  homeLabel?: string;
   onToggleChat?: () => void;
 }
 
@@ -115,13 +119,14 @@ export function CodingWorkspace({
   chatOnRight = false,
   chatCollapsed = false,
   onHome,
+  homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }),
   onToggleChat,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
   const publishingUnavailable = project?.type === "godot-game";
   const publishLabel = project?.type === "godot-game"
-    ? "Godot publishing is not available yet"
-    : publishing ? "Publishing" : "Publish";
+    ? t("workspace.godotPublishing")
+    : publishing ? t("workspace.publishing") : t("workspace.publish");
   const [selectedTab, setSelectedTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
   const activeTab = selectedTab === "preview" && !supportsPreview ? "code" : selectedTab;
   const shownTab = designOpen ? "design" : activeTab;
@@ -292,16 +297,14 @@ export function CodingWorkspace({
   }
 
   const tabs: WorkspaceTabOption<WorkspaceTab | "design">[] = [
-    ...(supportsPreview ? [{ id: "preview" as const, label: "Preview", icon: Globe2 }] : []),
-    ...(onDesignOpenChange ? [{ id: "design" as const, label: "Design", icon: FileText }] : []),
-    { id: "code", label: "Code", icon: Code2 },
-    { id: "assets", label: "Assets", icon: Layers3 },
+    ...(supportsPreview ? [{ id: "preview" as const, label: t("workspace.tab.preview"), icon: Globe2 }] : []),
+    ...(onDesignOpenChange ? [{ id: "design" as const, label: t("workspace.tab.design"), icon: FileText }] : []),
+    { id: "code", label: t("workspace.tab.code"), icon: Code2 },
+    { id: "assets", label: t("workspace.tab.assets"), icon: Layers3 },
   ];
   const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
     {chatOnRight && onHome ? (
-      <button className="icon-button pane-header-action workspace-home-button" type="button" onClick={onHome} title="Home" aria-label="Home">
-        <House size={14} />
-      </button>
+      <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} />
     ) : null}
     <WorkspaceTabs tabs={tabs} active={shownTab} onChange={(tab) => {
       const navigate = () => {
@@ -314,7 +317,7 @@ export function CodingWorkspace({
   </div>;
 
   return (
-    <section className="viewer-pane coding-workspace" data-active-tab={shownTab} aria-label="Coding workspace">
+    <section className="viewer-pane coding-workspace" data-active-tab={shownTab} aria-label={t("workspace.label")}>
       <header className="pane-header viewer-header window-drag-handle">
         <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
         {renderNavigation()}
@@ -325,7 +328,7 @@ export function CodingWorkspace({
               paths={knownPaths}
               previewUrl={currentPreviewUrl}
               refreshDisabled={!project || preview?.status === "waiting" || preview?.status === "starting"}
-              refreshLabel={preview?.status === "ready" ? "Reload preview" : "Restart preview"}
+              refreshLabel={preview?.status === "ready" ? t("workspace.reloadPreview") : t("workspace.restartPreview")}
               viewport={viewport}
               agentPlaytestWatch={agentPlaytestWatch}
               agentPlaytestWatchPending={agentPlaytestWatchPending}
@@ -341,16 +344,16 @@ export function CodingWorkspace({
           {project && isWebRuntimeProjectType(project.type) && shownTab !== "preview" ? <button
             className="icon-button pane-header-action"
             type="button"
-            aria-label="Project settings"
-            data-tooltip="Project settings"
+            aria-label={t("projectSettings.title")}
+            data-tooltip={t("projectSettings.title")}
             onClick={() => setProjectSettingsOpen(true)}
           ><Wrench size={14} /></button> : null}
           {!designOpen ? <>
           {supportsPreview ? <button
             className={`icon-button pane-header-action preview-play-button${player.open ? " is-active" : ""}`}
             type="button"
-            aria-label={player.open ? "Return to game" : "Play"}
-            data-tooltip={player.pending ? "Opening game..." : player.open ? "Return to game" : "Play in a new window"}
+            aria-label={player.open ? t("workspace.returnToGame") : t("workspace.play")}
+            data-tooltip={player.pending ? t("workspace.openingGame") : player.open ? t("workspace.returnToGame") : t("workspace.playInWindow")}
             disabled={player.pending || (player.checking && !player.error) || (!player.open && (!project || preview?.status === "waiting" || preview?.status === "starting"))}
             onClick={playGame}
           >{player.pending ? <LoaderCircle className="spin" size={14} /> : <Play size={14} />}</button> : null}
@@ -363,15 +366,15 @@ export function CodingWorkspace({
             aria-label={publishLabel}
           >
             {publishing ? <LoaderCircle className="spin" size={14} /> : <Share2 size={14} />}
-            <span>Publish</span>
+            <span>{t("workspace.publish")}</span>
           </button>
           {onClose ? (
             <button
               className="icon-button pane-header-action"
               type="button"
               onClick={onClose}
-              title="Hide workspace"
-              aria-label="Hide workspace"
+              title={t("workspace.hideWorkspace")}
+              aria-label={t("workspace.hideWorkspace")}
             >
               <PanelToggle size={14} />
             </button>
@@ -381,8 +384,8 @@ export function CodingWorkspace({
               className="icon-button pane-header-action"
               type="button"
               onClick={onToggleChat}
-              title="Show chat"
-              aria-label="Show chat"
+              title={t("workspace.showChat")}
+              aria-label={t("workspace.showChat")}
             >
               <PanelToggle size={14} />
             </button>
@@ -400,7 +403,7 @@ export function CodingWorkspace({
           hidden={shownTab !== "preview"}
           aria-hidden={shownTab !== "preview"}
         >
-          <ErrorBoundary label="Preview" resetKey={previewPageUrl}>
+          <ErrorBoundary label={t("errorBoundary.label.preview")} resetKey={previewPageUrl}>
           <PreviewView
             project={project} client={gameClient} onAskAgent={onAskAgent} onLogs={() => setLogsOpen(true)} onOpenFile={(path) => { setSelectedCodePath(path); setSelectedTab("code"); void selectFile(path); }} reload={reload} revision={workspaceRevision} url={previewPageUrl} viewport={viewport}
             pausedAfterRecovery={previewPaused}
@@ -421,6 +424,8 @@ export function CodingWorkspace({
           onSelect={selectFile}
           projectId={project?.id}
           revision={workspaceRevision}
+          filesRevision={filesRevision}
+          openFileRequestId={openFileRequest?.id}
           onFilesChanged={(change) => {
             fileRequest.current += 1;
             setSelectedCodePath((current) => workspacePathAfterChange(current, change));
@@ -504,7 +509,7 @@ function PreviewControls({
         onRefresh={onRefresh}
       />
       {agentPlaytestWatch ? (
-        <button className={`icon-button pane-header-action preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`} type="button" aria-label={agentPlaytestWatch.visible ? "Hide Agent playtest window" : "Show Agent playtests when they run"} aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending} data-tooltip={agentPlaytestWatch.visible ? "Hide Agent playtest window" : "Show Agent playtests when they run"} onClick={onToggleAgentPlaytestWatch}>
+        <button className={`icon-button pane-header-action preview-agent-watch-button${agentPlaytestWatch.visible ? " is-active" : ""}`} type="button" aria-label={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")} aria-pressed={agentPlaytestWatch.visible} disabled={agentPlaytestWatchPending} data-tooltip={agentPlaytestWatch.visible ? t("workspace.hidePlaytest") : t("workspace.showPlaytest")} onClick={onToggleAgentPlaytestWatch}>
           <Video size={15} />
         </button>
       ) : null}
@@ -512,8 +517,8 @@ function PreviewControls({
         className="icon-button quiet-button preview-settings-button"
         type="button"
         onClick={onOpenSettings}
-        title="Project settings"
-        aria-label="Project settings"
+        title={t("projectSettings.title")}
+        aria-label={t("projectSettings.title")}
       >
         <Wrench size={15} />
       </button>
@@ -611,7 +616,7 @@ function PreviewLocation({
         <ChevronDown className={open ? "preview-location-chevron-open" : undefined} size={13} />
       </button>
       {open ? (
-        <div className="preview-location-popover" id={popoverId} role="dialog" aria-label="Preview pages">
+        <div className="preview-location-popover" id={popoverId} role="dialog" aria-label={t("workspace.previewPages")}>
           <form
             className="preview-location-search"
             onSubmit={(event) => {
@@ -622,8 +627,8 @@ function PreviewLocation({
             <Search size={16} />
             <input
               ref={search}
-              aria-label="Find page or enter path"
-              placeholder="Find page or enter path"
+              aria-label={t("workspace.findPage")}
+              placeholder={t("workspace.findPage")}
               spellCheck={false}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -688,7 +693,7 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
         aria-controls={menuId}
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label="Preview viewport"
+        aria-label={t("workspace.viewportLabel")}
         title={viewportLabel(value)}
         onClick={() => setOpen((current) => !current)}
       >
@@ -696,7 +701,7 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
         <ChevronDown size={11} />
       </button>
       {open ? (
-        <div className="viewport-menu-popover" id={menuId} role="menu" aria-label="Preview viewport">
+        <div className="viewport-menu-popover" id={menuId} role="menu" aria-label={t("workspace.viewportLabel")}>
           {(["fit", "tablet", "mobile"] as const).map((viewport) => (
             <button
               className="viewport-option"
@@ -728,9 +733,9 @@ function ViewportIcon({ viewport }: { viewport: PreviewViewport }) {
 }
 
 function viewportLabel(viewport: PreviewViewport): string {
-  if (viewport === "tablet") return "Tablet · 768px";
-  if (viewport === "mobile") return "Mobile · 375px";
-  return "Fit";
+  if (viewport === "tablet") return t("workspace.viewport.tablet");
+  if (viewport === "mobile") return t("workspace.viewport.mobile");
+  return t("projectSettings.device.fit");
 }
 
 export function playerViewport(viewport: PreviewViewport, bounds?: { width: number; height: number }): { width: number; height: number } {
@@ -809,7 +814,7 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
         /> : <iframe
           ref={(element) => { frame.current = element; }}
           key={`${url}:${reload}`} className="preview-frame" src={url}
-          title={`${project?.name ?? "Project"} preview`}
+          title={t("workspace.previewTitle", { name: project?.name ?? t("workspace.project") })}
           sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
           onLoad={(event) => scheduleCoverCapture(event.currentTarget)}
         />}
@@ -818,30 +823,30 @@ export function PreviewView({ project, client, onAskAgent, onOpenFile, onLogs, r
         {cover ? <img className="preview-player-cover" src={cover} alt="" /> : null}
         <div className="preview-empty-state">
           <div className="preview-empty-mark" aria-hidden="true">{pending ? <LoaderCircle className="spin" size={20} /> : <Play size={20} />}</div>
-          <p className="preview-empty-title">{pending ? "Opening game..." : "Game is running in its own window"}</p>
-          <p className="preview-empty-description">Close the game window to return to the preview.</p>
-          {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>Return to game</button> : null}
+          <p className="preview-empty-title">{pending ? t("workspace.openingGame") : t("workspace.gameInWindow")}</p>
+          <p className="preview-empty-description">{t("workspace.closeWindowHint")}</p>
+          {playerOpen && onPlay ? <button type="button" className="preview-return-button" disabled={pending} onClick={onPlay}>{t("workspace.returnToGame")}</button> : null}
         </div>
       </div> : !showFrame ? <div className="preview-status-panel">
         <PreviewState status={preview?.status} error={preview?.error} phase={preview?.phase} startedAt={preview?.startedAt} />
-        {(pausedAfterRecovery || preview?.stopReason === "recovery") && preview?.status === "stopped" ? <p>Preview is paused after service recovery.</p> : null}
-        {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>Preview was stopped. Start it when you are ready.</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>Preview stopped because it was not in use.</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>Automatic preview is disabled.</p> : null}
+        {(pausedAfterRecovery || preview?.stopReason === "recovery") && preview?.status === "stopped" ? <p>{t("workspace.pausedAfterRecovery")}</p> : null}
+        {preview?.status === "stopped" && preview.stopReason === "manual" ? <p>{t("workspace.stoppedManual")}</p> : preview?.status === "stopped" && preview.stopReason === "idle" ? <p>{t("workspace.stoppedIdle")}</p> : preview?.status === "stopped" && project?.previewAutoStart === false ? <p>{t("workspace.autoDisabled")}</p> : null}
         {onRetry && (preview?.status === "error" || preview?.status === "stopped") ? <div className="preview-recovery-actions">
-          <button type="button" disabled={runtime.status !== "ready"} onClick={onRetry}>{preview.status === "stopped" ? "Start preview" : "Retry preview"}</button>
-          {onSettings ? <button type="button" onClick={onSettings}>Project settings</button> : null}
-          {onLogs ? <button type="button" onClick={onLogs}>View logs</button> : null}
-          {preview?.error && onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, preview.error!))}>Ask Agent to fix</button> : null}
+          <button type="button" disabled={runtime.status !== "ready"} onClick={onRetry}>{preview.status === "stopped" ? t("projectSettings.startPreview") : t("workspace.retryPreview")}</button>
+          {onSettings ? <button type="button" onClick={onSettings}>{t("projectSettings.title")}</button> : null}
+          {onLogs ? <button type="button" onClick={onLogs}>{t("workspace.viewLogs")}</button> : null}
+          {preview?.error && onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, preview.error!))}>{t("workspace.askAgent")}</button> : null}
         </div> : null}
       </div> : null}
       {diagnostic ? <div className="preview-diagnostic" role="alert">
-        <strong>{diagnostic.kind === "compile" ? "Preview compilation failed" : diagnostic.kind === "runtime" ? "Preview runtime error" : "Preview could not load"}</strong>
-        <details><summary>Error details</summary><pre>{diagnostic.message}</pre></details>
-        <p>{diagnostic.source === "playtest" ? "AI playtest" : diagnostic.source === "player" ? "Play window" : "Preview"}{diagnostic.path ? ` · ${diagnostic.path}` : ""}</p>
+        <strong>{diagnostic.kind === "compile" ? t("workspace.compileFailed") : diagnostic.kind === "runtime" ? t("workspace.runtimeError") : t("workspace.loadFailed")}</strong>
+        <details><summary>{t("common.errorDetails")}</summary><pre>{diagnostic.message}</pre></details>
+        <p>{diagnostic.source === "playtest" ? t("workspace.source.playtest") : diagnostic.source === "player" ? t("workspace.source.player") : t("workspace.previewSource")}{diagnostic.path ? ` · ${diagnostic.path}` : ""}</p>
         <div className="preview-recovery-actions">
-          <button type="button" onClick={() => void navigator.clipboard.writeText(diagnostic.message)}>Copy error</button>
-          {onLogs ? <button type="button" onClick={onLogs}>View logs</button> : null}
-          {onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, diagnostic.message))}>Ask Agent to fix</button> : null}
-          {onOpenFile && previewErrorFile(project, diagnostic.message) ? <button type="button" onClick={() => onOpenFile(previewErrorFile(project, diagnostic.message)!)}>Open source file</button> : null}
+          <button type="button" onClick={() => void navigator.clipboard.writeText(diagnostic.message)}>{t("workspace.copyError")}</button>
+          {onLogs ? <button type="button" onClick={onLogs}>{t("workspace.viewLogs")}</button> : null}
+          {onAskAgent ? <button type="button" onClick={() => onAskAgent(previewRepairPrompt(project, diagnostic.message))}>{t("workspace.askAgent")}</button> : null}
+          {onOpenFile && previewErrorFile(project, diagnostic.message) ? <button type="button" onClick={() => onOpenFile(previewErrorFile(project, diagnostic.message)!)}>{t("workspace.openSource")}</button> : null}
         </div>
       </div> : null}
       {error ? <div className="preview-player-error" role="alert">{error}</div> : null}
@@ -872,6 +877,8 @@ export function WorkspaceFileBrowser({
   onOpenExternal,
   projectId,
   revision = 0,
+  filesRevision = 0,
+  openFileRequestId,
   onFilesChanged = () => {},
   fileActions,
   renderFile,
@@ -885,11 +892,23 @@ export function WorkspaceFileBrowser({
   onOpenExternal?: (path: string, mode: ProjectFileOpenMode) => Promise<void>;
   projectId?: string;
   revision?: number;
+  filesRevision?: number;
+  openFileRequestId?: number;
   onFilesChanged?: (change: WorkspaceFileChange) => void;
   fileActions?: ReactNode;
   renderFile?: (file: WorkspaceFileContent) => ReactNode;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [browserView, setBrowserView] = useState<"files" | "changes">("files");
+  const [selectedGitPath, setSelectedGitPath] = useState<string>();
+  const git = useWorkspaceGitChanges(projectId, revision, filesRevision);
+  const showChanges = browserView === "changes" && git.data?.available;
+  useEffect(() => { setBrowserView("files"); }, [projectId, openFileRequestId]);
+  useEffect(() => {
+    if (!git.data?.available) return;
+    const items = git.data.changes;
+    setSelectedGitPath((current) => items.some((item) => item.path === current) ? current : items[0]?.path);
+  }, [git.data]);
   const tree = useMemo(() => workspaceFileTree(files), [files]);
   const selectedEntry = selectedPath ? files.find((file) => file.path === selectedPath && !file.directory) : undefined;
   const selectedMedia = selectedEntry && hasMediaType(selectedEntry) ? selectedEntry : undefined;
@@ -943,26 +962,39 @@ export function WorkspaceFileBrowser({
       void mutate(async () => { await saveProjectAssetToLibrary(projectId, entry.path); return {}; });
       return;
     }
-    if (!window.confirm(`Delete “${entry.path}”${entry.directory ? " and all its contents" : ""}? References in code will need to be updated. This cannot be undone.`)) return;
+    if (!window.confirm(entry.directory ? t("workspace.confirmDeleteFolder", { path: entry.path }) : t("workspace.confirmDelete", { path: entry.path }))) return;
     void mutate(async () => { await deleteWorkspaceEntry(projectId, entry.path); return { from: entry.path }; });
   }
-  if (loading && files.length === 0) return <WorkspaceState loading label="Loading code" />;
+  if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingCode")} />;
   if (error && !selectedPath) return <WorkspaceState error={error} />;
   return <>
     <div className="code-view" ref={codeElement} style={{ "--file-explorer-width": `${explorerWidth}px` } as CSSProperties}>
       <div className="file-explorer">
+        {git.data?.available || git.error ? <div className="file-explorer-views">
+          {git.data?.available ? <nav aria-label={t("workspace.gitViews")}>
+            <button type="button" aria-pressed={!showChanges} onClick={() => setBrowserView("files")}>{t("workspace.gitFiles")}</button>
+            <button type="button" aria-pressed={Boolean(showChanges)} onClick={() => { setBrowserView("changes"); git.refresh(); }}>
+              {t("workspace.gitChanges")}<span className="git-change-count">{git.data.changes.length}</span>
+            </button>
+          </nav> : <span className="git-changes-note" role="alert">{t("workspace.gitFailed")}</span>}
+          <button type="button" className="icon-button" disabled={git.loading} onClick={git.refresh}
+            title={t("workspace.gitRefresh")} aria-label={t("workspace.gitRefresh")}>
+            <RefreshCw size={12} className={git.loading ? "spin" : undefined} />
+          </button>
+        </div> : null}
         <label className="file-filter">
           <Search size={13} aria-hidden="true" />
           <input
             type="search"
             value={searchTerm}
             onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Filter files…"
-            aria-label="Filter workspace files"
+            placeholder={t("workspace.filterFiles")}
+            aria-label={t("workspace.filterFilesLabel")}
           />
         </label>
         {actionError ? <p className="file-action-error" role="alert">{actionError}</p> : null}
-        <div className="file-tree" ref={setTreeElement} onContextMenu={(event) => {
+        {showChanges ? <GitChangesList data={git.data} loading={git.loading} error={git.error} search={searchTerm}
+          selectedPath={selectedGitPath} onSelect={setSelectedGitPath} /> : <div className="file-tree" ref={setTreeElement} onContextMenu={(event) => {
           event.preventDefault();
           if (projectId && !busy) setContextMenu({ path: "", directory: true, x: event.clientX, y: event.clientY });
         }}>
@@ -986,7 +1018,7 @@ export function WorkspaceFileBrowser({
                 if (node.data.path && !node.data.directory) onSelect(node.data.path);
                 else node.toggle();
               }}
-              aria-label="Workspace files"
+              aria-label={t("workspace.files")}
             >
               {(props) => <WorkspaceTreeNode {...props} onContextMenu={projectId ? (node, event) => {
                 event.preventDefault();
@@ -1002,12 +1034,12 @@ export function WorkspaceFileBrowser({
               } : undefined} />}
             </Tree>
           ) : null}
-        </div>
+        </div>}
       </div>
       <div
         className="file-explorer-resizer"
         role="separator"
-        aria-label="Resize file explorer"
+        aria-label={t("workspace.resizeExplorer")}
         aria-orientation="vertical"
         onPointerDown={(event) => {
           if (!event.isPrimary || event.button !== 0) return;
@@ -1030,7 +1062,8 @@ export function WorkspaceFileBrowser({
         onLostPointerCapture={finishExplorerResize}
       />
       <div className="file-content">
-        {error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label="Loading file" /> : selectedFile ? (
+        {showChanges && projectId ? <WorkspaceGitDiff key={`${projectId}:${selectedGitPath}`} projectId={projectId} path={selectedGitPath} changes={git.data} />
+          : error ? <WorkspaceState error={error} /> : loading ? <WorkspaceState loading label={t("workspace.loadingFile")} /> : selectedFile ? (
           <>
             <div className="file-content-header">
               <span className="file-content-path" title={selectedFile.path}>{selectedFile.path}{selectedFile.truncated ? " (truncated)" : ""}</span>
@@ -1040,15 +1073,15 @@ export function WorkspaceFileBrowser({
             {selectedMedia && projectId
               ? <WorkspaceMediaPreview projectId={projectId} file={selectedMedia} revision={revision} />
               : selectedFile.binary
-              ? <WorkspaceState label="Binary file preview is unavailable" />
+              ? <WorkspaceState label={t("workspace.binaryUnavailable")} />
               : renderFile ? renderFile(selectedFile)
               : <HighlightedCode path={selectedFile.path} content={selectedFile.content ?? ""} />}
           </>
-        ) : <WorkspaceState icon={<FolderOpen size={20} />} label="Select a file from the workspace tree" />}
+        ) : <WorkspaceState icon={<FolderOpen size={20} />} label={t("workspace.selectFile")} />}
       </div>
     </div>
     {contextMenu ? <WorkspaceTreeContextMenu menu={contextMenu} file={files.find((file) => file.path === contextMenu.path)} onClose={() => setContextMenu(undefined)} onOpen={onOpenExternal} onAction={(action) => entryAction(action, contextMenu)} /> : null}
-    {entryDialog ? <ProjectRenameDialog title={entryDialog.kind === "rename" ? `Rename ${fileName(entryDialog.path)}` : `New ${entryDialog.kind}`} name={entryDialog.kind === "rename" ? fileName(entryDialog.path) : ""} returnFocus={null} onClose={() => setEntryDialog(undefined)} onConfirm={(name) => {
+    {entryDialog ? <ProjectRenameDialog title={entryDialog.kind === "rename" ? t("workspace.renameEntry", { name: fileName(entryDialog.path) }) : entryDialog.kind === "file" ? t("workspace.newFile") : t("workspace.newFolder")} name={entryDialog.kind === "rename" ? fileName(entryDialog.path) : ""} returnFocus={null} onClose={() => setEntryDialog(undefined)} onConfirm={(name) => {
       const entry = entryDialog;
       setEntryDialog(undefined);
       if (!projectId || !name.trim()) return;
@@ -1132,6 +1165,8 @@ export function WorkspaceCodeView({ projectId, revision, openFileRequest }: { pr
     onSelect={(path) => void selectFile(path)}
     projectId={projectId}
     revision={revision}
+    filesRevision={filesRevision}
+    openFileRequestId={openFileRequest?.id}
     onFilesChanged={(change) => {
       request.current += 1;
       setSelectedPath((current) => workspacePathAfterChange(current, change));
@@ -1169,10 +1204,10 @@ function FileOpenActions({ path, onOpen }: { path: string; onOpen: (path: string
 
   return (
     <div className="file-open-actions" ref={actions}>
-      <button type="button" disabled={opener.opening} onClick={() => void opener.choose("default")} title="Open in default app" aria-label="Open file in default app">
+      <button type="button" disabled={opener.opening} onClick={() => void opener.choose("default")} title={t("workspace.openDefault")} aria-label={t("workspace.openDefaultLabel")}>
         <ExternalLink size={13} />
       </button>
-      <button className="file-open-menu-button" type="button" onClick={() => setOpen((value) => !value)} title="Choose how to open" aria-label="Choose how to open file" aria-expanded={open} aria-haspopup="menu">
+      <button className="file-open-menu-button" type="button" onClick={() => setOpen((value) => !value)} title={t("workspace.chooseOpen")} aria-label={t("workspace.chooseOpenLabel")} aria-expanded={open} aria-haspopup="menu">
         <ChevronDown size={12} />
       </button>
       {open ? (
@@ -1233,7 +1268,7 @@ function WorkspaceTreeContextMenu({ menu, file, onClose, onOpen, onAction }: {
       ref={root}
       className="workspace-tree-context-menu"
       role="menu"
-      aria-label={menu.directory ? "Folder actions" : "File actions"}
+      aria-label={menu.directory ? t("workspace.folderActions") : t("workspace.fileActions")}
       tabIndex={-1}
       style={{ left: position.x, top: position.y }}
       onContextMenu={(event) => event.preventDefault()}
@@ -1247,19 +1282,19 @@ function WorkspaceTreeContextMenu({ menu, file, onClose, onOpen, onAction }: {
         items[next]?.focus();
       }}
     >
-      <button type="button" role="menuitem" onClick={() => onAction("new-file")}><Plus size={14} /><span>New file</span></button>
-      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}><FolderPlus size={14} /><span>New folder</span></button>
+      <button type="button" role="menuitem" onClick={() => onAction("new-file")}><Plus size={14} /><span>{t("workspace.newFile")}</span></button>
+      <button type="button" role="menuitem" onClick={() => onAction("new-folder")}><FolderPlus size={14} /><span>{t("workspace.newFolder")}</span></button>
       {menu.path ? <>
         <hr />
-        <button type="button" role="menuitem" onClick={() => onAction("rename")}><Pencil size={14} /><span>Rename</span></button>
-        <button type="button" role="menuitem" onClick={() => onAction("copy-path")}><Copy size={14} /><span>Copy relative path</span></button>
-        {file?.mediaType ? <button type="button" role="menuitem" onClick={() => onAction("save-library")}><Layers3 size={14} /><span>Save to Library</span></button> : null}
+        <button type="button" role="menuitem" onClick={() => onAction("rename")}><Pencil size={14} /><span>{t("common.rename")}</span></button>
+        <button type="button" role="menuitem" onClick={() => onAction("copy-path")}><Copy size={14} /><span>{t("workspace.copyPath")}</span></button>
+        {file?.mediaType ? <button type="button" role="menuitem" onClick={() => onAction("save-library")}><Layers3 size={14} /><span>{t("workspace.saveToLibrary")}</span></button> : null}
       </> : null}
       {options.length ? <hr /> : null}
       {options.map(({ mode, label, icon: Icon }) => (
         <button type="button" role="menuitem" disabled={opener.opening} key={mode} onClick={() => void opener.choose(mode)}><Icon size={14} /><span>{label}</span></button>
       ))}
-      {menu.path ? <><hr /><button type="button" role="menuitem" className="workspace-file-delete" onClick={() => onAction("delete")}><Trash2 size={14} /><span>Delete</span></button></> : null}
+      {menu.path ? <><hr /><button type="button" role="menuitem" className="workspace-file-delete" onClick={() => onAction("delete")}><Trash2 size={14} /><span>{t("common.delete")}</span></button></> : null}
       {opener.error ? <p className="file-open-error" role="alert">{opener.error}</p> : null}
     </div>,
     document.body,
@@ -1294,15 +1329,15 @@ function useProjectEntryOpener(
 }
 
 function projectEntryOpenOptions(platform: string | undefined, directory: boolean): Array<{ mode: ProjectFileOpenMode; label: string; icon: IconComponent }> {
-  const fileManager = platform === "darwin" ? "Finder" : platform === "win32" ? "File Explorer" : "file manager";
+  const fileManager = platform === "darwin" ? "Finder" : platform === "win32" ? t("workspace.fileExplorer") : t("workspace.fileManager");
   return [
-    { mode: "default", label: directory ? `Open in ${fileManager}` : "Default app", icon: ExternalLink },
-    { mode: "reveal", label: directory ? "Show in enclosing folder" : `Show in ${fileManager}`, icon: FolderOpen },
-    { mode: "vscode", label: directory ? "Open folder in VS Code" : "Open in VS Code", icon: Code2 },
-    { mode: "zed", label: directory ? "Open folder in Zed" : "Open in Zed", icon: Code2 },
+    { mode: "default", label: directory ? t("workspace.openIn", { app: fileManager }) : t("workspace.defaultApp"), icon: ExternalLink },
+    { mode: "reveal", label: directory ? t("workspace.showInFolder") : t("workspace.showIn", { app: fileManager }), icon: FolderOpen },
+    { mode: "vscode", label: directory ? t("workspace.openFolderIn", { app: "VS Code" }) : t("workspace.openIn", { app: "VS Code" }), icon: Code2 },
+    { mode: "zed", label: directory ? t("workspace.openFolderIn", { app: "Zed" }) : t("workspace.openIn", { app: "Zed" }), icon: Code2 },
     ...(!directory && (platform === "darwin" || platform === "win32") ? [{
       mode: "text-editor" as const,
-      label: platform === "darwin" ? "Open in TextEdit" : "Open in Notepad",
+      label: t("workspace.openIn", { app: platform === "darwin" ? t("workspace.textEdit") : t("workspace.notepad") }),
       icon: FileText,
     }] : []),
   ];
@@ -1316,7 +1351,7 @@ function WorkspaceMediaPreview({ projectId, file, revision }: {
   const preview = useWorkspaceAssetUrl(projectId, file.path, revision);
   return (
     <div className="workspace-media-preview">
-      {!preview.url && !preview.error ? <span className="workspace-media-state"><LoaderCircle className="spin" size={16} />Loading preview</span> : null}
+      {!preview.url && !preview.error ? <span className="workspace-media-state"><LoaderCircle className="spin" size={16} />{t("workspace.loadingPreview")}</span> : null}
       {preview.error ? <span className="workspace-media-state workspace-media-error" role="alert"><X size={16} />{preview.error}</span> : null}
       {preview.url ? <AssetMedia type={file.mediaType} url={preview.url} label={fileName(file.path)} /> : null}
     </div>
@@ -1394,7 +1429,7 @@ function WorkspaceTreeNode({ node, style, onContextMenu }: NodeRendererProps<Wor
         className={`file-tree-toggle${node.isOpen ? " file-tree-toggle-open" : ""}`}
         type="button"
         tabIndex={-1}
-        aria-label={node.isOpen ? `Collapse ${node.data.name}` : `Expand ${node.data.name}`}
+        aria-label={node.isOpen ? t("workspace.collapse", { name: node.data.name }) : t("workspace.expand", { name: node.data.name })}
         onClick={(event) => {
           event.stopPropagation();
           node.toggle();
@@ -1452,9 +1487,9 @@ export function AssetsView({
   const visibleAssets = useMemo(() => filterAssets(assets, mediaFilter, query, filters), [assets, mediaFilter, query, filters]);
   const selectedAsset = assets.find((asset) => asset.path === selectedPath);
 
-  if (loading && files.length === 0) return <WorkspaceState loading label="Loading assets" />;
+  if (loading && files.length === 0) return <WorkspaceState loading label={t("workspace.loadingAssets")} />;
   if (error) return <WorkspaceState error={error} />;
-  if (!projectId || files.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label="No media assets" />;
+  if (!projectId || files.length === 0) return <WorkspaceState icon={<ImageIcon size={20} />} label={t("workspace.noMedia")} />;
   return (
     <div className="assets-view">
       <div className="assets-toolbar">
@@ -1464,7 +1499,7 @@ export function AssetsView({
       </div>
       {visibleAssets.length ? <div className="library-grid assets-grid">{visibleAssets.map((asset) => (
         <WorkspaceAssetCard key={asset.path} title={fileName(asset.path)} asset={asset} onOpen={() => setSelectedPath(asset.path)} />
-      ))}</div> : <WorkspaceState icon={<ImageIcon size={20} />} label="No assets match these filters" />}
+      ))}</div> : <WorkspaceState icon={<ImageIcon size={20} />} label={t("library.noMatch")} />}
       {selectedAsset ? <WorkspaceAssetDialog
         asset={selectedAsset}
         onClose={() => setSelectedPath(undefined)}
@@ -1491,8 +1526,8 @@ function PreviewState({ status, error, phase, startedAt }: { status?: ProjectSta
     update(); const timer = setInterval(update, 1_000); return () => clearInterval(timer);
   }, [status, startedAt]);
   switch (status) {
-    case "error": return <WorkspaceState error={error ?? "The preview process stopped."} />;
-    case "starting": return <div className="preview-starting" role="status"><LoaderCircle className="spin" size={14} /><span>{{ checking: "Checking environment", installing: "Installing dependencies", launching: "Starting preview server", connecting: "Waiting for preview server" }[phase ?? "launching"]} · {elapsed}s</span></div>;
+    case "error": return <WorkspaceState error={error ?? t("workspace.processStopped")} />;
+    case "starting": return <div className="preview-starting" role="status"><LoaderCircle className="spin" size={14} /><span>{t(`workspace.phase.${phase ?? "launching"}`)} · {elapsed}s</span></div>;
     case "waiting": return error ? <WorkspaceState label={error} /> : <PreviewEmptyState />;
     case undefined: return <PreviewEmptyState />;
     case "stopped": case "ready": return null;
@@ -1502,12 +1537,12 @@ function PreviewState({ status, error, phase, startedAt }: { status?: ProjectSta
 
 function PreviewLogs({ project, onClose }: { project?: ProjectState; onClose: () => void }) {
   const preview = project?.preview;
-  return <aside className="preview-logs" aria-label="Preview logs">
-    <header><strong>Preview logs</strong><button type="button" onClick={onClose} aria-label="Close preview logs"><X size={14} /></button></header>
-    <p>{preview?.directory ?? project?.startupDirectory ?? "."} · {preview?.command ?? "Not started"}</p>
+  return <aside className="preview-logs" aria-label={t("workspace.logs")}>
+    <header><strong>{t("workspace.logs")}</strong><button type="button" onClick={onClose} aria-label={t("workspace.closeLogs")}><X size={14} /></button></header>
+    <p>{preview?.directory ?? project?.startupDirectory ?? "."} · {preview?.command ?? t("workspace.notStarted")}</p>
     {preview?.manager ? <p>{preview.manager} · {preview.managerSource}</p> : null}
-    <pre>{preview?.logs || preview?.error || "No output yet."}</pre>
-    {preview?.diagnostics?.map((diagnostic, index) => <details key={`${diagnostic.client}:${index}`}><summary>{diagnostic.source ?? "Preview"} · {diagnostic.path ?? "/"}</summary><pre>{diagnostic.message}</pre></details>)}
+    <pre>{preview?.logs || preview?.error || t("workspace.noOutput")}</pre>
+    {preview?.diagnostics?.map((diagnostic, index) => <details key={`${diagnostic.client}:${index}`}><summary>{diagnostic.source ?? t("workspace.previewSource")} · {diagnostic.path ?? "/"}</summary><pre>{diagnostic.message}</pre></details>)}
   </aside>;
 }
 
@@ -1530,8 +1565,8 @@ function PreviewEmptyState() {
       <div className="preview-empty-mark" aria-hidden="true">
         <LaptopMinimalistic size={20} />
       </div>
-      <p className="preview-empty-title">Preview will appear here</p>
-      <p className="preview-empty-description">Describe your game in the agent panel to create a playable build.</p>
+      <p className="preview-empty-title">{t("workspace.emptyTitle")}</p>
+      <p className="preview-empty-description">{t("workspace.emptyDescription")}</p>
     </div>
   );
 }

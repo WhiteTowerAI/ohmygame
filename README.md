@@ -16,6 +16,10 @@
   <a href="https://discord.gg/TkrgvGQ2Zc"><img src="https://img.shields.io/badge/Discord-join-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Join Discord" /></a>
 </p>
 
+<p>
+  <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
 https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
 
 </div>
@@ -98,20 +102,14 @@ Three games our team made with OhMyGame:
   </tr>
 </table>
 
-### 🎲 General games
-
-Start without choosing an engine, or bring an existing game project. The
-Game Studio plugin coordinates design, production art, implementation, and
-verification across engines. The same workspace can support applications,
-tools, and content through other workflows. **Web preview** is enabled for new
-General Game projects; existing projects keep their saved setting. Change it in
-Project settings to control browser preview and playtesting. Static Web
-publishing works independently. Native games use their engine's tools.
-
 ### 🎮 Web games
 
-2D and 3D games for the browser, built with Three.js, React Three Fiber, or
-Phaser. The project is a normal web project you can open in any editor.
+**The best place to start.** 2D and 3D games for the browser, built with
+Three.js, React Three Fiber, or Phaser. The agent follows a complete web game
+workflow: a design doc, key-screen mockups, production art, a playable core
+loop, and playtesting in the live preview. Games fit any window size, support
+touch, and publish to a shareable link. The project is a normal web project you
+can open in any editor.
 
 ### 🎬 Interactive stories
 
@@ -123,6 +121,18 @@ saves, and navigation. The architecture and authoring model are documented in
 
 <!-- TODO(asset): screenshot or GIF, Node Graph with two finished screens,
 made with OhMyGame. Leave out until there is a real one. -->
+
+### 🎲 General games: any engine or stack
+
+**General Game** doesn't assume an engine or stack. Start from an idea, bring a
+project in any engine, or make tools and content for your game. The Game Studio
+plugin coordinates design, production art, implementation, and verification
+across engines.
+
+When the output is a web page, preview, playtesting, and publishing work as
+they do for Web games; native games use their engine's own tools. See
+[General Game details](docs/runtime.md#agent-game-use). **Making a browser
+game? Choose Web Game**: it is tuned for the browser.
 
 ## How it's built
 
@@ -169,6 +179,9 @@ game, or the renderer.
 
 ### Download
 
+See [the changelog](CHANGELOG.md) for changes in each release, or open
+**Settings → About → Changelog** inside the app.
+
 Grab the installer from the buttons at the top or from
 [Releases](https://github.com/WhiteTowerAI/ohmygame/releases). Builds are
 available for macOS (Apple silicon) and Windows (x64). The Windows build is
@@ -176,31 +189,45 @@ not code-signed yet, so Windows may show a SmartScreen warning during install.
 
 ### First run
 
-OhMyGame ships without a model. Connect one before your first prompt:
+![First-run welcome and provider connection screens](docs/assets/first-run-onboarding.png)
 
-1. **Open Settings → Providers & Models** and connect a provider for the
-   agent. Sign in with a subscription you already have, such as ChatGPT
-   Plus/Pro or Anthropic, or paste an API key. OpenRouter is the
-   quickest start: one key covers language, image, and video models.
+OhMyGame ships without a model. On first launch, a small game world forms and
+transforms into the OhMyGame logo. The wordmark, **Your own game studio.**, and
+**Next** appear in sequence over about five seconds.
+Click **Next** to connect a model before your first prompt:
+
+1. **Connect a language model.** **Choose your provider** lists available
+   providers with their sign-in or API key options. Use the **+** button beside
+   search to add a custom or local compatible endpoint in the same window.
+   **Start creating** becomes available when a language model is ready. You can
+   also choose **Skip and start** to enter without setup and configure a model
+   later in **Settings → Providers & Models**. Saved connections show **Connected**.
+   Setup resumes where you left off; existing installations go straight to
+   the studio.
 2. **Add media providers if you want them.** The agent can design and build a
-   game with only a language model. Generating art, video, or 3D needs its own
-   provider:
+   game with only a language model. Connect image, video, and 3D providers and
+   choose default models in **Settings → Providers & Models** whenever you
+   need them. Generating art, video, or 3D needs its own provider:
 
    | To make                       | Connect                                                             |
    | ----------------------------- | ------------------------------------------------------------------- |
    | Design docs, code, playtests  | Any language model provider                                         |
    | Images and sprites            | OpenAI (API key), OpenRouter, or Volcengine Ark / BytePlus ModelArk |
    | Video                         | OpenRouter, or Volcengine Ark / BytePlus ModelArk                   |
-   | 3D models, rigging, animation | Meshy                                                               |
+   | 3D models, rigging, animation | Meshy, Tripo, or Hyper3D (capabilities vary by provider)              |
 
-   Signing in with ChatGPT does not cover image generation. To use GPT Image,
-   connect OpenAI with an API key.
+   Signing in with ChatGPT does not cover image generation. In the OpenAI
+   provider's **Image models** section, configure a separate API key and Base URL,
+   fetch or manually add image models, enable them and save. This works alongside
+   browser sign-in and supports compatible GPT Image relays. API-key chat
+   connections can also share their key and endpoint with image generation.
 
 3. **Pick a model and describe your game.** Choose the model in the prompt box
    on the home screen, then describe what you want to make.
 
 Web search works without setup. Sign in under **Account** only when you want
 to publish a game; making games locally needs no account.
+Reopen the welcome from **Settings → About → View getting started**.
 
 ### Run from source
 
@@ -234,7 +261,7 @@ crash reports (Sentry, no personal data). Builds from source send no telemetry.
 
 ## Roadmap
 
-We're working on first-run setup, plain-language playtest reports, remixing
+We're working on plain-language playtest reports, remixing
 games from the Community, and Intel Mac / Linux builds. See
 [Issues](https://github.com/WhiteTowerAI/ohmygame/issues) for what's next, and
 vote with 👍 on what matters to you. Want to help? Look for
@@ -249,6 +276,16 @@ ordinary PRs at `dev`; `main` receives releases. See
 [中文快速指引](docs/contributing.zh-CN.md) for a short Chinese introduction, and
 [the documentation index](docs/README.md) for module guides.
 Report security issues using [SECURITY.md](SECURITY.md).
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=whitetowerai%2Fohmygame&type=date&legend=top-left">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=whitetowerai/ohmygame&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=whitetowerai/ohmygame&type=date&legend=top-left" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=whitetowerai/ohmygame&type=date&legend=top-left" />
+  </picture>
+</a>
 
 ## License
 

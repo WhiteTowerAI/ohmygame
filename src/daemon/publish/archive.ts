@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
@@ -291,8 +291,8 @@ async function assertNodePlayerBuilt(playerDirectory: string): Promise<void> {
   }
 }
 
-export async function createPluginArchive(source: string): Promise<Buffer> {
-  return createZip(source, true, undefined, PUBLISH_ARTIFACT_MAX_BYTES);
+export async function createPluginArchive(source: string, maxBytes = PUBLISH_ARTIFACT_MAX_BYTES, preserveExecutable = false): Promise<Buffer> {
+  return createZip(source, true, undefined, maxBytes, preserveExecutable);
 }
 
 async function prepareSource(workspacePath: string, track: (child: ChildProcess) => void, project?: ProjectState): Promise<string> {
@@ -316,7 +316,7 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
   throw new PublishError("Project has no build script or static index.html yet");
 }
 
-async function createZip(source: string, plugin = false, cover?: Buffer, maxBytes?: number): Promise<Buffer> {
+async function createZip(source: string, plugin = false, cover?: Buffer, maxBytes?: number, preserveExecutable = false): Promise<Buffer> {
   const zip = new ZipFile();
   const files = await filesIn(source, "", plugin);
   const zipOptions = {
@@ -330,7 +330,9 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
     throw new PublishError(`Publish output uses reserved path: ${PUBLISH_GAME_COVER_PATH}`);
   }
   for (const file of files) {
-    zip.addFile(path.join(source, ...file.split("/")), file, zipOptions);
+    const filename = path.join(source, ...file.split("/"));
+    const executable = preserveExecutable && ((await stat(filename)).mode & 0o111) !== 0;
+    zip.addFile(filename, file, executable ? { ...zipOptions, mode: 0o100755 } : zipOptions);
   }
   if (cover !== undefined) zip.addBuffer(cover, PUBLISH_GAME_COVER_PATH, zipOptions);
   const chunks: Buffer[] = [];
@@ -340,7 +342,7 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
     output.on("data", (chunk: Buffer) => {
       bytes += chunk.length;
       if (maxBytes !== undefined && bytes > maxBytes) {
-        output.destroy(new PublishError("Publish artifact exceeds 25 MB", 413));
+        output.destroy(new PublishError(`Publish artifact exceeds ${maxBytes / (1024 * 1024)} MB`, 413));
         return;
       }
       chunks.push(chunk);

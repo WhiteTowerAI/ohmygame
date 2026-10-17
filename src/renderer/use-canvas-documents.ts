@@ -1,3 +1,4 @@
+import { workspaceVersion } from "./workspace-version.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AGENT_REASONING_LEVELS, type AgentModelRef, type AgentReasoningLevel, type AssetCanvasTextGenerationSource } from "../shared/contracts.js";
 import type { CanvasWorkspaceDetail } from "../shared/canvas-workspace.js";
@@ -19,6 +20,7 @@ import {
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
 import { useDesktopClosing } from "./desktop-close-guard.js";
 import { isDesktopClosing } from "./desktop-save.js";
+import { t } from "./i18n.js";
 
 export interface DocumentGenerationState {
   instruction: string;
@@ -54,7 +56,8 @@ export function useCanvasDocuments(projectId: string) {
   const chain = useRef(Promise.resolve());
   const mounted = useRef(true);
   const refreshCounter = useRef(0);
-  const recoveryKey = `canvas-documents:${projectId}`;
+  const [version] = useState(() => workspaceVersion(projectId));
+  const recoveryKey = `canvas-documents:${projectId}${version === "0" ? "" : `:${version}`}`;
   const generationKey = `canvas-document-generations:${projectId}`;
   const [generations, setGenerations] = useState<
     Record<string, DocumentGenerationState>
@@ -151,7 +154,7 @@ export function useCanvasDocuments(projectId: string) {
             remote: remoteDetail,
           });
         setError(
-          "The same document was edited elsewhere. Choose a version before saving.",
+          t("canvasDocs.editedElsewhere"),
         );
         return local ?? { ...remote, ...ours };
       }
@@ -165,7 +168,7 @@ export function useCanvasDocuments(projectId: string) {
       if (!before || equal(before.document, local)) continue;
       let issue = next.documentIssues?.find((issue) => issue.id === local.id);
       if (!issue) {
-        issue = { id: local.id, title: local.title, source: canvasDocumentPath(local.id), message: "Document was removed from the workspace index" };
+        issue = { id: local.id, title: local.title, source: canvasDocumentPath(local.id), message: t("canvasDocs.removed") };
         (next.documentIssues ??= []).push(issue);
       }
       bases.current.set(local.id, before);
@@ -228,7 +231,7 @@ export function useCanvasDocuments(projectId: string) {
                 const base = bases.current.get(doc.id);
                 return base && !equal(base.document, doc) && current.current?.documentIssues?.some((issue) => issue.id === doc.id);
               });
-              if (blocked) throw new Error(`Could not save document “${blocked.title}”. Restore its workspace file before closing.`);
+              if (blocked) throw new Error(t("canvasDocs.saveBlocked", { title: blocked.title }));
               break;
             }
             setSaving(true);
@@ -244,10 +247,11 @@ export function useCanvasDocuments(projectId: string) {
                     projectId,
                     { document: outgoing, revision: base.revision },
                     entry.id,
+                    version,
                   );
                   break;
                 } catch (cause) {
-                  if ((cause as { status?: number }).status !== 409)
+                  if ((cause as { status?: number }).status !== 409 || (cause as { code?: string }).code === "workspace_stale")
                     throw cause;
                   const remote = await getCanvasDocument(projectId, entry.id);
                   if (!remote) throw cause;
@@ -262,7 +266,7 @@ export function useCanvasDocuments(projectId: string) {
                     );
                     reportConflict({ local: latest ?? outgoing, remote });
                     throw new Error(
-                      "The same document was edited elsewhere. Choose a version before saving.",
+                      t("canvasDocs.editedElsewhere"),
                     );
                   }
                   base = remote;
@@ -271,7 +275,7 @@ export function useCanvasDocuments(projectId: string) {
               }
               if (!saved)
                 throw new Error(
-                  "The document keeps changing. Try saving again.",
+                  t("canvasDocs.keepsChanging"),
                 );
               const now = current.current.documents.find(
                 (doc) => doc.id === entry.id,
@@ -316,14 +320,14 @@ export function useCanvasDocuments(projectId: string) {
   }, [workspace, flush, conflict, closing]);
   const create = useCallback(async () => {
     await flush();
-    const detail = await createCanvasDocument(projectId, "Untitled document");
+    const detail = await createCanvasDocument(projectId, t("canvasDocs.untitled"), version);
     await refresh();
     return detail.document.id;
   }, [projectId, flush, refresh]);
   const insertImage = useCallback(
     async (documentId: string, assetId: string) => {
       await flush();
-      await insertCanvasImage(projectId, documentId, assetId);
+      await insertCanvasImage(projectId, documentId, assetId, version);
       await refresh();
     },
     [projectId, flush, refresh],
@@ -331,7 +335,7 @@ export function useCanvasDocuments(projectId: string) {
   const setMain = useCallback(
     async (documentId: string) => {
       await flush();
-      await setMainCanvasDocument(projectId, documentId);
+      await setMainCanvasDocument(projectId, documentId, version);
       await refresh();
     },
     [projectId, flush, refresh],
@@ -342,9 +346,9 @@ export function useCanvasDocuments(projectId: string) {
       if (proposal === undefined || state?.generating || state?.applying) return;
       changeGeneration(id, { applying: true });
       try {
-        if (conflictRef.current) throw new Error("Resolve the document conflict before adopting this draft.");
+        if (conflictRef.current) throw new Error(t("canvasDocs.resolveFirst"));
         if (!current.current?.documents.some((doc) => doc.id === id) || current.current.documentIssues?.some((issue) => issue.id === id))
-          throw new Error("Restore the document file before adopting this draft. You can still edit or copy it.");
+          throw new Error(t("canvasDocs.restoreFirst"));
         update(id, { markdown: proposal });
         await flush();
         changeGeneration(id, { proposal: undefined, proposalStatus: undefined, error: undefined });
@@ -368,14 +372,14 @@ export function useCanvasDocuments(projectId: string) {
         await prepare?.();
         await flush();
         const base = current.current?.documents.find((doc) => doc.id === id);
-        if (!base) throw new Error("Document not found");
+        if (!base) throw new Error(t("canvas.documentNotFound"));
         const result = await generateCanvasDocument(projectId, id, {
           instruction,
           model,
           reasoningLevel,
           referenceSource,
           revision: base.revision,
-        });
+        }, version);
         if (result.status === "empty") {
           changeGeneration(id, { error: result.error });
           return;
@@ -404,7 +408,7 @@ export function useCanvasDocuments(projectId: string) {
         else
           changeGeneration(id, {
             error:
-              "The document changed during generation. Review the AI result before replacing it.",
+              t("canvasDocs.changedDuringGeneration"),
           });
       } catch (cause) {
         changeGeneration(id, { error: message(cause) });
@@ -468,8 +472,8 @@ export function readDocumentGenerations(key: string): Record<string, DocumentGen
         reasoningLevel: AGENT_REASONING_LEVELS.includes(state.reasoningLevel!) ? state.reasoningLevel : undefined,
         proposal: typeof state.proposal === "string" ? state.proposal : undefined,
         proposalStatus: state.proposalStatus === "complete" || state.proposalStatus === "incomplete" ? state.proposalStatus : undefined,
-        error: state.generating ? "Document generation was interrupted. Your instruction and candidate draft are kept. Try again."
-          : state.applying ? "Saving was interrupted. Review the document before adopting the candidate draft again."
+        error: state.generating ? t("canvasDocs.generationInterrupted")
+          : state.applying ? t("canvasDocs.savingInterrupted")
           : typeof state.error === "string" ? state.error : undefined,
       }]];
     }));

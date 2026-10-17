@@ -33,6 +33,7 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
   readonly #projectRoot: HTMLElement;
   readonly #nodeLayer: HTMLElement;
   #picking?: { stop: () => void };
+  #watchingMedia?: () => void;
 
   constructor(
     document: Document,
@@ -56,6 +57,8 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
 
   destroy(): void {
     this.stopPicking();
+    this.#watchingMedia?.();
+    this.#watchingMedia = undefined;
     this.#projectRoot.remove();
   }
 
@@ -273,6 +276,18 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
     };
   }
 
+  /** Watches the mounted Node's background video; see `watchPlayableBackdropVideo`. */
+  watchBackdropVideo(onChange: (video: HTMLVideoElement | undefined) => void): () => void {
+    this.#watchingMedia?.();
+    const stopWatching = watchPlayableBackdropVideo(this.#nodeLayer, onChange);
+    const stop = () => {
+      stopWatching();
+      if (this.#watchingMedia === stop) this.#watchingMedia = undefined;
+    };
+    this.#watchingMedia = stop;
+    return stop;
+  }
+
   stopPicking(): void {
     const picking = this.#picking;
     this.#picking = undefined;
@@ -312,6 +327,51 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
       throw cause;
     }
   }
+}
+
+/**
+ * Calls `onChange` with the background video (`[data-media="backdrop"] video`)
+ * of the Node surfaces in `layer` whenever it appears, changes, or goes, until
+ * the returned function is called. Node code creates the video, so it is
+ * looked for again whenever a surface's content changes.
+ */
+export function watchPlayableBackdropVideo(
+  layer: HTMLElement,
+  onChange: (video: HTMLVideoElement | undefined) => void,
+): () => void {
+  const view = layer.ownerDocument.defaultView!;
+  let current: HTMLVideoElement | undefined;
+  const find = () => {
+    for (const host of layer.children) {
+      const video = host.shadowRoot?.querySelector('[data-media="backdrop"] video');
+      if (video) return video as HTMLVideoElement;
+    }
+    return undefined;
+  };
+  const update = () => {
+    const next = find();
+    if (next === current) return;
+    current = next;
+    onChange(next);
+  };
+  const surfaces = new view.MutationObserver(update);
+  const observeSurfaces = () => {
+    for (const host of layer.children) {
+      if (host.shadowRoot) surfaces.observe(host.shadowRoot, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-media"] });
+    }
+  };
+  const surfaceList = new view.MutationObserver(() => {
+    surfaces.disconnect();
+    observeSurfaces();
+    update();
+  });
+  surfaceList.observe(layer, { childList: true });
+  observeSurfaces();
+  update();
+  return () => {
+    surfaceList.disconnect();
+    surfaces.disconnect();
+  };
 }
 
 export function assertPlayableSandboxDocument(document: Document): void {

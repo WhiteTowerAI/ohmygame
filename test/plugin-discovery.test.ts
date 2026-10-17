@@ -15,7 +15,7 @@ describe("plugin discovery", () => {
     const root = await temporaryDirectory();
     await writeJson(path.join(root, manifestPath), {
       name: "level-design", version: "1.2.0", description: "Design game levels", skills: "./skills/",
-      interface: { displayName: "Level Design", defaultPrompt: "Design a platformer level." },
+      interface: { displayName: "Level Design", defaultPrompt: "Design a platformer level.", icon: { type: "preset", id: "layers" } },
     });
     await writeSkill(path.join(root, "skills", "level-design"), "level-design", "Design levels.");
 
@@ -24,6 +24,7 @@ describe("plugin discovery", () => {
     expect(candidate).toMatchObject({ format, name: "level-design", displayName: "Level Design", skillCount: 1 });
     expect(candidate!.manifest.skills).toBe("./skills/");
     expect(candidate!.manifest.interface?.defaultPrompt).toEqual(["Design a platformer level."]);
+    expect(candidate!.manifest.interface?.icon).toEqual({ type: "preset", id: "layers" });
   });
 
   it("discovers Pi packages and conventional Agent Skills", async () => {
@@ -53,6 +54,7 @@ describe("plugin discovery", () => {
     });
     await writeJson(path.join(root, "plugins", "level-tools", ".codex-plugin", "plugin.json"), {
       name: "level-tools", description: "Level tools", skills: "./skills/",
+      interface: { icon: { type: "asset", path: "./assets/logo.png" } },
     });
     await writeSkill(path.join(root, "plugins", "level-tools", "skills", "layout"), "layout", "Lay out levels.");
     await writeSkill(path.join(root, "plugins", "level-tools", "skills", "balance"), "balance", "Balance levels.");
@@ -66,6 +68,36 @@ describe("plugin discovery", () => {
       marketplace: { id: "game-tools", displayName: "Game Tools" },
     });
     expect(candidate!.manifest.skills).toBe("./plugins/level-tools/skills");
+    expect(candidate!.manifest.interface?.icon).toEqual({ type: "asset", path: "./plugins/level-tools/assets/logo.png" });
+  });
+
+  it.each([
+    [".agents/plugins/marketplace.json", ".codex-plugin/plugin.json", "codex"],
+    [".claude-plugin/marketplace.json", ".claude-plugin/plugin.json", "claude"],
+  ] as const)("skips incompatible %s marketplace entries", async (marketplacePath, pluginManifestPath, format) => {
+    const root = await temporaryDirectory();
+    await writeJson(path.join(root, marketplacePath), {
+      name: "game-tools",
+      plugins: [
+        { name: "new-format", source: "./plugins/new-format" },
+        { name: "new-host", source: "./plugins/new-host" },
+        { name: "old-tools", source: "./plugins/old-tools" },
+      ],
+    });
+    await writeJson(path.join(root, "plugins", "new-format", pluginManifestPath), {
+      name: "new-format", description: "New format", formatVersion: 2,
+    });
+    await writeJson(path.join(root, "plugins", "new-host", pluginManifestPath), {
+      name: "new-host", description: "New host", minimumHostVersion: "999.0.0",
+    });
+    await writeJson(path.join(root, "plugins", "old-tools", pluginManifestPath), {
+      name: "old-tools", description: "Old tools", version: "1.0.0",
+    });
+
+    const candidates = await discoverPlugins(root);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ format, name: "old-tools" });
   });
 
   it("rejects nested remote marketplace sources explicitly", async () => {

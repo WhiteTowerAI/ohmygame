@@ -1,5 +1,6 @@
 import { NodeResizer, useStore } from "@xyflow/react";
 import { Maximize, RefreshCw } from "./icons.js";
+import { t } from "./i18n.js";
 
 export interface CanvasNodeResizeRuntime {
   start(): void;
@@ -41,8 +42,8 @@ export function CanvasNodeSizeActions({
     <>
       <button
         type="button"
-        title="Reset node size"
-        aria-label="Reset node size"
+        title={t("canvasNode.resetSize")}
+        aria-label={t("canvasNode.resetSize")}
         onClick={runtime?.reset}
       >
         <RefreshCw size={14} />
@@ -50,8 +51,8 @@ export function CanvasNodeSizeActions({
       {runtime?.open ? (
         <button
           type="button"
-          title="Expand text"
-          aria-label="Expand text"
+          title={t("canvasNode.expandText")}
+          aria-label={t("canvasNode.expandText")}
           onClick={runtime.open}
         >
           <Maximize size={14} />

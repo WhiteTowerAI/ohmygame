@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
@@ -10,12 +11,14 @@ describe("bundled plugins", () => {
     const plugin = path.join(root, "reference-modeler");
     await mkdir(path.join(plugin, ".ohmygame-plugin"), { recursive: true });
     await mkdir(path.join(plugin, "skills", "reference-modeler"), { recursive: true });
+    const icon = await sharp({ create: { width: 2, height: 2, channels: 4, background: "red" } }).png().toBuffer();
+    await writeFile(path.join(plugin, "icon.png"), icon);
     await writeFile(path.join(plugin, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
       name: "reference-modeler",
       version: "0.1.0",
       description: "Rebuild a reference as a model",
       skills: "./skills/",
-      interface: { longDescription: "A detailed modeling workflow." },
+      interface: { longDescription: "A detailed modeling workflow.", icon: { type: "asset", path: "./icon.png" } },
     }));
     await writeFile(path.join(plugin, "skills", "reference-modeler", "SKILL.md"), "---\nname: reference-modeler\ndescription: Model a reference\n---\n");
     const store = new BundledPluginStore(root);
@@ -30,6 +33,8 @@ describe("bundled plugins", () => {
       connections: [],
     }]);
     expect(store.installedPath("ohmygame:reference-modeler")).toBe(plugin);
+    expect((await store.readIcon("ohmygame:reference-modeler"))?.bytes).toEqual(icon);
+    expect(await store.readIcon("ohmygame:missing")).toBeUndefined();
   });
 
   it("loads the built-in Web Game Studio skill suite", async () => {

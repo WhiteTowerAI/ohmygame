@@ -11,7 +11,7 @@ Authentication, account limits, request compatibility, provider server errors,
 DNS, TLS, timeouts and interrupted responses have distinct presentations.
 Unknown failures remain explicitly unclassified.
 
-The details can be copied and include the provider, model, endpoint, HTTP status,
+The details can be copied and include the provider, model, endpoint, transport, HTTP status,
 provider request ID, available underlying error codes and causes, and the number
 of agent retries in the turn. Missing fields are omitted. The network field is
 the active startup configuration from the network settings service, including
@@ -19,6 +19,13 @@ whether it uses an environment, system or manual proxy, or direct connections.
 Saved changes that require a restart do not replace that active snapshot. The
 field does not prove whether a particular request bypassed the proxy or how a
 VPN routed it.
+
+WebSocket errors omit the synthetic HTTP 200 created by the SSE adapter. Real
+handshake or provider rejection statuses appear as Provider status, with close
+code/reason and timeout causes retained when available. Persisted errors from
+beta.4.6 also have their misleading WebSocket 200 removed on normalization.
+Temporary WebSocket interruptions enter Pi's existing Reconnecting flow; the
+next attempt uses HTTP/SSE during the five-minute transport cooldown.
 
 The application converts Pi messages and thrown errors into the same
 `ThreadItemError` directly. Only the daemon classifies failures; the renderer
@@ -29,17 +36,20 @@ without native error codes still give useful diagnostics.
 
 ## Pi compatibility patch
 
-The pinned `@earendil-works/pi-ai@0.99.2` loses nested connection causes when it
+The pinned `@earendil-works/pi-ai@1.2.0` loses nested connection causes when it
 converts SDK errors into `AssistantMessage.errorMessage`. For example, the OpenAI
 SDK wraps DNS and TLS failures alike as `Connection error.`. The Bun patch in
-`patches/@earendil-works%2Fpi-ai@0.99.2.patch` captures public error metadata in Pi's
+`patches/@earendil-works%2Fpi-ai@1.2.0.patch` captures public error metadata in Pi's
 existing `AssistantMessage.diagnostics` before conversion.
 
 The patch covers the OpenAI completions and Responses adapters (including Codex
 and Azure), Anthropic, Google Generative AI and Vertex, and System One. Existing
 Bedrock failure metadata is also understood by the application. It does not
-replace provider implementations, alter `errorMessage`, or change Pi's retry or
-context recovery decisions. Context-compaction errors and third-party adapters
+replace provider implementations or alter `errorMessage`. Pi retains its bounded
+retry and context recovery policies. The retry classifier additionally respects
+authoritative WebSocket authentication, quota and request rejection diagnostics;
+words such as a parameter named `timeout` cannot make these errors retryable.
+Context-compaction errors and third-party adapters
 can still return only a message; those failures use the available message as a
 fallback.
 
@@ -68,6 +78,10 @@ reload validates stored or imported session data as well as current messages.
 upgrading Pi, check whether the new version preserves these fields before
 removing or adapting the patch. Prefer an upstream implementation of the shared
 failure diagnostic helper and adapter hooks over a permanent fork.
+Every Pi upgrade must also recheck the WebSocket retry classifier: authoritative
+authentication, quota and invalid-request failures remain non-retryable, ordinary
+429 rate limits and transient provider failures remain retryable, and context
+overflow still enters compaction. Keep these checks after a clean dependency install.
 
 Run `test/provider-error-diagnostics.test.ts` to exercise real Pi adapters with
 offline fetch fixtures, and the agent error, agent manager and timeline tests to

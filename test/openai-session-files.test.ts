@@ -160,7 +160,7 @@ describe("OpenAI session image files", () => {
     const send = () => fetch("https://api.openai.com/v1/responses", { method: "POST", headers: { ...Object.fromEntries(headers()), "content-type": "application/json" }, body: JSON.stringify(payload()) });
     const response = await send();
     if (started) {
-      await expect(response.text()).rejects.toThrow("interrupted after streaming began"); expect(requests).toHaveLength(1);
+      await expect(response.text()).rejects.toThrow("file_not_found: file-1 not found"); expect(requests).toHaveLength(1);
       expect(await (await send()).text()).toContain("resp-success");
     } else expect(await response.text()).toContain("resp-success");
     expect(api.uploads).toBe(2); expect(requests).toHaveLength(2); expect(api.bodies).toHaveLength(0);

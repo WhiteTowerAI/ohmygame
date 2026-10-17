@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -55,6 +55,21 @@ describe("local plugins", () => {
     expect(await store.list()).toEqual({ plugins: [], errors: [] });
     await expect(store.read(installed.id)).resolves.toBeUndefined();
     await expect(store.directoryPath(installed.id)).resolves.toBeUndefined();
+  });
+
+  it("rejects public marketplace visibility from ordinary installs", async () => {
+    const root = await temporaryDirectory();
+    const source = path.join(root, "official-community-plugin");
+    await writePlugin(source, {
+      name: "official-community-plugin",
+      version: "1.0.0",
+      description: "Official community plugin",
+    });
+    const store = new LocalPluginStore(path.join(root, "data"));
+    const marketplace = { id: "official-community", displayName: "Official Community", visibility: "public" as const };
+
+    await expect(store.install(source, { type: "directory", path: source }, undefined, marketplace))
+      .rejects.toThrow("trusted catalog adapters");
   });
 
   it("uses root Skill frontmatter instead of the installed version directory", async () => {
@@ -204,6 +219,52 @@ describe("local plugins", () => {
       await mkdir(directory);
     }
     await expect(store.install(nested)).rejects.toThrow("nested too deeply");
+  });
+
+  it("keeps installed plugins readable after the host is downgraded", async () => {
+    const root = await temporaryDirectory();
+    const dataDirectory = path.join(root, "data");
+    const source = path.join(root, "future-plugin");
+    await writePlugin(source, { name: "future-plugin", version: "1.0.0", description: "Future", skills: "./skills/" });
+    const store = new LocalPluginStore(dataDirectory);
+    const installed = await store.install(source);
+    const indexPath = path.join(dataDirectory, "plugins", "installed-plugins.json");
+    const records = JSON.parse(await readFile(indexPath, "utf8")) as Array<{ manifest: Record<string, unknown> }>;
+    records[0]!.manifest.minimumHostVersion = "999.0.0";
+    await writeFile(indexPath, JSON.stringify(records), "utf8");
+
+    expect(await store.list()).toMatchObject({ plugins: [{ id: installed.id }], errors: [] });
+    await writePluginManifest(source, { name: "future-plugin", version: "1.1.0", description: "Future", skills: "./skills/", minimumHostVersion: "999.0.0" });
+    await expect(store.install(source)).rejects.toThrow("requires OhMyGame 999.0.0");
+  });
+
+  it("marks edited plugins as authored so their old source cannot overwrite the edits", async () => {
+    const root = await temporaryDirectory();
+    const source = path.join(root, "edited-plugin");
+    const draft = path.join(root, "draft");
+    await writePlugin(source, { name: "edited-plugin", version: "1.0.0", description: "Original", skills: "./skills/" });
+    const store = new LocalPluginStore(path.join(root, "data"));
+    const installed = await store.install(source);
+    const { revision } = await store.copyForAuthoring(installed.id, draft);
+    await writePluginManifest(draft, { name: "edited-plugin", version: "1.0.1", description: "Edited", skills: "./skills/" });
+
+    expect(await store.updateFromDraft(installed.id, draft, revision)).toMatchObject({ id: installed.id, source: { type: "authored" } });
+    await expect(store.directoryPath(installed.id)).resolves.toContain(path.join("plugins", "installed", "personal", "edited-plugin"));
+    await expect(store.install(source)).rejects.toThrow("already installed from another source");
+  });
+
+  it("lets archive copies share a marketplace label without owning it", async () => {
+    const root = await temporaryDirectory();
+    const archived = path.join(root, "archived");
+    const fromGit = path.join(root, "from-git");
+    await writePlugin(archived, { name: "archived-tool", version: "1.0.0", description: "Archived", skills: "./skills/" });
+    await writePlugin(fromGit, { name: "git-tool", version: "1.0.0", description: "Git", skills: "./skills/" });
+    const store = new LocalPluginStore(path.join(root, "data"));
+    const marketplace = { id: "shared-tools", displayName: "Shared Tools" };
+
+    await store.installPortable(archived, marketplace);
+    await expect(store.install(fromGit, { type: "git", url: "https://example.com/tools.git", commit: "abc" }, undefined, marketplace))
+      .resolves.toMatchObject({ id: "marketplace:shared-tools:git-tool" });
   });
 });
 

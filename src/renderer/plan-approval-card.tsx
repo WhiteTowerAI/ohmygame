@@ -1,6 +1,7 @@
 import { ArrowRight, X } from "./icons.js";
 import { useState } from "react";
 import { InlineAnswer } from "./inline-answer.js";
+import { t } from "./i18n.js";
 
 interface PlanApprovalCardProps {
   disabled?: boolean;
@@ -25,15 +26,15 @@ export function PlanApprovalCard({ disabled, onApprove, onRefine, onCancel }: Pl
   }
 
   return (
-    <section className="plan-approval-card" aria-label="Plan approval">
+    <section className="plan-approval-card" aria-label={t("planApproval.label")}>
       <header>
-        <strong>Implement this plan?</strong>
-        <button type="button" disabled={disabled || submitting} onClick={() => void run(onCancel)} aria-label="Cancel plan"><X size={15} /></button>
+        <strong>{t("planApproval.title")}</strong>
+        <button type="button" disabled={disabled || submitting} onClick={() => void run(onCancel)} aria-label={t("planApproval.cancel")}><X size={15} /></button>
       </header>
 
       <button className="plan-approval-approve" type="button" disabled={disabled || submitting} onClick={() => void run(onApprove)}>
         <span>1</span>
-        <strong>Yes, implement this plan</strong>
+        <strong>{t("planApproval.approve")}</strong>
         <ArrowRight size={15} />
       </button>
 
@@ -42,8 +43,8 @@ export function PlanApprovalCard({ disabled, onApprove, onRefine, onCancel }: Pl
           editing
           value={feedback}
           disabled={disabled || submitting}
-          label="No, and tell OhMyGame what to do differently"
-          placeholder="Tell OhMyGame what to do differently"
+          label={t("planApproval.refine")}
+          placeholder={t("planApproval.refinePlaceholder")}
           onChange={setFeedback}
           onSubmit={() => void run(() => onRefine(feedback.trim()))}
           onCancel={() => { setEditing(false); setFeedback(""); }}
@@ -53,10 +54,10 @@ export function PlanApprovalCard({ disabled, onApprove, onRefine, onCancel }: Pl
           <InlineAnswer
             editing={false}
             disabled={disabled || submitting}
-            label="No, and tell OhMyGame what to do differently"
+            label={t("planApproval.refine")}
             onEdit={() => setEditing(true)}
           />
-          <button className="plan-approval-skip" type="button" disabled={disabled || submitting} onClick={() => void run(onCancel)}>Skip</button>
+          <button className="plan-approval-skip" type="button" disabled={disabled || submitting} onClick={() => void run(onCancel)}>{t("common.skip")}</button>
         </div>
       )}
     </section>

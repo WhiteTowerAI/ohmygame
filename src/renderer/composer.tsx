@@ -7,7 +7,7 @@ import { MessageQueue } from "./message-queue.js";
 import { PromptBox, type DroppedFile } from "./prompt-box.js";
 import { ComposerActions } from "./composer-actions.js";
 import { PlanStatus } from "./plan-status.js";
-import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
+import { compactInstructions, matchesCompactCommand, matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { createPromptHistory, nextPrompt, previousPrompt, recordPrompt } from "./prompt-history.js";
 import { formatChatPrompt, PromptContextIcon, type ChatContextChip } from "./chat-reference.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
@@ -16,6 +16,7 @@ import { ComposerCapabilityReferences } from "./composer-capability-references.j
 import { getCanvasDocument } from "./canvas-api.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { composerDrafts, type ComposerDraft } from "./composer-drafts.js";
+import { t } from "./i18n.js";
 
 export type { ComposerDraft } from "./composer-drafts.js";
 
@@ -99,7 +100,6 @@ export function Composer({
   const [attachmentError, setAttachmentError] = useState<string>();
   const [history, setHistory] = useState(() => createPromptHistory(promptHistory.map((entry) => entry.prompt)));
   const [mentionHistory, setMentionHistory] = useState(() => new Map(promptHistory.map((entry) => [entry.prompt, entry.mentions])));
-  const [selectedCommand, setSelectedCommand] = useState<"plan" | "compact">("plan");
   const [contextPercent, setContextPercent] = useState<number>();
   const [mentionCursor, setMentionCursor] = useState(0);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -155,12 +155,12 @@ export function Composer({
     setReferencingDesign(true);
     try {
       const result = await getCanvasDocument(projectId);
-      if (!result) throw new Error("This project does not have a game design document yet");
+      if (!result) throw new Error(t("composer.noDesign"));
       updateDraft({ designReference: {
         references: [{ type: "workspace-file", path: canvasDocumentPath(result.document.id) }],
         context: {
           kind: "design-document",
-          label: result.document.title || "Game design",
+          label: result.document.title || t("composer.gameDesign"),
           text: "Reference the saved game design document for this message.",
         },
       } });
@@ -284,15 +284,12 @@ export function Composer({
     onFiles: addAttachments,
     onDesignReference: supportsDesign ? () => { void referenceDesign(); } : undefined,
     onTogglePlanning: () => { void togglePlanning(false); },
+    onCompact: conversationReady && !running && !stopping && !selectedSkill && !selectedPlugin ? () => { void runCompact(compactInstructions(prompt) ?? undefined); } : undefined,
     onMention: selectMention,
     onChange: changePrompt,
     onSelectionChange: setMentionCursor,
+    contextPercent,
   });
-
-  useEffect(() => {
-    if (showPlanCommand) setSelectedCommand("plan");
-    else if (showCompactCommand) setSelectedCommand("compact");
-  }, [showPlanCommand, showCompactCommand]);
 
   useEffect(() => {
     if (!showCompactCommand) {
@@ -356,7 +353,7 @@ export function Composer({
       references: [referencedDesign],
       context: {
         kind: "design-document",
-        label: "Game design",
+        label: t("composer.gameDesign"),
         text: "The user explicitly referenced this saved design document.",
       },
     } : undefined });
@@ -381,27 +378,7 @@ export function Composer({
       clearSelectedPlugin();
       return true;
     }
-    if (!showPlanCommand && !showCompactCommand) return false;
-    const commands: Array<"plan" | "compact"> = [
-      ...(showPlanCommand ? ["plan" as const] : []),
-      ...(showCompactCommand ? ["compact" as const] : []),
-    ];
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      const current = Math.max(0, commands.indexOf(selectedCommand));
-      const offset = event.key === "ArrowDown" ? 1 : -1;
-      setSelectedCommand(commands[(current + offset + commands.length) % commands.length]);
-      return true;
-    }
-    if (event.key !== "Enter" || event.shiftKey) return false;
-    event.preventDefault();
-    if (selectedCommand === "compact" && showCompactCommand) {
-      const instructions = compactInstructions(prompt);
-      void runCompact(instructions ?? undefined);
-    } else if (showPlanCommand) {
-      void togglePlanning();
-    }
-    return true;
+    return false;
   }
 
   return (
@@ -424,28 +401,28 @@ export function Composer({
           onChange={onModelChange} onReasoningChange={onReasoningChange}
           showStop={showStop} stopping={stopping} onStop={onStop}
           sendDisabled={inputDisabled || (!selectedSkill && !selectedPlugin && !prompt.trim() && attachments.length === 0) || stopping}
-          sendLabel={running ? "Queue follow-up" : "Send prompt"}
+          sendLabel={running ? t("composer.queue") : t("composer.send")}
         />}
         content={<>
-          {contexts.length ? <div className="composer-contexts" aria-label="Context for the next message">
+          {contexts.length ? <div className="composer-contexts" aria-label={t("composer.contexts")}>
             {contexts.map((context) => <div className={`composer-context is-${context.kind}`} key={context.key} title={context.detail ?? context.label}>
               <PromptContextIcon kind={context.kind} />
               <span>{context.label}</span>
               {context.detail ? <small>{context.detail}</small> : null}
-              <button type="button" onClick={() => onRemoveContext?.(context.key)} aria-label={`Remove ${context.label} from the message`}><X size={11} /></button>
+              <button type="button" onClick={() => onRemoveContext?.(context.key)} aria-label={t("composer.removeContext", { label: context.label })}><X size={11} /></button>
             </div>)}
           </div> : null}
           {reference ? <div className="composer-reference">
-            <div className="composer-reference-label">Selected text</div>
+            <div className="composer-reference-label">{t("composer.selectedText")}</div>
             <div className="composer-reference-text">{reference.text}</div>
-            <button type="button" className="composer-reference-remove" onClick={() => updateDraft({ reference: undefined })} aria-label="Remove selected text">×</button>
+            <button type="button" className="composer-reference-remove" onClick={() => updateDraft({ reference: undefined })} aria-label={t("composer.removeSelectedText")}>×</button>
           </div> : null}
-          {designReference ? <div className="composer-contexts" aria-label="Referenced game design">
+          {designReference ? <div className="composer-contexts" aria-label={t("composer.referencedDesign")}>
             <div className="composer-context is-design-document" title={designReference.context.label}>
               <FileText size={12} />
               <span>{designReference.context.label}</span>
-              <small>Game design</small>
-              <button type="button" onClick={() => updateDraft({ designReference: undefined })} aria-label="Remove game design reference"><X size={11} /></button>
+              <small>{t("composer.gameDesign")}</small>
+              <button type="button" onClick={() => updateDraft({ designReference: undefined })} aria-label={t("composer.removeDesign")}><X size={11} /></button>
             </div>
           </div> : null}
           <AttachmentStrip items={attachments} onRemove={(id) => updateDraft((current) => ({ attachments: current.attachments.filter((attachment) => attachment.id !== id) }))} />
@@ -477,24 +454,11 @@ export function Composer({
         onHistoryNext={() => browseHistory("next")}
         onHistoryPrevious={() => browseHistory("previous")}
         onDropFiles={inputDisabled ? undefined : addFiles}
-        onDropError={(error) => setAttachmentError(`Could not read dropped folder: ${error.message}`)}
+        onDropError={(error) => setAttachmentError(t("composer.droppedFolder", { error: error.message }))}
         onSubmit={submitOrRunCommand}
         suggestions={contextMenu.suggestions}
-        overlay={contextMenu.open ? contextMenu.overlay : showPlanCommand || showCompactCommand ? (
-          <PlanCommandMenu
-            planning={planning}
-            onToggle={() => { void togglePlanning(); }}
-            showPlan={showPlanCommand}
-            showCompact={showCompactCommand}
-            selected={selectedCommand}
-            contextPercent={contextPercent}
-            onCompact={() => {
-              const instructions = compactInstructions(prompt);
-              void runCompact(instructions ?? undefined);
-            }}
-          />
-        ) : null}
-        placeholder={selectedSkill || selectedPlugin ? "" : awaitingApproval ? "Review the plan above" : planMode === "executing" ? "Executing plan" : planning ? "Describe what to plan" : running ? "Add a follow-up" : "Ask for a change"}
+        overlay={contextMenu.open ? contextMenu.overlay : null}
+        placeholder={selectedSkill || selectedPlugin ? "" : awaitingApproval ? t("composer.placeholder.review") : planMode === "executing" ? t("composer.placeholder.executing") : planning ? t("creator.planPlaceholder") : running ? t("composer.placeholder.followUp") : t("composer.placeholder.change")}
         textareaRef={textarea}
         onSelectionChange={setMentionCursor}
         value={prompt}

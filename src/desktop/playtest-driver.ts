@@ -158,18 +158,21 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
       });
       if (state.logs.length > MAX_LOGS) state.logs.splice(0, state.logs.length - MAX_LOGS);
     });
-    window.webContents.session.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+    // The session outlives the window, and reading `window.webContents` after the window is destroyed throws.
+    const webContents = window.webContents;
+    const webContentsId = webContents.id;
+    webContents.session.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
       const requestingUrl = details.requestingUrl ?? requestingOrigin;
-      return contents === window.webContents && permission === "pointerLock" && details.isMainFrame &&
+      return contents === webContents && permission === "pointerLock" && details.isMainFrame &&
         sameOrigin(requestingUrl, state.origin);
     });
-    window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
-      callback(contents === window.webContents && (permission === "pointerLock" || permission === "keyboardLock") &&
+    webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
+      callback(contents === webContents && (permission === "pointerLock" || permission === "keyboardLock") &&
         details.isMainFrame && sameOrigin(details.requestingUrl, state.origin));
     });
-    window.webContents.session.on("will-download", (event) => event.preventDefault());
-    window.webContents.session.webRequest.onErrorOccurred((details) => {
-      if (details.webContentsId !== undefined && details.webContentsId !== window.webContents.id) return;
+    webContents.session.on("will-download", (event) => event.preventDefault());
+    webContents.session.webRequest.onErrorOccurred((details) => {
+      if (details.webContentsId !== undefined && details.webContentsId !== webContentsId) return;
       state.failedRequests.push({
         url: details.url,
         error: details.error,
@@ -377,8 +380,8 @@ export class ElectronPlaytestDriver implements GameRuntimeAdapter {
     clearTimeout(state.idleTimer);
     this.#sessions.delete(id);
     this.#publishWatchState();
-    if (state.window.webContents.debugger.isAttached()) state.window.webContents.debugger.detach();
     if (!state.window.isDestroyed()) {
+      if (state.window.webContents.debugger.isAttached()) state.window.webContents.debugger.detach();
       this.#closingSessions.add(id);
       state.window.destroy();
     }

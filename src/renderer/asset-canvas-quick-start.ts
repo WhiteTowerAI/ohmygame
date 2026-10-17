@@ -2,6 +2,7 @@ import type { ImageModel, ProjectState, VideoModel } from "../shared/contracts.j
 import { createAssetCanvasStarterDocument, preferredImageOption, type AssetCanvasStarter } from "../shared/asset-canvas.js";
 import { createProject, deleteProject, listImageModels, listVideoModels, waitForRuntime } from "./api.js";
 import { getCanvasWorkspace, getCanvasBoard, saveCanvasBoard } from "./canvas-api.js";
+import { t } from "./i18n.js";
 
 export interface AssetCanvasQuickStart {
   key: string;
@@ -12,8 +13,8 @@ export interface AssetCanvasQuickStart {
 }
 
 export const ASSET_CANVAS_QUICK_STARTS: readonly AssetCanvasQuickStart[] = [
-  { key: "image", type: "image", label: "Image" },
-  { key: "video", type: "video", label: "Video" },
+  { key: "image", type: "image", label: t("assetCanvas.node.image") },
+  { key: "video", type: "video", label: t("assetCanvas.node.video") },
   { key: "model-3d", type: "model-3d", label: "3D" },
   { key: "gpt-image-2.5", type: "image", label: "GPT Image 2.5", modelId: "gpt-image-2.5-flare" },
   { key: "nano-banana-2", type: "image", label: "Nano Banana 2", modelId: "gemini-3.1-flash-image" },
@@ -24,7 +25,7 @@ export const ASSET_CANVAS_QUICK_STARTS: readonly AssetCanvasQuickStart[] = [
 /** Thrown when no connected provider offers a model-specific starter's model. */
 export class QuickStartModelUnavailableError extends Error {
   constructor(item: AssetCanvasQuickStart) {
-    super(`${item.label} needs a provider that offers it.`);
+    super(t("assetCanvas.needsProvider", { label: item.label }));
     this.name = "QuickStartModelUnavailableError";
   }
 }

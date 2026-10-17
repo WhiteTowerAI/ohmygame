@@ -170,6 +170,32 @@ describe("tool runner", () => {
     });
   });
 
+  it("runs speech through the common audio generator and stores it in the Library", async () => {
+    const dataDirectory = await temporaryData();
+    const library = new AssetLibrary(dataDirectory);
+    await library.load();
+    const model = { provider: "volcengine-tts", id: "seed-tts-2.0" } as const;
+    const generate = vi.fn().mockResolvedValue({
+      bytes: Buffer.from("mp3-audio"),
+      mediaType: "audio/mpeg" as const,
+      model,
+      metadata: { durationMs: 1_250 },
+    });
+    const runner = new ToolRunner(dataDirectory, fakeGenerator(), undefined, undefined, library, undefined, { catalog: () => ({ models: [], providers: [] }), generate });
+    await runner.load();
+
+    const run = await runner.run("generate-speech", { text: "  Welcome, traveler  ", voiceId: "narrator", model });
+
+    expect(generate).toHaveBeenCalledWith({ operation: "speech", text: "  Welcome, traveler  ", voiceId: "narrator", model }, undefined);
+    expect(run).toMatchObject({
+      toolId: "generate-speech",
+      model,
+      files: [{ name: "output.mp3", mediaType: "audio/mpeg", assetId: expect.any(String) }],
+    });
+    const asset = library.get(run.files[0]!.assetId!);
+    expect(asset).toMatchObject({ mediaType: "audio", contentType: "audio/mpeg", origin: "generated", prompt: "Welcome, traveler", duration: 1.25 });
+  });
+
   it("rejects non-image video references", async () => {
     const generate = vi.fn();
     const dataDirectory = await temporaryData();

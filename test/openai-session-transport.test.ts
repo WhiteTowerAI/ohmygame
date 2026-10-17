@@ -1,9 +1,12 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createServer } from "node:http";
+import { createHash } from "node:crypto";
+import type { Duplex } from "node:stream";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OpenAISessionTransport, type ResponseSocket } from "../src/daemon/openai-session-transport.js";
+import { OpenAISessionTransport, RESPONSE_TRANSPORT_HEADER, type ResponseSocket } from "../src/daemon/openai-session-transport.js";
 import { OpenAISessionFiles } from "../src/daemon/openai-session-files.js";
 import { SessionImages, wireImages, type Json } from "../src/daemon/session-images.js";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
@@ -12,7 +15,7 @@ import { convertResponsesMessages } from "@earendil-works/pi-ai/api/openai-respo
 
 const dirs: string[] = [];
 const transports: OpenAISessionTransport[] = [];
-afterEach(async () => { transports.splice(0).forEach((transport) => transport.dispose()); await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); transports.splice(0).forEach((transport) => transport.dispose()); await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const input = (text: string) => ({ role: "user", content: [{ type: "input_text", text }] });
 const body = (items: unknown[] = [input("hello")]): Json => ({ model: "gpt-5.6", store: false, stream: true, input: items });
@@ -28,18 +31,20 @@ class Socket extends EventTarget implements ResponseSocket {
   send(data: string) { const parsed: Json = JSON.parse(data); this.sent.push(parsed); queueMicrotask(() => this.onSend(parsed, this)); }
   close(code = 1000) { this.readyState = 3; const event = new Event("close"); Object.assign(event, { code }); this.dispatchEvent(event); }
 }
-async function fixture(factory?: (socket: Socket, index: number) => void) {
+async function fixture(factory?: (socket: Socket, index: number) => void, native = false) {
   const dir = await mkdtemp(path.join(tmpdir(), "ohmygame-openai-transport-")); dirs.push(dir);
   const manager = SessionManager.inMemory(dir);
   const images = new SessionImages(manager, dir);
   const sockets: Socket[] = [];
   const headers: Headers[] = [];
+  const urls: string[] = [];
   const files = new OpenAISessionFiles(path.join(dir, "files"));
-  const transport = new OpenAISessionTransport(images, files, (_url, incoming) => {
+  const transport = new OpenAISessionTransport(images, files, native ? undefined : (url, incoming) => {
+    urls.push(url);
     headers.push(incoming); const socket = new Socket(); factory?.(socket, sockets.length); sockets.push(socket); return socket;
   });
   transports.push(transport);
-  return { dir, manager, images, files, transport, sockets, headers };
+  return { dir, manager, images, files, transport, sockets, headers, urls };
 }
 
 describe("OpenAI session transport", () => {
@@ -92,7 +97,7 @@ describe("OpenAI session transport", () => {
     expect(delegate).not.toHaveBeenCalled();
   });
 
-  it("falls back before streaming, with budgeted full history, but never replays after events escape", async () => {
+  it("falls back before streaming and leaves midstream retry to Pi with an SSE cooldown", async () => {
     const { transport, sockets } = await fixture((socket) => { socket.onSend = (_request, own) => own.close(1006); });
     const bodies: Json[] = [];
     const delegate = vi.fn<typeof fetch>(async (input, init) => { bodies.push(await new Request(input, init).json()); return json({ ok: true }); });
@@ -104,8 +109,16 @@ describe("OpenAI session transport", () => {
     const started = await fixture((socket) => { socket.onSend = (_request, own) => { own.event({ type: "response.created", response: { id: "resp-a" } }); own.close(1006); }; });
     const afterStart = started.transport.wrapFetch(delegate);
     const response = await send(afterStart, original);
-    await expect(response.text()).rejects.toThrow("interrupted after streaming began");
+    expect(response.headers.get(RESPONSE_TRANSPORT_HEADER)).toBe("websocket");
+    await expect(response.text()).rejects.toMatchObject({ message: expect.stringContaining("WebSocket closed before completion"), code: "WEBSOCKET_CLOSE_1006" });
     expect(delegate).toHaveBeenCalledTimes(2);
+    const retry = await send(afterStart, { ...original, previous_response_id: "interrupted" });
+    expect(retry.headers.get(RESPONSE_TRANSPORT_HEADER)).toBe("sse");
+    expect(bodies.at(-1)).toEqual(original);
+    expect(started.sockets).toHaveLength(1);
+    const now = Date.now(); vi.spyOn(Date, "now").mockReturnValue(now + 5 * 60 * 1000 + 1);
+    await expect((await send(afterStart, original)).text()).rejects.toThrow("WebSocket closed before completion");
+    expect(started.sockets).toHaveLength(2);
   });
 
   it("handles 1009 by shrinking the request once instead of sending the same body over SSE", async () => {
@@ -165,6 +178,75 @@ describe("OpenAI session transport", () => {
     const delegate = vi.fn<typeof fetch>(() => Promise.resolve(json({ ok: true })));
     await transport.wrapFetch(delegate)("https://gateway.example/v1/responses", { method: "POST", body: JSON.stringify(body()) });
     expect(delegate).toHaveBeenCalledOnce(); expect(sockets).toHaveLength(0);
+  });
+
+  it("defaults relays to SSE and uses their own endpoint and credentials when WebSocket is enabled", async () => {
+    const { transport, sockets, urls, headers, files } = await fixture();
+    const replace = vi.spyOn(files, "replace");
+    const delegate = vi.fn<typeof fetch>(() => Promise.resolve(json({ ok: true })));
+    const endpoint = "https://gateway.example/v1/responses";
+    const init = { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer sk-relay-test" }, body: JSON.stringify(body()) };
+    const response = await transport.wrapFetch(delegate, { endpoint })(endpoint, init);
+    expect(response.headers.get(RESPONSE_TRANSPORT_HEADER)).toBe("sse");
+    expect(sockets).toHaveLength(0);
+    await (await transport.wrapFetch(delegate, { endpoint, mode: "websocket" })(endpoint, init)).text();
+    expect(urls).toEqual(["wss://gateway.example/v1/responses"]);
+    expect(headers[0].get("authorization")).toBe("Bearer sk-relay-test");
+    expect(replace).not.toHaveBeenCalled();
+    transport.complete("resp-1", []);
+    await (await send(transport.wrapFetch(delegate), body(), "sk-relay-test")).text();
+    expect(sockets[1].sent[0]).not.toHaveProperty("previous_response_id");
+    expect(urls[1]).toBe("wss://api.openai.com/v1/responses");
+  });
+
+  it.each([401, 403, 429, 404, 426, 503])("preserves native Undici handshake status %s and only falls back for connection compatibility failures", async (status) => {
+    const server = createServer();
+    server.on("upgrade", (_request, socket) => socket.end(`HTTP/1.1 ${status} Rejected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`));
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { transport } = await fixture(undefined, true);
+      const address = server.address() as { port: number };
+      const endpoint = `http://127.0.0.1:${address.port}/v1/responses`;
+      const delegate = vi.fn<typeof fetch>(() => Promise.resolve(json({ ok: true })));
+      const response = await transport.wrapFetch(delegate, { endpoint, mode: "websocket", connectTimeoutMs: 0 })(endpoint,
+        { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer test-only" }, body: JSON.stringify(body()), signal: AbortSignal.timeout(1000) });
+      if ([401, 403, 429].includes(status)) {
+        expect(response.status).toBe(status);
+        expect(response.headers.get(RESPONSE_TRANSPORT_HEADER)).toBe("websocket");
+        expect(delegate).not.toHaveBeenCalled();
+      } else {
+        expect(response.headers.get(RESPONSE_TRANSPORT_HEADER)).toBe("sse");
+        expect(delegate).toHaveBeenCalledOnce();
+      }
+    } finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
+  });
+
+  it("forwards a successful native Undici upgrade and streams the response", async () => {
+    const { transport } = await fixture(undefined, true);
+    const server = createServer();
+    let connection: Duplex | undefined;
+    server.on("upgrade", (request, socket) => {
+      connection = socket;
+      const accept = createHash("sha1").update(`${request.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
+      socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+      socket.once("data", () => {
+        const event = Buffer.from(JSON.stringify({ type: "response.completed", response: { id: "native-response", status: "completed" } }));
+        socket.write(Buffer.concat([Buffer.from([0x81, event.length]), event]));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const endpoint = `http://127.0.0.1:${(server.address() as { port: number }).port}/v1/responses`;
+      const delegate = vi.fn<typeof fetch>(() => { throw new Error("unexpected HTTP fallback"); });
+      const response = await transport.wrapFetch(delegate, { mode: "websocket", connectTimeoutMs: 1000 })(endpoint,
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body()) });
+      expect(response.headers.get(RESPONSE_TRANSPORT_HEADER)).toBe("websocket");
+      expect(await response.text()).toContain("native-response");
+      expect(delegate).not.toHaveBeenCalled();
+    } finally {
+      transport.dispose(); connection?.destroy();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
   });
 
   it.each([{ transport: "websocket" }, { cacheRetention: "none" }])("honors explicit nonincremental requests: %j", async (options) => {

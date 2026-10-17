@@ -3,8 +3,8 @@
 ## Status
 
 Playable Nodes is the runtime and editor model used for Interactive Stories.
-This directory documents its architecture, authoring experience, agent
-contract, and implementation history.
+This directory documents its architecture, authoring experience, and agent
+contract.
 
 ## The idea in one paragraph
 

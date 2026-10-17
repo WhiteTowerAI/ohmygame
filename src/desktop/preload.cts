@@ -48,7 +48,6 @@ if (process.isMainFrame) {
       return () => ipcRenderer.removeListener("ohmygame:cancel-close", callback);
     },
     windowMenu: Object.freeze({
-      icon: () => ipcRenderer.invoke("ohmygame:window-menu-icon") as Promise<string>,
       popup: (label: string, x: number, y: number) =>
         ipcRenderer.invoke("ohmygame:popup-window-menu", label, x, y) as Promise<void>,
     }),

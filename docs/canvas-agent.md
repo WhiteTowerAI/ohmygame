@@ -25,6 +25,20 @@ optional `title` and `description`, content, and references. Markdown bodies
 are shared between document nodes. Connections for prompts and media are
 derived from `promptSource`, `images`, `references`, and `source`.
 
+Generation nodes use these semantic board fields (runtime state and visual size
+do not belong in the board file):
+
+- `speech`: `text`, optional `promptSource`, `model`, `voiceId`, `speed`, and
+  generated `assetId`;
+- `sound-effect`: `prompt`, optional `promptSource`, `model`, `durationSeconds`,
+  `loop`, `negativePrompt`, and generated `assetId`;
+- `music`: `prompt`, `instrumental`, optional `promptSource`, `model`, `lyrics`,
+  `durationSeconds`, `loop`, and generated `assetId`.
+
+The editor's Add menu and the agent's active tools expose an audio operation only
+when the current audio catalog has a configured, enabled model advertising that
+operation. Existing nodes remain valid if that provider later becomes unavailable.
+
 Text and Document nodes accept up to 14 connected Text, Document, Image or image
 Asset nodes in `references` (`{ "type": "node", "nodeId": "..." }`). These
 connections supply source material to AI generation. Connecting an image to a
@@ -140,3 +154,10 @@ Both editors share nodes, documents, metadata, generation, history, clipboard,
 file uploads and external file synchronization. Asset Canvas uses one default
 board and retains automatic covers and sending assets to projects. Game
 projects expose multiple boards and an optional main game design document.
+
+Hold Option (Alt on Windows and Linux) when starting a node drag to pull out
+copies. Copies keep node content and Library resources, use new IDs, and drop
+all connections, including connections within a copied selection. The originals
+stay in place. Releasing at the starting position cancels the copies; a completed
+drag is one board undo step. If the copies would exceed the 2,000-node limit,
+the editor rejects the drag and keeps the originals in place.

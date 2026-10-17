@@ -5,6 +5,7 @@ import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import type { CodingSession } from "../src/daemon/agent.js";
+import { CHECKPOINT_ENTRY, TURN_END_ENTRY } from "../src/daemon/checkpoint-extension.js";
 import { ConversationManager } from "../src/daemon/conversations.js";
 import { writePlayableFixtureWorkspace } from "./playable-fixture.js";
 import { MODEL_3D_MODELS } from "../src/shared/generation-config.js";
@@ -174,13 +175,14 @@ describe("daemon", () => {
     expect(conversation.statusCode).toBe(201);
     expect((await stat(path.join(dataDirectory, "projects", project.id, "session"))).isDirectory()).toBe(true);
 
-    const duplicateWorkspace = await app.inject({
+    const sameWorkspace = await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { name: "Duplicate workspace", workspacePath },
+      payload: { name: "Same workspace", type: "interactive-story", workspacePath },
     });
-    expect(duplicateWorkspace.statusCode).toBe(400);
-    expect(duplicateWorkspace.json()).toEqual({ error: "This folder overlaps with another OhMyGame workspace" });
+    expect(sameWorkspace.statusCode).toBe(200);
+    expect(sameWorkspace.json()).toMatchObject({ id: project.id, name: "Existing files", type: "web-game" });
+    await expect(stat(path.join(workspacePath, "graph.json"))).rejects.toThrow();
 
     const nestedWorkspace = path.join(workspacePath, "nested");
     await mkdir(nestedWorkspace);
@@ -189,8 +191,10 @@ describe("daemon", () => {
       url: "/projects",
       payload: { name: "Nested workspace", workspacePath: nestedWorkspace },
     });
-    expect(nested.statusCode).toBe(400);
-    expect(nested.json()).toEqual({ error: "This folder overlaps with another OhMyGame workspace" });
+    expect(nested.statusCode).toBe(201);
+    expect(nested.json().workspacePath).toBe(await realpath(nestedWorkspace));
+    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toHaveLength(2);
+    expect((await app.inject({ method: "DELETE", url: `/projects/${nested.json().id}` })).statusCode).toBe(204);
 
     expect((await app.inject({ method: "DELETE", url: `/projects/${project.id}` })).statusCode).toBe(204);
     expect(await readFile(path.join(workspacePath, "README.md"), "utf8")).toBe("Existing project files\n");
@@ -793,7 +797,7 @@ describe("daemon", () => {
     expect(response.json().skills).toEqual([{ name: "godot", description: "Control Godot" }]);
   });
 
-  it("makes OhMyGame media generation available without a Plugin", async () => {
+  it("offers only configured OhMyGame media generation tools without a Plugin", async () => {
     const setActiveToolsByName = vi.fn();
     const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
     const app = createApp({
@@ -830,6 +834,53 @@ describe("daemon", () => {
       "generate_3d_asset",
       "generate_video",
       "animate_3d_asset",
+    ]);
+  });
+
+  it("offers only the audio operations supported by configured providers", async () => {
+    const setActiveToolsByName = vi.fn();
+    const prompt = vi.fn<CodingSession["prompt"]>(async () => {});
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-audio-tools-")),
+      createSession: async () => ({
+        messages: [],
+        prompt,
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+        setActiveToolsByName,
+      }),
+    });
+    apps.push(app);
+    const settings = await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { apiKey: "test-key" },
+    });
+    expect(settings.statusCode).toBe(200);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+
+    await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+      payload: { prompt: "Create a voice line" },
+    });
+
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalled());
+    expect(setActiveToolsByName).toHaveBeenCalledWith([
+      "read",
+      "write",
+      "edit",
+      "bash",
+      "web_search",
+      "update_plan",
+      "install_plugin",
+      "generate_image",
+      "generate_3d_asset",
+      "generate_video",
+      "animate_3d_asset",
+      "generate_speech",
     ]);
   });
 
@@ -1558,6 +1609,92 @@ describe("daemon", () => {
     expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/openrouter/seedance-key" })).statusCode).toBe(404);
   });
 
+  it("stores the Doubao Speech key and default voice without exposing them", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-tts-settings-")) });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
+      models: [],
+      providers: [expect.objectContaining({ provider: "volcengine-tts", configured: false, state: "not_configured" })],
+    });
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { defaultVoiceId: "zh_female_vv_uranus_bigtts" },
+    })).statusCode).toBe(400);
+
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { apiKey: "doubao-key" },
+    })).json()).toEqual({ configured: true });
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { defaultVoiceId: "zh_female_vv_uranus_bigtts" },
+    })).json()).toEqual({ configured: true, defaultVoiceId: "zh_female_vv_uranus_bigtts" });
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
+      .toEqual({ configured: true, defaultVoiceId: "zh_female_vv_uranus_bigtts" });
+
+    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
+    expect(providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "volcengine-tts", configured: true, capabilities: ["audio"] }),
+    ]));
+    expect(JSON.stringify(providers)).not.toContain("doubao-key");
+
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
+      models: [expect.objectContaining({ provider: "volcengine-tts", id: "seed-tts-2.0" })],
+      providers: [expect.objectContaining({ provider: "volcengine-tts", state: "ready" })],
+    });
+
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-tts",
+      payload: { defaultVoiceId: null },
+    })).json()).toEqual({ configured: true });
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/volcengine-tts" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-tts" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
+      models: [],
+      providers: [expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" })],
+    });
+  });
+
+  it("previews Doubao Speech audio through the saved connection", async () => {
+    const audioFetch = vi.fn<typeof fetch>();
+    const app = createApp({
+      dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-tts-preview-")),
+      audioFetch,
+    });
+    apps.push(app);
+
+    const unconfigured = await app.inject({
+      method: "POST",
+      url: "/settings/models/providers/volcengine-tts/preview",
+      payload: { text: "hello" },
+    });
+    expect(unconfigured.statusCode).toBe(503);
+
+    await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-tts", payload: { apiKey: "doubao-key" } });
+    audioFetch.mockResolvedValue(new Response(
+      `${JSON.stringify({ code: 0, data: Buffer.from("preview audio").toString("base64") })}\n`,
+      { status: 200, headers: { "x-tt-logid": "preview-log-1" } },
+    ));
+    const preview = await app.inject({
+      method: "POST",
+      url: "/settings/models/providers/volcengine-tts/preview",
+      payload: { text: "你好，雾港", voiceId: "zh_female_vv_uranus_bigtts" },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.headers["content-type"]).toBe("audio/mpeg");
+    expect(preview.headers["x-provider-request-id"]).toBe("preview-log-1");
+    expect(preview.body).toBe("preview audio");
+    expect(audioFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("offers 3D models once Meshy is configured", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-model3d-catalog-")) });
     apps.push(app);
@@ -1762,6 +1899,55 @@ describe("daemon", () => {
         ],
       }],
       cursor: 1,
+    });
+    finishPrompt();
+  });
+
+  it("keeps what an earlier turn changed when the conversation is loaded while the next turn runs", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-turn-end-conversation-"));
+    let finishPrompt!: () => void;
+    const session: CodingSession = {
+      messages: [],
+      prompt: () => new Promise<void>((resolve) => { finishPrompt = resolve; }),
+      abort: async () => { finishPrompt(); },
+      dispose: () => {},
+      subscribe: () => () => {},
+    };
+    const app = createApp({ dataDirectory, createSession: async () => session });
+    apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const sessionDirectory = path.join(dataDirectory, "projects", project.id, "session");
+    await mkdir(sessionDirectory);
+    const oldTimestamp = new Date(Date.now() - 10_000).toISOString();
+    // The end of a turn is written as its run is closed, which is when a message that waited for that starts the
+    // next run: its time is not before the start of that run.
+    const endTimestamp = new Date(Date.now() + 10_000).toISOString();
+    const custom = (id: string, parentId: string | null, timestamp: string, customType: string, data: object) => JSON.stringify({ type: "custom", id, parentId, timestamp, customType, data });
+    await writeFile(path.join(sessionDirectory, "session.jsonl"), [
+      JSON.stringify({ type: "session", version: 3, id: "session-1", timestamp: new Date(0).toISOString(), cwd: project.workspacePath }),
+      custom("checkpoint-1", null, oldTimestamp, CHECKPOINT_ENTRY, { version: 1, commit: "a".repeat(40) }),
+      sessionEntry("user-1", "checkpoint-1", oldTimestamp, { role: "user", content: "Build", timestamp: 0 }),
+      sessionEntry("assistant-1", "user-1", oldTimestamp, { role: "assistant", content: [{ type: "text", text: "Built" }], stopReason: "stop", timestamp: 1 }),
+      custom("end-1", "assistant-1", endTimestamp, TURN_END_ENTRY, { version: 1, checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 2 }),
+    ].join("\n") + "\n");
+    const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/session-1/turns`, payload: { prompt: "Polish" } });
+
+    const response = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/session-1` });
+
+    expect(response.json()).toMatchObject({
+      agent: { status: "running" },
+      turns: [{
+        id: "user-1",
+        status: "completed",
+        items: [
+          { id: "user-1", type: "userMessage", text: "Build", checkpointId: "checkpoint-1", changes: { files: 2 } },
+          { id: "assistant-1:assistant:0", type: "agentMessage", text: "Built" },
+        ],
+      }, {
+        id: turn.json().turnId,
+        status: "inProgress",
+        items: [{ type: "userMessage", text: "Polish" }],
+      }],
     });
     finishPrompt();
   });
@@ -2047,24 +2233,48 @@ describe("Playable Nodes projects", () => {
     expect(invalid.json()).toMatchObject({ ok: false, issues: expect.arrayContaining([expect.objectContaining({ phase: "graph", code: "missing-node", path: "/entryNodeId" })]) });
   });
 
-  it("rolls back project creation without changing a conflicting external workspace", async () => {
+  it("opens an Interactive Story workspace again after its project was deleted", async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-codebase-workspace-"));
-    await writeFile(path.join(workspacePath, "graph.json"), "user graph\n");
     await writeFile(path.join(workspacePath, "notes.txt"), "keep me\n");
-    const app = await createPlayableApp("ohmygame-codebase-collision-");
+    const app = await createPlayableApp("ohmygame-codebase-reopen-");
+    const first = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-story", workspacePath },
+    })).json();
+    const graph = await readFile(path.join(workspacePath, "graph.json"), "utf8");
+    expect((await app.inject({ method: "DELETE", url: `/projects/${first.id}` })).statusCode).toBe(204);
 
     const response = await app.inject({
       method: "POST",
       url: "/projects",
-      payload: { type: "interactive-story", workspacePath },
+      payload: { name: "Story", type: "interactive-story", workspacePath },
     });
 
-    expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: "Playable project files already exist: graph.json" });
-    expect((await app.inject({ method: "GET", url: "/projects" })).json()).toEqual([]);
-    expect(await readFile(path.join(workspacePath, "graph.json"), "utf8")).toBe("user graph\n");
+    expect(response.statusCode).toBe(201);
+    const codebase = await app.inject({ method: "GET", url: `/projects/${response.json().id}/playable/codebase` });
+    expect(codebase.statusCode).toBe(200);
+    expect(await readFile(path.join(workspacePath, "graph.json"), "utf8")).toBe(graph);
     expect(await readFile(path.join(workspacePath, "notes.txt"), "utf8")).toBe("keep me\n");
     await rm(workspacePath, { recursive: true, force: true });
+  });
+
+  it("exports an Interactive Story as an editable project archive", async () => {
+    const app = await createPlayableApp("ohmygame-playable-export-project-");
+    const webGame = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Web" } })).json();
+    const story = (await app.inject({
+      method: "POST",
+      url: "/projects",
+      payload: { name: "Story", type: "interactive-story" },
+    })).json();
+
+    const exported = await app.inject({ method: "POST", url: `/projects/${story.id}/interactive-story/export-project` });
+    const rejected = await app.inject({ method: "POST", url: `/projects/${webGame.id}/interactive-story/export-project` });
+
+    expect(exported.statusCode).toBe(200);
+    expect(exported.headers["content-type"]).toBe("application/zip");
+    expect(exported.rawPayload.subarray(0, 2).toString()).toBe("PK");
+    expect(rejected.statusCode).toBe(409);
   });
 
   it("protects Library assets declared by a Playable Nodes graph", async () => {

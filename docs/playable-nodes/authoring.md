@@ -28,7 +28,7 @@ The workspace keeps the current Interactive Story layout:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Header: Project ▾ · Home           Playtest · chat · Publish │
+│ Header: Project ▾ · Back           Playtest · chat · Publish │
 ├───────────────┬──────────────────────────────────────────────┤
 │               │                                              │
 │  Chat with    │   Story (the flow canvas)                    │
@@ -45,9 +45,16 @@ The workspace keeps the current Interactive Story layout:
   Workbench of one Scene, with a breadcrumb (`Story › Case archive`) to
   return. The tab is named for the whole story it shows, not for one Scene.
 - The **Project ▾** menu holds **Screen size**, **Variables**, and **Export**.
-  **Home** returns
-  to the project list. **Playtest** opens the real Runtime; the chat toggle
-  and **Publish** follow it.
+  The **Back** arrow returns to the page used to open the project, retaining
+  project-list filters, search, and sorting. Opening a project link directly
+  uses **Projects** as the return destination. **Playtest** opens the real
+  Runtime; the chat toggle and **Publish** follow it.
+- **Export game** downloads a build that players can play anywhere.
+  **Export project** downloads the editable project: its source files without
+  `node_modules/` or hidden folders such as `.data/` and `.ohmygame/`, with
+  each Library asset copied to `assets/library/` and `graph.json` pointing at
+  the copy. Choosing the unzipped folder in **New project** opens the same
+  project on another computer.
 
 ### Source files
 
@@ -109,9 +116,9 @@ Connecting can happen two ways, and both produce the same edges:
 
 ## Creating a Scene
 
-A new project has no Scenes. Its empty canvas says so and offers **Add a
-Scene**, or describing the story in the chat; the first Scene added becomes
-the Start.
+A new project opens with an empty Story canvas. Use the toolbar's **Add Scene**
+control or describe the story in the chat; the first Scene added becomes the
+Start.
 
 1. The author chooses **Add Scene** on the canvas.
 2. The **Add a Scene** window shows each Template (Blank, Main menu,
@@ -200,6 +207,23 @@ always returns to **Play**.
 There is no comment tool: saying what to change in the chat, with picks or a
 drawing attached, does the same job.
 
+### Background video timeline
+
+When the Scene's background is a video, a timeline sits above the tool bar:
+play and pause, the time, a track to scrub, and **Mark**. Mark pauses the
+video and puts that moment in the chat as a chip, such as `0:04.2`, the way
+**Select** puts an element there. The message carries the moment and a
+screenshot of the preview at it, so the author can say "show the answers
+here" and the Agent sees the frame they mean. Times count from the start of
+the video file. A new Mark replaces the moment in the chat, and the track
+shows where it is. Arrow keys on the focused track step a second, or a tenth
+with Shift.
+
+The timeline points at moments; it changes no files. Changing the video
+itself, such as cutting it, is media work outside the Scene. It is editor
+tooling run by the sandbox host, like picking, and the Published Player has
+none of it.
+
 ### Issues
 
 Nothing shows while the Scene is fine. When it has problems, an **N issues**
@@ -215,14 +239,17 @@ describing the change.
 
 When a Scene is open, the composer shows it as a chip, and the next message
 carries it as context: its ID, source files, Signals and their targets, and
-declared assets. Each element picked with **Select** adds a chip, and a
-drawing adds one more. The message carries their descriptions and one
-screenshot of the preview with the picks outlined and the drawing on it.
+declared assets. Each element picked with **Select** adds a chip, a drawing
+adds one more, and a moment marked on the
+[background video timeline](#background-video-timeline) adds one too. The
+message carries their descriptions and one screenshot of the preview, at the
+marked moment, with the picks outlined and the drawing on it.
 Removing a chip leaves it out of the message; the chips clear once sent. The
 conversation shows only the chip labels; the Agent receives the full context.
-The Agent edits the Scene's files; the preview reloads when the change is
-saved; new or removed Exits appear on the canvas immediately, and an Exit
-that goes nowhere shows up under the issues badge.
+The Agent edits the Scene's files. When its turn completes, the editor
+reloads the project: the preview shows the change, new or removed Exits
+appear on the canvas, and an Exit that goes nowhere shows up under the
+issues badge.
 
 Typical requests:
 
@@ -234,8 +261,8 @@ Typical requests:
 - Picking a title and saying "use the pixel typeface from the main
   menu".
 
-Small edits use the same loop. Direct text editing inside the preview is a
-possible later improvement, not a v1 requirement.
+Small edits use the same loop, or the **Text** and **Move** tools
+([Preview tools](#preview-tools)) for an element's words or place.
 
 ### Code, when it is really needed
 
@@ -321,21 +348,29 @@ the wrong way.
 
 ## Playtest
 
-Playtest runs the real Runtime from the saved game or the Start Scene, or
-from a chosen Scene with a new game (**Play from here** in a
-Workbench). A chosen start runs without saving, so the saved game is
-untouched.
+Playtest runs the real Runtime from the Start Scene, with the saved game
+available through the game's Continue action, or from a chosen Scene with a
+new game (**Play from here** in a Workbench). A chosen start runs without
+saving, so the saved game is untouched.
 
 The Playtest window shows only the game. The author plays it as a player;
-reading the game's inner state is the Agent's work, not theirs. Replay
-appears when the pointer reaches the top-right corner. When something
-breaks, a short note says so and offers **Ask AI to fix**, which brings the
-editor forward on that Scene and fills the chat with where the player was,
+reading the game's inner state is the Agent's work, not theirs. The editor's
+Playtest arrow menu holds **Replay Playtest**, which restarts the Playtest window
+from the session's starting Scene with a new game. For a regular Playtest from
+the project's Start Scene, this clears the saved game. A chosen start made with
+**Play from here** leaves the saved game untouched. The same menu sits beside
+**Play from here** in the Workbench and applies to the Playtest window with the
+same save behavior. The Workbench's separate **Replay** button only restarts
+that Scene's local preview. These controls stay outside the game; desktop
+window controls and dragging use a native title bar outside the game surface.
+When something breaks, a short note says so and offers **Ask AI to fix**, which
+brings the editor forward on that Scene and fills the chat with where the player was,
 the Exits they took, and the errors, ready to send.
 
 Playtest also remembers which Scenes the author has seen and which Exits
 they took, across replays, as players' games do; a [Story map](#story-map)
-shows it. **Forget seen Scenes**, beside Replay, starts that record over.
+shows it. **Forget seen Scenes**, in the same editor menu, starts that record
+over without clearing the saved game, and reloads the Playtest session.
 
 The Agent reads the full record (current Scene, back stack, Exits taken,
 State, errors, save) in serializable form, so it can verify a flow it just
@@ -489,8 +524,12 @@ the Published Player.
    belongs to. Shift-, ⌘- or Ctrl-click adds it to the picks.
 3. Preview builds add an inert `data-ohmygame-source="index.html:12:5"`
    attribute to every element written in the node's HTML. Elements created by
-   JavaScript have no such attribute; the description then relies on text,
-   path, and screenshot, and the Agent finds the element in source.
+   JavaScript have no such attribute; the description then gives the source
+   location of the nearest element around it that was written in the HTML,
+   and the Agent finds the element from there. An element with none, such as
+   one a script adds straight to the node's root, cannot be picked with
+   **Select** or edited with **Text**: **Select** shows no hover outline for
+   it and a click does nothing.
 4. With **Text**, clicking makes the element editable. On Enter the host
    reports the text before and after, and whether the element holds only text
    and came from the node's HTML. The editor then replaces that element's
@@ -544,8 +583,11 @@ review below is not built yet.
 - The summary bar offers **Keep** and **Undo turn**. Undo restores the
   checkpoint. Continuing to edit implicitly keeps the change.
 - New Scenes without a position in `editor/layout.json` are placed in the
-  next free grid slot when the project is read, and positions of removed
-  Scenes are dropped. The Agent does not need to compute layout.
+  next free grid slot when the project is read. Slots fit the Scene card's
+  screen shape and title, with a gap, and skip any position that would overlap
+  an existing card, including cards moved off the grid. Saved positions stay
+  where they are, and positions of removed Scenes are dropped. The Agent does
+  not need to compute layout.
 
 ### Asset versions
 

@@ -13,20 +13,22 @@ repeated screenshots made requests tens of megabytes larger on every turn.
 | --- | --- |
 | Official OpenAI Responses, ChatGPT subscription | WebSocket with connection-local incremental input; budgeted full replay on reconnect or HTTP/SSE fallback. No Files API probe. |
 | Official OpenAI Responses, Platform API key | The same WebSocket transport plus cached vision file uploads. Bounded inline fallback when uploads are unavailable. |
+| Custom Responses endpoints | HTTP/SSE by default, with optional WebSocket and connection-local input reuse. Inline image budgets apply; official Files APIs are never probed. |
 | Official DeepSeek | The existing original-image Files adapter and its limits are preserved. No preview conversion or generic image omission. |
-| Other providers and custom compatible endpoints | Budgeted inline images through Pi's existing adapter. OpenAI-specific capabilities are not assumed. |
+| Other providers and custom compatible APIs | Budgeted inline images through Pi's existing adapter. OpenAI-specific capabilities are not assumed. |
 | Legacy OpenAI Codex | Pi's existing transport, with conservative full-input budgeting before it chooses a WebSocket delta. |
 
 The official OpenAI route is exactly `https://api.openai.com/v1/responses`.
 Network proxies remain supported through the application's Undici dispatcher;
-changing the dispatcher or credentials invalidates the connection and continuation.
+changing the endpoint, dispatcher or credentials invalidates the connection and continuation.
 Pi's `sse` transport setting is honored; plain `websocket` and `cacheRetention: none`
 disable incremental context reuse. WebSocket failures before any response
 event allow HTTP fallback, with a five-minute backoff before probing WebSocket
-again. Once events have reached Pi, interrupted inference fails without automatic
-replay. Tool execution remains owned by Pi.
-Stream failures preserve their original cause in diagnostics and use a nonretryable
-assistant error message, since Pi's outer session retry policy matches error text.
+again. Midstream connection failures preserve their retryable errors and select
+HTTP/SSE for the next attempt. Pi owns bounded retry, the Reconnecting events,
+failed-attempt omission and tool execution. A retry regenerates the current model
+response with required history; it cannot resume the interrupted generation.
+See [Responses transport](responses-transport.md) for settings and recovery policy.
 
 ## Inline budgets and recovery
 
@@ -83,7 +85,7 @@ tool IDs. Continuation stores the prefix length and SHA-256 digest, rather than
 retaining another full historical image payload. Edited history, changed tools/model, compaction and image omission
 cannot reuse a mismatched prefix. A missing response ID gets one fresh replay.
 Connections rotate after 55 minutes and close after two idle minutes or disposal.
-OpenAI background cache warming is disabled to avoid independently advancing the
+Background cache warming is disabled when WebSocket is selected to avoid independently advancing the
 connection-local conversation or replaying large historical inputs.
 
 Only Platform API keys (`sk-`) can use the official Files route. Vision files are
@@ -117,6 +119,9 @@ isolation, verification, stale IDs, concurrent upload cancellation and fallback.
 pre/post-stream failures, 1009, explicit SSE, custom endpoints and cancellation.
 `test/session-image-requests.test.ts` exercises actual Pi session serialization and
 stream parsing against a fake WebSocket, plus final extension-payload enforcement.
+It verifies midstream disconnect/timeout recovery over SSE, bounded retry,
+cancellation, provider rejection handling and preservation of completed tool results
+without executing tool calls from failed partial responses.
 It also checks Google's payload guards and that normal HTTP budgeting runs once
 per send or deliberate size-recovery attempt.
 

@@ -18,6 +18,8 @@ import {
 } from "./openrouter-media.js";
 import { SeedanceProvider } from "./seedance-provider.js";
 import { isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS, seedanceModel, seedanceModels, type SeedanceProviderId } from "./seedance-models.js";
+import { MinimaxProvider } from "./minimax-provider.js";
+import { isMinimaxProviderId, MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS, minimaxModel, minimaxModels, type MinimaxProviderId } from "./minimax-models.js";
 
 const MAX_WAIT_MS = 15 * 60_000;
 const POLL_INTERVAL_MS = 5_000;
@@ -28,7 +30,7 @@ export class ProviderVideos implements VideoGenerator {
     private readonly request: typeof fetch = fetch,
     private readonly seedanceApiKey: (providerId: SeedanceProviderId) => string | undefined = () => undefined,
     private readonly isEnabled: (provider: string) => boolean = () => true,
-    private readonly options: { customProviders?: () => Promise<CustomProviderDetails[]>; defaultModel?: () => VideoModelRef | undefined } = {},
+    private readonly options: { customProviders?: () => Promise<CustomProviderDetails[]>; defaultModel?: () => VideoModelRef | undefined; minimaxApiKey?: (providerId: MinimaxProviderId) => string | undefined } = {},
   ) {}
 
   async models(signal?: AbortSignal): Promise<VideoModel[]> {
@@ -44,6 +46,15 @@ export class ProviderVideos implements VideoGenerator {
         if (!this.isEnabled(providerId) || !this.seedanceApiKey(providerId)) return undefined;
         const definition = SEEDANCE_PROVIDERS[providerId];
         const models = seedanceModels(providerId);
+        return {
+          models,
+          provider: { provider: definition.id, providerName: definition.name, state: "ready" as const },
+        };
+      }),
+      ...MINIMAX_PROVIDER_IDS.map(async (providerId) => {
+        if (!this.isEnabled(providerId) || !this.options.minimaxApiKey?.(providerId)) return undefined;
+        const definition = MINIMAX_PROVIDERS[providerId];
+        const models = minimaxModels(providerId);
         return {
           models,
           provider: { provider: definition.id, providerName: definition.name, state: "ready" as const },
@@ -99,6 +110,13 @@ export class ProviderVideos implements VideoGenerator {
       if (config.protocol === "seedance") return new SeedanceProvider("volcengine-ark", () => source.apiKey, this.request, undefined, undefined,
         { name: custom.name, baseUrl: source.baseUrl, headers: source.headers, authentication: source.authentication }).generate(model, input, signal);
       return this.#generateOpenRouter({ ...source, headers: source.headers ?? {} }, model, input, signal);
+    }
+    if (input.model && isMinimaxProviderId(input.model.provider)) {
+      const providerId = input.model.provider;
+      const model = minimaxModel(providerId, input.model.id);
+      if (!model) throw new VideoGenerationError("The selected video model is not available", 503);
+      return new MinimaxProvider(providerId, () => this.options.minimaxApiKey?.(providerId), this.request)
+        .generate(model, input, signal);
     }
     if (input.model && isSeedanceProviderId(input.model.provider)) {
       const providerId = input.model.provider;

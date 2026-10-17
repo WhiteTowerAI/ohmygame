@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getGlobalDispatcher } from "undici/index.js";
 import { NetworkSettingsStore } from "../src/daemon/network-settings.js";
 import {
@@ -13,6 +13,7 @@ import { networkBypassList, resolveNetworkProxy } from "../src/daemon/proxy.js";
 import { DEFAULT_NETWORK_SETTINGS } from "../src/shared/network-settings.js";
 
 const directories: string[] = [];
+const automaticSettings = { ...DEFAULT_NETWORK_SETTINGS, mode: "auto" as const };
 afterEach(async () => {
   await Promise.all(
     directories
@@ -27,8 +28,33 @@ async function directory() {
 }
 
 describe("desktop network configuration", () => {
+  it("starts directly and skips system detection when no settings have been saved", async () => {
+    const resolveProxy = vi.fn(async () => "PROXY system.test:7890");
+    const result = await prepareDesktopNetwork({
+      dataDirectory: await directory(),
+      environment: { HTTPS_PROXY: "http://inherited.test:8080" },
+      resolveProxy,
+    });
+    expect(result.active).toEqual({ source: "direct", noProxy: networkBypassList("") });
+    expect(electronProxyConfig(result.active)).toEqual({ mode: "direct" });
+    expect(resolveProxy).not.toHaveBeenCalled();
+  });
+
+  it("skips system detection when saved Automatic uses environment proxies", async () => {
+    const dataDirectory = await directory();
+    await new NetworkSettingsStore(dataDirectory).update(automaticSettings);
+    const resolveProxy = vi.fn(async () => "PROXY system.test:7890");
+    const result = await prepareDesktopNetwork({
+      dataDirectory,
+      environment: { HTTPS_PROXY: "http://inherited.test:8080" },
+      resolveProxy,
+    });
+    expect(result.active).toMatchObject({ source: "environment", httpsProxy: "http://inherited.test:8080" });
+    expect(resolveProxy).not.toHaveBeenCalled();
+  });
+
   it("matches Node domain and all-hosts bypasses without adding wildcards to IP addresses", () => {
-    const proxy = resolveNetworkProxy(DEFAULT_NETWORK_SETTINGS, {
+    const proxy = resolveNetworkProxy(automaticSettings, {
       HTTPS_PROXY: "http://proxy.test:8080",
       NO_PROXY:
         "example.test:8443,*.internal.test,192.0.2.1:8080,[2001:db8::1]",
@@ -54,8 +80,10 @@ describe("desktop network configuration", () => {
   it("detects system proxies in desktop development while retaining their source for the daemon", async () => {
     const environment = { NO_PROXY: "inherited.test" };
     const dispatcher = getGlobalDispatcher();
+    const dataDirectory = await directory();
+    await new NetworkSettingsStore(dataDirectory).update(automaticSettings);
     const result = await prepareDesktopNetwork({
-      dataDirectory: await directory(),
+      dataDirectory,
       environment,
       resolveProxy: async () => "PROXY 127.0.0.1:7890",
     });
@@ -87,7 +115,7 @@ describe("desktop network configuration", () => {
     const options = {
       dataDirectory,
       environment: { HTTP_PROXY: "http://inherited.test:8080" },
-      resolveProxy: async () => "PROXY 127.0.0.1:7890",
+      resolveProxy: vi.fn(async () => "PROXY 127.0.0.1:7890"),
     };
     const manual = await prepareDesktopNetwork(options);
     expect(manual.active).toMatchObject({
@@ -108,10 +136,11 @@ describe("desktop network configuration", () => {
     const direct = await prepareDesktopNetwork(options);
     expect(direct.active.source).toBe("direct");
     expect(electronProxyConfig(direct.active)).toEqual({ mode: "direct" });
+    expect(options.resolveProxy).not.toHaveBeenCalled();
   });
 
   it("preserves separate HTTP and HTTPS proxies", () => {
-    const proxy = resolveNetworkProxy(DEFAULT_NETWORK_SETTINGS, {
+    const proxy = resolveNetworkProxy(automaticSettings, {
       HTTP_PROXY: "http://http.test:8080",
       HTTPS_PROXY: "https://https.test:8443",
     });
@@ -122,7 +151,7 @@ describe("desktop network configuration", () => {
   });
 
   it("supplies inherited credentials only for the configured proxy host and keeps them out of Chromium rules", () => {
-    const proxy = resolveNetworkProxy(DEFAULT_NETWORK_SETTINGS, {
+    const proxy = resolveNetworkProxy(automaticSettings, {
       HTTPS_PROXY: "http://user:private%20password@proxy.test:8080",
     });
     expect(electronProxyConfig(proxy).proxyRules).not.toContain("private");

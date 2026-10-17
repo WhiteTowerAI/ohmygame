@@ -13,8 +13,10 @@ import { SYSTEM_PROXY_TARGET } from "../shared/network-settings.js";
 import { createNetworkDispatcher } from "../daemon/proxy.js";
 import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
+import { ignoreBrokenStdio } from "./stdio.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
+import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
 import { ElectronPlaytestDriver } from "./playtest-driver.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
 import { RendererCloseRequest } from "./renderer-close.js";
@@ -22,6 +24,8 @@ import { AsyncTaskPool } from "./async-task-pool.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { WebGamePlayerRequest, WebGamePreviewLayout } from "../shared/web-game-player.js";
+
+ignoreBrokenStdio();
 
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(moduleDirectory, "../..");
@@ -62,11 +66,12 @@ let restartPending = false;
 let rendererClose: RendererCloseRequest | undefined;
 let shutdown: Promise<void> | undefined;
 let updater: DesktopUpdater | undefined;
+let updateChecks: DesktopUpdateCheckScheduler | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
 const windowMenuLabels = new Set(["File", "Edit", "View", "Window"]);
-let applicationIconDataUrl: Promise<string> | undefined;
 
 async function stopServices(): Promise<void> {
+  updateChecks?.stop();
   webGamePlayers.close();
   agentPlaytests.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
@@ -161,11 +166,6 @@ handle("ohmygame:set-appearance", (event, appearance: unknown) => {
   if (process.platform === "win32" && senderWindow === mainWindow) {
     senderWindow.setTitleBarOverlay(windowsTitleBarOverlay(nativeTheme.shouldUseDarkColors));
   }
-});
-handle("ohmygame:window-menu-icon", async (event) => {
-  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid window menu source");
-  applicationIconDataUrl ??= app.getFileIcon(process.execPath, { size: "small" }).then((icon) => icon.toDataURL());
-  return applicationIconDataUrl;
 });
 handle("ohmygame:popup-window-menu", (event, label: unknown, x: unknown, y: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || typeof label !== "string" ||
@@ -328,7 +328,14 @@ function requirePreviewLayout(value: unknown): WebGamePreviewLayout {
 async function resolvePlayerTarget(projectId: string): Promise<WebGamePlayerTarget> {
   if (!daemon) throw new Error("The game service is unavailable.");
   const headers = { authorization: `Bearer ${daemon.runtime.token}` };
-  const response = await fetch(`${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST", headers });
+  const projectUrl = `${daemon.runtime.url}/projects/${encodeURIComponent(projectId)}`;
+  const current = await fetch(projectUrl, { headers });
+  const project = await current.json() as { error?: string; message?: string };
+  if (!current.ok) throw new Error(project.message ?? project.error ?? "The project could not be loaded.");
+  const version = current.headers.get("x-workspace-version") ?? "0";
+  const response = await fetch(`${projectUrl}/preview?reuse=1`, {
+    method: "POST", headers: { ...headers, "x-workspace-version": version },
+  });
   const result = await response.json() as { url?: string; title?: string; error?: string; message?: string };
   if (!response.ok || !result.url || !result.title) throw new Error(result.message ?? result.error ?? "The game server could not start.");
   return { url: result.url, title: result.title };
@@ -356,6 +363,7 @@ handle("ohmygame:open-playtest", async (event, projectId: unknown, viewport: unk
     rendererUrl: useBuiltRenderer ? undefined : developmentRendererUrl,
     rendererFile: useBuiltRenderer ? path.join(moduleDirectory, "../renderer/index.html") : undefined,
     rendererHash: `#/playtest/${encodeURIComponent(projectId)}`,
+    nativeTitleBar: true,
     contentSize: size,
     aspectRatio,
     minWidth: Math.max(1, Math.round(size.width / 2)),
@@ -387,7 +395,7 @@ handle("ohmygame:open-playable-node", async (event, projectId: unknown, nodeId: 
   mainWindow.focus();
 });
 handle("ohmygame:update-state", () => updater?.state() ?? null);
-handle("ohmygame:check-for-update", () => updater?.check());
+handle("ohmygame:check-for-update", () => (updateChecks ? updateChecks.manual() : updater?.check()));
 handle("ohmygame:download-update", () => updater?.download());
 handle("ohmygame:install-update", () => updater?.install());
 handle("ohmygame:restart-app", (event) => {
@@ -493,7 +501,10 @@ try {
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
   updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));
   await openMainWindow();
-  if (app.isPackaged) void updater.check();
+  if (app.isPackaged) {
+    updateChecks = new DesktopUpdateCheckScheduler(updater);
+    updateChecks.start();
+  }
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
   console.error(error);
@@ -514,7 +525,11 @@ async function openMainWindow(): Promise<void> {
     integratedMenuBar: true,
     beforeLoad: (window) => {
       mainWindow = window;
-      window.on("show", () => webGamePlayers.synchronize());
+      window.on("show", () => {
+        webGamePlayers.synchronize();
+        updateChecks?.onFocus();
+      });
+      window.on("focus", () => updateChecks?.onFocus());
       window.on("hide", () => webGamePlayers.synchronize());
       window.on("minimize", () => webGamePlayers.synchronize());
       window.on("restore", () => webGamePlayers.synchronize());

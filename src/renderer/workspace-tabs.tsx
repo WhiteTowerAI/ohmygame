@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { IconComponent } from "./icons.js";
+import { t } from "./i18n.js";
 
 export interface WorkspaceTabOption<Id extends string> {
   id: Id;
@@ -7,7 +8,7 @@ export interface WorkspaceTabOption<Id extends string> {
   icon: IconComponent;
 }
 
-export function WorkspaceTabs<Id extends string>({ tabs, active, onChange, label = "Workspace views" }: {
+export function WorkspaceTabs<Id extends string>({ tabs, active, onChange, label = t("workspace.views") }: {
   tabs: WorkspaceTabOption<Id>[];
   active: Id;
   onChange: (id: Id) => void;

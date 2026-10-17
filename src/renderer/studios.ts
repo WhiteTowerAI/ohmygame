@@ -1,31 +1,32 @@
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
+import { t } from "./i18n.js";
 
 export type GameStudioType = Exclude<ProjectType, "asset-canvas">;
 
 export const GAME_STUDIOS = {
   general: {
     page: "general",
-    title: "What do you want to create?",
-    placeholder: "Describe your game idea or what you want to build...",
-    newLabel: "New game project",
+    title: t("studio.general.title"),
+    placeholder: t("studio.general.placeholder"),
+    newLabel: t("studio.general.new"),
   },
   "web-game": {
     page: "web-game",
-    title: "What game are we making today?",
-    placeholder: "Describe the browser game you want to create...",
-    newLabel: "New game",
+    title: t("studio.web.title"),
+    placeholder: t("studio.web.placeholder"),
+    newLabel: t("studio.web.new"),
   },
   "interactive-story": {
     page: "interactive-story",
-    title: "What story are we telling today?",
-    placeholder: "Describe the interactive story you want to create...",
-    newLabel: "New story",
+    title: t("studio.story.title"),
+    placeholder: t("studio.story.placeholder"),
+    newLabel: t("studio.story.new"),
   },
   "godot-game": {
     page: "godot",
-    title: "What are we building in Godot?",
-    placeholder: "Describe the Godot game you want to create...",
-    newLabel: "New Godot project",
+    title: t("studio.godot.title"),
+    placeholder: t("studio.godot.placeholder"),
+    newLabel: t("studio.godot.new"),
   },
 } as const;
 

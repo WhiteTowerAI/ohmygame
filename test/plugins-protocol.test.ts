@@ -66,6 +66,16 @@ describe("plugin protocol", () => {
     expect(isPluginManifest({ ...base, interface: { logo: "./logo.png" } })).toBe(false);
   });
 
+  it("accepts declared icons and rejects unknown IDs and non-package image paths", () => {
+    const base = { name: "icon-plugin", version: "1.0.0", description: "Icons" };
+    for (const icon of [{ type: "preset", id: "image" }, { type: "asset", path: "./assets/icon.png" }, { type: "asset", path: "./assets/icon.webp" }]) {
+      expect(isPluginManifest({ ...base, interface: { icon } })).toBe(true);
+    }
+    for (const icon of [{ type: "preset", id: "invented" }, { type: "asset", path: "./../icon.png" }, { type: "asset", path: "https://example.com/icon.png" }, { type: "asset", path: "./icon.svg" }]) {
+      expect(isPluginManifest({ ...base, interface: { icon } })).toBe(false);
+    }
+  });
+
   it("accepts SemVer versions only", () => {
     expect(isPluginVersion("1.0.0-alpha.1+build.7")).toBe(true);
     expect(isPluginVersion("1.0")).toBe(false);

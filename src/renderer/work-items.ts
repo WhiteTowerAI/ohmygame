@@ -1,5 +1,6 @@
 import type { ThreadItem } from "../shared/contracts.js";
 import { mcpServerName } from "./mcp-tool-presentation.js";
+import { t } from "./i18n.js";
 
 export type ToolItem = Extract<ThreadItem, { type: "dynamicToolCall" | "mcpToolCall" }>;
 type ThinkingItem = Extract<ThreadItem, { type: "reasoning" }>;
@@ -52,9 +53,9 @@ export function toolGroupSummary(tools: ToolItem[]): string {
     .sort(([left], [right]) => categoryOrder(left) - categoryOrder(right))
     .map(([category, items]) => categoryPhrase(category, items));
   const failed = tools.filter((item) => item.status === "failed").length;
-  if (failed > 0) phrases.push(failed === 1 ? "an action failed" : "actions failed");
-  if (phrases.length === 0) return "Used tools";
-  const summary = phrases.join(", ");
+  if (failed > 0) phrases.push(failed === 1 ? t("timeline.summary.actionFailed") : t("timeline.summary.actionsFailed"));
+  if (phrases.length === 0) return t("timeline.summary.usedTools");
+  const summary = phrases.join(t("timeline.summary.separator"));
   return summary[0].toUpperCase() + summary.slice(1);
 }
 
@@ -77,23 +78,27 @@ function categoryOrder(category: string): number {
 }
 
 function categoryPhrase(category: string, tools: ToolItem[]): string {
-  if (category === "edit") return filePhrase("edited", tools);
-  if (category === "read") return tools.length === 1 ? "read a file" : "read files";
-  if (category === "command") return tools.length === 1 ? "ran a command" : "ran commands";
-  if (category === "web-search") return tools.length === 1 ? "searched the web" : "searched the web multiple times";
-  if (category === "playtest") return "playtested the game";
+  if (category === "edit") return editedFilesPhrase(tools);
+  if (category === "read") return tools.length === 1 ? t("timeline.summary.readFile") : t("timeline.summary.readFiles");
+  if (category === "command") return tools.length === 1 ? t("timeline.summary.ranCommand") : t("timeline.summary.ranCommands");
+  if (category === "web-search") return tools.length === 1 ? t("timeline.summary.searchedWeb") : t("timeline.summary.searchedWebMultiple");
+  if (category === "playtest") return t("timeline.summary.playtested");
   if (category.startsWith("mcp:")) {
     const name = singularToolName(mcpServerName(category.slice("mcp:".length) || undefined));
-    return tools.length === 1 ? `used ${indefiniteArticle(name)} ${name} tool` : `used ${name} tools`;
+    return usedToolsPhrase(name, tools.length);
   }
-  const toolName = category.slice("tool:".length);
-  return tools.length === 1 ? `used ${indefiniteArticle(toolName)} ${toolName} tool` : `used ${toolName} tools`;
+  return usedToolsPhrase(category.slice("tool:".length), tools.length);
 }
 
-function filePhrase(action: string, tools: ToolItem[]): string {
+function usedToolsPhrase(name: string, count: number): string {
+  if (count !== 1) return t("timeline.summary.usedToolsNamed", { name });
+  return indefiniteArticle(name) === "an" ? t("timeline.summary.usedToolAn", { name }) : t("timeline.summary.usedToolA", { name });
+}
+
+function editedFilesPhrase(tools: ToolItem[]): string {
   const targets = new Set(tools.map(toolTarget).filter(Boolean));
   const count = targets.size || tools.length;
-  return count === 1 ? `${action} a file` : `${action} files`;
+  return count === 1 ? t("timeline.summary.editedFile") : t("timeline.summary.editedFiles");
 }
 
 function indefiniteArticle(value: string): "a" | "an" {

@@ -1,4 +1,6 @@
+import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
+import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
 import type { DesktopRuntimeService } from "../shared/desktop-runtime.js";
 import {
   RUNTIME_EVENT_TYPES,
@@ -7,6 +9,10 @@ import {
   type AgentModelCatalog,
   type AgentModelRef,
   type AgentReasoningLevel,
+  type CheckpointChangeItem,
+  type CheckpointFileView,
+  type CheckpointUndoRequest,
+  type CheckpointUndoResponse,
   type ConversationAgentSettings,
   type ConversationCapabilities,
   type CreateLibraryImageRequest,
@@ -21,6 +27,12 @@ import {
   type ModelAuthEvent,
   type ModelAuthMethod,
   type ModelProviderEndpointSettings,
+  type OpenAIImageConnectionSettings,
+  type SaveOpenAIImageConnectionRequest,
+  type DiscoverOpenAIImageModelsRequest,
+  type DiscoveredOpenAIImageModels,
+  type ResponsesTransportSettings,
+  type ResponsesTransportMode,
   type ProviderModelSettings,
   type Model3DDefinition,
   type CustomProviderModel,
@@ -61,7 +73,9 @@ import {
   type Model3DModel,
   type Model3DAnimationAction,
 } from "../shared/contracts.js";
+import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
+import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
@@ -73,8 +87,18 @@ import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
 import type { NetworkConnectionTest, NetworkSettings, NetworkSettingsState } from "../shared/network-settings.js";
 import { composerDrafts } from "./composer-drafts.js";
+import type { OnboardingState, UpdateOnboardingRequest } from "../shared/onboarding.js";
+import { t } from "./i18n.js";
 
 const API_BASE = "/api";
+
+export function getOnboardingState(): Promise<OnboardingState> {
+  return request("/settings/onboarding");
+}
+
+export function updateOnboardingState(state: UpdateOnboardingRequest): Promise<OnboardingState> {
+  return request("/settings/onboarding", { method: "PUT", body: JSON.stringify(state) });
+}
 
 export function getNetworkSettings(): Promise<NetworkSettingsState> {
   return request("/settings/network");
@@ -109,7 +133,6 @@ declare global {
       onPrepareClose?: (listener: () => Promise<void>) => () => void;
       onCancelClose?: (listener: (error: string) => void) => () => void;
       windowMenu?: {
-        icon: () => Promise<string>;
         popup: (label: string, x: number, y: number) => Promise<void>;
       };
       openProjectFile: (projectId: string, filePath: string, mode?: ProjectFileOpenMode) => Promise<void>;
@@ -243,6 +266,26 @@ export async function setProviderEnabled(providerId: string, enabled: boolean): 
   return result;
 }
 
+export async function getOpenAIImageSettings(): Promise<OpenAIImageConnectionSettings> {
+  return request("/settings/models/providers/openai/images");
+}
+
+export async function saveOpenAIImageSettings(settings: SaveOpenAIImageConnectionRequest): Promise<OpenAIImageConnectionSettings> {
+  const saved = await request<OpenAIImageConnectionSettings>("/settings/models/providers/openai/images", { method: "PUT", body: JSON.stringify(settings) });
+  notifyAgentModelsChanged();
+  return saved;
+}
+
+export async function discoverOpenAIImageModels(settings: DiscoverOpenAIImageModelsRequest, signal?: AbortSignal): Promise<DiscoveredOpenAIImageModels> {
+  return request("/settings/models/providers/openai/images/discover", { method: "POST", body: JSON.stringify(settings), signal });
+}
+
+export async function removeOpenAIImageSettings(): Promise<OpenAIImageConnectionSettings> {
+  const saved = await request<OpenAIImageConnectionSettings>("/settings/models/providers/openai/images", { method: "DELETE" });
+  notifyAgentModelsChanged();
+  return saved;
+}
+
 export async function getCustomProvider(providerId: string): Promise<CustomProviderDetails> {
   return request(`/settings/models/providers/${encodeURIComponent(providerId)}/custom`);
 }
@@ -300,6 +343,13 @@ export async function getOpenAIEndpointSettings(): Promise<ModelProviderEndpoint
   return request("/settings/models/providers/openai/endpoint");
 }
 
+export async function getResponsesTransport(provider: string): Promise<ResponsesTransportSettings> {
+  return request(`/settings/models/providers/${encodeURIComponent(provider)}/transport`);
+}
+export async function updateResponsesTransport(provider: string, mode: ResponsesTransportMode): Promise<ResponsesTransportSettings> {
+  return request(`/settings/models/providers/${encodeURIComponent(provider)}/transport`, { method: "PUT", body: JSON.stringify({ mode }) });
+}
+
 export async function updateOpenAIEndpointSettings(baseUrl: string): Promise<ModelProviderEndpointSettings> {
   return request("/settings/models/providers/openai/endpoint", {
     method: "PUT",
@@ -317,6 +367,51 @@ export async function updateSeedanceApiKey(providerId: string, apiKey: string): 
     method: "PUT",
     body: JSON.stringify({ apiKey }),
   });
+}
+
+export async function updateMinimaxApiKey(providerId: string, apiKey: string): Promise<{ configured: boolean }> {
+  return request(`/settings/models/providers/${encodeURIComponent(providerId)}/minimax-key`, {
+    method: "PUT",
+    body: JSON.stringify({ apiKey }),
+  });
+}
+
+export async function getVolcengineTtsSettings(): Promise<{ configured: boolean; defaultVoiceId?: string }> {
+  return request("/settings/models/providers/volcengine-tts");
+}
+
+export async function updateVolcengineTtsApiKey(apiKey: string): Promise<{ configured: boolean; defaultVoiceId?: string }> {
+  const result = await request<{ configured: boolean; defaultVoiceId?: string }>("/settings/models/providers/volcengine-tts", {
+    method: "PUT",
+    body: JSON.stringify({ apiKey }),
+  });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function saveVolcengineTtsDefaultVoiceId(defaultVoiceId: string | null): Promise<{ configured: boolean; defaultVoiceId?: string }> {
+  return request<{ configured: boolean; defaultVoiceId?: string }>("/settings/models/providers/volcengine-tts", {
+    method: "PUT",
+    body: JSON.stringify(defaultVoiceId ? { defaultVoiceId } : { defaultVoiceId: null }),
+  });
+}
+
+export interface VolcengineTtsPreviewInput {
+  text: string;
+  voiceId?: string;
+  language?: string;
+  style?: string;
+  speed?: number;
+}
+
+export async function previewVolcengineTtsSpeech(input: VolcengineTtsPreviewInput): Promise<Blob> {
+  const response = await fetch(apiUrl("/settings/models/providers/volcengine-tts/preview"), {
+    method: "POST",
+    headers: { "content-type": "application/json", ...runtimeHeaders() },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }
 
 export async function startModelProviderLogin(providerId: string, method: ModelAuthMethod): Promise<string> {
@@ -374,6 +469,10 @@ export async function listVideoModelCatalog(): Promise<MediaModelCatalog<VideoMo
   return request("/video-models/catalog");
 }
 
+export async function listAudioModelCatalog(): Promise<AudioModelCatalog> {
+  return request("/audio-models/catalog");
+}
+
 export async function listModel3DCatalog(): Promise<MediaModelCatalog<Model3DModel>> {
   return request("/model3d-models/catalog");
 }
@@ -397,21 +496,52 @@ export async function updateWebSearchSettings(input: UpdateWebSearchSettings): P
   return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
 }
 
-export async function listExploreGames(): Promise<CommunityGame[]> {
-  return request("/community/games");
+export async function listExploreGames(accessToken?: string, options: CommunityGamesQuery = {}): Promise<CommunityGame[]> {
+  const query = new URLSearchParams({ metrics: "true" });
+  if (options.limit !== undefined) query.set("limit", String(options.limit));
+  if (options.excludeGameId) query.set("excludeGameId", options.excludeGameId);
+  return request(`/community/games?${query}`, { headers: communityHeaders(accessToken) });
 }
 
-export async function getExploreGame(gameId: string): Promise<CommunityGame> {
-  return request(`/community/games/${encodeURIComponent(gameId)}`);
+export async function getExploreGame(gameId: string, accessToken?: string): Promise<CommunityGame> {
+  return request(`/community/games/${encodeURIComponent(gameId)}?metrics=true`, { headers: communityHeaders(accessToken) });
 }
 
-export async function getExploreGameCover(gameId: string, deploymentId: string): Promise<Blob | undefined> {
+export async function getExploreGameCover(gameId: string, deploymentId: string, accessToken?: string): Promise<Blob | undefined> {
   const response = await fetch(apiUrl(
     `/community/games/${encodeURIComponent(gameId)}/deployments/${encodeURIComponent(deploymentId)}/cover`,
-  ), { headers: runtimeHeaders() });
+  ), { headers: { ...runtimeHeaders(), ...communityHeaders(accessToken) } });
   if (response.status === 404) return undefined;
   if (!response.ok) throw await responseError(response);
   return response.blob();
+}
+
+export function getCommunityProfile(authorId: string, accessToken?: string): Promise<CommunityProfile> {
+  return request(`/community/authors/${encodeURIComponent(authorId)}`, { headers: communityHeaders(accessToken) });
+}
+
+export function getMyCommunityGames(accessToken: string): Promise<CommunityProfile> {
+  return request("/community/me/games", { headers: communityHeaders(accessToken) });
+}
+
+export function recordCommunityView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/view`, { method: "POST", body: JSON.stringify({ visitorId, ...(accessToken ? { accessToken } : {}) }) });
+}
+
+export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
+  return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
+}
+
+export function unpublishCommunityGame(gameId: string, accessToken: string): Promise<void> {
+  return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "DELETE", body: JSON.stringify({ accessToken }) });
+}
+
+export function updateCommunityGame(gameId: string, accessToken: string, metadata: { title: string; description: string }): Promise<Pick<CommunityGame, "title" | "description">> {
+  return request(`/community/games/${encodeURIComponent(gameId)}`, { method: "PUT", body: JSON.stringify({ accessToken, ...metadata }) });
+}
+
+function communityHeaders(accessToken?: string): Record<string, string> {
+  return accessToken ? { "x-publish-access-token": accessToken } : {};
 }
 
 export async function listPlugins(): Promise<PluginCatalog> {
@@ -468,10 +598,19 @@ export async function publishProject(projectId: string, accessToken: string, met
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
 }
 
-export async function buildInteractiveStory(projectId: string): Promise<Blob> {
+export async function exportInteractiveStoryProject(projectId: string, version?: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/export-project`), {
+    method: "POST",
+    headers: projectRuntimeHeaders(projectId, version),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {
   const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/build`), {
     method: "POST",
-    headers: runtimeHeaders(),
+    headers: projectRuntimeHeaders(projectId, version),
   });
   if (!response.ok) throw await responseError(response);
   return response.blob();
@@ -487,7 +626,7 @@ export async function waitForRuntime(timeoutMs = 10_000): Promise<void> {
       await delay(200);
     }
   }
-  throw new Error("Could not reach the local runtime");
+  throw new Error(t("api.runtimeUnreachable"));
 }
 
 export async function getProject(projectId: string): Promise<ProjectState> {
@@ -520,10 +659,12 @@ export async function listPlayablePresets(): Promise<{ presets: PlayablePresetSu
 export async function addPlayableNode(
   projectId: string,
   body: { preset: string; id: string; title?: string; position?: { x: number; y: number } },
+  version?: string,
 ): Promise<PlayableAddedNode> {
   return request(`/projects/${projectId}/playable/nodes`, {
     method: "POST",
     body: JSON.stringify(body),
+    workspaceVersion: version,
   });
 }
 
@@ -539,10 +680,10 @@ export async function getPlayableThumbnail(projectId: string, nodeId: string): P
   return response.blob();
 }
 
-export async function setPlayableThumbnail(projectId: string, nodeId: string, hash: string, image: Blob): Promise<void> {
+export async function setPlayableThumbnail(projectId: string, nodeId: string, hash: string, image: Blob, version?: string): Promise<void> {
   const response = await fetch(apiUrl(`/projects/${projectId}/playable/thumbnails/${encodeURIComponent(nodeId)}?hash=${encodeURIComponent(hash)}`), {
     method: "PUT",
-    headers: { "content-type": "image/webp", ...runtimeHeaders() },
+    headers: { "content-type": "image/webp", ...projectRuntimeHeaders(projectId, version) },
     body: image,
   });
   if (!response.ok) throw await responseError(response);
@@ -552,9 +693,11 @@ export async function setPlayableThumbnail(projectId: string, nodeId: string, ha
 export async function updateNodeCodebase(
   projectId: string,
   codebase: NodeCodebaseUpdate & { revision: string },
+  version?: string,
 ): Promise<{ revision: string }> {
   return request(`/projects/${projectId}/playable/codebase`, {
     method: "PUT",
+    workspaceVersion: version,
     body: JSON.stringify(codebase),
   });
 }
@@ -574,18 +717,26 @@ export async function setProjectCover(projectId: string, cover: Blob, source: Pr
   const suffix = source === "auto" ? "?source=auto" : "";
   const response = await fetch(apiUrl(`/projects/${projectId}/cover${suffix}`), {
     method: "PUT",
-    headers: { "content-type": "image/webp", ...runtimeHeaders() },
+    headers: { "content-type": "image/webp", ...projectRuntimeHeaders(projectId) },
     body: cover,
   });
   if (!response.ok) throw await responseError(response);
 }
 
-export async function restoreAutomaticProjectCover(projectId: string): Promise<void> {
-  await request(`/projects/${projectId}/cover`, { method: "DELETE" });
+export async function setProjectCoverMode(projectId: string, mode: ProjectCoverMode): Promise<void> {
+  await request(`/projects/${projectId}/cover/state`, { method: "PUT", body: JSON.stringify({ mode }) });
 }
 
 export async function listWorkspaceFiles(projectId: string): Promise<WorkspaceFile[]> {
   return request(`/projects/${projectId}/files`);
+}
+
+export async function getWorkspaceGitChanges(projectId: string): Promise<WorkspaceGitChanges> {
+  return request(`/projects/${encodeURIComponent(projectId)}/git/changes`);
+}
+
+export async function getWorkspaceGitFile(projectId: string, filePath: string): Promise<WorkspaceGitFileView> {
+  return request(`/projects/${encodeURIComponent(projectId)}/git/file?path=${encodeURIComponent(filePath)}`);
 }
 
 export async function createWorkspaceEntry(projectId: string, parent: string, name: string, kind: "file" | "folder"): Promise<{ path: string }> {
@@ -765,7 +916,7 @@ export async function uploadProjectAttachment(
   if (relativePath) query.set("relativePath", relativePath);
   const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/attachments?${query}`), {
     method: "POST",
-    headers: { "content-type": "application/vnd.ohmygame.attachment", ...runtimeHeaders() },
+    headers: { "content-type": "application/vnd.ohmygame.attachment", ...projectRuntimeHeaders(projectId) },
     body: file,
   });
   if (!response.ok) throw await responseError(response);
@@ -822,6 +973,66 @@ export async function reviseLastPrompt(
   });
 }
 
+/** Puts the workspace and the conversation back to just before the message the checkpoint was taken for. */
+export async function restoreCheckpoint(projectId: string, conversationId: string, checkpointId: string): Promise<void> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/restore`, { method: "POST" });
+}
+
+/** Lists the files the turn of the checkpoint's message changed. */
+export async function getCheckpointChanges(projectId: string, conversationId: string, checkpointId: string): Promise<CheckpointChangeItem[]> {
+  const { changes } = await request<{ changes: CheckpointChangeItem[] }>(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/changes`);
+  return changes;
+}
+
+/** Reads one of those files as it was before the turn and as the turn left it. */
+export async function getCheckpointFile(projectId: string, conversationId: string, checkpointId: string, filePath: string): Promise<CheckpointFileView> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/file?path=${encodeURIComponent(filePath)}`);
+}
+
+/**
+ * Takes back the file changes of one turn and keeps the conversation. Without
+ * `conflicts` it rejects with status 409 and the paths in `ApiError.conflicts`
+ * when files were changed again after the turn. To overwrite them, `expected`
+ * names the paths the user was shown; it rejects the same way when other files
+ * were changed by now.
+ */
+export async function undoCheckpoint(projectId: string, conversationId: string, checkpointId: string, conflicts?: CheckpointUndoRequest["conflicts"], expected?: string[]): Promise<CheckpointUndoResponse> {
+  return changeCheckpointFiles("undo", projectId, conversationId, checkpointId, conflicts, expected);
+}
+
+/** Reapplies only undone paths, with the same conflict checks as Undo. */
+export async function reapplyCheckpoint(projectId: string, conversationId: string, checkpointId: string, conflicts?: CheckpointUndoRequest["conflicts"], expected?: string[]): Promise<CheckpointUndoResponse> {
+  return changeCheckpointFiles("reapply", projectId, conversationId, checkpointId, conflicts, expected);
+}
+
+function changeCheckpointFiles(direction: "undo" | "reapply", projectId: string, conversationId: string, checkpointId: string, conflicts?: CheckpointUndoRequest["conflicts"], expected?: string[]): Promise<CheckpointUndoResponse> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/checkpoints/${encodeURIComponent(checkpointId)}/${direction}`, {
+    method: "POST",
+    body: JSON.stringify({ conflicts, expected } satisfies CheckpointUndoRequest),
+  });
+}
+
+/** Whether a restore or an undo was cut off and may have left the project's files partly changed. */
+export async function getUnfinishedRestore(projectId: string): Promise<boolean> {
+  const { unfinished } = await request<{ unfinished: boolean }>(`/projects/${projectId}/checkpoints/unfinished`);
+  return unfinished;
+}
+
+/**
+ * Lists what putting the files back after a restore or an undo that was cut
+ * off would do: "added" brings a file back, "removed" takes it away. The
+ * items say nothing about how a file stands.
+ */
+export async function getUnfinishedChanges(projectId: string): Promise<CheckpointChangeItem[]> {
+  const { changes } = await request<{ changes: CheckpointChangeItem[] }>(`/projects/${projectId}/checkpoints/unfinished/changes`);
+  return changes;
+}
+
+/** Puts the files back as they were before the restore or undo that was cut off. */
+export async function restoreUnfinished(projectId: string): Promise<void> {
+  return request(`/projects/${projectId}/checkpoints/unfinished/restore`, { method: "POST" });
+}
+
 export async function removePendingPrompt(projectId: string, conversationId: string, turnId: string): Promise<void> {
   await request(`/projects/${projectId}/conversations/${conversationId}/queue/${turnId}`, { method: "DELETE" });
 }
@@ -854,28 +1065,39 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code?: string,
+    /** The workspace paths the request was refused for. */
+    readonly conflicts?: string[],
+    /** Those paths cannot be put back, whatever the request says to do with them. */
+    readonly blocked?: boolean,
   ) {
     super(message);
   }
 }
 
-export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, init: WorkspaceRequestInit = {}): Promise<T> {
+  const projectId = /^\/projects\/([^/?]+)/.exec(path)?.[1];
+  const observedVersion = projectId ? workspaceVersion(projectId) : undefined;
+  if (projectId && init.workspaceVersion !== undefined) assertWorkspaceVersion(projectId, init.workspaceVersion);
   const response = await fetch(apiUrl(path), {
     ...init,
     headers: {
       ...(init.body ? { "content-type": "application/json" } : {}),
       ...runtimeHeaders(),
+      ...(projectId ? { "x-workspace-version": init.workspaceVersion ?? observedVersion! } : {}),
       ...init.headers,
     },
   });
+  const version = response.headers.get("x-workspace-version");
+  if (projectId && version && (!init.method || init.method === "GET") && workspaceVersion(projectId) === observedVersion) observeWorkspaceVersion(projectId, version);
   if (!response.ok) throw await responseError(response);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
 async function responseError(response: Response): Promise<ApiError> {
-  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string };
-  return new ApiError(body.message ?? body.error ?? `Request failed with ${response.status}`, response.status, body.code);
+  const body = await response.json().catch(() => ({})) as { error?: string; message?: string; code?: string; conflicts?: unknown; blocked?: unknown };
+  const conflicts = Array.isArray(body.conflicts) && body.conflicts.every((path) => typeof path === "string") ? body.conflicts as string[] : undefined;
+  return new ApiError(body.message ?? body.error ?? t("api.requestFailed", { status: response.status }), response.status, body.code, conflicts, body.blocked === true || undefined);
 }
 
 async function streamProjectEvents(
@@ -897,7 +1119,7 @@ async function streamProjectEvents(
     const connectionSignal = AbortSignal.any([signal, connection.signal]);
     try {
       const current = runtimeConnection();
-      if (current.status !== "ready") throw new Error("Background service unavailable");
+      if (current.status !== "ready") throw new Error(t("api.serviceUnavailable"));
       if (current.generation !== generation) {
         generation = current.generation;
         cursor = handlers.onReset ? await handlers.onReset() : 0;
@@ -1060,6 +1282,11 @@ function apiUrl(path: string): string {
   return runtime ? `${runtime.daemonUrl}${path}` : `${API_BASE}${path}`;
 }
 
+function projectRuntimeHeaders(projectId: string, version = workspaceVersion(projectId)): HeadersInit {
+  assertWorkspaceVersion(projectId, version);
+  return { ...runtimeHeaders(), "x-workspace-version": version };
+}
+
 function runtimeHeaders(): HeadersInit {
   const runtime = desktopRuntime();
   return runtime ? { authorization: `Bearer ${runtime.token}` } : {};
@@ -1073,7 +1300,7 @@ function desktopRuntime(): DesktopRuntime | undefined {
   const desktop = window.ohMyGameDesktop;
   if (!desktop) return;
   const state = runtimeConnection();
-  if (state.status !== "ready") throw new Error("The background service is unavailable. Wait for recovery or restart it.");
+  if (state.status !== "ready") throw new Error(t("api.serviceUnavailableLong"));
   return state.runtime ? { daemonUrl: state.runtime.url, token: state.runtime.token } : desktop.runtime;
 }
 
@@ -1107,8 +1334,30 @@ export async function savePluginConfiguration(id: string, values: import("../sha
 export async function testPluginMcp(id: string, server: string, action: "test" | "auth-start" | "auth-complete" = "test", input?: string): Promise<import("../shared/plugins.js").PluginMcpResult> {
   return request(`/plugins/${encodeURIComponent(id)}/mcp/${encodeURIComponent(server)}/${action}`, { method: "POST", body: JSON.stringify(input ? { input } : {}) });
 }
-export async function createPluginSetup(pluginId?: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
-  return request("/plugins/setup-sessions", { method: "POST", body: JSON.stringify({ pluginId }) });
+export async function createPluginSetup(pluginId?: string, mode?: import("../shared/plugin-setup.js").PluginSetupMode): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+  return request("/plugins/setup-sessions", { method: "POST", body: JSON.stringify({ pluginId, mode }) });
+}
+export async function exportPluginArchive(id: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/plugins/${encodeURIComponent(id)}/export`), { headers: runtimeHeaders() });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+export async function inspectPluginArchive(file: Blob): Promise<import("../shared/plugin-portability.js").PluginArchivePreview> {
+  return uploadPluginArchive("/plugins/import/inspect", file);
+}
+export async function restorePluginArchive(file: Blob, revision?: string): Promise<PluginDetail> {
+  return uploadPluginArchive(`/plugins/import${revision ? `?revision=${encodeURIComponent(revision)}` : ""}`, file);
+}
+async function uploadPluginArchive<T>(route: string, file: Blob): Promise<T> {
+  const response = await fetch(apiUrl(route), { method: "POST", headers: { "content-type": "application/zip", ...runtimeHeaders() }, body: file });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<T>;
+}
+export async function checkPluginDependencies(id: string): Promise<import("../shared/plugin-portability.js").PluginDiagnostics> {
+  return request(`/plugins/${encodeURIComponent(id)}/dependencies`);
+}
+export async function clearPluginSetupConversation(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/conversation`, { method: "DELETE" });
 }
 export async function readPluginSetup(id: string): Promise<import("../shared/plugin-setup.js").PluginSetupState> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}`);
@@ -1128,6 +1377,16 @@ export async function listPluginSetups(): Promise<import("../shared/plugin-setup
 }
 export async function readPluginDraft(id: string): Promise<import("../shared/plugin-setup.js").PluginDraft> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/draft`);
+}
+export function updatePluginDraftIcon(id: string, input: import("../shared/plugin-setup.js").PluginIconUpdate): Promise<import("../shared/plugin-setup.js").PluginDraft> {
+  return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/icon`, { method: "PUT", body: JSON.stringify(input) });
+}
+export async function readPluginIconImage(pluginId: string, setupId?: string, signal?: AbortSignal, previewPath?: string): Promise<Blob> {
+  const route = setupId ? `/plugins/setup-sessions/${encodeURIComponent(setupId)}/icon` : `/plugins/${encodeURIComponent(pluginId)}/icon`;
+  const suffix = setupId && previewPath ? `?${new URLSearchParams({ path: previewPath })}` : "";
+  const response = await fetch(apiUrl(`${route}${suffix}`), { headers: runtimeHeaders(), signal });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
 }
 export async function readPluginDraftFile(id: string, path: string): Promise<{ path: string; content: string }> {
   return request(`/plugins/setup-sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`);

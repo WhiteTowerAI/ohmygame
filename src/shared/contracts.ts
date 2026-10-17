@@ -1,6 +1,7 @@
 import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
+import type { DiffHunk } from "./line-diff.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -54,12 +55,15 @@ export interface ModelProviderSummary {
 }
 
 export type ProviderStatus = "connected" | "not_configured" | "connecting" | "error";
-export type ProviderCapability = "language" | "image" | "3d" | "video";
-export type MediaModelUsage = Exclude<ProviderCapability, "language">;
+export type ProviderCapability = "language" | "image" | "3d" | "video" | "audio";
+export type MediaModelUsage = "image" | "3d" | "video";
 /** Missing entries inherit the global default for that kind of generation. */
 export type MediaModelDefaults = Partial<Record<MediaModelUsage, ModelRef>>;
 
 export interface ProviderSummary extends ModelProviderSummary {
+  /** OpenAI can connect chat and images independently. */
+  languageConfigured?: boolean;
+  imageConfigured?: boolean;
   managed?: "free_cloud";
   cloud?: import("./cloud-models.js").CloudConnectionState;
   status: ProviderStatus;
@@ -173,6 +177,37 @@ export interface DiscoveredProviderModels {
 export interface ModelProviderEndpointSettings {
   baseUrl: string;
 }
+
+export type OpenAIImageConnectionMode = "connection" | "separate" | "disabled";
+export interface OpenAIImageModelConfiguration {
+  id: string;
+  name: string;
+  template: "gpt-image-1" | "gpt-image-2";
+  enabled: boolean;
+}
+export interface OpenAIImageConnectionSettings {
+  mode: OpenAIImageConnectionMode;
+  baseUrl: string;
+  configured: boolean;
+  connectionAvailable: boolean;
+  connectionBaseUrl?: string;
+  models: OpenAIImageModelConfiguration[];
+}
+export interface SaveOpenAIImageConnectionRequest {
+  mode: OpenAIImageConnectionMode;
+  baseUrl: string;
+  apiKey?: string;
+  models: OpenAIImageModelConfiguration[];
+}
+export type DiscoverOpenAIImageModelsRequest = Pick<SaveOpenAIImageConnectionRequest, "mode" | "baseUrl" | "apiKey">;
+export interface DiscoveredOpenAIImageModels {
+  models: OpenAIImageModelConfiguration[];
+  warnings?: string[];
+}
+
+export const RESPONSES_TRANSPORT_MODES = ["auto", "sse", "websocket"] as const;
+export type ResponsesTransportMode = typeof RESPONSES_TRANSPORT_MODES[number];
+export interface ResponsesTransportSettings { mode: ResponsesTransportMode }
 
 export const CUSTOM_MODEL_APIS = ["openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai", "google-vertex"] as const;
 export const CUSTOM_IMAGE_MODEL_APIS = ["openai-completions", "openai-responses"] as const;
@@ -306,6 +341,7 @@ export interface PublicationState {
 export type ProjectCoverMode = "auto" | "custom";
 
 export interface ProjectCoverState {
+  /** "custom" also freezes an automatic cover, or disables capture before a cover exists. */
   mode: ProjectCoverMode;
 }
 
@@ -370,7 +406,7 @@ export interface ProjectAgentActivity {
   status: Extract<AgentStatus, "running" | "cancelling">;
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "model-3d" | "animate-3d" | "asset" | "document" | "table";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -450,6 +486,36 @@ export type AssetCanvasNode = (
     references: AssetCanvasReference[];
     referenceMode?: VideoReferenceMode;
     referenceMentions?: Record<string, AssetCanvasReference>;
+    assetId?: string;
+  } }
+  | { id: string; type: "speech"; position: AssetCanvasPosition; data: {
+    /** Script text to synthesize; also accepts a linked text/document node as promptSource. */
+    text: string;
+    promptSource?: AssetCanvasTextReference;
+    model?: ModelRef;
+    /** Speaker ID; uses the provider's configured default voice when omitted. */
+    voiceId?: string;
+    /** Speech rate in provider units (Volcengine speech_rate: -50..100, 0 = normal). */
+    speed?: number;
+    assetId?: string;
+  } }
+  | { id: string; type: "sound-effect"; position: AssetCanvasPosition; data: {
+    prompt: string;
+    promptSource?: AssetCanvasTextReference;
+    model?: ModelRef;
+    durationSeconds?: number;
+    loop?: boolean;
+    negativePrompt?: string;
+    assetId?: string;
+  } }
+  | { id: string; type: "music"; position: AssetCanvasPosition; data: {
+    prompt: string;
+    promptSource?: AssetCanvasTextReference;
+    model?: ModelRef;
+    instrumental: boolean;
+    lyrics?: string;
+    durationSeconds?: number;
+    loop?: boolean;
     assetId?: string;
   } }
   | { id: string; type: "model-3d"; position: AssetCanvasPosition; data: {
@@ -532,6 +598,7 @@ export interface AgentErrorDiagnostics {
   model?: string;
   endpoint?: string;
   statusCode?: number;
+  transport?: "sse" | "websocket";
   requestId?: string;
   errorCode?: string;
   causes?: AgentErrorCause[];
@@ -556,7 +623,7 @@ export interface PromptReference {
  * conversation shows only the label.
  */
 export interface PromptContext {
-  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "design-document" | "canvas-board";
+  kind: "playable-node" | "playable-element" | "playable-drawing" | "playable-asset" | "playable-moment" | "design-document" | "canvas-board";
   label: string;
   text: string;
 }
@@ -633,7 +700,7 @@ export interface PlanState {
 }
 
 export type ThreadItem = (
-  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[] }
+  | { id: string; turnId: string; type: "userMessage"; text: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; /** The workspace as it was before this message, when it can be restored. */ checkpointId?: string; /** What the turn of this message changed in the workspace, once the turn has ended. */ changes?: TurnChanges }
   | { id: string; turnId: string; type: "imageRead"; count: number; status: "completed" }
   | { id: string; turnId: string; type: "modelChange"; model: AgentModelRef; name?: string }
   | {
@@ -671,6 +738,10 @@ export type ThreadItem = (
       artifact?: ToolArtifact;
       images?: PromptImage[];
       webSearch?: WebSearchToolMetadata;
+      /** Actual text lines changed by this file tool, when available. */
+      lineChanges?: LineChanges;
+      /** Bounded preview of this tool's actual file mutation, independent of turn checkpoints. */
+      fileDiff?: { hunks: DiffHunk[]; truncated?: boolean };
     }
   | {
       id: string;
@@ -896,6 +967,71 @@ export interface CreateLibraryImageRequest {
   image: PromptImage & { mediaType: Extract<LibraryUploadMediaType, `image/${string}`> };
 }
 
+export interface LineChanges {
+  added: number;
+  removed: number;
+}
+
+/** The file changes of one Agent turn. */
+export interface TurnChanges {
+  /** How many files the turn added, modified or removed. */
+  files: number;
+  /** Immutable file summary saved when the turn ended. Absent in older sessions. */
+  items?: CheckpointChangeItem[];
+  /** The changes were taken back with Undo. */
+  undone?: boolean;
+  /** How many of the files that undo left as they are, because they were changed again after the turn. */
+  kept?: number;
+}
+
+export interface CheckpointChangeItem {
+  /** Workspace path with forward slashes. */
+  path: string;
+  kind: "added" | "modified" | "removed";
+  /** Omitted for binary files or text beyond the preview limit. */
+  lines?: LineChanges;
+  /**
+   * How the file stands now: as the turn left it, as it was before the turn,
+   * or changed again afterwards. Left out while the Agent is working.
+   */
+  state?: "applied" | "undone" | "changed";
+}
+
+/** A file as one checkpoint holds it. */
+export interface CheckpointFile {
+  binary: boolean;
+  content?: string;
+  truncated?: boolean;
+}
+
+/** A changed file before and after a turn. A side is null when the file was not there. */
+export interface CheckpointFileView {
+  path: string;
+  before: CheckpointFile | null;
+  after: CheckpointFile | null;
+}
+
+export interface CheckpointUndoRequest {
+  /** What to do with files that were changed again after the turn. Without it an undo with such files is refused. */
+  conflicts?: "keep" | "overwrite";
+  /**
+   * The files the player was shown before choosing to overwrite. Required
+   * with "overwrite": when other files are in the way by now, the undo is
+   * refused again with the new list instead of overwriting what was not shown.
+   */
+  expected?: string[];
+}
+
+export interface CheckpointUndoResponse {
+  /** Remaining reversible Undo state, also returned by Reapply. */
+  undone?: boolean;
+  kept?: number;
+  /** Workspace paths that were put back. */
+  changed: string[];
+  /** Workspace paths that were left as they are. */
+  conflicts: string[];
+}
+
 export interface WorkspaceFileContent {
   path: string;
   size: number;
@@ -947,7 +1083,7 @@ export interface Model3DGenerationConfig {
   pbr: boolean;
 }
 
-export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d"] as const;
+export const TOOL_IDS = ["generate-image", "image-to-3d", "generate-video", "animate-3d", "generate-speech", "generate-sound-effect", "generate-music"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 
 interface RunSizedImageToolRequest {
@@ -1008,7 +1144,8 @@ export interface RunAnimate3DToolRequest {
   heightMeters?: number;
 }
 
-export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest;
+export type RunToolRequest = RunImageToolRequest | Run3DToolRequest | RunVideoToolRequest | RunAnimate3DToolRequest
+  | import("./audio.js").RunSpeechToolRequest | import("./audio.js").RunSoundEffectToolRequest | import("./audio.js").RunMusicToolRequest;
 
 export interface ToolRunFile {
   name: string;
@@ -1056,6 +1193,11 @@ export interface RuntimeEventData {
   "project.updated": { project: ProjectState };
   "preview.updated": { preview: PreviewRuntimeState };
   "agent.started": { prompt: string; mentions?: PluginMention[]; images?: PromptImage[]; attachments?: ConversationAttachment[]; contexts?: PromptContextLabel[]; revision?: "last-turn" };
+  "checkpoint.created": { checkpointId: string };
+  "checkpoint.completed": { checkpointId: string } & Pick<TurnChanges, "files" | "items">;
+  "workspace.restored": { version: string; changed: string[]; recovery?: boolean; checkpointId?: string };
+  "workspace.undone": { checkpointId: string; kept: number; undone?: boolean };
+  "workspace.reapplied": { checkpointId: string; undone: boolean; kept: number };
   "plan.mode.changed": PlanSessionState;
   "item.started": { item: ThreadItem };
   "item.updated": { item: ThreadItem };
@@ -1082,6 +1224,11 @@ export const RUNTIME_EVENT_TYPES = [
   "project.updated",
   "preview.updated",
   "agent.started",
+  "checkpoint.created",
+  "checkpoint.completed",
+  "workspace.restored",
+  "workspace.undone",
+  "workspace.reapplied",
   "item.started",
   "item.updated",
   "item.completed",

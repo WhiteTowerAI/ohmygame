@@ -4,6 +4,7 @@ import { formatBytes } from "./format-bytes.js";
 import type { PromptAttachment } from "../shared/contracts.js";
 import { uploadProjectAttachment } from "./api.js";
 import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_FILES } from "../shared/file-transfer.js";
+import { t } from "./i18n.js";
 
 export interface ComposerAttachment {
   id: string;
@@ -14,7 +15,7 @@ export interface ComposerAttachment {
 export type AttachmentInput = File | { file: File; relativePath?: string };
 
 export function appendAttachments(current: ComposerAttachment[], next: ComposerAttachment[]): ComposerAttachment[] {
-  if (next.some((attachment) => attachment.file.size > MAX_ATTACHMENT_BYTES)) throw new Error("An attachment cannot exceed 500 MB");
+  if (next.some((attachment) => attachment.file.size > MAX_ATTACHMENT_BYTES)) throw new Error(t("attachments.tooLarge"));
   // Each attachment uploads to its own path in the batch. Pasted screenshots are all "image.png",
   // so a repeated name gets a numbered copy instead of being refused. Case-insensitive disks share paths.
   const paths = new Set(current.map((attachment) => attachment.relativePath.toLowerCase()));
@@ -23,8 +24,8 @@ export function appendAttachments(current: ComposerAttachment[], next: ComposerA
     paths.add(relativePath.toLowerCase());
     return relativePath === attachment.relativePath ? attachment : { ...attachment, relativePath };
   })];
-  if (combined.length > MAX_ATTACHMENT_FILES) throw new Error("Attach at most 1,000 files at a time");
-  if (combined.reduce((total, attachment) => total + attachment.file.size, 0) > MAX_ATTACHMENT_BATCH_BYTES) throw new Error("Attached files cannot exceed 1 GB in total");
+  if (combined.length > MAX_ATTACHMENT_FILES) throw new Error(t("attachments.tooMany"));
+  if (combined.reduce((total, attachment) => total + attachment.file.size, 0) > MAX_ATTACHMENT_BATCH_BYTES) throw new Error(t("attachments.batchTooLarge"));
   return combined;
 }
 
@@ -67,15 +68,15 @@ export function AttachmentStrip({ items, onRemove }: { items: ComposerAttachment
   const files = items.filter((attachment) => !isPreviewableImage(attachment));
   return (
     <Fragment>
-      {images.length ? <div className="composer-images" aria-label="Attached images">
+      {images.length ? <div className="composer-images" aria-label={t("attachments.images")}>
         {images.map((attachment) => <ImageAttachment key={attachment.id} attachment={attachment} onRemove={onRemove} />)}
       </div> : null}
-      {files.length ? <div className="composer-attachments" aria-label="Attached files">
+      {files.length ? <div className="composer-attachments" aria-label={t("attachments.files")}>
         {files.map((attachment) => (
           <div className="composer-attachment" key={attachment.id} title={`${attachment.relativePath} · ${formatBytes(attachment.file.size)}`}>
             <FileText size={14} />
             <span>{attachment.relativePath}</span>
-            <button type="button" onClick={() => onRemove(attachment.id)} title={`Remove ${attachment.relativePath}`} aria-label={`Remove ${attachment.relativePath}`}>
+            <button type="button" onClick={() => onRemove(attachment.id)} title={t("attachments.remove", { name: attachment.relativePath })} aria-label={t("attachments.remove", { name: attachment.relativePath })}>
               <X size={11} />
             </button>
           </div>
@@ -90,7 +91,7 @@ function ImageAttachment({ attachment, onRemove }: { attachment: ComposerAttachm
   useEffect(() => () => URL.revokeObjectURL(source), [source]);
   return <div className="composer-image" title={`${attachment.relativePath} · ${formatBytes(attachment.file.size)}`}>
     <img src={source} alt={attachment.relativePath} />
-    <button type="button" onClick={() => onRemove(attachment.id)} title={`Remove ${attachment.relativePath}`} aria-label={`Remove ${attachment.relativePath}`}>
+    <button type="button" onClick={() => onRemove(attachment.id)} title={t("attachments.remove", { name: attachment.relativePath })} aria-label={t("attachments.remove", { name: attachment.relativePath })}>
       <X size={11} />
     </button>
   </div>;

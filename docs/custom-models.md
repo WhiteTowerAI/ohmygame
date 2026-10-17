@@ -24,6 +24,65 @@ them against your endpoint's documentation. Refreshing the list preserves saved
 names, uses, protocols, limits and enable state, including models no longer listed
 by the endpoint. Remove those models explicitly if you no longer want them.
 
+## Azure provider upgrade
+
+Pi 1.2 uses provider ID `azure` in place of `azure-openai-responses`.
+At startup, OhMyGame migrates saved credentials, custom model definitions,
+Pi model preferences, and provider visibility settings. Existing `azure`
+entries take precedence. JSONC comments and UTF-8 BOMs are preserved.
+If a file is invalid, it is left untouched and the error is logged; other
+files are still migrated. Correct the invalid file and restart to retry.
+
+## OpenAI image connections
+
+The built-in **OpenAI** page has an independent **Image models** section. Chat can
+use **Browser sign-in** while images use a separate API key. An image-only OpenAI
+connection also works when chat uses another provider.
+
+Choose **Connect** (or the pencil beside a saved connection setting), then
+**Separate API key and Base URL**. Enter the key for that endpoint and use
+the default `https://api.openai.com/v1` or your compatible GPT Image relay's API
+base, including `/v1` when required. **Fetch models** requests `{base}/models` with
+the image key and previews recognized image models. Enable the models you want,
+then choose **Save**. The section normally shows compact connection details and
+enabled models; **Edit** reveals model management, and a model's pencil reveals
+its capability template. Fetching checks the catalog, not generation
+access, and does not save the draft or generate a paid image. A failed fetch keeps
+the saved connection available. Changing the draft connection mode or Base URL
+clears its model list and cancels an outstanding fetch. Replacing a key at the
+same endpoint keeps model choices. **Cancel** restores saved settings.
+
+If the service omits a model from its list, use **Add model** with its exact ID or
+alias. Choose **GPT Image 1 / 1.5** for fixed sizes or **GPT Image 2 / 2.5** for
+flexible sizes. The template defines available resolutions, aspect ratios and
+reference limits; the request still sends the exact saved model ID. Refreshing
+models keeps saved aliases, templates and enable choices, including models no
+longer reported by the endpoint. Newly fetched models start disabled.
+
+The endpoint must support OpenAI Images: `{base}/images/generations` for text
+prompts and multipart `{base}/images/edits` for references. This connection uses
+the configured service's API billing independently of a ChatGPT subscription.
+
+An existing API-key chat connection can select **Use chat API connection** to
+share its key and endpoint. Browser sign-in cannot be shared with images. Existing
+API-key configurations retain their discovered image catalog until you save an
+image list. Once saved, catalog reads and generation use that list without fetching
+models again. Image models remain under provider ID `openai`, so existing Canvas
+nodes and global/project defaults keep their references.
+
+Image credentials and model settings live in the daemon's private
+`openai-images.json` (file mode `0600`); settings responses omit the key, and Pi's
+chat credential and model definitions are unaffected. Leave the key field blank
+to keep its saved value for the same Base URL. A changed endpoint requires its
+key to be entered again. A rejected image key reports an error without falling
+back to the chat key or another provider.
+
+The **Remove image connection** icon in edit mode clears the image key and models
+and selects **Disabled**, leaving chat connected. To share chat's key afterwards,
+select that mode explicitly. Deleting the provider clears both OpenAI connections and their
+settings. Existing project/node choices remain saved and require an available
+image connection to generate again.
+
 ## Protocol templates
 
 | Use | Protocol | Endpoint format |
@@ -108,6 +167,12 @@ different model applies its generation defaults; existing nodes keep their choic
 Enabled models appear in their corresponding canvas node's model selector.
 Choose defaults in the Providers overview or Project settings, as described below.
 
+Chat and canvas text composers use one button showing the model name and current
+reasoning level. Open it to choose a model, or choose **Reasoning** in the menu to
+adjust the depth. Only levels supported by the selected model are listed; models
+with just one supported level show only their name. Choosing a different model
+keeps the current level when supported, or adjusts it to a supported level.
+
 ## Existing configuration
 
 Existing language models retain their settings. When an old custom provider's
@@ -122,8 +187,9 @@ Pi's `models.json`. Project overrides are stored in each project's `project.json
 Credentials remain in the existing credential store and are not copied into model
 definitions or returned in settings responses.
 
-Connected provider details have a **Delete provider** button with inline
-confirmation. For custom providers, it removes the provider definition, credential
+Connected provider details end with a **Remove provider** section; **Remove…**
+opens an inline confirmation with **Delete provider**. Meshy, Tripo and Hyper3D
+keep a **Remove API key** button beside their key field instead. For custom providers, it removes the provider definition, credential
 and model settings. For built-in providers, including Meshy, Tripo and Hyper3D, it clears
 the saved credential, endpoint overrides, custom models and visibility/enable
 settings; the service remains available to connect again. Global media defaults
@@ -132,6 +198,15 @@ choices stay saved and need an available connection to generate again.
 
 Deleting an official browser sign-in clears the local login only. It does not
 cancel or change the service's subscription.
+
+Provider details start with a **Providers & Models** breadcrumb and a status
+line such as **Connected · ChatGPT**. Built-in language providers show a
+**Connection** row for the current sign-in (**Reconnect**) or API key (edit
+icon); when the provider offers both methods, the section heading has a button
+to switch. The model list shows the global default language model
+first with a **Default** badge; hidden models stay under **Hidden models (n)**.
+Base URL and Responses connection settings sit in the collapsed **Advanced**
+section, and the page ends with **Remove provider**.
 
 ## Global and project defaults
 

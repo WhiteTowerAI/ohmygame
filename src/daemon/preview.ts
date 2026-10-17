@@ -1,6 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { watch, type FSWatcher } from "node:fs";
-import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  realpath,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 import type { ProjectState } from "../shared/contracts.js";
@@ -54,7 +60,21 @@ export class PreviewCancelledError extends Error {
   }
 }
 
+/** An automatic start found nothing to run yet, which is expected before the first files exist. */
+class PreviewNotReadyError extends ProjectWorkspaceError {}
+
 export class PreviewManager {
+  readonly #suspended = new Set<string>();
+
+  async withWorkspaceStopped<T>(project: ProjectState, operation: () => Promise<T>): Promise<T> {
+    const resume = ["ready", "starting"].includes(project.preview.status);
+    this.#suspended.add(project.id);
+    try { await this.stop(project, "settings"); return await operation(); }
+    finally {
+      this.#suspended.delete(project.id);
+      if (resume && !this.#session(project).paused) void this.ensureStarted(project, false).catch(() => {});
+    }
+  }
   readonly #running = new Map<string, ChildProcess>();
   readonly #proxies = new Map<string, PreviewProxy>();
   readonly #static = new Map<string, { close(): Promise<void> }>();
@@ -177,6 +197,7 @@ export class PreviewManager {
 
   #automaticAllowed(session: PreviewSession): boolean {
     return (
+      !this.#suspended.has(session.project.id) &&
       this.#sessions.get(session.project.id) === session &&
       supportsWebPreview(session.project) &&
       session.project.previewAutoStart !== false &&
@@ -186,6 +207,7 @@ export class PreviewManager {
   }
 
   ensureStarted(project: ProjectState, manual = true): Promise<string> {
+    if (this.#suspended.has(project.id)) return Promise.reject(new PreviewCancelledError());
     if (!supportsWebPreview(project))
       return Promise.reject(
         new ProjectWorkspaceError(
@@ -214,6 +236,7 @@ export class PreviewManager {
     reinstall = false,
     manual = true,
   ): Promise<string> {
+    if (this.#suspended.has(project.id)) return Promise.reject(new PreviewCancelledError());
     if (manual) this.#session(project).paused = false;
     return this.#beginStart(project, reinstall);
   }
@@ -255,10 +278,15 @@ export class PreviewManager {
     try {
       const workspace = await resolvePreviewWorkspace(project);
       assertCurrent();
-      if (!workspace.runnable)
-        throw new ProjectWorkspaceError(
-          workspace.error ?? "Workspace is not runnable yet",
-        );
+      if (!workspace.runnable) {
+        const message = workspace.error ?? "Workspace is not runnable yet";
+        if (
+          operation.automatic &&
+          !(await hasProjectFiles(workspace.absolutePath))
+        )
+          throw new PreviewNotReadyError(message);
+        throw new ProjectWorkspaceError(message);
+      }
       await this.#stopping.get(project.id);
       assertCurrent();
       began = true;
@@ -546,7 +574,12 @@ export class PreviewManager {
       ) {
         this.#update(project, {
           status: "waiting",
-          error: cause instanceof Error ? cause.message : String(cause),
+          error:
+            cause instanceof PreviewNotReadyError
+              ? undefined
+              : cause instanceof Error
+                ? cause.message
+                : String(cause),
         });
       }
       if (this.#operations.get(project.id) === operation)
@@ -577,12 +610,10 @@ export class PreviewManager {
       if (this.#stopping.get(project.id) === stopping)
         this.#stopping.delete(project.id);
     }
-    if (
-      this.#operations.has(project.id) &&
-      this.#operations.get(project.id) !== operation
-    )
-      return;
-    this.#operations.delete(project.id);
+    // A replacement waits for this stop before launching, but may still fail
+    // inspection. Publish the completed stop without cancelling its operation.
+    if (this.#operations.get(project.id) === operation)
+      this.#operations.delete(project.id);
     project.preview = {
       ...project.preview,
       status: "stopped",
@@ -868,4 +899,17 @@ async function waitForCommand(
           ),
     );
   });
+}
+
+/** Hidden entries and generated folders are not files someone wrote for the project. */
+async function hasProjectFiles(directory: string): Promise<boolean> {
+  try {
+    return (await readdir(directory)).some(
+      (name) =>
+        !name.startsWith(".") &&
+        !["node_modules", "dist", "build"].includes(name),
+    );
+  } catch {
+    return false;
+  }
 }

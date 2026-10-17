@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -133,7 +133,7 @@ function runGit(args: string[]): Promise<string> {
   });
 }
 
-async function extractPluginArchive(archivePath: string, destination: string): Promise<void> {
+export async function extractPluginArchive(archivePath: string, destination: string): Promise<void> {
   const zip = await openZip(archivePath);
   let entries = 0;
   let bytes = 0;
@@ -154,6 +154,7 @@ async function extractPluginArchive(archivePath: string, destination: string): P
       const target = path.join(destination, relative);
       await mkdir(path.dirname(target), { recursive: true });
       await pipeline(await openEntry(zip, entry), createWriteStream(target, { flags: "wx" }));
+      if ((entry.externalFileAttributes >>> 16) & 0o111) await chmod(target, 0o755);
     }
   } finally {
     zip.close();

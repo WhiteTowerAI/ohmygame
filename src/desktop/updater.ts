@@ -1,8 +1,11 @@
 import { app } from "electron";
-import electronUpdater from "electron-updater";
-import type { DesktopUpdateErrorCode, DesktopUpdatePhase, DesktopUpdateRetry, DesktopUpdateState } from "../shared/desktop-update.js";
+import electronUpdater, { type UpdateInfo } from "electron-updater";
+import type { DesktopUpdateErrorCode, DesktopUpdatePhase, DesktopUpdateRetry, DesktopUpdateState, DesktopUpdateStatus } from "../shared/desktop-update.js";
 
 const { autoUpdater } = electronUpdater;
+
+/** `skipped` means the updater was not in a state a scheduled check may disturb. */
+export type DesktopUpdateCheckOutcome = "checked" | "failed" | "skipped";
 
 export class DesktopUpdatePreparationError extends Error {
   constructor(readonly reason: "save" | "shutdown", message: string) {
@@ -11,12 +14,21 @@ export class DesktopUpdatePreparationError extends Error {
   }
 }
 
+/** A scheduled check must not discard a found release or interrupt a transfer. */
+function allowsScheduledCheck(status: DesktopUpdateStatus): boolean {
+  return status.type === "idle"
+    || status.type === "up-to-date"
+    || (status.type === "error" && status.phase === "check");
+}
+
 export class DesktopUpdater {
   #state: DesktopUpdateState;
   #listeners = new Set<(state: DesktopUpdateState) => void>();
   #installing = false;
+  #checking = false;
+  #automaticChecking = false;
+  #automaticCheckFailed = false;
   #operation: DesktopUpdatePhase = "check";
-  #availableVersion?: string;
 
   constructor(currentVersion: string, private readonly onInstall: () => Promise<void> | void) {
     this.#state = { currentVersion, status: { type: "idle" } };
@@ -27,27 +39,35 @@ export class DesktopUpdater {
     autoUpdater.channel = "latest";
     autoUpdater.on("checking-for-update", () => {
       this.#operation = "check";
+      if (this.#automaticChecking) return;
       this.#set({ type: "checking" });
     });
-    autoUpdater.on("update-not-available", () => this.#set({ type: "up-to-date" }));
+    autoUpdater.on("update-not-available", () => {
+      this.#state = { ...this.#state, availableRelease: undefined };
+      this.#set({ type: "up-to-date" });
+    });
     autoUpdater.on("update-available", (info) => {
-      this.#availableVersion = info.version;
+      this.#rememberRelease(info);
       this.#set({ type: "available", version: info.version });
     });
     autoUpdater.on("download-progress", (progress) => {
       const current = this.#state.status;
-      const version = current.type === "available" || current.type === "downloading" ? current.version : this.#availableVersion;
+      const version = current.type === "available" || current.type === "downloading" ? current.version : this.#state.availableRelease?.version;
       if (!version) return;
       this.#operation = "download";
       this.#set({ type: "downloading", version, percent: Math.max(0, Math.min(100, Math.round(progress.percent))) });
     });
     autoUpdater.on("update-downloaded", (info) => {
-      this.#availableVersion = info.version;
+      this.#rememberRelease(info);
       this.#set({ type: "ready", version: info.version });
     });
     autoUpdater.on("error", (error) => {
       this.#installing = false;
-      this.#setError(error, this.#operation, retryFor(this.#operation), this.#availableVersion);
+      if (this.#automaticChecking && this.#operation === "check") {
+        this.#automaticCheckFailed = true;
+        return;
+      }
+      this.#setError(error, this.#operation, retryFor(this.#operation), this.#state.availableRelease?.version);
     });
   }
 
@@ -60,17 +80,30 @@ export class DesktopUpdater {
     return () => this.#listeners.delete(listener);
   }
 
-  async check(): Promise<void> {
+  async check(automatic = false): Promise<DesktopUpdateCheckOutcome> {
     if (!app.isPackaged) {
       this.#set({ type: "up-to-date" });
-      return;
+      return "checked";
     }
+    if (this.#checking || (automatic && !allowsScheduledCheck(this.#state.status))) return "skipped";
+    this.#checking = true;
+    this.#automaticChecking = automatic;
+    this.#automaticCheckFailed = false;
     this.#operation = "check";
     try {
       await autoUpdater.checkForUpdates();
     } catch (error) {
-      this.#setError(error, "check", "check");
+      if (automatic) this.#automaticCheckFailed = true;
+      else this.#setError(error, "check", "check");
+    } finally {
+      this.#checking = false;
+      this.#automaticChecking = false;
     }
+    const automaticCheckFailed = automatic && this.#automaticCheckFailed;
+    this.#automaticCheckFailed = false;
+    if (automaticCheckFailed) return "failed";
+    const status = this.#state.status;
+    return status.type === "error" && status.phase === "check" ? "failed" : "checked";
   }
 
   async download(): Promise<void> {
@@ -115,6 +148,17 @@ export class DesktopUpdater {
   #set(status: DesktopUpdateState["status"]): void {
     this.#state = { ...this.#state, status };
     for (const listener of this.#listeners) listener(this.#state);
+  }
+
+  #rememberRelease(info: Pick<UpdateInfo, "version" | "releaseNotes">): void {
+    const notes = typeof info.releaseNotes === "string"
+      ? info.releaseNotes
+      : info.releaseNotes?.find((entry) => entry.version === info.version)?.note;
+    const previous = this.#state.availableRelease;
+    this.#state = { ...this.#state, availableRelease: {
+      version: info.version,
+      notes: notes?.trim() || (previous?.version === info.version ? previous.notes : ""),
+    } };
   }
 
   #setError(error: unknown, phase: DesktopUpdatePhase, retry: DesktopUpdateRetry, version?: string): void {

@@ -333,9 +333,9 @@ export class ProjectManager {
     return this.#covers.set(this.#projectDirectory(id), contents, source);
   }
 
-  async restoreAutomaticCover(id: string): Promise<void> {
+  async setCoverMode(id: string, mode: ProjectCoverMode, fallback?: Uint8Array): Promise<void> {
     if (!this.#projects.has(id)) throw new Error(`Project not found: ${id}`);
-    await this.#covers.restoreAutomatic(this.#projectDirectory(id));
+    await this.#covers.setMode(this.#projectDirectory(id), mode, fallback);
   }
 
   async addGeneratedAsset(
@@ -504,8 +504,9 @@ export class ProjectManager {
       const destination = path.join(path.dirname(source.absolutePath), normalizedName);
       if (source.absolutePath === destination) return source.relativePath;
       try {
-        await lstat(destination);
-        throw new ProjectAssetError("A file or folder with that name already exists", 409);
+        const existing = await lstat(destination);
+        // On a case-insensitive file system a name that differs only in letter case is the source entry itself.
+        if (existing.isSymbolicLink() || await realpath(destination) !== source.absolutePath) throw new ProjectAssetError("A file or folder with that name already exists", 409);
       } catch (cause) { if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause; }
       await rename(source.absolutePath, destination);
       try {
@@ -657,7 +658,7 @@ export class ProjectManager {
     }
   }
 
-  async setPublication(id: string, publication: PublicationState): Promise<void> {
+  async setPublication(id: string, publication: PublicationState | undefined): Promise<void> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     await this.#save(project, { publication, updatedAt: new Date().toISOString() });
@@ -695,6 +696,22 @@ export class ProjectManager {
     finally { if (this.#metadataWrites.get(project.id) === operation) this.#metadataWrites.delete(project.id); }
   }
 
+  /**
+   * The project whose workspace is the selected folder. Choosing that folder
+   * again opens the project rather than creating a second one on its files.
+   */
+  async findByWorkspace(selectedWorkspacePath: string): Promise<ProjectState | undefined> {
+    try {
+      return this.#workspaceOwner(await realpath(selectedWorkspacePath));
+    } catch {
+      return undefined;
+    }
+  }
+
+  #workspaceOwner(workspacePath: string): ProjectState | undefined {
+    return [...this.#projects.values()].find((project) => path.resolve(project.workspacePath) === workspacePath);
+  }
+
   async #validateExternalWorkspace(selectedWorkspacePath: string): Promise<string> {
     if (!path.isAbsolute(selectedWorkspacePath)) throw new ProjectWorkspaceError("Workspace path must be absolute");
     let entry: Awaited<ReturnType<typeof lstat>>;
@@ -714,12 +731,8 @@ export class ProjectManager {
     if (pathsOverlap(workspacePath, this.#projectsDirectory)) {
       throw new ProjectWorkspaceError("OhMyGame's project storage cannot be used as a workspace");
     }
-    for (const project of this.#projects.values()) {
-      const existingWorkspace = path.resolve(project.workspacePath);
-      if (pathsOverlap(workspacePath, existingWorkspace)) {
-        throw new ProjectWorkspaceError("This folder overlaps with another OhMyGame workspace");
-      }
-    }
+    const owner = this.#workspaceOwner(workspacePath);
+    if (owner) throw new ProjectWorkspaceError(`This folder is already the workspace of “${owner.name}”`);
     return workspacePath;
   }
 

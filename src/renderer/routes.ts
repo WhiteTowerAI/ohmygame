@@ -14,6 +14,12 @@ export type SidebarPage =
 
 export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "web-search" | "network" | "plugins" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
+export type ProjectSort = "updated" | "name";
+export interface ProjectListFilters {
+  projectType?: ProjectType;
+  query?: string;
+  sort?: ProjectSort;
+}
 type SidebarRoutePage = Exclude<SidebarPage, "community" | "projects">;
 
 export const DEFAULT_SETTINGS_SECTION: SettingsSection = "providers";
@@ -24,8 +30,9 @@ const SIDEBAR_PAGES = new Set<SidebarRoutePage>([
 
 export type AppRoute =
   | { page: SidebarRoutePage }
-  | { page: "projects"; projectType?: ProjectType }
+  | ({ page: "projects" } & ProjectListFilters)
   | { page: "community" }
+  | { page: "community-profile"; authorId: string }
   | { page: "settings"; section: SettingsSection; pluginId?: string }
   | { page: "plugin-builder"; sessionId: string }
   | { page: "game"; gameId: string }
@@ -50,10 +57,23 @@ export function parseAppRoute(hash: string): AppRoute {
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);
   if (communityMatch) return { page: "community" };
+  const profileMatch = /^#\/community\/creators\/([^/]+)$/.exec(hash);
+  if (profileMatch?.[1]) {
+    try { return { page: "community-profile", authorId: decodeURIComponent(profileMatch[1]) }; }
+    catch { return { page: "home" }; }
+  }
   const projectsMatch = /^#\/projects(?:\?([^#]*))?$/.exec(hash);
   if (projectsMatch) {
-    const projectType = new URLSearchParams(projectsMatch[1]).get("type");
-    return { page: "projects", ...(isProjectType(projectType) ? { projectType } : {}) };
+    const params = new URLSearchParams(projectsMatch[1]);
+    const projectType = params.get("type");
+    const query = params.get("q");
+    const sort = params.get("sort");
+    return {
+      page: "projects",
+      ...(isProjectType(projectType) ? { projectType } : {}),
+      ...(query ? { query } : {}),
+      ...(sort === "name" ? { sort } : {}),
+    };
   }
   const sidebarMatch = /^#\/([^/]+)$/.exec(hash);
   if (sidebarMatch?.[1] && SIDEBAR_PAGES.has(sidebarMatch[1] as SidebarRoutePage)) {
@@ -114,8 +134,12 @@ export function settingsHash(section: SettingsSection): string {
   return `#/settings/${section}`;
 }
 
-export function projectsHash(projectType?: ProjectType): string {
-  return projectType ? `#/projects?type=${encodeURIComponent(projectType)}` : "#/projects";
+export function projectsHash({ projectType, query, sort }: ProjectListFilters = {}): string {
+  const params = new URLSearchParams();
+  if (projectType) params.set("type", projectType);
+  if (query) params.set("q", query);
+  if (sort === "name") params.set("sort", sort);
+  return `#/projects${params.size ? `?${params}` : ""}`;
 }
 
 export function pluginHash(pluginId: string): string {
@@ -148,4 +172,8 @@ export function communityHash(): string {
 
 export function playtestHash(projectId: string): string {
   return `#/playtest/${encodeURIComponent(projectId)}`;
+}
+
+export function communityProfileHash(authorId: string): string {
+  return `#/community/creators/${encodeURIComponent(authorId)}`;
 }

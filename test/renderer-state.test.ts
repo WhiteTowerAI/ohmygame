@@ -102,6 +102,71 @@ describe("rendererReducer", () => {
     expect(next.turns.at(-1)?.items[0]).toMatchObject({ type: "userMessage", text: "Revised" });
   });
 
+  it("marks the user message of a turn with the checkpoint taken for it", () => {
+    const state = { ...initialized(), lastEventId: 1, turns: [
+      turn("turn-1", "completed", [user("turn-1", "First")]),
+      turn("turn-2", "inProgress", [user("turn-2", "Second")]),
+    ] };
+    const next = event(state, { ...runtimeEvent(2, "checkpoint.created", { checkpointId: "checkpoint-2" }), conversationId: "conversation-1", turnId: "turn-2" });
+
+    expect(next.turns[0]?.items[0]).not.toHaveProperty("checkpointId");
+    expect(next.turns[1]?.items[0]).toMatchObject({ type: "userMessage", text: "Second", checkpointId: "checkpoint-2" });
+    // An event of another conversation changes nothing.
+    const other = event(state, { ...runtimeEvent(2, "checkpoint.created", { checkpointId: "checkpoint-9" }), turnId: "turn-2", conversationId: "another" });
+    expect(other.turns[1]?.items[0]).not.toHaveProperty("checkpointId");
+  });
+
+  it("marks a message with the files its turn changed, whichever turn reports it", () => {
+    const first = turn("stored-1", "completed", [{ ...user("stored-1", "First"), checkpointId: "checkpoint-1", changes: { files: 4, undone: true } }]);
+    const second = turn("stored-2", "completed", [{ ...user("stored-2", "Second"), checkpointId: "checkpoint-2" }, assistant("stored-2", "assistant-2", "Done", "completed")]);
+    const state = { ...initialized(), lastEventId: 1, turns: [first, second] };
+    // A run reports the turn under its own id, which a reloaded conversation does not have.
+    const completed = { ...runtimeEvent(2, "checkpoint.completed", { checkpointId: "checkpoint-2", files: 3 }), conversationId: "conversation-1", turnId: "live-turn" };
+    const next = event(state, completed);
+
+    expect(next.turns[1]?.items[0]).toMatchObject({ type: "userMessage", text: "Second", checkpointId: "checkpoint-2", changes: { files: 3 } });
+    expect(next.turns[1]?.items[1]).toBe(second.items[1]);
+    expect(next.turns[0]).toBe(first);
+    // A turn that ends again is no longer undone.
+    const again = event(state, { ...completed, data: { checkpointId: "checkpoint-1", files: 2 } });
+    expect(again.turns[0]?.items[0]).toMatchObject({ checkpointId: "checkpoint-1", changes: { files: 2 } });
+    expect(again.turns[0]?.items[0]).not.toHaveProperty("changes.undone");
+    // An event of another conversation changes nothing.
+    const other = event(state, { ...completed, conversationId: "another" });
+    expect(other.turns).toBe(state.turns);
+    expect(other.lastEventId).toBe(2);
+  });
+
+  it("marks a message whose turn was undone without touching the turns around it", () => {
+    const first = turn("stored-1", "completed", [{ ...user("stored-1", "First"), checkpointId: "checkpoint-1", changes: { files: 4 } }, assistant("stored-1", "assistant-1", "Done", "completed")]);
+    const second = turn("stored-2", "inProgress", [{ ...user("stored-2", "Second"), checkpointId: "checkpoint-2" }]);
+    const state = { ...initialized(), lastEventId: 1, turns: [first, second] };
+    const undone = { ...runtimeEvent(2, "workspace.undone", { checkpointId: "checkpoint-1", kept: 0 }), conversationId: "conversation-1" };
+    const next = event(state, undone);
+
+    expect(next.turns[0]?.items[0]).toMatchObject({ text: "First", changes: { files: 4, undone: true } });
+    expect(next.turns[0]?.items[0]).not.toHaveProperty("changes.kept");
+    expect(next.turns[0]?.items[1]).toBe(first.items[1]);
+    // A turn that started in the meantime stays as it is.
+    expect(next.turns[1]).toBe(second);
+    // Files that were left as they are are counted, and no longer once the rest was undone as well.
+    const partly = event(state, { ...undone, data: { checkpointId: "checkpoint-1", kept: 2 } });
+    expect(partly.turns[0]?.items[0]).toMatchObject({ changes: { files: 4, undone: true, kept: 2 } });
+    const rest = event(partly, { ...undone, id: 3 });
+    expect(rest.turns[0]?.items[0]).toMatchObject({ changes: { files: 4, undone: true } });
+    expect(rest.turns[0]?.items[0]).not.toHaveProperty("changes.kept");
+    const reapplied = event(partly, { ...undone, id: 4, type: "workspace.reapplied", data: { checkpointId: "checkpoint-1", kept: 0, undone: false } });
+    expect(reapplied.turns[0]?.items[0]).toMatchObject({ changes: { files: 4 } });
+    expect(reapplied.turns[0]?.items[0]).not.toHaveProperty("changes.undone");
+    expect(reapplied.turns[0]?.items[0]).not.toHaveProperty("changes.kept");
+    expect(reapplied.turns[1]).toBe(second);
+    // A turn whose end was not reported has nothing to mark, and an event of another conversation changes nothing.
+    expect(event(state, { ...undone, data: { checkpointId: "checkpoint-2", kept: 0 } }).turns[1]).toBe(second);
+    const other = event(state, { ...undone, conversationId: "another" });
+    expect(other.turns).toBe(state.turns);
+    expect(other.lastEventId).toBe(2);
+  });
+
   it("removes a transient retry item after reconnection succeeds", () => {
     let state = initialized();
     state = event(state, runtimeEvent(1, "agent.started", { prompt: "Build" }));

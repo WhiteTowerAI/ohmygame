@@ -1,21 +1,25 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { ProjectCoverMode, ProjectState, PublicationState } from "../shared/contracts.js";
-import { getExploreGameCover, getProjectCover, getProjectCoverState, restoreAutomaticProjectCover, setProjectCover } from "./api.js";
+import { getExploreGameCover, getProjectCover, getProjectCoverState, setProjectCoverMode, setProjectCover } from "./api.js";
 import { imageToWebP } from "./image.js";
 import { Check, Copy, ExternalLink, Image, InfoCircle, LoaderCircle, RefreshCw, Upload, X } from "./icons.js";
 import { localDebug } from "./auth.js";
 import { gameHash } from "./routes.js";
+import { language, t } from "./i18n.js";
 
 export interface PublishDetails {
   title: string;
   description: string;
 }
 
-export function PublishDialog({ project, publishing, justPublished = false, onClose, onPublish }: {
+export function PublishDialog({ project, publishing, justPublished = false, initialEditing = false, coverAccessToken, profileUrl, onClose, onPublish }: {
   project: ProjectState;
   publishing: boolean;
   onClose: () => void;
   justPublished?: boolean;
+  initialEditing?: boolean;
+  coverAccessToken?: string;
+  profileUrl?: string;
   onPublish: (details: PublishDetails) => Promise<boolean>;
 }) {
   const titleId = useId();
@@ -30,14 +34,14 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
   const [coverMode, setCoverMode] = useState<ProjectCoverMode>();
   const coverUrl = useCoverUrl(pendingCover ?? savedCover);
   const [coverLoading, setCoverLoading] = useState(true);
-  const [coverOperation, setCoverOperation] = useState<"process" | "apply" | "restore">();
+  const [coverOperation, setCoverOperation] = useState<"process" | "apply" | "mode">();
   const [coverNotice, setCoverNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
-  const [editing, setEditing] = useState(!project.publication);
+  const [editing, setEditing] = useState(!project.publication || initialEditing);
   const publication = editing ? undefined : project.publication;
   const busy = publishing || submitting || Boolean(coverOperation);
-  const submitLabel = coverOperation === "process" ? "Processing cover..." : coverOperation ? "Saving cover..." : busy ? "Publishing..." : project.publication ? "Publish update" : "Publish";
+  const submitLabel = coverOperation === "process" ? t("publish.processingCover") : coverOperation ? t("publish.savingCover") : busy ? t("publish.publishing") : project.publication ? t("publish.update") : t("publish.publish");
 
   useEffect(() => {
     if (!editing) return;
@@ -123,7 +127,7 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
       setSavedCover(nextCover);
       setPendingCover(undefined);
       setCoverMode("custom");
-      setCoverNotice("Cover applied. Automatic replacement is off.");
+      setCoverNotice(t("publish.coverApplied"));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -131,17 +135,16 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
     }
   }
 
-  async function restoreCover(): Promise<void> {
-    if (busy) return;
-    setCoverOperation("restore");
+  async function toggleAutomaticCover(): Promise<void> {
+    if (busy || coverLoading || pendingCover || !coverMode) return;
+    const nextMode = coverMode === "auto" ? "custom" : "auto";
+    setCoverOperation("mode");
     setError(undefined);
     setCoverNotice(undefined);
     try {
-      await restoreAutomaticProjectCover(project.id);
-      setCoverMode("auto");
-      setSavedCover(undefined);
+      await setProjectCoverMode(project.id, nextMode);
+      setCoverMode(nextMode);
       setSavedCover(await getProjectCover(project.id));
-      setCoverNotice("Automatic cover restored.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -154,7 +157,7 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
     const normalizedTitle = title.trim();
     if (!normalizedTitle || busy || coverLoading) return;
     if (pendingCover) {
-      setError("Apply or cancel the selected cover before publishing.");
+      setError(t("publish.applyCover"));
       return;
     }
     setError(undefined);
@@ -162,7 +165,7 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
     try {
       if (await onPublish({ title: normalizedTitle, description: description.trim() })) {
         setEditing(false);
-      } else setError("Publishing did not complete. Please try again.");
+      } else setError(t("publish.failed"));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -172,9 +175,11 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
 
   return <div className="project-create-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
     <section ref={dialog} className="publish-dialog" role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby={titleId} tabIndex={-1}>
-      <header><h2 id={titleId}>{publication ? justPublished ? "Game published" : "Published game" : project.publication ? "Publish update" : "Publish game"}</h2><button type="button" disabled={busy} onClick={onClose} aria-label="Close"><X size={16} /></button></header>
+      <header><h2 id={titleId}>{publication ? justPublished ? t("publish.gamePublished") : t("publish.publishedGame") : project.publication ? t("publish.update") : t("publish.publishGame")}</h2><button type="button" disabled={busy} onClick={onClose} aria-label={t("common.close")}><X size={16} /></button></header>
       {publication ? <PublicationDetails
         publication={publication}
+        coverAccessToken={coverAccessToken}
+        profileUrl={profileUrl}
         name={project.name}
         justPublished={justPublished}
         onClose={onClose}
@@ -184,11 +189,16 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
         }}
       /> : <form onSubmit={(event) => void submit(event)}>
         <div className="publish-cover-field">
+          <div className="publish-cover-heading">
+            <span className="publish-cover-label">{t("publish.cover")}{pendingCover ? <span>{t("publish.notApplied")}</span> : null}</span>
+            <label className="publish-cover-automatic" title={t("publish.automaticTitle")}>
+              {t("publish.automatic")}<span className="settings-toggle"><input type="checkbox" role="switch" aria-label={t("publish.automaticLabel")} checked={coverMode === "auto"} disabled={busy || coverLoading || Boolean(pendingCover) || !coverMode} onChange={() => void toggleAutomaticCover()} /><span aria-hidden="true" /></span>
+            </label>
+          </div>
           <label htmlFor={coverInputId}>
-            <span className="publish-cover-heading">Cover{pendingCover ? <span>Not applied</span> : coverMode ? <span>{coverMode === "custom" ? "Custom" : "Automatic"}</span> : null}</span>
             <span className="publish-cover-preview">
-              {coverUrl ? <img src={coverUrl} alt="Game cover preview" /> : <span>{coverLoading ? <LoaderCircle className="spin" size={22} /> : <Image size={22} />}{coverLoading ? "Loading cover..." : "The preview is captured automatically"}</span>}
-              <span className="publish-cover-action"><Upload size={14} />Replace cover</span>
+              {coverUrl ? <img src={coverUrl} alt={t("publish.coverPreview")} /> : <span>{coverLoading ? <LoaderCircle className="spin" size={22} /> : <Image size={22} />}{coverLoading ? t("publish.loadingCover") : coverMode === "custom" ? t("publish.noCover") : t("publish.autoCaptured")}</span>}
+              <span className="publish-cover-action"><Upload size={14} />{t("publish.replaceCover")}</span>
             </span>
           </label>
           <input id={coverInputId} hidden type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || coverLoading} onChange={(event) => {
@@ -196,19 +206,17 @@ export function PublishDialog({ project, publishing, justPublished = false, onCl
             event.target.value = "";
           }} />
           {pendingCover ? <div className="publish-cover-controls">
-            <button type="button" disabled={busy} onClick={() => { setPendingCover(undefined); setError(undefined); setCoverNotice(undefined); }}>Cancel selection</button>
-            <button className="project-create-submit" type="button" disabled={busy} onClick={() => void applyCover()}>{coverOperation === "apply" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}Apply cover</button>
-          </div> : coverMode === "custom" ? <div className="publish-cover-controls">
-            <button type="button" disabled={busy || coverLoading} onClick={() => void restoreCover()}><RefreshCw className={coverOperation === "restore" ? "spin" : undefined} size={14} />Restore automatic cover</button>
+            <button type="button" disabled={busy} onClick={() => { setPendingCover(undefined); setError(undefined); setCoverNotice(undefined); }}>{t("publish.cancelSelection")}</button>
+            <button className="project-create-submit" type="button" disabled={busy} onClick={() => void applyCover()}>{coverOperation === "apply" ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}{t("publish.applyCoverButton")}</button>
           </div> : null}
-          <p className="publish-cover-status" role="status">{pendingCover ? "Apply or cancel the selected cover before publishing." : coverNotice ?? (coverMode === "custom" ? "Automatic replacement is off." : "The cover updates automatically with your project preview.")}</p>
-          {project.publication ? <p className="publish-cover-status">This is your local project cover. Publish an update to change the Community cover.</p> : null}
+          <p className={`publish-cover-status${pendingCover || coverNotice ? "" : " visually-hidden"}`} role="status">{pendingCover ? t("publish.applyCover") : coverNotice}</p>
+          {project.publication ? <p className="publish-cover-status">{t("publish.localCover")}</p> : null}
         </div>
-        <label><span>Name</span><input ref={titleInput} value={title} maxLength={200} disabled={busy} required onChange={(event) => setTitle(event.target.value)} /></label>
-        <label><span>Description</span><textarea value={description} maxLength={2000} disabled={busy} rows={4} placeholder="Describe what makes this game worth playing" onChange={(event) => setDescription(event.target.value)} /></label>
+        <label><span>{t("common.name")}</span><input ref={titleInput} value={title} maxLength={200} disabled={busy} required onChange={(event) => setTitle(event.target.value)} /></label>
+        <label><span>{t("publish.description")}</span><textarea value={description} maxLength={2000} disabled={busy} rows={4} placeholder={t("publish.descriptionPlaceholder")} onChange={(event) => setDescription(event.target.value)} /></label>
         {localDebug ? <LocalPublishNotice /> : null}
         {error ? <p className="project-create-error" role="alert">{error}</p> : null}
-        <footer><button type="button" disabled={busy} onClick={onClose}>Close</button><button className="project-create-submit" type="submit" aria-label={submitLabel} disabled={busy || coverLoading || Boolean(pendingCover) || !title.trim()}>{busy ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span role={busy ? "status" : undefined}>{submitLabel}</span></button></footer>
+        <footer><button type="button" disabled={busy} onClick={onClose}>{t("common.close")}</button><button className="project-create-submit" type="submit" aria-label={submitLabel} disabled={busy || coverLoading || Boolean(pendingCover) || !title.trim()}>{busy ? <LoaderCircle className="spin" size={14} /> : <Upload size={14} />}<span role={busy ? "status" : undefined}>{submitLabel}</span></button></footer>
       </form>}
     </section>
   </div>;
@@ -228,10 +236,12 @@ function useCoverUrl(cover: Blob | undefined): string | undefined {
   return url;
 }
 
-export function PublicationDetails({ publication, name, justPublished = false, onClose, onUpdate }: {
+export function PublicationDetails({ publication, name, justPublished = false, coverAccessToken, profileUrl, onClose, onUpdate }: {
   publication: PublicationState;
   name: string;
   justPublished?: boolean;
+  coverAccessToken?: string;
+  profileUrl?: string;
   onClose: () => void;
   onUpdate: () => void;
 }) {
@@ -245,11 +255,11 @@ export function PublicationDetails({ publication, name, justPublished = false, o
   useEffect(() => {
     let active = true;
     setCover(undefined);
-    void getExploreGameCover(publication.gameId, publication.deploymentId)
+    void getExploreGameCover(publication.gameId, publication.deploymentId, coverAccessToken)
       .then((value) => { if (active) setCover(value); })
       .catch(() => undefined);
     return () => { active = false; };
-  }, [publication.gameId, publication.deploymentId]);
+  }, [publication.gameId, publication.deploymentId, coverAccessToken]);
 
   async function copyLink(): Promise<void> {
     setCopyError(false);
@@ -264,37 +274,37 @@ export function PublicationDetails({ publication, name, justPublished = false, o
 
   return <div className="publication-details">
     <div className="publication-summary">
-      {coverUrl ? <img src={coverUrl} alt="Game cover" /> : <Check className="publication-check" size={22} />}
+      {coverUrl ? <img src={coverUrl} alt={t("publish.gameCover")} /> : <Check className="publication-check" size={22} />}
       <div>
         <h3>{publication.title ?? name}</h3>
-        {justPublished ? <p role="status">Published successfully</p> : null}
-        <time dateTime={publication.publishedAt} title="Last published"><RefreshCw size={12} aria-hidden="true" />{publicationTime(publication.publishedAt)}</time>
+        {justPublished ? <p role="status">{t("publish.success")}</p> : null}
+        <time dateTime={publication.publishedAt} title={t("publish.lastPublished")}><RefreshCw size={12} aria-hidden="true" />{publicationTime(publication.publishedAt)}</time>
       </div>
     </div>
     {publication.gameId.startsWith("local-") ? <LocalPublishNotice /> : null}
     <div className="publication-link-field">
-      <label htmlFor={linkId}>Game link</label>
+      <label htmlFor={linkId}>{t("community.link")}</label>
       <div>
         <input id={linkId} readOnly value={publication.playUrl} onFocus={(event) => event.currentTarget.select()} />
-        <button type="button" className="icon-button" onClick={() => void copyLink()} title={copied ? "Link copied" : "Copy game link"} aria-label="Copy game link">
+        <button type="button" className="icon-button" onClick={() => void copyLink()} title={copied ? t("publish.linkCopied") : t("publish.copyLink")} aria-label={t("publish.copyLink")}>
           {copied ? <Check size={16} /> : <Copy size={16} />}
         </button>
-        <a className="icon-button" href={publication.playUrl} target="_blank" rel="noopener noreferrer" title="Open game" aria-label="Open game"><ExternalLink size={16} /></a>
+        <a className="icon-button" href={publication.playUrl} target="_blank" rel="noopener noreferrer" title={t("publish.openGame")} aria-label={t("publish.openGame")}><ExternalLink size={16} /></a>
       </div>
-      <p className={`publication-copy-status${copyError ? " is-error" : ""}`} role={copyError ? "alert" : "status"}>{copyError ? "Could not copy the link." : copied ? "Link copied" : ""}</p>
+      <p className={`publication-copy-status${copyError ? " is-error" : ""}`} role={copyError ? "alert" : "status"}>{copyError ? t("publish.copyFailed") : copied ? t("publish.linkCopied") : ""}</p>
     </div>
     <div className="publication-secondary-actions">
-      <a href={gameHash(publication.gameId)} onClick={onClose}>View in Community</a>
-      <button type="button" onClick={onUpdate}><Upload size={13} />Publish update</button>
+      <a href={profileUrl ?? gameHash(publication.gameId)} onClick={onClose}>{profileUrl ? t("community.viewOnProfile") : t("publish.viewInCommunity")}</a>
+      <button type="button" onClick={onUpdate}><Upload size={13} />{t("publish.update")}</button>
     </div>
   </div>;
 }
 
 function LocalPublishNotice() {
-  return <p className="publish-local-notice"><InfoCircle size={15} /><span>Local debug publish. This link only works on this computer until the local runtime stops or restarts.</span></p>;
+  return <p className="publish-local-notice"><InfoCircle size={15} /><span>{t("publish.localDebug")}</span></p>;
 }
 
 function publicationTime(value: string): string {
   const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date) : "Unknown publication time";
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(date) : t("publish.unknownTime");
 }

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getNodeRuntime, playableSandboxUrl } from "./api.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
-import { PlaytestOverlay, playtestSaveKey, playtestSeenKey, requestAskAgent, takePlaytestStart, usePlaytestStartRequests, type PlaytestStart } from "./playable-playtest.js";
+import { PlaytestOverlay, playtestSaveKey, playtestSeenKey, requestAskAgent, takePlaytestRequest, usePlaytestRequests, type PlaytestRequest, type PlaytestStart } from "./playable-playtest.js";
 import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
 import { loadPlayableAssets } from "./playable-assets.js";
-import { WindowDragRegion } from "./window-drag-region.js";
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
+import { t } from "./i18n.js";
 
 export function PlaytestPage({ projectId }: { projectId: string }) {
   const [snapshot, setSnapshot] = useState<NodeRuntimeSnapshot>();
@@ -25,13 +25,10 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   useEffect(() => {
     let disposed = false;
     setPlayable({ status: "loading" });
-    setSnapshot(undefined);
-    setDiagnostics([]);
-    // The editor's "Play from here" leaves its start waiting for this window.
-    setStart(takePlaytestStart(projectId));
-    history.current.reset();
+    // Editor actions may arrive before the Playtest window is open.
+    restart(takePlaytestRequest(projectId));
     void getNodeRuntime(projectId).then(async (result) => {
-      if (!result.available) throw new Error("This project has no Scenes yet.");
+      if (!result.available) throw new Error(t("sceneWorkbench.noScenes"));
       const assets = await loadPlayableAssets(projectId, result.definition.graph);
       if (disposed) return;
       document.title = `${result.definition.graph.title} - Playtest`;
@@ -48,11 +45,13 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   }, []);
   const onDiagnostic = useCallback((message: string) => setDiagnostics((current) => [...current.slice(-19), message]), []);
 
-  usePlaytestStartRequests(projectId, (next) => restart(next, false));
+  usePlaytestRequests(projectId, (request) => restart(request, start));
 
-  /** Starts another Runtime session; a chosen start never touches the saved game. */
-  function restart(nextStart: PlaytestStart | undefined, clearSave: boolean): void {
-    if (clearSave) window.localStorage.removeItem(saveKey);
+  /** Applies an editor request and starts a fresh Runtime session. */
+  function restart(request?: PlaytestRequest, currentStart?: PlaytestStart): void {
+    const nextStart = request?.action === "start" ? request.start : currentStart;
+    if (request?.action === "replay" && !nextStart) window.localStorage.removeItem(saveKey);
+    if (request?.action === "forget-seen") window.localStorage.removeItem(playtestSeenKey(projectId));
     history.current.reset();
     setSnapshot(undefined);
     setDiagnostics([]);
@@ -66,7 +65,6 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     const record = snapshot ? playableDebugRecord(snapshot, graph, history.current.changes) : undefined;
     return (
       <>
-        <WindowDragRegion />
         <NodePlayer
           key={session}
           definition={playable.definition}
@@ -84,11 +82,6 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
           graph={graph}
           record={record}
           diagnostics={diagnostics}
-          onRestart={() => restart(undefined, !start)}
-          onForgetSeen={() => {
-            window.localStorage.removeItem(playtestSeenKey(projectId));
-            restart(start, false);
-          }}
           onAskAgent={(text) => {
             requestAskAgent(projectId, text);
             // Bring the editor forward on the Scene the player was in.
@@ -100,9 +93,8 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   }
   return (
     <main className="playable-player-page">
-      <WindowDragRegion />
       <div className="playable-player-page-state" role={playable.status === "error" ? "alert" : undefined}>
-        {playable.status === "error" ? playable.error : "Loading playtest..."}
+        {playable.status === "error" ? playable.error : t("playtest.loading")}
       </div>
     </main>
   );

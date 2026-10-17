@@ -4,12 +4,15 @@ import {
   PLUGIN_MANIFEST_PATH,
   PERSONAL_MARKETPLACE,
   isPluginManifest,
+  isPluginIcon,
   type PluginInstallCandidate,
   type PluginManifest,
   type ResolvedPluginManifest,
+  isPluginVersion,
 } from "../shared/plugins.js";
 import { LocalPluginError } from "./local-plugins.js";
 import { parseSkillMetadata } from "./skill-metadata.js";
+import { pluginCompatibilityIssue } from "./plugin-contract.js";
 
 export interface DiscoveredPlugin extends PluginInstallCandidate {
   manifest: ResolvedPluginManifest;
@@ -32,6 +35,8 @@ export async function discoverPlugins(root: string): Promise<DiscoveredPlugin[]>
     const manifest = candidate.format === "ohmygame"
       ? await readOhMyGameManifest(path.join(root, candidate.path))
       : await normalizeManifest(root, await readJson(path.join(root, candidate.path)), candidate.format);
+    const issue = pluginCompatibilityIssue(manifest);
+    if (issue) throw new LocalPluginError(issue);
     return [await installCandidate(root, candidate.format, manifest, PERSONAL_MARKETPLACE)];
   }
 
@@ -65,6 +70,7 @@ async function discoverMarketplace(root: string, manifestPath: string): Promise<
   const marketplaceRef = marketplaceReference(marketplace);
   const format: DiscoveredPlugin["format"] = manifestPath.includes(".claude-plugin") ? "claude" : "codex";
   const candidates: DiscoveredPlugin[] = [];
+  let incompatible: string | undefined;
   for (const rawEntry of marketplace.plugins) {
     const entry = asRecord(rawEntry);
     const sourceRoot = marketplaceSourceRoot(root, entry.source);
@@ -73,14 +79,24 @@ async function discoverMarketplace(root: string, manifestPath: string): Promise<
     const nativePath = path.join(sourceRoot, PLUGIN_MANIFEST_PATH);
     const codexPath = path.join(sourceRoot, ".codex-plugin", "plugin.json");
     const claudePath = path.join(sourceRoot, ".claude-plugin", "plugin.json");
-    if (await exists(nativePath)) manifest = await readOhMyGameManifest(nativePath);
-    else if (await exists(codexPath)) manifest = await normalizeManifest(sourceRoot, await readJson(codexPath), "codex");
+    if (await exists(nativePath)) {
+      manifest = await readOhMyGameManifest(nativePath);
+    } else if (await exists(codexPath)) manifest = await normalizeManifest(sourceRoot, await readJson(codexPath), "codex");
     else if (await exists(claudePath)) manifest = await normalizeManifest(sourceRoot, await readJson(claudePath), "claude");
     else manifest = await normalizeManifest(sourceRoot, entry, format, rawSkills.length ? rawSkills : undefined);
-    manifest = { ...manifest, skills: rebasePaths(root, sourceRoot, manifest.skills) };
+    // One plugin that needs a newer host must not hide the rest of the marketplace.
+    const issue = pluginCompatibilityIssue(manifest);
+    if (issue) {
+      incompatible ??= issue;
+      continue;
+    }
+    const icon = manifest.interface?.icon;
+    manifest = { ...manifest, skills: rebasePaths(root, sourceRoot, manifest.skills), ...(icon?.type === "asset" ? {
+      interface: { ...manifest.interface, icon: { type: "asset", path: relativePath(path.relative(root, path.resolve(sourceRoot, icon.path))) } },
+    } : {}) };
     candidates.push({ ...await installCandidate(root, format, manifest, marketplaceRef), key: `marketplace:${marketplaceRef.id}:${manifest.name}` });
   }
-  if (!candidates.length) throw new LocalPluginError("Plugin marketplace does not contain any plugins");
+  if (!candidates.length) throw new LocalPluginError(incompatible ?? "Plugin marketplace does not contain any plugins");
   return candidates;
 }
 
@@ -97,14 +113,19 @@ async function normalizeManifest(
   const skills = declaredSkills ?? stringArray(source.skills);
   const discovered = skills.length ? skills.map(relativePath) : await conventionalSkills(root);
   const description = stringValue(ui.shortDescription) || stringValue(source.description) || `${displayName(name)} plugin`;
+  const formatVersion = source.formatVersion;
+  const minimumHostVersion = stringValue(source.minimumHostVersion);
   return {
     name,
+    ...(typeof formatVersion === "number" && Number.isInteger(formatVersion) && formatVersion >= 1 ? { formatVersion } : {}),
+    ...(isPluginVersion(minimumHostVersion) ? { minimumHostVersion } : {}),
     ...(semver(stringValue(source.version)) ? { version: stringValue(source.version)! } : {}),
     description,
     ...(discovered.length ? { skills: discovered.length === 1 ? discovered[0] : discovered } : {}),
     interface: {
       displayName: stringValue(ui.displayName) || displayName(name),
       shortDescription: description,
+      ...(isPluginIcon(ui.icon) ? { icon: ui.icon } : {}),
       ...(stringValue(ui.longDescription) ? { longDescription: stringValue(ui.longDescription) } : {}),
       ...(promptArray(ui.defaultPrompt).length ? { defaultPrompt: promptArray(ui.defaultPrompt) } : {}),
     },

@@ -14,30 +14,40 @@ import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js
 import { SegmentedControl } from "./segmented-control.js";
 import { PluginsSettings } from "./plugins.js";
 import type { PluginDetail } from "../shared/plugins.js";
+import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
+import { ChangelogPanel } from "./changelog-panel.js";
+import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
 const CHAT_LAYOUT_OPTIONS: readonly { value: ChatLayout; label: string }[] = [
-  { value: "left", label: "Left" },
-  { value: "right", label: "Right" },
+  { value: "left", label: t("settings.appearance.left") },
+  { value: "right", label: t("settings.appearance.right") },
+];
+const LANGUAGE_OPTIONS: readonly { value: LanguagePreference; label: string }[] = [
+  { value: "system", label: t("settings.appearance.system") },
+  // Language names stay in their own language so people can find theirs.
+  { value: "en", label: "English" },
+  { value: "zh-CN", label: "简体中文" },
 ];
 
 const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: typeof UserRound }> = [
-  { section: "providers", label: "Providers & Models", icon: Server },
-  { section: "account", label: "Account", icon: UserRound },
-  { section: "appearance", label: "Appearance", icon: Palette },
-  { section: "web-search", label: "Web Search", icon: Globe2 },
-  { section: "network", label: "Network", icon: Wifi },
-  { section: "plugins", label: "Plugins", icon: Package },
-  { section: "about", label: "About", icon: InfoCircle },
+  { section: "providers", label: t("settings.nav.providers"), icon: Server },
+  { section: "account", label: t("settings.nav.account"), icon: UserRound },
+  { section: "appearance", label: t("settings.nav.appearance"), icon: Palette },
+  { section: "web-search", label: t("settings.nav.webSearch"), icon: Globe2 },
+  { section: "network", label: t("settings.nav.network"), icon: Wifi },
+  { section: "plugins", label: t("settings.nav.plugins"), icon: Package },
+  { section: "about", label: t("settings.nav.about"), icon: InfoCircle },
 ];
 
-export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPluginChange, onTryPlugin }: {
+export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPluginChange, onTryPlugin, onOpenOnboarding }: {
   section: SettingsSection;
   pluginId?: string;
   onBack: () => void;
   onSectionChange: (section: SettingsSection) => void;
   onPluginChange: (pluginId?: string) => void;
   onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
+  onOpenOnboarding?: () => void;
 }) {
   const [modelsView, setModelsView] = useState<ModelsView>({ page: "providers" });
   const navigation = useRef<HTMLElement>(null);
@@ -60,10 +70,10 @@ export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPlu
         <div className="home-sidebar-header-spacer" aria-hidden="true" />
         <button className="settings-page-back" type="button" onClick={onBack}>
           <ArrowLeft size={17} />
-          <span>Back to app</span>
+          <span>{t("settings.backToApp")}</span>
         </button>
-        <nav className="settings-page-nav" aria-label="Settings sections" ref={navigation}>
-          <div className="home-nav-label">SETTINGS</div>
+        <nav className="settings-page-nav" aria-label={t("settings.nav.label")} ref={navigation}>
+          <div className="home-nav-label">{t("settings.nav.heading")}</div>
           {SETTINGS_SECTIONS.map((item) => {
             const Icon = item.icon;
             const active = section === item.section;
@@ -86,7 +96,7 @@ export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPlu
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
           {section === "network" ? <NetworkSettingsPanel /> : null}
           {section === "plugins" ? <PluginsSettings pluginId={pluginId} onPluginChange={onPluginChange} onTryPlugin={onTryPlugin} /> : null}
-          {section === "about" ? <AboutSettings onOpenNetwork={() => chooseSection("network")} /> : null}
+          {section === "about" ? <AboutSettings onOpenNetwork={() => chooseSection("network")} onOpenOnboarding={onOpenOnboarding} /> : null}
         </div>
       </section>
     </main>
@@ -104,10 +114,10 @@ async function openBillingDashboard(): Promise<void> {
 function BillingSettings() {
   return (
     <section className="settings-panel settings-overview-panel settings-billing-panel">
-      <header className="settings-panel-header"><h3>Billing</h3></header>
-      <p>Manage your OhMyGame Cloud plan, usage, and payment details on the web.</p>
+      <header className="settings-panel-header"><h3>{t("settings.billing.title")}</h3></header>
+      <p>{t("settings.billing.description")}</p>
       <button className="settings-primary-button" type="button" onClick={() => void openBillingDashboard()}>
-        <span>Open billing dashboard</span>
+        <span>{t("settings.billing.open")}</span>
         <ExternalLink size={14} aria-hidden="true" />
       </button>
     </section>
@@ -117,6 +127,7 @@ function BillingSettings() {
 function AppearanceSettings() {
   const [appearance, setAppearance] = useState<Appearance>(readAppearance);
   const [chatLayout, updateChatLayout] = useState<ChatLayout>(readChatLayout);
+  const [language, updateLanguage] = useState<LanguagePreference>(readLanguagePreference);
 
   function chooseAppearance(next: Appearance): void {
     setAppearance(next);
@@ -128,22 +139,31 @@ function AppearanceSettings() {
     setChatLayout(next);
   }
 
+  function chooseLanguage(next: LanguagePreference): void {
+    updateLanguage(next);
+    setLanguagePreference(next);
+  }
+
   return (
     <section className="settings-panel settings-overview-panel settings-appearance-panel">
-      <header className="settings-panel-header"><h3>Appearance</h3></header>
+      <header className="settings-panel-header"><h3>{t("settings.nav.appearance")}</h3></header>
       <div className="settings-appearance-group">
-        <h4 className="settings-section-heading">Theme</h4>
-        <fieldset className="settings-theme-options" aria-label="Theme">
+        <h4 className="settings-section-heading">{t("settings.appearance.theme")}</h4>
+        <fieldset className="settings-theme-options" aria-label={t("settings.appearance.theme")}>
           <ThemeOption appearance="system" selected={appearance === "system"} onSelect={chooseAppearance} />
           <ThemeOption appearance="light" selected={appearance === "light"} onSelect={chooseAppearance} />
           <ThemeOption appearance="dark" selected={appearance === "dark"} onSelect={chooseAppearance} />
         </fieldset>
       </div>
       <div className="settings-appearance-group">
-        <h4 className="settings-section-heading">Workspace</h4>
+        <h4 className="settings-section-heading">{t("settings.appearance.workspace")}</h4>
         <div className="settings-chat-layout-row">
-          <span className="settings-chat-layout-label">Chat position</span>
-          <SegmentedControl className="settings-chat-layout-control" label="Chat panel position" options={CHAT_LAYOUT_OPTIONS} value={chatLayout} onChange={chooseChatLayout} />
+          <span className="settings-chat-layout-label">{t("settings.appearance.chatPosition")}</span>
+          <SegmentedControl className="settings-chat-layout-control" label={t("settings.appearance.chatPositionLabel")} options={CHAT_LAYOUT_OPTIONS} value={chatLayout} onChange={chooseChatLayout} />
+        </div>
+        <div className="settings-chat-layout-row">
+          <span className="settings-chat-layout-label">{t("settings.appearance.language")}</span>
+          <SegmentedControl className="settings-chat-layout-control" label={t("settings.appearance.languageLabel")} options={LANGUAGE_OPTIONS} value={language} onChange={chooseLanguage} />
         </div>
       </div>
     </section>
@@ -155,7 +175,7 @@ function ThemeOption({ appearance, selected, onSelect }: {
   selected: boolean;
   onSelect: (appearance: Appearance) => void;
 }) {
-  const label = appearance === "system" ? "System" : appearance === "light" ? "Light" : "Dark";
+  const label = t(`settings.appearance.${appearance}`);
   return (
     <button
       className={`settings-theme-option is-${appearance}${selected ? " is-selected" : ""}`}
@@ -204,28 +224,28 @@ function AccountSettings() {
   const [error, setError] = useState<string>();
   return (
     <section className="settings-panel settings-overview-panel settings-account-panel">
-      <header className="settings-panel-header"><h3>Account</h3></header>
+      <header className="settings-panel-header"><h3>{t("settings.nav.account")}</h3></header>
       {auth.state.status === "signed-in" ? (
         <div className="settings-account-row">
           <div className="settings-account-profile">
             <UserAvatar className="settings-account-avatar" name={auth.state.user.name} avatarUrl={auth.state.user.avatarUrl} />
             <span className="settings-account-copy">
-              <small>Signed in as</small>
+              <small>{t("settings.account.signedInAs")}</small>
               <strong>{auth.state.user.name}</strong>
               {auth.state.user.email ? <span>{auth.state.user.email}</span> : null}
             </span>
           </div>
-          <button className="settings-danger-button" type="button" onClick={() => void auth.signOut().catch((cause) => setError(errorMessage(cause)))}>Sign out</button>
+          <button className="settings-danger-button" type="button" onClick={() => void auth.signOut().catch((cause) => setError(errorMessage(cause)))}>{t("common.signOut")}</button>
         </div>
       ) : (
-        <button className="settings-primary-button" type="button" onClick={auth.openSignIn}>Sign in</button>
+        <button className="settings-primary-button" type="button" onClick={auth.openSignIn}>{t("common.signIn")}</button>
       )}
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
     </section>
   );
 }
 
-function AboutSettings({ onOpenNetwork }: { onOpenNetwork: () => void }) {
+function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () => void; onOpenOnboarding?: () => void }) {
   const [update, setUpdate] = useState<DesktopUpdateState | null>(null);
   const [copied, setCopied] = useState(false);
   const updates = window.ohMyGameDesktop?.updates;
@@ -237,14 +257,13 @@ function AboutSettings({ onOpenNetwork }: { onOpenNetwork: () => void }) {
     return () => { disposed = true; unsubscribe(); };
   }, [updates]);
   const status = update?.status;
-  const message = status?.type === "up-to-date" ? "You're up to date"
-    : status?.type === "checking" ? "Checking for updates..."
-      : status?.type === "available" ? `Update available: ${status.version}`
-        : status?.type === "downloading" ? `Downloading update (${status.percent}%)`
-          : status?.type === "ready" ? `Ready to restart: ${status.version}`
-            : status?.type === "installing" ? "Preparing a safe restart..."
-              : status?.type === "error" ? status.title : "Not checked yet";
-  const busy = status?.type === "checking" || status?.type === "downloading" || status?.type === "installing";
+  const message = status?.type === "up-to-date" ? t("settings.about.upToDate")
+    : status?.type === "checking" ? t("settings.about.checking")
+      : status?.type === "available" ? t("settings.about.available", { version: status.version })
+        : status?.type === "downloading" ? t("settings.about.downloading", { percent: status.percent })
+          : status?.type === "ready" ? t("settings.about.ready", { version: status.version })
+            : status?.type === "installing" ? t("settings.about.installing")
+              : status?.type === "error" ? status.title : null;
   const retry = () => {
     if (status?.type !== "error" || !updates) return;
     if (status.retry === "download") void updates.download();
@@ -262,46 +281,57 @@ function AboutSettings({ onOpenNetwork }: { onOpenNetwork: () => void }) {
     window.setTimeout(() => setCopied(false), 2_000);
   };
   return (
-    <section className="settings-panel settings-overview-panel">
-      <header className="settings-panel-header"><h3>About</h3></header>
-      <div className="settings-about-list">
-        <div className="settings-about-row">
-          <span>Version</span>
-          <strong>{update?.currentVersion ?? __APP_VERSION__}</strong>
-        </div>
-        <div className="settings-about-row">
-          <span>Updates</span>
-          <div className="settings-about-update">
-            <div className="settings-about-status">
-              <span>{message}</span>
-              {status?.type === "error" ? (
-                <div className="settings-update-error" role="alert">
-                  <p>{status.message}</p>
-                  {status.dataSafe ? <p className="settings-update-data-safe">Your projects and conversations were not deleted.</p> : null}
-                  <details>
-                    <summary>Technical details</summary>
-                    <code>{status.detail}</code>
-                  </details>
-                </div>
-              ) : null}
-            </div>
-            {updates ? (
-              <div className="settings-about-actions">
-                {status?.type === "available" ? <button className="settings-primary-button" type="button" onClick={() => void updates.download()}>Download update</button> : null}
-                {status?.type === "ready" ? <button className="settings-primary-button" type="button" onClick={() => void updates.install()}>Restart to update</button> : null}
-                {status?.type === "error" ? <>
-                  <button className="settings-primary-button" type="button" onClick={retry}>Try again</button>
-                  {status.code === "network" ? <button className="settings-secondary-button" type="button" onClick={onOpenNetwork}>Network settings</button> : null}
-                  <button className="settings-secondary-button" type="button" onClick={() => void copyDetails()}>{copied ? "Copied" : "Copy details"}</button>
-                </> : (
-                  <button className="settings-secondary-button" type="button" disabled={busy} onClick={() => void updates.check()}>Check for updates</button>
-                )}
+    <>
+      <section className="settings-panel settings-overview-panel">
+        <header className="settings-panel-header"><h3>{t("settings.nav.about")}</h3></header>
+        <div className="settings-about-summary">
+          <div className="settings-about-identity">
+            <img className="settings-about-logo" src={brandMark} alt="" />
+            <div className="settings-about-copy">
+              <div className="settings-about-product">
+                <strong>OhMyGame</strong>
+                <span>v{update?.currentVersion ?? __APP_VERSION__}</span>
               </div>
-            ) : null}
+              {updates && message ? <p className="settings-about-status" role="status">{message}</p> : null}
+            </div>
           </div>
+          {updates && status?.type !== "downloading" && status?.type !== "installing" ? (
+            <div className="settings-about-actions">
+              {status?.type === "available" ? (
+                <button className="settings-primary-button" type="button" onClick={() => void updates.download()}>{t("settings.about.download")}</button>
+              ) : status?.type === "ready" ? (
+                <button className="settings-primary-button" type="button" onClick={() => void updates.install()}>{t("settings.about.restart")}</button>
+              ) : status?.type === "error" ? (
+                <button className="settings-primary-button" type="button" onClick={retry}>{t("common.tryAgain")}</button>
+              ) : (
+                <button className="settings-secondary-button" type="button" disabled={status?.type === "checking"} onClick={() => void updates.check()}>{t("settings.about.check")}</button>
+              )}
+            </div>
+          ) : null}
         </div>
-      </div>
-    </section>
+        {status?.type === "error" ? (
+          <div className="settings-update-error" role="alert">
+            <p>{status.message}</p>
+            {status.dataSafe ? <p className="settings-update-data-safe">{t("settings.about.dataSafe")}</p> : null}
+            <details>
+              <summary>{t("common.technicalDetails")}</summary>
+              <code>{status.detail}</code>
+            </details>
+            <div className="settings-about-actions">
+              {status.code === "network" ? <button className="settings-secondary-button" type="button" onClick={onOpenNetwork}>{t("settings.about.networkSettings")}</button> : null}
+              <button className="settings-secondary-button" type="button" onClick={() => void copyDetails()}>{copied ? t("common.copied") : t("common.copyDetails")}</button>
+            </div>
+          </div>
+        ) : null}
+        <nav className="settings-about-links" aria-label={t("settings.about.projectLinks")}>
+          <a href="https://github.com/WhiteTowerAI/ohmygame" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://ohmygame.ai" target="_blank" rel="noreferrer">{t("settings.about.website")}</a>
+          <a href="https://github.com/WhiteTowerAI/ohmygame/issues" target="_blank" rel="noreferrer">{t("settings.about.reportIssue")}</a>
+        </nav>
+        {onOpenOnboarding ? <div><button className="settings-secondary-button" type="button" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</button></div> : null}
+      </section>
+      <ChangelogPanel currentVersion={update?.currentVersion ?? __APP_VERSION__} availableRelease={update?.availableRelease} />
+    </>
   );
 }
 

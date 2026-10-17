@@ -4,6 +4,7 @@ import { SignInDialog, type SignInProvider } from "./sign-in-dialog.js";
 import { syncCloudSession } from "./api.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { isLocalDebugEnabled, isLoopbackHostname, LOCAL_DEBUG_ACCESS_TOKEN, LOCAL_DEBUG_USER } from "../shared/local-debug.js";
+import { t } from "./i18n.js";
 
 export type AuthState =
   | { status: "loading" }
@@ -168,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (accessToken) return accessToken;
       setError(undefined);
     } catch {
-      setError("Your session expired. Sign in again.");
+      setError(t("auth.expired"));
     }
     setState({ status: "signed-out" });
     synchronizeCloud(null);
@@ -253,7 +254,7 @@ export function useAuth(): AuthContextValue {
 export function authUser(user: User): AuthUser {
   const metadata = user.user_metadata;
   const name = stringValue(metadata.full_name) ?? stringValue(metadata.name)
-    ?? stringValue(metadata.user_name) ?? user.email ?? "OhMyGame creator";
+    ?? stringValue(metadata.user_name) ?? user.email ?? t("auth.creator");
   return {
     id: user.id,
     name,

@@ -4,6 +4,7 @@ import type { ExampleSummary } from "../shared/examples.js";
 import { createProject, getExampleCover, listExamples, playExample, waitForRuntime } from "./api.js";
 import { LoaderCircle, Maximize, Pencil, Play, X } from "./icons.js";
 import { projectTypeLabel } from "./project-types.js";
+import { t } from "./i18n.js";
 
 /** Packaged examples and object URLs for their covers, revoked on unmount. */
 export function useExamples(): { examples: ExampleSummary[]; covers: Record<string, string> } {
@@ -69,18 +70,18 @@ export function ExampleShelf({ examples, covers, showType = false, onOpenProject
       <div className="home-whats-new-grid">
         {examples.map((example) => (
           <div className="home-explore-card" key={example.id}>
-            <button className="home-whats-new-item" type="button" onClick={() => { setRemixError(undefined); setPlaying(example); }} aria-label={`Play ${example.name}`} title={example.description}>
+            <button className="home-whats-new-item" type="button" onClick={() => { setRemixError(undefined); setPlaying(example); }} aria-label={t("examples.playName", { name: example.name })} title={example.description}>
               <span className="home-whats-new-icon home-explore-cover" aria-hidden="true">
                 {covers[example.id] ? <img src={covers[example.id]} alt="" /> : null}
-                <span className="home-explore-play"><Play size={14} />Play</span>
+                <span className="home-explore-play"><Play size={14} />{t("examples.play")}</span>
               </span>
               <span className="home-whats-new-copy">
                 <strong>{example.name}</strong>
-                <small>{showType ? projectTypeLabel(example.type) : "Example"}</small>
+                <small>{showType ? projectTypeLabel(example.type) : t("examples.example")}</small>
               </span>
             </button>
-            <button className="home-explore-remix" type="button" disabled={remixingId !== undefined} onClick={() => void remix(example)} title="Copy this example into a new project you can change">
-              <Pencil size={13} />Remix
+            <button className="home-explore-remix" type="button" disabled={remixingId !== undefined} onClick={() => void remix(example)} title={t("examples.remixTitle")}>
+              <Pencil size={13} />{t("examples.remix")}
             </button>
           </div>
         ))}
@@ -137,7 +138,7 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
 
   return (
     <div className="example-player-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="example-player" ref={playerRef} role="dialog" aria-modal="true" aria-label={`Play ${example.name}`}>
+      <section className="example-player" ref={playerRef} role="dialog" aria-modal="true" aria-label={t("examples.playName", { name: example.name })}>
         <div className="example-player-stage">
           {url ? (
             <iframe
@@ -148,7 +149,7 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
             />
           ) : (
             <div className="example-player-status" role="status">
-              {loadError ?? <><LoaderCircle className="spin" size={16} /><span>Loading {example.name}</span></>}
+              {loadError ?? <><LoaderCircle className="spin" size={16} /><span>{t("examples.loadingName", { name: example.name })}</span></>}
             </div>
           )}
         </div>
@@ -157,17 +158,17 @@ export function ExamplePlayer({ example, coverUrl, remixing, error, onRemix, onC
             {coverUrl ? <img src={coverUrl} alt="" /> : null}
             <div>
               <strong>{example.name}</strong>
-              <span>Example · {projectTypeLabel(example.type)}</span>
+              <span>{t("examples.exampleType", { type: projectTypeLabel(example.type) })}</span>
               {error ? <p className="example-player-error" role="alert">{error}</p> : <p>{example.description}</p>}
             </div>
           </div>
           <div className="example-player-actions">
-            <button className="example-player-remix" type="button" disabled={remixing} onClick={onRemix} title="Copy this example into a new project you can change">
+            <button className="example-player-remix" type="button" disabled={remixing} onClick={onRemix} title={t("examples.remixTitle")}>
               {remixing ? <LoaderCircle className="spin" size={15} /> : <Pencil size={15} />}
-              Remix
+              {t("examples.remix")}
             </button>
-            <button type="button" onClick={() => void toggleFullscreen()} title="Fullscreen" aria-label="Fullscreen"><Maximize size={17} /></button>
-            <button type="button" onClick={onClose} title="Close" aria-label="Close"><X size={17} /></button>
+            <button type="button" onClick={() => void toggleFullscreen()} title={t("common.fullscreen")} aria-label={t("common.fullscreen")}><Maximize size={17} /></button>
+            <button type="button" onClick={onClose} title={t("common.close")} aria-label={t("common.close")}><X size={17} /></button>
           </div>
         </div>
       </section>

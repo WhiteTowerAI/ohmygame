@@ -55,6 +55,30 @@ describe("Asset Canvas clipboard", () => {
     expect(duplicateAssetCanvasNode(library, { x: 0, y: 0 }, "copy").data).toEqual(library.data);
   });
 
+  it("keeps a 3D model's settings and Library inputs but none of its node inputs", () => {
+    const model: AssetCanvasNode = {
+      id: "model", type: "model-3d", position: { x: 0, y: 0 }, title: "Hero", width: 400, height: 300,
+      data: {
+        operation: "retexture", prompt: "bronze", promptSource: { type: "node", nodeId: "brief" }, source: { type: "node", nodeId: "mesh" },
+        targetPolycount: 3000, texture: true, pbr: false, assetId: "result",
+        images: [{ type: "node", nodeId: "art" }, { type: "library", assetId: "style" }],
+      },
+    };
+    const library: AssetCanvasNode = { ...model, data: { ...model.data, source: { type: "library", assetId: "mesh-asset" } } };
+    const { promptSource: _promptSource, source: _source, ...settings } = model.data;
+
+    expect(duplicateAssetCanvasNode(model, { x: 0, y: 0 }, "copy")).toEqual({ ...model, id: "copy", data: { ...settings, images: [{ type: "library", assetId: "style" }] } });
+    expect(duplicateAssetCanvasNode(library, { x: 0, y: 0 }, "copy").data).toMatchObject({ source: { type: "library", assetId: "mesh-asset" } });
+  });
+
+  it("keeps shared documents and tables but drops a document's references", () => {
+    const document: AssetCanvasNode = { id: "doc", type: "document", position: { x: 0, y: 0 }, data: { documentId: "design", references: [{ type: "node", nodeId: "art" }] } };
+    const table: AssetCanvasNode = { id: "table", type: "table", position: { x: 0, y: 0 }, data: { tableId: "balance" } };
+
+    expect(duplicateAssetCanvasNode(document, { x: 0, y: 0 }, "copy").data).toEqual({ documentId: "design", references: [] });
+    expect(duplicateAssetCanvasNode(table, { x: 0, y: 0 }, "copy").data).toEqual({ tableId: "balance" });
+  });
+
   it("round-trips a selection and remaps its internal links and edges", () => {
     const text: AssetCanvasNode = { id: "prompt", type: "text", position: { x: 0, y: 0 }, data: { text: "A hero", instruction: "" } };
     const image: AssetCanvasNode = { id: "image", type: "image", position: { x: 400, y: 20 }, data: { prompt: "", resolution: "1K", aspectRatio: "1:1", images: [{ type: "library", assetId: "reference" }, { type: "node", nodeId: "outside" }], promptSource: { type: "node", nodeId: text.id } } };

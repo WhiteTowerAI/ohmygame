@@ -18,17 +18,35 @@ desktop lifecycle and native game windows; shared modules define contracts.
 | Design and Asset Canvas          | `src/daemon/canvas-workspace.ts`, `src/daemon/canvas-routes.ts`, `src/renderer/canvas-workspace.tsx`, `src/shared/canvas-workspace.ts`        | [Canvas file contract](canvas-agent.md)                                                                                 | `test/canvas-api.test.ts`, `test/asset-canvas-document.test.ts`, `test/canvas-table.test.ts`                                        |
 | Preview and game use             | `src/daemon/preview.ts`, `src/daemon/preview-proxy.ts`, `src/desktop/web-game-player.ts`, `src/desktop/playtest-driver.ts`                    | [Preview lifecycle](preview-runtime.md), [service recovery](runtime-recovery.md), [game use](runtime.md#agent-game-use) | `test/preview.test.ts`, `test/web-game-player.test.ts`, `test/playtest-driver.test.ts`                                              |
 | Providers and media              | `src/daemon/provider-model-settings.ts`, `src/daemon/provider-models3d.ts`, `src/daemon/cloud-models.ts`, `src/renderer/provider-models.tsx`  | [Custom models](custom-models.md), [3D workflows](3d-providers.md), [free cloud models](free-cloud-models.md)           | `test/provider-model-settings.test.ts`, `test/model3d-workflows.test.ts`, `test/cloud-models.test.ts`                               |
+| Audio providers                  | `src/shared/audio.ts`, `src/daemon/audio-generation.ts`, `src/daemon/volcengine-tts-provider.ts`, `src/daemon/canvas-workspace.ts`          | [Audio providers](audio-providers.md)                                                                                   | `test/volcengine-tts-provider.test.ts`, `test/volcengine-tts-settings.test.ts`, `test/tools.test.ts`, `test/game-design.test.ts`     |
 | Interactive Stories              | `src/shared/playable-*.ts`, `src/daemon/playable-project.ts`, `src/renderer/playable-editor-workspace.tsx`                                    | [Playable Nodes](playable-nodes/README.md)                                                                              | `test/playable-graph.test.ts`, `test/playable-runtime.test.ts`, `test/playable-project.test.ts`                                     |
 | Plugins, Skills, and MCP         | `src/daemon/plugin-capabilities.ts`, `src/daemon/plugin-runtime.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugins.tsx`, `plugins/` | [Plugin package and runtime contract](plugins.md)                                                                       | `test/plugin-capabilities.test.ts`, `test/plugin-builder.test.ts`, `test/bundled-plugins.test.ts`                                   |
-| Desktop lifecycle and updates    | `src/desktop/main.ts`, `src/desktop/daemon-supervisor.ts`, `src/desktop/updater.ts`                                                           | [Runtime](runtime.md), [service recovery](runtime-recovery.md), [desktop releases](desktop-releases.md)                 | `test/daemon-supervisor.test.ts`, `test/desktop-updater.test.ts`, `test/desktop-runtime-packaging.test.ts`                          |
+| Desktop lifecycle and updates    | `src/desktop/main.ts`, `src/desktop/daemon-supervisor.ts`, `src/desktop/updater.ts`, `src/desktop/update-check-scheduler.ts`, `src/renderer/changelog-panel.tsx`, `src/shared/changelog.ts`                                                           | [Runtime](runtime.md), [service recovery](runtime-recovery.md), [desktop releases](desktop-releases.md)                 | `test/daemon-supervisor.test.ts`, `test/desktop-updater.test.ts`, `test/desktop-update-scheduler.test.ts`, `test/desktop-runtime-packaging.test.ts`, `test/desktop-release-notes.test.ts`, `test/changelog-panel.test.tsx`                          |
 | Publishing and Community         | `src/daemon/publish/`, `src/shared/publish-v1.ts`, `src/renderer/publish-dialog.tsx`                                                          | [Cloud integration](../CONTRIBUTING.md#cloud-integration), [runtime publishing](runtime.md#publishing)                  | `test/publish-client.test.ts`, `test/publish-dialog.test.tsx`; remote contracts in `test/publish.test.ts` need private cloud access |
 | Shared UI and project navigation | `src/renderer/app.tsx`, `src/renderer/projects.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/styles.css`                              | [Local setup](../CONTRIBUTING.md#start-local-development), the affected module guide                                    | `test/projects-page.test.ts`, `test/project-card.test.ts`, `test/project-types.test.ts`                                             |
+| First-run setup                  | `src/renderer/onboarding.tsx`, `src/renderer/onboarding-demo.tsx`, `src/renderer/use-onboarding.ts`, `src/renderer/use-model-provider-auth.ts`, `src/renderer/custom-provider-dialog.tsx`, `src/daemon/onboarding.ts`       | [First run](../README.md#first-run), [setup state](runtime.md#first-run-setup)                                             | `test/onboarding.test.ts`, `test/onboarding-renderer.test.tsx`                                                                         |
 
 These are entry points, not an exhaustive ownership map. HTTP API and event
 definitions live in the code; use the corresponding shared types and tests
 when changing a contract.
 
+Project workspaces return to their entry page using the top-left Back arrow.
+The destination survives conversation/view changes and refreshes in the same
+tab; a project link opened without an entry page returns to Projects. The
+Projects URL preserves its type filter, search (`q`), and name sorting
+(`sort=name`) when returning or refreshing. See the
+[workspace return example](assets/project-return-navigation.webp).
+
 ## Architecture and feature guides
+
+[Git changes in Code](workspace-git.md) covers the read-only project changes
+view, its comparison baseline and refresh behavior.
+
+[Turn file changes and Undo](checkpoints.md) covers message checkpoints, file
+conflicts, workspace versions, and recovery. Start with `src/daemon/checkpoints.ts`,
+`src/daemon/agent.ts`, and `src/renderer/turn-changes.tsx`; the focused suites
+are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`, and
+`test/checkpoint-routes.test.ts`.
 
 | Document                                         | Purpose                                                                                                                        |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -43,6 +61,7 @@ when changing a contract.
 | [agent-errors.md](agent-errors.md)               | Error classification, diagnostics, redaction, and the Pi compatibility patch.                                                  |
 | [model-image-history.md](model-image-history.md) | Request image budgets, recall, OpenAI continuation, and file lifecycle.                                                        |
 | [desktop-releases.md](desktop-releases.md)       | Maintainer packaging, signing, update feeds, publishing, and rollback.                                                         |
+| [ui-languages.md](ui-languages.md)               | Renderer translations, language selection, what stays in English, and terminology.                                             |
 
 [Playable Nodes](playable-nodes/README.md) has its own vocabulary and index:
 [runtime](playable-nodes/runtime.md) is the node contract,
@@ -55,6 +74,7 @@ when changing a contract.
 | Document                                           | Purpose                                                                            |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | [README.md](../README.md)                          | Product overview, installation, and first-run instructions.                        |
+| [CHANGELOG.md](../CHANGELOG.md)                    | User-visible changes collected during release preparation.                        |
 | [CONTRIBUTING.md](../CONTRIBUTING.md)              | Setup, branches, verification, PRs, and optional integrations.                     |
 | [中文快速指引](contributing.zh-CN.md)              | A short Chinese entry point; the full contribution rules are in `CONTRIBUTING.md`. |
 | [maintaining.md](maintaining.md)                   | Maintainer triage, reviews, repository settings, and releases.                     |

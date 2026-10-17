@@ -14,6 +14,7 @@ import { ErrorBoundary } from "./error-boundary.js";
 import { DesktopCloseGuard } from "./desktop-close-guard.js";
 import "./styles.css";
 import "./runtime-recovery.css";
+import { t } from "./i18n.js";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root was not found");
@@ -30,7 +31,7 @@ const content = (
   <>
     <RuntimeNotice />
     <ErrorBoundary
-      label="Application"
+      label={t("errorBoundary.label.application")}
       onHome={
         route.page === "playtest" || route.page === "thumbnail"
           ? undefined

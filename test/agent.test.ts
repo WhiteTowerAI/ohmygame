@@ -11,6 +11,32 @@ import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.
 import { RuntimeEventBus } from "../src/shared/events.js";
 import { createProviderFailureDiagnostic } from "@earendil-works/pi-ai/utils/provider-failure";
 import { AGENT_ERROR_ENTRY } from "../src/daemon/agent-errors.js";
+import { CHECKPOINT_ENTRY, CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, turnRange } from "../src/daemon/checkpoint-extension.js";
+import { AssistantTextStreamNormalizer, normalizeAssistantText } from "../src/daemon/assistant-thinking.js";
+
+describe("assistant thinking compatibility", () => {
+  it("removes only leading leaked thinking blocks", () => {
+    expect(normalizeAssistantText("<thinking>private</thinking>Answer")).toBe("Answer");
+    expect(normalizeAssistantText("<thinking>a</thinking><thinking>b</thinking>Answer")).toBe("Answer");
+    expect(normalizeAssistantText("Use <thinking> as an XML tag")).toBe("Use <thinking> as an XML tag");
+    expect(normalizeAssistantText("<thinking>private")).toBe("<thinking>private");
+  });
+
+  it("holds split thinking tags until the visible answer is known", () => {
+    const normalizer = new AssistantTextStreamNormalizer();
+    expect(normalizer.push("<thin")).toBe("");
+    expect(normalizer.push("king>private</think")).toBe("");
+    expect(normalizer.push("ing>Answer")).toBe("Answer");
+    expect(normalizer.text).toBe("Answer");
+  });
+
+  it("replaces visible text when a hidden block follows an earlier delta", () => {
+    const normalizer = new AssistantTextStreamNormalizer();
+    expect(normalizer.push(" ")).toBe(" ");
+    expect(normalizer.push("<thinking>private</thinking>Answer")).toBe("");
+    expect(normalizer.text).toBe("Answer");
+  });
+});
 
 describe("lastAssistantError", () => {
   it("surfaces model errors even when Pi resolves the prompt", () => {
@@ -73,6 +99,22 @@ describe("Pi skills", () => {
 });
 
 describe("conversationItems", () => {
+  it("hides leaked thinking from persisted assistant text", () => {
+    const items = conversationItems([
+      sessionMessage("user", { role: "user", content: "Build", timestamp: 1 }),
+      sessionMessage("assistant", {
+        role: "assistant",
+        content: [{ type: "text", text: "<thinking>private</thinking>Answer" }],
+        stopReason: "stop",
+        timestamp: 2,
+      }),
+    ] as never, false);
+
+    expect(items.filter((item) => item.type === "agentMessage")).toMatchObject([
+      { text: "Answer", status: "completed" },
+    ]);
+  });
+
   it("restores image-reading activity from a persisted user message", () => {
     const items = conversationItems([
       sessionMessage("user", {
@@ -384,6 +426,7 @@ describe("conversationItems", () => {
         toolCallId: "call-1",
         toolName: "write",
         content: [{ type: "text", text: "large private output" }],
+        details: { lineChanges: { added: 3, removed: 1 } },
         isError: false,
         timestamp: 2,
       }),
@@ -405,6 +448,7 @@ describe("conversationItems", () => {
         status: "completed",
         arguments: { path: "secret" },
         output: "large private output",
+        lineChanges: { added: 3, removed: 1 },
         timestamp: 2,
       },
       { id: "assistant-1:assistant:3", turnId: "user-1", type: "agentMessage", text: "Starting now.", status: "completed", phase: "commentary", timestamp: 0 },
@@ -587,6 +631,71 @@ describe("conversationItems", () => {
       { type: "mcpToolCall", server: "ohmygame-godot", tool: "search_tools", arguments: { search: "scene" } },
       { type: "mcpToolCall", server: "ohmygame-godot", tool: "describe_add_node", arguments: { describe: "ohmygame-godot_add_node" } },
     ]);
+  });
+
+  it("says what a turn changed, and that it was undone, only once that was stored", () => {
+    const turn = [
+      sessionEntry("checkpoint-1", CHECKPOINT_ENTRY, { version: 1, commit: "a".repeat(40) }),
+      sessionMessage("user-1", { role: "user", content: "Build", timestamp: 1 }),
+      sessionMessage("assistant-1", { role: "assistant", content: [{ type: "text", text: "Built" }], stopReason: "stop", timestamp: 2 }),
+    ];
+    const message = { id: "user-1", turnId: "user-1", type: "userMessage", text: "Build", checkpointId: "checkpoint-1", timestamp: 1 };
+    const reply = { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Built", status: "completed", phase: "final_answer", timestamp: 2 };
+    expect(conversationItems(turn as never)).toEqual([message, reply]);
+
+    const undone = sessionEntry("undone-1", CHECKPOINT_UNDONE_ENTRY, { version: 1, checkpoint: "checkpoint-1", previous: "c".repeat(40), kept: 0 });
+    // An undo says nothing about a turn whose end is not known.
+    expect(conversationItems([...turn, undone] as never)).toEqual([message, reply]);
+
+    const ended = [...turn, sessionEntry("end-1", TURN_END_ENTRY, { version: 1, checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 2 })];
+    expect(conversationItems(ended as never)).toEqual([{ ...message, changes: { files: 2 } }, reply]);
+    expect(conversationItems([...ended, undone] as never)).toEqual([{ ...message, changes: { files: 2, undone: true } }, reply]);
+
+    // An undo that left files as they are says how many, until a later undo puts those back as well.
+    const kept = sessionEntry("undone-2", CHECKPOINT_UNDONE_ENTRY, { version: 1, checkpoint: "checkpoint-1", previous: "c".repeat(40), kept: 1 });
+    expect(conversationItems([...ended, kept] as never)).toEqual([{ ...message, changes: { files: 2, undone: true, kept: 1 } }, reply]);
+    expect(conversationItems([...ended, kept, undone] as never)).toEqual([{ ...message, changes: { files: 2, undone: true } }, reply]);
+  });
+
+  it("gives a message no checkpoint when the entry before it has no commit, and not the one of the message before", () => {
+    // As after an edit: the conversation went back to before the first message, and the snapshot for the one that replaced it failed.
+    const items = conversationItems([
+      sessionEntry("checkpoint-1", CHECKPOINT_ENTRY, { version: 1, commit: "a".repeat(40) }),
+      sessionEntry("checkpoint-2", CHECKPOINT_ENTRY, { version: 1 }),
+      sessionMessage("user-2", { role: "user", content: "Build it another way", timestamp: 1 }),
+    ] as never, false);
+    expect(items).toEqual([{ id: "user-2", turnId: "user-2", type: "userMessage", text: "Build it another way", timestamp: 1 }]);
+  });
+
+  it("gives each message its own changes when the ends of a run lie between other entries", () => {
+    const wirePrompt = "Polish\n\n<workspace-file-references>\n[\"index.html\"]\n</workspace-file-references>";
+    const items = conversationItems([
+      sessionEntry("checkpoint-1", CHECKPOINT_ENTRY, { version: 1, commit: "a".repeat(40) }),
+      sessionMessage("user-1", { role: "user", content: "Build", timestamp: 1 }),
+      sessionEntry("checkpoint-2", CHECKPOINT_ENTRY, { version: 1, commit: "b".repeat(40) }),
+      sessionMessage("user-2", { role: "user", content: "Test", timestamp: 2 }),
+      sessionMessage("assistant-2", { role: "assistant", content: [{ type: "text", text: "Tested" }], stopReason: "stop", timestamp: 3 }),
+      // The ends of both turns are written when the run is over. One that cannot be read counts for nothing.
+      sessionEntry("end-1", TURN_END_ENTRY, { version: 1, checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 3 }),
+      sessionEntry("end-2", TURN_END_ENTRY, { version: 1, checkpoint: "checkpoint-2", commit: "c".repeat(40), files: 0 }),
+      sessionEntry("end-3", TURN_END_ENTRY, { version: 1, checkpoint: "checkpoint-2", commit: "not a commit", files: 9 }),
+      // What was stored for the next message stays with it, whatever is written about earlier ones in between.
+      sessionEntry("prompt-3", "ohmygame-user-prompt", {
+        version: 1, wirePromptHash: createHash("sha256").update(wirePrompt).digest("hex"), prompt: "Polish", mentions: [],
+        references: [{ type: "workspace-file", path: "index.html" }], attachments: [], attachmentContext: "",
+      }),
+      sessionEntry("checkpoint-3", CHECKPOINT_ENTRY, { version: 1, commit: "c".repeat(40) }),
+      sessionEntry("undone-1", CHECKPOINT_UNDONE_ENTRY, { version: 1, checkpoint: "checkpoint-1", previous: "c".repeat(40), kept: 1 }),
+      sessionEntry("end-4", TURN_END_ENTRY, { version: 1, checkpoint: "checkpoint-9", commit: "d".repeat(40), files: 9 }),
+      sessionMessage("user-3", { role: "user", content: wirePrompt, timestamp: 4 }),
+    ] as never, false);
+
+    expect(items.filter((item) => item.type === "userMessage")).toEqual([
+      { id: "user-1", turnId: "user-1", type: "userMessage", text: "Build", checkpointId: "checkpoint-1", changes: { files: 3, undone: true, kept: 1 }, timestamp: 1 },
+      { id: "user-2", turnId: "user-2", type: "userMessage", text: "Test", checkpointId: "checkpoint-2", changes: { files: 0 }, timestamp: 2 },
+      { id: "user-3", turnId: "user-3", type: "userMessage", text: "Polish", checkpointId: "checkpoint-3", timestamp: 4 },
+    ]);
+    expect(items.find((item) => item.type === "agentMessage")).toMatchObject({ turnId: "user-2", text: "Tested" });
   });
 });
 
@@ -1255,6 +1364,64 @@ describe("AgentManager", () => {
     await manager.close();
   });
 
+  it("filters leaked thinking from streaming assistant events", async () => {
+    const session = new FakeSession();
+    session.prompt.mockImplementation(async () => {
+      session.emit(messageUpdate({ type: "text_start", contentIndex: 0, partial: assistantPartial([{ type: "text", text: "" }]) }));
+      session.emit(messageUpdate({ type: "text_delta", contentIndex: 0, delta: "<thin", partial: assistantPartial([{ type: "text", text: "<thin" }]) }));
+      session.emit(messageUpdate({ type: "text_delta", contentIndex: 0, delta: "king>private</thinking>A", partial: assistantPartial([{ type: "text", text: "<thinking>private</thinking>A" }]) }));
+      session.emit(messageUpdate({ type: "text_end", contentIndex: 0, content: "<thinking>private</thinking>A", partial: assistantPartial([{ type: "text", text: "<thinking>private</thinking>A" }]) }));
+      session.emit({
+        type: "message_end",
+        message: assistantPartial([{ type: "text", text: "<thinking>private</thinking>A" }]),
+      } as AgentSessionEvent);
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "Build").result;
+
+    const published = events.since(project.id);
+    expect(published.filter((event) => event.type === "item.agentMessage.delta")).toMatchObject([
+      { data: { delta: "A" } },
+    ]);
+    expect(JSON.stringify(published)).not.toContain("<thinking>");
+    expect(published.findLast((event) => event.type === "item.completed" && event.data.item.type === "agentMessage")).toMatchObject({
+      data: { item: { text: "A", status: "completed" } },
+    });
+    await manager.close();
+  });
+
+  it("replaces a visible prefix when streaming later reveals leaked thinking", async () => {
+    const session = new FakeSession();
+    session.prompt.mockImplementation(async () => {
+      session.emit(messageUpdate({ type: "text_start", contentIndex: 0, partial: assistantPartial([{ type: "text", text: "" }]) }));
+      session.emit(messageUpdate({ type: "text_delta", contentIndex: 0, delta: " ", partial: assistantPartial([{ type: "text", text: " " }]) }));
+      session.emit(messageUpdate({ type: "text_delta", contentIndex: 0, delta: "<thinking>private</thinking>Answer", partial: assistantPartial([{ type: "text", text: " <thinking>private</thinking>Answer" }]) }));
+      session.emit(messageUpdate({ type: "text_end", contentIndex: 0, content: " <thinking>private</thinking>Answer", partial: assistantPartial([{ type: "text", text: " <thinking>private</thinking>Answer" }]) }));
+      session.emit({ type: "message_end", message: assistantPartial([{ type: "text", text: " <thinking>private</thinking>Answer" }]) } as AgentSessionEvent);
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+
+    await manager.prompt(project, createConversation(project), "Build").result;
+
+    const published = events.since(project.id);
+    expect(published.filter((event) => event.type === "item.agentMessage.delta")).toMatchObject([
+      { data: { delta: " " } },
+    ]);
+    expect(published.find((event) => event.type === "item.updated")).toMatchObject({
+      data: { item: { type: "agentMessage", text: "Answer" } },
+    });
+    expect(published.findLast((event) => event.type === "item.completed" && event.data.item.type === "agentMessage")).toMatchObject({
+      data: { item: { text: "Answer", status: "completed" } },
+    });
+    await manager.close();
+  });
+
   it("completes open assistant items before the turn completes", async () => {
     const session = new FakeSession();
     session.prompt.mockImplementation(async () => {
@@ -1841,6 +2008,668 @@ describe("AgentManager", () => {
     });
     await manager.close();
   });
+
+  it("records where each turn of a run ended once the run is over", async () => {
+    const { session, entries, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => {
+      userMessage("1", "a".repeat(40));
+      userMessage("2", "b".repeat(40));
+      // This message has no checkpoint, so nothing says where the turn before it ended.
+      userMessage("3");
+      userMessage("4", "d".repeat(40));
+    });
+    const events = new RuntimeEventBus();
+    const changed = vi.fn(async (_project: ProjectState, from: string) => ({ files: from === "a".repeat(40) ? 2 : 0 }));
+    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: async () => "e".repeat(40), changed } });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "Build").result;
+    expect(entries.slice(-2)).toEqual([
+      expect.objectContaining({ customType: TURN_END_ENTRY, data: { version: 1, checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 2 } }),
+      expect.objectContaining({ customType: TURN_END_ENTRY, data: { version: 1, checkpoint: "checkpoint-4", commit: "e".repeat(40), files: 0 } }),
+    ]);
+    expect(changed.mock.calls).toEqual([[project, "a".repeat(40), "b".repeat(40)], [project, "d".repeat(40), "e".repeat(40)]]);
+    // The ends follow the event that ended the run. They name a checkpoint and no turn: turn ids do not outlast a reload.
+    expect(events.since(project.id).slice(-3).map(({ type, data, conversationId, turnId }) => ({ type, data, conversationId, turnId }))).toEqual([
+      { type: "agent.completed", data: {}, conversationId: conversation.summary.id, turnId: expect.any(String) },
+      { type: "checkpoint.completed", data: { checkpointId: "checkpoint-1", files: 2 }, conversationId: conversation.summary.id, turnId: undefined },
+      { type: "checkpoint.completed", data: { checkpointId: "checkpoint-4", files: 0 }, conversationId: conversation.summary.id, turnId: undefined },
+    ]);
+    expect(manager.isProjectBusy(project.id)).toBe(false);
+    await manager.close();
+  });
+
+  it("ends the run all the same when the snapshot that closes it cannot be taken", async () => {
+    const { session, entries, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async () => session,
+      checkpoints: { snapshot: async () => { throw new Error("disk full"); }, changed: async () => ({ files: 0 }) },
+    });
+    const project = createProject();
+
+    await expect(manager.prompt(project, createConversation(project), "Build").result).resolves.toBe("completed");
+    expect(entries).not.toContainEqual(expect.objectContaining({ customType: TURN_END_ENTRY }));
+    expect(manager.isProjectBusy(project.id)).toBe(false);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+    await manager.close();
+  });
+
+  it("lets a restore wait while a turn that has ended is being closed", async () => {
+    const { session, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    const events = new RuntimeEventBus();
+    const snapshot = deferred<string>();
+    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const turn = manager.prompt(project, conversation, "Build");
+    await vi.waitFor(() => expect(events.since(project.id).at(-1)?.type).toBe("agent.completed"));
+    // The conversation already reads as idle, while the project is still busy with the end of the turn.
+    expect(manager.agentState(conversation)).toEqual({ status: "idle" });
+    expect(manager.isProjectBusy(project.id)).toBe(true);
+    const restoreFiles = vi.fn(async (_commit: string, rewind: (previous: string) => Promise<void>) => rewind("c".repeat(40)));
+    const restoring = manager.restoreCheckpoint(project, conversation, "checkpoint-1", restoreFiles);
+    snapshot.resolve("b".repeat(40));
+
+    await restoring;
+    expect(restoreFiles).toHaveBeenCalledExactlyOnceWith("a".repeat(40), expect.any(Function));
+    await turn.result;
+    await manager.close();
+  });
+
+  it("marks a turn as undone after its files change, including partial Undo", async () => {
+    const { session, entries, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session, checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => ({ files: 24 }) } });
+    const project = createProject();
+    const conversation = createConversation(project);
+    await manager.prompt(project, conversation, "Build").result;
+    const previous = "c".repeat(40);
+
+    // With nothing but files to leave alone, nothing was undone: the turn is not marked.
+    const kept = { previous, changed: [], conflicts: ["src/game.ts"] };
+    await expect(manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => kept)).resolves.toMatchObject(kept);
+    const refusal = new Error("These files cannot be put back");
+    await expect(manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => { throw refusal; })).rejects.toBe(refusal);
+    await expect(manager.undoCheckpoint(project, conversation, "checkpoint-9", async () => kept)).rejects.toThrow("Checkpoint not found");
+    expect(entries.at(-1)).toMatchObject({ customType: TURN_END_ENTRY });
+
+    const changed = Array.from({ length: 23 }, (_, index) => `src/file-${index}.ts`);
+    const undo = vi.fn(async () => ({ previous, changed, conflicts: ["src/game.ts"] }));
+    await manager.undoCheckpoint(project, conversation, "checkpoint-1", undo);
+    expect(undo).toHaveBeenCalledExactlyOnceWith({ before: "a".repeat(40), after: "b".repeat(40) }, undefined);
+    expect(entries.at(-1)).toMatchObject({ customType: CHECKPOINT_UNDONE_ENTRY, data: { version: 1, checkpoint: "checkpoint-1", previous, kept: 1 } });
+    await manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => ({ previous, changed: [], conflicts: [] }));
+    expect(entries.at(-1)).toMatchObject({ customType: CHECKPOINT_UNDONE_ENTRY, data: { kept: 0 } });
+    expect(manager.isProjectBusy(project.id)).toBe(false);
+    await manager.close();
+  });
+
+  it.each(["count of changed files", "session"] as const)("ends the run all the same when the %s fails as the turn is closed", async (failing) => {
+    const { session, entries, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    if (failing === "session") vi.mocked(session.sessionManager.appendCustomEntry).mockImplementation(() => { throw new Error("disk full"); });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, {
+      createSession: async () => session,
+      checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => { if (failing === "session") return { files: 1 }; throw new Error("damaged object"); } },
+    });
+    const project = createProject();
+
+    await expect(manager.prompt(project, createConversation(project), "Build").result).resolves.toBe("completed");
+    expect(entries).not.toContainEqual(expect.objectContaining({ customType: TURN_END_ENTRY }));
+    expect(events.since(project.id).map((event) => event.type)).not.toContain("checkpoint.completed");
+    expect(manager.isProjectBusy(project.id)).toBe(false);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+    await manager.close();
+  });
+
+  it("starts a message that is sent while a turn that has ended is being closed, once that is done", async () => {
+    const { session, userMessage } = checkpointSession();
+    const second = deferred<void>();
+    let sent = 0;
+    session.prompt.mockImplementation(async () => {
+      userMessage(String(++sent), "a".repeat(40));
+      if (sent === 2) await second.promise;
+    });
+    const events = new RuntimeEventBus();
+    const snapshot = deferred<string>();
+    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const turn = manager.prompt(project, conversation, "Build");
+    await vi.waitFor(() => expect(events.since(project.id).at(-1)?.type).toBe("agent.completed"));
+    // The conversation reads as idle, so these are messages for a new run. They are held, not queued in the run that is over.
+    const next = manager.prompt(project, conversation, "Add a title");
+    const later = manager.prompt(project, conversation, "And a score");
+    let taken = false;
+    void next.result!.then(() => { taken = true; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(taken).toBe(false);
+    expect(session.prompt).toHaveBeenCalledOnce();
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
+
+    snapshot.resolve("b".repeat(40));
+    await Promise.all([turn.result, next.result, later.result]);
+    expect(session.prompt).toHaveBeenCalledTimes(2);
+    expect(session.prompt).toHaveBeenLastCalledWith("Add a title");
+    // The second one found the run of the first and was queued behind it like any message sent to a working Agent.
+    expect(session.followUp).toHaveBeenCalledExactlyOnceWith("And a score", undefined);
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([expect.objectContaining({ turnId: later.turnId, prompt: "And a score" })]);
+    // The end of the first turn is recorded before the next run starts.
+    expect(events.since(project.id).map(({ type, turnId }) => ({ type, turnId }))).toEqual([
+      { type: "agent.started", turnId: turn.turnId },
+      { type: "checkpoint.created", turnId: turn.turnId },
+      { type: "agent.completed", turnId: turn.turnId },
+      { type: "checkpoint.completed", turnId: undefined },
+      { type: "agent.started", turnId: next.turnId },
+      { type: "checkpoint.created", turnId: next.turnId },
+      { type: "prompt.queued", turnId: later.turnId },
+    ]);
+
+    second.resolve();
+    await vi.waitFor(() => expect(manager.isProjectBusy(project.id)).toBe(false));
+    await manager.close();
+  });
+
+  it.each(["the undo", "the message"] as const)("starts the message and refuses the undo when both waited for a turn to be closed and %s came first", async (first) => {
+    const { session, userMessage } = checkpointSession();
+    const second = deferred<void>();
+    let sent = 0;
+    session.prompt.mockImplementation(async () => {
+      userMessage(String(++sent), "a".repeat(40));
+      if (sent === 2) await second.promise;
+    });
+    const events = new RuntimeEventBus();
+    const snapshot = deferred<string>();
+    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const turn = manager.prompt(project, conversation, "Build");
+    await vi.waitFor(() => expect(events.since(project.id).at(-1)?.type).toBe("agent.completed"));
+
+    const files = vi.fn(async () => ({ previous: "c".repeat(40), changed: ["notes.txt"], conflicts: [] }));
+    const undo = () => manager.undoCheckpoint(project, conversation, "checkpoint-1", files);
+    const message = () => manager.prompt(project, conversation, "Next").result!;
+    const early = first === "the message" ? message() : undefined;
+    const undoing = undo();
+    const taken = early ?? message();
+    void undoing.catch(() => {});
+    snapshot.resolve("b".repeat(40));
+
+    // The message is never dropped for the undo: the Agent is at work again by the time the undo looks.
+    await taken;
+    await expect(undoing).rejects.toThrow("Wait for the agent to finish before undoing");
+    expect(files).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenLastCalledWith("Next"));
+    second.resolve();
+    await turn.result;
+    await vi.waitFor(() => expect(manager.isProjectBusy(project.id)).toBe(false));
+    await manager.close();
+  });
+
+  it("closes a turn all the same when the cleanup of its run fails", async () => {
+    const session = new FakeSession();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session, onRunFinished: async () => { throw new Error("The playtest did not stop"); } });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await expect(manager.prompt(project, conversation, "Build").result).resolves.toBe("completed");
+    // The conversation reads as idle from the end of the run, so it must be possible to go on in it.
+    expect(manager.isProjectBusy(project.id)).toBe(false);
+    await expect(manager.prompt(project, conversation, "Next").result).resolves.toBe("completed");
+    expect(session.prompt).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+    await manager.close();
+  });
+
+  it("starts a message as a new run when the run it was to be queued behind ended while it was on its way", async () => {
+    const session = new FakeSession();
+    const first = deferred<void>();
+    session.prompt.mockImplementationOnce(() => first.promise);
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const turn = manager.prompt(project, conversation, "Build");
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalledOnce());
+    // The message is sent to a run that is at work, and the run ends before the message has been queued in it.
+    const late = manager.prompt(project, conversation, "And a title");
+    first.resolve();
+    await Promise.all([turn.result, late.result]);
+    await vi.waitFor(() => expect(manager.isProjectBusy(project.id)).toBe(false));
+
+    expect(late.queued).toBe(true);
+    expect(session.followUp).not.toHaveBeenCalled();
+    expect(session.prompt).toHaveBeenCalledTimes(2);
+    expect(session.prompt).toHaveBeenLastCalledWith("And a title");
+    expect(manager.pendingPrompts(project.id, conversation.summary.id)).toEqual([]);
+    expect(events.since(project.id).map(({ type, turnId }) => ({ type, turnId }))).toEqual([
+      { type: "agent.started", turnId: turn.turnId },
+      { type: "agent.completed", turnId: turn.turnId },
+      { type: "prompt.queued", turnId: late.turnId },
+      { type: "prompt.removed", turnId: late.turnId },
+      { type: "agent.started", turnId: late.turnId },
+      { type: "agent.completed", turnId: late.turnId },
+    ]);
+    await manager.close();
+  });
+
+  it("does nothing when Stop comes for a turn that has ended, and does not call that turn in progress", async () => {
+    const { session, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    const events = new RuntimeEventBus();
+    const snapshot = deferred<string>();
+    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    const turn = manager.prompt(project, conversation, "Build");
+    expect(manager.activeTurnId(project.id, conversation.summary.id)).toBe(turn.turnId);
+    await vi.waitFor(() => expect(events.since(project.id).at(-1)?.type).toBe("agent.completed"));
+    // Its items are still listed from memory, as a turn that is over.
+    expect(manager.activeTurnId(project.id, conversation.summary.id)).toBeUndefined();
+    expect(manager.activeItems(project.id, conversation.summary.id)).toEqual([expect.objectContaining({ type: "userMessage", turnId: turn.turnId, checkpointId: "checkpoint-1" })]);
+
+    await manager.cancel(project.id, conversation.summary.id, turn.turnId);
+    expect(manager.agentState(conversation)).toEqual({ status: "idle" });
+    snapshot.resolve("b".repeat(40));
+    await expect(turn.result).resolves.toBe("completed");
+    expect(manager.agentState(conversation)).toEqual({ status: "idle" });
+    expect(session.abort).not.toHaveBeenCalled();
+    expect(events.since(project.id).map((event) => event.type)).not.toContain("agent.cancelled");
+    await manager.close();
+  });
+
+  it("closes a turn without an end when the snapshot that closes it does not come back", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { session, entries, userMessage } = checkpointSession();
+      session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+      const events = new RuntimeEventBus();
+      const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => new Promise<string>(() => {}), changed: async () => ({ files: 1 }) } });
+      const project = createProject();
+      const conversation = createConversation(project);
+
+      const turn = manager.prompt(project, conversation, "Build");
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+      expect(events.since(project.id).at(-1)?.type).toBe("agent.completed");
+      const undo = vi.fn(async () => ({ previous: "c".repeat(40), changed: [], conflicts: [] }));
+      const undoing = manager.undoCheckpoint(project, conversation, "checkpoint-1", undo);
+      void undoing.catch(() => {});
+
+      await vi.advanceTimersToNextTimerAsync();
+      await expect(turn.result).resolves.toBe("completed");
+      // What waited for the turn goes on, and finds a turn that has no end.
+      await expect(undoing).rejects.toThrow("Checkpoint not found");
+      expect(undo).not.toHaveBeenCalled();
+      expect(entries).not.toContainEqual(expect.objectContaining({ customType: TURN_END_ENTRY }));
+      expect(manager.isProjectBusy(project.id)).toBe(false);
+      expect(warn).toHaveBeenCalledOnce();
+      await manager.close();
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("makes what is asked of a conversation wait while its turn is being closed, and does not call the project at work", async () => {
+    const { session, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    const events = new RuntimeEventBus();
+    const snapshot = deferred<string>();
+    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const turn = manager.prompt(project, conversation, "Build");
+    await vi.waitFor(() => expect(events.since(project.id).at(-1)?.type).toBe("agent.completed"));
+
+    // The run is over, so the project is not at work, though nothing may change its files until the turn is closed.
+    expect(manager.projectActivity()).toEqual([]);
+    expect(manager.isProjectBusy(project.id)).toBe(true);
+    const asked = {
+      cancelPlan: manager.cancelPlan(project, conversation),
+      refinePlan: manager.refinePlan(project, conversation),
+      approvePlan: manager.approvePlan(project, conversation),
+      setModel: manager.setModel(project.id, conversation.summary.id, { provider: "test", id: "test" } as never, vi.fn()),
+      setReasoningLevel: manager.setReasoningLevel(project.id, conversation.summary.id, "low", vi.fn()),
+      compact: manager.compact(project, conversation),
+    };
+    const answered: string[] = [];
+    for (const [name, answer] of Object.entries(asked)) void answer.then(() => answered.push(name), () => answered.push(name));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(answered).toEqual([]);
+
+    snapshot.resolve("b".repeat(40));
+    await turn.result;
+    // Each is answered as it would be for a conversation that is idle, and none with "Wait for the agent to finish".
+    await expect(asked.cancelPlan).resolves.toBeUndefined();
+    await expect(asked.refinePlan).rejects.toThrow("There is no plan waiting for refinement");
+    await expect(asked.approvePlan).rejects.toThrow("There is no plan waiting for approval");
+    await expect(asked.setModel).resolves.toBeUndefined();
+    await expect(asked.setReasoningLevel).resolves.toBe("low");
+    await (await asked.compact).result;
+    expect(session.compact).toHaveBeenCalledOnce();
+    await manager.close();
+  });
+
+  it("gives a turn its end however long the cleanup of its run took", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const { session, entries, userMessage } = checkpointSession();
+      session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+      const events = new RuntimeEventBus();
+      const cleanup = deferred<void>();
+      const snapshot = vi.fn(async () => "b".repeat(40));
+      const manager = new AgentManager(events, { createSession: async () => session, onRunFinished: () => cleanup.promise, checkpoints: { snapshot, changed: async () => ({ files: 1 }) } });
+      const project = createProject();
+
+      const turn = manager.prompt(project, createConversation(project), "Build");
+      await vi.waitFor(() => expect(events.since(project.id).at(-1)?.type).toBe("agent.completed"));
+      // The bound is for the snapshot. A game window that is slow to close costs time, and not the changes of the turn.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(snapshot).not.toHaveBeenCalled();
+      expect(manager.isProjectBusy(project.id)).toBe(true);
+
+      cleanup.resolve();
+      await expect(turn.result).resolves.toBe("completed");
+      expect(entries.at(-1)).toMatchObject({ customType: TURN_END_ENTRY, data: { checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 1 } });
+      expect(manager.isProjectBusy(project.id)).toBe(false);
+      await manager.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts nothing for what waited for a turn to be closed once the daemon is closing", async () => {
+    const { session, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    const events = new RuntimeEventBus();
+    const snapshot = deferred<string>();
+    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => snapshot.promise, changed: async () => ({ files: 1 }) } });
+    const project = createProject();
+    const conversation = createConversation(project);
+    void manager.prompt(project, conversation, "Build").result?.catch(() => {});
+    await vi.waitFor(() => expect(events.since(project.id).at(-1)?.type).toBe("agent.completed"));
+
+    const compacting = manager.compact(project, conversation);
+    const model = manager.setModel(project.id, conversation.summary.id, { provider: "test", id: "test" } as never, vi.fn());
+    void compacting.catch(() => {});
+    void model.catch(() => {});
+    const closing = manager.close();
+    snapshot.resolve("b".repeat(40));
+
+    await expect(compacting).rejects.toThrow("Agent manager is closing");
+    await expect(model).rejects.toThrow("Agent manager is closing");
+    await closing;
+    expect(session.compact).not.toHaveBeenCalled();
+    expect(session.setModel).not.toHaveBeenCalled();
+  });
+
+  it("writes an end that comes late to the conversation's file when its session has been let go", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const root = await mkdtemp(path.join(tmpdir(), "ohmygame-late-end-"));
+      const workspacePath = path.join(root, "workspace");
+      await mkdir(workspacePath);
+      const stored = SessionManager.create(workspacePath, path.join(root, "session"));
+      stored.appendMessage({ role: "user", content: [{ type: "text", text: "Earlier" }], timestamp: Date.now() });
+      stored.appendMessage({
+        role: "assistant",
+        content: [{ type: "text", text: "Done" }],
+        stopReason: "stop",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        api: "openai-responses",
+        provider: "openai",
+        model: "test",
+        timestamp: Date.now(),
+      });
+      const project = { ...createProject(), workspacePath };
+      const conversation = { ...createConversation(project), sessionPath: stored.getSessionFile()! };
+      const { session, entries, userMessage } = checkpointSession();
+      session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+      const events = new RuntimeEventBus();
+      const slow = deferred<string>();
+      const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: () => slow.promise, changed: async () => ({ files: 2 }) } });
+
+      const turn = manager.prompt(project, conversation, "Build");
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+      await vi.advanceTimersToNextTimerAsync();
+      await expect(turn.result).resolves.toBe("completed");
+      // As a change of the settings does: the conversation's session is let go.
+      manager.invalidateProjectSessions(project.id);
+      expect(session.dispose).toHaveBeenCalledOnce();
+
+      slow.resolve("b".repeat(40));
+      const written = () => SessionManager.open(conversation.sessionPath, path.join(root, "session"), workspacePath).getBranch()
+        .flatMap((entry) => entry.type === "custom" && entry.customType === TURN_END_ENTRY ? [entry.data] : []);
+      await vi.waitFor(() => expect(written()).toEqual([{ version: 1, checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 2 }]));
+      expect(entries).not.toContainEqual(expect.objectContaining({ customType: TURN_END_ENTRY }));
+      expect(events.since(project.id).filter((event) => event.type === "checkpoint.completed").map((event) => event.data)).toEqual([{ checkpointId: "checkpoint-1", files: 2 }]);
+      expect(manager.turnEndsRecorded(project.id, conversation.summary.id)).toBe(1);
+      await manager.close();
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("records the end of a turn when the snapshot that closes it comes back after the turn was closed", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { session, entries, userMessage } = checkpointSession();
+      let sent = 0;
+      session.prompt.mockImplementation(async () => userMessage(String(++sent), "a".repeat(40)));
+      const events = new RuntimeEventBus();
+      const slow = deferred<string>();
+      const snapshot = vi.fn(async () => "c".repeat(40)).mockReturnValueOnce(slow.promise);
+      const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot, changed: async () => ({ files: 2 }) } });
+      const project = createProject();
+      const conversation = createConversation(project);
+      const ends = () => entries.filter((entry) => (entry as { customType?: string }).customType === TURN_END_ENTRY);
+
+      const turn = manager.prompt(project, conversation, "Build");
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+      await vi.advanceTimersToNextTimerAsync();
+      await expect(turn.result).resolves.toBe("completed");
+      expect(ends()).toEqual([]);
+      // The next turn starts and ends before the snapshot is there. The store would have made its checkpoint wait.
+      await manager.prompt(project, conversation, "Next").result;
+      expect(ends()).toEqual([expect.objectContaining({ data: { version: 1, checkpoint: "checkpoint-2", commit: "c".repeat(40), files: 2 } })]);
+
+      // Whoever reads the conversation is told by this count that an end was written with no run under way.
+      expect(manager.turnEndsRecorded(project.id, conversation.summary.id)).toBe(1);
+      slow.resolve("b".repeat(40));
+      await vi.waitFor(() => expect(ends()).toHaveLength(2));
+      expect(manager.turnEndsRecorded(project.id, conversation.summary.id)).toBe(2);
+      expect(ends()[1]).toMatchObject({ data: { version: 1, checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 2 } });
+      expect(events.since(project.id).filter((event) => event.type === "checkpoint.completed").map((event) => event.data)).toEqual([
+        { checkpointId: "checkpoint-2", files: 2 },
+        { checkpointId: "checkpoint-1", files: 2 },
+      ]);
+      // Each end is found by the checkpoint it names, wherever it stands among the entries.
+      expect(conversationItems(entries as never, true).flatMap((item) => item.type === "userMessage" ? [[item.checkpointId, item.changes]] : [])).toEqual([
+        ["checkpoint-1", { files: 2 }],
+        ["checkpoint-2", { files: 2 }],
+      ]);
+      expect(turnRange(entries as never, "checkpoint-1")).toEqual({ before: "a".repeat(40), after: "b".repeat(40) });
+      expect(warn).toHaveBeenCalledOnce();
+      await manager.close();
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("finds the checkpoint of a message when the end of an earlier turn was recorded after it", async () => {
+    const { session, entries } = checkpointSession();
+    entries.push(sessionMessage("user-0", { role: "user", content: "0", timestamp: 1 }));
+    session.prompt.mockImplementation(async () => {
+      const message = { role: "user", content: "1", timestamp: 1 };
+      session.emit({ type: "message_start", message } as never);
+      entries.push(sessionEntry("checkpoint-1", CHECKPOINT_ENTRY, { version: 1, commit: "a".repeat(40) }));
+      // The snapshot that closed an earlier turn came back late, and its end is recorded just now.
+      entries.push(sessionEntry("late-end", TURN_END_ENTRY, { version: 1, checkpoint: "checkpoint-0", commit: "a".repeat(40), files: 1 }));
+      session.emit({ type: "message_end", message } as never);
+      entries.push(sessionMessage("user-1", message));
+    });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => ({ files: 1 }) } });
+    const project = createProject();
+
+    await manager.prompt(project, createConversation(project), "Build").result;
+    expect(events.since(project.id).filter((event) => event.type === "checkpoint.created").map((event) => event.data)).toEqual([{ checkpointId: "checkpoint-1" }]);
+    expect(entries.at(-1)).toMatchObject({ customType: TURN_END_ENTRY, data: { checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 1 } });
+    await manager.close();
+  });
+
+  it("gives a message no checkpoint when the session's last entry was there before the message started", async () => {
+    const { session, entries } = checkpointSession();
+    // As after an edit of the last message: the conversation is back before it, where its checkpoint is the last entry.
+    entries.push(sessionEntry("checkpoint-replaced", CHECKPOINT_ENTRY, { version: 1, commit: "a".repeat(40) }));
+    const userMessage = (id: string, commit?: string) => {
+      const message = { role: "user", content: id, timestamp: 1 };
+      session.emit({ type: "message_start", message } as never);
+      if (commit) entries.push(sessionEntry(`checkpoint-${id}`, CHECKPOINT_ENTRY, { version: 1, commit }));
+      session.emit({ type: "message_end", message } as never);
+      entries.push(sessionMessage(`user-${id}`, message));
+    };
+    // The snapshot for the edited message failed, so no entry was added for it.
+    session.prompt.mockImplementationOnce(async () => userMessage("edited")).mockImplementationOnce(async () => userMessage("next", "b".repeat(40)));
+    const events = new RuntimeEventBus();
+    const snapshot = vi.fn(async () => "c".repeat(40));
+    const manager = new AgentManager(events, { createSession: async () => session, checkpoints: { snapshot, changed: async () => ({ files: 3 }) } });
+    const project = createProject();
+    const conversation = createConversation(project);
+
+    await manager.prompt(project, conversation, "Edited").result;
+    expect(events.since(project.id).map((event) => event.type)).not.toContain("checkpoint.created");
+    expect(entries).not.toContainEqual(expect.objectContaining({ customType: TURN_END_ENTRY }));
+    expect(snapshot).not.toHaveBeenCalled();
+
+    // An entry that was added while the message was taken in is its checkpoint.
+    await manager.prompt(project, conversation, "Next").result;
+    expect(events.since(project.id).filter((event) => event.type === "checkpoint.created").map((event) => event.data)).toEqual([{ checkpointId: "checkpoint-next" }]);
+    expect(entries.at(-1)).toMatchObject({ customType: TURN_END_ENTRY, data: { checkpoint: "checkpoint-next", commit: "c".repeat(40), files: 3 } });
+    await manager.close();
+  });
+
+  it("lets no turn start, and nothing else be put back, in a project whose files are being put back", async () => {
+    const { session, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    const others = new FakeSession();
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async (_project, conversation) => conversation.summary.id === "conversation-1" ? session : others,
+      checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => ({ files: 1 }) },
+    });
+    const project = createProject();
+    const conversation = createConversation(project);
+    const second = createConversation(project, "conversation-2");
+    const planned = createConversation(project, "conversation-3");
+    manager.restorePlanState(planned, { mode: "awaiting_approval", plan: { steps: [{ step: "Build", status: "pending" }] } });
+    await manager.prompt(project, conversation, "Build").result;
+    const refusal = "Wait until the project's files have been put back";
+
+    for (const puttingBack of ["undo", "restore", "put-back"] as const) {
+      const files = deferred<string>();
+      const work = vi.fn(() => files.promise);
+      const under = puttingBack === "undo"
+        ? manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => ({ previous: await work(), changed: ["notes.txt"], conflicts: [] }))
+        : puttingBack === "restore" ? manager.restoreCheckpoint(project, conversation, "checkpoint-1", work)
+        : manager.restoreUnfinished(project, async () => { await work(); });
+      await vi.waitFor(() => expect(work).toHaveBeenCalledOnce());
+      expect(manager.isProjectBusy(project.id)).toBe(true);
+
+      // A turn of any conversation would write the files that are being put back, however it is started.
+      expect(() => manager.prompt(project, conversation, "Next")).toThrow(refusal);
+      expect(() => manager.prompt(project, second, "Elsewhere")).toThrow(refusal);
+      await expect(manager.reviseLast(project, second, "Edited", async (reference) => reference)).rejects.toThrow(refusal);
+      await expect(manager.approvePlan(project, planned)).rejects.toThrow(refusal);
+      const again = vi.fn(async () => "d".repeat(40));
+      await expect(manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => ({ previous: await again(), changed: [], conflicts: [] }))).rejects.toThrow(refusal);
+      await expect(manager.restoreCheckpoint(project, conversation, "checkpoint-1", again)).rejects.toThrow(refusal);
+      await expect(manager.restoreUnfinished(project, async () => { await again(); })).rejects.toThrow(refusal);
+      expect(again).not.toHaveBeenCalled();
+
+      files.resolve("c".repeat(40));
+      await under;
+      expect(manager.isProjectBusy(project.id)).toBe(false);
+    }
+    expect(others.prompt).not.toHaveBeenCalled();
+    await manager.prompt(project, second, "Elsewhere").result;
+    expect(others.prompt).toHaveBeenCalledExactlyOnceWith("Elsewhere");
+    await manager.close();
+  });
+
+  it("does not execute an approved plan while another conversation is working in the project", async () => {
+    const working = deferred<void>();
+    const session = new FakeSession();
+    session.prompt.mockImplementation(() => working.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async () => session,
+      checkpoints: { snapshot: async () => "a".repeat(40), changed: async () => ({ files: 0 }) },
+    });
+    const project = createProject();
+    const planned = createConversation(project, "planned");
+    manager.restorePlanState(planned, { mode: "awaiting_approval", plan: { steps: [{ step: "Build", status: "pending" }] } });
+    const run = manager.prompt(project, createConversation(project), "Working");
+    try {
+      await expect(manager.approvePlan(project, planned)).rejects.toThrow("Wait for the project agent to finish");
+      expect(manager.planState(planned).mode).toBe("awaiting_approval");
+    } finally {
+      working.resolve();
+      await run.result;
+      await manager.close();
+    }
+  });
+
+  it("puts nothing back in a project a conversation is working in", async () => {
+    const { session, userMessage } = checkpointSession();
+    session.prompt.mockImplementation(async () => userMessage("1", "a".repeat(40)));
+    const working = deferred<void>();
+    const other = new FakeSession();
+    other.prompt.mockImplementation(() => working.promise);
+    const manager = new AgentManager(new RuntimeEventBus(), {
+      createSession: async (_project, conversation) => conversation.summary.id === "conversation-1" ? session : other,
+      checkpoints: { snapshot: async () => "b".repeat(40), changed: async () => ({ files: 1 }) },
+    });
+    const project = createProject();
+    const conversation = createConversation(project);
+    await manager.prompt(project, conversation, "Build").result;
+
+    // Another conversation of the project is changing the same workspace.
+    const run = manager.prompt(project, createConversation(project, "conversation-2"), "Work").result;
+    const files = vi.fn(async () => "c".repeat(40));
+    await expect(manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => ({ previous: await files(), changed: [], conflicts: [] })))
+      .rejects.toThrow("Wait for the agent to finish before undoing");
+    await expect(manager.restoreCheckpoint(project, conversation, "checkpoint-1", files)).rejects.toThrow("Wait for the agent to finish before restoring");
+    await expect(manager.restoreUnfinished(project, async () => { await files(); })).rejects.toThrow("Wait for the agent to finish before restoring");
+    expect(files).not.toHaveBeenCalled();
+    working.resolve();
+    await run;
+
+    // Of two undos that are asked for at once, one reaches the files.
+    const [first, second] = await Promise.allSettled([1, 2].map(() => manager.undoCheckpoint(project, conversation, "checkpoint-1", async () => ({ previous: await files(), changed: [], conflicts: [] }))));
+    expect(first).toMatchObject({ status: "fulfilled" });
+    expect(second).toMatchObject({ status: "rejected", reason: new Error("Wait until the project's files have been put back") });
+    expect(files).toHaveBeenCalledOnce();
+    await manager.close();
+  });
 });
 
 class FakeSession implements CodingSession {
@@ -1865,6 +2694,7 @@ class FakeSession implements CodingSession {
     return `entry-${this.#entries.length}`;
   });
   sessionManager = {
+    branch: vi.fn(),
     appendCustomEntry: this.appendCustomEntry,
     getBranch: () => this.#entries as never,
   };
@@ -1879,6 +2709,30 @@ class FakeSession implements CodingSession {
   emit(event: AgentSessionEvent): void {
     this.#listener?.(event);
   }
+}
+
+/**
+ * A session whose entries have ids, as Pi's do, and that takes user messages
+ * the way Pi does: the checkpoint entry is there when the message ends, and
+ * the message is stored afterwards.
+ */
+function checkpointSession() {
+  const session = new FakeSession();
+  const entries: object[] = [];
+  session.sessionManager = {
+    branch: vi.fn(),
+    appendCustomEntry: vi.fn((customType: string, data: unknown) => {
+      entries.push(sessionEntry(`entry-${entries.length + 1}`, customType, data as object));
+      return `entry-${entries.length}`;
+    }),
+    getBranch: () => entries as never,
+  };
+  const userMessage = (id: string, commit?: string) => {
+    if (commit) entries.push(sessionEntry(`checkpoint-${id}`, CHECKPOINT_ENTRY, { version: 1, commit }));
+    session.emit({ type: "message_end", message: { role: "user", content: id, timestamp: 1 } } as never);
+    entries.push(sessionMessage(`user-${id}`, { role: "user", content: id, timestamp: 1 }));
+  };
+  return { session, entries, userMessage };
 }
 
 function createProject(): ProjectState {
@@ -1918,6 +2772,10 @@ function deferred<T>() {
 
 function sessionMessage(id: string, message: object): object {
   return { type: "message", id, parentId: null, timestamp: new Date(0).toISOString(), message };
+}
+
+function sessionEntry(id: string, customType: string, data: object): object {
+  return { type: "custom", id, parentId: null, timestamp: new Date(0).toISOString(), customType, data };
 }
 
 function messageUpdate(assistantMessageEvent: object): AgentSessionEvent {

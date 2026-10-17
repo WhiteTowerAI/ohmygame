@@ -1,5 +1,6 @@
 import { Clapperboard, Gamepad2, Globe2, Image } from "./icons.js";
 import { PROJECT_TYPE_IDS, type ProjectType } from "../shared/contracts.js";
+import { t } from "./i18n.js";
 export { defaultProjectName } from "../shared/project-names.js";
 
 export interface ProjectTypeOption {
@@ -7,18 +8,11 @@ export interface ProjectTypeOption {
   value: ProjectType;
 }
 
-const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
-  general: "General Game",
-  "web-game": "Web Game",
-  "interactive-story": "Interactive Story",
-  "asset-canvas": "Asset Canvas",
-  "godot-game": "Godot",
-};
 
 export const PROJECT_TYPES: readonly ProjectTypeOption[] = [
   ...PROJECT_TYPE_IDS.filter((value) => value !== "general"),
   "general" as const,
-].map((value) => ({ value, label: PROJECT_TYPE_LABELS[value] }));
+].map((value) => ({ value, label: projectTypeLabel(value) }));
 
 export const GAME_PROJECT_TYPES: readonly ProjectTypeOption[] = PROJECT_TYPES.filter(({ value }) => value !== "asset-canvas");
 
@@ -31,5 +25,5 @@ export function ProjectTypeIcon({ type, size = 14 }: { type: ProjectType; size?:
 }
 
 export function projectTypeLabel(type: ProjectType): string {
-  return PROJECT_TYPE_LABELS[type] ?? type;
+  return PROJECT_TYPE_IDS.includes(type) ? t(`projectType.${type}`) : type;
 }
