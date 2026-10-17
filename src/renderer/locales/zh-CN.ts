@@ -2469,6 +2469,16 @@ const zhCN: typeof en = {
     closePreview: "关闭素材预览",
   },
   storyEditor: {
+    upgradeOffer:
+      "这个故事还在旧的沙箱里运行。升级后它会作为独立的网页运行，从存档到音乐，AI 都能直接修改。",
+    upgradeDetail:
+      "升级会添加 index.html 和 story/ 下的故事运行时，把用到的资源库素材复制进项目，并改写浏览器无法直接加载的导入。升级可以撤销。",
+    upgrade: "升级",
+    upgraded: "这个故事现在作为独立的网页运行。",
+    libraryMedia:
+      "这个故事仍在使用资源库里的素材，发布后的网页无法访问它们：{{assets}}。请把它们复制进项目，或者替换掉。",
+    copyLibraryMedia: "复制进项目",
+    undoUpgrade: "撤销升级",
     projectChanged:
       "编辑期间项目发生了变化，已加载最新版本。请重新做一次最后的修改。",
     keepsChanging: "项目一直在变化，请稍后再试。",

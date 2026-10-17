@@ -3,6 +3,7 @@ import {
   NodeCodebaseError,
 } from "./playable-codebase.js";
 import { playablePreset, PLAYABLE_PRESET_IDS } from "./playable-presets.js";
+import { browserImports, isWebStory } from "./story-web-project.js";
 import { freePlayablePosition, type NodeEditorLayout } from "../shared/playable-codebase.js";
 import { withPlayableEntry } from "../shared/playable-graph.js";
 
@@ -54,8 +55,10 @@ export async function addPlayableNode(
     javascript: `nodes/${request.id}/node.js`,
   };
   let title = "";
+  let nodeFiles: string[] = [];
   // Read and written as one step, so a save from the editor cannot land in between and be lost.
-  await changeNodeCodebase(workspacePath, (codebase) => {
+  await changeNodeCodebase(workspacePath, async (codebase) => {
+    const web = await isWebStory(workspacePath);
     // Nodes are named in order, not after their Preset: a Preset is only a starting point.
     title = (request.title ?? nextNodeTitle(codebase.graph.nodes)).trim().slice(0, MAX_TITLE_LENGTH);
     if (!title) throw new NodeCodebaseError("A Node title is required.");
@@ -64,7 +67,7 @@ export async function addPlayableNode(
       throw new NodeCodebaseError(`Node "${request.id}" already exists.`);
     }
     // Without a title the starter text keeps the Preset's own wording.
-    const starter = preset.source(request.title ? title : preset.label);
+    const starter = preset.source(request.title ? title : preset.label, request.id);
     // The first Node of an empty project becomes its Start.
     const graph = withPlayableEntry({
       ...codebase.graph,
@@ -87,6 +90,13 @@ export async function addPlayableNode(
         [request.id]: request.position ?? freePlayablePosition(codebase.editorLayout, codebase.graph.viewport),
       },
     };
+    // A web story loads Scene modules as they are, so they use imports a browser understands.
+    if (web) starter.javascript = browserImports(starter.javascript);
+    // A Template's further files belong to the new Node, so they replace any left by a removed Node of the same ID.
+    const files = Object.fromEntries(
+      Object.entries(starter.files ?? {}).map(([name, content]) => [`nodes/${request.id}/${name}`, content]),
+    );
+    nodeFiles = Object.keys(files);
     return {
       graph,
       editorLayout,
@@ -95,13 +105,15 @@ export async function addPlayableNode(
         [source.css]: starter.css,
         [source.javascript]: starter.javascript,
       },
+      files,
+      ...(preset.sharedFiles ? { missingFiles: preset.sharedFiles } : {}),
     };
   });
   return {
     id: request.id,
     title,
     preset: preset.id,
-    files: [source.html, source.css, source.javascript],
+    files: [source.html, source.css, source.javascript, ...nodeFiles],
     signals: preset.signals.map((signal) => signal.id),
     brief: preset.brief,
   };

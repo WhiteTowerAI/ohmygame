@@ -2064,6 +2064,58 @@ describe("Playable Nodes projects", () => {
     expect(runtime).toMatchObject({ available: true, definition: { graph: { nodes: [] } } });
   });
 
+  it("upgrades a sandboxed story to a web story and takes the upgrade back", async () => {
+    const app = await createPlayableApp("ohmygame-story-upgrade-");
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Old", type: "interactive-story" } })).json();
+    // A story from before web stories has no page and no runtime of its own.
+    await rm(path.join(project.workspacePath, "index.html"));
+    await rm(path.join(project.workspacePath, "story"), { recursive: true });
+    await app.inject({ method: "POST", url: `/projects/${project.id}/playable/nodes`, payload: { preset: "visual-novel", id: "chapter" } });
+    const status = () => app.inject({ method: "GET", url: `/projects/${project.id}/interactive-story/upgrade` }).then((response) => response.json());
+    expect(await status()).toEqual({ web: false });
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
+
+    const upgraded = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` });
+    expect(upgraded.statusCode).toBe(200);
+    expect(upgraded.json()).toMatchObject({ copiedAssets: [], missingAssets: [] });
+    expect(upgraded.json().changed).toEqual(expect.arrayContaining(["index.html", "story/story-web/runtime.js"]));
+    expect(await status()).toMatchObject({ web: true, upgradedAt: expect.any(String) });
+    expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBe(true);
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` })).statusCode).toBe(409);
+
+    // Media still in the Library show, and can be copied in once the Library has them.
+    const read = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
+    const codebase = read.json();
+    const uploaded = (await app.inject({
+      method: "POST",
+      url: "/library/assets/upload?name=clip.mp4&mediaType=video%2Fmp4&duration=1",
+      headers: { "content-type": "application/octet-stream" },
+      payload: Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]),
+    })).json();
+    // The upgrade changed the workspace version, so a write carries the version it read.
+    const put = await app.inject({ method: "PUT", url: `/projects/${project.id}/playable/codebase`, headers: { "x-workspace-version": String(read.headers["x-workspace-version"]) }, payload: {
+      ...codebase,
+      graph: { ...codebase.graph, assets: { opening: { type: "video", source: { kind: "library", assetId: uploaded.id } } } },
+    } });
+    expect(put.statusCode, put.body).toBe(200);
+    expect(await status()).toMatchObject({ web: true, libraryAssets: ["opening"] });
+    const copied = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/library-media` });
+    expect(copied.json()).toMatchObject({ copiedAssets: ["opening"], changed: ["graph.json", "assets/library/opening.mp4"] });
+    expect((await status()).libraryAssets).toBeUndefined();
+
+    const undone = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` });
+    expect(undone.statusCode).toBe(200);
+    expect(await status()).toEqual({ web: false });
+    await expect(readFile(path.join(project.workspacePath, "index.html"))).rejects.toThrow();
+    expect(await readFile(path.join(project.workspacePath, "nodes/chapter/node.js"), "utf8")).toContain('import script from "./script.txt";');
+
+    // Keeping an upgrade forgets how to take it back.
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/keep` })).statusCode).toBe(200);
+    expect(await status()).toEqual({ web: true });
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` })).statusCode).toBe(409);
+  });
+
   it("lists Presets and adds a Node from one", async () => {
     const app = await createPlayableApp("ohmygame-playable-presets-");
     const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
@@ -2071,7 +2123,7 @@ describe("Playable Nodes projects", () => {
     const presets = await app.inject({ method: "GET", url: "/playable/presets" });
     expect(presets.statusCode).toBe(200);
     expect(presets.json().presets.map((preset: { id: string }) => preset.id)).toEqual([
-      "blank", "main-menu", "choice", "qte", "hotspot", "ending", "story-map",
+      "blank", "main-menu", "choice", "qte", "hotspot", "ending", "story-map", "visual-novel",
     ]);
 
     const created = await app.inject({
@@ -2082,7 +2134,8 @@ describe("Playable Nodes projects", () => {
 
     expect(created.statusCode).toBe(200);
     expect(created.json()).toMatchObject({ id: "menu", title: "Ash Club", signals: ["start", "story-map"] });
-    const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
+    const read = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
+    const codebase = read.json();
     // The first Scene of a new project becomes its Start.
     expect(codebase.graph.nodes.map((node: { id: string }) => node.id)).toEqual(["menu"]);
     expect(codebase.graph.entryNodeId).toBe("menu");
@@ -2290,7 +2343,8 @@ describe("Playable Nodes projects", () => {
       payload: { name: "Playable", type: "interactive-story" },
     })).json();
     await addStartScene(app, project.id);
-    const codebase = (await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` })).json();
+    const read = await app.inject({ method: "GET", url: `/projects/${project.id}/playable/codebase` });
+    const codebase = read.json();
     codebase.graph.assets.portrait = {
       type: "image",
       source: { kind: "library", assetId: asset.id },

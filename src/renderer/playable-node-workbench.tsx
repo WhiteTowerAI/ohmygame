@@ -33,7 +33,7 @@ import {
   playableRuntimeKey,
   type PlayableProjectValidationIssue,
 } from "../shared/playable-editor.js";
-import { getNodeRuntime, playableSandboxUrl } from "./api.js";
+import { ensureProjectPreview, getNodeRuntime, playableSandboxUrl } from "./api.js";
 import { loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { LibraryAssetPicker, uploadLibraryFile, WorkbenchBreadcrumb, WorkbenchPreview } from "./node-workbench.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
@@ -61,6 +61,8 @@ export interface PlayableAssetRequest extends PlayableAssetDefinition {
 export interface PreviewRuntime {
   definition?: NodePlayerDefinition;
   assets?: Record<string, Blob>;
+  /** A web story's page in the project preview, which plays instead of the sandbox. */
+  page?: string;
   error?: string;
 }
 
@@ -334,7 +336,7 @@ export function PlayableNodeWorkbench({
     || issue.path.startsWith(`nodes/${node.id}/`)
     || Object.values(node.source).includes(issue.path));
   const errors = previewErrors(graph, node, nodeIssues, runtime.error, snapshot, diagnostics);
-  const ready = Boolean(runtime.definition && runtime.assets);
+  const ready = Boolean(runtime.definition && (runtime.assets || runtime.page));
   const canSetBackdrop = Boolean(backdrop && onSetBackdrop);
   const canRemoveBackdrop = Boolean(backdrop === "set" && onRemoveBackdrop);
   const chooser = useMediaChooser((asset, target) => void addMedia(asset, target), (text) => showToast({ tone: "error", text }));
@@ -382,11 +384,12 @@ export function PlayableNodeWorkbench({
       />
     </>}
   >
-    {runtime.definition && runtime.assets ? <NodePlayer
+    {runtime.definition && (runtime.assets || runtime.page) ? <NodePlayer
       key={session}
       definition={runtime.definition}
       frameUrl={playableSandboxUrl()}
-      assets={runtime.assets}
+      {...(runtime.page ? { page: runtime.page } : {})}
+      assets={runtime.assets ?? {}}
       saveKey={`ohmygame:playable:preview:${projectId}`}
       storage={storage}
       preview={preview}
@@ -755,6 +758,12 @@ export function usePlayablePreviewRuntime(projectId: string, revision: number): 
     let disposed = false;
     void getNodeRuntime(projectId).then(async (result) => {
       if (!result.available) throw new Error(t("sceneWorkbench.noScenes"));
+      if (result.web) {
+        // The page loads the project's files itself, so every revision plays afresh.
+        const { url } = await ensureProjectPreview(projectId);
+        if (!disposed) setRuntime({ definition: result.definition, page: url });
+        return;
+      }
       const key = playableRuntimeKey(result.definition);
       if (key === runtimeKey.current) {
         if (!disposed) setRuntime((current) => ({ ...current, error: undefined }));

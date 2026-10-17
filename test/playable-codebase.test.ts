@@ -41,13 +41,26 @@ describe("Playable codebase", () => {
       "README.md",
       "editor/layout.json",
       "graph.json",
+      "index.html",
       "schemas/editor-layout.schema.json",
       "schemas/graph.schema.json",
       "schemas/project-style.version.json",
       "shared/style/components.css",
       "shared/style/components.js",
       "shared/style/theme.css",
-    ]);
+      "story/manifest.json",
+      "story/shared/playable-audio.js",
+      "story/shared/playable-graph.js",
+      "story/shared/playable-navigation.js",
+      "story/shared/playable-runtime.js",
+      "story/shared/playable-sandbox.js",
+      "story/shared/playable-state.js",
+      "story/shared/playable-story-map.js",
+      "story/story-web/runtime.js",
+    ].sort());
+    // A new project is a web story: its page plays it with the runtime under story/.
+    expect(await readFile(path.join(workspace, "index.html"), "utf8"))
+      .toContain('<title>A &lt; B &amp; C</title>');
     const codebase = await readNodeCodebase(workspace);
     expect(codebase.graph).toMatchObject({ title: "A < B & C", nodes: [], edges: [] });
     expect(codebase.editorLayout.nodes).toEqual({});
@@ -423,6 +436,19 @@ describe("Playable codebase", () => {
     const before = await readNodeCodebaseDetail(workspace);
     await changeNodeCodebase(workspace, () => undefined);
     expect((await readNodeCodebaseDetail(workspace)).revision).toBe(before.revision);
+  });
+
+  it("writes a file in a Node's own folder, and nothing outside the Nodes' folders", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(workspace, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
+    const codebase = await readNodeCodebaseDetail(workspace);
+    await writeNodeCodebase(workspace, { ...codebase, sources: { "nodes/start/script.txt": "Hello.\n" } });
+    expect(await readFile(path.join(workspace, "nodes/start/script.txt"), "utf8")).toBe("Hello.\n");
+    const latest = await readNodeCodebaseDetail(workspace);
+    for (const relative of ["shared/vn/script.txt", "nodes/start/deeper/script.txt", "nodes/other/script.txt"]) {
+      await expect(writeNodeCodebase(workspace, { ...latest, sources: { [relative]: "x" } }))
+        .rejects.toThrow(`Source update "${relative}" is not declared by a Node.`);
+    }
   });
 
   it("writes without a revision whatever the files hold", async () => {

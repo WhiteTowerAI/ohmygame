@@ -2545,6 +2545,16 @@ const en = {
     closePreview: "Close asset preview",
   },
   storyEditor: {
+    upgradeOffer:
+      "This story plays in the old sandbox. Upgrade it to play as its own web page, which the AI can change entirely, from saving to music.",
+    upgradeDetail:
+      "Upgrading adds index.html and the story runtime under story/, copies the Library media it uses into the project, and updates imports the browser cannot load. You can undo it.",
+    upgrade: "Upgrade",
+    upgraded: "This story now plays as its own web page.",
+    libraryMedia:
+      "This story still takes media from the Library, which a published web story cannot reach: {{assets}}. Copy them into the project, or replace them.",
+    copyLibraryMedia: "Copy into project",
+    undoUpgrade: "Undo upgrade",
     projectChanged:
       "The project changed while you were editing, so its latest version was loaded. Make your last change again.",
     keepsChanging: "The project keeps changing. Try again in a moment.",

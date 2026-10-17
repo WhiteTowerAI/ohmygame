@@ -23,6 +23,18 @@ describing them to the Agent, not by choosing a node type or writing code.
   navigation, saving, and assets go through the Runtime.
 - **One node type.** Menu, scene, choice, archive, and ending are starting
   points (presets), not runtime categories.
+- **Presets are copied once, then belong to the project.** A preset's files,
+  and the shared files it brings such as the Project Style or the Visual
+  Novel player, are written when the project first needs them. From then on
+  they are the author's: OhMyGame never updates or replaces them, and later
+  preset changes reach only nodes created afterwards. Only the Runtime in
+  `story/` is updated by OhMyGame, keeping files the author changed (see
+  [runtime.md](runtime.md#the-story-runtime-in-the-project)).
+- **Genres are presets, not systems.** A visual novel chapter, a film shot,
+  a phone the player looks through, and a puzzle are all nodes. They connect
+  by Signals like any other nodes, and they share the Runtime's State, save,
+  slots, music, and preferences. A genre needs a preset and the Agent; it
+  does not need a Runtime feature or an editor panel of its own.
 - **Agent first.** Authors describe, the Agent builds, the author sees the
   result live. Editing code by hand is a rarely used escape hatch.
 - **Asset Canvas stays separate.** Asset Canvas creates media; Playable Nodes

@@ -116,7 +116,9 @@ can open in any editor.
 Interactive films, visual novels, and story games. Each screen is a free web
 page with its own images, video, and code: a main menu, a case archive, a
 dialogue, a puzzle. You connect them on a graph, and the runtime handles state,
-saves, and navigation. The architecture and authoring model are documented in
+saves, music, and navigation. The story plays as its own web page, and the
+runtime is part of the project, so the agent can change anything about how it
+plays. The architecture and authoring model are documented in
 [Playable Nodes](docs/playable-nodes/README.md).
 
 <!-- TODO(asset): screenshot or GIF, Node Graph with two finished screens,

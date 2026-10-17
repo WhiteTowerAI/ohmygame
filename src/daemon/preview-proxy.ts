@@ -16,8 +16,12 @@ import {
   previewDiagnostic,
   type PreviewDiagnostic,
 } from "../shared/preview-diagnostics.js";
+import { annotatePlayableSourceLocations } from "../shared/playable-source-locations.js";
 
 const BRIDGE_PATH = "/__ohmygame_preview_bridge__.js";
+/** The web story editor bridge, served beside the preview bridge for Interactive Story pages. */
+const STORY_BRIDGE_PATH = "/__ohmygame_story_bridge__.js";
+const SCENE_HTML_PATH = /^\/(nodes\/[^/]+\/index\.html)$/;
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
 
 export interface PreviewProxy {
@@ -41,6 +45,12 @@ export async function createPreviewProxy(
       source: PreviewPageSource,
       path: string,
     ) => void;
+    /**
+     * Serves a web story's editor tools: every page gets the story editor
+     * bridge, and Scene HTML the page fetches gets source locations for
+     * picking and text editing.
+     */
+    story?: { bridge: () => Promise<string> };
   } = {},
 ): Promise<PreviewProxy> {
   const target = new URL(targetUrl);
@@ -138,6 +148,13 @@ export async function createPreviewProxy(
   };
   const server = createServer((incoming, outgoing) => {
     try {
+      if (options.story && incoming.url?.split("?")[0] === STORY_BRIDGE_PATH) {
+        void options.story.bridge().then(
+          (script) => outgoing.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" }).end(script),
+          (error: Error) => outgoing.writeHead(500, { "content-type": "text/plain" }).end(error.message),
+        );
+        return;
+      }
       if (incoming.url?.split("?")[0] === BRIDGE_PATH) {
         if (
           incoming.method === "GET" &&
@@ -373,6 +390,10 @@ export async function createPreviewProxy(
           response.pipe(outgoing);
           return;
         }
+        // Scene HTML a story page fetches is part of the page, not a page of its own.
+        const scene = options.story && destination === "empty"
+          ? SCENE_HTML_PATH.exec(decodeURIComponent(new URL(incoming.url ?? "/", target).pathname))?.[1]
+          : undefined;
         void relayBuffered(
           incoming,
           outgoing,
@@ -381,6 +402,7 @@ export async function createPreviewProxy(
           failedModule,
           document,
           (diagnostic) => report(document, incoming.url ?? "/", diagnostic),
+          scene ? { scene } : options.story ? { bridge: true } : undefined,
         ).catch((error) => {
           report(document, incoming.url ?? "/", {
             kind: "load",
@@ -497,6 +519,7 @@ async function relayBuffered(
   failedModule: boolean,
   document: number,
   report: (diagnostic?: PreviewDiagnostic) => void,
+  story?: { scene?: string; bridge?: true },
 ): Promise<void> {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -522,9 +545,15 @@ async function relayBuffered(
     });
   else if ((response.statusCode ?? 502) < 400) report();
   const headers = { ...response.headers };
-  if (html) {
+  if (html && story?.scene) {
+    body = annotatePlayableSourceLocations(body, story.scene);
+    delete headers["content-length"];
+    delete headers.etag;
+    headers["cache-control"] = "no-store";
+  } else if (html) {
     const nonce = body.match(/<script[^>]+nonce=("[^"]*"|'[^']*')/i)?.[1];
-    const bridge = `<script ${nonce ? `nonce=${nonce} ` : ""}src="${BRIDGE_PATH}?document=${document}"></script>`;
+    const bridge = `<script ${nonce ? `nonce=${nonce} ` : ""}src="${BRIDGE_PATH}?document=${document}"></script>`
+      + (story?.bridge ? `<script ${nonce ? `nonce=${nonce} ` : ""}src="${STORY_BRIDGE_PATH}"></script>` : "");
     body = /<head(?:\s[^>]*)?>/i.test(body)
       ? body.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}${bridge}`)
       : `${bridge}${body}`;

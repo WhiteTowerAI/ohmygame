@@ -7,8 +7,11 @@ import yauzl from "yauzl";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ArtifactBuilder, validatePlayablePublishDirectory } from "../src/daemon/publish/archive.js";
 import { isPublishedNodeManifest } from "../src/shared/playable-publish.js";
+import { addPlayableNode } from "../src/daemon/playable-add-node.js";
+import { createNodeCodebase, readNodeCodebaseDetail, writeNodeCodebase } from "../src/daemon/playable-codebase.js";
 import {
   createNodeGraphFixture,
+  createStarterCodebaseWithScene,
   writePlayableFixtureWorkspace,
 } from "./playable-fixture.js";
 
@@ -39,6 +42,67 @@ describe("Web output", () => {
       expect(files.get("index.html")?.toString()).toBe("Configured game output");
       expect(files.get("game.js")?.toString()).toBe("window.ready = true;");
       expect(files.has("client/index.html")).toBe(false);
+    } finally { await builder.close(); }
+  });
+});
+
+describe("Web story output", () => {
+  it("publishes the files that play the story and the assets it uses, and nothing of the editor", async () => {
+    const workspace = await temporary("ohmygame-web-story-publish-");
+    await createNodeCodebase(workspace, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
+    await addPlayableNode(workspace, { preset: "visual-novel", id: "chapter" });
+    await mkdir(path.join(workspace, "assets"));
+    await mkdir(path.join(workspace, ".ohmygame"), { recursive: true });
+    await Promise.all([
+      writeFile(path.join(workspace, "assets", "street.webp"), "declared"),
+      writeFile(path.join(workspace, "assets", "paper.png"), "named in CSS"),
+      writeFile(path.join(workspace, "assets", "unused.mp4"), "unused"),
+      writeFile(path.join(workspace, ".ohmygame", "cache.json"), "{}"),
+      mkdir(path.join(workspace, "fonts")).then(() => writeFile(path.join(workspace, "fonts", "serif.woff2"), "font")),
+      mkdir(path.join(workspace, "canvas")).then(() => writeFile(path.join(workspace, "canvas", "board.png"), "board")),
+    ]);
+    await writeFile(path.join(workspace, "shared", "style", "fonts.css"), '@font-face { font-family: Serif; src: url("../../fonts/serif.woff2"); }\n/* canvas/board.png belongs to the editor */\n');
+    await writeFile(path.join(workspace, "nodes", "chapter", "style.css"), '.vn { background: url("../../assets/paper.png"); }\n');
+    const codebase = await readNodeCodebaseDetail(workspace);
+    await writeNodeCodebase(workspace, {
+      ...codebase,
+      graph: {
+        ...codebase.graph,
+        entryNodeId: "chapter",
+        assets: { street: { type: "image", source: { kind: "workspace", path: "assets/street.webp" } } },
+        nodes: codebase.graph.nodes.map((node) => node.id === "chapter" ? { ...node, assets: ["street"], signals: [] } : { ...node, signals: [] }),
+      },
+    });
+
+    const builder = new ArtifactBuilder();
+    try {
+      const files = await unzip(await builder.buildInteractiveStory(project(workspace)));
+      const names = [...files.keys()].sort();
+      expect(names).toContain("index.html");
+      expect(names).toContain("graph.json");
+      expect(names).toContain("story/story-web/runtime.js");
+      expect(names).toContain("nodes/chapter/script.txt");
+      expect(names).toContain("shared/vn/player.js");
+      expect(names).toContain("assets/street.webp");
+      expect(names).toContain("assets/paper.png");
+      expect(names).toContain("fonts/serif.woff2");
+      expect(names).not.toContain("canvas/board.png");
+      for (const left of ["assets/unused.mp4", "story/manifest.json", "editor/layout.json", "AGENTS.md", "README.md", "schemas/graph.schema.json", ".ohmygame/cache.json"])
+        expect(names).not.toContain(left);
+    } finally { await builder.close(); }
+  });
+
+  it("refuses to publish a web story that still uses a Library asset", async () => {
+    const workspace = await temporary("ohmygame-web-story-library-");
+    await createNodeCodebase(workspace, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
+    const codebase = await readNodeCodebaseDetail(workspace);
+    await writeNodeCodebase(workspace, {
+      ...codebase,
+      graph: { ...codebase.graph, assets: { opening: { type: "video", source: { kind: "library", assetId: "lib" } } }, nodes: codebase.graph.nodes.map((node) => ({ ...node, signals: [] })) },
+    });
+    const builder = new ArtifactBuilder();
+    try {
+      await expect(builder.buildInteractiveStory(project(workspace))).rejects.toThrow('Asset "opening" is in the Library');
     } finally { await builder.close(); }
   });
 });

@@ -2,6 +2,7 @@ import { inspectPreviewConfiguration } from "./preview-configuration.js";
 import { CheckpointStore } from "./checkpoints.js";
 import { ProjectWrites } from "./project-writes.js";
 import { registerCheckpointRoutes } from "./checkpoint-routes.js";
+import { registerStoryWebRoutes } from "./story-web-routes.js";
 import { readWorkspaceVersion } from "./workspace-notice.js";
 import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
@@ -14,10 +15,11 @@ import { isUtf8 } from "node:buffer";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { access as fileAccess, readFile } from "node:fs/promises";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
+import { isWebStory } from "./story-web-project.js";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
@@ -801,7 +803,8 @@ export function createApp(options: AppOptions = {}) {
             driver: playtest,
             resolveOpenTarget: async () => ({
               runtime: "web",
-              url: project.type === "interactive-story"
+              // A web story is played as its own page, like a Web Game; its runtime offers the playtest bridge.
+              url: project.type === "interactive-story" && !await isWebStory(project.workspacePath)
                 ? await playableDrafts.open(project)
                 : previewPageUrl(await previews.ensureStarted(project, false), "playtest"),
             }),
@@ -908,6 +911,10 @@ export function createApp(options: AppOptions = {}) {
   registerCheckpointRoutes(app, {
     store: checkpoints,
     snapshot: snapshotWorkspace, writes: projectWrites, projects, conversations, agents, previews, events,
+    busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
+  });
+  registerStoryWebRoutes(app, {
+    projects, agents, writes: projectWrites, checkpoints, snapshot: snapshotWorkspace, library, events,
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
 
@@ -1213,7 +1220,10 @@ export function createApp(options: AppOptions = {}) {
     if (project.type !== "interactive-story") return reply.code(409).send({ error: "Node Runtime requires an Interactive Story project" });
     try {
       const definition = await buildPlayableProject(project.workspacePath);
-      return definition ? { available: true, definition } : { available: false };
+      if (!definition) return { available: false };
+      // A web story carries its own runtime and plays as a page.
+      const web = await isWebStory(project.workspacePath);
+      return { available: true, definition, ...(web ? { web: true } : {}) };
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
@@ -2813,7 +2823,8 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const reuse = request.query.reuse === "1";
-    if (reuse && !isWebRuntimeProjectType(project.type)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
+    // A web story plays its own page through the preview.
+    if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story") return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };

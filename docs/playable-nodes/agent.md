@@ -22,7 +22,22 @@ and the tools it uses to verify results.
 
 ## Project instructions
 
-Every project contains an `AGENTS.md` with the stable rules:
+Every project contains an `AGENTS.md` with the stable rules, and a section on
+web stories:
+
+- `story/` holds the story runtime, which is project code: change it when the
+  game needs something it does not do, keeping `graph.json` as the flow, the
+  node `context`, the `scene` query parameter, and the one background per
+  node.
+- When `story/manifest.json` lists `pending` files, merge the newer runtime
+  files under `.ohmygame/story-runtime/<version>/` into the project's changed
+  ones, then remove `pending`.
+- Node code is a browser module with no bundler: relative imports, fetched
+  text files, and JSON with `with { type: "json" }`.
+- Browser storage may hold what belongs to the player across games; a game's
+  progress stays in State and positions.
+
+The rules for every story:
 
 - Every node is the same kind of thing. Presets are starting points; never
   recreate node types.
@@ -52,6 +67,10 @@ Every project contains an `AGENTS.md` with the stable rules:
   `"story": { "hidden": true }` so the Story Map leaves it out. Set
   `story.ending` only where the guess from Signals is wrong, and
   `story.label` when players should see another name than the title.
+- Files a Preset added under `shared/`, such as the Project Style and the
+  Visual Novel player in `shared/vn/`, are the project's source: change them
+  freely. OhMyGame writes them only when they are missing and never updates
+  them.
 - Keep IDs and source paths stable. Do not rely on `window` globals.
 - Run the checks below before finishing.
 
@@ -137,6 +156,34 @@ and other screens
 outside the story are `story.hidden`, and that the endings are right. Change
 how the map looks in that node's code; `context.story.map()` already gives
 the layout and what the player has seen.
+
+**Change the title screen.** The `main-menu` Preset has Start, Continue,
+Load, Story map, and Settings. Load and Settings are the node's own code,
+with no Signal: Load lists `context.session.slots()` and continues the one
+picked with `loadSlot(id)`, and Settings has a slider per preference, the
+music and sound volumes the Runtime reads. When the game reads another
+preference, such as a Visual Novel's `textSpeed` and `autoWait`, add a slider
+for it there.
+
+**Mix kinds of Scenes.** A visual novel chapter, a film shot, a QTE, and a
+phone are all nodes, connected by Signals in any order. Build each the way
+it needs; they share State, the save and its slots, music, and preferences
+without anything extra.
+
+**Build a visual novel chapter.** Create a node from the `visual-novel`
+Preset. Put the author's lines in its `script.txt` in the format described
+at the top of `shared/vn/player.js`, and list characters and their looks in
+`shared/vn/characters.json`. The author writes the dialogue and narration:
+do not write, rewrite, or extend them unless asked. Declare every Asset the
+script and its characters use in the node's `assets`, every Variable in
+`initialState`, and one Signal per answer or `->` exit. Connect its `title`
+navigation Exit to the title screen.
+
+**Music across Scenes.** Use `context.audio.music(assetId)` for music that
+should carry on, never an `<audio>` element in a Node; the Runtime keeps it
+playing into the next Scene and in the save, and turns it down under a
+Scene's own video sound. A Node that steps through a long sequence keeps its
+place with `context.position` so Continue returns there.
 
 ## Tools
 

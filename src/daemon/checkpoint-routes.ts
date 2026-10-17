@@ -45,9 +45,11 @@ export function registerCheckpointRoutes(
   const { store, writes, projects, conversations, agents, previews, events } =
     options;
   // Cancel remains available while a boundary waits for generation to settle.
+  // Upgrading a story and copying its Library media take the workspace to themselves, as Undo does.
   const exempt = (url: string) =>
     /\/checkpoints\/|\/events(?:\?|$)/.test(url) ||
-    /\/cancel(?:\?|$)/.test(url);
+    /\/cancel(?:\?|$)/.test(url) ||
+    /\/interactive-story\/(?:upgrade|library-media)(?:\/|\?|$)/.test(url);
   app.addHook("preHandler", async (request, reply) => {
     const id = (request.params as { projectId?: string }).projectId;
     if (!id) return;

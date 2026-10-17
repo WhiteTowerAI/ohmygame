@@ -16,6 +16,7 @@ import {
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import { blankSource } from "./playable-presets.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "./playable-style.js";
+import { installStoryRuntime, isWebStory, storyWebIndexHtml } from "./story-web-project.js";
 import { listWorkspaceFiles } from "./workspace.js";
 
 const GRAPH_FILE = "graph.json";
@@ -36,7 +37,22 @@ export class NodeCodebaseConflictError extends NodeCodebaseError {
   override readonly name = "NodeCodebaseConflictError";
 }
 
-const AGENT_INSTRUCTIONS = `# Playable Nodes Project
+/**
+ * Earlier AGENTS.md and README.md that OhMyGame wrote, by SHA-256. Upgrading
+ * a story to a web story replaces a copy that is still exactly one of them.
+ */
+export const PROJECT_GUIDE_UPGRADES: Record<"AGENTS.md" | "README.md", readonly string[]> = {
+  "AGENTS.md": [
+    "2466f982c14b84abb66f1521664644b687eb21c10f27f72bc6eedd807d9171d1",
+    "78bab6b86ae039e0b63d14da74e6f5f3fb3eca4ffbd2399de845a643d7ed699e",
+  ],
+  "README.md": [
+    "311594a64abc80d5b1c8270e064375268f8bb3eff44e58f634c3d275208c65e2",
+    "781d2b099d3acc5d87555668f8d935acbbbbccbddb39e052471367224275dc6f",
+  ],
+};
+
+export const AGENT_INSTRUCTIONS = `# Playable Nodes Project
 
 This workspace is the source of truth for an OhMyGame Playable Nodes project.
 
@@ -53,8 +69,10 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - A Node may use only Assets listed in its \`assets\` array. Resolve them with \`context.assets.url(assetId)\`.
 - Build every screen with the Project Style in \`shared/style/\`: import \`shared/style/components.css\` from a Node's CSS and use its tokens and classes. Add a token or component there instead of hard-coding values in a Node, and restyle the game by changing \`shared/style/\` first.
 - A Node's background is one \`<div class="backdrop" data-media="backdrop" data-asset="ID" data-type="video|image">\` inside a \`.has-backdrop\` container. The author sets \`data-asset\` and \`data-type\` from the editor, so keep exactly one such element in the Node's HTML and never replace it; to change the background, change those two attributes. \`showBackdrop(context)\` from \`shared/style/components.js\` shows it: a video plays once with sound and stops on its last frame, an image stays still. It returns \`{ video, cleanup }\`.
+- Music that should carry on across Scenes, such as a chapter's theme, goes through \`context.audio.music(assetId)\`, not an \`<audio>\` element in a Node: it keeps playing into the next Scene, is kept with the save, and turns down while a Scene's own video plays with sound. A Node that reads a long sequence one step at a time, such as a script, keeps its place with \`context.position\`, so Continue returns there.
 - \`playScene(context, { signal })\` from the same file shows the background and emits the Signal when its video ends or the player clicks. The Blank Template uses it; change or replace it freely.
 - Use normal modules under \`shared/\` for code shared by Nodes. Imports must remain inside this workspace; project dependencies resolve from this project's own \`node_modules\`.
+- Files a Template added, such as the Project Style in \`shared/style/\` and the Visual Novel player in \`shared/vn/\`, are this project's source like any other: change them freely. OhMyGame writes them only when they are missing and never updates them.
 - UI that appears on more than one Node, such as a top bar or a Home button, is a shared component under \`shared/components/\`. Each Node that shows it imports it, and declares and routes the Signals it emits like its own. There is no layer drawn over every Node; State carries whatever must continue across Nodes.
 - A Signal that is a way around the game rather than a step in the story, such as Home, Menu, or Settings, has \`"role": "navigation"\`. The editor names its target on the Exit instead of drawing a line; routing is the same.
 - Use \`replace\` for forward progression and \`push\` only when the player should be able to return with \`navigation.back()\`.
@@ -63,7 +81,17 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 - An entry, button, or link whose Signal may go nowhere checks \`context.navigation.connected(signalId)\` and shows disabled instead of emitting. Publishing requires every Signal other than navigation ones to be connected.
 - A new project has no Nodes. \`playable_add_node\` makes the first Node the Entry Node; when you add the first Node to graph.json yourself, set \`entryNodeId\` to it.
 - Keep IDs and source paths stable when editing existing objects. You do not need to edit \`editor/layout.json\`; the editor places new Nodes.
-- Read \`README.md\` and the schemas in \`schemas/\` before changing the contract. Do not copy or modify the OhMyGame Runtime inside this project.
+- Read \`README.md\` and the schemas in \`schemas/\` before changing the contract.
+
+## Web stories
+
+A project with \`index.html\` and \`story/\` is a web story: it plays as its own page, and \`story/\` holds the story runtime that reads \`graph.json\` and loads each Scene's files as they are. A project without them plays in OhMyGame's sandbox; there, never copy or modify the Runtime.
+
+- The runtime under \`story/\` is project code. Change it when the game needs something it does not do, and keep what the editor relies on: \`graph.json\` as the story's flow, the \`context\` every Scene's \`mount\` receives, the \`scene\` query parameter, and the one \`data-media="backdrop"\` background per Scene.
+- \`story/manifest.json\` records the runtime OhMyGame wrote. When it lists \`pending\` files, a newer runtime changed files you or the author changed; the newer ones are under \`.ohmygame/story-runtime/<version>/\`. Merge them into the project's files, keeping the project's changes, then remove \`pending\` from the manifest.
+- A Scene's code loads as a browser module, with no bundler: import project files by relative path, read text with \`await (await fetch(new URL("./script.txt", import.meta.url))).text()\`, and import JSON with \`with { type: "json" }\`. Packages from \`node_modules\` are not available.
+- The page may use browser storage for what belongs to the player across every game, such as lines read or pictures unlocked. Keep a game's progress in \`context.state\` and \`context.position\`, so saves, slots, and Continue stay right.
+- Media a Scene uses goes in \`graph.json\` \`assets\` as a project file, so publishing includes it.
 
 ## Words the editor uses
 
@@ -81,7 +109,7 @@ The user sees the editor, not this contract. Talk to them in its words: say "the
 | On Story map, Ending | \`story.hidden\`, \`story.ending\` |
 `;
 
-const PROJECT_DOCUMENTATION = `# Playable Nodes Project
+export const PROJECT_DOCUMENTATION = `# Playable Nodes Project
 
 This project is made of one graph plus ordinary browser source files. Every Node has the same capabilities; names such as menu, scene, archive, or puzzle are authoring ideas rather than runtime types.
 
@@ -104,13 +132,20 @@ Each Node module exports \`mount(context)\`. The Runtime supplies:
 - \`context.assets.url(id)\`: a URL for an Asset declared by this Node.
 - \`context.state.get(key)\`, \`set(key, value)\`, \`patch(values)\`, and \`subscribe(listener)\`.
 - \`context.navigation.emit(signalId)\`, \`back()\`, and \`connected(signalId)\`, which is true when this Node declares the Signal and an edge routes it.
-- \`context.session.hasSave()\`, \`save()\`, \`continue()\`, \`restart()\`, and \`reset()\`.
+- \`context.session.hasSave()\`, \`save()\`, \`continue()\`, \`restart()\`, and \`reset()\`; save slots with \`slots()\`, \`saveSlot(id, note)\`, \`loadSlot(id)\`, and \`deleteSlot(id)\`.
+- \`context.position.get()\` and \`set(value)\`: where the player is inside this Node, as JSON the Node chooses. It is kept with the save and on the back stack; a Node entered by a Signal starts with \`null\`.
+- \`context.audio.music(assetId | null, { fade })\` and \`sound(assetId)\`: music plays on across Nodes until a Node changes it, and turns down while a Node's video or audio plays with sound.
+- \`context.preferences.get()\` and \`set(values)\`: the player's settings, kept across games. \`musicVolume\` and \`soundVolume\` (0 to 1) set the volumes; other keys are the project's.
 - \`context.story.map()\`: the story laid out from the graph in rows from the Start, with what the player has seen across every game. Nodes have \`id\`, \`label\`, \`row\`, \`column\` (from the left of its row of \`rowSize\`), \`ending\`, and \`seen\`; edges have \`from\`, \`to\`, and \`seen\`. It leaves out \`push\` side screens, navigation Signals, steps back up the story, and Nodes with \`story.hidden\`.
 - \`context.lifecycle.signal\`: aborted before cleanup when the Node exits.
 
 A shared component receives the Node's context from the Node that mounts it, so it emits that Node's Signals: every Node that shows it declares them in \`graph.json\`.
 
-The mount function may return a synchronous or asynchronous cleanup function. Source may import local Shared Modules and dependencies declared by this project. Network access is unavailable at runtime.
+The mount function may return a synchronous or asynchronous cleanup function.
+
+In a web story (with \`index.html\` and \`story/\`), the page loads each Scene's files as they are: modules import local files by relative path, text files are fetched, and JSON imports use \`with { type: "json" }\`. The runtime under \`story/\` is the project's own and can be changed; \`story/manifest.json\` records the version OhMyGame wrote. Publishing packages the page, \`story/\`, \`graph.json\`, \`nodes/\`, \`shared/\`, and the assets the story uses.
+
+In a story that plays in OhMyGame's sandbox, Source may import local Shared Modules and dependencies declared by this project, and network access is unavailable at runtime.
 `;
 
 export function createPlayableStarterCodebase(
@@ -133,12 +168,14 @@ export async function createNodeCodebase(
   await withCodebaseLock(workspacePath, async () => {
     await validateCodebase(workspacePath, codebase, false);
     const existingProject = await workspaceFileExists(workspacePath, GRAPH_FILE);
+    // A new project is a web story; a folder that already holds a project keeps its shape until the author upgrades it.
     const files: Record<string, string> = existingProject
       ? { [LAYOUT_FILE]: jsonText(layout({})) }
       : {
           [GRAPH_FILE]: jsonText(codebase.graph),
           [LAYOUT_FILE]: jsonText(codebase.editorLayout),
           ...starterSources(codebase.graph),
+          "index.html": storyWebIndexHtml(codebase.graph.title),
         };
     const snapshot = await snapshotFiles(workspacePath, [
       ...Object.keys(files),
@@ -153,6 +190,7 @@ export async function createNodeCodebase(
         await ensureFile(await resolveWorkspaceMutationPath(workspacePath, file), content);
       }
       await ensureNodeCodebaseContract(workspacePath);
+      if (!existingProject) await installStoryRuntime(workspacePath);
     } catch (cause) {
       await restoreFiles(workspacePath, snapshot);
       throw cause;
@@ -185,6 +223,8 @@ export async function openNodeCodebaseDetail(
   return withCodebaseLock(workspacePath, async () => {
     const codebase = await readCodebase(workspacePath);
     await migratePlayableProjectStyle(workspacePath);
+    // A web story gets the runtime this OhMyGame ships, keeping files the author changed.
+    if (await isWebStory(workspacePath)) await installStoryRuntime(workspacePath);
     return codebase;
   });
 }
@@ -198,19 +238,36 @@ export async function writeNodeCodebase(
 }
 
 /**
+ * Files a daemon-side change writes besides the sources Nodes declare, such as
+ * a Template's script and the shared player it imports. Keyed by workspace
+ * path. The editor's writes never carry them.
+ */
+export interface NodeCodebaseFiles {
+  /** Written whether or not they exist. */
+  files?: Record<string, string>;
+  /** Written only when the workspace lacks them, so the author's edits stay. */
+  missingFiles?: Record<string, string>;
+}
+
+/**
  * Reads the codebase, lets `change` make an update from it, and writes that
  * update, all in one step that no other read or write through the daemon can
  * land inside. `change` returns undefined to write nothing.
  */
 export async function changeNodeCodebase(
   workspacePath: string,
-  change: (codebase: NodeCodebaseDetail) => NodeCodebaseUpdate | undefined,
+  change: (codebase: NodeCodebaseDetail) =>
+    | (NodeCodebaseUpdate & NodeCodebaseFiles)
+    | undefined
+    | Promise<(NodeCodebaseUpdate & NodeCodebaseFiles) | undefined>,
 ): Promise<void> {
   await withCodebaseLock(workspacePath, async () => {
     const current = await readCodebase(workspacePath);
-    const update = change(current);
+    const update = await change(current);
+    if (!update) return;
+    const { files, missingFiles, ...codebase } = update;
     // The revision still refuses to write over a file the Agent edited in the meantime.
-    if (update) await writeCodebase(workspacePath, { ...update, revision: current.revision });
+    await writeCodebase(workspacePath, { ...codebase, revision: current.revision }, { files, missingFiles });
   });
 }
 
@@ -227,6 +284,7 @@ async function readCodebase(workspacePath: string): Promise<NodeCodebaseDetail> 
 async function writeCodebase(
   workspacePath: string,
   update: NodeCodebaseUpdate,
+  extra: NodeCodebaseFiles = {},
 ): Promise<string> {
   if (update.revision !== undefined) {
     const [graphText, layoutText] = await readCodebaseTexts(workspacePath);
@@ -247,11 +305,16 @@ async function writeCodebase(
     update.sourceDeletions,
     Object.keys(sources),
   );
-  await validateCodebase(workspacePath, codebase, true, Object.keys(sources));
+  const files = { ...extra.files };
+  for (const [relative, content] of Object.entries(extra.missingFiles ?? {})) {
+    if (!(await workspaceFileExists(workspacePath, relative))) files[relative] = content;
+  }
+  await validateCodebase(workspacePath, codebase, true, [...Object.keys(sources), ...Object.keys(files)]);
   const touchedFiles = [
     GRAPH_FILE,
     LAYOUT_FILE,
     ...Object.keys(sources),
+    ...Object.keys(files),
     ...sourceDeletions,
     "AGENTS.md",
     "README.md",
@@ -262,7 +325,7 @@ async function writeCodebase(
   ];
   const snapshot = await snapshotFiles(workspacePath, touchedFiles);
   try {
-    for (const [relative, content] of Object.entries(sources)) {
+    for (const [relative, content] of Object.entries({ ...files, ...sources })) {
       await writeTextAtomic(workspacePath, relative, content);
     }
     for (const relative of sourceDeletions) {
@@ -507,13 +570,17 @@ function validateSourceUpdates(
     throw new Error("Playable source updates must be an object.");
   }
   const declared = new Set<string>();
+  // A Node's folder holds its own files too, such as a Visual Novel's script.
+  const folders = new Set<string>();
   for (const node of graph.nodes) {
     declared.add(node.source.html);
     declared.add(node.source.css);
     declared.add(node.source.javascript);
+    folders.add(`${path.posix.dirname(node.source.html)}/`);
   }
   for (const [relative, content] of Object.entries(value)) {
-    if (!declared.has(relative)) {
+    const inFolder = [...folders].some((folder) => folder !== "./" && relative.startsWith(folder) && !relative.slice(folder.length).includes("/"));
+    if (!declared.has(relative) && !inFolder) {
       throw new Error(`Source update "${relative}" is not declared by a Node.`);
     }
     if (typeof content !== "string") {
@@ -618,7 +685,8 @@ async function removeEmptySourceDirectories(
   }
 }
 
-async function resolveWorkspaceMutationPath(
+/** A workspace-relative path for writing, refused if it leaves the workspace or goes through a link. */
+export async function resolveWorkspaceMutationPath(
   workspacePath: string,
   relative: string,
 ): Promise<string> {

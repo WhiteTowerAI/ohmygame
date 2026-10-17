@@ -71,6 +71,7 @@ const EMBEDDED_LOADERS: NonNullable<BuildOptions["loader"]> = {
   ".wasm": "binary",
   ".frag": "text",
   ".glsl": "text",
+  ".txt": "text",
   ".vert": "text",
 };
 const MAX_CONCURRENT_SURFACE_BUILDS = 4;
