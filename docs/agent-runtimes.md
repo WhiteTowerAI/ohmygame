@@ -1,21 +1,20 @@
 # Agent Runtime integration specification
 
-Status: reviewed integration design. Implementation is tracked in
-[PR #289](https://github.com/WhiteTowerAI/ohmygame/pull/289). Native runtimes are
-optional and disabled by default; implementation, automated coverage, and real
-acceptance are distinct milestones.
+Status: reviewed integration design; not implemented on this branch. The
+implementation merged in
+[PR #289](https://github.com/WhiteTowerAI/ohmygame/pull/289) and was reverted by
+[#290](https://github.com/WhiteTowerAI/ohmygame/pull/290) until Claude Code real
+inference and visual/style checks are complete. Returning it needs a new PR and
+explicit acceptance. Native runtimes are optional and disabled by default;
+implementation, automated coverage, and real acceptance are distinct
+milestones.
 
 This document records the architecture and delivery decisions from
 [PR #258](https://github.com/WhiteTowerAI/ohmygame/pull/258). It replaces the
 initial transport examples and phased proposal with the boundary used by the
-reviewed implementation. The implementation guide is `docs/coding-agents.md`
-(delivered with #289); shared types and tests remain the source of truth for
-individual protocol fields.
-
-Implementation acceptance is pending. PR #289 is being reverted from `dev`
-until Claude Code real inference and visual/style checks are complete. Its
-implementation and fixes are preserved for a new PR after explicit acceptance;
-this design document remains in place.
+reviewed implementation. Its implementation guide, `docs/coding-agents.md`,
+returns with the implementation; shared types and tests will be the source of
+truth for individual protocol fields.
 
 ## Decisions and ownership
 
@@ -52,9 +51,9 @@ AgentManager: turns, queues, checkpoints, errors, cancellation
             └── ToolBridge → existing tools, canvas/media/preview, plugin MCP
 ```
 
-The implementation lives in `src/daemon/agent-runtimes/`, with public types in
-`src/shared/agent-runtimes.ts` and `src/shared/contracts.ts`. These are module
-boundaries, not a requirement for a new generic framework. A future SDK may
+The reverted implementation placed this in `src/daemon/agent-runtimes/`, with
+public types in `src/shared/agent-runtimes.ts` and `src/shared/contracts.ts`.
+These are module boundaries, not a requirement for a new generic framework. A future SDK may
 replace a driver's transport without changing orchestration or persistence.
 
 ## Selection, settings, and discovery
@@ -304,9 +303,9 @@ reported, and checkpoint recovery. Full describes implemented scope, not a
 promise of identical native features or completed platform acceptance. A Basic
 tier is reserved; adding a declarative entry alone cannot run another CLI.
 
-The reviewed #289 implementation covers shared infrastructure, all three
+The reviewed #289 implementation, now reverted, covered shared infrastructure, all three
 drivers, plugin/Skill bridging, settings/model selection, approvals, and
-lifecycle recovery. Focused fixtures cover branch invalidation, expired resume,
+lifecycle recovery. Its focused fixtures covered branch invalidation, expired resume,
 queue checkpoints, cancellation races, token revocation, SSE loss, model/default
 migration, planning writes, child approvals, staged Skill boundaries, and
 verified orphan recovery. No rewrite of the runtime architecture is required.
