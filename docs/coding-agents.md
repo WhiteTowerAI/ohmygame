@@ -5,6 +5,9 @@ computer: Claude Code, Codex, or OpenCode. The CLI runs the agent loop with its
 own sign-in and model. OhMyGame keeps the conversation, checkpoints and Undo,
 its canvas, media, game and plugin tools, and the approval decisions.
 
+The [integration specification](agent-runtimes.md) records the architecture,
+accepted tradeoffs, and validation limits.
+
 ## Using one
 
 Providers & Models lists the coding agents under **Coding agents**. Each row
@@ -36,6 +39,8 @@ An explicitly chosen different model does not inherit an incompatible effort.
 Context usage uses the native context window when reported. Codex quota
 windows and reset times are displayed separately; missing measurements remain
 unknown rather than being inferred from token totals.
+
+![Codex conversation with a denied read, a cancelled turn, and Medium effort selected](assets/coding-agent-native-effort.png)
 
 ## What OhMyGame keeps
 
