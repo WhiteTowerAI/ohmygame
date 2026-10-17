@@ -173,33 +173,23 @@ export function checkpointExtension(
   return (pi) => {
     pi.on("message_end", async (event) => {
       if (event.message.role !== "user") return;
-      await recordCheckpoint((data) => pi.appendEntry(CHECKPOINT_ENTRY, data), snapshot, onFailure);
+      try {
+        pi.appendEntry(CHECKPOINT_ENTRY, {
+          version: 1,
+          commit: await snapshot(),
+        } satisfies StoredCheckpoint);
+      } catch (cause) {
+        // An entry without a commit says that this message has no checkpoint. A message that replaces an edited
+        // one comes right after that one's checkpoint entry, and without this it would be read as its own.
+        try {
+          pi.appendEntry(CHECKPOINT_ENTRY, { version: 1 });
+        } finally {
+          // Pi reports extension errors but does not stop the run. The host
+          // must latch the failure even when recording the empty entry fails.
+          onFailure?.(cause);
+        }
+        throw cause;
+      }
     });
   };
-}
-
-/**
- * Snapshots the workspace and records it just before a user message is
- * stored. Pi sessions do this from the checkpoint extension; coding agent
- * sessions, which run no Pi extensions, call it themselves at the same point.
- */
-export async function recordCheckpoint(
-  append: (data: StoredCheckpoint | { version: 1 }) => void,
-  snapshot: () => Promise<string>,
-  onFailure?: (cause: unknown) => void,
-): Promise<void> {
-  try {
-    append({ version: 1, commit: await snapshot() });
-  } catch (cause) {
-    // An entry without a commit says that this message has no checkpoint. A message that replaces an edited
-    // one comes right after that one's checkpoint entry, and without this it would be read as its own.
-    try {
-      append({ version: 1 });
-    } finally {
-      // Pi reports extension errors but does not stop the run. The host
-      // must latch the failure even when recording the empty entry fails.
-      onFailure?.(cause);
-    }
-    throw cause;
-  }
 }

@@ -1737,84 +1737,6 @@ body {
   margin-left: 84px;
 }
 
-/* Coding agents in Providers & Models */
-.coding-agents-group > .settings-detail-hint {
-  margin: 0;
-  padding: 0 4px 8px;
-}
-
-.coding-agent-option {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  cursor: pointer;
-}
-
-.coding-agent-option > span:last-child {
-  display: grid;
-  gap: 3px;
-}
-
-.coding-agent-option strong {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 550;
-}
-
-.coding-agent-option small {
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.coding-agent-diagnostic {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr);
-  align-items: start;
-  gap: 8px;
-  padding: 9px 10px;
-  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  border-radius: 8px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.coding-agent-diagnostic > svg {
-  margin-top: 1px;
-}
-
-.coding-agent-diagnostic:is(.is-not-installed, .is-version-unsupported, .is-signed-out) {
-  color: var(--text);
-}
-
-.coding-agent-command {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 100%;
-}
-
-.coding-agent-command code {
-  overflow-wrap: anywhere;
-}
-
-.coding-agent-command .icon-button {
-  width: 22px;
-  height: 22px;
-}
-
-.coding-agent-link {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  font: inherit;
-  text-decoration: underline;
-}
-
 .settings-provider-setting-row {
   display: grid;
   min-width: 0;
@@ -11344,67 +11266,6 @@ button {
   align-items: center;
 }
 
-/* A coding agent's approval request, above the composer like a questionnaire */
-.approval-card > header {
-  justify-content: flex-start;
-  gap: 8px;
-  color: var(--text);
-  font-size: 12px;
-}
-
-.approval-card > header strong {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-weight: 600;
-}
-
-.approval-card > header small {
-  margin-left: auto;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
-.approval-card-detail {
-  max-height: 140px;
-  margin: 0;
-  overflow: auto;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--surface);
-  font-size: 11px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.approval-card-path,
-.approval-card-reason {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 16px;
-  overflow-wrap: anywhere;
-}
-
-.approval-card > footer {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.approval-card > footer button {
-  height: 30px;
-}
-
-.timeline-event .approval-outcome {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.timeline-event-muted {
-  color: var(--text-faint);
-}
-
 .inline-answer {
   display: flex;
   min-width: 0;
@@ -11801,15 +11662,6 @@ button {
   min-width: 0;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.composer-runtime-usage {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 4px 0;
-  color: var(--text-muted);
-  font-size: 11px;
 }
 
 .composer-context {

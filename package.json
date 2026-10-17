@@ -39,7 +39,6 @@
     "package:win": "bun run prepare:desktop-runtime win32-x64 && bun run build:desktop-app && bun --bun node_modules/electron-builder/cli.js --win nsis --x64",
     "test": "bun --bun node_modules/vitest/vitest.mjs run",
     "test:ablation": "bun scripts/test-ablation.mjs",
-    "test:agent-runtimes:live": "node --import tsx scripts/test-agent-runtime-live.ts",
     "test:publish-contract": "bun --bun node_modules/vitest/vitest.mjs run test/publish.test.ts test/publish-client.test.ts",
     "typecheck": "bun --bun node_modules/typescript/bin/tsc --noEmit",
     "test:node-runtime": "bun run build:daemon && node scripts/test-node-runtime.mjs",
