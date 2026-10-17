@@ -31,9 +31,9 @@ import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
-import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY } from "./checkpoint-extension.js";
+import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
-import { ConversationManager, type StoredConversation } from "./conversations.js";
+import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "./text-generation.js";
@@ -544,6 +544,7 @@ const apiKeySettingsSchema = {
 } as const;
 
 const TOOL_RUN_BODY_LIMIT = 25 * 1024 * 1024;
+const CHECKPOINT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /** The Player build's sandbox page and its script, by the URL the daemon serves each at. */
 const PLAYABLE_SANDBOX_FILES = new Map([
@@ -755,6 +756,20 @@ export function createApp(options: AppOptions = {}) {
     await canvasStore.waitForProject(project.id);
     return withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project));
   });
+  // At most once a day, after a run, the snapshots that no conversation names any more are removed. Removing the
+  // project, Undo and Restore hold the workspace exclusively; a prune whose turn comes then is left for later.
+  const pruneCheckpoints = async (project: ProjectState) => {
+    const idle = () => !!projects.get(project.id) && !agents.isProjectBusy(project.id) && !projectWrites.isMutating(project.id);
+    if (!idle()) return;
+    try {
+      await checkpoints.prune(project, () => referencedSnapshots(sessionDirectory(project)), {
+        interval: CHECKPOINT_PRUNE_INTERVAL_MS,
+        proceed: idle,
+      });
+    } catch (err) {
+      app.log.warn({ err, projectId: project.id }, "Could not prune checkpoints");
+    }
+  };
   agents = new AgentManager(events, {
     errorDiagnostics: () => {
       const route = networkSettings.get().active;
@@ -835,6 +850,7 @@ export function createApp(options: AppOptions = {}) {
     },
     onRunCompleted: (project) => {
       void previews.automatic(project, true).catch(() => {});
+      void pruneCheckpoints(project);
     },
   });
   const invalidatePluginSessions = () => {

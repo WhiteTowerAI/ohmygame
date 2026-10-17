@@ -4,16 +4,26 @@ import {
   copyFile,
   lstat,
   mkdir,
+  open,
+  readdir,
   readFile,
   rename,
   rm,
+  rmdir,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 import { Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
-import { createDeflate, createInflate, deflate, inflate } from "node:zlib";
+import {
+  constants,
+  createDeflate,
+  createInflate,
+  deflate,
+  inflate,
+  inflateSync,
+} from "node:zlib";
 
 /**
  * The part of a bare git repository that checkpoints need: loose objects,
@@ -71,7 +81,7 @@ const COMPRESSION = { level: 1 };
 const deflateBuffer = promisify(deflate);
 const inflateBuffer = promisify(inflate);
 
-type ObjectType = "blob" | "tree" | "commit";
+export type ObjectType = "blob" | "tree" | "commit";
 
 /** Reuses verification only for settled objects whose identity, size and times have not changed. */
 export class ObjectVerifier {
@@ -615,6 +625,96 @@ async function storeObject(
     // The same content stored at the same moment by another operation is as good.
     if (error instanceof FileChangedError || !(await valid())) throw error;
   }
+}
+
+/** A loose object as the store holds it on disk. */
+export interface StoredObject {
+  oid: string;
+  size: number;
+  /** When the object file was written or last changed. */
+  changedMs: number;
+}
+
+/**
+ * Lists the loose objects of the store, and removes what an object write
+ * that never came to an end left behind before `before`. A file that is not
+ * named like an object is left alone.
+ */
+export async function listObjects(
+  gitdir: string,
+  before: number,
+): Promise<StoredObject[]> {
+  const root = path.join(gitdir, "objects");
+  const objects: StoredObject[] = [];
+  for (const folder of await readdir(root)) {
+    if (!/^[0-9a-f]{2}$/.test(folder)) continue;
+    for (const name of await readdir(path.join(root, folder))) {
+      const file = path.join(root, folder, name);
+      if (name.startsWith("tmp_obj_")) {
+        const stats = await objectStats(file);
+        if (stats && changedMs(stats) < before) await rm(file, { force: true });
+        continue;
+      }
+      if (!/^[0-9a-f]{38}$/.test(name)) continue;
+      const stats = await objectStats(file);
+      if (stats?.isFile())
+        objects.push({
+          oid: folder + name,
+          size: stats.size,
+          changedMs: changedMs(stats),
+        });
+    }
+  }
+  return objects;
+}
+
+/** Removes a loose object, and its folder when that is left empty. */
+export async function removeObject(gitdir: string, oid: string): Promise<void> {
+  const target = objectPath(gitdir, oid);
+  await rm(target, { force: true });
+  await rmdir(path.dirname(target)).catch(() => {});
+}
+
+/** Whether the store has an object file for this id, whole or not. */
+export async function hasObjectFile(
+  gitdir: string,
+  oid: string,
+): Promise<boolean> {
+  return (await objectStats(objectPath(gitdir, oid))) !== undefined;
+}
+
+/** The type of a stored object, read from its header alone so that a large blob is not inflated. */
+export async function readObjectType(
+  gitdir: string,
+  oid: string,
+): Promise<ObjectType> {
+  let start: Buffer;
+  const file = await open(objectPath(gitdir, oid)).catch(
+    (error: NodeJS.ErrnoException) => {
+      throw error.code === "ENOENT" ? new DamagedObjectError(oid) : error;
+    },
+  );
+  try {
+    const buffer = Buffer.alloc(256);
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    start = buffer.subarray(0, bytesRead);
+  } finally {
+    await file.close();
+  }
+  let header: Buffer;
+  try {
+    // The start of a deflated object inflates on its own as far as it goes.
+    header = inflateSync(start, { finishFlush: constants.Z_SYNC_FLUSH });
+  } catch {
+    throw new DamagedObjectError(oid);
+  }
+  const type = header.toString("latin1", 0, Math.max(header.indexOf(0x20), 0));
+  if (type === "blob" || type === "tree" || type === "commit") return type;
+  throw new DamagedObjectError(oid);
+}
+
+function changedMs(stats: Stats): number {
+  return Math.max(stats.mtimeMs, stats.ctimeMs);
 }
 
 function objectPath(gitdir: string, oid: string): string {

@@ -386,7 +386,10 @@ project of its own.
 All project types record private workspace snapshots before each consumed user
 message and when its run ends. Finished, failed and cancelled turns show their
 net file changes in Chat. The project does not need Git; snapshot storage stays
-beside the workspace without changing its `.git`, branches or index.
+beside the workspace without changing its `.git`, branches or index. Snapshots
+leave out what the workspace's `.gitignore` files ignore, apart from OhMyGame's
+own `.data/` and `canvas/`, and snapshots that nothing names are pruned at most
+once a day.
 
 **Undo** takes back one turn's files while preserving the conversation, and
 **Reapply** restores their exact pre-undo contents. Editing a message preserves
