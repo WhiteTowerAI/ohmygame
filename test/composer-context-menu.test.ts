@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import i18next from "i18next";
 import { composerContextItems } from "../src/renderer/composer-context-menu.js";
-import { mentionQuery } from "../src/renderer/composer-mentions.js";
+import { mentionQuery, slashCommandQuery } from "../src/renderer/composer-mentions.js";
 
 const options = {
   capabilities: {
@@ -22,6 +23,27 @@ describe("unified composer context menu", () => {
   it("searches actions and skills alongside plugins", () => {
     expect(composerContextItems({ ...options, query: mentionQuery("@design", 7) }).map((item) => item.id)).toEqual(["design", "skill:game-design"]);
     expect(composerContextItems({ ...options, query: mentionQuery("@unknown", 8) })).toEqual([]);
+  });
+
+  it("offers plan commands and skills from a leading slash query", () => {
+    const query = mentionQuery("/", 1);
+    expect(composerContextItems({ ...options, query, showCompact: true }).map((item) => item.id)).toEqual(["plan", "compact", "skill:game-design"]);
+    expect(composerContextItems({ ...options, query: mentionQuery("/design", 7), showCompact: true }).map((item) => item.id)).toEqual(["skill:game-design"]);
+  });
+
+  it("matches slash commands by their stable IDs in Chinese", async () => {
+    const previousLanguage = i18next.language;
+    await i18next.changeLanguage("zh-CN");
+    try {
+      expect(composerContextItems({ ...options, query: mentionQuery("/plan", 5), showCompact: true }).map((item) => item.id)).toEqual(["plan"]);
+      expect(composerContextItems({ ...options, query: mentionQuery("/compact", 8), showCompact: true }).map((item) => item.id)).toEqual(["compact"]);
+    } finally {
+      await i18next.changeLanguage(previousLanguage);
+    }
+  });
+
+  it("keeps compact instructions in a slash query", () => {
+    expect(composerContextItems({ ...options, query: slashCommandQuery("/compact Keep API decisions", "/compact Keep API decisions".length), showCompact: true }).map((item) => item.id)).toEqual(["compact"]);
   });
 
   it("restricts $ to skills and keeps planning's skill restriction", () => {

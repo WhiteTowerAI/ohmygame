@@ -44,6 +44,21 @@ Configure these repository secrets:
 The R2 credentials belong only in GitHub Secrets. Do not include GitHub, R2,
 or code-signing credentials in the application or the public update bucket.
 
+## When the app checks
+
+A packaged build checks once after its main window opens, then every four hours,
+and again on window focus or reveal when the previous check is more than thirty
+minutes old. A failed check retries twice, after one and five minutes, then waits
+for the next focus or periodic attempt. Background failures are silent and keep
+the previous update status; a failed manual check remains visible so the user
+can retry it. Scheduled checks never run while a release is already available,
+downloading, ready, or installing, so they cannot discard the update the sidebar
+is offering. **Settings → About → Check for updates** bypasses that throttle
+and remains available in every state.
+
+Development builds never reach the feed: `DesktopUpdater.check` reports the
+current version as installed unless `app.isPackaged`.
+
 ## Publishing
 
 Prepare the release version in `package.json` and its notes in
@@ -106,16 +121,28 @@ Add the new version above the existing releases, using this structure. Replace
 
 ### Added
 
-- Describe a new capability and link its PR.
+- Describe a new capability.
+  ([#123](https://github.com/WhiteTowerAI/ohmygame/pull/123) by @login)
 
 ### Changed
 
-- Describe a change to existing behavior and link its PR.
+- Describe a change to existing behavior.
+  ([#124](https://github.com/WhiteTowerAI/ohmygame/pull/124) by @login)
 
 ### Fixed
 
-- Describe the resolved problem and link its PR.
+- Describe the resolved problem, across two PRs.
+  ([#125](https://github.com/WhiteTowerAI/ohmygame/pull/125) by @login,
+  [#126](https://github.com/WhiteTowerAI/ohmygame/pull/126) by @other)
 ```
+
+Credit the author of every linked PR with `by @login` right after its link, so
+contributors are notified when the release is published and appear among the
+release's contributors on GitHub. Write the handle as plain text, not a link,
+because GitHub does not treat a linked handle as a mention. Take the login from
+`gh pr view <number> --json author`. `changelog:check` fails when a PR link in
+any release has no author after it.
+Links inside code examples and HTML comments are ignored by this check.
 
 Omit empty categories; use `Removed`, `Deprecated`, or `Security` when needed.
 Each release needs a valid date, a unique SemVer version, and nonempty notes.

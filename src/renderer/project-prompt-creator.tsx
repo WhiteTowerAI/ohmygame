@@ -6,7 +6,7 @@ import { preferredAgentModel } from "../shared/agent-models.js";
 import { createConversation, createProject, getHomeComposerCapabilities, listProjects, updateAgentDefaults, waitForRuntime } from "./api.js";
 import { AttachmentStrip, appendAttachments, attachmentFiles, uploadAttachments, type ComposerAttachment } from "./composer-attachments.js";
 import { ModelSelector, useAgentModels } from "./model-selector.js";
-import { matchesPlanCommand, PlanCommandMenu, PlanModeIndicator } from "./plan-mode-control.js";
+import { matchesPlanCommand, PlanModeIndicator } from "./plan-mode-control.js";
 import { PromptBox, type DroppedFile } from "./prompt-box.js";
 import { PROJECT_TYPES, ProjectTypeIcon, type ProjectTypeOption } from "./project-types.js";
 import { useComposerContextMenu } from "./composer-context-menu.js";
@@ -333,8 +333,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         onHistoryPrevious={() => browseHistory("previous")}
         onSubmit={() => void submit()}
         suggestions={contextMenu.suggestions}
-        overlay={contextMenu.open ? contextMenu.overlay
-          : matchesPlanCommand(prompt) ? <PlanCommandMenu planning={planning} onToggle={() => togglePlanning()} /> : null}
+        overlay={contextMenu.open ? contextMenu.overlay : null}
         placeholder={selectedSkill || selectedPlugin ? "" : planning ? t("creator.planPlaceholder") : placeholder}
         textareaRef={promptRef}
         onSelectionChange={setMentionCursor}

@@ -25,6 +25,20 @@ optional `title` and `description`, content, and references. Markdown bodies
 are shared between document nodes. Connections for prompts and media are
 derived from `promptSource`, `images`, `references`, and `source`.
 
+Generation nodes use these semantic board fields (runtime state and visual size
+do not belong in the board file):
+
+- `speech`: `text`, optional `promptSource`, `model`, `voiceId`, `speed`, and
+  generated `assetId`;
+- `sound-effect`: `prompt`, optional `promptSource`, `model`, `durationSeconds`,
+  `loop`, `negativePrompt`, and generated `assetId`;
+- `music`: `prompt`, `instrumental`, optional `promptSource`, `model`, `lyrics`,
+  `durationSeconds`, `loop`, and generated `assetId`.
+
+The editor's Add menu and the agent's active tools expose an audio operation only
+when the current audio catalog has a configured, enabled model advertising that
+operation. Existing nodes remain valid if that provider later becomes unavailable.
+
 Text and Document nodes accept up to 14 connected Text, Document, Image or image
 Asset nodes in `references` (`{ "type": "node", "nodeId": "..." }`). These
 connections supply source material to AI generation. Connecting an image to a

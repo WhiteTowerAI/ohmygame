@@ -347,6 +347,29 @@ it("projects real edit/write diffs before the turn ends and restores them from d
   });
 });
 
+it("sanitizes leaked thinking before saving and sending the next prompt", async () => {
+  const { manager, project, conversation, sessionManager, runtime } = await fixture();
+  const contexts: unknown[] = [];
+  let calls = 0;
+  runtime.streamSimple = (_model, context) => {
+    contexts.push(context);
+    calls += 1;
+    return stream(assistant([{ type: "text", text: calls === 1 ? "<thinking>private</thinking>Answer" : "Follow-up" }]));
+  };
+
+  await expect(manager.prompt(project, conversation, "Build").result).resolves.toBe("completed");
+  const saved = sessionManager.getBranch().findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
+  expect(saved?.type === "message" && saved.message.role === "assistant" ? saved.message.content : undefined).toEqual([
+    { type: "text", text: "Answer" },
+  ]);
+
+  await expect(manager.prompt(project, conversation, "Continue").result).resolves.toBe("completed");
+  const previous = contexts[1] as { messages: Array<{ role: string; content: unknown }> } | undefined;
+  expect(previous?.messages.findLast((message) => message.role === "assistant")?.content).toEqual([
+    { type: "text", text: "Answer" },
+  ]);
+});
+
 it("captures consumed follow-ups and steering at file boundaries, rather than enqueue time", async () => {
   const {
     events,
@@ -643,29 +666,87 @@ it("adds the durable workspace notice to later model requests", async () => {
 
 it("drains real writes, refuses new stale writes and lets other projects proceed", async () => {
   const writes = new ProjectWrites(),
-    held = writes.enter("one"),
+    held = await writes.enter("one", false),
     restored = deferred();
   const operation = writes.exclusive("one", async () => {
     writes.changed("one");
     restored.resolve();
   });
   await Promise.resolve();
-  expect(() => writes.enter("one")).toThrow("being checkpointed");
-  const other = writes.enter("two");
+  await expect(writes.enter("one", false)).rejects.toThrow("being checkpointed");
+  const other = await writes.enter("two", false);
   other();
   held();
   await operation;
   await restored.promise;
-  expect(() => writes.enter("one", "0")).toThrow("was restored");
-  const current = writes.enter("one", writes.version("one"));
+  await expect(writes.enter("one", false, "0")).rejects.toThrow("was restored");
+  const current = await writes.enter("one", false, writes.version("one"));
   current();
   await expect(
     writes.exclusive("one", async () => {
       throw new Error("failed");
     }),
   ).rejects.toThrow("failed");
-  const next = writes.enter("one", writes.version("one"));
+  const next = await writes.enter("one", false, writes.version("one"));
   next();
+});
+
+it("lets reads through a snapshot and holds writes until it ends", async () => {
+  const writes = new ProjectWrites(),
+    reading = deferred();
+  const snapshot = writes.snapshot("one", () => reading.promise);
+  // A snapshot only reads the workspace, so a read need not wait for it.
+  const read = await writes.enter("one", true);
+  read();
+  let wrote = false;
+  const write = writes.enter("one", false).then((release) => {
+    wrote = true;
+    release();
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(wrote).toBe(false);
+  reading.resolve();
+  await snapshot;
+  await write;
+  expect(wrote).toBe(true);
+});
+
+it("holds reads until a restore finishes, so they read the restored workspace", async () => {
+  const writes = new ProjectWrites(),
+    restoring = deferred();
+  const restore = writes.exclusive("one", async () => {
+    await restoring.promise;
+    writes.changed("one");
+  });
+  let versionRead: string | undefined;
+  const read = writes.enter("one", true).then((release) => {
+    versionRead = writes.version("one");
+    release();
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(versionRead).toBeUndefined();
+  restoring.resolve();
+  await restore;
+  await read;
+  expect(versionRead).toBe(writes.version("one"));
+  expect(versionRead).not.toBe("0");
+});
+
+it("refuses a read that waits too long for a restore", async () => {
+  vi.useFakeTimers();
+  try {
+    const writes = new ProjectWrites(),
+      restoring = deferred();
+    const restore = writes.exclusive("one", () => restoring.promise);
+    const read = writes.enter("one", true);
+    const refused = expect(read).rejects.toThrow("being checkpointed");
+    await vi.advanceTimersByTimeAsync(120_000);
+    await refused;
+    restoring.resolve();
+    await restore;
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("waits for an HTTP write handler even after its client disconnects", async () => {
@@ -676,7 +757,7 @@ it("waits for an HTTP write handler even after its client disconnects", async ()
   const order: string[] = [];
   writes.install(app);
   app.addHook("preHandler", async (request) => {
-    writes.track(request, writes.enter("one"));
+    writes.track(request, await writes.enter("one", false));
   });
   app.post("/write", async () => {
     entered.resolve();
@@ -712,7 +793,7 @@ it("waits for a write handler that continues after sending its response", async 
   const order: string[] = [];
   writes.install(app);
   app.addHook("preHandler", async (request) => {
-    writes.track(request, writes.enter("one"));
+    writes.track(request, await writes.enter("one", false));
   });
   app.post("/write", async (_request, reply) => {
     reply.send({ accepted: true });

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight, LoaderCircle, Search, Upload, X } from "./icons.js";
-import type { LibraryUploadMediaType } from "../shared/contracts.js";
+import type { LibraryAssetProject, LibraryUploadMediaType } from "../shared/contracts.js";
 import { filterLibraryAssets, type LibraryAsset, type LibraryAssetFilters } from "./library-assets.js";
 import { LibraryCollectionFilters } from "./library-filters.js";
 import { uploadLibraryAsset } from "./api.js";
@@ -93,9 +93,13 @@ export function WorkbenchPreview({ ariaLabel, viewport, stageClassName, overlay,
   </section>;
 }
 
-export function LibraryAssetPicker({ title, assets, uploading, includeReferences = false, onUpload, onClose, onSelect }: {
+export function LibraryAssetPicker({ title, assets, projectId, project, uploading, includeReferences = false, onUpload, onClose, onSelect }: {
   title: string;
   assets: readonly LibraryAsset[];
+  /** Limits the initial view to assets associated with the current project. */
+  projectId?: string;
+  /** Keeps the current project available in the filter even before it has assets. */
+  project?: LibraryAssetProject;
   /** Offers Upload next to the Library, for a new file instead. */
   onUpload?: () => void;
   uploading?: boolean;
@@ -104,7 +108,7 @@ export function LibraryAssetPicker({ title, assets, uploading, includeReferences
   onSelect: (asset: LibraryAsset) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState<LibraryAssetFilters>({ includeReferences });
+  const [filters, setFilters] = useState<LibraryAssetFilters>({ includeReferences, ...(projectId ? { projectId } : {}) });
   const dialog = useRef<HTMLElement>(null);
   // Parents may pass a fresh onClose each render; depending on it would re-run this effect and steal focus from search.
   const onCloseRef = useRef(onClose);
@@ -128,7 +132,7 @@ export function LibraryAssetPicker({ title, assets, uploading, includeReferences
           <button type="button" aria-label={t("nodeWorkbench.closePicker")} onClick={onClose}><X size={16} /></button>
         </header>
         <div className="library-picker-toolbar"><label><Search size={14} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("nodeWorkbench.searchLibrary")} /></label>
-          <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} />
+          <LibraryCollectionFilters assets={assets} filters={filters} onChange={setFilters} defaultIncludeReferences={includeReferences} defaultProjectId={projectId} defaultProject={project} />
         </div>
         <div className="story-video-picker-list">
           {visibleAssets.length === 0 ? <p>{assets.length ? t("nodeWorkbench.noMatch") : t("nodeWorkbench.empty")}</p> : null}

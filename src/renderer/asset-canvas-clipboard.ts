@@ -34,7 +34,7 @@ function remapReferences(node: AssetCanvasNode, ids: ReadonlyMap<string, string>
       Object.entries(node.data.referenceMentions).map(([alias, value]) => [alias, reference(value)[0] ?? value]),
     );
   }
-  if ((node.type === "image" || node.type === "video" || node.type === "model-3d") && node.data.promptSource) {
+  if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music") && node.data.promptSource) {
     const id = ids.get(node.data.promptSource.nodeId);
     if (id) node.data.promptSource = { type: "node", nodeId: id };
     else delete node.data.promptSource;

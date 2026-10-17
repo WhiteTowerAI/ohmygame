@@ -40,6 +40,13 @@ import { MAX_ANIMATION_ACTIONS, resolveModel3D } from "../shared/generation-conf
 import { remeshPolycount } from "../shared/model3d-operations.js";
 import { VideoGenerationError, type VideoGenerator, type VideoReferenceAsset } from "./video-generation.js";
 import type { AssetLibrary } from "./asset-library.js";
+import { AudioGenerationError, type AudioGenerator } from "./audio-generation.js";
+import type {
+  AudioGenerationRequest,
+  RunMusicToolRequest,
+  RunSoundEffectToolRequest,
+  RunSpeechToolRequest,
+} from "../shared/audio.js";
 
 const VIDEO_DEFAULT_DURATION = 6;
 const HISTORY_LIMIT = 20;
@@ -81,6 +88,7 @@ export class ToolRunner {
     private readonly videoGenerator?: VideoGenerator,
     private readonly assetLibrary?: AssetLibrary,
     private readonly resolveInput?: (toolId: string, input: RunToolRequest, projectId?: string) => Promise<RunToolRequest>,
+    private readonly audioGenerator?: AudioGenerator,
   ) {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
   }
@@ -119,7 +127,7 @@ export class ToolRunner {
       toolId,
       createdAt: new Date().toISOString(),
       status: "running",
-      title: promptTitle("prompt" in input ? input.prompt : undefined) ?? metadata.title ?? toolName(toolId),
+      title: promptTitle("prompt" in input ? input.prompt : "text" in input ? input.text : undefined) ?? metadata.title ?? toolName(toolId),
       ...(metadata.context ? { context: metadata.context } : {}),
       input: structuredClone(input),
       prepared,
@@ -233,6 +241,18 @@ export class ToolRunner {
     if (toolId === "generate-video") {
       assertOnlyKeys(input, ["prompt", "model", "references", "duration", "aspectRatio", "resolution", "referenceMode"]);
       return this.#runVideo(input as RunVideoToolRequest, signal);
+    }
+    if (toolId === "generate-speech") {
+      assertOnlyKeys(input, ["text", "model", "voiceId", "language", "style", "speed", "output"]);
+      return this.#runAudio(toolId, { operation: "speech", ...(input as RunSpeechToolRequest) }, signal);
+    }
+    if (toolId === "generate-sound-effect") {
+      assertOnlyKeys(input, ["prompt", "model", "durationSeconds", "loop", "negativePrompt", "output"]);
+      return this.#runAudio(toolId, { operation: "sound-effect", ...(input as RunSoundEffectToolRequest) }, signal);
+    }
+    if (toolId === "generate-music") {
+      assertOnlyKeys(input, ["prompt", "model", "instrumental", "lyrics", "durationSeconds", "loop", "referenceAssetId", "output"]);
+      return this.#runAudio(toolId, { operation: "music", ...(input as RunMusicToolRequest) }, signal);
     }
     if (toolId !== "generate-image") throw new ToolRunError("Tool not found", 404);
     assertOnlyKeys(input, ["prompt", "imageModel", "size", "resolution", "aspectRatio", "outputs", "images"]);
@@ -489,6 +509,55 @@ export class ToolRunner {
     }
   }
 
+  async #runAudio(toolId: "generate-speech" | "generate-sound-effect" | "generate-music", input: AudioGenerationRequest, signal: AbortSignal | undefined): Promise<ToolRun> {
+    if (!this.audioGenerator) throw new ToolRunError("Audio generation is not configured", 503);
+    const id = randomUUID();
+    const temporary = path.join(this.#runsDirectory, `.${id}.tmp`);
+    const destination = path.join(this.#runsDirectory, id);
+    let registeredAssetId: string | undefined;
+    try {
+      signal?.throwIfAborted();
+      const generated = await this.audioGenerator.generate(input, signal);
+      signal?.throwIfAborted();
+      const extension = generated.mediaType === "audio/wav" ? "wav" : "mp3";
+      const fileName = `output.${extension}`;
+      const prompt = input.operation === "speech" ? input.text.trim()
+        : input.operation === "dialogue" ? input.turns.map((turn) => turn.text.trim()).filter(Boolean).join("\n")
+          : input.prompt.trim();
+      if (this.assetLibrary) {
+        registeredAssetId = (await this.assetLibrary.add(fileName, generated.bytes, {
+          origin: "generated",
+          prompt,
+          sourceKey: `tool:${id}:${fileName}`,
+          ...(generated.metadata?.durationMs !== undefined ? { duration: generated.metadata.durationMs / 1_000 } : {}),
+        })).id;
+      }
+      const run: StoredToolRun = {
+        version: 1,
+        id,
+        toolId,
+        model: generated.model,
+        createdAt: new Date().toISOString(),
+        files: [{
+          name: fileName,
+          mediaType: generated.mediaType,
+          ...(registeredAssetId ? { assetId: registeredAssetId } : {}),
+        }],
+      };
+      await mkdir(temporary, { recursive: true });
+      await writeFile(path.join(temporary, fileName), generated.bytes);
+      await writeFile(path.join(temporary, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
+      await rename(temporary, destination);
+      return publicRun(run);
+    } catch (cause) {
+      await rm(temporary, { recursive: true, force: true });
+      if (this.assetLibrary && registeredAssetId) await this.assetLibrary.delete(registeredAssetId).catch(() => undefined);
+      if (cause instanceof ToolRunError) throw cause;
+      if (cause instanceof AudioGenerationError) throw new ToolRunError(cause.message, cause.statusCode);
+      throw cause;
+    }
+  }
+
   async #videoReferences(references: VideoGenerationReference[]): Promise<VideoReferenceAsset[]> {
     if (!references.length) return [];
     if (!this.assetLibrary) throw new ToolRunError("Asset Library is not configured", 503);
@@ -584,6 +653,9 @@ function toolName(toolId: ToolId): string {
   if (toolId === "generate-video") return "Generated Video";
   if (toolId === "image-to-3d") return "Generated 3D Model";
   if (toolId === "animate-3d") return "Animated 3D Model";
+  if (toolId === "generate-speech") return "Generated Speech";
+  if (toolId === "generate-sound-effect") return "Generated Sound Effect";
+  if (toolId === "generate-music") return "Generated Music";
   return "Generated Image";
 }
 
@@ -619,7 +691,7 @@ function isRunId(value: string): boolean {
 }
 
 function isToolRunFileName(value: string): boolean {
-  return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.mp4)$/.test(value);
+  return /^(?:output(?:-[1-4])?\.(?:png|jpg|webp)|model\.glb|output\.(?:mp4|mp3|wav))$/.test(value);
 }
 
 function isToolId(value: unknown): value is ToolId {
@@ -634,6 +706,7 @@ function imageFileName(mediaType: string, index?: number): string {
 function selectedModel(toolId: string, input: RunToolRequest): ModelRef | undefined {
   if (toolId === "generate-image") return (input as RunImageToolRequest).imageModel;
   if (toolId === "generate-video" || toolId === "image-to-3d" || toolId === "animate-3d") return (input as RunVideoToolRequest | Run3DToolRequest).model;
+  if (toolId === "generate-speech" || toolId === "generate-sound-effect" || toolId === "generate-music") return (input as RunSpeechToolRequest | RunSoundEffectToolRequest | RunMusicToolRequest).model;
   return undefined;
 }
 

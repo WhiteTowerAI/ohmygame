@@ -130,11 +130,14 @@ it("translates both onboarding steps and preserves provider names", async () => 
   ).toContain("显示名称");
 });
 
-it("localizes the separate reasoning button while keeping the xhigh label", () => {
-  const model: AgentModel = { provider: "openai", providerName: "OpenAI", id: "test", name: "Test", reasoningLevels: ["high", "xhigh"] };
-  const html = renderToStaticMarkup(<ModelSelector variant="canvas" models={[model]} value={model} reasoningLevel="xhigh" onChange={() => {}} onReasoningChange={() => {}} />);
-  expect(html).toContain('aria-label="文本模型：Test"');
-  expect(html).toContain('aria-label="推理：xhigh"');
-  expect(html).toContain('title="推理：xhigh"');
-  expect(html).toContain("xhigh</span>");
+it("localizes the model selector back action", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const model: AgentModel = { provider: "openai", providerName: "OpenAI", id: "test", name: "Test", reasoningLevels: ["medium", "high"] };
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  root = createRoot(host);
+  await act(async () => root!.render(<ModelSelector models={[model]} value={model} reasoningLevel="medium" onChange={() => {}} onReasoningChange={() => {}} />));
+  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
+  await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
+  expect(document.querySelector<HTMLButtonElement>(".model-selector-back")?.getAttribute("aria-label")).toBe("返回模型列表");
 });

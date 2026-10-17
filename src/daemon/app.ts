@@ -81,6 +81,10 @@ import { modelUsageList, modelUsages } from "../shared/custom-models.js";
 import { ToolRunner, ToolRunError } from "./tools.js";
 import type { VideoGenerator } from "./video-generation.js";
 import { ProviderVideos } from "./provider-videos.js";
+import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audio-generation.js";
+import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
+import { VolcengineTtsSettingsStore } from "./volcengine-tts-settings.js";
+import { AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, DOUBAO_SPEECH_PROVIDER_NAME, availableAudioOperations, type AudioOperation } from "../shared/audio.js";
 import { isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { isMinimaxProviderId, MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -144,6 +148,8 @@ export interface AppOptions {
   model3DFetch?: typeof fetch;
   videoGenerator?: VideoGenerator;
   videoFetch?: typeof fetch;
+  audioGenerator?: AudioGenerator;
+  audioFetch?: typeof fetch;
   modelDiscoveryFetch?: typeof fetch;
   createModelRuntime?: () => Promise<ModelRuntime>;
   bundledPluginsDirectory?: string;
@@ -422,6 +428,7 @@ const toolRunSchema = {
     minProperties: 1,
     properties: {
       prompt: { type: "string", minLength: 1, maxLength: 32_000 },
+      text: { type: "string", minLength: 1, maxLength: 10_000 },
       imageModel: modelRefSchema,
       model: modelRefSchema,
       size: { type: "string", enum: [...IMAGE_SIZES] },
@@ -429,6 +436,25 @@ const toolRunSchema = {
       aspectRatio: { type: "string", enum: [...new Set([...IMAGE_ASPECT_RATIOS, ...VIDEO_ASPECT_RATIOS])] },
       outputs: { type: "integer", enum: [...IMAGE_OUTPUT_COUNTS] },
       duration: { type: "integer", minimum: 1, maximum: 30 },
+      durationSeconds: { type: "number", minimum: 0.1, maximum: 600 },
+      voiceId: { type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN },
+      language: { type: "string", minLength: 1, maxLength: 40 },
+      style: { type: "string", minLength: 1, maxLength: 2_000 },
+      speed: { type: "number", minimum: -50, maximum: 100 },
+      loop: { type: "boolean" },
+      instrumental: { type: "boolean" },
+      lyrics: { type: "string", maxLength: 20_000 },
+      negativePrompt: { type: "string", maxLength: 4_000 },
+      referenceAssetId: { type: "string", minLength: 1, maxLength: 100 },
+      output: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          format: { enum: [...AUDIO_OUTPUT_FORMATS], description: "Must be supported by the selected model; Doubao Speech supports mp3 only." },
+          sampleRate: { type: "integer", enum: [...AUDIO_SAMPLE_RATES] },
+          channels: { type: "integer", enum: [1, 2] },
+        },
+      },
       referenceMode: { enum: ["frame", "reference"] },
       targetPolycount: { type: "integer", minimum: 100, maximum: MODEL_3D_MAX_POLYCOUNT },
       texture: { type: "boolean" },
@@ -559,6 +585,7 @@ export function createApp(options: AppOptions = {}) {
   const native3DProviders = [["meshy", "Meshy", meshySettings], ["tripo", "Tripo", tripoSettings], ["hyper3d", "Hyper3D", hyper3dSettings]] as const;
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
+  const volcengineTtsSettings = new VolcengineTtsSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
@@ -643,6 +670,14 @@ export function createApp(options: AppOptions = {}) {
     nativeModels: (id) => providerModelSettings.models3D(id), isVisible: (model) => providerModelSettings.isVisible(model),
     isEnabled: providerEnabled, request: options.model3DFetch, defaultModel: () => providerModelSettings.defaultModel3D(), cloud: cloudModels,
   });
+  const volcengineTtsProvider = new VolcengineTtsProvider(
+    () => volcengineTtsSettings.key(),
+    options.audioFetch,
+    undefined,
+    () => providerEnabled("volcengine-tts"),
+    () => volcengineTtsSettings.defaultVoiceId(),
+  );
+  const providerAudio = new ProviderAudio([volcengineTtsProvider]);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -653,6 +688,18 @@ export function createApp(options: AppOptions = {}) {
       if (toolId === "animate-3d") return input;
       const project = projectId ? projects.get(projectId) : undefined;
       if (projectId && !project) throw new ToolRunError("Project not found", 404);
+      const audioOperation: AudioOperation | undefined = toolId === "generate-speech" ? "speech"
+        : toolId === "generate-sound-effect" ? "sound-effect"
+          : toolId === "generate-music" ? "music" : undefined;
+      if (audioOperation) {
+        const explicit = (input as { model?: AgentModelRef }).model;
+        const selected = providerAudio.resolveModel(audioOperation, explicit);
+        if (!selected) {
+          if (options.audioGenerator) return input;
+          throw new ToolRunError(`No ${audioOperation === "sound-effect" ? "sound effect" : audioOperation} model is available. Connect an audio provider first.`, 503);
+        }
+        return { ...input, model: { provider: selected.provider, id: selected.id } };
+      }
       const usage = toolId === "generate-image" ? "image" : toolId === "generate-video" ? "video" : "3d";
       const key = usage === "image" ? "imageModel" : "model";
       const explicit = (input as { imageModel?: AgentModelRef; model?: AgentModelRef })[key];
@@ -680,6 +727,7 @@ export function createApp(options: AppOptions = {}) {
       }
       return { ...input, [key]: { ...selected } };
     },
+    options.audioGenerator ?? providerAudio,
   );
   const pluginSettings = new PluginSettingsStore(dataDirectory);
   const legacyMcp = new LegacyMcpConfiguration(piAgentDirectory);
@@ -772,7 +820,11 @@ export function createApp(options: AppOptions = {}) {
     }),
     activeToolNames: (project, mode, session) => {
       const registered = session.getAllTools?.().map((tool) => tool.name) ?? [];
-      return projectPiToolNames(mode, TOOL_IDS, registered, webSearch.enabled());
+      const audioOperations = availableAudioOperations(providerAudio.catalog().models);
+      const enabledTools = TOOL_IDS.filter((toolId) => toolId === "generate-speech" ? audioOperations.has("speech")
+        : toolId === "generate-sound-effect" ? audioOperations.has("sound-effect")
+          : toolId === "generate-music" ? audioOperations.has("music") : true);
+      return projectPiToolNames(mode, enabledTools, registered, webSearch.enabled());
     },
     onRunFinished: async (project, conversationId) => {
       await agentPlaytests.get(`${project.id}:${conversationId}`)?.cleanup();
@@ -825,7 +877,7 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), providerModelSettings.load()]);
+    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), volcengineTtsSettings.load(), providerModelSettings.load()]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
@@ -2023,7 +2075,17 @@ export function createApp(options: AppOptions = {}) {
         credentialType: "api_key" as const,
         capabilities: ["video"] as const,
       };
-    })];
+    }), {
+      id: "volcengine-tts",
+      name: DOUBAO_SPEECH_PROVIDER_NAME,
+      configured: volcengineTtsSettings.get().configured,
+      enabled: providerEnabled("volcengine-tts"),
+      custom: false,
+      status: volcengineTtsSettings.get().configured ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
+      credentialType: "api_key" as const,
+      capabilities: ["audio"] as const,
+    }];
     // Cloud quota/catalog verification can take tens of seconds. Refresh it in
     // the background and serve the last known snapshot so opening Settings does
     // not wait on the cloud service.
@@ -2145,7 +2207,8 @@ export function createApp(options: AppOptions = {}) {
     const native = native3DProviders.find(([id]) => id === providerId);
     const seedance = isSeedanceProviderId(providerId);
     const minimax = isMinimaxProviderId(providerId);
-    if (!native && !seedance && !minimax && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    const volcengineTts = providerId === "volcengine-tts";
+    if (!native && !seedance && !minimax && !volcengineTts && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
       await providerModelSettings.removeProviderSettings(providerId, async () => {
@@ -2154,6 +2217,7 @@ export function createApp(options: AppOptions = {}) {
         if (native) await native[2].clear();
         else if (seedance) await seedanceSettings.clear(providerId);
         else if (minimax) await minimaxSettings.clear(providerId);
+        else if (volcengineTts) await volcengineTtsSettings.clear();
         else await runtime.logout(providerId);
         await syncOpenAIEndpoint(runtime);
         if (providerId === "openai") await openAIImages.clear(false);
@@ -2216,6 +2280,53 @@ export function createApp(options: AppOptions = {}) {
   app.delete<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/minimax-key", async (request, reply) => {
     if (!isMinimaxProviderId(request.params.providerId)) return reply.code(404).send({ error: "MiniMax provider not found" });
     await minimaxSettings.clear(request.params.providerId);
+    return reply.code(204).send();
+  });
+
+  app.get("/settings/models/providers/volcengine-tts", async () => volcengineTtsSettings.get());
+  app.put<{ Body: { apiKey?: string; defaultVoiceId?: string | null } }>("/settings/models/providers/volcengine-tts", { schema: { body: {
+    type: "object", additionalProperties: false, minProperties: 1,
+    properties: { apiKey: { type: "string", minLength: 1, maxLength: 10_000 }, defaultVoiceId: { anyOf: [{ type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN }, { type: "null" }] } },
+  } } }, async (request, reply) => {
+    try { return await volcengineTtsSettings.update(request.body.apiKey, request.body.defaultVoiceId); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.post<{ Body: { text: string; voiceId?: string; language?: string; style?: string; speed?: number } }>(
+    "/settings/models/providers/volcengine-tts/preview",
+    { schema: { body: {
+      type: "object", additionalProperties: false, required: ["text"],
+      properties: {
+        text: { type: "string", minLength: 1, maxLength: 500 },
+        voiceId: { type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN },
+        language: { type: "string", minLength: 1, maxLength: 40 },
+        style: { type: "string", minLength: 1, maxLength: 500 },
+        speed: { type: "number", minimum: -50, maximum: 100 },
+      },
+    } } },
+    async (request, reply) => {
+      try {
+        const generated = await volcengineTtsProvider.generate({
+          operation: "speech",
+          model: { provider: "volcengine-tts", id: "seed-tts-2.0" },
+          text: request.body.text,
+          voiceId: request.body.voiceId,
+          language: request.body.language,
+          style: request.body.style,
+          speed: request.body.speed,
+          output: { format: "mp3", sampleRate: 24_000 },
+        });
+        reply.header("content-type", generated.mediaType);
+        reply.header("cache-control", "no-store");
+        if (generated.metadata?.providerRequestId) reply.header("x-provider-request-id", generated.metadata.providerRequestId);
+        return reply.send(Buffer.from(generated.bytes));
+      } catch (cause) {
+        if (cause instanceof AudioGenerationError) return reply.code(cause.statusCode).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+  app.delete("/settings/models/providers/volcengine-tts", async (_request, reply) => {
+    await volcengineTtsSettings.clear();
     return reply.code(204).send();
   });
 
@@ -2421,6 +2532,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/image-models", async () => providerImages.models());
   app.get("/video-models", async () => providerVideos.models());
+  app.get("/audio-models/catalog", async () => providerAudio.catalog());
   for (const [path, usage, generator] of [
     ["image-models", "image", providerImages], ["video-models", "video", providerVideos], ["model3d-models", "3d", providerModels3D],
   ] as const) {

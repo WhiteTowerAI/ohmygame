@@ -6,6 +6,7 @@ import {
   VIDEO_ASPECT_RATIOS,
   VIDEO_RESOLUTIONS,
 } from "./contracts.js";
+import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "./audio.js";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
 
@@ -93,6 +94,48 @@ const nodes = [
       references: { type: "array", maxItems: 30, items: reference },
       referenceMode: { enum: ["frame", "reference"] },
       referenceMentions: { type: "object", patternProperties: { "^Image[1-9][0-9]*$": reference }, additionalProperties: false },
+      assetId: id,
+    },
+  }),
+  node("speech", {
+    type: "object",
+    additionalProperties: false,
+    required: ["text"],
+    properties: {
+      text: { type: "string" },
+      promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
+      model,
+      voiceId: { type: "string", minLength: 1, maxLength: AUDIO_VOICE_ID_MAX_LENGTH, pattern: AUDIO_VOICE_ID_PATTERN },
+      speed: { type: "number", minimum: -50, maximum: 100 },
+      assetId: id,
+    },
+  }),
+  node("sound-effect", {
+    type: "object",
+    additionalProperties: false,
+    required: ["prompt"],
+    properties: {
+      prompt: { type: "string", maxLength: 4_000 },
+      promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
+      model,
+      durationSeconds: { type: "number", minimum: 0.1, maximum: 600 },
+      loop: { type: "boolean" },
+      negativePrompt: { type: "string", maxLength: 4_000 },
+      assetId: id,
+    },
+  }),
+  node("music", {
+    type: "object",
+    additionalProperties: false,
+    required: ["prompt", "instrumental"],
+    properties: {
+      prompt: { type: "string", maxLength: 4_000 },
+      promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
+      model,
+      instrumental: { type: "boolean" },
+      lyrics: { type: "string", maxLength: 20_000 },
+      durationSeconds: { type: "number", minimum: 0.1, maximum: 600 },
+      loop: { type: "boolean" },
       assetId: id,
     },
   }),

@@ -8,7 +8,7 @@ export type ComposerMention =
 export interface ComposerMentionQuery {
   start: number;
   end: number;
-  trigger: "@" | "$";
+  trigger: "@" | "$" | "/";
   query: string;
 }
 
@@ -64,17 +64,22 @@ const SKILL_DISPLAY_TERMS: Record<string, string> = {
 
 export function mentionQuery(value: string, cursor: number): ComposerMentionQuery | undefined {
   const before = value.slice(0, cursor);
-  const match = before.match(/(^|\s)([@$])([^\s@$]*)$/);
+  const match = before.match(/(^|\s)([@$/])([^\s@$]*)$/);
   if (!match) return undefined;
-  const trigger = match[2] as "@" | "$";
+  const trigger = match[2] as "@" | "$" | "/";
   const start = cursor - match[2].length - match[3].length;
-  if (trigger === "$" && value.slice(0, start).trim()) return undefined;
+  if ((trigger === "$" || trigger === "/") && value.slice(0, start).trim()) return undefined;
   return {
     start,
     end: cursor,
     trigger,
     query: match[3].toLowerCase(),
   };
+}
+
+export function slashCommandQuery(value: string, cursor: number): ComposerMentionQuery | undefined {
+  if (cursor !== value.length || !value.startsWith("/") || value.includes("\n") || !/\s/.test(value.slice(1))) return undefined;
+  return { start: 0, end: cursor, trigger: "/", query: value.slice(1).toLowerCase() };
 }
 
 export function matchingMentions(capabilities: ConversationCapabilities, query: ComposerMentionQuery): ComposerMention[] {

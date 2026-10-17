@@ -1,4 +1,4 @@
-import { CircleX, FileText, Lightbulb } from "./icons.js";
+import { CircleX, Lightbulb } from "./icons.js";
 import { t } from "./i18n.js";
 
 interface PlanModeIndicatorProps {
@@ -14,33 +14,6 @@ export function PlanModeIndicator({ disabled, onExit }: PlanModeIndicatorProps) 
         <CircleX className="composer-plan-close" size={15} aria-hidden="true" />
         <span>{t("planMode.plan")}</span>
       </button>
-    </div>
-  );
-}
-
-interface PlanCommandMenuProps {
-  planning: boolean;
-  onToggle: () => void;
-  showPlan?: boolean;
-  showCompact?: boolean;
-  onCompact?: () => void;
-  selected?: "plan" | "compact";
-  contextPercent?: number;
-}
-
-export function PlanCommandMenu({ planning, onToggle, showPlan = true, showCompact = false, onCompact, selected, contextPercent }: PlanCommandMenuProps) {
-  return (
-    <div className="composer-command-menu" role="listbox" aria-label={t("planMode.commands")}>
-      {showPlan ? <button className={selected === "plan" ? "is-selected" : ""} type="button" role="option" aria-selected={selected === "plan"} onClick={onToggle}>
-        <Lightbulb size={15} aria-hidden="true" />
-        <span>{t("planMode.mode")}</span>
-        <small>{planning ? t("planMode.turnOff") : t("planMode.turnOn")}</small>
-      </button> : null}
-      {showCompact ? <button className={selected === "compact" ? "is-selected" : ""} type="button" role="option" aria-selected={selected === "compact"} onClick={onCompact}>
-        <FileText size={15} aria-hidden="true" />
-        <span>{t("planMode.compact")}</span>
-        <small>{t("planMode.compactHint")}{contextPercent === undefined ? "" : t("planMode.full", { percent: contextPercent })}</small>
-      </button> : null}
     </div>
   );
 }
