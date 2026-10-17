@@ -33,7 +33,8 @@ export async function exportPlayableProject(
     throw new PlayableProjectExportError("graph.json is not valid JSON.");
   }
 
-  const taken = new Set(files);
+  // Exports must also extract safely on case-insensitive filesystems.
+  const taken = new Set(files.map(exportPathKey));
   const copies = new Map<string, { path: string; absolutePath: string }>();
   for (const [id, asset] of Object.entries(isRecord(graph) && isRecord(graph.assets) ? graph.assets : {})) {
     if (!isRecord(asset) || !isRecord(asset.source) || asset.source.kind !== "library") continue;
@@ -51,7 +52,7 @@ export async function exportPlayableProject(
         throw cause;
       }
       copy = { path: freePath(taken, content.asset.name), absolutePath: content.absolutePath };
-      taken.add(copy.path);
+      taken.add(exportPathKey(copy.path));
       copies.set(libraryId, copy);
     }
     asset.source = { kind: "workspace", path: copy.path };
@@ -89,8 +90,14 @@ function freePath(taken: Set<string>, name: string): string {
   const stem = path.basename(name, path.extname(name)).replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "") || "asset";
   for (let index = 1; ; index += 1) {
     const candidate = `${LIBRARY_ASSET_DIRECTORY}/${stem}${index > 1 ? `-${index}` : ""}${extension}`;
-    if (!taken.has(candidate)) return candidate;
+    if (!taken.has(exportPathKey(candidate))) return candidate;
   }
+}
+
+function exportPathKey(filePath: string): string {
+  // Reserve canonical spellings and case variants such as σ/ς, s/ſ and ß/ẞ.
+  // This key may merge extra names; the actual exported spelling stays intact.
+  return filePath.normalize("NFD").toLowerCase().toUpperCase();
 }
 
 function zipBuffer(zip: ZipFile): Promise<Buffer> {

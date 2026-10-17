@@ -64,17 +64,6 @@ export class PreviewCancelledError extends Error {
 class PreviewNotReadyError extends ProjectWorkspaceError {}
 
 export class PreviewManager {
-  readonly #suspended = new Set<string>();
-
-  async withWorkspaceStopped<T>(project: ProjectState, operation: () => Promise<T>): Promise<T> {
-    const resume = ["ready", "starting"].includes(project.preview.status);
-    this.#suspended.add(project.id);
-    try { await this.stop(project, "settings"); return await operation(); }
-    finally {
-      this.#suspended.delete(project.id);
-      if (resume && !this.#session(project).paused) void this.ensureStarted(project, false).catch(() => {});
-    }
-  }
   readonly #running = new Map<string, ChildProcess>();
   readonly #proxies = new Map<string, PreviewProxy>();
   readonly #static = new Map<string, { close(): Promise<void> }>();
@@ -197,7 +186,6 @@ export class PreviewManager {
 
   #automaticAllowed(session: PreviewSession): boolean {
     return (
-      !this.#suspended.has(session.project.id) &&
       this.#sessions.get(session.project.id) === session &&
       supportsWebPreview(session.project) &&
       session.project.previewAutoStart !== false &&
@@ -207,7 +195,6 @@ export class PreviewManager {
   }
 
   ensureStarted(project: ProjectState, manual = true): Promise<string> {
-    if (this.#suspended.has(project.id)) return Promise.reject(new PreviewCancelledError());
     if (!supportsWebPreview(project))
       return Promise.reject(
         new ProjectWorkspaceError(
@@ -236,7 +223,6 @@ export class PreviewManager {
     reinstall = false,
     manual = true,
   ): Promise<string> {
-    if (this.#suspended.has(project.id)) return Promise.reject(new PreviewCancelledError());
     if (manual) this.#session(project).paused = false;
     return this.#beginStart(project, reinstall);
   }

@@ -754,7 +754,7 @@ export function createApp(options: AppOptions = {}) {
     if (!projects.get(project.id)) throw new Error("Project not found");
     if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before continuing.");
     await canvasStore.waitForProject(project.id);
-    return previews.withWorkspaceStopped(project, () => withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project)));
+    return withCanvasLock(project.workspacePath, () => checkpoints.snapshot(project));
   });
   // At most once a day, after a run, the snapshots that no conversation names any more are removed. Removing the
   // project, Undo and Restore hold the workspace exclusively; a prune whose turn comes then is left for later.
