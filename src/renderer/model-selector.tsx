@@ -1,7 +1,7 @@
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Settings } from "./icons.js";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AGENT_REASONING_LEVELS, type AgentModel, type AgentModelCatalog, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
+import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { reasoningLabel } from "./reasoning-label.js";
 import { t } from "./i18n.js";
@@ -14,18 +14,16 @@ interface ModelSelectorProps {
   status?: AgentModelCatalogStatus;
   value?: AgentModelRef | AgentModel;
   reasoningLevel?: AgentReasoningLevel;
-  nativeReasoningLevel?: string;
   disabled?: boolean;
   variant?: "chat" | "canvas";
   placement?: "above" | "below";
   onChange: (model: AgentModel, reasoningLevel: AgentReasoningLevel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
-  onNativeReasoningChange?: (level: string) => void;
 }
 
 type ModelPanel = "models" | "reasoning";
 
-export function ModelSelector({ models, status = "ready", value, reasoningLevel, nativeReasoningLevel, disabled, variant = "chat", placement = "above", onChange, onReasoningChange, onNativeReasoningChange }: ModelSelectorProps) {
+export function ModelSelector({ models, status = "ready", value, reasoningLevel, disabled, variant = "chat", placement = "above", onChange, onReasoningChange }: ModelSelectorProps) {
   const [panel, setPanel] = useState<ModelPanel>();
   const [position, setPosition] = useState<{ top: number; left: number }>();
   const [query, setQuery] = useState("");
@@ -41,12 +39,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const visibleModels = status === "ready" ? filterModels(models, query) : [];
   const providerGroups = groupModelsByProvider(visibleModels);
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? "medium", current?.reasoningLevels ?? []);
-  const native = !!current?.runtime && !!current.nativeReasoningLevels && variant !== "canvas";
-  const levels = native ? current.nativeReasoningLevels! : current?.reasoningLevels ?? [];
-  const effectiveLevel = native ? (nativeReasoningLevel && levels.includes(nativeReasoningLevel) ? nativeReasoningLevel : levels[0]) : effectiveReasoning;
-  const label = (level: string | undefined) => level && (AGENT_REASONING_LEVELS as readonly string[]).includes(level) ? reasoningLabel(level as AgentReasoningLevel) : level ?? "";
-  const reasoningText = label(effectiveLevel);
-  const supportsReasoning = levels.length > 1;
+  const reasoningText = reasoningLabel(effectiveReasoning);
+  const supportsReasoning = !!current && current.reasoningLevels.length > 1;
   const open = !!panel;
   const showReasoning = panel === "reasoning";
   const positioned = position !== undefined;
@@ -225,8 +219,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 <ChevronLeft aria-hidden="true" size={12} />
                 <span>{t("models.reasoning")}</span>
               </button>
-              {levels.map((level) => {
-                const selected = level === effectiveLevel;
+              {(current?.reasoningLevels ?? []).map((level) => {
+                const selected = level === effectiveReasoning;
                 return (
                   <button
                     className={selected ? "active" : ""}
@@ -235,11 +229,11 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                     aria-checked={selected}
                     key={level}
                     onClick={() => {
-                      if (!selected) { if (native) onNativeReasoningChange?.(level); else onReasoningChange(level as AgentReasoningLevel); }
+                      if (!selected) onReasoningChange(level);
                       close(true);
                     }}
                   >
-                    <span>{label(level)}</span>
+                    <span>{reasoningLabel(level)}</span>
                     {selected ? <Check aria-hidden="true" size={12} /> : null}
                   </button>
                 );
@@ -257,39 +251,27 @@ export type AgentModelCatalogStatus = "loading" | "ready" | "error";
 export type AgentModelCatalogState = AgentModelCatalog & { status: AgentModelCatalogStatus };
 
 const EMPTY_CATALOG: AgentModelCatalogState = { models: [], defaultReasoningLevel: "medium", status: "loading" };
-/** The models a picker offers. Conversations pass `agentRuntimes` to list coding agents' models with OhMyGame's own. */
-export function useAgentModels(options: { agentRuntimes?: boolean } = {}): AgentModelCatalogState {
+export function useAgentModels(): AgentModelCatalogState {
   const [catalog, setCatalog] = useState<AgentModelCatalogState>(EMPTY_CATALOG);
-  const agentRuntimes = options.agentRuntimes === true;
   useEffect(() => {
     let disposed = false;
     let generation = 0;
-    let retries = 0;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const load = (quiet = false) => {
+    const load = () => {
       const request = ++generation;
-      if (!quiet) setCatalog((current) => ({ ...current, status: "loading" }));
-      void waitForRuntime().then(() => listModels({ agentRuntimes })).then((available) => {
-        if (disposed || request !== generation) return;
-        setCatalog({ ...available, status: "ready" });
-        // A coding agent that was slow to list its models is asked again, a few times, without hiding the others.
-        if (available.loadingRuntimes?.length && retries < 5) {
-          retries++;
-          retry = setTimeout(() => load(true), 3_000);
-        }
+      setCatalog((current) => ({ ...current, status: "loading" }));
+      void waitForRuntime().then(listModels).then((available) => {
+        if (!disposed && request === generation) setCatalog({ ...available, status: "ready" });
       }).catch(() => {
         if (!disposed && request === generation) setCatalog((current) => ({ ...current, models: [], hiddenModels: undefined, defaultModel: undefined, status: "error" }));
       });
     };
-    const reload = () => { retries = 0; load(); };
-    reload();
-    window.addEventListener(MODELS_CHANGED_EVENT, reload);
+    load();
+    window.addEventListener(MODELS_CHANGED_EVENT, load);
     return () => {
       disposed = true;
-      clearTimeout(retry);
-      window.removeEventListener(MODELS_CHANGED_EVENT, reload);
+      window.removeEventListener(MODELS_CHANGED_EVENT, load);
     };
-  }, [agentRuntimes]);
+  }, []);
   return catalog;
 }
 

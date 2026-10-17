@@ -48,10 +48,8 @@ import { HYPER3D_CONNECTION_ID } from "../shared/cloud-models.js";
 import { isLocalModelProvider, LOCAL_MODEL_PROVIDERS, withLocalModelProviders, type LocalModelProviderId } from "./local-model-providers.js";
 import { groupProviders } from "./provider-groups.js";
 import { t } from "./i18n.js";
-import { CodingAgentDetail, CodingAgentsGroup } from "./coding-agents-settings.js";
-import type { AgentRuntimeId } from "../shared/agent-runtimes.js";
 
-export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary } | { page: "agent"; id: AgentRuntimeId };
+export type ModelsView = { page: "providers" } | { page: "provider"; provider: ProviderSummary };
 
 const SEEDANCE_PROVIDER_IDS = new Set(["volcengine-ark", "byteplus-modelark"]);
 const MINIMAX_PROVIDER_IDS = new Set(["minimax-video-cn", "minimax-video-global"]);
@@ -74,13 +72,12 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
 export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
   if (view.page === "providers") {
-    return <ProviderList onProvider={openProvider} onAgent={(id) => onViewChange({ page: "agent", id })} />;
+    return <ProviderList onProvider={openProvider} />;
   }
-  if (view.page === "agent") return <CodingAgentDetail id={view.id} onBack={() => onViewChange({ page: "providers" })} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
 }
 
-function ProviderList({ onProvider, onAgent }: { onProvider: (provider: ProviderSummary) => void; onAgent: (id: AgentRuntimeId) => void }) {
+function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
   const auth = useAuth();
   const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -180,7 +177,6 @@ function ProviderList({ onProvider, onAgent }: { onProvider: (provider: Provider
           <button className="settings-add-button settings-provider-add" type="button" onClick={() => setAdding("custom")}><Plus size={13} />{t("providers.add")}</button>
         </div>
         {capability !== "language" ? <GlobalMediaModelDefaults capability={capability} /> : null}
-        {capability === "all" || capability === "language" ? <CodingAgentsGroup query={query} onOpen={onAgent} /> : null}
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />{t("providers.loadingProviders")}</div> : null}
         {!loading && visibleProviders.length === 0 ? <p className="settings-empty">{t("providers.noMatch")}</p> : null}
         {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}

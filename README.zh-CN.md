@@ -145,9 +145,6 @@ OhMyGame 不会把你绑定在某一个模型上，也不按次收费。
   Amazon Bedrock 和 Vercel AI Gateway。
 - **直接登录你已有的订阅**，例如 ChatGPT Plus/Pro 或 GitHub Copilot，也可以粘贴 API 密钥。
   <!-- TODO(legal): 列出更多订阅前，先确认各服务商的条款 -->
-- **你已经在用的编程智能体**：Claude Code、Codex 和 OpenCode 使用各自的登录来运行对话，
-  对话记录、撤销、画布、媒体工具和插件仍由 OhMyGame 提供。在设置中启用，并遵循原生 CLI
-  的权限边界。详见[编程智能体](docs/coding-agents.md)。
 - **媒体模型**：图片、视频和 3D 生成，可通过 OpenAI、OpenRouter、火山方舟 / BytePlus ModelArk
   和 Meshy 接入。
 - **自定义服务商和模型别名**：可以选择语言、图片、视频和 3D 用途，配置协议模板和生成默认值。

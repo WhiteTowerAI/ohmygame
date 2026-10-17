@@ -126,7 +126,7 @@ Skill in a project for those checks.
 
 ## Definition, configuration, and runtime
 
-These responsibilities form the long-term architecture: packages declare capabilities, user configuration supplies values, and the host owns runtime sessions. Future capabilities should extend these boundaries, and must be expressible as Skills or MCP servers: [coding agents](coding-agents.md) receive a plugin's Skills and reach its MCP servers through the daemon, but cannot load Pi extensions.
+These responsibilities form the long-term architecture: packages declare capabilities, user configuration supplies values, and the host owns runtime sessions. Future capabilities should extend these boundaries.
 
 Installed packages remain versioned. User values, credential references, and edited server definitions live separately in `plugin-configuration.json`, keyed by stable plugin ID. Reinstalling or updating a package preserves these values and overrides. Static credentials use an encrypted local store with a private `0600` key file; OAuth uses the adapter's credential storage. Keep the data directory and key together when backing it up. Credentials entered through the configuration form are never returned by configuration APIs or included in the assistant's structured tool results. Package authors should always use secret fields rather than embedding credentials in package files.
 

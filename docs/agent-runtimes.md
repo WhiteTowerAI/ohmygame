@@ -12,6 +12,11 @@ reviewed implementation. The implementation guide is `docs/coding-agents.md`
 (delivered with #289); shared types and tests remain the source of truth for
 individual protocol fields.
 
+Implementation acceptance is pending. PR #289 is being reverted from `dev`
+until Claude Code real inference and visual/style checks are complete. Its
+implementation and fixes are preserved for a new PR after explicit acceptance;
+this design document remains in place.
+
 ## Decisions and ownership
 
 - A Provider represents a model service, authentication, catalog, and API

@@ -21,7 +21,6 @@ import { readWorkspaceNotice } from "./workspace-notice.js";
 import type { AgentContextUsage, AgentMessagePhase, AgentReasoningLevel, AgentStatus, ConversationAgentState, ConversationAttachment, PendingPrompt, PlanMode, PlanSessionState, PlanState, PluginMention, ProjectAgentActivity, ProjectState, PromptImage, PromptReference, QuestionnaireAnswer, QuestionnaireQuestion, QuestionnaireResult, ResponsesTransportMode, ThreadItem, ThreadItemError, ToolArtifact, TurnChanges } from "../shared/contracts.js";
 import { hasPluginMentionToken, parsePluginMentions, serializePluginMentions } from "../shared/plugins.js";
 import type { RuntimeEventBus } from "../shared/events.js";
-import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "../shared/agent-runtimes.js";
 import type { StoredConversation } from "./conversations.js";
 import {
   ensureOhMyGamePiEnvironment,
@@ -47,8 +46,6 @@ import { normalizeAssistantMessage, normalizeAssistantText, AssistantTextStreamN
 export interface CodingSession {
   readonly messages: readonly unknown[];
   readonly model?: RuntimeModel;
-  /** The coding agent CLI that runs this session; absent for OhMyGame's own agent. */
-  readonly runtime?: AgentRuntimeId;
   /** Whether prompt() emits message_start for its initial user message. */
   readonly emitsInitialUserMessage?: boolean;
   readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "getBranch"> & Partial<Pick<SessionManager, "branch">>;
@@ -201,19 +198,6 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
       if (item?.type === "agentMessage" && item.status === "failed") items[previous] = { ...item, error };
       else items.push({ id: entry.id, turnId, type: "agentMessage", text: "", status: "failed", error, timestamp: Date.parse(entry.timestamp) });
       turnFinished = true;
-      continue;
-    }
-    if (entry.type === "custom" && entry.customType === "ohmygame-approval") {
-      const data = record(entry.data);
-      const item = record(data?.item);
-      if (data?.version === 1 && item?.type === "approvalRequest" && item.status !== "inProgress" && record(item.request)) {
-        items.push({ ...item, id: entry.id, turnId: turnId ?? entry.id, timestamp: Date.parse(entry.timestamp) } as ThreadItem);
-      }
-      continue;
-    }
-    if (entry.type === "custom" && entry.customType === "ohmygame-native-compaction") {
-      const data = record(entry.data);
-      if (data?.version === 1) items.push({ id: entry.id, turnId: turnId ?? entry.id, type: "contextCompaction", status: data.aborted ? "cancelled" : data.error ? "failed" : "completed", ...(typeof data.summary === "string" ? { summary: data.summary } : {}), ...(typeof data.tokensBefore === "number" ? { tokensBefore: data.tokensBefore } : {}), ...(typeof data.error === "string" ? { error: normalizeAgentError(data.error) } : {}), timestamp: Date.parse(entry.timestamp) });
       continue;
     }
     if (entry.type !== "message") continue;
@@ -465,12 +449,6 @@ interface QueuedPrompt extends PendingPrompt {
   queuedEventId: number;
 }
 
-interface PendingApproval {
-  item: Extract<ThreadItem, { type: "approvalRequest" }>;
-  resolve: (decision: ApprovalDecision) => void;
-  removeAbortListener?: () => void;
-}
-
 interface PendingQuestionnaire {
   item: Extract<ThreadItem, { type: "userInputRequest" }>;
   resolve: (result: QuestionnaireResult) => void;
@@ -493,8 +471,6 @@ export class AgentManager {
   readonly #puttingBack = new Set<string>();
   readonly #turnEndsRecorded = new Map<string, number>();
   readonly #questionnaires = new Map<string, PendingQuestionnaire>();
-  /** Approvals a coding agent is waiting for, by conversation and then request. */
-  readonly #approvals = new Map<string, Map<string, PendingApproval>>();
   readonly #invalidatedProjects = new Set<string>();
   #closing = false;
 
@@ -581,24 +557,6 @@ export class AgentManager {
     }
     if (!managed.session.setModel) throw new Error("The current agent session cannot change models");
     await managed.session.setModel(compatibleRuntimeModel(model));
-  }
-
-  /** The coding agent running a conversation's loaded session, if any; undefined for OhMyGame's own agent. */
-  sessionRuntime(projectId: string, conversationId: string): AgentRuntimeId | undefined {
-    return this.#sessions.get(conversationKey(projectId, conversationId))?.session.runtime;
-  }
-
-  /**
-   * Lets go of a conversation's session so the next message starts one for
-   * the model `persist` stores, as when a conversation moves between
-   * OhMyGame's own agent and a coding agent, or between coding agents.
-   */
-  async replaceSession(projectId: string, conversationId: string, persist: () => void): Promise<void> {
-    const key = conversationKey(projectId, conversationId);
-    if (this.#activeTurns.get(key)?.ended) await this.#turnClosed(key);
-    if (this.#activeTurns.has(key) || this.#revisions.has(key) || this.#sessionLoads.has(key)) throw new Error("Wait for the agent to finish before changing models");
-    this.#forgetConversation(key);
-    persist();
   }
 
   async setReasoningLevel(
@@ -1163,7 +1121,6 @@ export class AgentManager {
     if (!active || active.turnId !== turnId || active.status !== "running" || active.ended) return;
     active.status = "cancelling";
     this.#setState(projectId, conversationId, { status: "cancelling" });
-    this.#denyApprovals(projectId, active);
     const managed = this.#sessions.get(key);
     if (managed) {
       await this.#withQueueMutation(key, async () => {
@@ -1382,77 +1339,6 @@ export class AgentManager {
     pending.resolve(result);
   }
 
-  /**
-   * Asks the person whether a coding agent may go ahead. The request shows in
-   * the running turn until it is answered, the turn ends or the agent stops
-   * waiting; whatever ends it unanswered denies it.
-   */
-  askApproval(
-    projectId: string,
-    conversationId: string,
-    requestId: string,
-    request: ApprovalRequestDetails,
-    signal?: AbortSignal,
-  ): Promise<ApprovalDecision> {
-    const key = conversationKey(projectId, conversationId);
-    const active = this.#activeTurns.get(key);
-    if (!active || active.status !== "running" || active.ended) return Promise.resolve("deny");
-    const pendingForConversation = this.#approvals.get(key) ?? new Map<string, PendingApproval>();
-    this.#approvals.set(key, pendingForConversation);
-    const id = pendingForConversation.has(requestId) ? `${requestId}:${randomUUID()}` : requestId;
-    const item: Extract<ThreadItem, { type: "approvalRequest" }> = {
-      id: `${active.turnId}:approval:${id}`,
-      turnId: active.turnId,
-      type: "approvalRequest",
-      requestId: id,
-      request,
-      status: "inProgress",
-    };
-    return new Promise<ApprovalDecision>((resolve) => {
-      const pending: PendingApproval = { item, resolve };
-      if (signal) {
-        const abort = () => {
-          if (pendingForConversation.get(id) !== pending) return;
-          pendingForConversation.delete(id);
-          this.#completeItem(projectId, active, { ...item, status: "cancelled" });
-          resolve("deny");
-        };
-        if (signal.aborted) {
-          resolve("deny");
-          return;
-        }
-        signal.addEventListener("abort", abort, { once: true });
-        pending.removeAbortListener = () => signal.removeEventListener("abort", abort);
-      }
-      pendingForConversation.set(id, pending);
-      this.#startItem(projectId, active, item);
-    });
-  }
-
-  answerApproval(projectId: string, conversationId: string, requestId: string, decision: ApprovalDecision): void {
-    const key = conversationKey(projectId, conversationId);
-    const pending = this.#approvals.get(key)?.get(requestId);
-    if (!pending) throw new Error("Approval request is no longer active");
-    if (decision === "allow-session" && !pending.item.request.canAllowSession) throw new Error("This request can only be allowed once");
-    this.#approvals.get(key)?.delete(requestId);
-    pending.removeAbortListener?.();
-    const active = this.#activeTurns.get(key);
-    if (active) this.#completeItem(projectId, active, { ...pending.item, status: "completed", decision });
-    pending.resolve(decision);
-  }
-
-  #denyApprovals(projectId: string, active: ActiveTurn): void {
-    const key = conversationKey(projectId, active.conversationId);
-    const pending = this.#approvals.get(key);
-    if (!pending) return;
-    this.#approvals.delete(key);
-    for (const approval of pending.values()) {
-      approval.removeAbortListener?.();
-      this.#completeItem(projectId, active, { ...approval.item, status: "cancelled" });
-      approval.resolve("deny");
-    }
-  }
-
   activeItems(projectId: string, conversationId: string): ThreadItem[] {
     const active = this.#activeTurns.get(conversationKey(projectId, conversationId));
     if (!active) return [];
@@ -1511,13 +1397,6 @@ export class AgentManager {
       pending.reject(new Error("Agent manager is closing"));
     }
     this.#questionnaires.clear();
-    for (const approvals of this.#approvals.values()) {
-      for (const approval of approvals.values()) {
-        approval.removeAbortListener?.();
-        approval.resolve("deny");
-      }
-    }
-    this.#approvals.clear();
     const sessions = [...this.#sessions.values()];
     for (const { session } of sessions) session.abortCompaction?.();
     await Promise.allSettled(sessions.map(({ session }) => session.abort()));
@@ -1554,7 +1433,6 @@ export class AgentManager {
       const ends = await this.#turnEnds(project, active);
       this.#recordTurnEnds(projectId, active, ends);
       this.#activeTurns.delete(key);
-      this.#denyApprovals(projectId, active);
       const questionnaire = this.#questionnaires.get(key);
       if (questionnaire) {
         questionnaire.removeAbortListener?.();
@@ -2070,10 +1948,6 @@ export class AgentManager {
   }
 
   #completeItem(projectId: string, active: ActiveTurn, item: ThreadItem): void {
-    const previous = active.items.get(item.id);
-    if (item.type === "approvalRequest" && previous?.type === "approvalRequest" && previous.status === "inProgress") {
-      this.#sessions.get(conversationKey(projectId, active.conversationId))?.session.sessionManager?.appendCustomEntry("ohmygame-approval", { version: 1, item });
-    }
     active.items.set(item.id, item);
     this.events.publish(projectId, "item.completed", { item }, eventScope(active));
   }
@@ -2106,8 +1980,6 @@ export class AgentManager {
           status: status === "completed" ? "completed" : "failed",
           ...(error ? { error } : {}),
         });
-      } else if (item.type === "approvalRequest" && item.status === "inProgress") {
-        this.#completeItem(projectId, active, { ...item, status: status === "failed" ? "failed" : "cancelled" });
       } else if (item.type === "userInputRequest" && item.status === "inProgress") {
         this.#completeItem(projectId, active, {
           ...item,
