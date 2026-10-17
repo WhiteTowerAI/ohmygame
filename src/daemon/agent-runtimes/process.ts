@@ -58,7 +58,8 @@ export class AgentProcess {
       windowsHide: true,
     });
     registerProjectProcess(this.child);
-    if (options.processDirectory) trackAgentProcess(options.processDirectory, this.child);
+    if (options.processDirectory)
+      trackAgentProcess(options.processDirectory, this.child);
     live.add(this);
     this.child.stderr?.setEncoding("utf8");
     this.child.stderr?.on("data", (chunk: string) => {
@@ -72,17 +73,19 @@ export class AgentProcess {
     // A write to a CLI that has gone away is reported through its exit, not as an unhandled error.
     this.child.stdin?.on("error", () => {});
     this.#exited = new Promise((resolve) => {
-      this.child.once("error", (cause) => {
-        live.delete(this);
-        this.#stderr += `\n${cause.message}`;
-        options.onExit?.(null, null, this.#stderr);
-        resolve();
-      });
-      this.child.once("close", (code, signal) => {
+      let reported = false;
+      const finish = (code: number | null, signal: NodeJS.Signals | null) => {
+        if (reported) return;
+        reported = true;
         live.delete(this);
         options.onExit?.(code, signal, this.#stderr);
         resolve();
+      };
+      this.child.once("error", (cause) => {
+        this.#stderr += `\n${cause.message}`;
+        finish(null, null);
       });
+      this.child.once("close", finish);
     });
   }
 

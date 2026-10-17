@@ -59,6 +59,7 @@ interface OpenCodeTurn {
 export class OpenCodeDriver implements NativeDriver {
   #disposed = false;
   #server?: OpenCodeServer;
+  #launching?: AgentProcess;
   #starting?: Promise<OpenCodeServer>;
   #sessionId?: string;
   #worktree?: string;
@@ -105,15 +106,17 @@ export class OpenCodeDriver implements NativeDriver {
         readOnly: input.readOnly,
       };
       this.#turn = turn;
-      this.#connectBridge(turn).then(() => this.#prompt(sessionId, input)).catch((cause) => {
-        if (this.#turn !== turn) return;
-        this.#turn = undefined;
-        this.#bridge?.revoke();
-        resolve({
-          status: "failed",
-          error: cause instanceof Error ? cause.message : String(cause),
+      this.#connectBridge(turn)
+        .then(() => this.#prompt(sessionId, input))
+        .catch((cause) => {
+          if (this.#turn !== turn) return;
+          this.#turn = undefined;
+          this.#bridge?.revoke();
+          resolve({
+            status: "failed",
+            error: cause instanceof Error ? cause.message : String(cause),
+          });
         });
-      });
     });
   }
 
@@ -166,7 +169,7 @@ export class OpenCodeDriver implements NativeDriver {
     this.#bridge?.revoke();
     this.#bridge = undefined;
     this.#server?.events.abort();
-    await this.#server?.process.stop();
+    await (this.#server?.process ?? this.#launching)?.stop();
     turn?.resolve({ status: "aborted" });
     this.#server = undefined;
   }
@@ -180,7 +183,7 @@ export class OpenCodeDriver implements NativeDriver {
     const [providerID, modelID] = splitModel(this.context.model);
     await this.#api("POST", `/session/${sessionId}/prompt_async`, {
       model: { providerID, modelID },
-      ...(this.context.reasoningLevel && this.context.reasoningLevel !== "off"
+      ...(this.context.reasoningLevel
         ? { variant: this.context.reasoningLevel }
         : {}),
       agent: input.readOnly ? "plan" : "build",
@@ -204,7 +207,8 @@ export class OpenCodeDriver implements NativeDriver {
         sink.nativeSession(this.#sessionId);
         return this.#sessionId;
       } catch (cause) {
-        if (cause instanceof OpenCodeHttpError && cause.status === 404) throw new NativeSessionExpiredError(cause.message);
+        if (cause instanceof OpenCodeHttpError && cause.status === 404)
+          throw new NativeSessionExpiredError(cause.message);
         throw cause;
       }
     }
@@ -259,12 +263,17 @@ export class OpenCodeDriver implements NativeDriver {
               processFailure("OpenCode", code, signal, stderr),
             ),
         });
+        this.#launching = child;
         let startTimer: ReturnType<typeof setTimeout> | undefined;
         const address = await Promise.race([
           url,
           child.exited().then(() => undefined),
-          new Promise<undefined>((resolve) =>
-            startTimer = setTimeout(() => resolve(undefined), START_TIMEOUT_MS),
+          new Promise<undefined>(
+            (resolve) =>
+              (startTimer = setTimeout(
+                () => resolve(undefined),
+                START_TIMEOUT_MS,
+              )),
           ),
         ]);
         clearTimeout(startTimer);
@@ -279,6 +288,10 @@ export class OpenCodeDriver implements NativeDriver {
             ),
           );
         }
+        if (this.#disposed) {
+          await child.stop();
+          throw new Error("The agent session was closed");
+        }
         const events = new AbortController();
         const server = {
           process: child,
@@ -289,17 +302,32 @@ export class OpenCodeDriver implements NativeDriver {
         this.#server = server;
         let connected!: () => void;
         let failed!: (cause: unknown) => void;
-        const ready = new Promise<void>((resolve, reject) => { connected = resolve; failed = reject; });
-        const connectTimer = setTimeout(() => events.abort(new Error("OpenCode event stream did not connect")), START_TIMEOUT_MS);
+        const ready = new Promise<void>((resolve, reject) => {
+          connected = resolve;
+          failed = reject;
+        });
+        const connectTimer = setTimeout(
+          () =>
+            events.abort(new Error("OpenCode event stream did not connect")),
+          START_TIMEOUT_MS,
+        );
         void this.#listen(server, connected, failed);
-        try { await ready; }
-        finally { clearTimeout(connectTimer); }
+        try {
+          await ready;
+        } finally {
+          clearTimeout(connectTimer);
+        }
         if (this.#disposed) throw new Error("The agent session was closed");
         const nativePath = record(await this.#api("GET", "/path"));
-        if (typeof nativePath?.worktree !== "string" || !path.isAbsolute(nativePath.worktree)) throw new Error("OpenCode did not report its permission path root");
+        if (
+          typeof nativePath?.worktree !== "string" ||
+          !path.isAbsolute(nativePath.worktree)
+        )
+          throw new Error("OpenCode did not report its permission path root");
         this.#worktree = nativePath.worktree;
         return server;
       } finally {
+        this.#launching = undefined;
         this.#starting = undefined;
       }
     })());
@@ -364,11 +392,15 @@ export class OpenCodeDriver implements NativeDriver {
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      signal: AbortSignal.any([AbortSignal.timeout(30_000), server.events.signal]),
+      signal: AbortSignal.any([
+        AbortSignal.timeout(30_000),
+        server.events.signal,
+      ]),
     });
     const text = await response.text();
     if (!response.ok)
-      throw new OpenCodeHttpError(response.status,
+      throw new OpenCodeHttpError(
+        response.status,
         `OpenCode refused ${route}: ${text.slice(0, 500) || response.status}`,
       );
     if (!text) return {};
@@ -395,18 +427,40 @@ export class OpenCodeDriver implements NativeDriver {
     });
     this.#bridge = bridge;
     try {
-      await this.#api("POST", "/mcp", { name: BRIDGE_SERVER_NAME, config: { type: "remote", url: bridge.url, enabled: true, oauth: false, headers: { Authorization: `Bearer ${bridge.token}` } } });
+      await this.#api("POST", "/mcp", {
+        name: BRIDGE_SERVER_NAME,
+        config: {
+          type: "remote",
+          url: bridge.url,
+          enabled: true,
+          oauth: false,
+          headers: { Authorization: `Bearer ${bridge.token}` },
+        },
+      });
       turn.signal.throwIfAborted();
-    } catch (cause) { bridge.revoke(); throw cause; }
+    } catch (cause) {
+      bridge.revoke();
+      throw cause;
+    }
   }
 
-  async #listen(server: OpenCodeServer, connected: () => void, failed: (cause: unknown) => void): Promise<void> {
+  async #listen(
+    server: OpenCodeServer,
+    connected: () => void,
+    failed: (cause: unknown) => void,
+  ): Promise<void> {
     try {
       const response = await fetch(`${server.url}/event`, {
-        headers: { authorization: server.auth, "x-opencode-directory": encodeURIComponent(this.context.workspacePath) },
+        headers: {
+          authorization: server.auth,
+          "x-opencode-directory": encodeURIComponent(
+            this.context.workspacePath,
+          ),
+        },
         signal: server.events.signal,
       });
-      if (!response.ok || !response.body) throw new Error(`OpenCode event stream failed (${response.status})`);
+      if (!response.ok || !response.body)
+        throw new Error(`OpenCode event stream failed (${response.status})`);
       connected();
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -437,14 +491,18 @@ export class OpenCodeDriver implements NativeDriver {
           }
         }
       }
-      if (!server.events.signal.aborted) throw new Error("OpenCode event stream disconnected");
+      if (!server.events.signal.aborted)
+        throw new Error("OpenCode event stream disconnected");
     } catch (cause) {
       failed(cause);
       if (!server.events.signal.aborted) {
         const turn = this.#turn;
         this.#turn = undefined;
         await server.process.stop();
-        turn?.resolve({ status: "failed", error: cause instanceof Error ? cause.message : String(cause) });
+        turn?.resolve({
+          status: "failed",
+          error: cause instanceof Error ? cause.message : String(cause),
+        });
       }
     }
   }
@@ -452,6 +510,18 @@ export class OpenCodeDriver implements NativeDriver {
   #event(event: { type?: string; properties?: Record<string, unknown> }): void {
     const turn = this.#turn;
     const properties = event.properties ?? {};
+    // OpenCode emits a child's permission request with the child's session ID.
+    // Verify ancestry through its API instead of dropping it and hanging task().
+    if (event.type === "permission.asked") {
+      if (turn) void this.#permission(turn, properties);
+      else
+        void this.#api(
+          "POST",
+          `/permission/${String(properties.id ?? "")}/reply`,
+          { reply: "reject" },
+        ).catch(() => {});
+      return;
+    }
     if (
       !turn ||
       (typeof properties.sessionID === "string" &&
@@ -510,11 +580,11 @@ export class OpenCodeDriver implements NativeDriver {
           turn.error = String(error.name ?? "OpenCode reported an error");
         return;
       }
-      case "permission.asked":
-        void this.#permission(turn, properties);
-        return;
       case "session.compacted":
-        if (!turn.manualCompaction) { sink.compaction("start"); sink.compaction("end", {}); }
+        if (!turn.manualCompaction) {
+          sink.compaction("start");
+          sink.compaction("end", {});
+        }
         return;
       case "session.error": {
         const error = record(properties.error);
@@ -630,6 +700,17 @@ export class OpenCodeDriver implements NativeDriver {
     request: Record<string, unknown>,
   ): Promise<void> {
     const id = String(request.id ?? "");
+    if (
+      typeof request.sessionID !== "string" ||
+      !(await this.#belongsToSession(request.sessionID)) ||
+      turn.signal.aborted ||
+      this.#turn !== turn
+    ) {
+      await this.#api("POST", `/permission/${id}/reply`, {
+        reply: "reject",
+      }).catch(() => {});
+      return;
+    }
     const permission = String(request.permission ?? "");
     const patterns = Array.isArray(request.patterns)
       ? request.patterns.map(String)
@@ -637,8 +718,14 @@ export class OpenCodeDriver implements NativeDriver {
     const metadata = record(request.metadata) ?? {};
     // File permission patterns are relative to OpenCode's Git worktree,
     // which can be an ancestor of the app workspace. Search patterns are not paths.
-    const filePermission = ["external_directory", "edit", "read", "list"].includes(permission);
-    const resolvePattern = (value: string) => path.resolve(this.#worktree!, value);
+    const filePermission = [
+      "external_directory",
+      "edit",
+      "read",
+      "list",
+    ].includes(permission);
+    const resolvePattern = (value: string) =>
+      path.resolve(this.#worktree!, value);
     const command =
       typeof metadata.command === "string"
         ? metadata.command
@@ -650,18 +737,34 @@ export class OpenCodeDriver implements NativeDriver {
         ? metadata.filepath
         : typeof metadata.filePath === "string"
           ? metadata.filePath
-          : filePermission && patterns[0]
-            ? resolvePattern(patterns[0])
-            : undefined;
+          : ["glob", "grep"].includes(permission)
+            ? typeof metadata.path === "string"
+              ? path.resolve(this.context.workspacePath, metadata.path)
+              : this.context.workspacePath
+            : filePermission && patterns[0]
+              ? resolvePattern(patterns[0])
+              : undefined;
     const details: ApprovalRequestDetails = {
       kind: command !== undefined ? "command" : file ? "file" : "other",
       tool: permission || "tool",
       ...(command !== undefined ? { command } : {}),
       ...(file ? { path: file } : {}),
-      ...(!file && command === undefined && patterns.length ? { reason: `Native ${permission} request: ${patterns.join(", ")}` } : {}),
-      ...(filePermission && patterns.length > 1 ? { paths: patterns.map((value) => ({ path: resolvePattern(value), access: permission === "edit" ? "write" as const : "read" as const })) } : {}),
+      ...(!file && command === undefined && patterns.length
+        ? { reason: `Native ${permission} request: ${patterns.join(", ")}` }
+        : {}),
+      ...(filePermission && patterns.length > 1
+        ? {
+            paths: patterns.map((value) => ({
+              path: resolvePattern(value),
+              access:
+                permission === "edit" ? ("write" as const) : ("read" as const),
+            })),
+          }
+        : {}),
       canAllowSession:
-        Array.isArray(request.always) && request.always.length > 0,
+        Array.isArray(request.always) &&
+        request.always.length > 0 &&
+        (file !== undefined || command !== undefined),
     };
     const callId =
       typeof record(request.tool)?.callID === "string"
@@ -669,13 +772,20 @@ export class OpenCodeDriver implements NativeDriver {
         : undefined;
     let decision: ApprovalDecision;
     try {
-      decision = turn.readOnly && !["read", "glob", "grep", "list", "external_directory"].includes(permission) ? "deny" : await decideApproval(details, this.context, turn.sink, {
-        ...(callId ? { callId } : {}),
-        signal: turn.signal,
-      });
+      decision =
+        turn.readOnly &&
+        !["read", "glob", "grep", "list", "external_directory"].includes(
+          permission,
+        )
+          ? "deny"
+          : await decideApproval(details, this.context, turn.sink, {
+              ...(callId ? { callId } : {}),
+              signal: turn.signal,
+            });
     } catch {
       decision = "deny";
     }
+    if (turn.signal.aborted || this.#turn !== turn) decision = "deny";
     await this.#api("POST", `/permission/${id}/reply`, {
       reply:
         decision === "allow"
@@ -684,6 +794,23 @@ export class OpenCodeDriver implements NativeDriver {
             ? "once"
             : "reject",
     }).catch(() => {});
+  }
+
+  async #belongsToSession(id: string): Promise<boolean> {
+    const seen = new Set<string>();
+    for (let depth = 0; depth < 16; depth++) {
+      if (id === this.#sessionId) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      const info = record(
+        await this.#api("GET", `/session/${encodeURIComponent(id)}`).catch(
+          () => undefined,
+        ),
+      );
+      if (typeof info?.parentID !== "string") return false;
+      id = info.parentID;
+    }
+    return false;
   }
 
   #exited(child: AgentProcess, failure: string): void {
@@ -702,7 +829,12 @@ export class OpenCodeDriver implements NativeDriver {
 }
 
 class OpenCodeHttpError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 /** OpenCode names models `provider/model`; the provider comes first, the rest is the model. */

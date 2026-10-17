@@ -898,20 +898,13 @@ export async function setConversationModel(
   });
 }
 
-export async function setConversationReasoning(
-  projectId: string,
-  conversationId: string,
-  level: AgentReasoningLevel,
-): Promise<AgentReasoningLevel> {
-  const result = await request<{ level: AgentReasoningLevel }>(`/projects/${projectId}/conversations/${conversationId}/reasoning`, {
+export function setConversationReasoning(projectId: string, conversationId: string, level: AgentReasoningLevel): Promise<AgentReasoningLevel>;
+export function setConversationReasoning(projectId: string, conversationId: string, level: string): Promise<string>;
+export async function setConversationReasoning(projectId: string, conversationId: string, level: string): Promise<string> {
+  const result = await request<{ level: string }>(`/projects/${projectId}/conversations/${conversationId}/reasoning`, {
     method: "PUT",
     body: JSON.stringify({ level }),
   });
-  return result.level;
-}
-
-export async function setConversationNativeReasoning(projectId: string, conversationId: string, level: string): Promise<string> {
-  const result = await request<{ level: string }>(`/projects/${projectId}/conversations/${conversationId}/native-reasoning`, { method: "PUT", body: JSON.stringify({ level }) });
   return result.level;
 }
 

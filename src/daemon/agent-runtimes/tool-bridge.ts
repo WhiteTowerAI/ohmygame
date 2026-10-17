@@ -68,6 +68,7 @@ export class ToolBridge {
     callId: string,
     signal?: AbortSignal,
   ): Promise<{ result: NativeToolResult; isError: boolean }> {
+    if (signal?.aborted) return failure("The turn was cancelled");
     const tool = this.#tools.get(name);
     if (!tool || (this.#active && !this.#active.has(name)))
       return failure(`Tool ${name} is not available`);

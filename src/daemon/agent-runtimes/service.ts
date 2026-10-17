@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type {
   SessionManager,
@@ -29,7 +29,10 @@ import {
 } from "./discovery.js";
 import { agentEnvironment, loginShellPath } from "./environment.js";
 import { AgentProcess, stopAgentProcesses } from "./process.js";
-import { recoverAgentProcesses } from "./process-recovery.js";
+import {
+  recoverAgentProcesses,
+  recoverAgentDirectories,
+} from "./process-recovery.js";
 import { NativeCodingSession, type NativeDriver } from "./native-session.js";
 import { ToolBridge } from "./tool-bridge.js";
 import type { DriverContext, HttpBridgeHandlers } from "./driver-context.js";
@@ -86,6 +89,7 @@ export interface NativeSessionRequest {
  */
 export class AgentRuntimeService {
   readonly settings: AgentRuntimeSettingsStore;
+  #revisions = new Map<AgentRuntimeId, number>();
   #probes = new Map<AgentRuntimeId, ProbeCache>();
   #probing = new Map<AgentRuntimeId, Promise<ProbeCache | undefined>>();
   #models = new Map<
@@ -112,11 +116,8 @@ export class AgentRuntimeService {
   async load(): Promise<void> {
     await this.settings.load();
     await recoverAgentProcesses(path.join(this.#root, "processes"));
-    // Folders left by sessions of a daemon that did not close are of no use to anyone.
-    await rm(path.join(this.#root, "sessions"), {
-      recursive: true,
-      force: true,
-    }).catch(() => {});
+    await recoverAgentDirectories(path.join(this.#root, "sessions"));
+    await recoverAgentDirectories(path.join(this.#root, "probes"));
   }
 
   async statuses(recheck = false): Promise<AgentRuntimeStatus[]> {
@@ -127,9 +128,10 @@ export class AgentRuntimeService {
     id: AgentRuntimeId,
     recheck = false,
   ): Promise<AgentRuntimeStatus> {
+    if (recheck) this.#invalidate(id);
     const definition = AGENT_RUNTIME_DEFINITIONS[id];
     const settings = this.settings.get(id);
-    const binary = await resolveBinary(id, settings.binaryPath);
+    const binary = await resolveBinary(id, settings.binaryPath, recheck);
     const base = {
       id,
       name: definition.name,
@@ -167,9 +169,22 @@ export class AgentRuntimeService {
             ...(probe.auth.account ? { account: probe.auth.account } : {}),
           }
         : { status: "unknown", billing: "unknown" },
-      diagnostics: [...(probe?.diagnostics ?? [
-        { code: "probe-failed", message: `${definition.name} did not answer` },
-      ]), ...(this.#modelErrors.has(id) ? [{ code: "models-unavailable" as const, message: this.#modelErrors.get(id)! }] : [])],
+      diagnostics: [
+        ...(probe?.diagnostics ?? [
+          {
+            code: "probe-failed",
+            message: `${definition.name} did not answer`,
+          },
+        ]),
+        ...(this.#modelErrors.has(id)
+          ? [
+              {
+                code: "models-unavailable" as const,
+                message: this.#modelErrors.get(id)!,
+              },
+            ]
+          : []),
+      ],
       ...(probe ? { checkedAt: new Date(probe.checkedAt).toISOString() } : {}),
     };
   }
@@ -193,14 +208,7 @@ export class AgentRuntimeService {
         ? { binaryPath: request.binaryPath }
         : {}),
     });
-    if (
-      request.binaryPath !== undefined ||
-      request.isolateUserConfig !== undefined
-    ) {
-      this.#probes.delete(id);
-      this.#models.delete(id);
-      this.#modelErrors.delete(id);
-    }
+    this.#invalidate(id);
     return this.status(id, request.binaryPath !== undefined);
   }
 
@@ -212,14 +220,16 @@ export class AgentRuntimeService {
         if (!this.settings.get(id).enabled) return [];
         const load = this.#loadModels(id).catch(() => [] as AgentModel[]);
         const cached = this.#models.get(id);
-        if (cached) return cached.models;
+        if (cached && Date.now() - cached.at < MODELS_TTL_MS)
+          return cached.models;
         const late = Symbol("late");
+        let timer: ReturnType<typeof setTimeout> | undefined;
         const result = await Promise.race([
           load,
-          new Promise<typeof late>((resolve) =>
-            setTimeout(() => resolve(late), MODELS_WAIT_MS),
-          ),
-        ]);
+          new Promise<typeof late>((resolve) => {
+            timer = setTimeout(() => resolve(late), MODELS_WAIT_MS);
+          }),
+        ]).finally(() => clearTimeout(timer));
         if (result !== late) return result;
         loading.push(id);
         return [];
@@ -233,9 +243,7 @@ export class AgentRuntimeService {
     modelId: string,
   ): Promise<AgentModel | undefined> {
     if (!this.settings.get(id).enabled) return undefined;
-    const models =
-      this.#models.get(id)?.models ??
-      (await this.#loadModels(id).catch(() => []));
+    const models = await this.#loadModels(id).catch(() => []);
     return models.find((model) => model.id === modelId);
   }
 
@@ -245,10 +253,8 @@ export class AgentRuntimeService {
     const binary = await resolveBinary(id, this.settings.get(id).binaryPath);
     if (!binary) throw new Error(`${definition.name} is not installed`);
     const env = await this.#environment(id, binary.path);
-    const forget = () => {
-      this.#probes.delete(id);
-      this.#models.delete(id);
-    };
+    await mkdir(this.#root, { recursive: true, mode: 0o700 });
+    const forget = () => this.#invalidate(id);
     if (id === "codex-cli") {
       const server = new CodexAppServer(binary.path, this.#root, env, {
         notification: (method) => {
@@ -263,15 +269,20 @@ export class AgentRuntimeService {
         this.#logins.delete(server);
         void server.stop();
       }, LOGIN_TIMEOUT_MS).unref();
-      await mkdir(this.#root, { recursive: true });
-      await server.initialize();
-      const started = await server.request<{ authUrl?: unknown }>(
-        "account/login/start",
-        { type: "chatgpt" },
-      );
-      return typeof started.authUrl === "string"
-        ? { url: started.authUrl }
-        : { command: definition.loginCommand };
+      try {
+        await server.initialize();
+        const started = await server.request<{ authUrl?: unknown }>(
+          "account/login/start",
+          { type: "chatgpt" },
+        );
+        return typeof started.authUrl === "string"
+          ? { url: started.authUrl }
+          : { command: definition.loginCommand };
+      } catch (cause) {
+        this.#logins.delete(server);
+        await server.stop();
+        throw cause;
+      }
     }
     if (id === "claude-code-cli") {
       return new Promise((resolve) => {
@@ -375,13 +386,20 @@ export class AgentRuntimeService {
       skillDirectories: request.skillDirectories,
       httpBridge: async (handlers) => {
         const registered = this.#registerBridge(bridge, handlers);
-        const stop = () => { registered.revoke(); revoke.delete(stop); };
+        const stop = () => {
+          registered.revoke();
+          revoke.delete(stop);
+        };
         revoke.add(stop);
-        handlers.signal.addEventListener("abort", () => revoke.delete(stop), { once: true });
+        handlers.signal.addEventListener("abort", () => revoke.delete(stop), {
+          once: true,
+        });
         return { ...registered, revoke: stop };
       },
       model,
-      ...(request.contextWindow ? { contextWindow: request.contextWindow } : {}),
+      ...(request.contextWindow
+        ? { contextWindow: request.contextWindow }
+        : {}),
       ...(reasoningLevel ? { reasoningLevel } : {}),
       ...(resume ? { resume } : {}),
     });
@@ -416,10 +434,10 @@ export class AgentRuntimeService {
       toolNames: bridge.names,
       setActiveTools: (names) => bridge.setActive(names),
       ...(request.skills ? { skills: request.skills } : {}),
-      dispose: () => {
+      dispose: async () => {
         for (const stop of revoke) stop();
-        void pluginTool?.close().catch(() => {});
-        void folder.remove();
+        await pluginTool?.close().catch(() => {});
+        await folder.remove();
       },
     });
   }
@@ -447,7 +465,10 @@ export class AgentRuntimeService {
         message && typeof message === "object"
           ? (message as { method?: unknown }).method
           : undefined;
-      if (method === "tools/call" && (!entry.handlers.active() || entry.handlers.signal.aborted)) {
+      if (
+        method === "tools/call" &&
+        (!entry.handlers.active() || entry.handlers.signal.aborted)
+      ) {
         const id = (message as { id?: unknown }).id;
         answers.push({
           jsonrpc: "2.0",
@@ -459,8 +480,12 @@ export class AgentRuntimeService {
         });
         continue;
       }
-      const answer = await entry.bridge.handle(message, (call, outcome) =>
-        { if (!entry.handlers.signal.aborted && entry.handlers.active()) entry.handlers.observe(call, outcome); },
+      const answer = await entry.bridge.handle(
+        message,
+        (call, outcome) => {
+          if (!entry.handlers.signal.aborted && entry.handlers.active())
+            entry.handlers.observe(call, outcome);
+        },
         entry.handlers.signal,
       );
       if (answer) answers.push(answer);
@@ -484,7 +509,10 @@ export class AgentRuntimeService {
     if (!base) throw new Error("The daemon address is not known yet");
     const token = randomBytes(32).toString("base64url");
     this.#bridges.set(token, { bridge, handlers });
-    const revoke = () => { this.#bridges.delete(token); handlers.signal.removeEventListener("abort", revoke); };
+    const revoke = () => {
+      this.#bridges.delete(token);
+      handlers.signal.removeEventListener("abort", revoke);
+    };
     if (handlers.signal.aborted) revoke();
     else handlers.signal.addEventListener("abort", revoke, { once: true });
     return {
@@ -507,6 +535,15 @@ export class AgentRuntimeService {
         return entry;
     }
     return undefined;
+  }
+
+  #invalidate(id: AgentRuntimeId): void {
+    this.#revisions.set(id, (this.#revisions.get(id) ?? 0) + 1);
+    this.#probes.delete(id);
+    this.#models.delete(id);
+    this.#modelErrors.delete(id);
+    this.#probing.delete(id);
+    this.#modelLoads.delete(id);
   }
 
   async #environment(
@@ -536,6 +573,7 @@ export class AgentRuntimeService {
       return cached;
     const running = this.#probing.get(id);
     if (running) return running;
+    const revision = this.#revisions.get(id);
     const work = (async () => {
       const definition = AGENT_RUNTIME_DEFINITIONS[id];
       const env = await this.#environment(id, binary.path);
@@ -572,7 +610,6 @@ export class AgentRuntimeService {
             "Codex always loads Skills, plugins and AGENTS.md from its own folder; OhMyGame turns off your Codex MCP servers and notification hook for its runs.",
         });
       }
-      if (recheck) { this.#models.delete(id); this.#modelErrors.delete(id); }
       const result: ProbeCache = {
         signature: binary.signature,
         ...(version ? { version } : {}),
@@ -580,9 +617,11 @@ export class AgentRuntimeService {
         diagnostics,
         checkedAt: Date.now(),
       };
-      this.#probes.set(id, result);
+      if (this.#revisions.get(id) === revision) this.#probes.set(id, result);
       return result;
-    })().finally(() => this.#probing.delete(id));
+    })().finally(() => {
+      if (this.#probing.get(id) === work) this.#probing.delete(id);
+    });
     this.#probing.set(id, work);
     return work;
   }
@@ -590,6 +629,7 @@ export class AgentRuntimeService {
   #loadModels(id: AgentRuntimeId): Promise<AgentModel[]> {
     const running = this.#modelLoads.get(id);
     if (running) return running;
+    const revision = this.#revisions.get(id);
     const work = (async () => {
       const settings = this.settings.get(id);
       const binary = await resolveBinary(id, settings.binaryPath);
@@ -614,24 +654,35 @@ export class AgentRuntimeService {
           folder.path,
           settings.isolateUserConfig,
         );
+        if (this.#revisions.get(id) !== revision) return [];
         this.#models.set(id, {
           signature: binary.signature,
           models,
           at: Date.now(),
         });
         this.#modelErrors.delete(id);
-        if (!models.length) this.#modelErrors.set(id, `${AGENT_RUNTIME_DEFINITIONS[id].name} returned an empty model catalog. Check sign-in and CLI protocol support.`);
+        if (!models.length)
+          this.#modelErrors.set(
+            id,
+            `${AGENT_RUNTIME_DEFINITIONS[id].name} returned an empty model catalog. Check sign-in and CLI protocol support.`,
+          );
         const probe = this.#probes.get(id);
         if (account && probe && !probe.auth.account)
           probe.auth = { ...probe.auth, account };
         return models;
       } catch (cause) {
-        this.#modelErrors.set(id, cause instanceof Error ? cause.message : String(cause));
+        if (this.#revisions.get(id) === revision)
+          this.#modelErrors.set(
+            id,
+            cause instanceof Error ? cause.message : String(cause),
+          );
         throw cause;
       } finally {
         await folder.remove();
       }
-    })().finally(() => this.#modelLoads.delete(id));
+    })().finally(() => {
+      if (this.#modelLoads.get(id) === work) this.#modelLoads.delete(id);
+    });
     this.#modelLoads.set(id, work);
     return work;
   }

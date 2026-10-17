@@ -281,7 +281,7 @@ try {
   );
   await writeFile(path.join(externalFixture, "fixture.txt"), fixtureSecret);
   const asked = await prompt(
-    `Read ${path.join(externalFixture, "fixture.txt")} using your file read tool once. If permission is denied, reply DENIED and stop. Do not retry or use other tools.`,
+    `Read ${path.join(externalFixture, "fixture.txt")}. Request approval for this exact file first using request_permissions if that tool is available; otherwise use your file read tool once. Do not request unrestricted escalation. If permission is denied, reply DENIED and stop. Do not retry.`,
   );
   checkBoundary(
     !asked.items.some(

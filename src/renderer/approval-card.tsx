@@ -44,7 +44,13 @@ export function ApprovalCard({
     if (answering.current) return;
     answering.current = true;
     setSubmitting(true);
-    if (!(await onDecide(decision))) {
+    let answered = false;
+    try {
+      answered = await onDecide(decision);
+    } catch {
+      /* The parent displays the request error. */
+    }
+    if (!answered) {
       answering.current = false;
       setSubmitting(false);
     }
@@ -74,7 +80,22 @@ export function ApprovalCard({
       {details.reason ? (
         <p className="approval-card-reason">{details.reason}</p>
       ) : null}
-      {details.paths?.length ? <ul>{details.paths.map((entry, index) => <li key={`${entry.path}:${index}`}><span>{t(entry.access === "read" ? "approval.readAccess" : "approval.writeAccess")}</span> <code>{entry.path}</code></li>)}</ul> : null}
+      {details.paths?.length ? (
+        <ul>
+          {details.paths.map((entry, index) => (
+            <li key={`${entry.path}:${index}`}>
+              <span>
+                {t(
+                  entry.access === "read"
+                    ? "approval.readAccess"
+                    : "approval.writeAccess",
+                )}
+              </span>{" "}
+              <code>{entry.path}</code>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {details.network ? <p>{t("approval.networkAccess")}</p> : null}
       <footer>
         <button
@@ -115,6 +136,10 @@ export function approvalOutcomeLabel(
   const subject =
     item.request.command ??
     item.request.path ??
+    (item.request.paths?.length
+      ? item.request.paths.map((entry) => entry.path).join(", ")
+      : undefined) ??
+    (item.request.network ? t("approval.networkAccess") : undefined) ??
     item.request.title ??
     item.request.tool;
   if (item.status === "completed" && item.decision === "allow")

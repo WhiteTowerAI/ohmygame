@@ -52,6 +52,12 @@ async function fixture(nestedWorkspace = false) {
     response.setHeader("content-type", "application/json");
     if (request.url === "/path")
       return response.end(JSON.stringify({ worktree: root }));
+    if (request.url === "/session/child-1")
+      return response.end(
+        JSON.stringify({ id: "child-1", parentID: "session-1" }),
+      );
+    if (request.url === "/session/unrelated")
+      return response.end(JSON.stringify({ id: "unrelated" }));
     if (request.url?.startsWith("/permission/")) {
       replies.push(body);
       response.end("{}");
@@ -197,6 +203,35 @@ it("resolves native read patterns from the Git root rather than a nested app wor
     expect.objectContaining({ path: path.join(f.root, "outside.txt") }),
   ]);
   expect(f.replies).toEqual([{ reply: "reject" }]);
+  f.emit("session.idle");
+  await run;
+});
+
+it("mediates child-session approvals without admitting unrelated native sessions", async () => {
+  const f = await fixture(true);
+  const run = f.session.prompt("task reading reference");
+  await expect.poll(f.prompts).toBe(1);
+  f.emit("permission.asked", {
+    sessionID: "child-1",
+    id: "child-read",
+    permission: "read",
+    patterns: ["reference.txt"],
+    metadata: {},
+  });
+  await expect.poll(() => f.replies.length).toBe(1);
+  expect(f.asked).toEqual([
+    expect.objectContaining({ path: path.join(f.root, "reference.txt") }),
+  ]);
+  f.emit("permission.asked", {
+    sessionID: "unrelated",
+    id: "foreign-read",
+    permission: "read",
+    patterns: ["reference.txt"],
+    metadata: {},
+  });
+  await expect.poll(() => f.replies.length).toBe(2);
+  expect(f.asked).toHaveLength(1);
+  expect(f.replies).toEqual([{ reply: "reject" }, { reply: "reject" }]);
   f.emit("session.idle");
   await run;
 });

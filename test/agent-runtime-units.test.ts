@@ -6,9 +6,14 @@ import { describe, expect, it } from "vitest";
 import { agentEnvironment } from "../src/daemon/agent-runtimes/environment.js";
 import {
   parseVersion,
+  compareVersions,
   versionAtLeast,
 } from "../src/daemon/agent-runtimes/definitions.js";
-import { parseOpenCodeModels } from "../src/daemon/agent-runtimes/discovery.js";
+import {
+  parseOpenCodeModels,
+  resolveBinary,
+} from "../src/daemon/agent-runtimes/discovery.js";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { handoffSummary } from "../src/daemon/agent-runtimes/handoff.js";
 import {
   judgeApproval,
@@ -474,6 +479,76 @@ describe("coding agent tool names", () => {
 });
 
 describe("coding agent discovery", () => {
+  it("uses the newest of several installations, unless one was chosen", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-binaries-"));
+    const install = async (folder: string, version: string) => {
+      await mkdir(path.join(root, folder));
+      const file = path.join(root, folder, "opencode");
+      await writeFile(file, `#!/bin/sh\necho ${version}\n`);
+      await chmod(file, 0o755);
+      return file;
+    };
+    // Versions far above any real install, so whatever this computer has does not win.
+    const older = await install("old", "98.0.0");
+    const newer = await install("new", "99.1.0");
+    const previous = process.env.PATH;
+    process.env.PATH = [
+      path.dirname(older),
+      path.dirname(newer),
+      previous,
+    ].join(path.delimiter);
+    try {
+      expect((await resolveBinary("opencode-cli"))?.path).toBe(newer);
+      expect((await resolveBinary("opencode-cli", older))?.path).toBe(older);
+    } finally {
+      process.env.PATH = previous;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("orders prereleases by SemVer and retries failed probes without changing the executable", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-versions-"));
+    const install = async (name: string, body: string) => {
+      const directory = path.join(root, name);
+      await mkdir(directory);
+      const binary = path.join(directory, "opencode");
+      await writeFile(binary, `#!/bin/sh\n${body}\n`, { mode: 0o700 });
+      return binary;
+    };
+    const stable = await install("stable", "echo 99.1.0");
+    const prerelease = await install("prerelease", "echo 99.1.0-alpha.10");
+    const flag = path.join(root, "ready");
+    const transient = await install(
+      "transient",
+      `if [ -f '${flag}' ]; then echo 100.0.0; else exit 1; fi`,
+    );
+    const previous = process.env.PATH;
+    process.env.PATH = [stable, prerelease, transient]
+      .map(path.dirname)
+      .concat(previous ?? "")
+      .join(path.delimiter);
+    try {
+      expect((await resolveBinary("opencode-cli"))?.path).toBe(stable);
+      await writeFile(flag, "ready");
+      expect((await resolveBinary("opencode-cli"))?.path).toBe(transient);
+      await rm(flag);
+      expect((await resolveBinary("opencode-cli", undefined, true))?.path).toBe(
+        stable,
+      );
+      expect(
+        compareVersions("99.1.0-alpha.10", "99.1.0-alpha.2"),
+      ).toBeGreaterThan(0);
+      expect(compareVersions("99.1.0+build.2", "99.1.0+build.1")).toBe(0);
+      expect(
+        compareVersions("99.1.0-alpha-2", "99.1.0-alpha-1"),
+      ).toBeGreaterThan(0);
+    } finally {
+      if (previous === undefined) delete process.env.PATH;
+      else process.env.PATH = previous;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("reads versions the way each CLI prints them", () => {
     expect(parseVersion("2.1.301 (Claude Code)")).toBe("2.1.301");
     expect(parseVersion("codex-cli 0.147.0")).toBe("0.147.0");

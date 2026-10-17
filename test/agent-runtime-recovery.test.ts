@@ -5,6 +5,7 @@ import {
   symlink,
   writeFile,
   readdir,
+  readFile,
 } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -21,6 +22,8 @@ import {
   processIdentity,
   recoverAgentProcesses,
   trackAgentProcess,
+  leaseAgentDirectory,
+  recoverAgentDirectories,
 } from "../src/daemon/agent-runtimes/process-recovery.js";
 import { terminateProjectProcess } from "../src/daemon/process-lifecycle.js";
 
@@ -45,6 +48,17 @@ it("resolves workspace symlinks, including missing descendants, before protectin
     process.platform === "win32" ? "junction" : "dir",
   );
   const policy = { workspacePath: workspace, neverTouch: [secrets] };
+  expect(
+    judgeApproval(
+      {
+        kind: "file",
+        tool: "permissions",
+        path: path.parse(workspace).root,
+        canAllowSession: false,
+      },
+      policy,
+    ),
+  ).toBe("deny");
   expect(
     canonicalPath(path.join(workspace, "linked", "new", "auth.json")),
   ).toBe(path.join(canonicalPath(secrets), "new", "auth.json"));
@@ -112,16 +126,42 @@ it("keeps runtimes opt-in and persists native defaults independently of Pi", asy
   await store.load();
   expect(store.get("codex-cli").enabled).toBe(false);
   await store.update("codex-cli", { enabled: true });
-  await store.setDefaults({
+  await store.setDefaultModel({
     model: { provider: "codex-cli", id: "test" },
     nativeReasoningLevel: "custom-effort",
   });
   const restarted = new AgentRuntimeSettingsStore(root);
   await restarted.load();
-  expect(restarted.defaults()?.nativeReasoningLevel).toBe("custom-effort");
+  expect(restarted.defaultModel()?.nativeReasoningLevel).toBe("custom-effort");
   expect(restarted.get("codex-cli").enabled).toBe(true);
   expect(restarted.get("opencode-cli").enabled).toBe(false);
 });
+it("migrates both early native default schemas to one persisted field", async () => {
+  const root = await folder();
+  const file = path.join(root, "agent-runtimes.json");
+  for (const [field, level] of [
+    ["defaultModel", { reasoningLevel: "high" }],
+    ["defaults", { nativeReasoningLevel: "custom-effort" }],
+  ] as const) {
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        [field]: { model: { provider: "codex-cli", id: "test" }, ...level },
+      }),
+    );
+    const store = new AgentRuntimeSettingsStore(root);
+    await store.load();
+    expect(store.defaultModel()?.nativeReasoningLevel).toBe(
+      field === "defaultModel" ? "high" : "custom-effort",
+    );
+    await store.update("codex-cli", { enabled: true });
+    const stored = JSON.parse(await readFile(file, "utf8"));
+    expect(stored.defaultModel).toEqual(store.defaultModel());
+    expect(stored).not.toHaveProperty("defaults");
+  }
+});
+
 it("reclaims a verified orphan, preserving a live daemon and unrelated PID identities", async () => {
   const root = await folder();
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
@@ -163,4 +203,19 @@ it("reclaims a verified orphan, preserving a live daemon and unrelated PID ident
   await recoverAgentProcesses(root);
   await closed;
   expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+});
+
+it("preserves a live daemon's private folders while reclaiming verified orphan folders", async () => {
+  const root = await folder();
+  const live = path.join(root, "live"),
+    orphan = path.join(root, "orphan"),
+    unknown = path.join(root, "legacy");
+  for (const directory of [live, orphan, unknown]) await mkdir(directory);
+  await leaseAgentDirectory(live);
+  await writeFile(
+    path.join(orphan, ".owner.json"),
+    JSON.stringify({ version: 1, pid: 2147483647, identity: "gone" }),
+  );
+  await recoverAgentDirectories(root);
+  expect((await readdir(root)).sort()).toEqual(["legacy", "live"]);
 });

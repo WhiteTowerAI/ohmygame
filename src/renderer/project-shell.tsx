@@ -56,7 +56,6 @@ import {
   steerPendingPrompt,
   setConversationModel,
   setConversationReasoning,
-  setConversationNativeReasoning,
   startPreview,
   subscribeToProject,
   undoCheckpoint,
@@ -724,7 +723,7 @@ export function ProjectShell({
     if (!project || !conversation || !displayedModel || agentBusy || modelChanging) return;
     setModelChanging(true);
     try {
-      const nativeReasoningLevel = await setConversationNativeReasoning(project.id, conversation.id, level);
+      const nativeReasoningLevel = await setConversationReasoning(project.id, conversation.id, level);
       dispatch({ type: "conversation-settings", settings: { model: displayedModel, nativeReasoningLevel } });
     } catch (error) { dispatch({ type: "notice", message: errorMessage(error) }); }
     finally { setModelChanging(false); }

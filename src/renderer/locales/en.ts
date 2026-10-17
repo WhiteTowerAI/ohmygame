@@ -1217,7 +1217,7 @@ const en = {
     ownConfigHint: "{{name}} also loads your own settings, hooks, MCP servers and instructions, as it does in your terminal.",
     partialIsolation: "{{name}} always loads Skills, plugins and AGENTS.md from its own folder. OhMyGame turns off your MCP servers and notification hook for its runs.",
     permissions: "OhMyGame evaluates the permission requests exposed by the CLI. Workspace edits and routine read commands can run automatically; other requests may need approval. These controls do not provide an operating-system sandbox for every tool.",
-    codexReadBoundary: "Codex's current sandbox allows reads outside the project. Reads that do not trigger a native approval cannot be blocked by OhMyGame's protected-path policy. Enable Codex only for work that can use your CLI's existing read access.",
+    codexReadBoundary: "Codex must support named filesystem permission profiles. Commands are limited to the project and runtime files; additional paths need approval. Protected paths and unrestricted sandbox escapes are denied.",
     executable: "Executable",
     executablePlaceholder: "Found automatically",
     executableHint: "Leave empty to use the one found on PATH. Set a full path to use another installation.",

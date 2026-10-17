@@ -16,6 +16,11 @@ export interface AgentRuntimeDefinition {
   tier: AgentRuntimeTier;
   /** Executable names to look for, in order. */
   binaries: readonly string[];
+  /**
+   * Copies other apps install outside PATH, such as the Codex that ships in the
+   * ChatGPT app. `~` is the home folder.
+   */
+  bundledPaths?: Partial<Record<NodeJS.Platform, readonly string[]>>;
   versionArgs: readonly string[];
   /** The oldest version whose protocol the adapter speaks. */
   minimumVersion: string;
@@ -43,8 +48,14 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     name: "Codex",
     tier: "full",
     binaries: ["codex"],
+    bundledPaths: {
+      darwin: [
+        "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+        "~/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+      ],
+    },
     versionArgs: ["--version"],
-    minimumVersion: "0.140.0",
+    minimumVersion: "0.163.0-alpha.10.2",
     loginCommand: "codex login",
     installUrl: "https://developers.openai.com/codex/cli",
   },
@@ -62,19 +73,48 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
 
 /** The first dotted version number a CLI prints, such as `2.1.301` from `2.1.301 (Claude Code)`. */
 export function parseVersion(output: string): string | undefined {
-  return output.match(/\d+\.\d+\.\d+(?:[-.][0-9A-Za-z.]+)?/)?.[0];
+  return output.match(
+    /\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/,
+  )?.[0];
+}
+
+/** SemVer precedence: a release outranks its prereleases; build metadata is ignored. */
+export function compareVersions(a: string, b: string): number {
+  const parts = (value: string) => {
+    const [core, ...prereleaseParts] = value.split("+", 1)[0]!.split("-");
+    const prerelease = prereleaseParts.join("-") || undefined;
+    return {
+      core: core!.split(".").map(BigInt),
+      prerelease: prerelease?.split("."),
+    };
+  };
+  const left = parts(a),
+    right = parts(b);
+  for (let i = 0; i < 3; i++) {
+    const x = left.core[i] ?? 0n,
+      y = right.core[i] ?? 0n;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  if (!left.prerelease || !right.prerelease)
+    return left.prerelease ? -1 : right.prerelease ? 1 : 0;
+  for (
+    let i = 0;
+    i < Math.max(left.prerelease.length, right.prerelease.length);
+    i++
+  ) {
+    const x = left.prerelease[i],
+      y = right.prerelease[i];
+    if (x === y) continue;
+    if (x === undefined || y === undefined) return x === undefined ? -1 : 1;
+    const nx = /^\d+$/.test(x),
+      ny = /^\d+$/.test(y);
+    if (nx && ny) return BigInt(x) > BigInt(y) ? 1 : -1;
+    if (nx !== ny) return nx ? -1 : 1;
+    return x > y ? 1 : -1;
+  }
+  return 0;
 }
 
 export function versionAtLeast(version: string, minimum: string): boolean {
-  const parts = (value: string) =>
-    value
-      .split(/[.-]/)
-      .slice(0, 3)
-      .map((part) => Number.parseInt(part, 10) || 0);
-  const [a, b] = [parts(version), parts(minimum)];
-  for (let index = 0; index < 3; index++) {
-    if ((a[index] ?? 0) !== (b[index] ?? 0))
-      return (a[index] ?? 0) > (b[index] ?? 0);
-  }
-  return true;
+  return compareVersions(version, minimum) >= 0;
 }

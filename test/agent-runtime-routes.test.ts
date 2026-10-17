@@ -71,30 +71,90 @@ async function start(source = FAKE_CLAUDE) {
 
 describe("coding agent routes", () => {
   it("accepts models returned by Claude initialize without requesting list_models", async () => {
-    const { call, claude } = await start(FAKE_CLAUDE.replace('=== "list_models"', '=== "initialize"'));
-    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    const { call, claude } = await start(
+      FAKE_CLAUDE.replace('=== "list_models"', '=== "initialize"'),
+    );
+    await call("PATCH", "/agent-runtimes/claude-code-cli", {
+      binaryPath: claude,
+      enabled: true,
+    });
     const catalog = await call<AgentModelCatalog>("GET", "/models?runtimes=1");
-    expect(catalog.body.models.filter((model) => model.runtime).map((model) => model.id)).toEqual(["sonnet", "haiku"]);
+    expect(
+      catalog.body.models
+        .filter((model) => model.runtime)
+        .map((model) => model.id),
+    ).toEqual(["sonnet", "haiku"]);
   });
 
   it("keeps arbitrary native efforts and defaults out of Pi settings and unrelated models", async () => {
-    const { call, claude } = await start(FAKE_CLAUDE.replace('["low", "high"]', '["low", "high", "balanced-custom"]'));
-    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
-    expect((await call("PUT", "/models/default", { model: { provider: "claude-code-cli", id: "sonnet" }, reasoningLevel: "off", nativeReasoningLevel: "balanced-custom" })).status).toBe(204);
+    const { call, claude } = await start(
+      FAKE_CLAUDE.replace(
+        '["low", "high"]',
+        '["low", "high", "balanced-custom"]',
+      ),
+    );
+    await call("PATCH", "/agent-runtimes/claude-code-cli", {
+      binaryPath: claude,
+      enabled: true,
+    });
+    expect(
+      (
+        await call("PUT", "/models/default", {
+          model: { provider: "claude-code-cli", id: "sonnet" },
+          reasoningLevel: "off",
+          nativeReasoningLevel: "balanced-custom",
+        })
+      ).status,
+    ).toBe(204);
     const catalog = await call<AgentModelCatalog>("GET", "/models?runtimes=1");
     expect(catalog.body.defaultNativeReasoningLevel).toBe("balanced-custom");
     const plain = await call<AgentModelCatalog>("GET", "/models");
     expect(plain.body.defaultModel?.provider).not.toBe("claude-code-cli");
-    const project = await call<{ id: string }>("POST", "/projects", { name: "Native defaults", type: "general" });
-    const created = await call<{ id: string }>("POST", `/projects/${project.body.id}/conversations`, {});
+    const project = await call<{ id: string }>("POST", "/projects", {
+      name: "Native defaults",
+      type: "general",
+    });
+    const created = await call<{ id: string }>(
+      "POST",
+      `/projects/${project.body.id}/conversations`,
+      {},
+    );
     const base = `/projects/${project.body.id}/conversations/${created.body.id}`;
-    expect((await call<{ settings: unknown }>("GET", base)).body.settings).toEqual({ model: { provider: "claude-code-cli", id: "sonnet" }, nativeReasoningLevel: "balanced-custom" });
-    expect((await call("PUT", base + "/native-reasoning", { level: "high" })).status).toBe(200);
-    expect((await call("PUT", base + "/native-reasoning", { level: "not-supported" })).status).toBe(400);
-    expect((await call("POST", `/projects/${project.body.id}/conversations`, { model: { provider: "claude-code-cli", id: "haiku" } })).status).toBe(201);
+    expect(
+      (await call<{ settings: unknown }>("GET", base)).body.settings,
+    ).toEqual({
+      model: { provider: "claude-code-cli", id: "sonnet" },
+      nativeReasoningLevel: "balanced-custom",
+    });
+    expect(
+      (await call("PUT", base + "/reasoning", { level: "balanced-custom" }))
+        .status,
+    ).toBe(200);
+    expect(
+      (await call("PUT", base + "/reasoning", { level: "not-supported" }))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await call("POST", `/projects/${project.body.id}/conversations`, {
+          model: { provider: "claude-code-cli", id: "haiku" },
+        })
+      ).status,
+    ).toBe(201);
     await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
-    const fallback = await call<{ id: string }>("POST", `/projects/${project.body.id}/conversations`, {});
-    expect((await call<{ settings: { model?: { provider: string } } }>("GET", `/projects/${project.body.id}/conversations/${fallback.body.id}`)).body.settings.model?.provider).not.toBe("claude-code-cli");
+    const fallback = await call<{ id: string }>(
+      "POST",
+      `/projects/${project.body.id}/conversations`,
+      {},
+    );
+    expect(
+      (
+        await call<{ settings: { model?: { provider: string } } }>(
+          "GET",
+          `/projects/${project.body.id}/conversations/${fallback.body.id}`,
+        )
+      ).body.settings.model?.provider,
+    ).not.toBe("claude-code-cli");
   });
 
   it("reports each agent's installation, sign-in and billing, and keeps the person's choices", async () => {
@@ -254,6 +314,81 @@ describe("coding agent routes", () => {
         )
       ).status,
     ).toBe(409);
+  });
+
+  it("lets a coding agent's model be the default for new conversations, without changing Pi's default", async () => {
+    const { call, claude } = await start();
+    await call("PATCH", "/agent-runtimes/claude-code-cli", {
+      binaryPath: claude,
+      enabled: true,
+    });
+    expect(
+      (
+        await call("PUT", "/models/default", {
+          model: { provider: "claude-code-cli", id: "missing" },
+          reasoningLevel: "high",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("PUT", "/models/default", {
+          model: { provider: "claude-code-cli", id: "sonnet" },
+          reasoningLevel: "max",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("PUT", "/models/default", {
+          model: { provider: "claude-code-cli", id: "sonnet" },
+          reasoningLevel: "high",
+        })
+      ).status,
+    ).toBe(204);
+    const catalog = await call<AgentModelCatalog>("GET", "/models?runtimes=1");
+    expect(catalog.body).toMatchObject({
+      defaultModel: { provider: "claude-code-cli", id: "sonnet" },
+      defaultNativeReasoningLevel: "high",
+    });
+    // Canvas text and other one-off generation keep Pi's default.
+    expect(
+      (await call<AgentModelCatalog>("GET", "/models")).body.defaultModel,
+    ).toBeUndefined();
+
+    const project = await call<{ id: string }>("POST", "/projects", {
+      name: "Game",
+      type: "general",
+    });
+    const conversation = await call<{ id: string }>(
+      "POST",
+      `/projects/${project.body.id}/conversations`,
+      {},
+    );
+    const detail = await call<{ settings: unknown }>(
+      "GET",
+      `/projects/${project.body.id}/conversations/${conversation.body.id}`,
+    );
+    expect(detail.body.settings).toEqual({
+      model: { provider: "claude-code-cli", id: "sonnet" },
+      nativeReasoningLevel: "high",
+    });
+
+    // Turned off, the agent no longer starts new conversations.
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
+    const later = await call<{ id: string }>(
+      "POST",
+      `/projects/${project.body.id}/conversations`,
+      {},
+    );
+    expect(
+      (
+        await call<{ settings: unknown }>(
+          "GET",
+          `/projects/${project.body.id}/conversations/${later.body.id}`,
+        )
+      ).body.settings,
+    ).toEqual({});
   });
 
   it("answers the tool bridge only with a session's own token, never the app's", async () => {

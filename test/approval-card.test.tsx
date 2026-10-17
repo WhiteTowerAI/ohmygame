@@ -65,7 +65,27 @@ it("shows what the agent wants to run and sends one answer", async () => {
 });
 
 it("shows every read/write root and network scope before a permission grant", async () => {
-  await act(async () => root.render(<ApprovalCard request={{ ...request, request: { kind: "other", tool: "permissions", paths: [{ path: "/reference", access: "read" }, { path: "/export", access: "write" }], network: true, canAllowSession: false } }} waiting={0} onDecide={async () => true} />));
+  await act(async () =>
+    root.render(
+      <ApprovalCard
+        request={{
+          ...request,
+          request: {
+            kind: "other",
+            tool: "permissions",
+            paths: [
+              { path: "/reference", access: "read" },
+              { path: "/export", access: "write" },
+            ],
+            network: true,
+            canAllowSession: false,
+          },
+        }}
+        waiting={0}
+        onDecide={async () => true}
+      />,
+    ),
+  );
   expect(container.textContent).toContain("/reference");
   expect(container.textContent).toContain("/export");
   expect(container.querySelectorAll("li")).toHaveLength(2);
@@ -125,4 +145,36 @@ it("keeps waiting requests out of the timeline and shows answered ones as work",
     items: [user, { ...request, status: "completed", decision: "allow" }],
   });
   expect(JSON.stringify(answered)).toContain("approvalRequest");
+});
+
+it("keeps a failed approval request answerable and identifies granted paths in history", async () => {
+  const decide = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValue(true);
+  await act(async () =>
+    root.render(
+      <ApprovalCard request={request} waiting={0} onDecide={decide} />,
+    ),
+  );
+  const allow = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Allow",
+  )!;
+  await act(async () => allow.click());
+  expect(allow.disabled).toBe(false);
+  await act(async () => allow.click());
+  expect(decide).toHaveBeenCalledTimes(2);
+  expect(
+    approvalOutcomeLabel({
+      ...request,
+      request: {
+        kind: "other",
+        tool: "permissions",
+        paths: [{ path: "/reference", access: "read" }],
+        canAllowSession: false,
+      },
+      status: "completed",
+      decision: "allow",
+    }),
+  ).toContain("/reference");
 });

@@ -33,8 +33,7 @@ interface PendingTurn {
 
 /**
  * Claude Code over its stream-json protocol, with one long-lived process per
- * session. Messages go in on stdin, which stays open, so follow-ups and
- * mid-turn messages reach the running session. OhMyGame's tools are an
+ * session. Messages go in on stdin, which stays open for later turns. OhMyGame's tools are an
  * in-process MCP server answered over the same pipe, and permission requests
  * come back on it too: no port, no token, no file in the workspace.
  */
@@ -68,10 +67,17 @@ export class ClaudeCodeDriver implements NativeDriver {
   ): Promise<NativeTurnOutcome> {
     if (signal.aborted) return { status: "aborted" };
     let child: AgentProcess;
-    try { child = await this.#start(input.readOnly); }
-    catch (cause) {
+    try {
+      child = await this.#start(input.readOnly);
+    } catch (cause) {
       if (signal.aborted) return { status: "aborted" };
-      if (this.context.resume && /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(String(cause))) throw new NativeSessionExpiredError(String(cause));
+      if (
+        this.context.resume &&
+        /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(
+          String(cause),
+        )
+      )
+        throw new NativeSessionExpiredError(String(cause));
       throw cause;
     }
     if (signal.aborted) return { status: "aborted" };
@@ -96,7 +102,14 @@ export class ClaudeCodeDriver implements NativeDriver {
         });
       }
     });
-    if (outcome.status === "failed" && this.context.resume && /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(outcome.error)) throw new NativeSessionExpiredError(outcome.error);
+    if (
+      outcome.status === "failed" &&
+      this.context.resume &&
+      /no (?:conversation|session) found|session (?:id )?.*(?:not found|does not exist)/i.test(
+        outcome.error,
+      )
+    )
+      throw new NativeSessionExpiredError(outcome.error);
     return outcome;
   }
 
@@ -204,8 +217,7 @@ export class ClaudeCodeDriver implements NativeDriver {
       "--append-system-prompt",
       context.instructions,
     ];
-    if (context.reasoningLevel && CLAUDE_EFFORTS.has(context.reasoningLevel))
-      args.push("--effort", context.reasoningLevel);
+    if (context.reasoningLevel) args.push("--effort", context.reasoningLevel);
     if (context.isolateUserConfig)
       args.push("--setting-sources", "", "--strict-mcp-config");
     if (context.skillDirectories.length) {
@@ -490,14 +502,15 @@ export class ClaudeCodeDriver implements NativeDriver {
     try {
       response = await this.#control_response(request);
     } catch (cause) {
-      this.#process?.write({
-        type: "control_response",
-        response: {
-          subtype: "error",
-          request_id: requestId,
-          error: cause instanceof Error ? cause.message : String(cause),
-        },
-      });
+      if (this.#process?.running)
+        this.#process.write({
+          type: "control_response",
+          response: {
+            subtype: "error",
+            request_id: requestId,
+            error: cause instanceof Error ? cause.message : String(cause),
+          },
+        });
       return;
     }
     if (this.#process?.running)
@@ -511,20 +524,48 @@ export class ClaudeCodeDriver implements NativeDriver {
     request: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
     if (request.subtype === "hook_callback") {
-      if (request.callback_id !== "ohmygame-policy") throw new Error("Unknown hook callback");
+      if (request.callback_id !== "ohmygame-policy")
+        throw new Error("Unknown hook callback");
       const input = record(request.input) ?? {};
       const turn = this.#turn;
       let decision: "allow" | "allow-session" | "deny" = "deny";
       const tool = String(input.tool_name ?? "");
       const args = record(input.tool_input) ?? {};
-      const callId = typeof request.tool_use_id === "string" ? request.tool_use_id : undefined;
+      const callId =
+        typeof request.tool_use_id === "string"
+          ? request.tool_use_id
+          : undefined;
       if (turn && !turn.signal.aborted) {
-        if (turn.readOnly && !["Read", "Glob", "Grep", "LS", "ToolSearch"].includes(tool) && !tool.startsWith(`mcp__${BRIDGE_SERVER_NAME}__`)) decision = "deny";
-        else if (tool.startsWith(`mcp__${BRIDGE_SERVER_NAME}__`) || tool === "ToolSearch") decision = "allow";
-        else decision = await decideApproval(claudeApproval(tool, args, input, this.context.workspacePath), this.context, turn.sink, { ...(callId ? { callId } : {}), signal: turn.signal });
+        if (
+          turn.readOnly &&
+          !["Read", "Glob", "Grep", "LS", "ToolSearch"].includes(tool) &&
+          !tool.startsWith(`mcp__${BRIDGE_SERVER_NAME}__`)
+        )
+          decision = "deny";
+        else if (
+          tool.startsWith(`mcp__${BRIDGE_SERVER_NAME}__`) ||
+          tool === "ToolSearch"
+        )
+          decision = "allow";
+        else
+          decision = await decideApproval(
+            claudeApproval(tool, args, input, this.context.workspacePath),
+            this.context,
+            turn.sink,
+            { ...(callId ? { callId } : {}), signal: turn.signal },
+          );
       }
       if (callId) this.#hookDecisions.set(callId, decision);
-      return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision === "deny" ? "deny" : "allow", permissionDecisionReason: decision === "deny" ? "OhMyGame denied this operation" : "Approved by OhMyGame" } };
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: decision === "deny" ? "deny" : "allow",
+          permissionDecisionReason:
+            decision === "deny"
+              ? "OhMyGame denied this operation"
+              : "Approved by OhMyGame",
+        },
+      };
     }
     if (request.subtype === "mcp_message") {
       const turn = this.#turn;
@@ -538,23 +579,34 @@ export class ClaudeCodeDriver implements NativeDriver {
     }
     if (request.subtype === "can_use_tool") {
       const input = record(request.input) ?? {};
+      const turn = this.#turn;
+      if (!turn || turn.signal.aborted)
+        return { behavior: "deny", message: "No turn is running" };
       const mcp = record(request.mcp_server);
       // OhMyGame's own tools need no permission; the daemon runs them.
       if (mcp?.name === BRIDGE_SERVER_NAME)
         return { behavior: "allow", updatedInput: input };
-      const turn = this.#turn;
-      if (!turn) return { behavior: "deny", message: "No turn is running" };
       const toolName = String(request.tool_name ?? "tool");
-      const toolId = typeof request.tool_use_id === "string" ? request.tool_use_id : undefined;
+      const toolId =
+        typeof request.tool_use_id === "string"
+          ? request.tool_use_id
+          : undefined;
       const previous = toolId ? this.#hookDecisions.get(toolId) : undefined;
       if (toolId) this.#hookDecisions.delete(toolId);
-      const details = claudeApproval(toolName, input, request, this.context.workspacePath);
-      const decision = previous ?? await decideApproval(details, this.context, turn.sink, {
-        ...(typeof request.tool_use_id === "string"
-          ? { callId: request.tool_use_id }
-          : {}),
-        signal: turn.signal,
-      });
+      const details = claudeApproval(
+        toolName,
+        input,
+        request,
+        this.context.workspacePath,
+      );
+      const decision =
+        previous ??
+        (await decideApproval(details, this.context, turn.sink, {
+          ...(typeof request.tool_use_id === "string"
+            ? { callId: request.tool_use_id }
+            : {}),
+          signal: turn.signal,
+        }));
       return decision === "deny"
         ? { behavior: "deny", message: "The user did not allow this." }
         : { behavior: "allow", updatedInput: input };
@@ -589,7 +641,6 @@ export class ClaudeCodeDriver implements NativeDriver {
   }
 }
 
-const CLAUDE_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 /** Claude Code's own bookkeeping, such as loading the schemas of deferred tools, which is not work to show. */
 const HIDDEN_TOOLS = new Set(["ToolSearch"]);
 
@@ -639,7 +690,11 @@ function claudeApproval(
         ? input.notebook_path
         : typeof request.blocked_path === "string"
           ? request.blocked_path
-          : typeof input.path === "string" ? input.path : ["Glob", "Grep", "LS"].includes(tool) ? workspace : undefined;
+          : typeof input.path === "string"
+            ? input.path
+            : ["Glob", "Grep", "LS"].includes(tool)
+              ? workspace
+              : undefined;
   const command = typeof input.command === "string" ? input.command : undefined;
   const kind =
     command !== undefined

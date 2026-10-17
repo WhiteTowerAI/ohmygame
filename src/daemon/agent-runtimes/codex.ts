@@ -1,8 +1,7 @@
 import path from "node:path";
-import type {
-  ApprovalDecision,
-  ApprovalRequestDetails,
-} from "../../shared/agent-runtimes.js";
+import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import type { ApprovalRequestDetails } from "../../shared/agent-runtimes.js";
 import type {
   NativeDriver,
   NativeToolResult,
@@ -18,7 +17,7 @@ import {
 } from "./driver-context.js";
 import { stageSkills } from "./skills.js";
 import { NativeSessionExpiredError } from "./native-session.js";
-import { judgeApproval } from "./policy.js";
+import { canonicalPath, judgeApproval } from "./policy.js";
 import type { AgentContextUsage } from "../../shared/contracts.js";
 
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -178,6 +177,7 @@ interface CodexTurn {
   resolve: (outcome: NativeTurnOutcome) => void;
   turnId?: string;
   error?: string;
+  readOnly?: boolean;
 }
 
 /**
@@ -188,6 +188,8 @@ interface CodexTurn {
  */
 export class CodexDriver implements NativeDriver {
   #disposed = false;
+  readonly #writeProfile = `ohmygame-${randomUUID()}`;
+  readonly #readProfile = `${this.#writeProfile}-read`;
   #limits: NonNullable<AgentContextUsage["limits"]> = [];
   #server?: CodexAppServer;
   #starting?: Promise<CodexAppServer>;
@@ -222,20 +224,22 @@ export class CodexDriver implements NativeDriver {
       };
     }
     return new Promise<NativeTurnOutcome>((resolve) => {
-      const turn: CodexTurn = { sink, signal, resolve };
+      const turn: CodexTurn = {
+        sink,
+        signal,
+        resolve,
+        readOnly: input.readOnly,
+      };
       this.#turn = turn;
       server
         .request<{ turn?: { id?: string } }>("turn/start", {
           threadId,
           input: codexInput(input),
-          ...(this.context.reasoningLevel &&
-          this.context.reasoningLevel !== "off"
+          ...(this.context.reasoningLevel
             ? { effort: this.context.reasoningLevel }
             : {}),
           model: this.context.model,
-          sandboxPolicy: input.readOnly
-            ? { type: "readOnly", networkAccess: true }
-            : { type: "workspaceWrite", networkAccess: true },
+          permissions: input.readOnly ? this.#readProfile : this.#writeProfile,
         })
         .then(
           (response) => {
@@ -325,7 +329,10 @@ export class CodexDriver implements NativeDriver {
         this.#server = server;
         await server.initialize();
         if (this.#disposed) throw new Error("The agent session was closed");
-        await server.request("account/rateLimits/read", {}, 5_000).then((value) => this.#readLimits(value)).catch(() => {});
+        await server
+          .request("account/rateLimits/read", {}, 5_000)
+          .then((value) => this.#readLimits(value))
+          .catch(() => {});
         if (this.context.skillDirectories.length) {
           const root = path.join(this.context.privateDirectory, "codex-skills");
           if ((await stageSkills(this.context.skillDirectories, root)).length) {
@@ -344,39 +351,54 @@ export class CodexDriver implements NativeDriver {
   async #thread(server: CodexAppServer, sink: NativeTurnSink): Promise<string> {
     const settings = {
       cwd: this.context.workspacePath,
-      approvalPolicy: "on-request",
-      sandbox: "workspace-write",
+      // Never approve unrestricted sandbox escapes. Scoped permission requests
+      // can still be reviewed without removing the protected-read boundary.
+      approvalPolicy: {
+        granular: {
+          sandbox_approval: false,
+          rules: false,
+          mcp_elicitations: false,
+          request_permissions: true,
+          skill_approval: false,
+        },
+      },
+      permissions: this.#writeProfile,
       model: this.context.model,
       developerInstructions: this.context.instructions,
       config: await this.#config(server),
     };
-    const tools = this.context.bridge
-      .list()
-      .map((tool) => ({
-        type: "function",
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      }));
+    const tools = this.context.bridge.list().map((tool) => ({
+      type: "function",
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    }));
     if (this.#threadId) {
       try {
-        const resumed = await server.request<{ thread?: { id?: string } }>(
-          "thread/resume",
-          { threadId: this.#threadId, ...settings },
-        );
+        const resumed = await server.request<{
+          thread?: { id?: string };
+          activePermissionProfile?: { id?: string };
+        }>("thread/resume", { threadId: this.#threadId, ...settings });
+        this.#requireProfile(resumed);
         const id = resumed.thread?.id ?? this.#threadId;
         this.#threadId = id;
         sink.nativeSession(id);
         return id;
       } catch (cause) {
-        if (/thread (?:not found|.*does not exist)|no rollout found|failed to (?:load|find).*rollout|not found.*thread/i.test(String(cause))) throw new NativeSessionExpiredError(String(cause));
+        if (
+          /thread (?:not found|.*does not exist)|no rollout found|failed to (?:load|find).*rollout|not found.*thread/i.test(
+            String(cause),
+          )
+        )
+          throw new NativeSessionExpiredError(String(cause));
         throw cause;
       }
     }
-    const started = await server.request<{ thread?: { id?: string } }>(
-      "thread/start",
-      { ...settings, dynamicTools: tools },
-    );
+    const started = await server.request<{
+      thread?: { id?: string };
+      activePermissionProfile?: { id?: string };
+    }>("thread/start", { ...settings, dynamicTools: tools });
+    this.#requireProfile(started);
     const id = started.thread?.id;
     if (!id) throw new Error("Codex did not start a thread");
     this.#threadId = id;
@@ -384,10 +406,67 @@ export class CodexDriver implements NativeDriver {
     return id;
   }
 
+  #requireProfile(response: {
+    activePermissionProfile?: { id?: string };
+  }): void {
+    if (response.activePermissionProfile?.id !== this.#writeProfile)
+      throw new Error(
+        "Codex did not activate OhMyGame's filesystem permissions. Update Codex to a version supporting named permission profiles, then check again in Settings.",
+      );
+  }
+
   /** Overrides that keep the person's own Codex MCP servers and notification hook out of OhMyGame's runs. */
   async #config(server: CodexAppServer): Promise<Record<string, unknown>> {
+    // An explicit root deny prevents even scoped grants. Unlisted paths are
+    // restricted by default; only protected roots get an explicit deny.
+    const filesystem: Record<string, unknown> = { ":minimal": "read" };
+    const temporary = path.join(this.context.privateDirectory, "tmp");
+    await mkdir(temporary, { recursive: true, mode: 0o700 });
+    filesystem[canonicalPath(temporary)] = "write";
+    const workspace = canonicalPath(this.context.workspacePath);
+    // Private staged Skills remain readable; the rest of app data stays denied.
+    if (this.context.skillDirectories.length)
+      filesystem[
+        canonicalPath(path.join(this.context.privateDirectory, "codex-skills"))
+      ] = "read";
+    for (const protectedPath of this.context.policy.neverTouch) {
+      const target = canonicalPath(protectedPath);
+      // The app may own the workspace's parent; its narrower workspace grant wins.
+      if (target !== workspace) filesystem[target] = "deny";
+    }
+    const profile = (readOnly: boolean) => ({
+      filesystem: {
+        ...filesystem,
+        ":workspace_roots": {
+          ".": readOnly ? "read" : "write",
+          ".git": "read",
+          ".agents": "read",
+          ".codex": "read",
+          ".aws": "read",
+        },
+      },
+      network: { enabled: true },
+    });
     const config: Record<string, unknown> = {
-      "sandbox_workspace_write.network_access": true,
+      default_permissions: this.#writeProfile,
+      "features.request_permissions_tool": true,
+      "features.shell_snapshot": false,
+      permissions: {
+        [this.#writeProfile]: profile(false),
+        [this.#readProfile]: profile(true),
+      },
+      // A child must not inherit authentication tokens or proxy secrets from the CLI.
+      "shell_environment_policy.inherit": "none",
+      "shell_environment_policy.set": {
+        ...Object.fromEntries(
+          Object.entries(this.context.env).filter(
+            ([name]) => name !== "CLAUDE_CODE_OAUTH_TOKEN",
+          ),
+        ),
+        TMPDIR: temporary,
+        TMP: temporary,
+        TEMP: temporary,
+      },
     };
     if (!this.context.isolateUserConfig) return config;
     config.notify = [];
@@ -400,14 +479,20 @@ export class CodexDriver implements NativeDriver {
       for (const name of Object.keys(servers))
         config[`mcp_servers.${name}.enabled`] = false;
     } catch {
-      throw new Error("Codex configuration could not be checked. Retry, or explicitly enable your own CLI configuration in Settings.");
+      throw new Error(
+        "Codex configuration could not be checked. Retry, or explicitly enable your own CLI configuration in Settings.",
+      );
     }
     // Codex has no way to leave out the person's Skills, plugins and AGENTS.md from its own folder.
     return config;
   }
 
   #notification(method: string, params: Record<string, unknown>): void {
-    if (method === "account/rateLimits/updated") { this.#readLimits(params); this.#turn?.sink.limits?.(this.#limits); return; }
+    if (method === "account/rateLimits/updated") {
+      this.#readLimits(params);
+      this.#turn?.sink.limits?.(this.#limits);
+      return;
+    }
     const turn = this.#turn;
     if (!turn) return;
     if (typeof params.turnId === "string") turn.turnId ??= params.turnId;
@@ -496,14 +581,25 @@ export class CodexDriver implements NativeDriver {
 
   #readLimits(value: unknown): void {
     const data = record(value);
-    const buckets = record(data?.rateLimitsByLimitId) ?? { codex: data?.rateLimits };
+    const buckets = record(data?.rateLimitsByLimitId) ?? {
+      codex: data?.rateLimits,
+    };
     const limits: NonNullable<AgentContextUsage["limits"]> = [];
     for (const [bucket, raw] of Object.entries(buckets)) {
       const windows = record(raw);
       for (const window of ["primary", "secondary"]) {
         const item = record(windows?.[window]);
         if (typeof item?.usedPercent !== "number") continue;
-        limits.push({ id: `${bucket}/${window}`, usedPercent: Math.max(0, Math.min(100, item.usedPercent)), ...(typeof item.windowDurationMins === "number" ? { windowMinutes: item.windowDurationMins } : {}), ...(typeof item.resetsAt === "number" ? { resetsAt: item.resetsAt } : {}) });
+        limits.push({
+          id: `${bucket}/${window}`,
+          usedPercent: Math.max(0, Math.min(100, item.usedPercent)),
+          ...(typeof item.windowDurationMins === "number"
+            ? { windowMinutes: item.windowDurationMins }
+            : {}),
+          ...(typeof item.resetsAt === "number"
+            ? { resetsAt: item.resetsAt }
+            : {}),
+        });
       }
     }
     this.#limits = limits;
@@ -676,49 +772,22 @@ export class CodexDriver implements NativeDriver {
       };
     }
     if (!turn || turn.signal.aborted)
-      return method === "item/permissions/requestApproval" ? { permissions: {}, scope: "turn" } : method === "item/tool/requestUserInput" ? { answers: {} } : { decision: "decline" };
+      return method === "item/permissions/requestApproval"
+        ? { permissions: {}, scope: "turn" }
+        : method === "item/tool/requestUserInput"
+          ? { answers: {} }
+          : { decision: "decline" };
     if (
       method === "item/commandExecution/requestApproval" ||
       method === "execCommandApproval"
     ) {
-      const details: ApprovalRequestDetails = {
-        kind: "command",
-        tool: "shell",
-        command: commandText(params.command),
-        ...(typeof params.reason === "string" ? { reason: params.reason } : {}),
-        canAllowSession: true,
-      };
-      return {
-        decision: codexDecision(
-          await decideApproval(details, this.context, turn.sink, {
-            ...(typeof params.itemId === "string"
-              ? { callId: params.itemId }
-              : {}),
-            signal: turn.signal,
-            escalation: true,
-          }),
-        ),
-      };
+      return { decision: "decline" };
     }
     if (
       method === "item/fileChange/requestApproval" ||
       method === "applyPatchApproval"
     ) {
-      const details: ApprovalRequestDetails = {
-        kind: "file",
-        tool: "apply_patch",
-        ...(typeof params.grantRoot === "string"
-          ? { path: params.grantRoot }
-          : {}),
-        ...(typeof params.reason === "string" ? { reason: params.reason } : {}),
-        canAllowSession: true,
-      };
-      const decision = await decideApproval(details, this.context, turn.sink, {
-        ...(typeof params.itemId === "string" ? { callId: params.itemId } : {}),
-        signal: turn.signal,
-        escalation: true,
-      });
-      return { decision: codexDecision(decision) };
+      return { decision: "decline" };
     }
     if (method === "item/permissions/requestApproval") {
       const permissions = record(params.permissions);
@@ -726,33 +795,82 @@ export class CodexDriver implements NativeDriver {
       const paths: NonNullable<ApprovalRequestDetails["paths"]> = [];
       for (const access of ["read", "write"] as const) {
         const requested = files?.[access];
-        if (requested != null && (!Array.isArray(requested) || requested.some((value) => typeof value !== "string"))) return { permissions: {}, scope: "turn" };
-        for (const value of (requested ?? []) as string[]) paths.push({ path: value, access });
+        if (
+          requested != null &&
+          (!Array.isArray(requested) ||
+            requested.some((value) => typeof value !== "string"))
+        )
+          return { permissions: {}, scope: "turn" };
+        for (const value of (requested ?? []) as string[])
+          paths.push({ path: value, access });
       }
       if (files?.entries != null) {
-        if (!Array.isArray(files.entries)) return { permissions: {}, scope: "turn" };
+        if (!Array.isArray(files.entries))
+          return { permissions: {}, scope: "turn" };
         for (const value of files.entries) {
           const entry = record(value);
           const location = record(entry?.path);
-          if (location?.type !== "path" || typeof location.path !== "string" || (entry?.access !== "read" && entry?.access !== "write")) return { permissions: {}, scope: "turn" };
+          if (
+            location?.type !== "path" ||
+            typeof location.path !== "string" ||
+            (entry?.access !== "read" && entry?.access !== "write")
+          )
+            return { permissions: {}, scope: "turn" };
           paths.push({ path: location.path, access: entry.access });
         }
       }
-      if (!permissions || paths.length > 100 || paths.some((entry) => !path.isAbsolute(entry.path) || /[*?\[\]{}\0]/.test(entry.path) || judgeApproval({ kind: "file", tool: "permissions", path: entry.path, canAllowSession: false }, this.context.policy) === "deny")) return { permissions: {}, scope: "turn" };
+      if (
+        !permissions ||
+        (turn.readOnly && paths.some((entry) => entry.access === "write")) ||
+        paths.length > 100 ||
+        paths.some(
+          (entry) =>
+            !path.isAbsolute(entry.path) ||
+            /[*?\[\]{}\0]/.test(entry.path) ||
+            judgeApproval(
+              {
+                kind: "file",
+                tool: "permissions",
+                path: entry.path,
+                canAllowSession: false,
+              },
+              this.context.policy,
+            ) === "deny",
+        )
+      )
+        return { permissions: {}, scope: "turn" };
       const details: ApprovalRequestDetails = {
         kind: "other",
         tool: "permissions",
         ...(typeof params.reason === "string" ? { reason: params.reason } : {}),
         canAllowSession: false,
         ...(paths.length ? { paths } : {}),
-        ...(record(permissions.network)?.enabled === true ? { network: true } : {}),
+        ...(record(permissions.network)?.enabled === true
+          ? { network: true }
+          : {}),
       };
       const decision = await turn.sink.requestApproval(details, {
         signal: turn.signal,
       });
       return decision === "deny"
         ? { permissions: {}, scope: "turn" }
-        : { permissions: { ...(files ? { fileSystem: { read: Array.isArray(files.read) ? files.read : null, write: Array.isArray(files.write) ? files.write : null, ...(Array.isArray(files.entries) ? { entries: files.entries } : {}) } } : {}), ...(details.network ? { network: { enabled: true } } : {}) }, scope: "turn" };
+        : {
+            permissions: {
+              ...(files
+                ? {
+                    fileSystem: {
+                      read: Array.isArray(files.read) ? files.read : null,
+                      write: Array.isArray(files.write) ? files.write : null,
+                      ...(Array.isArray(files.entries)
+                        ? { entries: files.entries }
+                        : {}),
+                    },
+                  }
+                : {}),
+              ...(details.network ? { network: { enabled: true } } : {}),
+            },
+            scope: "turn",
+          };
     }
     if (method === "item/tool/requestUserInput") return { answers: {} };
     if (method === "mcpServer/elicitation/request")
@@ -769,12 +887,6 @@ function codexInput(input: NativeTurnInput): Array<Record<string, unknown>> {
       url: `data:${image.mimeType};base64,${image.data}`,
     })),
   ];
-}
-
-function codexDecision(decision: ApprovalDecision): string {
-  // Session grants are cached by the host for this exact request. Do not let
-  // the CLI widen one decision into a persistent command-prefix rule.
-  return decision === "deny" ? "decline" : "accept";
 }
 
 /** The command as the person would type it, without the login shell Codex wraps it in. */

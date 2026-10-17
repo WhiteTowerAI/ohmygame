@@ -86,7 +86,12 @@ export interface NativeTurnSink {
   ): void;
   compaction(
     phase: "start" | "end",
-    result?: { summary?: string; tokensBefore?: number; error?: string; aborted?: boolean },
+    result?: {
+      summary?: string;
+      tokensBefore?: number;
+      error?: string;
+      aborted?: boolean;
+    },
   ): void;
   nativeSession(sessionId: string): void;
   /** Asks the person; `callId` names the tool call the request is about, when the agent says. */
@@ -137,7 +142,7 @@ export interface NativeSessionOptions {
   toolNames: readonly string[];
   setActiveTools?(names: readonly string[]): void;
   skills?: () => SkillCatalogItem[];
-  dispose?(): void;
+  dispose?(): void | Promise<void>;
   /** Time allowed for a native interrupt before its process is stopped. */
   cancellationTimeoutMs?: number;
 }
@@ -162,7 +167,7 @@ export class NativeCodingSession implements CodingSession {
   #listeners = new Set<(event: AgentSessionEvent) => void>();
   #followUps: Array<{ text: string; images: PromptImage[] }> = [];
   #steering: Array<{ text: string; images: PromptImage[] }> = [];
-  #running?: { controller: AbortController; done: Promise<void>; settle(): void };
+  #running?: { controller: AbortController; done: Promise<void> };
   #readOnly = false;
   #handoff: boolean;
   #nativeSessionId?: string;
@@ -174,7 +179,11 @@ export class NativeCodingSession implements CodingSession {
   constructor(private readonly options: NativeSessionOptions) {
     this.runtime = options.runtime;
     this.sessionManager = options.sessionManager;
-    this.messages.push(...this.sessionManager.getBranch().flatMap((entry) => entry.type === "message" ? [entry.message] : []));
+    this.messages.push(
+      ...this.sessionManager
+        .getBranch()
+        .flatMap((entry) => (entry.type === "message" ? [entry.message] : [])),
+    );
     this.#thinkingLevel = options.reasoningLevel;
     const stored = latestNativeSession(
       this.sessionManager.getBranch(),
@@ -220,8 +229,10 @@ export class NativeCodingSession implements CodingSession {
     if (this.#running) throw new Error("The agent is already running");
     const controller = new AbortController();
     let settle!: () => void;
-    const done = new Promise<void>((resolve) => { settle = resolve; });
-    this.#running = { controller, done, settle };
+    const done = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    this.#running = { controller, done };
     this.#checkpointFailure = undefined;
     try {
       let next: { text: string; images: PromptImage[] } | undefined = {
@@ -276,7 +287,10 @@ export class NativeCodingSession implements CodingSession {
     if (!running) return;
     running.controller.abort();
     const timeout = this.options.cancellationTimeoutMs ?? 1_500;
-    await bounded(this.#driver.interrupt().catch(() => {}), timeout);
+    await bounded(
+      this.#driver.interrupt().catch(() => {}),
+      timeout,
+    );
     if (!(await bounded(running.done, timeout))) {
       await this.#driver.dispose();
       await running.done;
@@ -292,19 +306,21 @@ export class NativeCodingSession implements CodingSession {
       );
     const controller = new AbortController();
     let settle!: () => void;
-    const done = new Promise<void>((resolve) => { settle = resolve; });
-    this.#running = { controller, done, settle };
+    const done = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    this.#running = { controller, done };
     const turn = new TurnRecorder(this, this.options.model);
     this.#storeNativeState("active");
     try {
       const sink = turn.sink();
       const report = sink.compaction;
-      sink.compaction = (phase, result) => report(phase, { ...result, ...(controller.signal.aborted ? { aborted: true } : {}) });
-      await this.#driver.compact(
-        sink,
-        controller.signal,
-        customInstructions,
-      );
+      sink.compaction = (phase, result) =>
+        report(phase, {
+          ...result,
+          ...(controller.signal.aborted ? { aborted: true } : {}),
+        });
+      await this.#driver.compact(sink, controller.signal, customInstructions);
       if (controller.signal.aborted) await this.#resetContext();
       else this.#storeNativeState("ready");
     } catch (cause) {
@@ -343,7 +359,13 @@ export class NativeCodingSession implements CodingSession {
     }
     // Even an unchanged native ID may contain turns removed by this rewind.
     await this.#resetContext();
-    this.messages.splice(0, this.messages.length, ...this.sessionManager.getBranch().flatMap((entry) => entry.type === "message" ? [entry.message] : []));
+    this.messages.splice(
+      0,
+      this.messages.length,
+      ...this.sessionManager
+        .getBranch()
+        .flatMap((entry) => (entry.type === "message" ? [entry.message] : [])),
+    );
     return {
       cancelled: false,
       ...(editorText !== undefined ? { editorText } : {}),
@@ -381,8 +403,10 @@ export class NativeCodingSession implements CodingSession {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#running?.controller.abort();
-    void this.#driver.dispose();
-    this.options.dispose?.();
+    // Keep generated config/Skills until the process has actually stopped.
+    void Promise.resolve(this.#driver.dispose())
+      .finally(() => this.options.dispose?.())
+      .catch(() => {});
     this.#listeners.clear();
   }
 
@@ -404,7 +428,13 @@ export class NativeCodingSession implements CodingSession {
   }
 
   reportLimits(limits: NonNullable<AgentContextUsage["limits"]>): void {
-    this.#usage = { tokens: null, contextWindow: 0, percent: null, ...this.#usage, limits };
+    this.#usage = {
+      tokens: null,
+      contextWindow: 0,
+      percent: null,
+      ...this.#usage,
+      limits,
+    };
   }
 
   recordNativeSession(sessionId: string): void {
@@ -423,6 +453,7 @@ export class NativeCodingSession implements CodingSession {
     toolCallId: string,
     signal?: AbortSignal,
   ): Promise<ApprovalDecision> {
+    if (signal?.aborted || this.#disposed) return "deny";
     const key = approvalKey(details);
     if (this.#allowed.has(key)) return "allow";
     const decision = await this.options.requestApproval(
@@ -471,12 +502,25 @@ export class NativeCodingSession implements CodingSession {
     let outcome: NativeTurnOutcome;
     try {
       try {
-        outcome = await this.#driver.runTurn({ text: wire, images, readOnly: this.#readOnly }, turn.sink(), signal);
+        outcome = await this.#driver.runTurn(
+          { text: wire, images, readOnly: this.#readOnly },
+          turn.sink(),
+          signal,
+        );
       } catch (cause) {
-        if (!(cause instanceof NativeSessionExpiredError) || signal.aborted) throw cause;
+        if (!(cause instanceof NativeSessionExpiredError) || signal.aborted)
+          throw cause;
         await this.#resetContext();
         const summary = handoffSummary(history);
-        outcome = await this.#driver.runTurn({ text: summary ? `${summary}\n\n${currentPrompt}` : currentPrompt, images, readOnly: this.#readOnly }, turn.sink(), signal);
+        outcome = await this.#driver.runTurn(
+          {
+            text: summary ? `${summary}\n\n${currentPrompt}` : currentPrompt,
+            images,
+            readOnly: this.#readOnly,
+          },
+          turn.sink(),
+          signal,
+        );
         this.#handoff = false;
       }
     } catch (cause) {
@@ -497,8 +541,12 @@ export class NativeCodingSession implements CodingSession {
 
   #storeNativeState(state: StoredNativeSession["state"]): void {
     this.sessionManager.appendCustomEntry(NATIVE_SESSION_ENTRY, {
-      version: 2, runtime: this.runtime, state,
-      ...(state !== "invalid" && this.#nativeSessionId ? { sessionId: this.#nativeSessionId } : {}),
+      version: 2,
+      runtime: this.runtime,
+      state,
+      ...(state !== "invalid" && this.#nativeSessionId
+        ? { sessionId: this.#nativeSessionId }
+        : {}),
     } satisfies StoredNativeSession);
   }
 
@@ -506,7 +554,10 @@ export class NativeCodingSession implements CodingSession {
     this.#storeNativeState("invalid");
     this.#nativeSessionId = undefined;
     await this.#driver.dispose();
-    this.#driver = this.options.createDriver(undefined, { model: this.options.model, reasoningLevel: this.options.nativeReasoningLevel ?? this.#thinkingLevel });
+    this.#driver = this.options.createDriver(undefined, {
+      model: this.options.model,
+      reasoningLevel: this.options.nativeReasoningLevel ?? this.#thinkingLevel,
+    });
     this.#handoff = hasMessages(this.sessionManager.getBranch());
     this.#usage = undefined;
     this.#allowed.clear();
@@ -570,6 +621,8 @@ interface ToolState {
 class TurnRecorder {
   #assistant?: { message: AssistantRecord; blocks: Map<string, number> };
   #tools = new Map<string, ToolState>();
+  /** Cumulative text survives flushing an assistant before a tool starts. */
+  #blockText = new Map<string, string>();
   #usage: NativeUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
   constructor(
@@ -615,7 +668,10 @@ class TurnRecorder {
             reason: "manual",
           } as AgentSessionEvent);
         } else {
-          this.session.sessionManager.appendCustomEntry("ohmygame-native-compaction", { version: 1, ...result });
+          this.session.sessionManager.appendCustomEntry(
+            "ohmygame-native-compaction",
+            { version: 1, ...result },
+          );
           this.session.emit({
             type: "compaction_end",
             reason: "manual",
@@ -702,7 +758,8 @@ class TurnRecorder {
     if (outcome.status === "completed") {
       // A native loop may finish after a denied tool without final text.
       // Persist the terminal stop so reload does not invent an interruption.
-      if (!this.#assistant) this.#assistant = { message: this.#newMessage(), blocks: new Map() };
+      if (!this.#assistant)
+        this.#assistant = { message: this.#newMessage(), blocks: new Map() };
       this.closeAssistant("stop");
       return;
     }
@@ -745,6 +802,10 @@ class TurnRecorder {
     if (!delta) return;
     const current = this.#ensureAssistant();
     const blockKey = `${kind}:${key}`;
+    this.#blockText.set(
+      blockKey,
+      (this.#blockText.get(blockKey) ?? "") + delta,
+    );
     let index = current.blocks.get(blockKey);
     if (index === undefined) {
       index = current.message.content.length;
@@ -777,34 +838,39 @@ class TurnRecorder {
 
   #textDone(kind: "text" | "thinking", key: string, text?: string): void {
     const blockKey = `${kind}:${key}`;
+    const seen = this.#blockText.get(blockKey) ?? "";
     let index = this.#assistant?.blocks.get(blockKey);
     if (index === undefined) {
-      // The whole block came at once.
-      if (!text) return;
-      this.#text(kind, key, text);
+      // A final full-text event can arrive after its message was flushed for
+      // a tool. Only an unseen suffix belongs in a new assistant segment.
+      const unseen = text?.startsWith(seen) ? text.slice(seen.length) : text;
+      if (!unseen) return;
+      if (text !== undefined && !text.startsWith(seen))
+        this.#blockText.delete(blockKey);
+      this.#text(kind, key, unseen);
       index = this.#assistant?.blocks.get(blockKey);
       if (index === undefined) return;
     }
     const current = this.#assistant!;
     const block = current.message.content[index];
-    if (block?.type === "text") {
-      if (
-        text !== undefined &&
-        text.startsWith(block.text) &&
-        text.length > block.text.length
-      )
-        this.#text(kind, key, text.slice(block.text.length));
-      else if (text !== undefined && text !== block.text) block.text = text;
+    if (block?.type === "text" || block?.type === "thinking") {
+      const content = block.type === "text" ? block.text : block.thinking;
+      // Earlier portions may already be stored in a message before a tool.
+      const prefixLength =
+        (this.#blockText.get(blockKey)?.length ?? content.length) -
+        content.length;
+      const final = text !== undefined ? text.slice(prefixLength) : content;
+      if (block.type === "text") block.text = final;
+      else block.thinking = final;
       this.#emitUpdate(
-        { type: "text_end", contentIndex: index, content: block.text },
+        {
+          type: kind === "text" ? "text_end" : "thinking_end",
+          contentIndex: index,
+          content: final,
+        },
         current.message,
       );
-    } else if (block?.type === "thinking") {
-      if (text !== undefined && text !== block.thinking) block.thinking = text;
-      this.#emitUpdate(
-        { type: "thinking_end", contentIndex: index, content: block.thinking },
-        current.message,
-      );
+      if (text !== undefined) this.#blockText.set(blockKey, text);
     }
     current.blocks.delete(blockKey);
   }
@@ -929,13 +995,19 @@ export function latestNativeSession(
     const entry = entries[index];
     // Only a completed turn anchors resumable context. A later Pi/native
     // message, compaction or model switch means that anchor is stale.
-    if (entry?.type === "message" || entry?.type === "compaction" || entry?.type === "model_change") return undefined;
+    if (
+      entry?.type === "message" ||
+      entry?.type === "compaction" ||
+      entry?.type === "model_change"
+    )
+      return undefined;
     if (entry?.type !== "custom" || entry.customType !== NATIVE_SESSION_ENTRY)
       continue;
     const data = entry.data as Partial<StoredNativeSession> | undefined;
     // A later session of another agent means this agent's earlier one has not seen what came since.
     if (
-      data?.version !== 2 || data.state !== "ready" ||
+      data?.version !== 2 ||
+      data.state !== "ready" ||
       typeof data.sessionId !== "string" ||
       !data.sessionId
     )
@@ -947,11 +1019,21 @@ export function latestNativeSession(
   return undefined;
 }
 
-async function bounded(work: Promise<unknown>, timeout: number): Promise<boolean> {
+async function bounded(
+  work: Promise<unknown>,
+  timeout: number,
+): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([work.then(() => true), new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), timeout); })]);
-  } finally { clearTimeout(timer); }
+    return await Promise.race([
+      work.then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeout);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function hasMessages(entries: readonly SessionEntry[]): boolean {

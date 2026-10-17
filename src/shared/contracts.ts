@@ -888,7 +888,8 @@ export interface UpdateAgentDefaultsRequest {
 }
 export interface RenameConversationRequest { title: string }
 export type SetConversationModelRequest = AgentModelRef;
-export interface SetConversationReasoningRequest { level: AgentReasoningLevel }
+/** Validated against the selected model: Pi enum or native effort/variant. */
+export interface SetConversationReasoningRequest { level: string }
 export interface ConversationAgentSettings {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;

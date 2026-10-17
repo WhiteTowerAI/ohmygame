@@ -1,6 +1,6 @@
 import { spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
-import { readdir, readFile, rm } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { signalProcessTree } from "../process-lifecycle.js";
 
@@ -34,6 +34,61 @@ export function processIdentity(pid: number): string | undefined {
         );
   const identity = result.status === 0 ? result.stdout.trim() : "";
   return identity || undefined;
+}
+
+/** False only when inspection proves the original process no longer owns this PID. */
+function originalProcessLives(pid: number, identity: string): boolean {
+  const current = processIdentity(pid);
+  if (current) return current === identity;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (cause) {
+    return (cause as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
+let ownIdentity: string | undefined;
+
+/** A private folder belongs to a daemon, not to whichever daemon next starts. */
+export async function leaseAgentDirectory(directory: string): Promise<void> {
+  ownIdentity ??= processIdentity(process.pid);
+  if (!ownIdentity) return;
+  await writeFile(
+    path.join(directory, ".owner.json"),
+    JSON.stringify({ version: 1, pid: process.pid, identity: ownIdentity }),
+    { mode: 0o600 },
+  );
+}
+
+export async function recoverAgentDirectories(root: string): Promise<void> {
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const directory = path.join(root, entry.name);
+    const lease = await readFile(path.join(directory, ".owner.json"), "utf8")
+      .then(
+        (text) =>
+          JSON.parse(text) as {
+            version?: unknown;
+            pid?: unknown;
+            identity?: unknown;
+          },
+      )
+      .catch(() => undefined);
+    if (
+      !lease ||
+      lease.version !== 1 ||
+      typeof lease.pid !== "number" ||
+      !Number.isSafeInteger(lease.pid) ||
+      lease.pid <= 0 ||
+      typeof lease.identity !== "string" ||
+      !lease.identity
+    )
+      continue;
+    if (!originalProcessLives(lease.pid, lease.identity))
+      await rm(directory, { recursive: true, force: true });
+  }
 }
 
 /** A durable ownership record for standalone daemon crash recovery. */
@@ -102,15 +157,7 @@ export async function recoverAgentProcesses(directory: string): Promise<void> {
       await rm(file, { force: true });
       continue;
     }
-    const owner = processIdentity(record.owner);
-    if (owner === record.ownerIdentity) continue;
-    // Failed inspection is not evidence of death when kill(0) still finds the owner.
-    try {
-      process.kill(record.owner, 0);
-      if (!owner) continue;
-    } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code !== "ESRCH") continue;
-    }
+    if (originalProcessLives(record.owner, record.ownerIdentity)) continue;
     if (processIdentity(record.pid) === record.identity) {
       await signalProcessTree(record.pid, true);
     }

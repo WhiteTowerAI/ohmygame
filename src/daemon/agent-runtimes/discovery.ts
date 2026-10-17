@@ -4,10 +4,12 @@ import {
   access,
   constants,
   mkdir,
+  realpath,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {
   AGENT_REASONING_LEVELS,
@@ -19,8 +21,17 @@ import type {
   AgentRuntimeBilling,
   AgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
-import { AGENT_RUNTIME_DEFINITIONS, parseVersion } from "./definitions.js";
-import { commonBinaryDirectories, loginShellPath } from "./environment.js";
+import {
+  AGENT_RUNTIME_DEFINITIONS,
+  parseVersion,
+  compareVersions,
+} from "./definitions.js";
+import {
+  agentEnvironment,
+  commonBinaryDirectories,
+  loginShellPath,
+} from "./environment.js";
+import { leaseAgentDirectory } from "./process-recovery.js";
 import { AgentProcess } from "./process.js";
 import { CodexAppServer } from "./codex.js";
 
@@ -33,17 +44,35 @@ export interface ResolvedBinary {
 }
 
 /**
- * Finds a CLI's executable: the one the person chose, or the first on PATH,
- * the login shell's PATH and the usual install folders. The result is an
+ * Finds a CLI's executable: the one the person chose, or else the newest of
+ * those on PATH, the login shell's PATH, the usual install folders and the
+ * copies other apps bundle. A computer often has several, such as an old
+ * global npm install next to the Codex in the ChatGPT app, and the oldest one
+ * found first may not know the account's current models. The result is an
  * absolute path that is then always run as is.
  */
 export async function resolveBinary(
   id: AgentRuntimeId,
   override?: string,
+  recheck = false,
 ): Promise<ResolvedBinary | undefined> {
+  if (recheck)
+    for (const key of versionCache.keys())
+      if (key.startsWith(`${id}:`)) versionCache.delete(key);
+  const definition = AGENT_RUNTIME_DEFINITIONS[id];
   const candidates = override
     ? [override]
-    : await searchCandidates(AGENT_RUNTIME_DEFINITIONS[id].binaries);
+    : [
+        ...(await searchCandidates(definition.binaries)),
+        ...(definition.bundledPaths?.[process.platform] ?? []).map(
+          (candidate) =>
+            candidate.startsWith("~/")
+              ? path.join(os.homedir(), candidate.slice(2))
+              : candidate,
+        ),
+      ];
+  const found: ResolvedBinary[] = [];
+  const seen = new Set<string>();
   for (const candidate of candidates) {
     try {
       await access(
@@ -52,15 +81,62 @@ export async function resolveBinary(
       );
       const info = await stat(candidate);
       if (!info.isFile()) continue;
-      return {
+      // One installation is often reachable through several links.
+      const target = await realpath(candidate);
+      if (seen.has(target)) continue;
+      seen.add(target);
+      found.push({
         path: candidate,
         signature: `${candidate}:${info.size}:${info.mtimeMs}`,
-      };
+      });
     } catch {
       continue;
     }
   }
-  return undefined;
+  if (found.length <= 1) return found[0];
+  const versions = await Promise.all(
+    found.map((binary) => cachedVersion(binary, id)),
+  );
+  // The newest wins; among equal or unreadable versions, the one found first, as PATH orders them.
+  let best = 0;
+  for (let index = 1; index < found.length; index++) {
+    const version = versions[index];
+    const current = versions[best];
+    if (version && (!current || compareVersions(version, current) > 0))
+      best = index;
+  }
+  return found[best];
+}
+
+const versionCache = new Map<
+  string,
+  { at: number; promise: Promise<string | undefined> }
+>();
+const VERSION_TTL_MS = 5 * 60_000;
+
+/** Coalesces concurrent probes; failures are retried on the next check. */
+function cachedVersion(
+  binary: ResolvedBinary,
+  id: AgentRuntimeId,
+): Promise<string | undefined> {
+  const key = `${id}:${binary.signature}`;
+  const cached = versionCache.get(key);
+  if (cached && Date.now() - cached.at < VERSION_TTL_MS) return cached.promise;
+  const entry = {
+    at: Date.now(),
+    promise: probeVersion(
+      binary.path,
+      id,
+      agentEnvironment(id, binary.path),
+    ).catch(() => undefined),
+  };
+  versionCache.set(key, entry);
+  void entry.promise.then((version) => {
+    if (!version && versionCache.get(key) === entry) versionCache.delete(key);
+  });
+  if (versionCache.size > 128)
+    versionCache.delete(versionCache.keys().next().value!);
+  return entry.promise;
 }
 
 async function searchCandidates(names: readonly string[]): Promise<string[]> {
@@ -122,12 +198,12 @@ export async function probeVersion(
   id: AgentRuntimeId,
   env: Record<string, string>,
 ): Promise<string | undefined> {
-  const { stdout, stderr } = await runCli(
+  const { stdout, stderr, code } = await runCli(
     binaryPath,
     AGENT_RUNTIME_DEFINITIONS[id].versionArgs,
     env,
   );
-  return parseVersion(`${stdout}\n${stderr}`);
+  return code === 0 ? parseVersion(`${stdout}\n${stderr}`) : undefined;
 }
 
 export interface AuthProbe {
@@ -227,11 +303,7 @@ export async function probeModels(
     try {
       await server.initialize();
       const [list, account] = await Promise.all([
-        server.request<{ data?: Array<Record<string, unknown>> }>(
-          "model/list",
-          {},
-          PROBE_TIMEOUT_MS,
-        ),
+        codexModels(server),
         server
           .request<{ account?: { email?: unknown } | null }>(
             "account/read",
@@ -240,7 +312,7 @@ export async function probeModels(
           )
           .catch(() => undefined),
       ]);
-      const models = (list.data ?? [])
+      const models = list
         .filter(
           (entry) => entry.hidden !== true && typeof entry.id === "string",
         )
@@ -277,7 +349,7 @@ export async function probeModels(
   await writeFile(path.join(configHome, "opencode", "opencode.json"), "{}\n", {
     mode: 0o600,
   });
-  const { stdout } = await runCli(
+  const { stdout, stderr, code } = await runCli(
     binaryPath,
     ["models", "--verbose", ...(isolate ? ["--pure"] : [])],
     {
@@ -290,9 +362,43 @@ export async function probeModels(
     privateDirectory,
     60_000,
   );
+  if (code !== 0)
+    throw new Error(
+      `OpenCode could not list its models: ${stderr.trim().slice(-500) || `exit ${code}`}`,
+    );
   return {
-    models: parseOpenCodeModels(stdout).map((entry) => ({ ...model(entry.id, entry.name, entry.variants), ...(entry.contextWindow ? { contextWindow: entry.contextWindow } : {}) })),
+    models: parseOpenCodeModels(stdout).map((entry) => ({
+      ...model(entry.id, entry.name, entry.variants),
+      ...(entry.contextWindow ? { contextWindow: entry.contextWindow } : {}),
+    })),
   };
+}
+
+async function codexModels(
+  server: CodexAppServer,
+): Promise<Array<Record<string, unknown>>> {
+  const models: Array<Record<string, unknown>> = [];
+  let cursor: string | undefined;
+  const seen = new Set<string>();
+  do {
+    const page = await server.request<{
+      data?: Array<Record<string, unknown>>;
+      nextCursor?: string | null;
+    }>(
+      "model/list",
+      { ...(cursor ? { cursor } : {}), limit: 100 },
+      PROBE_TIMEOUT_MS,
+    );
+    models.push(...(page.data ?? []));
+    cursor =
+      typeof page.nextCursor === "string" && page.nextCursor
+        ? page.nextCursor
+        : undefined;
+    if (cursor && seen.has(cursor))
+      throw new Error("Codex returned a repeated model catalog cursor");
+    if (cursor) seen.add(cursor);
+  } while (cursor);
+  return models;
 }
 
 interface ClaudeModel {
@@ -359,14 +465,19 @@ async function claudeModels(
             );
           else {
             const models = (message.response?.response?.models ?? []).filter(
-                (model) =>
-                  typeof model.value === "string" &&
-                  typeof model.displayName === "string",
-              );
+              (model) =>
+                typeof model.value === "string" &&
+                typeof model.displayName === "string",
+            );
             // Older CLIs return the catalog during initialize; newer CLIs
             // expose list_models. Neither operation sends a model request.
             if (models.length || !isInitialize) finish(models);
-            else child.write({ type: "control_request", request_id: id, request: { subtype: "list_models" } });
+            else
+              child.write({
+                type: "control_request",
+                request_id: id,
+                request: { subtype: "list_models" },
+              });
           }
         } catch {
           /* Not a message. */
@@ -393,10 +504,18 @@ async function claudeModels(
 }
 
 /** `opencode models --verbose` prints each model's `provider/model` line followed by its JSON. */
-export function parseOpenCodeModels(
-  output: string,
-): Array<{ id: string; name: string; variants: string[]; contextWindow?: number }> {
-  const models: Array<{ id: string; name: string; variants: string[]; contextWindow?: number }> = [];
+export function parseOpenCodeModels(output: string): Array<{
+  id: string;
+  name: string;
+  variants: string[];
+  contextWindow?: number;
+}> {
+  const models: Array<{
+    id: string;
+    name: string;
+    variants: string[];
+    contextWindow?: number;
+  }> = [];
   const lines = output.split("\n");
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!.trim();
@@ -429,7 +548,9 @@ export function parseOpenCodeModels(
         id: line,
         name: typeof value.name === "string" ? value.name : line,
         variants: Object.keys(value.variants ?? {}),
-        ...(typeof value.limit?.context === "number" && value.limit.context > 0 ? { contextWindow: value.limit.context } : {}),
+        ...(typeof value.limit?.context === "number" && value.limit.context > 0
+          ? { contextWindow: value.limit.context }
+          : {}),
       });
       index = end;
     } catch {
@@ -440,10 +561,7 @@ export function parseOpenCodeModels(
 }
 
 function reasoningLevels(values: readonly string[]): AgentReasoningLevel[] {
-  const allowed = new Set<string>(AGENT_REASONING_LEVELS);
-  return AGENT_REASONING_LEVELS.filter(
-    (level) => values.includes(level) && allowed.has(level),
-  );
+  return AGENT_REASONING_LEVELS.filter((level) => values.includes(level));
 }
 
 /** A private folder for one probe or session, removed with it. */
@@ -453,6 +571,7 @@ export async function privateFolder(
 ): Promise<{ path: string; remove: () => Promise<void> }> {
   const folder = path.join(root, `${name}-${randomUUID()}`);
   await mkdir(folder, { recursive: true, mode: 0o700 });
+  await leaseAgentDirectory(folder);
   return {
     path: folder,
     remove: () => rm(folder, { recursive: true, force: true }),

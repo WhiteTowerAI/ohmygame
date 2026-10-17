@@ -130,69 +130,158 @@ function items(sessionManager: SessionManager): ThreadItem[] {
 }
 
 describe("coding agent sessions", () => {
-  function fixture(scripts: Script[], sessionManager = SessionManager.inMemory("/tmp/project-1"), extra: Record<string, unknown> = {}) {
+  function fixture(
+    scripts: Script[],
+    sessionManager = SessionManager.inMemory("/tmp/project-1"),
+    extra: Record<string, unknown> = {},
+  ) {
     const drivers: ScriptedDriver[] = [];
-    const session = new NativeCodingSession({ runtime: "claude-code-cli", model: "sonnet", sessionManager, toolNames: [], requestApproval: async () => "deny", createDriver: (resume) => { const driver = new ScriptedDriver(scripts, resume); drivers.push(driver); return driver; }, ...extra });
+    const session = new NativeCodingSession({
+      runtime: "claude-code-cli",
+      model: "sonnet",
+      sessionManager,
+      toolNames: [],
+      requestApproval: async () => "deny",
+      createDriver: (resume) => {
+        const driver = new ScriptedDriver(scripts, resume);
+        drivers.push(driver);
+        return driver;
+      },
+      ...extra,
+    });
     return { session, sessionManager, drivers };
   }
 
   it("invalidates native context when editing a later message and keeps it invalid after restart", async () => {
     const { session, sessionManager, drivers } = fixture([
-      async (_input, sink) => { sink.nativeSession("native-1"); sink.textDone("a", "first"); return { status: "completed" }; },
-      async (_input, sink) => { sink.textDone("b", "second"); return { status: "completed" }; },
+      async (_input, sink) => {
+        sink.nativeSession("native-1");
+        sink.textDone("a", "first");
+        return { status: "completed" };
+      },
+      async (_input, sink) => {
+        sink.textDone("b", "second");
+        return { status: "completed" };
+      },
     ]);
     await session.prompt("first request");
     await session.prompt("second request to remove");
-    const second = sessionManager.getBranch().filter((entry) => entry.type === "message" && entry.message.role === "user")[1]!;
+    const second = sessionManager
+      .getBranch()
+      .filter(
+        (entry) => entry.type === "message" && entry.message.role === "user",
+      )[1]!;
     await session.navigateTree(second.id);
     expect(drivers[0]!.disposed).toBe(true);
     expect(drivers[1]!.resume).toBeUndefined();
-    expect(latestNativeSession(sessionManager.getBranch(), "claude-code-cli")).toBeUndefined();
+    expect(
+      latestNativeSession(sessionManager.getBranch(), "claude-code-cli"),
+    ).toBeUndefined();
     session.dispose();
     const restarted = fixture([], sessionManager);
     await restarted.session.prompt("replacement second request");
     expect(restarted.drivers[0]!.resume).toBeUndefined();
     expect(restarted.drivers[0]!.inputs[0]!.text).toContain("first request");
-    expect(restarted.drivers[0]!.inputs[0]!.text).not.toContain("second request to remove");
+    expect(restarted.drivers[0]!.inputs[0]!.text).not.toContain(
+      "second request to remove",
+    );
     restarted.session.dispose();
   });
 
   it("hands off Pi turns instead of resuming a stale native session", async () => {
     const sm = SessionManager.inMemory("/tmp/project-1");
     sm.appendMessage({ role: "user", content: "original", timestamp: 1 });
-    sm.appendCustomEntry(NATIVE_SESSION_ENTRY, { version: 2, state: "ready", runtime: "claude-code-cli", sessionId: "native-1" });
+    sm.appendCustomEntry(NATIVE_SESSION_ENTRY, {
+      version: 2,
+      state: "ready",
+      runtime: "claude-code-cli",
+      sessionId: "native-1",
+    });
     sm.appendModelChange("pi-provider", "pi-model");
-    sm.appendMessage({ role: "user", content: "new requirement handled by Pi", timestamp: 2 });
+    sm.appendMessage({
+      role: "user",
+      content: "new requirement handled by Pi",
+      timestamp: 2,
+    });
     sm.appendModelChange("claude-code-cli", "sonnet");
     const { session, drivers } = fixture([], sm);
     await session.prompt("continue");
     expect(drivers[0]!.resume).toBeUndefined();
-    expect(drivers[0]!.inputs[0]!.text).toContain("new requirement handled by Pi");
+    expect(drivers[0]!.inputs[0]!.text).toContain(
+      "new requirement handled by Pi",
+    );
     session.dispose();
   });
 
   it("rebuilds an expired native session with one handoff and one stored user message", async () => {
     const sm = SessionManager.inMemory("/tmp/project-1");
-    sm.appendMessage({ role: "user", content: "keep the original requirement", timestamp: 1 });
-    sm.appendCustomEntry(NATIVE_SESSION_ENTRY, { version: 2, state: "ready", runtime: "claude-code-cli", sessionId: "expired" });
-    const { session, drivers } = fixture([async () => { throw new NativeSessionExpiredError("gone"); }, async (_input, sink) => { sink.nativeSession("replacement"); sink.textDone("a", "continued"); return { status: "completed" }; }], sm);
+    sm.appendMessage({
+      role: "user",
+      content: "keep the original requirement",
+      timestamp: 1,
+    });
+    sm.appendCustomEntry(NATIVE_SESSION_ENTRY, {
+      version: 2,
+      state: "ready",
+      runtime: "claude-code-cli",
+      sessionId: "expired",
+    });
+    const { session, drivers } = fixture(
+      [
+        async () => {
+          throw new NativeSessionExpiredError("gone");
+        },
+        async (_input, sink) => {
+          sink.nativeSession("replacement");
+          sink.textDone("a", "continued");
+          return { status: "completed" };
+        },
+      ],
+      sm,
+    );
     await session.prompt("continue");
-    expect(drivers.map((driver) => driver.resume)).toEqual(["expired", undefined]);
-    expect(drivers[1]!.inputs[0]!.text).toContain("keep the original requirement");
-    expect(sm.getBranch().filter((entry) => entry.type === "message" && entry.message.role === "user")).toHaveLength(2);
-    expect(latestNativeSession(sm.getBranch(), "claude-code-cli")?.sessionId).toBe("replacement");
+    expect(drivers.map((driver) => driver.resume)).toEqual([
+      "expired",
+      undefined,
+    ]);
+    expect(drivers[1]!.inputs[0]!.text).toContain(
+      "keep the original requirement",
+    );
+    expect(
+      sm
+        .getBranch()
+        .filter(
+          (entry) => entry.type === "message" && entry.message.role === "user",
+        ),
+    ).toHaveLength(2);
+    expect(
+      latestNativeSession(sm.getBranch(), "claude-code-cli")?.sessionId,
+    ).toBe("replacement");
     session.dispose();
   });
 
   it("persists a terminal stop when a native turn ends after a denied tool without final text", async () => {
-    const { session } = fixture([async (_input, sink) => {
-      sink.toolCall("read-1", "read", { path: "/outside" });
-      sink.toolResult("read-1", { content: [{ type: "text", text: "Denied" }] }, true);
-      return { status: "completed" };
-    }]);
+    const { session } = fixture([
+      async (_input, sink) => {
+        sink.toolCall("read-1", "read", { path: "/outside" });
+        sink.toolResult(
+          "read-1",
+          { content: [{ type: "text", text: "Denied" }] },
+          true,
+        );
+        return { status: "completed" };
+      },
+    ]);
     await session.prompt("read file");
-    expect(conversationItems(session.sessionManager.getBranch()).some((item) => item.type === "agentMessage" && item.status === "interrupted")).toBe(false);
-    expect(session.messages.at(-1)).toMatchObject({ role: "assistant", stopReason: "stop" });
+    expect(
+      conversationItems(session.sessionManager.getBranch()).some(
+        (item) => item.type === "agentMessage" && item.status === "interrupted",
+      ),
+    ).toBe(false);
+    expect(session.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      stopReason: "stop",
+    });
     session.dispose();
   });
 
@@ -200,23 +289,51 @@ describe("coding agent sessions", () => {
     const order: string[] = [];
     let release!: () => void;
     let started!: () => void;
-    const ready = new Promise<void>((resolve) => { started = resolve; });
-    const { session, drivers } = fixture([
-      async () => { order.push("first"); started(); await new Promise<void>((resolve) => { release = resolve; }); return { status: "completed" }; },
-      async () => { order.push("steered"); return { status: "completed" }; },
-    ], undefined, { snapshotBeforeMessage: async () => { order.push("snapshot"); return "commit"; } });
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const { session, drivers } = fixture(
+      [
+        async () => {
+          order.push("first");
+          started();
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return { status: "completed" };
+        },
+        async () => {
+          order.push("steered");
+          return { status: "completed" };
+        },
+      ],
+      undefined,
+      {
+        snapshotBeforeMessage: async () => {
+          order.push("snapshot");
+          return "commit";
+        },
+      },
+    );
     const run = session.prompt("first");
     await ready;
     await session.steer("steered");
     expect(drivers[0]!.inputs).toHaveLength(1);
-    release(); await run;
+    release();
+    await run;
     expect(order).toEqual(["snapshot", "first", "snapshot", "steered"]);
     session.dispose();
   });
 
   it("does not deliver a prompt cancelled while its checkpoint is pending", async () => {
     let release!: (value: string) => void;
-    const { session, drivers } = fixture([], undefined, { snapshotBeforeMessage: () => new Promise<string>((resolve) => { release = resolve; }), cancellationTimeoutMs: 10 });
+    const { session, drivers } = fixture([], undefined, {
+      snapshotBeforeMessage: () =>
+        new Promise<string>((resolve) => {
+          release = resolve;
+        }),
+      cancellationTimeoutMs: 10,
+    });
     const run = session.prompt("cancel before launch");
     const cancelled = session.abort();
     release("commit");
@@ -226,17 +343,39 @@ describe("coding agent sessions", () => {
   });
 
   it("rebuilds context for legacy or interrupted native metadata", () => {
-    for (const data of [{ version: 1, runtime: "claude-code-cli", sessionId: "legacy" }, { version: 2, state: "active", runtime: "claude-code-cli", sessionId: "interrupted" }]) {
+    for (const data of [
+      { version: 1, runtime: "claude-code-cli", sessionId: "legacy" },
+      {
+        version: 2,
+        state: "active",
+        runtime: "claude-code-cli",
+        sessionId: "interrupted",
+      },
+    ]) {
       const sm = SessionManager.inMemory("/tmp/project-1");
       sm.appendCustomEntry(NATIVE_SESSION_ENTRY, data);
-      expect(latestNativeSession(sm.getBranch(), "claude-code-cli")).toBeUndefined();
+      expect(
+        latestNativeSession(sm.getBranch(), "claude-code-cli"),
+      ).toBeUndefined();
     }
   });
 
   it("persists native compaction display records", async () => {
-    const { session, sessionManager } = fixture([async (_input, sink) => { sink.compaction("start"); sink.compaction("end", { summary: "kept context", tokensBefore: 200 }); return { status: "completed" }; }]);
+    const { session, sessionManager } = fixture([
+      async (_input, sink) => {
+        sink.compaction("start");
+        sink.compaction("end", { summary: "kept context", tokensBefore: 200 });
+        return { status: "completed" };
+      },
+    ]);
     await session.prompt("compact fixture");
-    expect(conversationItems(sessionManager.getBranch(), false)).toContainEqual(expect.objectContaining({ type: "contextCompaction", summary: "kept context", tokensBefore: 200 }));
+    expect(conversationItems(sessionManager.getBranch(), false)).toContainEqual(
+      expect.objectContaining({
+        type: "contextCompaction",
+        summary: "kept context",
+        tokensBefore: 200,
+      }),
+    );
     session.dispose();
   });
   it("records a turn in the conversation the way OhMyGame's own agent does", async () => {
@@ -470,7 +609,16 @@ describe("coding agent sessions", () => {
           (event.data as { item: ThreadItem }).item.type === "approvalRequest",
       ),
     ).toHaveLength(1);
-    expect(conversationItems(sessionManager.getBranch(), false).filter((item) => item.type === "approvalRequest")).toEqual([expect.objectContaining({ decision: "allow-session", status: "completed" })]);
+    expect(
+      conversationItems(sessionManager.getBranch(), false).filter(
+        (item) => item.type === "approvalRequest",
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        decision: "allow-session",
+        status: "completed",
+      }),
+    ]);
   });
 
   it("denies requests that are still waiting when the turn is stopped", async () => {
@@ -586,4 +734,78 @@ describe("coding agent sessions", () => {
       .result;
     expect(drivers[0]!.inputs[0]!.readOnly).toBe(true);
   });
+});
+
+it("does not duplicate delayed native text completions after a tool flushes the assistant", async () => {
+  const store = SessionManager.inMemory("/tmp/native-events");
+  const session = new NativeCodingSession({
+    runtime: "opencode-cli",
+    model: "model",
+    sessionManager: store,
+    toolNames: [],
+    requestApproval: async () => "deny",
+    createDriver: () =>
+      new ScriptedDriver(
+        [
+          async (_input, sink) => {
+            sink.text("part-1", "Checking.");
+            sink.toolCall("tool-1", "read", { path: "file" });
+            sink.toolStarted("tool-1");
+            sink.textDone("part-1", "Checking.");
+            sink.toolResult("tool-1", { content: [] }, false);
+            sink.text("part-2", "Done.");
+            sink.textDone("part-2", "Done.");
+            sink.textDone("part-2", "Done.");
+            return { status: "completed" };
+          },
+        ],
+        undefined,
+      ),
+  });
+  await session.prompt("test event order");
+  const texts = session.messages.flatMap((message: any) =>
+    message.role === "assistant"
+      ? message.content
+          .filter((block: any) => block.type === "text")
+          .map((block: any) => block.text)
+      : [],
+  );
+  expect(texts).toEqual(["Checking.", "Done."]);
+  session.dispose();
+});
+
+it("keeps only the unseen suffix when a native text block continues across a tool", async () => {
+  const session = new NativeCodingSession({
+    runtime: "opencode-cli",
+    model: "model",
+    sessionManager: SessionManager.inMemory("/tmp/native-suffix"),
+    toolNames: [],
+    requestApproval: async () => "deny",
+    createDriver: () =>
+      new ScriptedDriver(
+        [
+          async (_input, sink) => {
+            sink.text("part", "Before.");
+            sink.toolCall("tool", "read", {});
+            sink.toolStarted("tool");
+            sink.toolResult("tool", { content: [] }, false);
+            sink.text("part", " After.");
+            sink.textDone("part", "Before. After.");
+            return { status: "completed" };
+          },
+        ],
+        undefined,
+      ),
+  });
+  await session.prompt("test suffix");
+  expect(
+    session.messages.flatMap((message: any) =>
+      message.role === "assistant"
+        ? message.content
+            .filter((block: any) => block.type === "text")
+            .map((block: any) => block.text)
+        : [],
+    ),
+  ).toEqual(["Before.", " After."]);
+  session.dispose();
 });

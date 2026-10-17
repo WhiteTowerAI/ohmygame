@@ -29,7 +29,9 @@ connected, the first conversation starts with the first agent that is set up.
 
 Native effort/variant strings are exposed as `nativeReasoningLevels` and stored
 separately from Pi's reasoning enum. Saving a native default keeps both model
-and effort in `agent-runtimes.json`; it applies while that agent is enabled.
+and effort as `defaultModel` in `agent-runtimes.json`; it applies while that
+agent is enabled and offers the model. Choosing a Pi default clears it. Plain
+`GET /models` continues to report Pi's default for one-off generation.
 An explicitly chosen different model does not inherit an incompatible effort.
 Context usage uses the native context window when reported. Codex quota
 windows and reset times are displayed separately; missing measurements remain
@@ -71,11 +73,11 @@ permission grants. No second conversation manager or event database is needed.
 
 ## How each agent is driven
 
-| Agent       | Transport                                                        | OhMyGame tools                                          | Approvals                                         |
-| ----------- | ---------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------- |
+| Agent       | Transport                                                        | OhMyGame tools                                          | Approvals                                            |
+| ----------- | ---------------------------------------------------------------- | ------------------------------------------------------- | ---------------------------------------------------- |
 | Claude Code | `claude -p` with stream-json in and out; one process per session | In-process MCP server answered over the same pipe       | PreToolUse hook plus `can_use_tool` control requests |
-| Codex       | `codex app-server` JSON-RPC; one thread per conversation         | The thread's dynamic tools, answered over the same pipe | App server approval requests                      |
-| OpenCode    | `opencode serve` on loopback with its own password               | Remote MCP on the daemon with a turn token              | `permission.asked` events, answered on the server |
+| Codex       | `codex app-server` JSON-RPC; one thread per conversation         | The thread's dynamic tools, answered over the same pipe | App server approval requests                         |
+| OpenCode    | `opencode serve` on loopback with its own password               | Remote MCP on the daemon with a turn token              | `permission.asked` events, answered on the server    |
 
 Each stdin stays open for the session. Native queue prioritization means
 **Next**: after the current turn, before ordinary follow-ups. Mid-turn native
@@ -89,8 +91,10 @@ waits are bounded, then the CLI is stopped. HTTP calls time out and loss of
 OpenCode's SSE stream fails the pending turn. Standalone startup also reclaims
 verified orphan process groups from `agent-runtimes/processes`, checking both
 the daemon and child's executable/birth identity before killing anything.
-Unverifiable identities and subprocesses that escape their group cannot be
-reclaimed this way.
+Private folders carry the daemon's ownership identity as well: startup reclaims
+verified orphans while preserving another live daemon's folders. Configuration
+and Skills are removed only after the CLI stops. Unverifiable identities and
+subprocesses that escape their group cannot be reclaimed this way.
 
 OhMyGame's tools are the handlers Pi uses (`createAgentTools`), offered through
 `ToolBridge`. Plugin MCP servers reach the agent through the same `mcp` tool
@@ -134,7 +138,10 @@ Codex grants only understood concrete paths that were reviewed, for one turn.
 Conversation approvals are cached for the exact request; broad native prefix
 grants are not issued. OpenCode read/edit/search/shell requests are mediated,
 with file patterns resolved from its reported Git root rather than assuming
-that it equals the application workspace.
+that it equals the application workspace. Search metadata identifies the actual
+search directory. Child-session permission requests are admitted only after
+verifying their ancestry through the native API; they cannot be dropped merely
+because their session ID differs from the parent.
 
 These are native permission controls, not a universal OS sandbox. CLIs run as
 the signed-in OS user; hooks and sandbox capabilities differ, and do not
@@ -142,10 +149,21 @@ necessarily mediate every subprocess, plugin or read. Strong confidentiality
 isolation requires a separate process/container sandbox and isolated
 credentials. Shell syntax checks alone cannot provide it.
 
-In particular, the tested Codex sandbox permits project-external reads without
-requesting approval. Such reads cannot be denied by this callback policy.
-Codex therefore does not meet the strict protected-read acceptance gate; its
-settings page describes this limit, and it remains off until explicitly enabled.
+Codex requires named permission profiles and checks that its app server actually
+activated the requested profile before delivering a prompt. The legacy
+`workspaceWrite` policy is not a fallback: it permits reads outside the project.
+The profiles allow runtime files, this workspace and private temporary/Skill
+folders; credential roots, app data and other projects are denied. Unlisted
+paths require a scoped permission request. Unrestricted command/patch sandbox
+escapes are refused. Planning uses a read-only profile and cannot accept write
+grants. The native `request_permissions` tool is enabled explicitly, with grants
+limited to the current turn. Shell snapshots are off and the shell environment
+is rebuilt from the same allowlist, without CLI authentication tokens.
+
+This enforces Codex command boundaries through its own OS sandbox. It does not
+isolate the CLI parent process, which still needs its sign-in and configuration.
+The callback controls for Claude Code and OpenCode do not offer the same OS
+boundary for arbitrary shell programs a person approves.
 
 ## Environment and isolation
 
@@ -155,7 +173,11 @@ folder variable. API keys are left out, so an ambient key never moves a
 subscription to metered billing; Claude Code keeps `CLAUDE_CODE_OAUTH_TOKEN`,
 which is a subscription sign-in. The daemon's token and `OHMYGAME_*` variables
 never reach a CLI. The executable is resolved to an absolute path from the
-person's choice, PATH, the login shell's PATH and the usual install folders.
+person's choice, PATH, the login shell's PATH, usual install folders, and known
+bundled copies such as ChatGPT's Codex. An explicit path wins; automatic
+discovery chooses the newest SemVer, including prerelease ordering, and retries
+failed version probes. Recheck also invalidates successful probes. Catalog
+refreshes honor their TTL and discard results from a superseded configuration.
 
 By default each agent runs without the person's own configuration:
 
@@ -172,7 +194,7 @@ By default each agent runs without the person's own configuration:
 
 `agent-runtimes.json` in the data directory stores, per agent, `enabled`
 (default off), `isolateUserConfig` (default on), an optional absolute
-`binaryPath`, and optional native model/effort `defaults`. A damaged file falls
+`binaryPath`, and an optional native model/effort `defaultModel`. A damaged file falls
 back to the defaults. Credentials remain in the CLI's own store.
 
 | Route                                                     | Purpose                                                        |
@@ -181,7 +203,7 @@ back to the defaults. Credentials remain in the CLI's own store.
 | `PATCH /agent-runtimes/:id`                               | `enabled`, `isolateUserConfig`, `binaryPath`                   |
 | `POST /agent-runtimes/:id/recheck`                        | Probe one agent again                                          |
 | `POST /agent-runtimes/:id/login`                          | Start the CLI's sign-in; returns a browser URL or a command    |
-| `PUT /projects/:p/conversations/:c/native-reasoning` | Select a native effort/variant string |
+| `PUT /projects/:p/conversations/:c/reasoning`             | Select a native effort/variant string                          |
 | `POST /projects/:p/conversations/:c/approvals/:requestId` | Answer an approval request: `allow`, `allow-session` or `deny` |
 
 Status and models are probed only when asked for and cached by executable
@@ -203,8 +225,8 @@ The Provider, media, canvas, checkpoint and plugin code does not change.
 
 ## Compatibility and real acceptance
 
-The compatibility floors are Claude Code 2.1.76, Codex 0.140.0 and OpenCode
-1.18.33. Version checks are protocol floors, not certification of every newer
+The tested compatibility floors are Claude Code 2.1.76, Codex
+0.163.0-alpha.10.2 (named permission profiles) and OpenCode 1.18.33. Version checks are protocol floors, not certification of every newer
 release. Claude discovery accepts catalogs from either `initialize` or
 `list_models`; failed/empty catalogs produce a `models-unavailable` diagnostic.
 Being signed in and seeing a model does not guarantee account entitlement.
@@ -219,7 +241,9 @@ implemented; each new CLI needs discovery, a driver, and acceptance tests.
 Run public checks from [CONTRIBUTING](../CONTRIBUTING.md). Focused fixtures cover
 branch invalidation, expired resume, queue checkpoint ordering, startup/interrupt
 cancellation, bridge token revocation and abort, SSE loss, quotas, model
-dialects/defaults, persisted approvals/compaction and verified orphan recovery.
+dialects/defaults, stale discovery results, catalog pagination, planning write
+grants, child-session approvals, persisted approvals/compaction and verified
+orphan recovery.
 
 Real inference is opt-in and consumes the provider's quota:
 

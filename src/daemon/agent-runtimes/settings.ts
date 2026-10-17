@@ -6,9 +6,12 @@ import {
   isAgentRuntimeId,
   type AgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
-import type { AgentModelRef } from "../../shared/contracts.js";
 
-export interface NativeAgentDefaults { model: AgentModelRef; nativeReasoningLevel?: string }
+/** Conversation defaults live here; Pi's defaults also serve one-off generation. */
+export interface AgentRuntimeDefault {
+  model: { provider: AgentRuntimeId; id: string };
+  nativeReasoningLevel?: string;
+}
 
 export interface AgentRuntimeSettings {
   enabled: boolean;
@@ -30,7 +33,7 @@ export class AgentRuntimeSettingsStore {
   readonly #filePath: string;
   #settings = new Map<AgentRuntimeId, AgentRuntimeSettings>();
   #writes: Promise<unknown> = Promise.resolve();
-  #defaults?: NativeAgentDefaults;
+  #default?: AgentRuntimeDefault;
 
   constructor(dataDirectory: string) {
     this.#filePath = path.join(dataDirectory, "agent-runtimes.json");
@@ -52,8 +55,11 @@ export class AgentRuntimeSettingsStore {
       value && typeof value === "object"
         ? (value as { runtimes?: unknown }).runtimes
         : undefined;
-    const defaults = value && typeof value === "object" ? (value as { defaults?: NativeAgentDefaults }).defaults : undefined;
-    if (defaults && isAgentRuntimeId(defaults.model?.provider) && typeof defaults.model?.id === "string" && defaults.model.id && (defaults.nativeReasoningLevel === undefined || typeof defaults.nativeReasoningLevel === "string")) this.#defaults = defaults;
+    const stored =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : {};
+    this.#default = parseDefault(stored.defaultModel ?? stored.defaults);
     if (!runtimes || typeof runtimes !== "object") return;
     for (const [id, entry] of Object.entries(runtimes)) {
       if (!isAgentRuntimeId(id) || !entry || typeof entry !== "object")
@@ -80,12 +86,14 @@ export class AgentRuntimeSettingsStore {
     return { ...DEFAULTS, ...this.#settings.get(id) };
   }
 
-  defaults(): NativeAgentDefaults | undefined {
-    return this.#defaults ? { ...this.#defaults, model: { ...this.#defaults.model } } : undefined;
+  defaultModel(): AgentRuntimeDefault | undefined {
+    return this.#default
+      ? { ...this.#default, model: { ...this.#default.model } }
+      : undefined;
   }
 
-  setDefaults(defaults: NativeAgentDefaults | undefined): Promise<void> {
-    this.#defaults = defaults;
+  setDefaultModel(defaults: AgentRuntimeDefault | undefined): Promise<void> {
+    this.#default = defaults;
     return this.#persist();
   }
 
@@ -105,14 +113,14 @@ export class AgentRuntimeSettingsStore {
         (runtime) => [runtime, this.#settings.get(runtime)],
       ),
     );
-    const defaults = this.#defaults;
+    const defaults = this.#default;
     const write = this.#writes.then(async () => {
       await mkdir(path.dirname(this.#filePath), { recursive: true });
       const temporary = `${this.#filePath}.${randomUUID()}.tmp`;
       try {
         await writeFile(
           temporary,
-          `${JSON.stringify({ version: 1, runtimes: snapshot, ...(defaults ? { defaults } : {}) }, null, 2)}\n`,
+          `${JSON.stringify({ version: 1, runtimes: snapshot, ...(defaults ? { defaultModel: defaults } : {}) }, null, 2)}\n`,
         );
         await rename(temporary, this.#filePath);
       } catch (cause) {
@@ -123,4 +131,27 @@ export class AgentRuntimeSettingsStore {
     this.#writes = write.catch(() => {});
     return write;
   }
+}
+
+function parseDefault(value: unknown): AgentRuntimeDefault | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const stored = value as {
+    model?: { provider?: unknown; id?: unknown };
+    nativeReasoningLevel?: unknown;
+    reasoningLevel?: unknown;
+  };
+  if (
+    !isAgentRuntimeId(stored.model?.provider) ||
+    typeof stored.model?.id !== "string" ||
+    !stored.model.id
+  )
+    return undefined;
+  // Migrate early defaults that used Pi's enum without retaining a second source.
+  const level = stored.nativeReasoningLevel ?? stored.reasoningLevel;
+  return {
+    model: { provider: stored.model.provider, id: stored.model.id },
+    ...(typeof level === "string" && level
+      ? { nativeReasoningLevel: level }
+      : {}),
+  };
 }
