@@ -10,7 +10,7 @@ describe("OhMyGame system prompt", () => {
     for (const type of ["general", "web-game", "godot-game", "interactive-story", "asset-canvas"] as const) {
       const text = prompt({ type });
 
-      expect(text).toContain("brief commentary update before the first tool call");
+      expect(text).toContain("write one brief sentence to the user before the first tool call");
       expect(text).toContain("update_plan");
       expect(text).toContain("Do not create or change files for casual conversation");
       expect(text).toContain("do not revert changes you did not make");
