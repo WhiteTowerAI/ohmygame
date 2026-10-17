@@ -1,21 +1,18 @@
 # Agent Runtime integration specification
 
-Status: reviewed integration design. Implementation is tracked in
-[PR #289](https://github.com/WhiteTowerAI/ohmygame/pull/289). Native runtimes are
-optional and disabled by default; implementation, automated coverage, and real
-acceptance are distinct milestones.
+Status: reviewed integration design. The implementation first merged in
+[PR #289](https://github.com/WhiteTowerAI/ohmygame/pull/289), was reverted by
+[#290](https://github.com/WhiteTowerAI/ohmygame/pull/290) pending acceptance,
+and is reintroduced with review fixes. Native runtimes are optional and
+disabled by default; implementation, automated coverage, and real acceptance
+are distinct milestones.
 
 This document records the architecture and delivery decisions from
 [PR #258](https://github.com/WhiteTowerAI/ohmygame/pull/258). It replaces the
 initial transport examples and phased proposal with the boundary used by the
-reviewed implementation. The implementation guide is `docs/coding-agents.md`
-(delivered with #289); shared types and tests remain the source of truth for
-individual protocol fields.
-
-Implementation acceptance is pending. PR #289 is being reverted from `dev`
-until Claude Code real inference and visual/style checks are complete. Its
-implementation and fixes are preserved for a new PR after explicit acceptance;
-this design document remains in place.
+reviewed implementation. The implementation guide is
+[coding-agents.md](coding-agents.md); shared types and tests remain the source
+of truth for individual protocol fields.
 
 ## Decisions and ownership
 
@@ -73,8 +70,10 @@ create another source of truth and is unnecessary.
 `ConversationAgentSettings.model` retains this shared reference. Pi
 `reasoningLevel` keeps its existing enum; native effort/variant values are
 stored separately as `nativeReasoningLevel` and validated against that native
-model's advertised values. Do not coerce arbitrary native values into Pi's
-reasoning enum. Preserve stored native effort while discovery is pending,
+model's advertised values. A native model lists no Pi reasoning levels, and
+routes that take a default or a new conversation's level accept
+`nativeReasoningLevel` for it and reject Pi's `reasoningLevel`. Neither value
+is coerced into the other. Preserve stored native effort while discovery is pending,
 including when a conversation is reopened after daemon restart.
 
 The selected conversation model wins. New conversations reuse the project's
@@ -85,8 +84,8 @@ native selection continue through Pi.
 
 `agent-runtimes.json` stores per-runtime `enabled` (default false),
 `isolateUserConfig` (default true), optional absolute `binaryPath`, and optional
-`defaultModel`. It contains no credentials. Early settings formats migrate to
-this canonical shape; damaged settings fall back to safe defaults.
+`defaultModel`. It contains no credentials. Damaged settings fall back to safe
+defaults.
 
 | API                                                       | Contract                                                                       |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -163,7 +162,9 @@ follow-ups. They are not concurrent mid-turn injection. Pi retains its own
 steering behavior. The UI must describe the supported queue behavior instead
 of claiming steering parity across CLIs.
 
-Check abort before spawning and again before delivery. Interrupt waits are
+A CLI idle for ten minutes is stopped and its replacement resumes the ready
+native session with the next message, so open conversations do not each keep
+a process. Check abort before spawning and again before delivery. Interrupt waits are
 bounded and fall back to stopping the process group. A turn must settle on
 spawn failure, close, transport loss, timeout, and cancellation, including
 startup races. Ignore late callbacks/results after settlement.
@@ -190,7 +191,11 @@ SDK later if it removes maintenance while preserving hooks, permissions, MCP,
 resume, and cancellation; no separate SDK architecture is needed.
 
 Claude's permission controls use both `PreToolUse` and `can_use_tool`; validate
-control callbacks, planning restrictions, and allowed MCP calls. Discover
+control callbacks, planning restrictions, and allowed MCP calls. Planning runs in
+Claude's default permission mode, not its plan mode, so Claude records the plan
+with `update_plan` rather than its own plan file. Background tasks and scheduled
+prompts are disabled, because their reports would arrive after the turn ends.
+Bridge tools are marked always loaded so tool search does not hide them. Discover
 models from `initialize` or `list_models` as supported; expose failed/empty
 catalogs as diagnostics. A sole callback path is not a sufficient assumption.
 
@@ -252,6 +257,11 @@ custom CLI credential roots, and denies direct requests for credential homes,
 OhMyGame data, other projects, or ancestors that expose them. Workspace file
 operations and a small set of simple read commands may proceed; external paths,
 builds, interpreters, Git, compound commands, and unknown scopes need approval.
+Globs, brace expansion, and recursive link-following options (`grep -R`,
+`rg -L`, `ls -LR`) are unknown scopes: they reach paths the command text does
+not name. A native agent's own tools that touch no file and run no command,
+such as Claude Code's task list, Skill loading, subagents and web research,
+run without approval; their subagents' tool calls are still checked.
 Explicit permission grants must contain understood, concrete roots; reject
 root-filesystem grants, globs, unknown forms, and protected paths.
 
@@ -301,10 +311,11 @@ and Chinese; prompts sent to agents remain English.
 The three adapters have Full integration scope: OhMyGame tools, approval UI,
 resume/rebuild, manual/native compaction, queued continuation, usage where
 reported, and checkpoint recovery. Full describes implemented scope, not a
-promise of identical native features or completed platform acceptance. A Basic
-tier is reserved; adding a declarative entry alone cannot run another CLI.
+promise of identical native features or completed platform acceptance. There
+is no generic Basic tier: adding a declarative entry alone cannot run another
+CLI.
 
-The reviewed #289 implementation covers shared infrastructure, all three
+The implementation covers shared infrastructure, all three
 drivers, plugin/Skill bridging, settings/model selection, approvals, and
 lifecycle recovery. Focused fixtures cover branch invalidation, expired resume,
 queue checkpoints, cancellation races, token revocation, SSE loss, model/default
@@ -327,10 +338,27 @@ Validation recorded during review on macOS:
   approval tests passed; an extra real Codex browser approval click scenario
   did not complete and is not counted as passed.
 
-Claude real inference is pending because the local CLI is signed out; its
-protocol/discovery/permission fixtures passed. Linux/Windows real CLI acceptance,
+Real Claude Code 2.1.302 / Sonnet 5.5 acceptance passed on macOS for the
+reintroduced implementation: the same workflow as above (cancellation in
+619 ms), loading a staged Skill without approval, and a planning turn that
+searched with read-only commands, recorded its plan with `update_plan` and left
+the workspace unchanged. OpenCode 1.18.33 / `mimo-v2.6-flash-free` passed the
+same extended workflow after its fixes. That acceptance found and fixed: tools never shown as
+running, subagents and shells that ran in the background past the turn, Claude's
+own plan-file workflow in place of `update_plan`, planning that could not
+search, OhMyGame tools deferred behind Claude's tool search, OpenCode
+subagents refused in planning, and bare OpenCode rejections that ended the
+planning loop. Codex 0.163.0 (the first stable release with named
+permission profiles) / `gpt-6-luna` passed the same extended workflow after
+one more fix: it reads `AGENTS.md` from every folder between the Git root and
+the workspace through the permission profile, so a workspace inside another
+repository failed to start a thread. `project_root_markers = []` makes the
+workspace its own root, so only the workspace's `AGENTS.md` is read, as for
+OhMyGame's own agent. Linux/Windows real CLI acceptance,
 Electron-specific native lifecycle acceptance, paid media/game-playtest flows,
-and universal OS confinement are not established by these checks. Keep native
+and universal OS confinement are not established by these checks. On Windows,
+discovery finds `.exe` programs only: Node cannot start the `.cmd` shims npm
+installs without a shell. Keep native
 runtimes opt-in and require real acceptance on a target platform before
 advertising it as validated. Latest-head CI must pass before merging; earlier
 local evidence or an old green check does not satisfy that gate.

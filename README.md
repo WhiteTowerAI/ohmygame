@@ -166,6 +166,10 @@ OhMyGame does not lock you into one model or charge per run.
 - **Sign in with a subscription you already have**, such as ChatGPT Plus/Pro or
   GitHub Copilot, or paste an API key.
   <!-- TODO(legal): check each provider's terms before naming more subscriptions -->
+- **Coding agents you already use**: Claude Code, Codex, and OpenCode run a
+  conversation with their own sign-in, while OhMyGame keeps its history, Undo,
+  canvas, media tools, and plugins. Enable them in Settings; native CLI
+  permission limits apply. See [coding agents](docs/coding-agents.md).
 - **Media models** for images, video, and 3D through OpenAI, OpenRouter,
   Volcengine Ark / BytePlus ModelArk, and Meshy.
 - **Custom providers and model aliases** with selectable language, image, video

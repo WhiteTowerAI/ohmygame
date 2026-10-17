@@ -8,6 +8,7 @@ import {
   SettingsManager,
   type AgentSession,
   type ExtensionFactory,
+  type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type {
   McpServerDefinition,
@@ -124,6 +125,61 @@ export class PluginMcpHost {
       void close().catch(() => {});
     };
     return close;
+  }
+  /**
+   * The `mcp` tool of the active plugin servers, for a coding agent session.
+   * It runs in a session of its own with no model, so the servers, their
+   * settings and their credentials stay in the daemon as they do for Pi.
+   */
+  async tool(
+    config: EffectiveMcpConfig,
+    agentDir: string,
+  ): Promise<{ tool: ToolDefinition; close: () => Promise<void> }> {
+    if (this.#closed) throw new Error("MCP host is closed");
+    const settingsManager = SettingsManager.inMemory({ packages: [] });
+    const resourceLoader = new DefaultResourceLoader({
+      cwd: agentDir,
+      agentDir,
+      settingsManager,
+      noExtensions: true,
+      noSkills: true,
+      noPromptTemplates: true,
+      noThemes: true,
+      noContextFiles: true,
+      extensionFactories: [{ name: "plugin-mcp", factory: await this.extension(config) }],
+    });
+    await resourceLoader.reload();
+    const { session } = await createAgentSession({
+      cwd: agentDir,
+      agentDir,
+      settingsManager,
+      resourceLoader,
+      noTools: "builtin",
+      sessionManager: SessionManager.inMemory(agentDir),
+    });
+    const close = this.manage(session);
+    try {
+      await session.bindExtensions({ mode: "rpc" });
+    } catch (cause) {
+      await close();
+      throw cause;
+    }
+    const definition = session.getToolDefinition("mcp");
+    if (!definition) {
+      await close();
+      throw new Error("MCP adapter failed to load");
+    }
+    const tool: ToolDefinition = {
+      ...definition,
+      execute: (toolCallId, params, signal, onUpdate) => definition.execute(
+        toolCallId,
+        params,
+        signal,
+        onUpdate,
+        session.extensionRunner.createToolContext("coding-agent", undefined),
+      ),
+    };
+    return { tool, close };
   }
   async probe(
     key: string,
