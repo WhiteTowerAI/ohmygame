@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rename,
   rm,
   symlink,
@@ -38,7 +39,9 @@ const run = promisify(execFile);
 let directory: string;
 let workspace: string;
 beforeEach(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-git-"));
+  directory = await realpath(
+    await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-git-")),
+  );
   workspace = path.join(directory, "workspace");
   await mkdir(workspace);
 });

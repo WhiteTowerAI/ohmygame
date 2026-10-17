@@ -11,6 +11,17 @@ import { countLineChanges } from "../shared/line-diff.js";
 import { changeText, MAX_CHANGE_BYTES } from "./file-line-changes.js";
 import { readWorkspaceFile, WorkspaceError } from "./workspace.js";
 
+const DIFF_ARGS = [
+  "diff",
+  "--raw",
+  "--numstat",
+  "-z",
+  "--no-abbrev",
+  "--no-renames",
+  "--no-ext-diff",
+  "--no-textconv",
+];
+
 function git(
   workspace: string,
   args: string[],
@@ -99,18 +110,8 @@ async function readChanges(
       .toString()
       .trim();
   const pathsFilter = filePath ? [filePath] : [];
-  const diffArgs = [
-    "diff",
-    "--raw",
-    "--numstat",
-    "-z",
-    "--no-abbrev",
-    "--no-renames",
-    "--no-ext-diff",
-    "--no-textconv",
-  ];
   const [tracked, untracked] = await Promise.all([
-    git(repo.root, [...diffArgs, baseline, "--", ...pathsFilter]),
+    git(repo.root, [...DIFF_ARGS, baseline, "--", ...pathsFilter]),
     git(repo.root, [
       "ls-files",
       "--others",
@@ -130,61 +131,13 @@ async function readChanges(
         // An index removal can leave a file on disk. Compare that file to HEAD
         // instead of replacing its deletion with an unrelated addition.
         if (changes.get(filePath)?.kind === "removed") {
-          let diff: Buffer;
-          try {
-            diff = await git(repo.root, [
-              ...diffArgs,
-              `${baseline}:${filePath}`,
-              "--",
-              filePath,
-            ]);
-            // Blob/file comparisons do not apply Git's mode settings. Use the
-            // working mode when Git ignores executable bits or checks out links
-            // as regular files on a filesystem without symlink support.
-            const modes = /^:([0-7]{6}) ([0-7]{6}) ([a-f0-9]+) /.exec(
-              diff.toString(),
-            );
-            const setting =
-              modes && /^100(644|755)$/.test(modes[2])
-                ? modes[1] === "120000"
-                  ? "core.symlinks"
-                  : /^100(644|755)$/.test(modes[1]) && modes[1] !== modes[2]
-                    ? "core.filemode"
-                    : undefined
-                : undefined;
-            if (modes && setting) {
-              let value = modeSettings.get(setting);
-              if (!value) {
-                value = git(repo.root, [
-                  "config",
-                  "--type=bool",
-                  "--default=true",
-                  "--get",
-                  setting,
-                ]);
-                modeSettings.set(setting, value);
-              }
-              if ((await value).toString().trim() === "false")
-                diff = await git(repo.root, [
-                  ...diffArgs,
-                  modes[3],
-                  "--",
-                  filePath,
-                ]);
-            }
-          } catch (cause) {
-            // The untracked snapshot may outlive the file. Keep its deletion
-            // when it disappears or becomes a directory during the refresh.
-            const info = await lstat(path.join(repo.root, filePath)).catch(
-              (error) => {
-                if ((error as NodeJS.ErrnoException).code === "ENOENT")
-                  return null;
-                throw error;
-              },
-            );
-            if (!info || info.isDirectory()) return;
-            throw cause;
-          }
+          const diff = await diffIndexRemoval(
+            repo.root,
+            baseline,
+            filePath,
+            modeSettings,
+          );
+          if (diff === undefined) return;
           const current = parseChanges(diff).get(filePath);
           if (current) changes.set(filePath, { ...current, untracked: true });
           else changes.delete(filePath);
@@ -203,6 +156,55 @@ async function readChanges(
     );
   }
   return [...changes.values()].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function diffIndexRemoval(
+  root: string,
+  baseline: string,
+  filePath: string,
+  modeSettings: Map<string, Promise<Buffer>>,
+): Promise<Buffer | undefined> {
+  try {
+    const diff = await git(root, [
+      ...DIFF_ARGS,
+      `${baseline}:${filePath}`,
+      "--",
+      filePath,
+    ]);
+    // Blob/file comparisons do not apply Git's mode settings. Compare the
+    // bare blob when Git ignores executable bits or uses a symlink placeholder.
+    const modes = /^:([0-7]{6}) ([0-7]{6}) ([a-f0-9]+) /.exec(diff.toString());
+    if (!modes || !/^100(644|755)$/.test(modes[2])) return diff;
+    let setting: string;
+    if (modes[1] === "120000") setting = "core.symlinks";
+    else if (/^100(644|755)$/.test(modes[1]) && modes[1] !== modes[2])
+      setting = "core.filemode";
+    else return diff;
+
+    let value = modeSettings.get(setting);
+    if (!value) {
+      value = git(root, [
+        "config",
+        "--type=bool",
+        "--default=true",
+        "--get",
+        setting,
+      ]);
+      modeSettings.set(setting, value);
+    }
+    return (await value).toString().trim() === "false"
+      ? await git(root, [...DIFF_ARGS, modes[3], "--", filePath])
+      : diff;
+  } catch (cause) {
+    // The untracked snapshot may outlive the file. Keep its deletion when it
+    // disappears or becomes a directory; propagate other Git failures.
+    const info = await lstat(path.join(root, filePath)).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    });
+    if (!info || info.isDirectory()) return;
+    throw cause;
+  }
 }
 
 function parseChanges(output: Buffer): Map<string, WorkspaceGitChange> {
