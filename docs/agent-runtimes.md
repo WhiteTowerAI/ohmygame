@@ -1,666 +1,347 @@
 # Agent Runtime integration specification
 
-Status: proposal, reviewed against the current daemon and the open PR comments.
+Status: reviewed integration design. Implementation is tracked in
+[PR #289](https://github.com/WhiteTowerAI/ohmygame/pull/289). Native runtimes are
+optional and disabled by default; implementation, automated coverage, and real
+acceptance are distinct milestones.
 
-This document defines the boundary for adding native agent CLIs to OhMyGame. The first
-batch is Pi, Codex CLI, Claude Code CLI, and OpenCode. It defines daemon, renderer,
-plugin, canvas, and model contracts; each adapter still owns the version-specific CLI
-flags and wire protocol.
+This document records the architecture and delivery decisions from
+[PR #258](https://github.com/WhiteTowerAI/ohmygame/pull/258). It replaces the
+initial transport examples and phased proposal with the boundary used by the
+reviewed implementation. The implementation guide is `docs/coding-agents.md`
+(delivered with #289); shared types and tests remain the source of truth for
+individual protocol fields.
 
-## Decisions
+## Decisions and ownership
 
-- `Provider` continues to represent a model service, authentication, model catalog, and
-  API protocol.
-- An `Agent Runtime` owns an agent loop, tool execution, permissions, sessions, and, for
-  native runtimes, an external process.
-- Pi remains the first-party Direct Runtime and the default path for existing projects,
-  API providers, and local models.
-- Codex, Claude Code, and OpenCode are optional Native Runtimes. They are not modeled as
-  ordinary `ProviderSummary` entries.
-- Image, video, and 3D providers remain daemon-owned. Native runtimes reach them through
-  the same OhMyGame tool services that Pi uses; adapters do not implement media jobs.
-- Existing `ModelRef`, `models.json`, `auth.json`, model visibility, and media defaults
-  remain compatible.
-- Wire protocols stay native: Codex App Server JSON-RPC, Claude stream-json or the
-  official Agent SDK, and OpenCode JSON events.
-- `AgentManager` remains the only turn and session orchestrator. New code handles runtime
-  selection, native process ownership, protocol translation, and native session metadata.
-- The renderer continues to consume the existing `RuntimeEvent` and `ThreadItem` model.
-  No parallel public `agent.tool.*` or `agent.run.*` event family is introduced.
-
-## Current boundary
-
-The daemon currently loads language models through Pi's `ModelRuntime`; `app.ts` wires
-`auth.json` and `models.json` and creates Pi sessions. `createPiSession` owns the Pi model
-loop, tools, Skills, MCP, and transcript integration.
-
-`AgentManager` already owns session caching, active turns, prompt and steering queues,
-cancellation, state, errors, checkpoints, and event forwarding. `CodingSession` is the
-existing session boundary. A Native Runtime adapter must implement that boundary, or a
-thin wrapper around it, instead of adding another turn/session orchestrator.
-
-The shared model reference remains:
-
-```ts
-interface ModelRef {
-  provider: string;
-  id: string;
-}
-```
-
-The same shape is used for language, image, video, and 3D models. A CLI-native model
-must not be inserted into the existing provider model catalog. Provider capabilities
-remain `language`, `image`, `video`, and `3d`.
-
-The existing `ProviderImages`, `ProviderVideos`, `ProviderModels3D`, `ToolRunner`,
-`CanvasStore`, preview services, and plugin services remain the owners of their behavior.
-Native adapters must not copy model selection, default resolution, asynchronous jobs,
-artifacts, cancellation, retries, or canvas history.
-
-Relevant code entry points:
-
-- [daemon runtime initialization](../src/daemon/app.ts)
-- [AgentManager and Pi session implementation](../src/daemon/agent.ts)
-- [shared model and runtime event contracts](../src/shared/contracts.ts)
-- [provider model settings](../src/daemon/provider-model-settings.ts)
-- [agent tools](../src/daemon/agent-tools.ts)
-- [media job runner](../src/daemon/tools.ts)
-
-## Terms
-
-### Direct Runtime
-
-A runtime whose model requests and agent loop are driven by OhMyGame/Pi. Pi can use
-OpenAI-compatible APIs, Anthropic APIs, Ollama, LM Studio, and other configured providers.
-The API provider itself is not a runtime.
-
-### Native Runtime
-
-A runtime whose CLI or official agent protocol drives the complete agent loop. Codex,
-Claude Code, and OpenCode retain their own authentication, permissions, model semantics,
-and native session identifiers.
-
-### Agent run
-
-A run managed by the existing `AgentManager` and `ActiveTurn`, associated with an
-OhMyGame project/conversation and, when available, a native session ID. It is not a new
-persistent run table.
-
-### Tool/MCP bridge
-
-A daemon-owned protocol boundary that exposes OhMyGame project, plugin, canvas, preview,
-media, and file services to a native runtime. It translates schemas and transports; it
-does not become a second implementation of those services.
-
-### Native runtime state
-
-The small amount of metadata needed to resume a native session: runtime ID, native model,
-native version, and native session ID. Runtime status, turn state, queues, errors, and
-checkpoints remain owned by `AgentManager` and the existing event model.
-
-## Review conclusions and non-duplication rules
-
-| Proposed abstraction                                 | Existing capability                                                                   | Rule                                                                                                                                                 |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ExecutionSupervisor`                                | `AgentManager` already manages sessions, turns, queues, cancellation, and events      | Do not add a second orchestrator. Add only a CLI process supervisor.                                                                                 |
-| `AgentExecutionRecord`                               | `ActiveTurn`, `ManagedSession`, conversation transcripts, and checkpoints             | Persist only native session metadata; keep run status in the existing manager/events.                                                                |
-| `agent.message.delta`, `agent.tool.*`, `agent.run.*` | `RuntimeEvent`, `ThreadItem`, `item.*`, and `agent.*` are already renderer-facing     | Map native events into the existing session/event path.                                                                                              |
-| `PluginRuntimeCompiler`                              | `PluginCapabilities.effective()`, `PluginMcpHost`, plugin settings, and configuration | Keep only a pure per-runtime serializer; do not duplicate plugin discovery or state.                                                                 |
-| Tool/MCP bridge business logic                       | `createAgentTools`, `ToolRunner`, `CanvasStore`, and preview services                 | Reuse existing handlers; add only protocol/schema translation.                                                                                       |
-| Generic `RuntimeSessionStore`                        | Pi session files, `ConversationManager`, and checkpoints                              | Store conversation runtime metadata as versioned session-tree entries. A separate journal is allowed only for process ownership and orphan recovery. |
-
-The minimum new implementation surface is therefore runtime registry/discovery, a CLI
-process supervisor, three protocol adapters, per-runtime configuration serialization,
-and the `AgentManager` session-factory selection.
-
-## Goals and non-goals
-
-### Goals
-
-- Let a conversation choose Pi, Codex CLI, Claude Code CLI, or OpenCode.
-- Preserve existing language LLM/API/local model configuration.
-- Let native runtimes use OhMyGame game, canvas, media, plugin, and preview tools.
-- Keep message, tool-call, file-change, artifact, approval, and error displays consistent.
-- Persist both the OhMyGame transcript/checkpoints and the native session identifier.
-- Support CLI discovery, version capability checks, authentication status, cancellation,
-  recovery, and daemon restart cleanup.
-- Make adding another CLI or removing the first batch independent of the Provider and
-  media systems.
-
-### Non-goals
-
-- Do not proxy or copy third-party subscription OAuth refresh tokens.
-- Do not force every CLI to use ACP or one common wire protocol.
-- Do not copy image, video, 3D, canvas, or task-recovery implementations into adapters.
-- Do not require every CLI-specific feature in the first release, such as full usage
-  quotas, complex steering, or native compaction parity.
-- Do not promise lossless import of a Codex thread, Claude hidden context, or OpenCode
-  session into Pi.
-
-## Architecture
+- A Provider represents a model service, authentication, catalog, and API
+  protocol. An Agent Runtime owns an agent loop, native context, permissions,
+  and, for external CLIs, a process.
+- Pi remains the default Direct Runtime for existing conversations, API
+  providers, and local models. Claude Code, Codex, and OpenCode are optional
+  Native Runtimes using their own sign-in and model semantics.
+- `AgentManager` remains the sole conversation/turn orchestrator. A
+  `NativeCodingSession` implements the existing `CodingSession` boundary;
+  protocol drivers implement transport and translate events.
+- Conversation files, checkpoints, plan state, queues, errors, and public
+  events retain their existing owners. Do not add a second conversation
+  database, run/event store, or execution supervisor.
+- The CLI process layer owns spawn, pipes, cancellation, process groups,
+  ownership records, and private directory cleanup. Its journal stores process
+  identities for orphan recovery, never conversation state.
+- Image, video, 3D, canvas, preview, and plugin behavior stays in daemon services.
+  Adapters reuse those services through a tool bridge.
 
 ```text
-Renderer
-  │ local HTTP + SSE
+Renderer: existing model picker, timeline, approvals, context/usage
+  │ HTTP + SSE / RuntimeEvent / ThreadItem
   ▼
-AgentManager
-  ├── Runtime registry / discovery
+AgentManager: turns, queues, checkpoints, errors, cancellation
   ├── existing Pi CodingSession
-  └── Native Runtime CodingSession adapters
-       ├── Codex App Server
-       ├── Claude stream-json / Agent SDK
-       └── OpenCode JSON
-
-Native Runtime adapters
-  ├── CliProcessSupervisor (external process ownership only)
-  ├── protocol transport and parser
-  ├── native session metadata entries
-  ├── mapping into existing SessionEntry / ThreadItem / RuntimeEvent
-  └── thin Tool/MCP protocol adapter
-
-OhMyGame services
-  ├── PluginCapabilities / PluginMcpHost
-  ├── createAgentTools / ToolRunner
-  ├── CanvasStore
-  ├── game preview services
-  └── workspace and artifact services
-
-Provider and model layer
-  ├── language/API providers
-  ├── image providers
-  ├── video providers
-  └── 3D providers
+  └── NativeCodingSession: shared transcript, native context lifecycle
+       ├── Claude Code driver: stream-json/control requests
+       ├── Codex driver: App Server JSON-RPC
+       └── OpenCode driver: local HTTP + SSE
+            │
+            ├── CLI process ownership and private runtime files
+            └── ToolBridge → existing tools, canvas/media/preview, plugin MCP
 ```
 
-Suggested files for the new native-runtime code:
+The implementation lives in `src/daemon/agent-runtimes/`, with public types in
+`src/shared/agent-runtimes.ts` and `src/shared/contracts.ts`. These are module
+boundaries, not a requirement for a new generic framework. A future SDK may
+replace a driver's transport without changing orchestration or persistence.
 
-```text
-src/daemon/agent-runtime/
-  contracts.ts
-  registry.ts
-  discovery.ts
-  cli-process-supervisor.ts
-  runtime-config.ts
-  adapters/
-    codex-app-server.ts
-    claude-stream-json.ts
-    opencode-json.ts
-```
+## Selection, settings, and discovery
 
-Do not add a Pi adapter that merely wraps `createPiSession`, an
-`execution-supervisor.ts`, a second event bus, or independent media/canvas services.
+Configure CLIs under **Providers & Models → Coding agents** and choose native
+models in the existing conversation model picker. Do not add a competing
+runtime selector or runtime-specific conversation settings route.
 
-## Runtime definitions and capabilities
+The existing `ModelRef { provider, id }` identifies both the runtime and its
+native model. Runtime provider IDs are `claude-code-cli`, `codex-cli`, and
+`opencode-cli`; the suffix avoids collisions with ordinary Pi providers, such
+as `opencode`. These are not `ProviderSummary` records and are not inserted
+into the Provider language catalog. A separate persisted `runtime` field would
+create another source of truth and is unnecessary.
 
-A runtime definition declares static identity and probing. The protocol adapter starts the
-session and translates events.
+`ConversationAgentSettings.model` retains this shared reference. Pi
+`reasoningLevel` keeps its existing enum; native effort/variant values are
+stored separately as `nativeReasoningLevel` and validated against that native
+model's advertised values. Do not coerce arbitrary native values into Pi's
+reasoning enum. Preserve stored native effort while discovery is pending,
+including when a conversation is reopened after daemon restart.
+
+The selected conversation model wins. New conversations reuse the project's
+recent model selection, then configured defaults/available models. Global
+native defaults retain model and effort together. An explicitly different
+model does not inherit an incompatible effort. Existing conversations with no
+native selection continue through Pi.
+
+`agent-runtimes.json` stores per-runtime `enabled` (default false),
+`isolateUserConfig` (default true), optional absolute `binaryPath`, and optional
+`defaultModel`. It contains no credentials. Early settings formats migrate to
+this canonical shape; damaged settings fall back to safe defaults.
+
+| API                                                       | Contract                                                                       |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `GET /models`                                             | Pi/API language models and Pi default; unchanged for one-off generation        |
+| `GET /models?runtimes=1`                                  | Conversation catalog including enabled native models; reports loading runtimes |
+| `PUT /models/default`                                     | Save the selected default; retain native effort with a native model            |
+| `PUT /projects/:p/conversations/:c/model`                 | Change the conversation model and derive its runtime                           |
+| `PUT /projects/:p/conversations/:c/reasoning`             | Validate Pi reasoning or native effort for the selected model                  |
+| `GET /agent-runtimes`                                     | Discovery/status; `?recheck=1` refreshes probes                                |
+| `PATCH /agent-runtimes/:id`                               | Enablement, configuration isolation, executable override                       |
+| `POST /agent-runtimes/:id/recheck`                        | Refresh one runtime                                                            |
+| `POST /agent-runtimes/:id/login`                          | Return the CLI's login URL or terminal command                                 |
+| `POST /projects/:p/conversations/:c/approvals/:requestId` | Answer a pending approval                                                      |
+
+Discovery is lazy; Pi requests do not wait for it. An explicit executable wins.
+Otherwise choose the newest installed SemVer among PATH, login-shell PATH,
+common install directories, and known bundled copies. Resolve the executable
+to an absolute path and deduplicate real paths. Version/probe caches are
+bounded, expire failed results, honor Recheck, and discard in-flight catalog
+results after configuration changes. Paginated native catalogs must be read
+completely. A successful model listing is not proof of account entitlement;
+billing/auth sources that cannot be established remain unknown.
+
+## Shared transcript and native context
+
+Every production native session uses a persistent Pi `SessionManager` at the
+existing conversation session path. Conversation listing, branch navigation,
+Undo, plan state, prompt details, errors, and restart recovery depend on it.
+An optional interface property for Pi test doubles does not make production
+native persistence optional.
+
+Native messages/tool results are display and recovery records in that file.
+Adapters must not reconstruct native hidden context or promise lossless replay
+into another runtime. Native compaction and terminal approval decisions use
+versioned custom entries when ordinary messages do not represent them.
+Reloading approval history never restores permission grants.
+
+Native resume metadata is also a session-tree custom entry, not a sidecar:
 
 ```ts
-type AgentRuntimeId = "pi" | "codex-cli" | "claude-code" | "opencode";
-
-interface RuntimeDefinition {
-  id: AgentRuntimeId;
-  name: string;
-  binary: string;
-  fallbackBinaries?: string[];
-  versionArgs: string[];
-  helpArgs?: string[];
-  capabilityProbe?: CapabilityProbe;
-  transport: "pi" | "codex-app-server" | "claude-stream-json" | "opencode-json";
-}
-
-interface RuntimeCapabilities {
-  modelDiscovery: boolean;
-  nativeResume: boolean;
-  imageInput: boolean;
-  workspaceFiles: boolean;
-  mcp: boolean;
-  approvals: boolean;
-  steering: boolean;
-  compaction: boolean;
-  usage: boolean;
-}
-```
-
-Capabilities must come from the installed binary/version probe. Do not infer a flag,
-event, or model from the runtime name. Cache probe results by resolved binary path,
-version, and modification time; re-probe on explicit Recheck or binary changes.
-
-The adapter surface stays small:
-
-```text
-probe
-authStatus
-createSession(context) -> NativeCodingSession
-```
-
-`NativeCodingSession` implements the existing `CodingSession` methods (`prompt`,
-`followUp`, `steer`, `abort`, `dispose`, and `subscribe`). The native adapter owns
-stdin/stdout, JSON-RPC, JSONL, process groups, and protocol parsing. `AgentManager` remains
-the caller of session operations and the publisher of public events.
-
-## Runtime-specific transports
-
-### Codex CLI
-
-Use Codex App Server JSON-RPC for an interactive session:
-
-```text
-initialize
-thread/start or thread/resume
-turn/start
-notifications
-approval responses
-thread/compact when supported
-```
-
-`codex exec --json` is a one-shot or compatibility fallback, not the primary interactive
-transport. The adapter discovers the binary and version, checks Codex's own login state,
-obtains native model/reasoning capabilities, stores the thread ID, translates tool,
-approval, limit, error, cancel, resume, and compaction events, and injects the OhMyGame
-bridge using the supported App Server mechanism.
-
-Authentication uses Codex's own login/configuration. The daemon does not read or copy a
-Codex refresh token.
-
-### Claude Code CLI
-
-Use stream-json or the official Agent SDK according to the installed version:
-
-```text
-claude -p --input-format stream-json --output-format stream-json
-```
-
-The adapter probes supported flags, checks Claude's native login state, writes prompt and
-follow-up JSONL messages to a long-lived stdin pipe, keeps `--session-id`/`--resume`
-semantics, translates permissions/tool/error/cancel events, and injects MCP through the
-per-run mechanism described below. It must not assume `bypassPermissions` is safe or
-available.
-
-### OpenCode
-
-Use the installed OpenCode JSON event dialect, for example:
-
-```text
-opencode run --format json
-```
-
-The adapter probes the dialect, discovers models and variants with the supported command,
-captures `sessionID`, resumes with the supported session option, and handles native
-provider/model/variant semantics. It may use a one-shot process per turn or a persistent
-pipe when the installed version supports it; the adapter declares the mode instead of
-assuming that every runtime has the same stdin lifecycle.
-
-OpenCode can use Zen, OpenAI, Anthropic, Ollama, or another provider. The UI must show the
-actual authentication and billing source rather than labeling every OpenCode session as a
-Zen/OpenCode subscription.
-
-## Conversation settings and persistence
-
-Runtime selection is conversation-scoped in the first release. The project workspace UI
-may expose the setting while a conversation is selected, but there is no competing
-project-level runtime field. Existing conversations and missing fields default to `pi`.
-A future project default, if needed, must define `project default -> conversation override`
-precedence before it is added.
-
-Extend the existing `ConversationAgentSettings` contract instead of introducing a second
-selection object. The existing `model` and `reasoningLevel` fields are retained for Pi and
-remain typed exactly as they are today:
-
-```ts
-interface NativeModelSelection {
-  id: string; // runtime-native model ID or alias
-  provider?: string; // required when the runtime has multiple provider namespaces
-  variant?: string; // OpenCode-style variant, when supported
-}
-
-interface ConversationAgentSettings {
-  runtime?: AgentRuntimeId; // omitted means "pi"
-  model?: AgentModelRef; // Direct Runtime only
-  reasoningLevel?: AgentReasoningLevel; // Direct Runtime only
-  nativeModel?: NativeModelSelection; // Native Runtime model/alias
-  nativeReasoningLevel?: string; // Native Runtime-specific value
-}
-```
-
-The shared response type and the conversation persistence are extended together. Runtime
-settings are read from and written to the same conversation detail returned to the renderer;
-the runtime selection and native fields are stored in versioned session-tree custom entries.
-The existing model and reasoning routes remain the source of truth for Pi, and new runtime
-routes update the same conversation settings. A native model is never written into the
-Provider language model catalog, and a native reasoning value is never coerced into Pi's
-`AgentReasoningLevel`. Existing Pi model and reasoning values remain available when a user
-switches back from a native runtime.
-
-The create-conversation request accepts these fields as optional additions, with omitted
-`runtime` meaning `pi`. Add a runtime update route such as
-`PUT /projects/:projectId/conversations/:conversationId/runtime` with the native selection
-and reasoning fields. The existing `/model` and `/reasoning` routes stay backwards-compatible
-Pi routes; they do not try to validate or persist a native model. Runtime and native values
-are validated against the selected runtime's capability result before being written.
-
-Every native adapter must provide a persistent transcript through the shared
-`SessionManager` contract used by `CodingSession`:
-
-```ts
-interface NativeCodingSession extends CodingSession {
-  readonly sessionManager: Pick<
-    SessionManager,
-    "appendCustomEntry" | "getBranch"
-  >;
-}
-```
-
-The value must be backed by a real, persistent Pi `SessionManager` opened or created at the
-existing conversation session path; an in-memory object is suitable only for tests. The
-adapter may keep the full package object internally while exposing the current narrow
-`CodingSession` view. The existing TypeScript property may remain optional for Pi test
-doubles, but production native adapters must not omit it. `ConversationManager` discovers
-conversation files through Pi session files, and `AgentManager` records plan state, prompt
-details, errors, checkpoints, and turn ends through that manager. Omitting it would make
-native conversations disappear after restart and would break transcript, Undo, and recovery.
-
-Native wire events must be written to the shared transcript as user messages, assistant
-messages, tool results, errors, and versioned custom entries when no ordinary
-`SessionEntry` fits. Do not create a renderer-only transcript database.
-
-Native session metadata is stored as a versioned custom entry in the active session tree,
-for example:
-
-```ts
-interface NativeRuntimeEntry {
-  version: 1;
+interface StoredNativeSession {
+  version: 2;
   runtime: AgentRuntimeId;
-  nativeSessionId?: string;
-  nativeModel?: NativeModelSelection;
-  nativeReasoningLevel?: string;
-  nativeVersion?: string;
-  turnId?: string;
-  checkpointId?: string;
+  state: "active" | "ready" | "invalid";
+  sessionId?: string;
 }
 ```
 
-Append the entry when a native session is created or changes. Read the latest entry on the
-current branch. Because it is part of the session tree, navigating to a branch before the
-native session entry removes that resume metadata naturally; the adapter must create a new
-native session when the entry is absent or its checkpoint/turn no longer matches. A process
-ownership journal may still live outside the session tree for daemon restart orphan cleanup.
-
-Existing `/models` continues to return Pi/API language models. Runtime discovery endpoints
-may be added separately:
-
-```text
-GET  /agent-runtimes
-GET  /agent-runtimes/:runtimeId
-GET  /agent-runtimes/:runtimeId/models
-POST /agent-runtimes/:runtimeId/recheck
-POST /agent-runtimes/:runtimeId/login
-```
-
-## Prompt delivery, process ownership, and security
-
-The process supervisor must declare the stdin mode instead of applying one rule to every
-runtime:
-
-```ts
-type StdinMode =
-  | { kind: "one-shot-file" } // plain-text prompt; close after the child consumes it
-  | { kind: "persistent-pipe" }; // stream-json or JSON-RPC; close on session dispose
-```
-
-For a one-shot plain-text run, write a `0600` prompt file in a private runtime directory,
-pass it as stdin, close the daemon descriptor after spawn, and remove it after the child
-exits. This mode is suitable for `codex exec` and other commands that consume one prompt.
-
-For Claude stream-json, Codex App Server JSON-RPC, and any OpenCode dialect that supports
-interactive input, use a daemon-owned pipe. Keep the write side open for the native
-session lifetime. Follow-up/steering messages and Codex approval responses must be sent
-through that pipe; `dispose` closes it after the process exits. A one-shot file must never
-be used for a protocol that expects later JSONL or JSON-RPC messages.
-
-Every child has an independent process group. Cancellation terminates the complete process
-tree. The daemon records owned process metadata and reclaims orphaned processes on startup.
-The supervisor limits process count by runtime and project without blocking Pi's request
-queue.
-
-Discovery resolves each selected executable to an absolute path and records the version used
-for the capability result. The supervisor starts that resolved path instead of resolving a
-binary from the project workspace or an untrusted child `PATH`; the child may receive a
-minimal safe `PATH` only for its own helper processes.
-
-### Environment policy
-
-The default policy is subscription-first and explicit: construct the child environment from
-an allowlist, rather than copying `process.env`. This prevents an ambient API key from
-silently changing the billing source. A user may explicitly select an API-key runtime
-profile; the UI must then identify that source and the adapter may pass only the selected
-key variables.
-
-| Runtime     | Keep by default                                                                                                               | Pass credential variables only when explicitly selected                                          |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Codex       | `PATH`, locale/temp variables, the user-selected native Codex config/auth directory, and `CODEX_HOME` when configured         | `OPENAI_API_KEY`                                                                                 |
-| Claude Code | `PATH`, locale/temp variables, the user-selected native Claude config/auth directory, and `CLAUDE_CONFIG_DIR` when configured | `CLAUDE_CODE_OAUTH_TOKEN` for explicit CLI-token auth; `ANTHROPIC_API_KEY` for explicit API mode |
-| OpenCode    | `PATH`, locale/temp variables, native OpenCode config/auth paths, and daemon-generated `OPENCODE_CONFIG_CONTENT`              | The selected provider's variables, such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`               |
-
-`HOME` is passed only when required by the selected native config path, preferably as an
-explicit runtime config directory. Proxy variables are passed only when allowed by the
-OhMyGame network policy. Never pass the daemon token, unrelated `OHMYGAME_*` variables,
-unselected credential variables, or secrets in argv, prompts, transcripts, or logs.
-
-### MCP and bridge capability lifetime
-
-Never write a per-turn `.mcp.json` into a user's workspace. Workspaces may be tracked,
-published, exported, or already contain user configuration, and concurrent conversations
-would race on one file.
-
-Use the strongest local transport supported by the runtime and version:
-
-- Claude CLI uses a private `0600` `--mcp-config` file; add `--strict-mcp-config` only when
-  the installed version probe confirms both flags and the expected config format, or use an
-  official in-process SDK server.
-- Codex uses App Server dynamic tools when the capability probe confirms them, or a private
-  runtime configuration/stdio shim.
-- OpenCode uses `OPENCODE_CONFIG_CONTENT` when supported, or a private stdio shim.
-
-A temporary config is stored outside the workspace and lives until the child has consumed
-it. For a persistent session it remains in the private runtime directory until session
-dispose, then is removed. It is never logged or placed in argv when the protocol offers a
-file or environment channel.
-
-If a network bridge is unavoidable, issue a bridge capability scoped to the current
-project, conversation, runtime, and turn. It is valid for every MCP/tool call during that
-turn (it is not single-use), is revoked on completion, cancellation, failure, daemon
-shutdown, or session disposal, and is not reused for the next turn. A long-lived MCP
-connection must either refresh the turn capability in call metadata or reconnect before
-that next turn. Local dynamic tools and in-process/SDK bridges are preferred because they
-avoid a network credential entirely. A stdio shim that calls daemon HTTP must use the same
-turn capability; a private inherited descriptor or IPC channel may avoid it.
-
-## Plugins, Skills, canvas, and media
-
-`PluginCapabilities.effective(projectType)` and the existing plugin skill resolver remain
-the only inputs for enabled plugin capabilities. A pure `compileRuntimeConfig` step may
-serialize that effective configuration for a runtime, but it does not own plugin
-installation, settings, credentials, status, or lifecycle.
-
-| Plugin capability   | Pi                       | Codex                           | Claude Code                  | OpenCode                           |
-| ------------------- | ------------------------ | ------------------------------- | ---------------------------- | ---------------------------------- |
-| Skills              | Native loading           | Context/files                   | Context/files                | Context/files                      |
-| MCP servers         | Existing `PluginMcpHost` | App Server/config/dynamic tools | Strict per-run config or SDK | `OPENCODE_CONFIG_CONTENT` or stdio |
-| Plugin settings     | Daemon-managed           | Daemon-managed                  | Daemon-managed               | Daemon-managed                     |
-| Pi extensions/hooks | Native                   | Not directly compatible         | Not directly compatible      | Not directly compatible            |
-| Plugin UI           | Renderer                 | Renderer                        | Renderer                     | Renderer                           |
-
-If a runtime cannot represent a plugin capability, report that capability as unavailable;
-do not silently build a second compatibility implementation. Configuration changes take
-effect on the next turn or after the native session is restarted.
-
-Native runtimes do not call the renderer. File-based canvas edits can use the runtime's
-file tools and must be followed by `canvas_check`. Operations involving `CanvasStore`,
-canvas generation history, cancellation, game preview, or media jobs go through daemon-owned
-handlers. Those handlers reuse `createAgentTools`, `ToolRunner`, `CanvasStore`, and preview
-services; adapters only translate schemas and transports.
-
-Media model resolution remains:
-
-```text
-explicit ModelRef
-→ project media default
-→ global media default
-→ first available compatible model
-```
-
-A native language model cannot be used as an image, video, or 3D model. Media calls return
-the existing job ID, status, and artifact references; a text response from a CLI is not a
-completed media job.
-
-## Events and renderer display
-
-`RuntimeEvent` in [shared contracts](../src/shared/contracts.ts) is the source of truth for
-the SSE contract. A native adapter must not publish a second event family. The existing
-`AgentManager` continues to emit the public events declared in `RuntimeEventData`, including:
-
-```text
-agent.started / agent.completed / agent.cancelled / agent.error
-item.started / item.updated / item.completed
-item.agentMessage.delta / item.reasoning.textDelta
-plan.mode.changed
-prompt.queued / prompt.steered / prompt.removed
-```
-
-Native wire events first map to the `CodingSession`/`SessionEntry` and `AgentSessionEvent`
-path, then `AgentManager` creates `ThreadItem` and `RuntimeEvent` values. If a wire event
-cannot fit an existing item, add a narrowly scoped `ThreadItem` subtype and continue using
-`item.started`, `item.updated`, and `item.completed`; do not add a parallel SSE protocol.
-Checkpoint, Undo, tree-navigation, usage, and workspace recovery details stay in the existing
-session entries and manager state unless a future public event is deliberately added to the
-shared contract and renderer.
-
-Tool calls reuse `dynamicToolCall` and `mcpToolCall`. A native tool name or diagnostic value
-must use an explicitly typed optional field or a dedicated `ThreadItem` subtype added to the
-shared contract; do not rely on an untyped metadata bag that does not exist today. Approval,
-compaction, sub-agent, and usage details use the same typed extension rule. If a CLI does not
-provide complete input/output, show a marked summary rather than inventing details. CLI stdout
-is never forwarded verbatim to the renderer.
-
-## Performance and concurrency
-
-Discovery is on demand and cached. Selecting Pi does not launch or probe every CLI, and
-Pi's request path does not wait for native runtime discovery. Shared limits cover native
-processes, MCP servers, media jobs, local-model GPU/memory, builds, npm processes, and
-preview processes. A native runtime crash, timeout, or high CPU must not block Pi's queue.
-
-## Recovery and migration
-
-Persist both:
-
-```text
-OhMyGame transcript / checkpoint / artifact
-Native CLI session ID in the active session-tree entry
-```
-
-The native ID is a fast resume path, not the only recovery source. If a CLI is removed,
-its version changes incompatibly, or its session expires, create a new native session from
-the latest OhMyGame transcript, checkpoint, workspace, and recovery summary.
-
-Switching a conversation back to Pi means:
-
-1. Set that conversation's `runtime` to `pi`.
-2. Keep its existing Provider, `ModelRef`, reasoning setting, and media defaults.
-3. Start a Pi session from the normalized transcript, workspace, and checkpoint.
-4. Do not promise lossless native hidden-context import.
-
-Removing a CLI later means disabling its adapter, discovery entry, and settings UI. Provider,
-media, canvas, plugin, checkpoint, and Pi code remain usable without a migration rewrite.
-
-## Implementation plan
-
-### Phase 1: shared infrastructure
-
-- Runtime definition, registry, discovery, and capability probes.
-- `CliProcessSupervisor` with one-shot-file and persistent-pipe stdin modes.
-- Process groups, cancellation, orphan recovery, environment profiles, and private runtime
-  configuration files.
-- Native adapters implementing `CodingSession` with a required production `SessionManager`.
-- Versioned native runtime custom entries and existing `RuntimeEvent`/`ThreadItem` mapping.
-- Fake CLI fixtures for process, stream, cancellation, and recovery tests.
-
-### Phase 2: OpenCode vertical slice
-
-- Supported `opencode run --format json` dialect.
-- Adapter-declared stdin mode and JSON event parser.
-- Session ID capture/resume and model/variant discovery.
-- `OPENCODE_CONFIG_CONTENT` or stdio MCP injection outside the workspace.
-- One OhMyGame tool and one media job end to end.
-
-### Phase 3: Claude Code
-
-- Stream-json or SDK transport with persistent stdin when required.
-- Native login/status, `--session-id`, and `--resume`.
-- Strict per-run MCP configuration or SDK server.
-- Permission modes and tool/file/media/canvas bridge.
-
-### Phase 4: Codex App Server
-
-- JSON-RPC initialize, thread/turn lifecycle, approval responses, native model/reasoning,
-  rate-limit state, compaction, and resume.
-
-### Phase 5: shared UI enhancements
-
-- Runtime settings and native model picker.
-- Approval, usage/limit, steering, sub-agent, and compaction display as ThreadItems.
-
-## Acceptance criteria
-
-### Compatibility
-
-- Existing projects continue to use Pi without migration.
-- Existing language providers, API/local models, Ollama, LM Studio, media defaults, project
-  overrides, and model visibility remain intact.
-- Existing `/models` responses remain compatible.
-
-### Runtime
-
-- Each CLI is independently detected, version-checked, and reported with login status.
-- Each CLI uses its own protocol adapter and declares its stdin mode.
-- Long prompts and follow-up/approval messages are not truncated or closed early.
-- Cancellation terminates the complete process tree, and daemon restart reclaims owned orphans.
-- Native IDs resume only when their active session-tree metadata and checkpoint still match.
-
-### Tools and product behavior
-
-- Enabled Skills and MCP are serialized per runtime without writing secrets to workspaces.
-- Native runtimes can call canvas checks, canvas media generation, game tools, image, video,
-  and 3D jobs through existing daemon handlers.
-- Renderer uses existing events and tool cards; runtime-specific information is additive.
-- Plan, prompt queue, checkpoint, Undo, transcript, and recovery behavior remain available.
-
-### Security and recovery
-
-- The daemon token and unrelated credentials never enter a child environment.
-- Ambient API keys do not silently change billing; explicit API profiles identify their source.
-- Bridge capabilities are turn-scoped, revocable, and never single-use or daemon-wide.
-- Native session expiry falls back to the OhMyGame transcript/checkpoint.
-- Removing a native adapter leaves Pi, Provider, media, canvas, and plugin systems usable.
-
-## References and findings
-
-- [Genex Desktop](https://github.com/genex-games/genex-desktop)
-- [Open Design](https://github.com/nexu-io/open-design)
-- [Genex engine implementations](https://github.com/genex-games/genex-desktop/tree/dev/src/substrate/engines), including
-  [external process ownership](https://github.com/genex-games/genex-desktop/blob/dev/src/substrate/engines/external-cli.ts),
-  [Codex App Server](https://github.com/genex-games/genex-desktop/blob/dev/src/substrate/engines/codex-app-server.ts),
-  [Claude Code](https://github.com/genex-games/genex-desktop/blob/dev/src/substrate/engines/claude-code.ts), and
-  [OpenCode](https://github.com/genex-games/genex-desktop/blob/dev/src/substrate/engines/opencode-cli.ts)
-- [Open Design runtime implementations](https://github.com/nexu-io/open-design/tree/main/apps/daemon/src/runtimes), including
-  [process launch](https://github.com/nexu-io/open-design/blob/main/apps/daemon/src/runtimes/agent-process.ts),
-  [MCP configuration](https://github.com/nexu-io/open-design/blob/main/apps/daemon/src/runtimes/mcp.ts),
-  [Claude stream handling](https://github.com/nexu-io/open-design/blob/main/apps/daemon/src/runtimes/claude-stream.ts), and
-  [OpenCode event handling](https://github.com/nexu-io/open-design/blob/main/apps/daemon/src/runtimes/opencode-event-plugin.ts)
-
-These files informed the boundary decisions in this proposal. They use different runtime
-registries, process lifecycles, authentication policies, and event stores, so neither project
-is treated as a drop-in architecture for OhMyGame. The common guidance extracted here is to
-separate runtime discovery/process ownership from protocol adapters, choose stdin lifetime per
-protocol, keep MCP configuration outside user workspaces, and prefer local or in-process tool
-bridges when they avoid a network credential.
+Only the latest matching `ready` marker on the current branch may resume.
+Write `active` before native work and `ready` only after successful completion;
+crashes, failed turns, cancellation, and interrupted writes cannot reuse a
+previous ready context. Invalidate on every rewind/edit/restore, even if the
+native ID is unchanged, and after intervening Pi work, incompatible model
+changes, or legacy metadata.
+
+When context is absent or invalid, start fresh with a deterministic, bounded
+handoff: recent visible turns, changed files, the structured plan, and restore
+notices. Exclude private prompt context and do not make another model call.
+An explicitly expired/not-found native resume receives one fresh-context retry,
+without appending the user message twice. Other failures remain visible.
+Moving back to Pi uses the shared messages; native hidden state is not imported.
+
+## Checkpoints, queues, and cancellation
+
+Extract/reuse `recordCheckpoint` at the existing Pi checkpoint boundary:
+immediately before storing/delivering each user message. Pi keeps its extension;
+`NativeCodingSession` calls the same helper. Moving all checkpoint logic into
+`AgentManager` is unnecessary if queued deliveries preserve this invariant.
+This is a deliberate adjustment to the review's proposed core refactor.
+
+Every queued native message gets its own snapshot before delivery. Native
+**Next** messages wait for the active turn, then run FIFO before ordinary
+follow-ups. They are not concurrent mid-turn injection. Pi retains its own
+steering behavior. The UI must describe the supported queue behavior instead
+of claiming steering parity across CLIs.
+
+Check abort before spawning and again before delivery. Interrupt waits are
+bounded and fall back to stopping the process group. A turn must settle on
+spawn failure, close, transport loss, timeout, and cancellation, including
+startup races. Ignore late callbacks/results after settlement.
+
+Register children with desktop lifecycle management and persist verified
+owner/child process identities for standalone orphan recovery. Reclaim only
+verified orphans; preserve other live daemons' processes and directories.
+Delete generated configuration and Skills after the child stops. Process-group
+cleanup cannot reclaim unidentifiable processes or children that escape the
+group; it is not an OS-wide process supervisor or resource scheduler.
+
+## Runtime transports and compatibility
+
+| Runtime     | Interactive transport and tools                                                        | Tested protocol floor |
+| ----------- | -------------------------------------------------------------------------------------- | --------------------- |
+| Claude Code | Long-lived stream-json stdin/stdout; control requests and MCP tool callbacks           | 2.1.76                |
+| Codex       | App Server JSON-RPC; native `dynamicTools`, approval responses, thread/turn lifecycle  | 0.163.0-alpha.10.2    |
+| OpenCode    | Private authenticated loopback `serve`; HTTP requests, SSE events, daemon MCP endpoint | 1.18.33               |
+
+These are tested capability floors, not certification of all later releases.
+Check required capabilities and refuse unsafe fallbacks. Direct protocols keep
+the installed executable and avoid introducing SDK dependencies now. Prefer an
+SDK later if it removes maintenance while preserving hooks, permissions, MCP,
+resume, and cancellation; no separate SDK architecture is needed.
+
+Claude's permission controls use both `PreToolUse` and `can_use_tool`; validate
+control callbacks, planning restrictions, and allowed MCP calls. Discover
+models from `initialize` or `list_models` as supported; expose failed/empty
+catalogs as diagnostics. A sole callback path is not a sufficient assumption.
+
+Codex requires named permission profiles and verifies `activePermissionProfile`
+before delivering input. Do not silently fall back to legacy `workspaceWrite`,
+which permits reads outside the workspace. Use native scoped permission
+requests; disable unrestricted command/patch escalation. Planning gets a
+read-only profile and cannot grant writes. Disable shell snapshots and rebuild
+the tool environment without native authentication tokens.
+
+OpenCode must establish the SSE connection before sending a prompt; HTTP calls
+have timeouts and stream loss fails/stops the active turn. Permission paths use
+the native worktree/search metadata, not an assumed common root. Verify child
+session ancestry through the API before handling its approval; unrelated
+sessions cannot inherit authority.
+
+The first batch uses interactive pipes or HTTP/SSE. A future one-shot plain-text
+adapter may use a private `0600` prompt file and close stdin after consumption.
+Never apply that lifecycle to JSON-RPC or stream-json, which need later input.
+`codex exec --json` and `opencode run --format json` are not the implemented
+interactive transports or a permission fallback.
+
+## Tools, plugins, and Skills
+
+Expose one daemon-owned OhMyGame tool surface using `createAgentTools` and the
+existing canvas/media/preview services. Proxy active plugin MCP through the
+existing plugin adapter, hosted in a model-less Pi session. It does not run a
+second model loop. Effective plugin capabilities and project-type rules remain
+the source of truth, and plugin credentials stay in the daemon.
+
+Claude uses its control/MCP callbacks, Codex uses dynamic tools, and OpenCode
+uses a private loopback MCP endpoint. Any network bridge capability is scoped
+to the current turn, permits multiple calls during that turn, and is revoked
+permanently on completion, failure, cancellation, or disposal. Rotate it for
+every later turn. Pass abort signals to tools and discard late results. Never
+reuse the daemon token or write `.mcp.json`/credentials into a workspace.
+
+Stage enabled Skills in a private session directory outside the workspace.
+Copy regular files only, omit symbolic links, and require a regular `SKILL.md`.
+Permit reads only within that session's staged roots; writes and neighboring
+app data stay protected. Executing staged scripts still needs command approval.
+Remove staged files only after the CLI stops.
+
+New plugin capabilities must be expressible as Skills or MCP. Pi extensions are
+not portable. Native canvas file edits still need `canvas_check`; media jobs,
+artifacts, retries, defaults, and cancellation reuse their existing handlers.
+A native language model is not an image, video, or 3D model.
+
+## Permission and configuration boundary
+
+Approvals ship with each adapter, including exact command/path/access/network
+information and `allow`, `allow-session`, or `deny`. Keep terminal outcomes in
+the timeline; deny pending requests on stop and allow retry after an HTTP error.
+Cache conversation grants only for the exact request. Do not issue broad native
+command-prefix grants.
+
+The shared policy resolves symlinks and missing descendants, accounts for
+custom CLI credential roots, and denies direct requests for credential homes,
+OhMyGame data, other projects, or ancestors that expose them. Workspace file
+operations and a small set of simple read commands may proceed; external paths,
+builds, interpreters, Git, compound commands, and unknown scopes need approval.
+Explicit permission grants must contain understood, concrete roots; reject
+root-filesystem grants, globs, unknown forms, and protected paths.
+
+This policy is not universal OS isolation. Codex command execution has a native
+OS sandbox with minimal runtime/workspace/private-temp/Skill access and
+explicit protected-root denials. Its parent process still uses native auth and
+configuration. Claude/OpenCode callback controls cannot guarantee confinement
+of arbitrary approved programs, plugins, or subprocesses. Shell text inspection
+alone is heuristic. Strong credential confidentiality across all runtimes
+requires a separate sandbox and isolated credentials; that is deferred work.
+
+Build the child environment from an allowlist: PATH, HOME, locale, temp,
+proxy/certificate settings, and the runtime's own configuration directories.
+Claude may retain its subscription `CLAUDE_CODE_OAUTH_TOKEN`; do not forward
+ambient provider API keys, the daemon token, or unrelated `OHMYGAME_*` values.
+An explicit environment API-key profile is not implemented. Native stored
+provider credentials may still determine billing; display only what is known.
+
+Configuration isolation defaults on:
+
+- Claude: empty `--setting-sources` and strict MCP configuration.
+- Codex: turn off user MCP and notification hooks; fail startup if inspection
+  fails. User Skills, plugins, and AGENTS.md can still load; disclose partial
+  isolation in settings.
+- OpenCode: private config, `--pure`, external Skills disabled, and project
+  config disabled.
+
+A per-runtime **Use my own CLI configuration** toggle opts into configuration
+inheritance. It does not disable the shared approval policy. Configuration
+isolation and process sandboxing are separate capabilities.
+
+## Events and UI
+
+Map native events into the existing `AgentSessionEvent`, `SessionEntry`,
+`ThreadItem`, and `RuntimeEvent` path. Shared contracts are authoritative;
+examples include `agent.*`, `item.*`, `plan.mode.changed`, and `prompt.*`.
+Do not introduce a parallel native SSE/event family or untyped metadata bags.
+Unknown tool output or measurements remain unknown rather than invented.
+
+Show native model/effort, approvals, compaction, and context/usage in the existing
+controls. Use native context windows when reported; keep Codex quota windows
+and reset times separate from context occupancy. Add UI text in both English
+and Chinese; prompts sent to agents remain English.
+
+## Delivery status and release gate
+
+The three adapters have Full integration scope: OhMyGame tools, approval UI,
+resume/rebuild, manual/native compaction, queued continuation, usage where
+reported, and checkpoint recovery. Full describes implemented scope, not a
+promise of identical native features or completed platform acceptance. A Basic
+tier is reserved; adding a declarative entry alone cannot run another CLI.
+
+The reviewed #289 implementation covers shared infrastructure, all three
+drivers, plugin/Skill bridging, settings/model selection, approvals, and
+lifecycle recovery. Focused fixtures cover branch invalidation, expired resume,
+queue checkpoints, cancellation races, token revocation, SSE loss, model/default
+migration, planning writes, child approvals, staged Skill boundaries, and
+verified orphan recovery. No rewrite of the runtime architecture is required.
+
+Validation recorded during review on macOS:
+
+- Public local checks: 2,916 tests passed and 23 skipped; typecheck, renderer
+  build, Node startup/build, plugin preparation, and changelog checks passed.
+  Private cloud contracts remain skipped where unavailable.
+- Real Codex 0.163.0-alpha.10.2 and OpenCode 1.18.33 acceptance passed: file
+  edits, shared tool use, continuation, daemon restart, compaction, message edit,
+  checkpoint restore, external dummy-file denial, approval history, and
+  cancellation during an executing shell command.
+- Actual Codex sandbox commands additionally verified workspace read/write,
+  denied external/protected/symlink reads, and denied planning writes. Actual
+  OpenCode read a staged Skill reference without manual approval.
+- Native effort selection/reload was exercised in the browser. Fixture/API
+  approval tests passed; an extra real Codex browser approval click scenario
+  did not complete and is not counted as passed.
+
+Claude real inference is pending because the local CLI is signed out; its
+protocol/discovery/permission fixtures passed. Linux/Windows real CLI acceptance,
+Electron-specific native lifecycle acceptance, paid media/game-playtest flows,
+and universal OS confinement are not established by these checks. Keep native
+runtimes opt-in and require real acceptance on a target platform before
+advertising it as validated. Latest-head CI must pass before merging; earlier
+local evidence or an old green check does not satisfy that gate.
+
+Deferred work includes a generic Basic adapter, stronger cross-runtime OS
+isolation, explicit API-key environment profiles, and maintenance/migration of
+version-specific transports. New runtime support needs a driver plus protocol
+and real acceptance tests. This boundary is the long-term design; CLI wire
+protocols and capability floors remain maintained compatibility code.
+
+## Related contracts
+
+- [Agent/session orchestration](../src/daemon/agent.ts)
+- [Shared model and runtime events](../src/shared/contracts.ts)
+- [Agent tools](../src/daemon/agent-tools.ts)
+- [Checkpoint and Undo contract](checkpoints.md)
+- [Plugin package and portability contract](plugins.md)
+- [Runtime and trust boundary](runtime.md)
+- [Contribution checks](../CONTRIBUTING.md#make-and-check-your-change)
