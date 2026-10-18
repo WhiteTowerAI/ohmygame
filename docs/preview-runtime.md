@@ -31,6 +31,8 @@ Static directory index pages redirect to a trailing-slash URL while preserving
 the query string, so relative scripts and other assets resolve from that directory.
 Directories without an index return 404; missing extensionless application routes
 can still fall back to the root `index.html` when the request accepts HTML.
+Static files support byte ranges on GET for media seeking. HEAD ignores Range
+and returns the complete file's headers without a response body.
 
 Custom commands can use `{host}` and `{port}`. The process also receives `HOST`,
 `PORT` and `BROWSER=none`. Its server must listen on that port. Advanced settings
