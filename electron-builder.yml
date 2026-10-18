@@ -58,6 +58,9 @@ win:
 nsis:
   include: build/installer.nsh
   deleteAppDataOnUninstall: false
+  # Show the setup wizard so users can choose the install scope and location.
+  oneClick: false
+  allowToChangeInstallationDirectory: true
 
 publish:
   provider: generic

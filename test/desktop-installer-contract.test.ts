@@ -3,6 +3,16 @@ import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
 describe("Windows desktop installer safety", () => {
+  it("offers install-scope and installation-directory choices", async () => {
+    const config = parse(await readFile("electron-builder.yml", "utf8"));
+    expect(config.win?.target).toEqual(["nsis"]);
+    expect(config.nsis).toMatchObject({
+      oneClick: false,
+      allowToChangeInstallationDirectory: true,
+    });
+    expect(config.nsis).not.toHaveProperty("perMachine");
+  });
+
   it("preserves application data during uninstall and upgrade", async () => {
     const config = parse(await readFile("electron-builder.yml", "utf8"));
     expect(config.nsis).toMatchObject({
