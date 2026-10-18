@@ -16195,11 +16195,13 @@ button {
 
 .plugin-integration-panel { padding: 20px; border-top: 1px solid var(--border); }
 .plugin-integration-panel h2, .external-project-preview h2 { font-size: 15px; margin: 0 0 12px; }
-.plugin-integration-panel p, .external-project-preview p { font-size: 13px; line-height: 1.6; color: var(--text-secondary); overflow-wrap: anywhere; }
+.plugin-integration-panel p, .external-project-preview p, .plugin-integration-disconnect p { font-size: 13px; line-height: 1.6; color: var(--text-secondary); overflow-wrap: anywhere; }
 .plugin-integration-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
-.plugin-integration-panel button, .external-project-preview button { padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: inherit; cursor: pointer; }
-.plugin-integration-panel button:disabled, .external-project-preview button:disabled { opacity: .5; cursor: default; }
+.plugin-integration-panel button, .external-project-preview button, .plugin-integration-disconnect button { padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-raised); color: inherit; cursor: pointer; }
+.plugin-integration-panel button:disabled, .external-project-preview button:disabled, .plugin-integration-disconnect button:disabled { opacity: .5; cursor: default; }
 .plugin-integration-binding label { display: grid; gap: 8px; margin: 12px 0; }
 .plugin-integration-binding select { width: 100%; padding: 8px; background: var(--surface-raised); color: inherit; border: 1px solid var(--border); border-radius: 6px; }
 .external-project-preview { padding: 40px; overflow: auto; flex: 1; }
 .external-project-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.plugin-integration-disconnect { margin: 24px 0 0; padding: 16px 20px 20px; border-top: 1px solid var(--border); }
+.external-project-preview .plugin-integration-disconnect { padding: 16px 0 0; }

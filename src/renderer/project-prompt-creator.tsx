@@ -102,8 +102,10 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
       if (!created.current || created.current.project.type !== type || created.current.workspacePath !== workspacePath || created.current.project.integration?.pluginId !== pluginId) {
         created.current = { project: await createProject({ type, pluginId, ...(workspacePath ? { workspacePath } : {}) }), workspacePath };
       }
-      const project = created.current.project;
-      if (!await integrationGate.ensure(project)) { setCreating(false); return; }
+      // An imported workspace may be registered already; connecting it is confirmed in the panel.
+      const project = await integrationGate.ensure(created.current.project, pluginId);
+      if (!project) { setCreating(false); return; }
+      created.current.project = project;
       created.current.conversationId ??= (await createConversation(project.id)).id;
       const uploaded = await uploadAttachments(project.id, crypto.randomUUID(), attachments);
       saveHomePrompt({ prompt: submittedPrompt, mentions: submittedMentions });

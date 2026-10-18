@@ -280,8 +280,15 @@ Reference Maker when creating a project to select General automatically. Before
 the first prompt, choose an existing Maker project explicitly and connect its
 empty local directory, or import an already bound directory. Reconnecting the
 same binding only checks its status; it does not run initialization again.
-Recognized imports use the plugin's compatible type; existing
-OhMyGame projects are never silently converted. Conflicting plugin references
+A newly imported directory with a Maker binding uses the plugin's compatible
+type. A directory already registered as an OhMyGame project reopens unchanged.
+Referencing Maker in an existing compatible project opens the connection panel;
+the project switches to Maker only when you continue, which turns off its Web
+preview and Community publishing. Closing the panel leaves the project as it was.
+Disconnect plugin on the Preview tab returns the project to an ordinary General
+project, also while the plugin is disabled. It stops a running native preview and
+keeps Maker's binding files, so the project can connect again; Web preview stays
+off until you turn it on in Project settings. Conflicting plugin references
 require a compatible selection. Remote project creation stays in Maker's service.
 
 View provides install/start/refresh/stop/status/log controls for Maker's separate
@@ -354,6 +361,11 @@ must follow the user's requested destination and scope.
 
 ## Optional project integrations
 
+> **Experimental.** TapTap Maker is the only implementation of this contract. Its
+> actions, result fields, and connection steps may change in a later protocol
+> version without a compatibility layer; third-party packages should not depend
+> on it yet.
+
 A native manifest can declare an integration without adding a host project type:
 
 ```json
@@ -379,7 +391,11 @@ and presentation. No adapters run on app startup: import recognition only checks
 that every declared `projectFiles` marker exists inside the workspace, resolving
 symlinks. Project metadata saves the plugin ID and optional preview presentation;
 the service's binding file remains authoritative. Only one integration may own a
-workspace. The host retains task outcomes in memory, without an automatic mutation
+workspace. A compatible project without an integration can check status and bind
+as a candidate; it selects the plugin through
+`PUT /projects/:projectId/integration` when the user continues, and
+`DELETE /projects/:projectId/integration` removes it again. Native preview
+actions require a selected integration. The host retains task outcomes in memory, without an automatic mutation
 retry. Before a prompt, an idle connection result older than ten minutes is
 rechecked; a failed recheck keeps the previous result so local work continues.
 Disabling/removing the plugin cancels its active tasks, and a binding refreshes

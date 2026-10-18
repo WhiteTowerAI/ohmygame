@@ -22,6 +22,7 @@ const project: ProjectState = {
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 let state: PluginIntegrationState;
 let actions: Array<{ action: string; projectId?: string }>;
+let projectRequests: Array<{ method?: string; url: string }>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state = {
@@ -31,9 +32,15 @@ beforeEach(() => {
     result: { connection: { status: "needs-setup" }, project: null },
   };
   actions = [];
+  projectRequests = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (_url, init: RequestInit = {}) => {
+    vi.fn(async (url, init: RequestInit = {}) => {
+      if (String(url).includes("/projects/")) {
+        projectRequests.push({ method: init.method, url: String(url) });
+        const { integration: _integration, ...plain } = project;
+        return Response.json(init.method === "PUT" ? project : plain);
+      }
       if (init.method === "POST") {
         const input = JSON.parse(String(init.body));
         actions.push(input);
@@ -236,5 +243,69 @@ describe("plugin connection UI", () => {
     ]);
     await act(async () => root.render(null));
     expect(container.childElementCount).toBe(0);
+  });
+  it("asks before switching an existing project to an integration", async () => {
+    const { integration: _integration, ...existing } = project;
+    state.result = {
+      connection: { status: "ready" },
+      project: { id: "bound" },
+    };
+    const sent = vi.fn();
+    function Composer() {
+      const gate = usePluginIntegrationGate();
+      return (
+        <>
+          {gate.dialog}
+          <button
+            onClick={() =>
+              void gate.ensure(existing, "fixture").then((ready) => {
+                if (ready) sent(ready);
+              })
+            }
+          >
+            Send
+          </button>
+        </>
+      );
+    }
+    await act(async () => root.render(<Composer />));
+    await click("Send");
+    expect(container.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(container.textContent).toContain(
+      "Web preview and Community publishing turn off",
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Close"]')!
+        .click(),
+    );
+    expect(projectRequests).toEqual([]);
+    expect(sent).not.toHaveBeenCalled();
+    await click("Send");
+    await click("Continue");
+    expect(projectRequests).toEqual([
+      { method: "PUT", url: "/api/projects/native/integration" },
+    ]);
+    expect(sent).toHaveBeenCalledWith(
+      expect.objectContaining({ integration: project.integration }),
+    );
+  });
+  it("disconnects a project from View after confirmation", async () => {
+    state.result = { connection: { status: "ready" }, project: { id: "a" } };
+    const updated = vi.fn();
+    await act(async () =>
+      root.render(
+        <ExternalProjectPreview project={project} onProjectUpdated={updated} />,
+      ),
+    );
+    await click("Disconnect plugin");
+    expect(projectRequests).toEqual([]);
+    await click("Disconnect");
+    expect(projectRequests).toEqual([
+      { method: "DELETE", url: "/api/projects/native/integration" },
+    ]);
+    expect(updated).toHaveBeenCalledWith(
+      expect.not.objectContaining({ integration: expect.anything() }),
+    );
   });
 });

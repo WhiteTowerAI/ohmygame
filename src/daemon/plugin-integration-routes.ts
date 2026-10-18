@@ -76,6 +76,7 @@ export function registerPluginIntegrationRoutes(
     projects,
     host,
     select,
+    clear,
   }: {
     plugins: PluginCatalogService;
     projects: ProjectManager;
@@ -84,6 +85,7 @@ export function registerPluginIntegrationRoutes(
       project: ProjectState,
       plugin: PluginDetail,
     ) => Promise<ProjectState>;
+    clear: (project: ProjectState) => Promise<ProjectState>;
   },
 ) {
   // Select an integration for an existing compatible workspace. It never changes
@@ -112,6 +114,23 @@ export function registerPluginIntegrationRoutes(
           project,
         );
         return await select(project, plugin);
+      } catch (cause) {
+        if (cause instanceof LocalPluginError)
+          return reply.code(cause.statusCode).send({ error: cause.message });
+        throw cause;
+      }
+    },
+  );
+  // Disconnecting works while the plugin is disabled or removed. The service's
+  // binding files stay in the workspace, so the project can connect again.
+  app.delete<{ Params: { projectId: string } }>(
+    "/projects/:projectId/integration",
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      if (!project.integration) return project;
+      try {
+        return await clear(project);
       } catch (cause) {
         if (cause instanceof LocalPluginError)
           return reply.code(cause.statusCode).send({ error: cause.message });
@@ -160,11 +179,6 @@ export function registerPluginIntegrationRoutes(
             request.params.pluginId,
             project,
           );
-          if (project?.integration?.pluginId !== plugin.id && project)
-            throw new LocalPluginError(
-              "Select this plugin for the project first",
-              409,
-            );
           if (method === "DELETE") {
             host.cancel(plugin.id, project?.id);
             return { ok: true };

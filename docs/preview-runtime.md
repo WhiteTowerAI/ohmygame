@@ -154,3 +154,5 @@ acquire Web leases or create a Web player. Browser runtime configuration and
 leases retain their existing lifecycle. See [plugin integrations](plugins.md#optional-project-integrations)
 for the adapter contract and Maker's current limits. External controls mount only
 while View is visible; they do not capture or embed the native game window.
+Disconnecting the plugin there stops its native preview and returns the project to
+ordinary General settings with Web preview off.

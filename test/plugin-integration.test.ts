@@ -351,9 +351,84 @@ describe("plugin integration", () => {
     expect(reimported.statusCode).toBe(200);
     expect(reimported.json()).toMatchObject({
       id: ordinary.id,
+      webPreviewEnabled: true,
+    });
+    expect(reimported.json().integration).toBeUndefined();
+    const candidate = `/plugins/${encodeURIComponent(pluginId)}/integration?projectId=${ordinary.id}`;
+    expect((await app.inject({ url: candidate })).statusCode).toBe(200);
+    await vi.waitFor(async () =>
+      expect((await app.inject({ url: candidate })).json().running).toBe(false),
+    );
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: candidate,
+          payload: { action: "preview-start" },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const selected = await app.inject({
+      method: "PUT",
+      url: `/projects/${ordinary.id}/integration`,
+      payload: { pluginId },
+    });
+    expect(selected.json()).toMatchObject({
       webPreviewEnabled: false,
       integration: { pluginId, preview: "external" },
       preview: { status: "stopped" },
+    });
+    await app.inject({
+      method: "POST",
+      url: candidate,
+      payload: { action: "preview-start" },
+    });
+    await vi.waitFor(async () =>
+      expect((await app.inject({ url: candidate })).json()).toMatchObject({
+        running: false,
+        result: { preview: { status: "running" } },
+      }),
+    );
+    expect(
+      (
+        await app.inject({
+          method: "DELETE",
+          url: `/projects/${ordinary.id}/integration`,
+        })
+      ).json().integration,
+    ).toBeUndefined();
+    const actions = await readFile(
+      path.join(
+        directory,
+        "data",
+        "plugin-data",
+        createHash("sha256").update(pluginId).digest("hex").slice(0, 24),
+        "actions.log",
+      ),
+      "utf8",
+    );
+    expect(actions.trim().split("\n").at(-1)).toBe("preview-stop");
+    await app.inject({
+      method: "PUT",
+      url: `/projects/${ordinary.id}/integration`,
+      payload: { pluginId },
+    });
+    await app.inject({
+      method: "PUT",
+      url: `/plugins/${encodeURIComponent(pluginId)}/settings`,
+      payload: { enabled: false, components: {} },
+    });
+    const disconnected = await app.inject({
+      method: "DELETE",
+      url: `/projects/${ordinary.id}/integration`,
+    });
+    expect(disconnected.statusCode).toBe(200);
+    expect(disconnected.json().integration).toBeUndefined();
+    expect(disconnected.json().webPreviewEnabled).toBe(false);
+    await app.inject({
+      method: "PUT",
+      url: `/plugins/${encodeURIComponent(pluginId)}/settings`,
+      payload: { enabled: true, components: {} },
     });
     const web = (
       await app.inject({

@@ -2577,6 +2577,9 @@ const zhCN: typeof en = {
   },
   integration: {
     promptNotSent: "初始需求尚未发送。", title: "插件接入", description: "开发前，先准备本地环境并连接账号。",
+    candidate: "继续后，此项目将改用插件的原生预览和发布流程，并关闭 Web 预览和社区发布。之后可在“预览”标签页中断开。",
+    disconnect: "断开插件", disconnectConfirm: "断开",
+    disconnectNotice: "OhMyGame 将不再为此项目使用该插件，并停止正在运行的原生预览。插件的绑定文件会保留在工作目录中。Web 预览会保持关闭，可在项目设置中重新开启。",
     working: "处理中…", openAuthorization: "打开授权页面", prepare: "准备环境", connect: "连接账号", connected: "账号已连接",
     refresh: "刷新状态", bound: "已连接项目：{{id}}", chooseProject: "请选择已有项目。尚未绑定的本地目录必须为空。",
     loadProjects: "获取项目列表", project: "项目", selectProject: "选择项目…", noProjects: "请先在服务端创建项目，再刷新列表。",

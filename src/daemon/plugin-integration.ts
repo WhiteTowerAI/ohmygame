@@ -92,9 +92,11 @@ export class PluginIntegrationHost {
     if (this.#closed)
       throw new LocalPluginError("Plugin integrations are shutting down", 503);
     assertIntegrationPlugin(plugin, project);
+    // A compatible project without an integration may check and bind as a
+    // candidate; previews need the selected integration.
     if (
       action.startsWith("preview-") &&
-      (!project || !plugin.integration!.preview)
+      (!project?.integration || !plugin.integration!.preview)
     )
       throw new LocalPluginError(
         "Plugin does not provide project preview",

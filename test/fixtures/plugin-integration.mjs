@@ -1,9 +1,13 @@
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const request = JSON.parse(input);
+await appendFile(
+  path.join(request.dataDirectory, "actions.log"),
+  `${request.action}\n`,
+);
 const emit = (message) =>
   process.stdout.write(JSON.stringify({ version: 1, ...message }) + "\n");
 if (request.action === "connect") {

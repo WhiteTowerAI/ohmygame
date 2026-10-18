@@ -259,6 +259,14 @@ export class ProjectManager {
     return project;
   }
 
+  /** Web preview stays off; the user re-enables it in Project settings. */
+  async clearIntegration(id: string): Promise<ProjectState> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectWorkspaceError("Project not found");
+    if (project.integration) await this.#save(project, { integration: undefined });
+    return project;
+  }
+
   async duplicate(id: string): Promise<ProjectState> {
     const source = this.#projects.get(id);
     if (!source) throw new Error(`Project not found: ${id}`);

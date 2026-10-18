@@ -6,6 +6,7 @@ import type {
 } from "../shared/plugin-integration.js";
 import {
   cancelPluginIntegration,
+  clearProjectIntegration,
   getPluginIntegration,
   runPluginIntegration,
   setProjectIntegration,
@@ -96,11 +97,13 @@ export function PluginIntegrationPanel({
   pluginId,
   projectId,
   initial,
+  candidate,
   onReady,
 }: {
   pluginId: string;
   projectId?: string;
   initial?: PluginIntegrationState;
+  candidate?: boolean;
   onReady?: () => void;
 }) {
   const integration = useIntegration(pluginId, projectId, initial);
@@ -109,6 +112,7 @@ export function PluginIntegrationPanel({
       {...integration}
       pluginId={pluginId}
       projectId={projectId}
+      candidate={candidate}
       onReady={onReady}
     />
   );
@@ -121,10 +125,13 @@ function IntegrationContents({
   run,
   pluginId,
   projectId,
+  candidate,
   onReady,
 }: ReturnType<typeof useIntegration> & {
   pluginId: string;
   projectId?: string;
+  /** The project selects the plugin only when the user continues. */
+  candidate?: boolean;
   onReady?: () => void;
 }) {
   const [selected, setSelected] = useState("");
@@ -133,6 +140,7 @@ function IntegrationContents({
   const bound = !!result?.project;
   useEffect(() => {
     if (
+      !candidate &&
       state?.action === "status" &&
       ready &&
       (!projectId || bound) &&
@@ -140,7 +148,7 @@ function IntegrationContents({
       !error
     )
       onReady?.();
-  }, [state?.action, ready, bound, projectId, busy, error, onReady]);
+  }, [candidate, state?.action, ready, bound, projectId, busy, error, onReady]);
   return (
     <section
       className="plugin-integration-panel"
@@ -148,6 +156,7 @@ function IntegrationContents({
     >
       <h2>{t("integration.title")}</h2>
       <p>{t("integration.description")}</p>
+      {candidate ? <p>{t("integration.candidate")}</p> : null}
       {busy ? (
         <p role="status">
           <LoaderCircle size={14} className="spin" />{" "}
@@ -271,6 +280,7 @@ export function usePluginIntegrationGate(
 ) {
   const [dialog, setDialog] = useState<{
     project: ProjectState;
+    pluginId: string;
     initial: PluginIntegrationState;
   }>();
   const resolveDialog = useRef<((ready: boolean) => void) | undefined>(
@@ -289,17 +299,14 @@ export function usePluginIntegrationGate(
     pluginId = project.integration?.pluginId,
   ): Promise<ProjectState | undefined> {
     if (!pluginId) return project;
-    if (!project.integration) {
-      project = await setProjectIntegration(project.id, pluginId);
-      onUpdated?.(project);
-    }
-    if (project.integration?.pluginId !== pluginId)
+    if (project.integration && project.integration.pluginId !== pluginId)
       throw new Error(t("integration.conflict"));
     let state = await getPluginIntegration(pluginId, project.id);
     if (!state.running && state.error)
       state = await runPluginIntegration(pluginId, "status", project.id);
     if (!mounted.current) return undefined;
     if (
+      project.integration &&
       !state.running &&
       state.result?.connection?.status === "ready" &&
       state.result.project &&
@@ -309,9 +316,14 @@ export function usePluginIntegrationGate(
     }
     const ready = await new Promise<boolean>((resolve) => {
       resolveDialog.current = resolve;
-      setDialog({ project, initial: state });
+      setDialog({ project, pluginId, initial: state });
     });
-    return ready ? project : undefined;
+    if (!ready || !mounted.current) return undefined;
+    if (project.integration) return project;
+    // Continuing is the user's consent to switch this existing project over.
+    const updated = await setProjectIntegration(project.id, pluginId);
+    onUpdated?.(updated);
+    return updated;
   }
   function close(ready: boolean) {
     resolveDialog.current?.(ready);
@@ -323,9 +335,10 @@ export function usePluginIntegrationGate(
     dialog: dialog ? (
       <IntegrationDialog onClose={() => close(false)}>
         <PluginIntegrationPanel
-          pluginId={dialog.project.integration!.pluginId}
+          pluginId={dialog.pluginId}
           projectId={dialog.project.id}
           initial={dialog.initial}
+          candidate={!dialog.project.integration}
           onReady={() => close(true)}
         />
       </IntegrationDialog>
@@ -412,9 +425,21 @@ function IntegrationDialog({
   );
 }
 
-export function ExternalProjectPreview({ project }: { project: ProjectState }) {
+export function ExternalProjectPreview({
+  project,
+  onProjectUpdated,
+}: {
+  project: ProjectState;
+  onProjectUpdated?: (project: ProjectState) => void;
+}) {
   const pluginId = project.integration!.pluginId;
   const integration = useIntegration(pluginId, project.id);
+  const disconnect = (
+    <IntegrationDisconnect
+      projectId={project.id}
+      onDisconnected={onProjectUpdated}
+    />
+  );
   const { state, busy, error, run } = integration;
   const ready =
     state?.result?.connection?.status === "ready" && !!state.result.project;
@@ -432,11 +457,14 @@ export function ExternalProjectPreview({ project }: { project: ProjectState }) {
   }, [ready, busy]);
   if (!ready)
     return (
-      <IntegrationContents
-        {...integration}
-        pluginId={pluginId}
-        projectId={project.id}
-      />
+      <>
+        <IntegrationContents
+          {...integration}
+          pluginId={pluginId}
+          projectId={project.id}
+        />
+        {disconnect}
+      </>
     );
   return (
     <section
@@ -504,7 +532,65 @@ export function ExternalProjectPreview({ project }: { project: ProjectState }) {
         </button>
       </div>
       {preview?.logs ? <pre>{preview.logs}</pre> : null}
+      {disconnect}
     </section>
+  );
+}
+
+/** Available even when the plugin is disabled, so a project is never stuck. */
+function IntegrationDisconnect({
+  projectId,
+  onDisconnected,
+}: {
+  projectId: string;
+  onDisconnected?: (project: ProjectState) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string>();
+  async function disconnect() {
+    setPending(true);
+    setError(undefined);
+    try {
+      onDisconnected?.(await clearProjectIntegration(projectId));
+    } catch (cause) {
+      setError(String((cause as Error).message ?? cause));
+      setPending(false);
+    }
+  }
+  return (
+    <div className="plugin-integration-disconnect">
+      {confirming ? (
+        <>
+          <p>{t("integration.disconnectNotice")}</p>
+          <div className="plugin-integration-actions">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => void disconnect()}
+            >
+              {t("integration.disconnectConfirm")}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setConfirming(false)}
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        </>
+      ) : (
+        <button type="button" onClick={() => setConfirming(true)}>
+          {t("integration.disconnect")}
+        </button>
+      )}
+      {error ? (
+        <p role="alert" className="plugins-inline-error">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

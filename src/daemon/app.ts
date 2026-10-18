@@ -856,15 +856,27 @@ export function createApp(options: AppOptions = {}) {
   });
   projectWrites.install(app);
   const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
-  const selectProjectIntegration = async (project: ProjectState, plugin: PluginDetail): Promise<ProjectState> => {
+  // Selecting or clearing an integration changes the project's preview, tools and prompt.
+  const changeProjectIntegration = async (project: ProjectState, change: () => Promise<ProjectState>): Promise<ProjectState> => {
     if (agents.isProjectBusy(project.id)) throw new LocalPluginError("Wait for the agent to finish before changing the project integration", 409);
-    const updated = await projects.setIntegration(project.id, { pluginId: plugin.id, preview: plugin.integration!.preview });
+    const updated = await change();
     if (!supportsWebPreview(updated)) await previews.stop(updated, "settings");
     agents.invalidateProjectSessions(updated.id);
     events.publish(updated.id, "project.updated", { project: structuredClone(updated) });
     return updated;
   };
-  registerPluginIntegrationRoutes(app, { host: pluginIntegrations, plugins, projects, select: selectProjectIntegration });
+  const selectProjectIntegration = (project: ProjectState, plugin: PluginDetail) => changeProjectIntegration(project,
+    () => projects.setIntegration(project.id, { pluginId: plugin.id, preview: plugin.integration!.preview }));
+  const clearProjectIntegration = (project: ProjectState) => changeProjectIntegration(project, async () => {
+    const { pluginId } = project.integration!;
+    const running = pluginIntegrations.state(pluginId, project.id)?.result?.preview?.status === "running";
+    await pluginIntegrations.forget(pluginId, project.id);
+    // Its controls leave with the integration, so stop a native preview it started.
+    const plugin = running ? await plugins.read(pluginId) : undefined;
+    if (plugin?.enabled) await pluginIntegrations.execute(plugin, "preview-stop", project).catch(() => {});
+    return projects.clearIntegration(project.id);
+  });
+  registerPluginIntegrationRoutes(app, { host: pluginIntegrations, plugins, projects, select: selectProjectIntegration, clear: clearProjectIntegration });
   registerPluginCapabilityRoutes(app, { capabilities: pluginCapabilities, plugins, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginCapabilities, plugins, localPlugins, invalidatePluginSessions, async ref => {
     const runtime = await getModelRuntime();
@@ -1182,6 +1194,10 @@ export function createApp(options: AppOptions = {}) {
       if (request.body?.viewport && request.body.type !== "interactive-story") {
         return reply.code(400).send({ error: "A viewport requires an Interactive Story project" });
       }
+      // A registered workspace is reopened unchanged; connecting it to a plugin is
+      // an explicit step in its connection panel.
+      const existing = request.body?.workspacePath ? await projects.findByWorkspace(request.body.workspacePath) : undefined;
+      if (existing) return reply.code(200).send(existing);
       let plugin = request.body?.pluginId ? await requireIntegrationPlugin(plugins, request.body.pluginId) : undefined;
       if (!plugin && request.body?.workspacePath) {
         const matches = [];
@@ -1195,14 +1211,6 @@ export function createApp(options: AppOptions = {}) {
       if (!type) throw new LocalPluginError("Select a compatible project type", 400);
       if (plugin?.projectTypes?.length && !plugin.projectTypes.includes(type)) throw new LocalPluginError("Plugin does not support the selected project type", 400);
       const integration = plugin ? { pluginId: plugin.id, preview: plugin.integration!.preview } : undefined;
-      const existing = request.body?.workspacePath ? await projects.findByWorkspace(request.body.workspacePath) : undefined;
-      if (existing) {
-        if (plugin) {
-          await requireIntegrationPlugin(plugins, plugin.id, existing);
-          await selectProjectIntegration(existing, plugin);
-        }
-        return reply.code(200).send(existing);
-      }
       const project = await projects.create(request.body?.name, type, request.body?.workspacePath, integration);
       if (project.type === "interactive-story") {
         try {

@@ -2658,6 +2658,9 @@ const en = {
   },
   integration: {
     promptNotSent: "Your initial message has not been sent.", title: "Plugin connection", description: "Prepare the local environment and connect your account before development.",
+    candidate: "Continuing switches this project to the plugin's native preview and publishing workflow; Web preview and Community publishing turn off. You can disconnect it later from the Preview tab.",
+    disconnect: "Disconnect plugin", disconnectConfirm: "Disconnect",
+    disconnectNotice: "OhMyGame stops using this plugin for the project and stops a running native preview. The plugin's binding files stay in the workspace. Web preview stays off until you turn it on in Project settings.",
     working: "Working…", openAuthorization: "Open authorization page", prepare: "Prepare environment", connect: "Connect account", connected: "Account connected",
     refresh: "Refresh status", bound: "Connected project: {{id}}", chooseProject: "Select an existing project. An unbound local directory must be empty.",
     loadProjects: "Load projects", project: "Project", selectProject: "Select a project…", noProjects: "Create a project on the service, then refresh this list.",

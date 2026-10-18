@@ -399,7 +399,7 @@ export function CodingWorkspace({
         project={project} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : null}
 
-      {project?.integration?.preview === "external" && shownTab === "preview" ? <ExternalProjectPreview key={project.id} project={project} /> : null}
+      {project?.integration?.preview === "external" && shownTab === "preview" ? <ExternalProjectPreview key={project.id} project={project} onProjectUpdated={onProjectUpdated} /> : null}
       {supportsPreview ? (
         <div
           className="coding-workspace-preview-panel"

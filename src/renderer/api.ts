@@ -1432,6 +1432,9 @@ export function runPluginIntegration(pluginId: string, action: import("../shared
 export function cancelPluginIntegration(pluginId: string, projectId?: string): Promise<{ ok: true }> {
   return request(`/plugins/${encodeURIComponent(pluginId)}/integration${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`, { method: "DELETE" });
 }
+export function clearProjectIntegration(projectId: string): Promise<ProjectState> {
+  return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "DELETE" });
+}
 export function setProjectIntegration(projectId: string, pluginId: string): Promise<ProjectState> {
   return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "PUT", body: JSON.stringify({ pluginId }) });
 }
