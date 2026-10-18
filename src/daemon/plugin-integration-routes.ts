@@ -11,7 +11,10 @@ import type { ProjectState } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import type { PluginCatalogService } from "./plugin-catalog.js";
 import type { ProjectManager } from "./projects.js";
-import type { PluginIntegrationHost } from "./plugin-integration.js";
+import {
+  assertIntegrationPlugin,
+  type PluginIntegrationHost,
+} from "./plugin-integration.js";
 import { LocalPluginError } from "./local-plugins.js";
 
 /** Recognition is filesystem-only. Import never executes every installed plugin. */
@@ -57,25 +60,12 @@ export async function requireIntegrationPlugin(
   project?: ProjectState,
 ): Promise<PluginDetail> {
   const plugin = await plugins.read(pluginId);
-  if (!plugin?.installed || !plugin.enabled || !plugin.integration)
+  if (!plugin)
     throw new LocalPluginError(
       "Enable the project's integration plugin in Settings > Plugins",
       409,
     );
-  if (
-    project &&
-    plugin.projectTypes?.length &&
-    !plugin.projectTypes.includes(project.type)
-  )
-    throw new LocalPluginError(
-      "This plugin requires a different project type. Create or import a compatible project.",
-      409,
-    );
-  if (project?.integration && project.integration.pluginId !== pluginId)
-    throw new LocalPluginError(
-      "This project uses another integration plugin",
-      409,
-    );
+  assertIntegrationPlugin(plugin, project);
   return plugin;
 }
 

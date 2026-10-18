@@ -27,6 +27,33 @@ describe("plugin catalog API", () => {
     expect(detail.json()).toMatchObject({ id: "personal:test-plugin", enabled: true });
   });
 
+  it("offers a project only the plugin mentions its prompts accept", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-types-"));
+    const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-source-"));
+    await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+    await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
+      name: "web-only", version: "1.0.0", description: "Web only", interface: { projectTypes: ["web-game"] },
+    }));
+    const app = createApp({
+      dataDirectory,
+      createSession: async () => ({ messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {}, subscribe: () => () => {}, getSkills: () => [] }),
+    });
+    apps.push(app);
+    await app.ready();
+    await app.inject({ method: "POST", url: "/plugins/install", payload: { type: "directory", path: source } });
+    const mentionIds = async (type: string) => {
+      const project = (await app.inject({ method: "POST", url: "/projects", payload: { type } })).json();
+      const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
+      const capabilities = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}/capabilities` });
+      return capabilities.json().plugins.map((plugin: { id: string }) => plugin.id);
+    };
+
+    expect(await mentionIds("web-game")).toContain("personal:web-only");
+    expect(await mentionIds("general")).not.toContain("personal:web-only");
+    expect((await app.inject({ method: "GET", url: "/composer/capabilities" })).json().plugins)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: "personal:web-only" })]));
+  });
+
   it("reads only a registered Skill file from an installed plugin", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-skill-api-"));
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-skill-source-"));

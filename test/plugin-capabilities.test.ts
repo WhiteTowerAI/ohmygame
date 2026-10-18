@@ -103,7 +103,7 @@ describe("native plugin capabilities", () => {
     await settings.update(maker, { enabled: true, components: {} });
     expect((await service.effective("general")).mcpServers[makerName]).toMatchObject({
       args: ["./scripts/mcp.mjs"],
-      env: { TAPTAP_MAKER_DISTRIBUTION: "ohmygame_plugin" },
+      env: { OHMYGAME_PLUGIN_DATA_DIR: service.dataPath(maker.id) },
       lifecycle: "lazy",
       requestTimeoutMs: 3600000,
       cwd: path.resolve("plugins/taptap-maker"),

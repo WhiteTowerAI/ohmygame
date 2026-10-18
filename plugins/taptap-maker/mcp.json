@@ -3,7 +3,6 @@
     "taptap-maker": {
       "command": "node",
       "args": ["./scripts/mcp.mjs"],
-      "env": { "TAPTAP_MAKER_DISTRIBUTION": "ohmygame_plugin" },
       "lifecycle": "lazy",
       "requestTimeoutMs": 3600000
     }

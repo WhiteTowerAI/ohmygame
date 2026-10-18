@@ -261,8 +261,8 @@ saved switch choices are preserved.
 - **TapTap Maker:** General-project workflow with the official pinned
   `@taptap/maker@0.0.36` CLI/MCP. Pass the current project's absolute `target_dir`
   on tools and `--target-dir` on project CLI commands: the MCP process starts in
-  the plugin directory. Keep the CLI and MCP versions aligned and set
-  `TAPTAP_MAKER_DISTRIBUTION=ohmygame_plugin` for both. Authentication remains in
+  the plugin directory. The plugin's runtime script starts both from the same
+  pinned install with `TAPTAP_MAKER_DISTRIBUTION=ohmygame_plugin`. Authentication remains in
   Maker's own local store. Read project `.agents/skills` explicitly as needed;
   they are not automatically added to OhMyGame's Skill catalog.
 
@@ -270,7 +270,8 @@ Maker's connection panel prepares a private pinned CLI and Python/Lua diagnostic
 then opens official browser authorization. Python 3.8+ with venv/pip and Git are
 required. Enable the plugin to reveal this panel; enabling alone does not install
 dependencies or log in. The plugin does not install configurations into other AI
-editors. Private dependencies survive package updates and stay outside exported
+editors. Private dependencies survive package updates and disabling, are removed
+when an installed integration plugin is uninstalled, and stay outside exported
 plugin packages. Credentials remain in Maker's own store.
 
 ![Maker connection panel](assets/maker-connection.png)
@@ -379,5 +380,8 @@ that every declared `projectFiles` marker exists inside the workspace, resolving
 symlinks. Project metadata saves the plugin ID and optional preview presentation;
 the service's binding file remains authoritative. Only one integration may own a
 workspace. The host retains task outcomes in memory, without an automatic mutation
-retry; disabling/removing the plugin cancels its active tasks. Native preview
-windows remain service-owned and are stopped through View or `project_preview`.
+retry. Before a prompt, an idle connection result older than ten minutes is
+rechecked; a failed recheck keeps the previous result so local work continues.
+Disabling/removing the plugin cancels its active tasks, and a binding refreshes
+only that project's conversations. Native preview windows remain service-owned
+and are stopped through View or `project_preview`.

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 let input = "";
@@ -60,7 +61,11 @@ if (request.action === "connect") {
   emit({
     type: "result",
     result: {
-      connection: { status: "ready" },
+      connection: {
+        status: existsSync(path.join(request.dataDirectory, "signed-out"))
+          ? "needs-auth"
+          : "ready",
+      },
       ...(request.workspacePath ? { project } : {}),
     },
   });

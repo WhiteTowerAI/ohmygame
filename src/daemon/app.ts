@@ -16,7 +16,7 @@ import { isUtf8 } from "node:buffer";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
@@ -418,6 +418,8 @@ const setConversationReasoningSchema = {
 const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 const MAX_LIBRARY_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_LIBRARY_UPLOAD_BYTES = 200 * 1024 * 1024;
+/** A prompt rechecks a plugin connection, such as an account login, at most this often. */
+const PLUGIN_CONNECTION_MAX_AGE_MS = 10 * 60_000;
 const LIBRARY_UPLOAD_MEDIA_TYPES = new Set<LibraryUploadMediaType>([
   "image/png", "image/jpeg", "image/svg+xml", "image/webp",
   "video/mp4", "video/quicktime", "video/webm",
@@ -751,7 +753,7 @@ export function createApp(options: AppOptions = {}) {
     new LocalPluginAdapter(localPlugins, summarizePlugin),
   ], pluginSettings, (plugin) => preinstalledPlugins.decorate(plugin));
   const withPluginCapabilities = async (plugin: Awaited<ReturnType<typeof plugins.read>>) => plugin ? pluginCapabilities.decorate(plugin) : plugin;
-  const pluginIntegrations = new PluginIntegrationHost(pluginCapabilities, () => invalidatePluginSessions(), (project, operation) => projectWrites.exclusive(project.id, async () => {
+  const pluginIntegrations = new PluginIntegrationHost(pluginCapabilities, (project) => project ? agents.invalidateProjectSessions(project.id) : invalidatePluginSessions(), (project, operation) => projectWrites.exclusive(project.id, async () => {
     if (agents.isProjectBusy(project.id)) throw new Error("Wait for the agent to finish before connecting the project");
     if (await checkpoints.unfinished(project)) throw new Error("Recover the interrupted file restore before connecting the project");
     return operation();
@@ -1110,6 +1112,7 @@ export function createApp(options: AppOptions = {}) {
       await pluginIntegrations.forget(plugin.id);
       await preinstalledPlugins.markRemoved(plugin);
       await localPlugins.remove(request.params.pluginId);
+      await rm(pluginCapabilities.dataPath(plugin.id), { recursive: true, force: true });
       await pluginSettings.remove(request.params.pluginId).catch((cause) => {
         app.log.warn({ err: cause, pluginId: request.params.pluginId }, "Could not remove stale plugin settings");
       });
@@ -1181,14 +1184,12 @@ export function createApp(options: AppOptions = {}) {
       }
       let plugin = request.body?.pluginId ? await requireIntegrationPlugin(plugins, request.body.pluginId) : undefined;
       if (!plugin && request.body?.workspacePath) {
-        const catalog = await plugins.list();
         const matches = [];
-        for (const summary of catalog.plugins.filter((item) => item.enabled && item.integration)) {
-          const detail = await plugins.read(summary.id);
-          if (detail && await matchesPluginProject(detail, request.body.workspacePath)) matches.push(detail);
+        for (const summary of (await plugins.list()).plugins) {
+          if (summary.enabled && await matchesPluginProject(summary, request.body.workspacePath)) matches.push(summary);
         }
         if (matches.length > 1) throw new LocalPluginError("Several plugins recognize this workspace. Select one explicitly.", 409);
-        plugin = matches[0];
+        if (matches[0]) plugin = await requireIntegrationPlugin(plugins, matches[0].id);
       }
       const type = plugin && !request.body?.pluginId ? pluginProjectType(request.body?.type ?? "web-game", [plugin]) : request.body?.type ?? plugin?.projectTypes?.[0] ?? "web-game";
       if (!type) throw new LocalPluginError("Select a compatible project type", 400);
@@ -2733,7 +2734,7 @@ export function createApp(options: AppOptions = {}) {
         agents.skills(project, conversation),
       ]);
       return {
-        plugins: enabledPluginMentions(catalog.plugins),
+        plugins: enabledPluginMentions(catalog.plugins, project.type),
         skills,
       } satisfies ConversationCapabilities;
     },
@@ -2922,8 +2923,7 @@ export function createApp(options: AppOptions = {}) {
       try {
         const catalog = mentions.length ? await plugins.list() : undefined;
         for (const mention of mentions) {
-          const summary = catalog!.plugins.find(item => item.name === mention.name && item.marketplace.id === mention.marketplaceId);
-          const plugin = summary ? await plugins.read(summary.id) : undefined;
+          const plugin = catalog!.plugins.find(item => item.name === mention.name && item.marketplace.id === mention.marketplaceId);
           if (plugin?.projectTypes?.length && !plugin.projectTypes.includes(project.type)) throw new LocalPluginError("A referenced plugin requires a different project type", 409);
           if (plugin?.integration && project.integration?.pluginId !== plugin.id) throw new LocalPluginError("Connect this plugin to the project before sending a prompt", 409);
         }
@@ -2932,8 +2932,10 @@ export function createApp(options: AppOptions = {}) {
           if (plugin.integration!.projectFiles?.length && !await matchesPluginProject(plugin, project.workspacePath)) throw new LocalPluginError("Connect the project in its plugin setup before sending a prompt", 409);
           let status = pluginIntegrations.state(plugin.id, project.id);
           if (status?.running && ["prepare", "connect", "bind"].includes(status.action)) throw new LocalPluginError("Wait for plugin setup to finish", 409);
-          if (!status?.result?.connection) {
-            await pluginIntegrations.execute(plugin, "status", project);
+          // Recheck an old connection when idle. A failed recheck keeps the last
+          // result, so an unreachable service does not block local work.
+          if (!status?.result?.connection || (!status.running && Date.now() - (status.connectionCheckedAt ?? 0) > PLUGIN_CONNECTION_MAX_AGE_MS)) {
+            await pluginIntegrations.execute(plugin, "status", project).catch(() => {});
             status = pluginIntegrations.state(plugin.id, project.id);
           }
           if (status?.result?.connection?.status !== "ready" || !status.result.project) throw new LocalPluginError("Complete the project's plugin connection before sending a prompt", 409);
@@ -3373,9 +3375,10 @@ export function createApp(options: AppOptions = {}) {
   return app;
 }
 
-function enabledPluginMentions(plugins: readonly PluginSummary[]): ConversationCapabilities["plugins"] {
+/** A project only offers plugins its prompts accept; the home composer offers all. */
+function enabledPluginMentions(plugins: readonly PluginSummary[], projectType?: ProjectType): ConversationCapabilities["plugins"] {
   return plugins
-    .filter((plugin) => plugin.enabled)
+    .filter((plugin) => plugin.enabled && (!projectType || !plugin.projectTypes?.length || plugin.projectTypes.includes(projectType)))
     .map(({ id, name, displayName, description, marketplace, projectTypes, integration }) => ({
       id,
       name,

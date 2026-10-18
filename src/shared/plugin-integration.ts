@@ -119,4 +119,6 @@ export interface PluginIntegrationState {
   authorizationUrl?: string;
   error?: string;
   result?: PluginIntegrationResult;
+  /** Epoch milliseconds of the last finished action that reports the connection. */
+  connectionCheckedAt?: number;
 }

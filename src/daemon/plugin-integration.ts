@@ -18,6 +18,40 @@ import {
   terminateProjectProcess,
 } from "./process-lifecycle.js";
 
+/** Plugin-wide setup replaces every project outcome of the same plugin. */
+const isSetup = (action: PluginIntegrationAction) =>
+  action === "prepare" || action === "connect";
+
+/** Actions whose adapter result reports the current connection. */
+const checksConnection = (action: PluginIntegrationAction) =>
+  isSetup(action) || action === "status" || action === "bind";
+
+/** Shared by HTTP routes, the prompt gate and the host itself. */
+export function assertIntegrationPlugin(
+  plugin: PluginDetail,
+  project?: ProjectState,
+): void {
+  if (!plugin.installed || !plugin.enabled || !plugin.integration)
+    throw new LocalPluginError(
+      "Enable the project's integration plugin in Settings > Plugins",
+      409,
+    );
+  if (
+    project &&
+    plugin.projectTypes?.length &&
+    !plugin.projectTypes.includes(project.type)
+  )
+    throw new LocalPluginError(
+      "This plugin requires a different project type. Create or import a compatible project.",
+      409,
+    );
+  if (project?.integration && project.integration.pluginId !== plugin.id)
+    throw new LocalPluginError(
+      "This project uses another integration plugin",
+      409,
+    );
+}
+
 type Task = {
   state: PluginIntegrationState;
   done: Promise<PluginIntegrationResult>;
@@ -32,7 +66,8 @@ export class PluginIntegrationHost {
   #closed = false;
   constructor(
     private readonly capabilities: PluginCapabilities,
-    private readonly changed: () => void = () => {},
+    /** Called with the project after a binding, or without one after setup. */
+    private readonly changed: (project?: ProjectState) => void = () => {},
     private readonly withWrite: (
       project: ProjectState,
       operation: () => Promise<PluginIntegrationResult>,
@@ -44,7 +79,7 @@ export class PluginIntegrationHost {
     pluginId: string,
     projectId?: string,
   ): PluginIntegrationState | undefined {
-    const state = this.#tasks.get(this.#key(pluginId, projectId))?.state;
+    const state = this.#visible(pluginId, projectId)?.state;
     return state ? structuredClone(state) : undefined;
   }
 
@@ -56,23 +91,10 @@ export class PluginIntegrationHost {
   ): PluginIntegrationState {
     if (this.#closed)
       throw new LocalPluginError("Plugin integrations are shutting down", 503);
-    if (!plugin.enabled || !plugin.integration)
-      throw new LocalPluginError(
-        "Enable an installed plugin with an integration first",
-        400,
-      );
-    if (
-      project &&
-      plugin.projectTypes?.length &&
-      !plugin.projectTypes.includes(project.type)
-    )
-      throw new LocalPluginError(
-        "Plugin does not support this project type",
-        400,
-      );
+    assertIntegrationPlugin(plugin, project);
     if (
       action.startsWith("preview-") &&
-      (!project || !plugin.integration.preview)
+      (!project || !plugin.integration!.preview)
     )
       throw new LocalPluginError(
         "Plugin does not provide project preview",
@@ -91,8 +113,7 @@ export class PluginIntegrationHost {
       if (
         task.state.pluginId === plugin.id &&
         task.state.running &&
-        (["prepare", "connect"].includes(task.state.action) ||
-          ["prepare", "connect"].includes(action))
+        (isSetup(task.state.action) || isSetup(action))
       )
         throw new LocalPluginError(
           "Another plugin setup operation is running",
@@ -105,6 +126,7 @@ export class PluginIntegrationHost {
       action,
       running: true,
       result: previous?.state.result,
+      connectionCheckedAt: previous?.state.connectionCheckedAt,
     };
     const operation = () =>
       this.#run(plugin, action, project, projectId, state, controller.signal);
@@ -116,13 +138,14 @@ export class PluginIntegrationHost {
       )
       .then((result) => {
         state.result = { ...state.result, ...result };
-        if (["prepare", "connect"].includes(action)) {
+        if (isSetup(action)) {
           for (const [otherKey, task] of this.#tasks) {
             if (task.state.pluginId === plugin.id && task.state !== state)
               this.#tasks.delete(otherKey);
           }
         }
-        if (["prepare", "connect", "bind"].includes(action)) this.changed();
+        if (isSetup(action)) this.changed();
+        else if (action === "bind") this.changed(project);
         state.authorizationUrl = undefined;
         return state.result;
       })
@@ -137,6 +160,9 @@ export class PluginIntegrationHost {
       .finally(() => {
         state.running = false;
         state.message = undefined;
+        // A failed check also counts, so an unreachable service is not retried
+        // before every prompt; the previous connection result is retained.
+        if (checksConnection(action)) state.connectionCheckedAt = Date.now();
       });
     // The UI may leave while an operation finishes. Retain its outcome for the
     // next view without an unhandled rejection or an automatic mutation retry.
@@ -168,7 +194,7 @@ export class PluginIntegrationHost {
   }
 
   cancel(pluginId: string, projectId?: string): void {
-    this.#tasks.get(this.#key(pluginId, projectId))?.cancel();
+    this.#visible(pluginId, projectId)?.cancel();
   }
   async forget(pluginId: string, projectId?: string): Promise<void> {
     const entries = [...this.#tasks].filter(
@@ -189,6 +215,16 @@ export class PluginIntegrationHost {
   }
   #key(pluginId: string, projectId?: string): string {
     return JSON.stringify([pluginId, projectId]);
+  }
+  /** A project view follows running plugin-wide setup instead of being
+   * rejected by it; setup success clears the project's outcome for a new read. */
+  #visible(pluginId: string, projectId?: string): Task | undefined {
+    const own = this.#tasks.get(this.#key(pluginId, projectId));
+    if (own || projectId === undefined) return own;
+    const setup = this.#tasks.get(this.#key(pluginId));
+    return setup?.state.running && isSetup(setup.state.action)
+      ? setup
+      : undefined;
   }
 
   async #run(

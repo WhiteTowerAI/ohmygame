@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -127,18 +129,25 @@ describe("plugin integration", () => {
     );
     await vi.waitFor(() => expect(host.state(plugin.id)?.running).toBe(false));
     expect(changed).toHaveBeenCalledOnce();
+    expect(changed).toHaveBeenLastCalledWith();
     host.start(plugin, "bind", project, "selected-app");
     await vi.waitFor(() =>
       expect(host.state(plugin.id, project.id)?.running).toBe(false),
     );
     expect(write).toHaveBeenCalledOnce();
+    expect(changed).toHaveBeenLastCalledWith(project);
+    const checkedAt = host.state(plugin.id, project.id)?.connectionCheckedAt;
+    expect(checkedAt).toEqual(expect.any(Number));
     expect(host.state(plugin.id, project.id)?.result?.project?.id).toBe(
       "selected-app",
     );
     await host.execute(plugin, "preview-start", project);
-    expect(host.state(plugin.id, project.id)?.result).toMatchObject({
-      project: { id: "selected-app" },
-      preview: { status: "running" },
+    expect(host.state(plugin.id, project.id)).toMatchObject({
+      result: {
+        project: { id: "selected-app" },
+        preview: { status: "running" },
+      },
+      connectionCheckedAt: checkedAt,
     });
     expect(await matchesPluginProject(plugin, project.workspacePath)).toBe(
       true,
@@ -152,6 +161,20 @@ describe("plugin integration", () => {
     expect(host.state(plugin.id, project.id)).toBeUndefined();
     await host.close();
     expect(() => host.start(plugin, "status")).toThrow("shutting down");
+  });
+  it("lets project views follow and cancel running plugin setup", async () => {
+    const { host, plugin, project } = await environment();
+    host.start(plugin, "connect");
+    await vi.waitFor(() =>
+      expect(host.state(plugin.id, project.id)).toMatchObject({
+        action: "connect",
+        running: true,
+        authorizationUrl: "https://example.com/authorize",
+      }),
+    );
+    host.cancel(plugin.id, project.id);
+    await vi.waitFor(() => expect(host.state(plugin.id)?.running).toBe(false));
+    expect(host.state(plugin.id, project.id)).toBeUndefined();
   });
   it("rejects malformed protocol, excessive messages and unsafe authorization URLs", async () => {
     const { host, plugin, project } = await environment();
@@ -348,5 +371,85 @@ describe("plugin integration", () => {
         })
       ).statusCode,
     ).toBe(409);
+  });
+  it("gates prompts on the connection, rechecks an old result and removes private data on uninstall", async () => {
+    const { directory, root } = await source();
+    const dataDirectory = path.join(directory, "data");
+    const app = createApp({
+      dataDirectory,
+      createSession: async () => ({
+        messages: [],
+        prompt: async () => {},
+        abort: async () => {},
+        dispose: () => {},
+        subscribe: () => () => {},
+        getSkills: () => [],
+      }),
+    });
+    cleanup.push(() => app.close());
+    await app.ready();
+    const pluginId = (
+      await app.inject({
+        method: "POST",
+        url: "/plugins/install",
+        payload: { type: "directory", path: root },
+      })
+    ).json().id;
+    const project = (
+      await app.inject({
+        method: "POST",
+        url: "/projects",
+        payload: { type: "general", pluginId },
+      })
+    ).json();
+    const conversation = (
+      await app.inject({
+        method: "POST",
+        url: `/projects/${project.id}/conversations`,
+      })
+    ).json();
+    const send = async () => {
+      const response = await app.inject({
+        method: "POST",
+        url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
+        payload: { prompt: "Build" },
+      });
+      await vi.waitFor(async () =>
+        expect(
+          (await app.inject({ url: "/projects/activity" })).json(),
+        ).toEqual([]),
+      );
+      return response.statusCode;
+    };
+    expect(await send()).toBe(409);
+    const base = `/plugins/${encodeURIComponent(pluginId)}/integration?projectId=${project.id}`;
+    await app.inject({
+      method: "POST",
+      url: base,
+      payload: { action: "bind", projectId: "selected-app" },
+    });
+    await vi.waitFor(async () =>
+      expect((await app.inject({ url: base })).json().running).toBe(false),
+    );
+    expect(await send()).toBe(202);
+    const pluginData = path.join(
+      dataDirectory,
+      "plugin-data",
+      createHash("sha256").update(pluginId).digest("hex").slice(0, 24),
+    );
+    await writeFile(path.join(pluginData, "signed-out"), "");
+    expect(await send()).toBe(202);
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 11 * 60_000);
+    try {
+      expect(await send()).toBe(409);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    await app.inject({
+      method: "DELETE",
+      url: `/plugins/${encodeURIComponent(pluginId)}`,
+    });
+    expect(existsSync(pluginData)).toBe(false);
   });
 });

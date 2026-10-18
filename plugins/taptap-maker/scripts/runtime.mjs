@@ -27,6 +27,8 @@ export const makerPath = (directory) =>
     "bin",
     "taptap-maker",
   );
+const AUTHORIZATION_MISSING =
+  /(?:PAT|JWT) (?:missing|not found)|not logged|login.*required|unauthorized|HTTP 40[13]|token.*expired/i;
 export const makerEnvironment = (directory) => ({
   ...process.env,
   ELECTRON_RUN_AS_NODE: "1",
@@ -72,10 +74,7 @@ export async function run(
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
       diagnostic = (diagnostic + chunk).slice(-8192);
-      authorizationMissing ||=
-        /(?:PAT|JWT) (?:missing|not found)|not logged|login.*required|unauthorized|HTTP 40[13]|token.*expired/i.test(
-          diagnostic,
-        );
+      authorizationMissing ||= AUTHORIZATION_MISSING.test(diagnostic);
     });
     child.once("error", reject);
     child.once("close", (code) => {
@@ -121,9 +120,7 @@ export async function maker(directory, args, onLine) {
     // token-bearing Git URL or account credentials and stay out of the UI.
     if (
       result.authorizationMissing ||
-      /(?:PAT|JWT) (?:missing|not found)|not logged|login.*required|unauthorized|HTTP 401|HTTP 403|token.*expired/i.test(
-        result.output,
-      )
+      AUTHORIZATION_MISSING.test(result.output)
     )
       throw new Error(
         "Maker authorization is missing or expired. Connect your account again.",
