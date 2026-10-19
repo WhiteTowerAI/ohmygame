@@ -1,6 +1,7 @@
 import { AgentProcess, processFailure } from "./process.js";
 import type { AgentUsageLimit } from "../../shared/contracts.js";
 import { record } from "./driver-context.js";
+import { agentCompatibilityError } from "./compatibility.js";
 
 const REQUEST_TIMEOUT_MS = 60_000;
 export const CODEX_CLIENT = {
@@ -16,6 +17,7 @@ export class CodexAppServer {
   #pending = new Map<
     number,
     {
+      method: string;
       resolve: (value: unknown) => void;
       reject: (cause: Error) => void;
       timer: NodeJS.Timeout;
@@ -77,6 +79,7 @@ export class CodexAppServer {
         reject(new Error(`Codex did not answer ${method}`));
       }, timeoutMs);
       this.#pending.set(id, {
+        method,
         resolve: resolve as (value: unknown) => void,
         reject,
         timer,
@@ -147,7 +150,12 @@ export class CodexAppServer {
     const error = record(message.error);
     if (error)
       pending.reject(
-        new Error(String(error.message ?? "Codex request failed")),
+        error.code === -32601
+          ? agentCompatibilityError(
+              "Codex",
+              `${pending.method} was rejected (${error.code}): ${String(error.message ?? "Unsupported protocol request")}`,
+            )
+          : new Error(String(error.message ?? "Codex request failed")),
       );
     else pending.resolve(message.result);
   }

@@ -11,6 +11,14 @@ Authentication, account limits, request compatibility, provider server errors,
 DNS, TLS, timeouts and interrupted responses have distinct presentations.
 Unknown failures remain explicitly unclassified.
 
+Coding agent CLI compatibility failures have their own guidance and show
+CLI diagnostics instead of a provider response. Unsupported native protocol
+requests and missing required permission settings are distinguished from model
+or network failures. Old saved CLI version-rejection messages are recognized
+too. An installed version below the live acceptance baseline is advisory in
+Settings → Agents; startup checks, rather than that version number, decide
+whether a conversation can proceed. See [agent runtimes](agent-runtimes.md#runtime-transports-and-compatibility).
+
 The details can be copied and include the provider, model, endpoint, transport, HTTP status,
 provider request ID, available underlying error codes and causes, and the number
 of agent retries in the turn. Missing fields are omitted. The network field is

@@ -540,17 +540,14 @@ function Diagnostic({
   return (
     <div
       className={`coding-agent-diagnostic is-${diagnostic.code}`}
-      role={
-        diagnostic.code === "not-installed" ||
-        diagnostic.code === "version-unsupported"
-          ? "alert"
-          : "status"
-      }
+      role={diagnostic.code === "not-installed" ? "alert" : "status"}
     >
       <Terminal size={14} aria-hidden="true" />
       <span>
         {text}
-        {diagnostic.command && diagnostic.code === "not-installed" ? (
+        {(diagnostic.code === "not-installed" ||
+          diagnostic.code === "version-unverified") &&
+        diagnostic.command ? (
           <>
             {" "}
             <button
@@ -632,10 +629,10 @@ function agentSummary(agent: AgentRuntimeStatus): string {
     : t("codingAgents.versionUnknown");
   if (
     agent.diagnostics.some(
-      (diagnostic) => diagnostic.code === "version-unsupported",
+      (diagnostic) => diagnostic.code === "version-unverified",
     )
   )
-    return t("codingAgents.needsUpdate", { version });
+    return t("codingAgents.versionUnverified", { version });
   if (agent.auth.status === "signed-out")
     return t("codingAgents.installedSignedOut", { version });
   return t("codingAgents.installed", { version });
@@ -670,9 +667,11 @@ function diagnosticText(
   switch (diagnostic.code) {
     case "not-installed":
       return t("codingAgents.diagnostic.notInstalled", { name: agent.name });
-    case "version-unsupported":
-      return t("codingAgents.diagnostic.versionUnsupported", {
+    case "version-unverified":
+      return t("codingAgents.diagnostic.versionUnverified", {
         name: agent.name,
+        version: agent.version ?? t("codingAgents.versionUnknown"),
+        testedVersion: agent.testedVersion ?? t("codingAgents.versionUnknown"),
       });
     case "signed-out":
       return t("codingAgents.diagnostic.signedOut", { name: agent.name });

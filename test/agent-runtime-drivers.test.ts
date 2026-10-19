@@ -174,6 +174,36 @@ async function context(
 }
 
 describe("Claude Code adapter", () => {
+  it("rejects unsupported initialization without sending input and retries with a fresh process", async () => {
+    let userMessages = 0;
+    const clis = fakeCli((message, cli) => {
+      if (message.type === "user") userMessages++;
+      if (message.type === "control_request")
+        cli.send({
+          type: "control_response",
+          response: {
+            subtype: "error",
+            request_id: message.request_id,
+            error: "Unsupported control request: initialize",
+          },
+        });
+    });
+    const driver = new ClaudeCodeDriver(await context());
+    cleanup.push(() => driver.dispose());
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(
+        driver.runTurn(
+          { text: "must not send", images: [], readOnly: false },
+          recordingSink().sink,
+          new AbortController().signal,
+        ),
+      ).rejects.toThrow(
+        "Claude Code CLI compatibility check failed: initialize",
+      );
+    expect(userMessages).toBe(0);
+    expect(clis).toHaveLength(2);
+    expect(clis.every((cli) => cli.exited)).toBe(true);
+  });
   it("reports a missing resumed session returned as a terminal CLI error", async () => {
     fakeCli((message, cli) => {
       if (message.type === "control_request")
@@ -940,6 +970,40 @@ describe("Claude Code adapter", () => {
 });
 
 describe("Codex adapter", () => {
+  it.each([
+    {
+      code: -32601,
+      expected: /^Codex CLI compatibility check failed: initialize/,
+    },
+    { code: -32602, expected: /^Invalid initialize parameters$/ },
+  ])(
+    "distinguishes a missing method from invalid parameters ($code) before sending input",
+    async ({ code, expected }) => {
+      const methods: string[] = [];
+      fakeCli((message, cli) => {
+        if (typeof message.method !== "string" || message.id === undefined)
+          return;
+        methods.push(message.method);
+        cli.send({
+          id: message.id,
+          error: { code, message: "Invalid initialize parameters" },
+        });
+      });
+      const driver = new CodexDriver(await context());
+      cleanup.push(() => driver.dispose());
+      expect(
+        await driver.runTurn(
+          { text: "must not send", images: [], readOnly: false },
+          recordingSink().sink,
+          new AbortController().signal,
+        ),
+      ).toMatchObject({
+        status: "failed",
+        error: expect.stringMatching(expected),
+      });
+      expect(methods).not.toContain("turn/start");
+    },
+  );
   it("fails before sending input when the CLI ignores named filesystem permissions", async () => {
     const methods: string[] = [];
     fakeCli((message, cli) => {
@@ -1654,6 +1718,58 @@ describe("Codex adapter", () => {
 });
 
 describe("OpenCode adapter", () => {
+  it.each(["missing-path", "invalid-path", "missing-events"])(
+    "rejects %s before sending input and rechecks after failure",
+    async (failure) => {
+      const requests: string[] = [];
+      const server = createServer((request, response) => {
+        requests.push(request.url!);
+        if (request.url === "/event" && failure !== "missing-events") {
+          response.writeHead(200, { "content-type": "text/event-stream" });
+          response.write(": connected\n\n");
+          return;
+        }
+        if (request.url === "/path" && failure === "invalid-path")
+          return response.end(JSON.stringify({ worktree: "relative/path" }));
+        response.writeHead(404).end();
+      });
+      await new Promise<void>((resolve) =>
+        server.listen(0, "127.0.0.1", resolve),
+      );
+      cleanup.push(
+        () =>
+          new Promise<void>((resolve) => {
+            server.close(() => resolve());
+            server.closeAllConnections();
+          }),
+      );
+      const address = server.address() as { port: number };
+      const clis = fakeCli((message, cli) => {
+        if (message.type === "spawned")
+          cli.line(
+            `opencode server listening on http://127.0.0.1:${address.port}`,
+          );
+      });
+      const driver = new OpenCodeDriver(await context());
+      cleanup.push(() => driver.dispose());
+      for (let attempt = 0; attempt < 2; attempt++)
+        expect(
+          await driver.runTurn(
+            { text: "must not send", images: [], readOnly: false },
+            recordingSink().sink,
+            new AbortController().signal,
+          ),
+        ).toMatchObject({
+          status: "failed",
+          error: expect.stringContaining(
+            "OpenCode CLI compatibility check failed:",
+          ),
+        });
+      expect(requests).not.toContain("/session");
+      expect(clis).toHaveLength(2);
+      expect(clis.every((cli) => cli.exited)).toBe(true);
+    },
+  );
   it("cancels startup before OpenCode announces its listening address", async () => {
     let spawned!: () => void;
     const ready = new Promise<void>((resolve) => {

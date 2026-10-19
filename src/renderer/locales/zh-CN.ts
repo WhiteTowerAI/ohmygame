@@ -1189,7 +1189,7 @@ const zhCN: typeof en = {
     notFound: "这台电脑上未找到",
     installed: "已安装 · {{version}}",
     installedSignedOut: "已安装 · {{version}} · 未登录",
-    needsUpdate: "{{version}} · 需要更新",
+    versionUnverified: "{{version}} · 兼容性未验证",
     versionUnknown: "版本未知",
     status: "状态",
     recheck: "重新检查",
@@ -1227,7 +1227,7 @@ const zhCN: typeof en = {
     executablePlaceholder: "自动查找",
     diagnostic: {
       notInstalled: "这台电脑上没有安装 {{name}}。",
-      versionUnsupported: "这个版本的 {{name}} 太旧，请更新后再在这里使用。",
+      versionUnverified: "{{name}} {{version}} 早于经过测试的版本 {{testedVersion}}。你仍可尝试使用，启动对话时会检查必需的能力。",
       signedOut: "{{name}} 尚未登录。",
       modelsUnavailable: "{{name}} 没有返回模型列表。",
       probeFailed: "检查时 {{name}} 没有响应。",
@@ -1265,6 +1265,10 @@ const zhCN: typeof en = {
     submit: "提交答案",
   },
   agentError: {
+    agent_incompatible: {
+      title: "编程智能体 CLI 不兼容",
+      message: "CLI 无法建立必需的协议连接或权限配置。请在设置 → 智能体中检查可执行文件和版本，按需更新后重新检查。",
+    },
     model_not_configured: {
       title: "需要设置模型",
       message:
@@ -1338,6 +1342,7 @@ const zhCN: typeof en = {
       error: "错误",
       notConfigured: "所选模型尚未配置。",
       providerResponse: "服务商返回",
+      cliResponse: "CLI 诊断",
       provider: "服务商",
       model: "模型",
       endpoint: "端点",

@@ -4,6 +4,10 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { probeModels } from "../src/daemon/agent-runtimes/discovery.js";
 import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
+import * as discovery from "../src/daemon/agent-runtimes/discovery.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { AGENT_RUNTIME_DEFINITIONS } from "../src/daemon/agent-runtimes/definitions.js";
+import { AGENT_RUNTIME_IDS } from "../src/shared/agent-runtimes.js";
 
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => {
@@ -48,6 +52,45 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
   };
   return { service, install };
 }
+
+it.each(AGENT_RUNTIME_IDS)(
+  "allows %s below the tested version to reach its protocol adapter",
+  async (id) => {
+    const { service, install } = await fixture();
+    const cli = await install("older-cli");
+    vi.spyOn(discovery, "probeVersion").mockResolvedValue("0.1.0");
+    vi.spyOn(discovery, "probeAuth").mockResolvedValue({
+      status: "signed-in",
+      billing: "subscription",
+    });
+    const status = await service.update(id, {
+      binaryPath: cli.binary,
+      enabled: true,
+    });
+    expect(status).toMatchObject({
+      version: "0.1.0",
+      testedVersion: AGENT_RUNTIME_DEFINITIONS[id].testedVersion,
+      diagnostics: [
+        {
+          code: "version-unverified",
+          command: AGENT_RUNTIME_DEFINITIONS[id].installUrl,
+        },
+      ],
+    });
+    const session = await service.createSession({
+      runtime: id,
+      model: "fixture",
+      workspacePath: path.dirname(cli.binary),
+      sessionManager: SessionManager.inMemory(path.dirname(cli.binary)),
+      tools: [],
+      skillDirectories: [],
+      instructions: "Fixture",
+      policy: { workspacePath: path.dirname(cli.binary), neverTouch: [] },
+      requestApproval: async () => "deny",
+    });
+    await session.dispose();
+  },
+);
 it("refreshes direct model lookup after the catalog TTL expires", async () => {
   const { service, install } = await fixture();
   const cli = await install("claude-a");

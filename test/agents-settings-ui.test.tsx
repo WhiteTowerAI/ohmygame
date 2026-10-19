@@ -124,6 +124,39 @@ it("lists OhMyGame's own agent with its default model above the coding agent CLI
   expect(onOpenProviders).toHaveBeenCalled();
 });
 
+it("shows an older CLI's tested version as advice with an installation guide", async () => {
+  const codex: AgentRuntimeStatus = {
+    ...agent("codex-cli", "Codex", true),
+    version: "0.162.0-alpha.17.2",
+    testedVersion: "0.163.0-alpha.10.2",
+    diagnostics: [
+      {
+        code: "version-unverified",
+        message: "Untested version",
+        command: "https://developers.openai.com/codex/cli",
+      },
+    ],
+  };
+  api.listAgentRuntimes.mockResolvedValueOnce([codex]);
+  await act(async () =>
+    root.render(
+      <AgentsSettings
+        view={{ page: "agent", id: "codex-cli" }}
+        onViewChange={vi.fn()}
+        onOpenProviders={vi.fn()}
+      />,
+    ),
+  );
+  expect(host.textContent).toContain(
+    "0.162.0-alpha.17.2 is older than the tested version 0.163.0-alpha.10.2",
+  );
+  expect(host.textContent).toContain("You can try it");
+  expect(host.textContent).toContain("Installation guide");
+  expect(
+    host.querySelector(".coding-agent-diagnostic")?.getAttribute("role"),
+  ).toBe("status");
+});
+
 it("marks the CLI new conversations start with and opens its settings", async () => {
   catalog = {
     models: [gpt, sonnet],

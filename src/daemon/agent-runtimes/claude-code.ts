@@ -28,6 +28,7 @@ import { stageSkills, stagedSkillsRoot } from "./skills.js";
 import { canonicalPath, judgeApproval, planningPolicy } from "./policy.js";
 import { sessionCaches } from "./environment.js";
 import { NativeSessionExpiredError } from "./native-session.js";
+import { agentCompatibilityError } from "./compatibility.js";
 
 const CONTROL_TIMEOUT_MS = 30_000;
 
@@ -212,11 +213,16 @@ export class ClaudeCodeDriver implements NativeDriver {
         });
         this.#process = child;
         this.#permissionMode = readOnly ? "default" : "acceptEdits";
-        await this.#control({
-          subtype: "initialize",
-          sdkMcpServers: [BRIDGE_SERVER_NAME],
-          hooks: { PreToolUse: [{ hookCallbackIds: ["ohmygame-policy"] }] },
-        });
+        try {
+          await this.#control({
+            subtype: "initialize",
+            sdkMcpServers: [BRIDGE_SERVER_NAME],
+            hooks: { PreToolUse: [{ hookCallbackIds: ["ohmygame-policy"] }] },
+          });
+        } catch (cause) {
+          await child.stop();
+          throw cause;
+        }
         if (this.#disposed) throw new Error("The agent session was closed");
         return child;
       } finally {
@@ -320,7 +326,16 @@ export class ClaudeCodeDriver implements NativeDriver {
         },
         reject: (cause) => {
           clearTimeout(timer);
-          reject(cause);
+          reject(
+            /^(?:unknown|unsupported|unrecognized) (?:control )?(?:request|method|variant)\b/i.test(
+              cause.message,
+            )
+              ? agentCompatibilityError(
+                  "Claude Code",
+                  `${String(request.subtype)}: ${cause.message}`,
+                )
+              : cause,
+          );
         },
       });
       child.write({ type: "control_request", request_id: id, request });

@@ -1,7 +1,7 @@
 import type { ThreadItemError, ThreadItemErrorCode } from "../shared/contracts.js";
 import { t } from "./i18n.js";
 
-const KNOWN_CODES = new Set<ThreadItemErrorCode>(["model_not_configured", "authentication_failed", "access_denied", "quota_exceeded", "rate_limited", "invalid_request", "model_unavailable", "provider_unavailable", "dns_error", "connection_refused", "connection_reset", "timeout", "tls_error", "stream_error", "network_error"]);
+const KNOWN_CODES = new Set<ThreadItemErrorCode>(["model_not_configured", "authentication_failed", "access_denied", "quota_exceeded", "rate_limited", "invalid_request", "model_unavailable", "provider_unavailable", "dns_error", "connection_refused", "connection_reset", "timeout", "tls_error", "stream_error", "network_error", "agent_incompatible"]);
 
 export function agentErrorPresentation(error: ThreadItemError): { title: string; message: string } {
   const code = error.code && KNOWN_CODES.has(error.code) ? error.code : "unknown";
@@ -13,7 +13,7 @@ export function agentErrorDiagnosticRows(error: ThreadItemError): Array<[string,
   const details = error.diagnostics;
   const rows: Array<[string, string]> = error.code === "model_not_configured"
     ? [[t("agentError.row.error"), t("agentError.row.notConfigured")]]
-    : [[t("agentError.row.providerResponse"), error.message]];
+    : [[t(error.code === "agent_incompatible" ? "agentError.row.cliResponse" : "agentError.row.providerResponse"), error.message]];
   if (!details) return rows;
   if (details.provider) rows.push([t("agentError.row.provider"), details.provider]);
   if (details.model) rows.push([t("agentError.row.model"), details.model]);

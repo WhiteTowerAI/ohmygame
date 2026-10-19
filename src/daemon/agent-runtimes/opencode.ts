@@ -26,6 +26,7 @@ import {
 import { stageSkills, stagedSkillsRoot } from "./skills.js";
 import { judgeApproval, planningPolicy } from "./policy.js";
 import { NativeSessionExpiredError } from "./native-session.js";
+import { agentCompatibilityError } from "./compatibility.js";
 
 const START_TIMEOUT_MS = 30_000;
 
@@ -216,11 +217,16 @@ export class OpenCodeDriver implements NativeDriver {
         throw cause;
       }
     }
-    const created = (await this.#api("POST", "/session", {
-      title: "OhMyGame",
-    })) as { id?: unknown };
-    if (typeof created.id !== "string")
-      throw new Error("OpenCode did not start a session");
+    const created = record(
+      await this.#api("POST", "/session", {
+        title: "OhMyGame",
+      }),
+    );
+    if (typeof created?.id !== "string")
+      throw agentCompatibilityError(
+        "OpenCode",
+        "The /session endpoint did not return a session ID.",
+      );
     this.#sessionId = created.id;
     sink.nativeSession(created.id);
     return created.id;
@@ -282,7 +288,6 @@ export class OpenCodeDriver implements NativeDriver {
         ]);
         clearTimeout(startTimer);
         if (!address) {
-          await child.stop();
           throw new Error(
             processFailure(
               "OpenCode",
@@ -292,10 +297,7 @@ export class OpenCodeDriver implements NativeDriver {
             ),
           );
         }
-        if (this.#disposed) {
-          await child.stop();
-          throw new Error("The agent session was closed");
-        }
+        if (this.#disposed) throw new Error("The agent session was closed");
         const events = new AbortController();
         const server = {
           process: child,
@@ -327,9 +329,17 @@ export class OpenCodeDriver implements NativeDriver {
           typeof nativePath?.worktree !== "string" ||
           !path.isAbsolute(nativePath.worktree)
         )
-          throw new Error("OpenCode did not report its permission path root");
+          throw agentCompatibilityError(
+            "OpenCode",
+            "The /path endpoint did not report its permission path root.",
+          );
         this.#worktree = nativePath.worktree;
         return server;
+      } catch (cause) {
+        this.#server?.events.abort();
+        await (this.#server?.process ?? this.#launching)?.stop();
+        this.#server = undefined;
+        throw cause;
       } finally {
         this.#launching = undefined;
         this.#starting = undefined;
@@ -402,6 +412,14 @@ export class OpenCodeDriver implements NativeDriver {
       ]),
     });
     const text = await response.text();
+    if (
+      (response.status === 404 || response.status === 405) &&
+      ["/path", "/mcp"].includes(route)
+    )
+      throw agentCompatibilityError(
+        "OpenCode",
+        `Required ${method} ${route} endpoint is unavailable (${response.status}).`,
+      );
     if (!response.ok)
       throw new OpenCodeHttpError(
         response.status,
@@ -463,6 +481,11 @@ export class OpenCodeDriver implements NativeDriver {
         },
         signal: server.events.signal,
       });
+      if (response.status === 404 || response.status === 405)
+        throw agentCompatibilityError(
+          "OpenCode",
+          `Required GET /event endpoint is unavailable (${response.status}).`,
+        );
       if (!response.ok || !response.body)
         throw new Error(`OpenCode event stream failed (${response.status})`);
       connected();

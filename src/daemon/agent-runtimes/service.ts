@@ -177,6 +177,7 @@ export class AgentRuntimeService {
     const base = {
       id,
       name: definition.name,
+      testedVersion: definition.testedVersion,
       enabled: settings.enabled,
       isolateUserConfig: settings.isolateUserConfig,
       commandSandbox: commandSandbox(id),
@@ -378,11 +379,8 @@ export class AgentRuntimeService {
       throw new Error(
         `${definition.name} is not installed. Install it, then check again in Providers & Models.`,
       );
-    const probe = await this.#probe(request.runtime, binary, false);
-    const blocking = probe?.diagnostics.find(
-      (diagnostic) => diagnostic.code === "version-unsupported",
-    );
-    if (blocking) throw new Error(blocking.message);
+    // A version outside live acceptance is advisory. The driver must establish
+    // its protocol and permission configuration before delivering input.
     await mkdir(path.join(this.#root, "sessions"), {
       recursive: true,
       mode: 0o700,
@@ -662,10 +660,11 @@ export class AgentRuntimeService {
           message: cause instanceof Error ? cause.message : String(cause),
         });
       }
-      if (version && !versionAtLeast(version, definition.minimumVersion)) {
+      if (version && !versionAtLeast(version, definition.testedVersion)) {
         diagnostics.push({
-          code: "version-unsupported",
-          message: `${definition.name} ${version} is older than ${definition.minimumVersion}, the oldest version OhMyGame supports. Update it to continue.`,
+          code: "version-unverified",
+          message: `${definition.name} ${version} is older than the tested version ${definition.testedVersion}. Compatibility will be checked when a conversation starts.`,
+          command: definition.installUrl,
         });
       }
       if (auth.status === "signed-out")

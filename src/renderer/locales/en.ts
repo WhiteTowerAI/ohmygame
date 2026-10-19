@@ -1213,7 +1213,7 @@ const en = {
     notFound: "Not found on this computer",
     installed: "Installed · {{version}}",
     installedSignedOut: "Installed · {{version}} · Not signed in",
-    needsUpdate: "{{version}} · Update required",
+    versionUnverified: "{{version}} · Compatibility unverified",
     versionUnknown: "version unknown",
     status: "Status",
     recheck: "Check again",
@@ -1251,7 +1251,7 @@ const en = {
     executablePlaceholder: "Found automatically",
     diagnostic: {
       notInstalled: "{{name}} is not installed on this computer.",
-      versionUnsupported: "This version of {{name}} is too old. Update it to use it here.",
+      versionUnverified: "{{name}} {{version}} is older than the tested version {{testedVersion}}. You can try it; required capabilities are checked when a conversation starts.",
       signedOut: "{{name}} is not signed in.",
       modelsUnavailable: "{{name}} did not list its models.",
       probeFailed: "{{name}} did not answer when checked.",
@@ -1289,6 +1289,10 @@ const en = {
     submit: "Submit answer",
   },
   agentError: {
+    agent_incompatible: {
+      title: "Coding agent CLI incompatible",
+      message: "The CLI could not establish a required protocol or permission setting. Check the executable and version in Settings → Agents, update it if needed, then check again.",
+    },
     model_not_configured: {
       title: "Model setup required",
       message:
@@ -1373,6 +1377,7 @@ const en = {
       error: "Error",
       notConfigured: "The selected model isn't configured.",
       providerResponse: "Provider response",
+      cliResponse: "CLI diagnostics",
       provider: "Provider",
       model: "Model",
       endpoint: "Endpoint",

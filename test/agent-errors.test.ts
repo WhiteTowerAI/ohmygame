@@ -3,8 +3,23 @@ import { createProviderFailureDiagnostic } from "@earendil-works/pi-ai/utils/pro
 import { assistantMessageError, normalizeAgentError, thrownAgentError } from "../src/daemon/agent-errors.js";
 import { agentErrorDiagnosticText, agentErrorPresentation } from "../src/renderer/agent-error-presentation.js";
 import type { ThreadItemErrorCode } from "../src/shared/contracts.js";
+import { agentCompatibilityError } from "../src/daemon/agent-runtimes/compatibility.js";
 
 describe("agent error diagnostics", () => {
+  it.each(["Codex", "Claude Code", "OpenCode"])("explains %s CLI compatibility failures after serialization and reload", (name) => {
+    const error = agentCompatibilityError(name, "Required protocol method is unavailable.");
+    const thrown = thrownAgentError(error);
+    const restored = normalizeAgentError(error.message, thrown.diagnostics);
+    for (const result of [thrown, restored]) {
+      expect(result.code).toBe("agent_incompatible");
+      expect(agentErrorPresentation(result).title).toBe("Coding agent CLI incompatible");
+      expect(agentErrorDiagnosticText(result)).toContain("CLI diagnostics:");
+      expect(agentErrorDiagnosticText(result)).not.toContain("Provider response:");
+    }
+    // Old persisted failures must also have actionable guidance.
+    expect(normalizeAgentError(`${name} 0.1.0 is older than 1.0.0, the oldest version OhMyGame supports. Update it to continue.`).code).toBe("agent_incompatible");
+    expect(normalizeAgentError(`${name} exited with code 1: Authentication failed`, { statusCode: 401 }).code).toBe("authentication_failed");
+  });
   it("shows WebSocket transport without presenting the SSE adapter's synthetic 200 as an HTTP status", () => {
     const error = Object.assign(new Error("OpenAI WebSocket idle timeout"), { code: "WEBSOCKET_IDLE_TIMEOUT", transport: "websocket" });
     const message = { errorMessage: error.message, diagnostics: [createProviderFailureDiagnostic(error, "https://api.openai.com/v1", new Response())] };

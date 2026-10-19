@@ -23,6 +23,7 @@ import {
   type CodexServerLease,
 } from "./codex-server-pool.js";
 import { NativeSessionExpiredError } from "./native-session.js";
+import { agentCompatibilityError } from "./compatibility.js";
 import { canonicalPath, judgeApproval } from "./policy.js";
 import { sandboxedPath, sessionCaches, toolchainRoots } from "./environment.js";
 import type { AgentContextUsage } from "../../shared/contracts.js";
@@ -285,8 +286,9 @@ export class CodexDriver implements NativeDriver {
     activePermissionProfile?: { id?: string };
   }): void {
     if (response.activePermissionProfile?.id !== this.#writeProfile)
-      throw new Error(
-        "Codex did not activate OhMyGame's filesystem permissions. Update Codex to a version supporting named permission profiles, then check again in Settings.",
+      throw agentCompatibilityError(
+        "Codex",
+        "Codex did not activate OhMyGame's filesystem permissions (activePermissionProfile).",
       );
   }
 
@@ -372,7 +374,9 @@ export class CodexDriver implements NativeDriver {
       const servers = record(read.config?.mcp_servers) ?? {};
       for (const name of Object.keys(servers))
         config[`mcp_servers.${name}.enabled`] = false;
-    } catch {
+    } catch (cause) {
+      if (record(cause)?.code === "AGENT_RUNTIME_INCOMPATIBLE")
+        throw cause;
       throw new Error(
         "Codex configuration could not be checked. Retry, or explicitly enable your own CLI configuration in Settings.",
       );

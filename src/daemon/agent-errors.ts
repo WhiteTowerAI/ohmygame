@@ -86,6 +86,9 @@ function classifyAgentError(message: string, diagnostics: AgentErrorDiagnostics)
   const causes = diagnostics.causes ?? [];
   const transportText = [message, ...causes.flatMap((cause) => [cause.name, cause.message])].filter(Boolean).join(" ");
   const codes = [diagnostics.errorCode, ...causes.map((cause) => cause.code)].filter(Boolean).join(" ").toUpperCase();
+  if (/\bAGENT_RUNTIME_INCOMPATIBLE\b/.test(codes) || /^(?:Codex|Claude Code|OpenCode) CLI compatibility check failed:/i.test(message)
+    || /^(?:Codex|Claude Code|OpenCode) [\w.+-]+ is older than [\w.+-]+, the oldest version OhMyGame supports\./.test(message)
+    || /^Codex did not activate OhMyGame's filesystem permissions\./.test(message)) return "agent_incompatible";
   if (/^No API key\b/i.test(message) || /select an available model|selected model .* is not available|provider .* is disabled/i.test(message)) return "model_not_configured";
   const quota = /insufficient[_ ](?:quota|balance)|quota[_ ]exceeded|out of budget|billing[_ ](?:hard[_ ]|soft[_ ])?limit|usage limit|subscription_sharing_usage_limit_exceeded|GoUsageLimitError|FreeUsageLimitError/i;
   if (status === 402 || quota.test(diagnostics.errorCode ?? "") || ((!Number.isFinite(status) || status < 400 || status === 429) && quota.test(message))) return "quota_exceeded";

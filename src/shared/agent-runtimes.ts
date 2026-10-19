@@ -44,7 +44,7 @@ export type AgentRuntimeAuthStatus = "signed-in" | "signed-out" | "unknown";
 
 export type AgentRuntimeDiagnosticCode =
   | "not-installed"
-  | "version-unsupported"
+  | "version-unverified"
   | "signed-out"
   | "probe-failed"
   | "models-unavailable";
@@ -74,6 +74,8 @@ export interface AgentRuntimeStatus {
   /** The executable that runs, resolved to an absolute path. */
   binaryPath?: string;
   version?: string;
+  /** Earliest version covered by live acceptance; older versions may still work. */
+  testedVersion?: string;
   auth: {
     status: AgentRuntimeAuthStatus;
     /** Account or plan text the CLI reports, such as an email address. */
