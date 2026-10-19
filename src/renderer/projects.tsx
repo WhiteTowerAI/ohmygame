@@ -135,7 +135,7 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
               actions={{ onRename: () => {
                 renameTrigger.current = document.querySelector<HTMLElement>('.project-card-menu[aria-expanded="true"]');
                 setRenameTarget(project);
-              }, onDuplicate: () => duplicate(project), onDelete: () => remove(project), ...(project.type !== "asset-canvas" ? { onDesign: () => onOpenProject(project.id, "design") } : {}) }}
+              }, onDuplicate: () => duplicate(project), onDelete: () => remove(project) }}
             />
           ))}
         </div>

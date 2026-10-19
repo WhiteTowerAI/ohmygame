@@ -37,6 +37,13 @@ Projects URL preserves its type filter, search (`q`), and name sorting
 (`sort=name`) when returning or refreshing. See the
 [workspace return example](assets/project-return-navigation.webp).
 
+In the desktop app, the project card menu's **Open in folder** action opens the
+project's workspace in the system file manager, including projects using an
+existing folder. It is available in recent projects and the Projects list.
+See the [project menu example](assets/project-card-menu.png).
+The desktop file opener resolves `.` through `/projects/:projectId/files/location`
+to open the workspace root; file reads and writes still require a file path.
+
 ## Architecture and feature guides
 
 [Git changes in Code](workspace-git.md) covers the read-only project changes
