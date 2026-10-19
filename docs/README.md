@@ -63,6 +63,7 @@ are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
 | [runtime-recovery.md](runtime-recovery.md)       | Preview isolation, daemon supervision, reconnect behavior, and recovery scenarios.                                             |
 | [canvas-agent.md](canvas-agent.md)               | Canvas files, concurrent editing, agent tools, media, and migration.                                                           |
 | [coding-agents.md](coding-agents.md)             | Coding agent CLIs: discovery, sessions, tools, approvals, isolation, and adding an agent.                                      |
+| [external-agents.md](external-agents.md)         | OhMyGame as an MCP server for Claude Code, Codex, and other external agents: design and delivery status.                      |
 | [plugins.md](plugins.md)                         | Plugin packages, configuration, credentials, MCP sessions, authoring, and migration.                                           |
 | [custom-models.md](custom-models.md)             | Provider protocols, capabilities, visibility, model definitions, and defaults.                                                 |
 | [3d-providers.md](3d-providers.md)               | 3D operations, provider compatibility, paid-task recovery, and GLB validation.                                                 |
