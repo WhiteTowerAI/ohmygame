@@ -23,6 +23,8 @@ export interface NodeCodebaseDetail extends NodeCodebase {
 
 export interface NodeCodebaseUpdate extends NodeCodebase {
   sources?: Record<string, string>;
+  /** Refuse a source write if any named file changed since it was read. */
+  sourcePreconditions?: Record<string, string>;
   sourceDeletions?: string[];
   /** The revision the update was made from. The write is refused when the files changed since. */
   revision?: string;

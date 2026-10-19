@@ -625,6 +625,41 @@ describe("daemon", () => {
     expect(updated.graph.nodes[0].assets).not.toContain("clip");
   });
 
+  it("records the Library video a trimmed upload was cut from, and rejects an unknown or partial source", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-library-trim-"));
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+    const mp4 = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
+    const upload = (query: string) => app.inject({
+      method: "POST",
+      url: `/library/assets/upload?${query}`,
+      headers: { "content-type": "application/octet-stream" },
+      payload: mp4,
+    });
+    const original = (await upload("name=opening.mp4&mediaType=video%2Fmp4&duration=10")).json();
+
+    const trimmed = await upload(`name=opening%20(trimmed).mp4&mediaType=video%2Fmp4&duration=3.2&trimSource=${original.id}&trimStart=2.2&trimEnd=5.4`);
+    expect(trimmed.statusCode, trimmed.body).toBe(201);
+    expect(trimmed.json()).toMatchObject({ name: "opening (trimmed).mp4", duration: 3.2, derivedFrom: { assetId: original.id, trim: { start: 2.2, end: 5.4 } } });
+    expect((await upload("name=plain.mp4&mediaType=video%2Fmp4")).json().derivedFrom).toBeUndefined();
+
+    for (const query of [
+      "name=a.mp4&mediaType=video%2Fmp4&trimSource=missing&trimStart=1&trimEnd=2",
+      `name=a.mp4&mediaType=video%2Fmp4&trimSource=${original.id}&trimStart=1`,
+      `name=a.mp4&mediaType=video%2Fmp4&trimSource=${original.id}&trimStart=3&trimEnd=2`,
+    ]) {
+      const response = await upload(query);
+      expect(response.statusCode, query).toBe(400);
+      expect(response.json()).toEqual({ error: "Invalid trim source" });
+    }
+
+    // The record survives a restart.
+    const reopened = createApp({ dataDirectory });
+    apps.push(reopened);
+    const listed = (await reopened.inject({ method: "GET", url: "/library/assets" })).json() as { id: string; derivedFrom?: unknown }[];
+    expect(listed.find((asset) => asset.id === trimmed.json().id)?.derivedFrom).toEqual({ assetId: original.id, trim: { start: 2.2, end: 5.4 } });
+  });
+
   it("uploads and serves an SVG image from the global Library", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
     apps.push(app);

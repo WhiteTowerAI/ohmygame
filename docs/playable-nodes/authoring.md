@@ -572,6 +572,32 @@ the same way text edits are written. `showBackdrop()` plays it the same way
 everywhere: a video plays once with sound and stops on its last frame, an
 image stays still. Exits decide when to move on.
 
+### Trimming a background video
+
+Open a Scene with a video background and choose **Media → Trim video**. The
+preview shares the Library and Asset Canvas trimmer: a strip of frames with
+yellow Start and End handles. Drag the handles or enter seconds (for example
+`3.2`) or `mm:ss.xxx`. Play previews the selected range and stops at its end.
+Arrow keys move a focused handle by one second (Shift: a tenth); Space plays
+or pauses. **Apply trim**
+saves it as one undoable change; Cancel or Escape discards the draft.
+**Restore full video** resets the draft; apply it to remove the trim.
+
+The trim belongs only to this Scene. Other Scenes using the same video and
+the Library original stay intact. Replacing or removing the background
+clears its trim. The Workbench timeline and marked moments still use times
+in the original file; paused scrubbing can inspect frames outside the clip,
+but playing resumes within the clip. Replay starts at its in point.
+
+At the out point a Blank Scene takes its existing next Exit. A Choice or
+other Scene keeps its existing behavior, usually holding the last selected
+frame while waiting for input. The same range plays in Playtest, thumbnails,
+and the published game. Publishing includes the original video, so trimming
+does not reduce the download size. Custom media helpers are preserved.
+
+The Agent can also trim it: “Keep 3.2 through 8.75 seconds of this Scene's
+background video.” No new video is generated or transcoded.
+
 ### Multi-node Agent changes
 
 The Agent may create several Scenes and Exits in one turn. The turn

@@ -128,6 +128,28 @@ describe("Published Player", () => {
     );
   });
 
+  it("publishes per-Scene clip bounds with the complete original video bytes", async () => {
+    const workspace = await temporary("ohmygame-playable-publish-workspace-");
+    const player = await playerFixture();
+    const data = await temporary("ohmygame-playable-publish-data-");
+    const graph = createNodeGraphFixture();
+    graph.assets.intro = { type: "video", source: { kind: "workspace", path: "assets/intro.webm" } };
+    delete graph.assets.theme;
+    for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
+    graph.nodes[0]!.assets.push("intro");
+    await writePlayableFixtureWorkspace(workspace, graph);
+    await writeFile(path.join(workspace, "assets/intro.webm"), "original complete video bytes");
+    await writeFile(path.join(workspace, graph.nodes[0]!.source.html), '<div data-media="backdrop" data-type="video" data-asset="intro" data-clip-start="1.5" data-clip-end="3.2"></div>');
+    const library = new AssetLibrary(data);
+    await library.load();
+    const archive = await new ArtifactBuilder(library, player).buildInteractiveStory({ id: "clip-project", name: "Clip", type: "interactive-story", updatedAt: new Date(0).toISOString(), workspacePath: workspace, preview: { status: "stopped" } });
+    const files = await unzip(archive);
+    const manifest = JSON.parse(files.get("manifest.json")!.toString("utf8"));
+    const definition = JSON.parse(files.get("playable.json")!.toString("utf8"));
+    expect(definition.compiled.nodes.menu.html).toContain('data-clip-start="1.5" data-clip-end="3.2"');
+    expect(files.get(manifest.assets.intro.path.slice(2))!.toString()).toBe("original complete video bytes");
+  });
+
   it("deduplicates identical Asset content while retaining stable IDs", async () => {
     const workspace = await temporary("ohmygame-playable-publish-workspace-");
     const player = await playerFixture();

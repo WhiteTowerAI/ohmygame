@@ -113,6 +113,8 @@ import { mergeCanvasDocument } from "../shared/canvas-workspace.js";
 import { CanvasDocumentNode, ExpandedCanvasDocument, type CanvasDocuments, type DocumentNodeRuntime } from "./canvas-document-node.js";
 import { CanvasNodeLabel, type CanvasNodeDetails } from "./canvas-node-label.js";
 import { exportCanvasAsset, generateCanvasText } from "./canvas-api.js";
+import { saveTrimmedVideo, VideoTrimmer } from "./video-trimmer.js";
+import type { VideoTrim } from "./video-trim.js";
 import type { CanvasBoardStorage } from "./canvas-board-storage.js";
 import { CanvasNotice } from "./canvas-notice.js";
 import { useDesktopClosing } from "./desktop-close-guard.js";
@@ -1209,6 +1211,27 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (asset) setViewedAsset(asset);
   }
 
+  /**
+   * Saves the kept part of a viewed video as a new Library video, placed as
+   * an asset node beside the node it was trimmed from.
+   */
+  async function saveTrimmedVideoNode(viewed: ViewableCanvasAsset, name: string, video: Blob, trim: VideoTrim): Promise<void> {
+    // A canvas copy of a Library video records the Library original.
+    const libraryAssetId = localAssets.find((asset) => asset.id === viewed.assetId)?.libraryAssetId ?? viewed.assetId;
+    const saved = await saveTrimmedVideo(video, trim, { name, ...(globalAssets.some((asset) => asset.id === libraryAssetId) ? { libraryAssetId } : {}) });
+    setLibraryAssets((current) => [{ ...saved, assetId: saved.id, path: saved.name }, ...current]);
+    const source = nodesRef.current.find((node) => node.id === viewed.nodeId);
+    const position = { x: (source?.position.x ?? 0) + (source?.measured?.width ?? 440) + 60, y: source?.position.y ?? 0 };
+    const occupied = nodesRef.current.map((node) => ({ ...node.position, width: node.measured?.width ?? 440, height: node.measured?.height ?? 520 }));
+    let overlaps;
+    do {
+      overlaps = occupied.filter((rect) => position.x < rect.x + rect.width + 20 && position.x + 460 > rect.x && position.y < rect.y + rect.height + 20 && position.y + 540 > rect.y);
+      if (overlaps.length) position.y = snapCanvasPosition({ x: position.x, y: Math.max(...overlaps.map((rect) => rect.y + rect.height)) + 40 }).y;
+    } while (overlaps.length);
+    addAssetNode(saved, snapCanvasPosition(position));
+    setViewedAsset(undefined);
+  }
+
   function downloadAsset(assetId: string, fallbackName: string): void {
     const name = libraryAssets.find((candidate) => candidate.id === assetId)?.name ?? fallbackName;
     void assetBlob(assetId).then((blob) => downloadAssetBlob(blob, name)).catch((cause) => setNotice({ kind: "action", message: t("assetCanvas.downloadFailed", { error: errorMessage(cause) }) }));
@@ -1758,6 +1781,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         onDownload={(name) => downloadAsset(viewedAsset.assetId, name)}
         onSendToProject={(name) => sendAssetToProject(viewedAsset.assetId, name)}
         onClose={() => setViewedAsset(undefined)}
+        {...(viewedAsset.mediaType === "video" ? { trimmer: {
+          loadSource: () => assetBlob(viewedAsset.assetId),
+          onSave: (video: Blob, trim: VideoTrim) => saveTrimmedVideoNode(viewedAsset, libraryAssets.find((candidate) => candidate.id === viewedAsset.assetId)?.name ?? "video", video, trim),
+        } } : {})}
       /> : null}
       {sentAsset ? <SendToProjectDialog assetId={sentAsset.assetId} name={sentAsset.name} onClose={() => setSentAsset(undefined)} /> : null}
       {nodeDetails ? createPortal(<div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) setNodeDetails(undefined); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={t("assetCanvas.nodeDetails")} onKeyDown={(event) => { if (event.key === "Escape") setNodeDetails(undefined); }}>
@@ -2913,6 +2940,8 @@ function AssetCanvasAddControl({
 }
 
 interface ViewableCanvasAsset {
+  /** The node the viewer was opened from. */
+  nodeId: string;
   assetId: string;
   mediaType: Exclude<AssetMediaType, "audio">;
 }
@@ -2920,11 +2949,12 @@ interface ViewableCanvasAsset {
 function viewableCanvasAsset(node: AssetCanvasFlowNode): ViewableCanvasAsset | undefined {
   const assetId = node.data.assetId;
   if (!assetId) return undefined;
-  if (node.type === "image") return { assetId, mediaType: "image" };
-  if (node.type === "video") return { assetId, mediaType: "video" };
-  if (node.type === "model-3d" || node.type === "animate-3d") return { assetId, mediaType: "model" };
+  const nodeId = node.id;
+  if (node.type === "image") return { nodeId, assetId, mediaType: "image" };
+  if (node.type === "video") return { nodeId, assetId, mediaType: "video" };
+  if (node.type === "model-3d" || node.type === "animate-3d") return { nodeId, assetId, mediaType: "model" };
   const mediaType = node.data.mediaType;
-  return node.type === "asset" && mediaType && mediaType !== "audio" ? { assetId, mediaType } : undefined;
+  return node.type === "asset" && mediaType && mediaType !== "audio" ? { nodeId, assetId, mediaType } : undefined;
 }
 
 /** The workspace opens the viewer from onNodeClick, which already knows the node. */
@@ -2940,12 +2970,14 @@ function eventWithin(event: { target: EventTarget | null }, selector: string): b
   return event.target instanceof Element && Boolean(event.target.closest(selector));
 }
 
-function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose }: {
+function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose, trimmer }: {
   asset: ViewableCanvasAsset;
   name: string;
   onDownload: (name: string) => void;
   onSendToProject: (name: string) => void;
   onClose: () => void;
+  /** Shows a video with handles to trim it, saving the kept part as a new video. */
+  trimmer?: { loadSource: () => Promise<Blob>; onSave: (video: Blob, trim: VideoTrim) => Promise<void> };
 }) {
   const preview = useWorkspaceAssetUrl(undefined, "", 0, asset.assetId);
   // React Flow ignores key presses inside .nokey, so Backspace/Delete here never removes the node behind the dialog.
@@ -2959,7 +2991,9 @@ function CanvasAssetViewer({ asset, name, onDownload, onSendToProject, onClose }
       </>}
       onClose={onClose}
       preview={preview.url
-        ? <AssetMedia type={asset.mediaType} url={preview.url} label={name} />
+        ? trimmer && asset.mediaType === "video"
+          ? <VideoTrimmer key={asset.assetId} url={preview.url} label={name} loadSource={trimmer.loadSource} onSave={trimmer.onSave} />
+          : <AssetMedia type={asset.mediaType} url={preview.url} label={name} />
         : <span className="library-dialog-state">{preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</span>}
       footer={null}
     />

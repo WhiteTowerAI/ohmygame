@@ -66,7 +66,7 @@ async function startSession(
       );
     }
     const saveStore = new ParentSaveStore(message.instanceId, message.save);
-    const host = new DocumentPlayableSurfaceHost(document);
+    const host = new DocumentPlayableSurfaceHost(document, undefined, (error) => post({ kind: "ohmygame:playable:diagnostic", instanceId: message.instanceId, error }));
     const runtime = new NodeRuntime({
       graph: message.definition.graph,
       compiled: message.definition.compiled,

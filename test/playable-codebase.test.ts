@@ -32,6 +32,22 @@ afterEach(async () => {
 });
 
 describe("Playable codebase", () => {
+  it("refuses a stale trim source without changing graph, layout or custom media helpers", async () => {
+    const workspace = await temporaryWorkspace();
+    await createNodeCodebase(workspace, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
+    const codebase = await readNodeCodebaseDetail(workspace);
+    const relative = "nodes/start/index.html";
+    const before = await readFile(path.join(workspace, relative), "utf8");
+    const custom = "export function showBackdrop() { /* user content */ }";
+    await writeFile(path.join(workspace, "shared/style/components.js"), custom);
+    await writeFile(path.join(workspace, relative), before + "<!-- concurrent edit -->");
+    await expect(writeNodeCodebase(workspace, { ...codebase, sources: { [relative]: before + "<!-- trim -->" }, sourcePreconditions: { [relative]: before } })).rejects.toBeInstanceOf(NodeCodebaseConflictError);
+    expect(await readFile(path.join(workspace, relative), "utf8")).toBe(before + "<!-- concurrent edit -->");
+    expect(await readNodeCodebaseDetail(workspace)).toEqual(codebase);
+    expect(await readFile(path.join(workspace, "shared/style/components.js"), "utf8")).toBe(custom);
+    await writeNodeCodebase(workspace, { ...codebase, sources: { [relative]: before }, sourcePreconditions: { [relative]: before + "<!-- concurrent edit -->" } });
+    expect(await readFile(path.join(workspace, relative), "utf8")).toBe(before);
+  });
   it("creates a new project with the Project Style and no Scenes yet", async () => {
     const workspace = await temporaryWorkspace();
     await createNodeCodebase(workspace, createPlayableStarterCodebase("A < B & C", { width: 720, height: 1280 }));

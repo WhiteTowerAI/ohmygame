@@ -67,6 +67,14 @@ This workspace is the source of truth for an OhMyGame Playable Nodes project.
 
 ## Words the editor uses
 
+To trim a background video, set \`data-clip-start\` and/or \`data-clip-end\` on its
+single \`data-media="backdrop"\` element with \`data-type="video"\`. Times are
+non-negative seconds in the original file; end must be after start. Missing
+start means zero, missing end means the natural end. Remove both when changing
+the background. The sandbox enforces the range and emits the video's normal
+\`ended\` event at an early end; keep navigation in the Scene's code. Do not
+rewrite shared helpers or modify the original Asset for a trim.
+
 The user sees the editor, not this contract. Talk to them in its words: say "the \`trust\` Variable" and "the Exit is taken if trust is 3 or more", not keys, values, and code.
 
 | Editor | Contract |
@@ -97,6 +105,13 @@ This project is made of one graph plus ordinary browser source files. Every Node
 - \`.ohmygame/\` is editor cache, such as Node thumbnails. It is never published; leave it alone.
 
 ## Node API
+
+Background videos support optional \`data-clip-start\` / \`data-clip-end\`
+attributes on their \`data-media="backdrop"\` element. Values are non-negative
+seconds in the original video, end greater than start; omitted values mean
+zero and the natural end. Trimming is per Scene, does not modify the original
+Asset, and does not reduce its published size. The sandbox plays this range
+and emits \`ended\` at its end. Remove the attributes to restore the full video.
 
 Each Node module exports \`mount(context)\`. The Runtime supplies:
 
@@ -241,6 +256,15 @@ async function writeCodebase(
     editorLayout: update.editorLayout,
   };
   const sources = validateSourceUpdates(codebase.graph, update.sources);
+  const preconditions = validateSourceUpdates(codebase.graph, update.sourcePreconditions);
+  for (const [relative, expected] of Object.entries(preconditions)) {
+    const file = await resolveWorkspaceMutationPath(workspacePath, relative);
+    const actual = await readFile(file, "utf8").catch((cause: NodeJS.ErrnoException) => {
+      if (cause.code === "ENOENT") return undefined;
+      throw cause;
+    });
+    if (actual !== expected) throw new NodeCodebaseConflictError(`Source changed: ${relative}. Reload before saving.`);
+  }
   const sourceDeletions = await validateSourceDeletions(
     workspacePath,
     codebase.graph,

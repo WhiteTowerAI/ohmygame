@@ -12,6 +12,7 @@ import {
 } from "./playable-move.js";
 import type { PlayableMove, PlayablePreviewTool, PlayableTextEdit } from "./playable-player-protocol.js";
 import { PLAYABLE_SOURCE_ATTRIBUTE } from "./playable-source-locations.js";
+import { installPlayableVideoClips } from "./playable-video-clip.js";
 import type {
   PlayableMountedSurface,
   PlayableSurfaceHost,
@@ -38,6 +39,7 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
   constructor(
     document: Document,
     loadModule: PlayableModuleLoader = loadPlayableModule,
+    readonly onDiagnostic: (message: string) => void = () => {},
   ) {
     this.#document = document;
     this.#loadModule = loadModule;
@@ -310,6 +312,13 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
     template.innerHTML = surface.html;
     root.append(style, template.content.cloneNode(true));
     layer.append(host);
+    const stopClips = installPlayableVideoClips(root, this.onDiagnostic);
+    context.lifecycle.signal.addEventListener("abort", stopClips, { once: true });
+    const destroy = () => {
+      stopClips();
+      context.lifecycle.signal.removeEventListener("abort", stopClips);
+      host.remove();
+    };
 
     try {
       const module = await this.#loadModule(surface.javascript);
@@ -320,10 +329,10 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
       const cleanup = await module.mount({ ...context, root });
       return {
         cleanup: cleanup as PlayableCleanup | undefined,
-        destroy: () => host.remove(),
+        destroy,
       };
     } catch (cause) {
-      host.remove();
+      destroy();
       throw cause;
     }
   }

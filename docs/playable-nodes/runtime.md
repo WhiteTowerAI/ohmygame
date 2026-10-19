@@ -281,6 +281,32 @@ State.
   decides whether it is an `<img>`, a CSS background, a video, a texture, or
   anything else.
 
+## Background video clips
+
+A Scene may put `data-clip-start="3.2"` and `data-clip-end="8.75"` on its
+single `[data-media="backdrop"][data-type="video"][data-asset]` element.
+These are finite, non-negative seconds in the original Asset, not offsets
+in the edited clip. Start defaults to zero; absent End means the file's
+natural end. End must exceed Start. The editor writes millisecond precision
+and requires at least 0.1 seconds (or the entire file if it is shorter).
+Malformed attributes, image clips and multiple backgrounds with a clip
+are compile errors in both draft and publish builds.
+
+The shared sandbox observes videos created inside this background, before
+calling authored `mount()`. It seeks to Start after metadata loads and
+pauses at End, displaying a frame just inside the selected range. It sends
+one ordinary `ended` event for an early end; Scene code still decides which
+Signal to emit, if any. A video with `loop` loops inside the range instead.
+The controller is removed on lifecycle abort, destroy, or failed mount.
+Videos without these attributes retain their existing playback behavior.
+
+End beyond the real duration is clamped. Start outside the real duration
+reports a diagnostic once and falls back to playing the complete file.
+Paused authoring seeks can inspect the entire original video; the next play
+respects the clip. Clips do not add State, alter graph signatures, modify
+Assets or require migration of user-authored shared helpers. Published
+packages still contain the original video bytes.
+
 ## Sandbox and lifecycle
 
 One Player instance runs one sandbox:

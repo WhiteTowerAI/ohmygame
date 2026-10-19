@@ -4,6 +4,8 @@ import { Box, Code2, ExternalLink, Film, Image as ImageIcon, Layers3, LoaderCirc
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 import { AssetCardShell, AssetDialogShell, AssetMedia, useNearViewport } from "./asset-gallery.js";
 import { ModelPreview } from "./model-preview.js";
+import { VideoTrimmer } from "./video-trimmer.js";
+import type { VideoTrim } from "./video-trim.js";
 import { t } from "./i18n.js";
 
 export type MediaFilter = "all" | NonNullable<WorkspaceFile["mediaType"]>;
@@ -145,7 +147,7 @@ export function assetTypeBadge(mediaType: BrowsableAsset["mediaType"]): ReactNod
   return undefined;
 }
 
-export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete, onSaveToLibrary, onShowInCode }: {
+export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, onDelete, onSaveToLibrary, onShowInCode, trimmer, trimmedFrom }: {
   asset: BrowsableAsset;
   onClose: () => void;
   onOpenProject?: () => void;
@@ -153,6 +155,10 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
   onDelete?: () => void;
   onSaveToLibrary?: () => void;
   onShowInCode?: () => void;
+  /** Shows a video with handles to trim it, saving the kept part as a new video. */
+  trimmer?: { loadSource: () => Promise<Blob>; onSave: (video: Blob, trim: VideoTrim) => Promise<void> };
+  /** The name of the video this one was trimmed from. */
+  trimmedFrom?: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const actions = useRef<HTMLDivElement>(null);
@@ -184,13 +190,16 @@ export function WorkspaceAssetDialog({ asset, onClose, onOpenProject, onRename, 
     preview={<>
           {!preview.url && !preview.error ? <span className="library-dialog-state"><LoaderCircle className="spin" size={18} />{t("assets.loading")}</span> : null}
           {preview.error ? <span className="library-dialog-state library-dialog-error" role="alert"><X size={18} />{preview.error}</span> : null}
-          {preview.url ? <AssetMedia type={asset.mediaType} url={preview.url} label={fileName(asset.path)} /> : null}
+          {preview.url && trimmer && asset.mediaType === "video"
+            ? <VideoTrimmer key={asset.assetId ?? asset.path} url={preview.url} label={fileName(asset.path)} loadSource={trimmer.loadSource} onSave={trimmer.onSave} />
+            : preview.url ? <AssetMedia type={asset.mediaType} url={preview.url} label={fileName(asset.path)} /> : null}
         </>}
     footer={<footer className={`library-dialog-footer${onOpenProject ? "" : " library-dialog-footer-compact"}${asset.origin || asset.projects?.length ? " library-dialog-footer-library" : ""}`}>
           <dl>
             <div><dt>{t("assets.type")}</dt><dd>{mediaTypeLabel(asset.mediaType)}</dd></div>
             <div><dt>{t("assets.size")}</dt><dd>{fileSize(asset.size)}</dd></div>
             {asset.origin ? <div><dt>{t("assets.source")}</dt><dd>{libraryAssetOriginLabel(asset.origin)}</dd></div> : null}
+            {trimmedFrom ? <div><dt>{t("assets.trimmedFrom")}</dt><dd title={trimmedFrom}>{trimmedFrom}</dd></div> : null}
             {asset.referenceOnly ? <div><dt>{t("assets.use")}</dt><dd>{t("assets.reference")}</dd></div> : null}
             {asset.projects?.length ? <div className="library-dialog-projects"><dt>{t("assets.projects")}</dt><dd title={asset.projects.map((project) => project.name).join(", ")}>{asset.projects.map((project) => project.name).join(", ")}</dd></div> : null}
             {asset.projectName ? <div><dt>{t("assets.project")}</dt><dd title={asset.projectName}>{asset.projectName}</dd></div> : null}

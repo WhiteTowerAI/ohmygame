@@ -121,6 +121,15 @@ find a Library asset, or generate one with `generate_image` or
 `generate_video`, add a project Asset ID for it, and declare it on the node.
 Tell the author what was generated.
 
+**Trim a background video.** Set `data-clip-start` and/or `data-clip-end` on
+the Scene's single `data-media="backdrop"` element with `data-type="video"`.
+Use non-negative seconds in the original file, End greater than Start;
+omit Start for zero and End for the natural end. Do not transcode the Asset
+or rewrite shared helpers. The sandbox emits the video's normal `ended`
+event at the out point, preserving the Scene's navigation logic. Remove both
+attributes when replacing or removing the background. Run `playable_check`
+and playtest the edited route, including the intended Exit.
+
 **UI on many Scenes.** Build it once in `shared/components/` and import it
 into each node that should show it. Declare the Signals it emits on each of
 those nodes and connect them with that node's edges, marking navigation

@@ -17,6 +17,7 @@ import {
   type ConversationCapabilities,
   type CreateLibraryImageRequest,
   type LibraryAsset,
+  type LibraryAssetDerivation,
   type LibraryAssetPurpose,
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
@@ -767,10 +768,16 @@ export async function createLibraryImage(input: CreateLibraryImageRequest): Prom
   return request("/library/assets", { method: "POST", body: JSON.stringify(input) });
 }
 
-export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number, purpose?: LibraryAssetPurpose): Promise<LibraryAsset> {
+/** `derivedFrom` records the Library video an upload was cut from. */
+export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number, purpose?: LibraryAssetPurpose, derivedFrom?: LibraryAssetDerivation): Promise<LibraryAsset> {
   const query = new URLSearchParams({ name: file.name, mediaType });
   if (duration !== undefined) query.set("duration", String(duration));
   if (purpose !== undefined) query.set("purpose", purpose);
+  if (derivedFrom) {
+    query.set("trimSource", derivedFrom.assetId);
+    query.set("trimStart", String(derivedFrom.trim.start));
+    query.set("trimEnd", String(derivedFrom.trim.end));
+  }
   return request(`/library/assets/upload?${query}`, {
     method: "POST",
     headers: { "content-type": "application/octet-stream" },
