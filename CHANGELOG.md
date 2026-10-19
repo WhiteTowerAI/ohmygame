@@ -4,6 +4,87 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.4.10] - 2026-10-19
+
+### Added
+
+- Use installed Claude Code, Codex, and OpenCode CLIs in conversations, with
+  their own accounts and models, native reasoning controls, and OhMyGame's
+  tools, checkpoints, and Undo.
+  ([#299](https://github.com/WhiteTowerAI/ohmygame/pull/299) by @dogxii)
+- Manage coding agents in Settings → Agents, choose Standard or Full access
+  permissions, and view reported Claude Code and Codex account usage limits.
+  ([#302](https://github.com/WhiteTowerAI/ohmygame/pull/302) by @dogxii,
+  [#304](https://github.com/WhiteTowerAI/ohmygame/pull/304) by @dogxii,
+  [#305](https://github.com/WhiteTowerAI/ohmygame/pull/305) by @dogxii)
+- A Visual Novel template with editable scripts, choices, save slots, Auto,
+  Skip, Log, and Settings, plus cross-Scene music and richer Main menu controls.
+  ([#284](https://github.com/WhiteTowerAI/ohmygame/pull/284) by @dihuangdh)
+- Trim videos in the Library and on Asset Canvas, preview the selected range,
+  and save it as a new video while keeping the original.
+  ([#265](https://github.com/WhiteTowerAI/ohmygame/pull/265) by @dihuangdh)
+- Trim a Scene's background video without changing the original asset or other
+  Scenes, with precise time controls and Undo/Redo.
+  ([#312](https://github.com/WhiteTowerAI/ohmygame/pull/312) by @82228)
+- Generate sound effects and instrumental music with Volcengine Seed Audio.
+  A compatible connected provider is required.
+  ([#288](https://github.com/WhiteTowerAI/ohmygame/pull/288) by @82228)
+- Open a project's workspace folder from recent-project and Projects menus
+  in the desktop app, replacing the obsolete Game design shortcut.
+  ([#315](https://github.com/WhiteTowerAI/ohmygame/pull/315) by @dogxii)
+
+### Changed
+
+- New Interactive Stories run as independent web pages, with a project-owned
+  runtime, persistent saves, and static publishing and HTML export. Existing
+  stories keep working and can upgrade with an option to undo the upgrade.
+  ([#284](https://github.com/WhiteTowerAI/ohmygame/pull/284) by @dihuangdh)
+- New projects can be named automatically from the first meaningful request;
+  stable icon and color placeholders make projects easier to recognize.
+  ([#291](https://github.com/WhiteTowerAI/ohmygame/pull/291) by @dogxii)
+- Checkpoints respect workspace `.gitignore` rules and prune unreferenced
+  snapshots without removing recorded turn history.
+  ([#280](https://github.com/WhiteTowerAI/ohmygame/pull/280) by @xuhongbo)
+- The Windows setup wizard lets users choose the installation directory and
+  current-user or all-users installation, preserving existing upgrade settings.
+  ([#306](https://github.com/WhiteTowerAI/ohmygame/pull/306) by @82228)
+- Seedance video generation includes audio.
+  ([#271](https://github.com/WhiteTowerAI/ohmygame/pull/271) by @82228)
+- Release notes credit the authors of linked contributions.
+  ([#283](https://github.com/WhiteTowerAI/ohmygame/pull/283) by @xuhongbo)
+
+### Fixed
+
+- Compatible coding-agent CLIs are checked for required capabilities instead
+  of rejected solely by version; local compatibility and startup failures have
+  clearer diagnostics.
+  ([#317](https://github.com/WhiteTowerAI/ohmygame/pull/317) by @dogxii)
+- Codex-generated images appear in the conversation and are available to the
+  project.
+  ([#318](https://github.com/WhiteTowerAI/ohmygame/pull/318) by @dihuangdh)
+- Preview servers keep running during checkpoint snapshots, and file reads
+  remain available while writes wait for a consistent snapshot.
+  ([#268](https://github.com/WhiteTowerAI/ohmygame/pull/268) by @dihuangdh,
+  [#273](https://github.com/WhiteTowerAI/ohmygame/pull/273) by @dihuangdh)
+- Static video previews support seeking, and HEAD requests ignore byte ranges.
+  ([#272](https://github.com/WhiteTowerAI/ohmygame/pull/272) by @dihuangdh,
+  [#300](https://github.com/WhiteTowerAI/ohmygame/pull/300) by @jsdhwfmax)
+- AI plugin authoring validates required Skill metadata and supports configuring
+  and testing drafts before installation.
+  ([#277](https://github.com/WhiteTowerAI/ohmygame/pull/277) by @dogxii)
+- Git Changes compares files removed from the index against HEAD, and project
+  exports avoid asset-name collisions on case-insensitive file systems.
+  ([#281](https://github.com/WhiteTowerAI/ohmygame/pull/281) by @jsdhwfmax,
+  [#269](https://github.com/WhiteTowerAI/ohmygame/pull/269) by @jsdhwfmax)
+- Pages keep their horizontal alignment when scrollbars appear, and the plan
+  mode label no longer wraps in narrow composer toolbars.
+  ([#303](https://github.com/WhiteTowerAI/ohmygame/pull/303) by @dogxii,
+  [#308](https://github.com/WhiteTowerAI/ohmygame/pull/308) by @dogxii)
+- The extra-high reasoning level is translated in the Simplified Chinese UI.
+  ([#282](https://github.com/WhiteTowerAI/ohmygame/pull/282) by @dogxii)
+
+**Full Changelog**: https://github.com/WhiteTowerAI/ohmygame/compare/v0.0.0-beta.4.9...v0.0.0-beta.4.10
+
 ## [0.0.0-beta.4.9] - 2026-10-16
 
 ### Added
