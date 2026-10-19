@@ -274,16 +274,19 @@ it("projects real edit/write diffs before the turn ends and restores them from d
         : [],
     );
   expect(live).toHaveLength(2);
-  expect(live[0]).toMatchObject({
+  // File tools can complete in either order; each result belongs to its call.
+  const edit = live.find((item) => item.toolCallId === "edit");
+  const write = live.find((item) => item.toolCallId === "write");
+  expect(edit).toMatchObject({
     tool: "edit",
     status: "completed",
     output: "Successfully replaced 2 block(s) in src/render.ts.",
     lineChanges: { added: 3, removed: 2 },
   });
-  expect(live[0]?.fileDiff?.hunks.flat().map((line) => line.text)).toContain(
+  expect(edit?.fileDiff?.hunks.flat().map((line) => line.text)).toContain(
     "const color = 'green';",
   );
-  expect(live[1]).toMatchObject({
+  expect(write).toMatchObject({
     tool: "write",
     lineChanges: { added: 2, removed: 0 },
     fileDiff: {
@@ -319,10 +322,21 @@ it("projects real edit/write diffs before the turn ends and restores them from d
   const restored = conversationItems(
     SessionManager.open(sessionManager.getSessionFile()!).getBranch(),
   ).filter((item) => item.type === "dynamicToolCall");
+  expect(restored).toHaveLength(live.length);
   expect(
-    restored.map(({ lineChanges, fileDiff }) => ({ lineChanges, fileDiff })),
+    restored.map(({ toolCallId, lineChanges, fileDiff }) => ({
+      toolCallId,
+      lineChanges,
+      fileDiff,
+    })),
   ).toEqual(
-    live.map(({ lineChanges, fileDiff }) => ({ lineChanges, fileDiff })),
+    expect.arrayContaining(
+      live.map(({ toolCallId, lineChanges, fileDiff }) => ({
+        toolCallId,
+        lineChanges,
+        fileDiff,
+      })),
+    ),
   );
   const olderEntries = SessionManager.open(
     sessionManager.getSessionFile()!,

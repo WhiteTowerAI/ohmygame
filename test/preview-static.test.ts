@@ -152,6 +152,26 @@ describe("static preview directory URLs", () => {
 });
 
 describe("static preview byte ranges", () => {
+  it.each([
+    ["0123456789", "bytes=2-5"],
+    ["0123456789", "bytes=10-"],
+    ["", "bytes=0-"],
+  ])("ignores Range on HEAD for %j with %s", async (contents, range) => {
+    const root = await directory();
+    await writeFile(path.join(root, "clip.mp4"), contents);
+    const url = `${await preview(root)}/clip.mp4`;
+
+    const response = await fetch(url, { method: "HEAD", headers: { range } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-length")).toBe(
+      String(Buffer.byteLength(contents)),
+    );
+    expect(response.headers.get("content-type")).toBe("video/mp4");
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect(response.headers.has("content-range")).toBe(false);
+    expect(await response.text()).toBe("");
+  });
+
   it("answers byte ranges, so media can seek", async () => {
     const root = await directory();
     await writeFile(path.join(root, "clip.mp4"), "0123456789");

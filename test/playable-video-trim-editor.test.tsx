@@ -50,6 +50,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listPlayablePresets: async () => ({ presets: [] }),
   listPlayableThumbnails: async () => ({}),
   getPlayableValidation: async () => ({ issues: [] }),
+  getStoryUpgrade: async () => ({ web: false }),
   getWorkspaceFile: async (_id: string, file: string) => ({
     path: file,
     content: source,

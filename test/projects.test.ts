@@ -5,6 +5,47 @@ import { describe, expect, it } from "vitest";
 import { ProjectManager } from "../src/daemon/projects.js";
 
 describe("Web Game project codebase", () => {
+  it("persists name ownership and leaves legacy projects unchanged", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-names-"));
+    try {
+      const manager = new ProjectManager(directory);
+      const project = await manager.create(undefined, "general");
+      const manual = await manager.create("My title", "general");
+      expect(project.nameSource).toBe("default");
+      expect(manual.nameSource).toBe("manual");
+      expect(await manager.nameAutomatically(manual.id, "AI title")).toBeUndefined();
+      const updatedAt = project.updatedAt;
+      expect(await manager.nameAutomatically(project.id, "Moon Garden")).toMatchObject({ nameSource: "ai", updatedAt });
+      await manager.touch(project.id);
+      expect(await manager.nameAutomatically(project.id, "Another title")).toBeUndefined();
+      expect((await manager.duplicate(project.id)).nameSource).toBe("manual");
+      const metadataPath = path.join(directory, "projects", manual.id, "project.json");
+      const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
+      delete metadata.nameSource;
+      await writeFile(metadataPath, JSON.stringify(metadata));
+      const restored = new ProjectManager(directory);
+      await restored.load();
+      expect(restored.get(project.id)).toMatchObject({ name: "Moon Garden", nameSource: "ai" });
+      expect(restored.get(manual.id)?.nameSource).toBeUndefined();
+      expect(await restored.nameAutomatically(manual.id, "Changed legacy title")).toBeUndefined();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+  it("checks name ownership inside queued writes and never recreates a deleted project", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-project-name-races-"));
+    try {
+      const manager = new ProjectManager(directory);
+      const project = await manager.create(undefined, "general");
+      await Promise.all([manager.rename(project.id, "My title"), manager.nameAutomatically(project.id, "Late AI title"), manager.touch(project.id)]);
+      expect(project).toMatchObject({ name: "My title", nameSource: "manual" });
+      const removed = await manager.create(undefined, "general");
+      await Promise.all([manager.delete(removed.id), manager.nameAutomatically(removed.id, "Late AI title")]);
+      expect(await readdir(path.join(directory, "projects"))).not.toContain(removed.id);
+      const restored = new ProjectManager(directory);
+      await restored.load();
+      expect(restored.get(project.id)).toMatchObject({ name: "My title", nameSource: "manual" });
+      expect(restored.get(removed.id)).toBeUndefined();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
   it("keeps an engine-independent General Game workspace through reload and duplication", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-general-projects-"));
     const manager = new ProjectManager(directory);

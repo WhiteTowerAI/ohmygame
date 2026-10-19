@@ -74,6 +74,7 @@ async function render(provider = openai) {
       <ModelsSettings
         view={{ page: "provider", provider }}
         onViewChange={() => {}}
+        onOpenAgents={() => {}}
       />,
     ),
   );

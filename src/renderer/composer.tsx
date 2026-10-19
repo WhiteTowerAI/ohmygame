@@ -17,6 +17,8 @@ import { getCanvasDocument } from "./canvas-api.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { composerDrafts, type ComposerDraft } from "./composer-drafts.js";
 import { t } from "./i18n.js";
+import type { AgentContextUsage } from "../shared/contracts.js";
+import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
 
 export type { ComposerDraft } from "./composer-drafts.js";
 
@@ -35,6 +37,7 @@ interface ComposerProps {
   modelStatus: AgentModelCatalogStatus;
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+  nativeReasoningLevel?: string;
   modelChanging: boolean;
   promptHistory: Array<{ prompt: string; mentions: PluginMention[] }>;
   capabilities: ConversationCapabilities;
@@ -42,10 +45,11 @@ interface ComposerProps {
   onInitialDraftHandled?: () => void;
   onSubmit: (prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments: PromptAttachment[], references: PromptReference[], contexts: PromptContext[]) => Promise<boolean>;
   onCompact: (instructions?: string) => Promise<void>;
-  onContextUsage: () => Promise<number | undefined>;
+  onContextUsage: () => Promise<AgentContextUsage | undefined>;
   onCancelPlan: () => Promise<boolean>;
   onModelChange: (model: AgentModel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
+  onNativeReasoningChange?: (level: string) => void;
   onStop: () => void;
   onRemovePending: (turnId: string) => Promise<boolean>;
   onSteerPending: (turnId: string) => Promise<boolean>;
@@ -70,6 +74,7 @@ export function Composer({
   modelStatus,
   model,
   reasoningLevel,
+  nativeReasoningLevel,
   modelChanging,
   promptHistory,
   capabilities,
@@ -81,6 +86,7 @@ export function Composer({
   onCancelPlan,
   onModelChange,
   onReasoningChange,
+  onNativeReasoningChange,
   onStop,
   onRemovePending,
   onSteerPending,
@@ -100,7 +106,8 @@ export function Composer({
   const [attachmentError, setAttachmentError] = useState<string>();
   const [history, setHistory] = useState(() => createPromptHistory(promptHistory.map((entry) => entry.prompt)));
   const [mentionHistory, setMentionHistory] = useState(() => new Map(promptHistory.map((entry) => [entry.prompt, entry.mentions])));
-  const [contextPercent, setContextPercent] = useState<number>();
+  const [runtimeUsage, setRuntimeUsage] = useState<AgentContextUsage>();
+  const contextPercent = runtimeUsage?.percent == null ? undefined : Math.round(Math.max(0, Math.min(100, runtimeUsage.percent)));
   const [mentionCursor, setMentionCursor] = useState(0);
   const textarea = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -289,22 +296,23 @@ export function Composer({
     onChange: changePrompt,
     onSelectionChange: setMentionCursor,
     contextPercent,
+    usageLimits: isAgentRuntimeId(model?.provider) ? runtimeUsage?.limits : undefined,
   });
 
   useEffect(() => {
-    if (!showCompactCommand) {
-      setContextPercent(undefined);
+    if (!showCompactCommand && !isAgentRuntimeId(model?.provider)) {
+      setRuntimeUsage(undefined);
       return;
     }
     let disposed = false;
-    setContextPercent(undefined);
-    void onContextUsage().then((percent) => {
-      if (!disposed) setContextPercent(percent);
+    setRuntimeUsage(undefined);
+    void onContextUsage().then((usage) => {
+      if (!disposed) setRuntimeUsage(usage);
     }).catch(() => {
-      if (!disposed) setContextPercent(undefined);
+      if (!disposed) setRuntimeUsage(undefined);
     });
     return () => { disposed = true; };
-  }, [showCompactCommand]);
+  }, [showCompactCommand, running, model?.provider, model?.id, conversationId, contextMenu.open]);
 
   useEffect(() => {
     if (planMode === "planning") updateDraft({ planning: true });
@@ -387,6 +395,7 @@ export function Composer({
         plan={awaitingApproval ? undefined : plan}
       />
       <MessageQueue
+        prioritizeOnly={isAgentRuntimeId(model?.provider)}
         items={pendingPrompts}
         disabled={!running || stopping}
         onRemove={(turnId) => { void onRemovePending(turnId); }}
@@ -397,6 +406,7 @@ export function Composer({
       <PromptBox
         actions={<ComposerActions
           models={models} status={modelStatus} value={model} reasoningLevel={reasoningLevel}
+          nativeReasoningLevel={nativeReasoningLevel} onNativeReasoningChange={onNativeReasoningChange}
           disabled={!conversationReady || running || stopping || modelChanging}
           onChange={onModelChange} onReasoningChange={onReasoningChange}
           showStop={showStop} stopping={stopping} onStop={onStop}

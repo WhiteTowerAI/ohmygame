@@ -323,8 +323,9 @@ operations, and whether it can be shown in watch mode. The daemon registers
 the tool only when the current project's type is included in those capabilities
 and, for General Game, its Web preview switch is enabled.
 
-The shipped adapter is `web` for `web-game`, `interactive-story`, and configured
-Web previews in `general` projects
+The shipped adapter is `web` for `web-game`, `interactive-story` (a web story
+opens its own page through the preview; a story still in the sandbox opens a
+Published Player draft), and configured Web previews in `general` projects
 and uses Electron's bundled Chromium. Godot and Unity projects do not receive this tool yet. When
 their runtime bridges are added, they should implement the same adapter
 contract for launch or attach, input, screenshots, state, reset or stepping,
@@ -381,12 +382,27 @@ Choosing a folder that is already a project's workspace when creating a project
 opens that project instead; a folder inside another workspace can hold a
 project of its own.
 
+New projects created without an explicit name can be named once from their first
+meaningful chat request, using the conversation's selected language model and
+the request's language. This separate background request has a 15-second limit
+and never blocks the agent turn. Greetings, attachment-only messages and failed
+naming requests leave the project eligible for a later message. Manual names,
+duplicates and legacy projects are preserved; a delayed AI result cannot replace
+a manual rename. The optional `nameSource` field in `project.json` records
+`default`, `ai` or `manual`; an absent field is treated as legacy data.
+Project lists use the existing two-second activity poll to receive names, even
+after a short turn finishes. `/projects/activity` returns `{ activity, names }`;
+`names` contains only each project's `id`, `name` and optional `nameSource`.
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user
 message and when its run ends. Finished, failed and cancelled turns show their
 net file changes in Chat. The project does not need Git; snapshot storage stays
-beside the workspace without changing its `.git`, branches or index.
+beside the workspace without changing its `.git`, branches or index. Snapshots
+leave out what the workspace's `.gitignore` files ignore, apart from OhMyGame's
+own `.data/` and `canvas/`, and snapshots that nothing names are pruned at most
+once a day.
 
 **Undo** takes back one turn's files while preserving the conversation, and
 **Reapply** restores their exact pre-undo contents. Editing a message preserves
@@ -399,6 +415,15 @@ workspace versions, model notices, storage limits, and API routes, and
 [Git changes in Code](workspace-git.md) for the read-only repository view.
 
 ## Project covers
+
+Projects without an image use a small Solar outline icon on a moderately saturated
+background. The project ID selects a stable combination, so sorting, filtering,
+refreshing or renaming never changes the placeholder. The same renderer is used
+on Home, Projects and the project-type entry pages. These placeholders are not
+saved as images or used for publishing. Both themes share the palette centralized
+in the `--project-cover-*` variables in `src/renderer/styles.css`.
+
+![Stable default project covers](assets/project-placeholders.webp)
 
 Project covers are saved independently of publishing. Selecting an image in the
 publish dialog previews it; **Apply cover** saves it and stops automatic cover

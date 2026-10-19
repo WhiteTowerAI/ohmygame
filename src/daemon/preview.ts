@@ -31,6 +31,7 @@ import {
   previewScriptArguments,
 } from "./preview-launch.js";
 import { startStaticPreview } from "./preview-static.js";
+import { storyWebEditorBridge } from "./story-web-bundle.js";
 
 interface PreviewOptions {
   readinessTimeoutMs?: number;
@@ -62,6 +63,11 @@ export class PreviewCancelledError extends Error {
 
 /** An automatic start found nothing to run yet, which is expected before the first files exist. */
 class PreviewNotReadyError extends ProjectWorkspaceError {}
+
+/** A web story plays its own page through the project preview, like a Web Game. */
+function previewable(project: ProjectState): boolean {
+  return supportsWebPreview(project) || project.type === "interactive-story";
+}
 
 export class PreviewManager {
   readonly #running = new Map<string, ChildProcess>();
@@ -195,7 +201,7 @@ export class PreviewManager {
   }
 
   ensureStarted(project: ProjectState, manual = true): Promise<string> {
-    if (!supportsWebPreview(project))
+    if (!previewable(project))
       return Promise.reject(
         new ProjectWorkspaceError(
           "Enable Web preview in project settings first.",
@@ -247,7 +253,7 @@ export class PreviewManager {
     reinstall: boolean,
     automatic: boolean,
   ): Promise<string> {
-    if (!supportsWebPreview(project))
+    if (!previewable(project))
       throw new ProjectWorkspaceError(
         "Enable Web preview in project settings first.",
       );
@@ -262,7 +268,10 @@ export class PreviewManager {
     let child: ChildProcess | undefined;
     let began = false;
     try {
-      const workspace = await resolvePreviewWorkspace(project);
+      // A web story is its own page: the folder is served as it is, whatever scripts it carries.
+      const workspace = await resolvePreviewWorkspace(project.type === "interactive-story"
+        ? { workspacePath: project.workspacePath, startupDirectory: ".", previewMode: "static" }
+        : project);
       assertCurrent();
       if (!workspace.runnable) {
         const message = workspace.error ?? "Workspace is not runnable yet";
@@ -473,6 +482,7 @@ export class PreviewManager {
         },
         {
           port: preferredPort,
+          ...(project.type === "interactive-story" ? { story: { bridge: storyWebEditorBridge } } : {}),
           onActivity: (id, active) => {
             if (proxyHandle && this.#proxies.get(project.id) === proxyHandle)
               this.touch(project, `page:${id}`, active);

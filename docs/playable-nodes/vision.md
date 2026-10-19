@@ -133,6 +133,28 @@ Freedom must not mean "write code".
 | Quality depends on the Agent                           | A small, stable Node contract, project rules for the Agent, validation, and Playtest feedback it can read |
 | Screens can drift apart visually                       | Project Style and shared components                                                                        |
 
+## Web stories: the Runtime moves into the project
+
+The first version kept the Runtime inside OhMyGame and ran nodes in a
+sandbox with no storage and no network. Every need that crossed a node or
+outlived a session, such as music that carries on, save slots, settings, or
+lines read, became a Runtime change and a release, which the Agent could not
+make. In October 2026 a spike tested the alternative: the story plays as its
+own page, with the Runtime as readable project code under `story/`, and the
+editor's tools injected by the preview. The flow canvas, picking and text
+editing, the video timeline with Mark, and the Story map all kept working;
+an interactive film and visual novel project played through with music
+across Scenes, saves, slots, and settings; skipping read lines was added in
+project code alone; and a real project upgraded automatically and published
+as a 48 MB static site that played embedded the way itch.io embeds games.
+
+So Interactive Stories became web stories. The editor keeps its guarantees
+by what it reads (`graph.json`, the node `context`, the background
+convention) rather than by owning the Runtime, and fixes to the Runtime
+reach projects through the runtime manifest, with the Agent merging files a
+project changed. It also puts Interactive Story on the same preview,
+Playtest, game_use, and static publishing as Web Game.
+
 ## What this is not
 
 - **Not a general game engine.** Large real-time games belong in the Web Game

@@ -1,3 +1,4 @@
+import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
@@ -48,7 +49,7 @@ import {
   type ConversationSummary,
   type ProjectRunSettings,
   type ProjectFileOpenMode,
-  type ProjectAgentActivity,
+  type ProjectActivitySnapshot,
   type ProjectCoverMode,
   type ProjectCoverState,
   type ProjectState,
@@ -74,6 +75,7 @@ import {
   type Model3DModel,
   type Model3DAnimationAction,
 } from "../shared/contracts.js";
+import type { AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
@@ -189,7 +191,7 @@ export async function listProjects(): Promise<ProjectState[]> {
   return request("/projects");
 }
 
-export async function listProjectActivity(signal?: AbortSignal): Promise<ProjectAgentActivity[]> {
+export async function listProjectActivity(signal?: AbortSignal): Promise<ProjectActivitySnapshot> {
   return request("/projects/activity", { signal });
 }
 
@@ -235,14 +237,38 @@ export async function deleteProject(projectId: string): Promise<void> {
   composerDrafts.deleteProject(projectId);
 }
 
-export async function listModels(): Promise<AgentModelCatalog> {
-  return request("/models");
+/** Conversations list coding agents' models too; canvas text and other one-off generation use OhMyGame's own models only. */
+export async function listModels(options: { agentRuntimes?: boolean } = {}): Promise<AgentModelCatalog> {
+  return request(options.agentRuntimes ? "/models?runtimes=1" : "/models");
+}
+
+export async function listAgentRuntimes(recheck = false): Promise<AgentRuntimeStatus[]> {
+  return request(`/agent-runtimes${recheck ? "?recheck=1" : ""}`);
+}
+
+export async function updateAgentRuntime(id: AgentRuntimeId, change: UpdateAgentRuntimeRequest): Promise<AgentRuntimeStatus> {
+  return request(`/agent-runtimes/${id}`, { method: "PATCH", body: JSON.stringify(change) });
+}
+
+export async function recheckAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntimeStatus> {
+  return request(`/agent-runtimes/${id}/recheck`, { method: "POST" });
+}
+
+export async function loginAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntimeLoginResponse> {
+  return request(`/agent-runtimes/${id}/login`, { method: "POST" });
+}
+
+export async function answerApproval(projectId: string, conversationId: string, requestId: string, decision: ApprovalDecision): Promise<void> {
+  await request(`/projects/${projectId}/conversations/${conversationId}/approvals/${encodeURIComponent(requestId)}`, {
+    method: "POST",
+    body: JSON.stringify({ decision } satisfies AnswerApprovalRequest),
+  });
 }
 
 export async function updateAgentDefaults(input: UpdateAgentDefaultsRequest): Promise<void> {
   await request("/models/default", {
     method: "PUT",
-    body: JSON.stringify({ model: modelRef(input.model), reasoningLevel: input.reasoningLevel }),
+    body: JSON.stringify({ model: modelRef(input.model), reasoningLevel: input.reasoningLevel, ...(input.nativeReasoningLevel ? { nativeReasoningLevel: input.nativeReasoningLevel } : {}) }),
   });
 }
 
@@ -383,6 +409,15 @@ export async function getVolcengineTtsSettings(): Promise<{ configured: boolean;
 
 export async function updateVolcengineTtsApiKey(apiKey: string): Promise<{ configured: boolean; defaultVoiceId?: string }> {
   const result = await request<{ configured: boolean; defaultVoiceId?: string }>("/settings/models/providers/volcengine-tts", {
+    method: "PUT",
+    body: JSON.stringify({ apiKey }),
+  });
+  notifyAgentModelsChanged();
+  return result;
+}
+
+export async function updateVolcengineSeedAudioApiKey(apiKey: string): Promise<{ configured: boolean }> {
+  const result = await request<{ configured: boolean }>("/settings/models/providers/volcengine-seed-audio", {
     method: "PUT",
     body: JSON.stringify({ apiKey }),
   });
@@ -638,6 +673,28 @@ export async function ensureProjectPreview(projectId: string): Promise<{ url: st
   return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST" });
 }
 
+/** Whether an Interactive Story plays as its own page, and whether its upgrade can be taken back. */
+export async function getStoryUpgrade(projectId: string): Promise<StoryUpgradeStatus> {
+  return request(`/projects/${projectId}/interactive-story/upgrade`);
+}
+
+export async function upgradeStory(projectId: string): Promise<StoryUpgradeResult> {
+  return request(`/projects/${projectId}/interactive-story/upgrade`, { method: "POST" });
+}
+
+/** Keeps the upgrade, so it is no longer offered to be taken back. */
+export async function keepStoryUpgrade(projectId: string): Promise<void> {
+  await request(`/projects/${projectId}/interactive-story/upgrade/keep`, { method: "POST" });
+}
+
+export async function copyStoryLibraryMedia(projectId: string): Promise<StoryLibraryMediaResult> {
+  return request(`/projects/${projectId}/interactive-story/library-media`, { method: "POST" });
+}
+
+export async function undoStoryUpgrade(projectId: string): Promise<{ changed: string[] }> {
+  return request(`/projects/${projectId}/interactive-story/upgrade/undo`, { method: "POST" });
+}
+
 export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
   return request(`/projects/${projectId}/playable`);
 }
@@ -880,12 +937,10 @@ export async function setConversationModel(
   });
 }
 
-export async function setConversationReasoning(
-  projectId: string,
-  conversationId: string,
-  level: AgentReasoningLevel,
-): Promise<AgentReasoningLevel> {
-  const result = await request<{ level: AgentReasoningLevel }>(`/projects/${projectId}/conversations/${conversationId}/reasoning`, {
+export function setConversationReasoning(projectId: string, conversationId: string, level: AgentReasoningLevel): Promise<AgentReasoningLevel>;
+export function setConversationReasoning(projectId: string, conversationId: string, level: string): Promise<string>;
+export async function setConversationReasoning(projectId: string, conversationId: string, level: string): Promise<string> {
+  const result = await request<{ level: string }>(`/projects/${projectId}/conversations/${conversationId}/reasoning`, {
     method: "PUT",
     body: JSON.stringify({ level }),
   });

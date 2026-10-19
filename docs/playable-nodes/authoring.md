@@ -22,6 +22,24 @@ The editor also reuses the parts of the current Interactive Story editor that
 already work well. The redesign removes node-type-specific forms; it does not
 replace the whole interface.
 
+## Upgrading a story
+
+Interactive Stories play as their own web page (see
+[runtime.md](runtime.md#page-and-lifecycle)). A story made before that plays
+in OhMyGame's sandbox, and the Story canvas shows a notice at the top:
+"This story plays in the old sandbox. Upgrade it to play as its own web page,
+which the AI can change entirely, from saving to music," with **Upgrade** and
+the details of what it does. Upgrading takes a checkpoint first; the notice
+then says the story plays as its own page and offers **Undo upgrade**.
+Closing the notice keeps the upgrade for good, and Undo upgrade is no longer
+offered. Unsaved edits are saved before either, and every
+editor reloads after.
+
+Upgrading copies the Library media the story uses into the project. A
+published story cannot reach media left in the Library, such as one the
+Library no longer had at the time, so while a web story still uses any, the
+Story canvas names them in a warning and offers **Copy into project**.
+
 ## Workspace
 
 The workspace keeps the current Interactive Story layout:
@@ -125,7 +143,7 @@ Start.
 
 1. The author chooses **Add Scene** on the canvas.
 2. The **Add a Scene** window shows each Template (Blank, Main menu,
-   Choice, QTE, Hotspot, Ending, Story map) as a
+   Choice, QTE, Hotspot, Ending, Story map, Visual Novel) as a
    picture with one line of summary, and they pick one. The right-click
    menu offers the same Templates as a list.
 3. The Scene appears on the canvas with working starter content, and the
@@ -457,23 +475,25 @@ an asset side panel on the Flow canvas can be reconsidered then.
 
 ### Templates
 
-v1 ships seven Templates (Presets). Each contains starter source that
+v1 ships eight Templates (Presets). Each contains starter source that
 already uses the Project Style, its expected Signals, a one-line summary
 for the author, and a brief that tells the Agent what the author usually
 wants next. The brief is not shown to the author. Each Template's picture in
 **Add a Scene** is a capture of the Scene it creates: the starter source
 with the default Project Style and no background. The Story map's shows a
-sample story partly played, since a new one has nothing seen to show.
+sample story partly played, since a new one has nothing seen to show, and
+the Visual Novel's shows its first line of dialogue.
 
 | Template  | Starter content                                        | Starter Signals        |
 | --------- | ------------------------------------------------------ | ---------------------- |
 | Blank     | The background; a click or the video's end continues   | `next`                 |
-| Main menu | Title, tagline, a list of entries, over the background | `start`, `story-map`   |
+| Main menu | Title, tagline, entries, Load, and Settings over the background | `start`, `story-map`   |
 | Choice    | A subtitle line and answer bars that can read State    | `option-a`, `option-b` |
 | QTE       | A key to press before a ring runs out                  | `success`, `fail`      |
 | Hotspot   | A picture with pulsing spots, one Signal per spot      | `door`, `window`       |
 | Ending    | Stamped ending title, closing lines, and Play again    | none                   |
 | Story map | The branches seen so far, locked ones, endings found   | none (Back)            |
+| Visual Novel | Lines from `script.txt` with names and characters, then answers | `option-a`, `option-b`, `title` |
 
 Starter Signals are ordinary declared Signals; the author or Agent renames
 and adds them freely. The set follows the old editor's story nodes: Open UI
@@ -484,11 +504,99 @@ small game, start from Blank plus a description.
 
 Templates live in OhMyGame, not in projects. Creating a Scene copies the
 Template's source into `nodes/<id>/`; later Template changes do not affect
-existing Scenes.
+existing Scenes. The shared files a Template brings, such as the Visual Novel
+player, are written only when the project lacks them, and OhMyGame never
+updates them afterwards: like the Scene's own files, they are the author's.
+
+### Main menu
+
+The Main menu is the game's title screen: **Start**, **Continue**, **Load**,
+**Story map**, and **Settings**. Start begins a new game; Continue returns to
+the saved game and shows disabled until there is one.
+
+- **Load** lists the slots that hold a game, with when each was saved and
+  its note, such as the line a Visual Novel was on. Picking one continues
+  that game. Load shows disabled until a slot holds a game, and a slot saved
+  by another version of the game shows but cannot be loaded.
+- **Settings** has a slider for each of the player's preferences: music and
+  sound volume, which the Runtime applies everywhere. A game that reads more,
+  such as a Visual Novel's text speed, can have a slider for it here too.
+
+Load and Settings open over the menu and close with **Back** or Esc. They are
+the Scene's own code, with no Exit, so the author asks the Agent to change or
+remove them like any other part of the Scene.
+
+### One story, many kinds of Scene
+
+A Visual Novel chapter, a film shot with a choice, a QTE, and a phone the
+player looks through are all Scenes. They connect by Exits in any order, and
+they share what the game remembers: Variables, the save and its slots, the
+music, and the player's settings. A story can open on a film Scene, continue
+into a Visual Novel chapter, and end on a QTE without anything to switch.
+
+### Visual Novel Scenes
+
+A Visual Novel Scene plays its own script, so a chapter of dialogue is one
+Scene and its answers are its Exits. The author writes the lines in
+`nodes/<id>/script.txt`, edited in the **Code** tab or through the Agent:
+
+```text
+@bg street
+@show mio smile left
+@music rain
+The rain had not stopped since noon.
+mio: You came alone.
+? [trust >= 3] I trust you. -> trust-her {trust += 1}
+? Who else would come? -> walk-away
+```
+
+Each line is one step: a command (`@bg`, `@show`, `@hide`, `@music`, `@sfx`,
+`@set`), a line of dialogue (`who: words`), narration, an answer (`? words ->
+exit`), or an exit (`-> exit`). Answers and exits may carry a condition on a
+Variable, and answers may change Variables. The full format is at the top of
+`shared/vn/player.js`. Characters, with the name players see, its colour,
+and a picture (an image Asset) for each look, are listed once in
+`shared/vn/characters.json`.
+
+The player is ordinary shared project source under `shared/vn/`, like the
+Project Style: the first Visual Novel Scene adds it, and from then on it is
+the author's. OhMyGame never updates it, so a project keeps the player it
+started with; ask the Agent for anything a newer one does. Changing
+`player.css` restyles every Visual Novel Scene. It types each line out and advances on a click, Space, or
+Enter. Its quick menu has:
+
+- **Save** and **Load**: twelve slots, each showing when it was saved and
+  the line it was saved on. Only a slot that holds a game this version can
+  play can be loaded.
+- **Auto**, **Skip**, and **Log**, the Scene's lines so far.
+- **Settings**: music and sound volume, text speed, and how long Auto waits.
+  They are the player's, kept across games.
+- **Title**: the Scene's `title` navigation Exit, usually to the Main menu.
+  It shows disabled until it is connected.
+
+A line's words can be changed where the preview shows them: with **Text**,
+editing the dialogue or narration changes those words in `script.txt`, and
+**Select** names the script line for the chat. The player marks each line it
+shows with where its words start in the script.
+
+An answer whose Exit is not connected shows disabled. A script mistake, or an
+Asset, Variable, or character the script uses but the project does not
+declare, stops the Scene when it opens, naming the line.
+
+The game saves at every line, so Continue or a loaded slot returns to the
+line the player was on, with the background, characters, and music as they
+were. Variables the script changes are saved when the Scene is left; until
+then the Scene works them out again from its start, so nothing is counted
+twice. A save made before the script was edited starts the Scene over.
+
+Music from `@music` plays on into later Scenes until a script changes it, and
+turns down while a video with sound plays, such as a cinematic Scene's
+background, so Visual Novel and interactive film Scenes mix in one game.
 
 ### Scene thumbnails
 
-Thumbnails are screenshots of the real Scene, never a separate rendering.
+Thumbnails are screenshots of the real Scene, never a separate rendering. A
+web story's are taken from its own page, opened at the Scene without sound.
 
 - The canvas captures every Scene that has no thumbnail, or one of an older
   build, without it being opened: the desktop app runs the Scene in a hidden
@@ -516,10 +624,11 @@ The same capture is attached to Agent requests about that Scene.
 ### Element picking, text editing, and moving
 
 Picking (**Select**), in-place editing (**Text**), and moving (**Move**) are editor tooling
-implemented by the sandbox host, not by node code, and they are disabled in
-the Published Player.
+implemented by the editor bridge the preview injects into the story's page (or
+by the sandbox host, for a story that has not been upgraded), not by node
+code. A published game never has them.
 
-1. **Select**, **Text**, or **Move** puts the preview into pick mode. The sandbox host
+1. **Select**, **Text**, or **Move** puts the preview into pick mode. The bridge
    draws a hover outline inside the node's surface and blocks node input.
 2. With **Select**, clicking returns a **picked element** description: node
    ID, source location when known, CSS path within the node root, tag,

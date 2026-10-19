@@ -46,10 +46,9 @@ import { isPluginIcon, isPluginManifest, pluginCollection, PLUGIN_MANIFEST_PATH 
 import { PLUGIN_ICON_MAX_BYTES } from "../shared/plugin-icons.js";
 import { readPluginIconAsset, validatePluginIconImage } from "./plugin-icons.js";
 
-const SETUP_PROMPT = `You help users create, configure and repair native OhMyGame plugins in a dedicated Plugin Builder workspace.
+const SETUP_PROMPT = `You create and edit native OhMyGame plugins in this Plugin Builder workspace.
 ${PLUGIN_AUTHORING_RULES}
-Use plugin_manage for structured operations. Call list/read before changing an existing plugin. Use bash/read/write/edit to author Skills and scripts in this workspace. Call prepare with input {path: "relative/plugin-directory"} when the draft is ready; fix its reported errors. create-mcp prepares an uninstalled draft for existing MCP services. The user reviews the preview and clicks Install plugin; do not claim a draft has been installed. After changes call prepare again so the preview stays current. Never modify credentials or session files.
-For installed plugins you may configure nonsecret values, inspect or edit MCP templates and test connections. Keep answers concise, explain what changed and what input is still required, and match the user's language.`;
+Read existing files before editing. Use read/write/edit/bash to author files, then plugin_manage prepare with input {path: "relative/plugin-directory"} to validate and refresh the preview; correct reported errors. Omit id in plugin_manage to read, configure or test the current draft. Never modify credentials or session files. The user installs or updates the reviewed draft from the preview. Report its actual state and required input, concisely and in the user's language.`;
 
 const CONFIGURE_PROMPT = `You help users understand, configure and diagnose the selected OhMyGame plugin. Use plugin_manage read and read-skill to inspect it before suggesting changes. Configure only this plugin's nonsecret fields and MCP templates, and test its connections. Explain changes and required input. Never ask for secrets in chat; direct the user to the configuration form or OAuth controls. Do not author or install packages. Match the user's language.`;
 
@@ -322,21 +321,24 @@ export class PluginSetupManager {
     } finally { state.busy = false; await this.#save(state); }
   }
   async configuration(id: string, values?: PluginConfigurationValues) {
-    const draft = await this.draft(id);
+    const state = await this.#loadState(id);
+    if (!values) return this.#configureDraft(state);
+    if (state.busy) throw new Error("Wait for the builder to finish before changing configuration");
+    state.busy = true;
+    try { return await this.#configureDraft(state, values); }
+    finally { state.busy = false; await this.#save(state); }
+  }
+  async #configureDraft(state: SetupRuntimeState, values?: PluginConfigurationValues, allowSecrets = true) {
+    const draft = await this.draft(state.id);
     if (!draft.plugin || draft.errors.length) throw new Error("Prepare a valid draft before configuring it");
-    const state = this.#states.get(id)!;
     const existing = await this.localPlugins.read(draft.plugin.id);
     if (existing && state.pluginId !== existing.id) throw new Error("A plugin with this name is already installed. Choose another name");
     const configurable = this.#configurationPlugin(state, draft.plugin);
     if (!values) return this.capabilities.configuration.view(configurable);
-    if (state.busy) throw new Error("Wait for the builder to finish before changing configuration");
-    state.busy = true;
-    try {
-      const result = await this.capabilities.configuration.update(configurable, values);
-      state.checks = {}; state.updatedAt = Date.now();
-      if (state.pluginId) this.invalidate();
-      return result;
-    } finally { state.busy = false; await this.#save(state); }
+    const result = await this.capabilities.configuration.update(configurable, values, allowSecrets);
+    state.checks = {}; state.updatedAt = Date.now();
+    if (state.pluginId) this.invalidate();
+    return result;
   }
   #configurationPlugin(state: SetupRuntimeState, plugin: import("../shared/plugins.js").PluginDetail) {
     return state.configurationId === plugin.id ? plugin : { ...plugin, id: `draft:${state.id}` };
@@ -345,15 +347,17 @@ export class PluginSetupManager {
     const state = await this.#loadState(id);
     if (state.busy) throw new Error("Wait for the builder to finish before testing");
     state.busy = true;
-    try {
-      const draft = await this.draft(id);
-      if (!draft.plugin || draft.errors.length || !state.draftPath) throw new Error("Prepare a valid draft before testing");
-      if (draft.revision !== revision) throw new Error("The draft changed. Refresh the preview before testing");
-      const root = await pluginDraftPath(path.join(this.#directory(id), "workspace"), state.draftPath);
-      const result = await this.capabilities.testDraft(this.#configurationPlugin(state, draft.plugin), root, server, id);
-      state.checks = { ...state.checks, [server]: { revision, result } };
-      return result;
-    } finally { state.busy = false; await this.#save(state); }
+    try { return await this.#testDraft(state, server, revision); }
+    finally { state.busy = false; await this.#save(state); }
+  }
+  async #testDraft(state: SetupRuntimeState, server: string, revision?: string) {
+    const draft = await this.draft(state.id);
+    if (!draft.plugin || draft.errors.length || !state.draftPath || !draft.revision) throw new Error("Prepare a valid draft before testing");
+    if (revision !== undefined && draft.revision !== revision) throw new Error("The draft changed. Refresh the preview before testing");
+    const root = await pluginDraftPath(path.join(this.#directory(state.id), "workspace"), state.draftPath);
+    const result = await this.capabilities.testDraft(this.#configurationPlugin(state, draft.plugin), root, server, state.id);
+    state.checks = { ...state.checks, [server]: { revision: draft.revision, result } };
+    return result;
   }
   async installDraft(id: string, revision: string): Promise<PluginSetupState> {
     const state = await this.#loadState(id);
@@ -529,7 +533,7 @@ export class PluginSetupManager {
       name: "plugin_manage",
       label: "Manage plugin",
       description:
-        "Native plugin operations. Actions: list, read (id), read-skill (id,server: skill ID), create-mcp (input: name,displayName,description,servers,configuration) prepares an uninstalled MCP draft, prepare (input: path) validates an authored directory and updates the preview, configure (id,input: values excluding secrets), definition (id,server), configure-server (id,server,input: complete MCP definition with configuration templates), test (id,server). Read includes configuration state and declared fields; secrets never appear. The user installs drafts from the builder.",
+        "Omit id for the current draft (create/edit) or selected installed plugin (configure). Explicit id targets an installed plugin; configuration sessions are limited to the selected one. Actions: list, read (package and configuration state), read-skill (server: skill ID), create-mcp (input: name,displayName,description,servers,configuration) creates a new MCP draft, prepare (input: path) validates files and refreshes the preview, configure (input: nonsecret values), test (server). For installed plugins only: definition (server), configure-server (server,input: complete MCP template). Edit draft definitions with file tools and prepare again. Users install drafts from the preview.",
       parameters: Type.Object({
         action: Type.Union([
           Type.Literal("list"),
@@ -554,14 +558,19 @@ export class PluginSetupManager {
           input?: unknown;
         };
         try {
-          if (state.mode === "configure" && (["prepare", "create-mcp"].includes(params.action) || (params.action !== "list" && params.id !== state.pluginId)))
+          const id = params.id ?? (state.mode === "configure" ? state.pluginId : undefined);
+          if (state.mode === "configure" && (["prepare", "create-mcp"].includes(params.action) || (params.action !== "list" && id !== state.pluginId)))
             throw new Error("This session can only configure the selected plugin");
           let result: unknown;
           if (params.action === "list") result = await this.plugins.list();
           else if (params.action === "create-mcp") {
             const { manifest, servers } = mcpPluginPackage(params.input as CreateMcpPluginRequest);
             const source = path.join(cwd, manifest.name);
-            await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
+            await mkdir(source).catch((cause: NodeJS.ErrnoException) => {
+              if (cause.code === "EEXIST") throw new Error("The draft directory already exists. Edit its files and call prepare");
+              throw cause;
+            });
+            await mkdir(path.join(source, ".ohmygame-plugin"));
             await pluginDraftPath(cwd, source);
             await writeFile(path.join(source, ".ohmygame-plugin/plugin.json"), JSON.stringify(manifest, null, 2));
             await writeFile(path.join(source, "mcp.json"), JSON.stringify({ mcpServers: servers }, null, 2));
@@ -570,10 +579,25 @@ export class PluginSetupManager {
             const input = params.input as { path?: string } | undefined;
             if (!input?.path) throw new Error("Specify the plugin draft directory");
             result = await this.prepare(state.id, input.path);
+          } else if (!id) {
+            if (params.action === "read") {
+              const draft = await this.draft(state.id);
+              result = { ...draft, configuration: draft.plugin && !draft.errors.length
+                ? this.capabilities.configuration.view(this.#configurationPlugin(state, draft.plugin)) : undefined };
+            } else if (params.action === "read-skill") {
+              const draft = await this.draft(state.id);
+              if (!draft.plugin?.skills.some(skill => skill.id === params.server)) throw new Error("Skill not found in this draft");
+              result = await this.file(state.id, params.server!);
+            } else if (params.action === "configure") {
+              if (!params.input) throw new Error("Specify nonsecret configuration values");
+              result = await this.#configureDraft(state, params.input as PluginConfigurationValues, false);
+              await this.#save(state);
+            } else if (params.action === "test") {
+              result = await this.#testDraft(state, params.server ?? "");
+              await this.#save(state);
+            } else throw new Error("Edit draft MCP definitions with file tools and call prepare");
           } else {
-            const plugin = params.id
-              ? await this.plugins.read(params.id)
-              : undefined;
+            const plugin = await this.plugins.read(id);
             if (!plugin) throw new Error("Plugin not found");
             if (params.action === "read-skill") result = await this.capabilities.skillContent(plugin, params.server ?? "");
             if (params.action === "read")

@@ -28,7 +28,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
-  const activity = useProjectActivity(phase === "ready" && projects.length > 0);
+  const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
   const [loadError, setLoadError] = useState<string>();
   const [projectActionError, setProjectActionError] = useState<string>();
   const [projectType, setProjectType] = useState<ProjectType>("web-game");
@@ -122,12 +122,11 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           ) : null}
           {phase === "ready" && projects.length > 0 ? (
             <div className="studio-project-grid">
-              {visibleProjects.map((project, index) => (
+              {visibleProjects.map((project) => (
                 <ProjectCard
                   key={project.id}
                   project={project}
                   agentStatus={activity.get(project.id)}
-                  fallback={index % 4}
                   onOpen={() => onOpen(project.id)}
                   actions={{ onRename: () => {
                     renameTrigger.current = document.querySelector<HTMLElement>('.project-card-menu[aria-expanded="true"]');

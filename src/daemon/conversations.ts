@@ -142,6 +142,17 @@ export class ConversationManager {
     this.open(project, stored).appendThinkingLevelChange(level);
   }
 
+  async nativeReasoningLevel(project: ProjectState, stored: StoredConversation, model: AgentModelRef): Promise<string | undefined> {
+    const entry = (await this.view(project, stored)).getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === "ohmygame-native-reasoning");
+    if (entry?.type !== "custom") return undefined;
+    const data = entry.data as { version?: number; provider?: string; model?: string; level?: unknown } | undefined;
+    return data?.version === 1 && data.provider === model.provider && data.model === model.id && typeof data.level === "string" ? data.level : undefined;
+  }
+
+  setNativeReasoningLevel(project: ProjectState, stored: StoredConversation, model: AgentModelRef, level: string): void {
+    this.open(project, stored).appendCustomEntry("ohmygame-native-reasoning", { version: 1, provider: model.provider, model: model.id, level });
+  }
+
   async planState(project: ProjectState, stored: StoredConversation): Promise<PlanSessionState> {
     const entry = (await this.view(project, stored)).getBranch().findLast((candidate) => candidate.type === "custom" && candidate.customType === PLAN_STATE_ENTRY);
     if (entry?.type !== "custom" || !entry.data || typeof entry.data !== "object") return { mode: "normal" };
@@ -192,7 +203,8 @@ function summary(projectId: string, session: ConversationInfo): ConversationSumm
   };
 }
 
-function sessionDirectory(project: ProjectState): string {
+/** The folder that holds the session files of a project's conversations. */
+export function sessionDirectory(project: ProjectState): string {
   return path.join(project.storagePath ?? path.dirname(project.workspacePath), "session");
 }
 

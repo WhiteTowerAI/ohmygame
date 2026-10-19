@@ -1,3 +1,7 @@
+import { createReadStream } from "node:fs";
+import { readdir } from "node:fs/promises";
+import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import type {
   ExtensionFactory,
   SessionEntry,
@@ -136,6 +140,73 @@ export function turnRange(
   return end ? { before: checkpoint.commit, after: end.commit } : undefined;
 }
 
+/**
+ * Every snapshot that an OhMyGame entry in these session files names, on
+ * every branch: a branch the conversation no longer shows is still in the
+ * file. The files are read as text, so that none is rewritten in a newer
+ * format, and every id anywhere in an entry's data counts, also in a format
+ * this version does not know. A line that is not JSON is passed over, as Pi
+ * passes it over when it reads the conversation, so nothing can use an entry
+ * on it: a write that was cut off, and the entry Pi appended to it after.
+ */
+export async function referencedSnapshots(
+  sessionDirectory: string,
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  let files: string[];
+  try {
+    files = (
+      await readdir(sessionDirectory, { recursive: true, withFileTypes: true })
+    )
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+      .map((entry) => path.join(entry.parentPath, entry.name));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return found;
+    throw error;
+  }
+  for (const file of files) {
+    const read = (line: string) => {
+      // Only an entry of OhMyGame's names snapshots. Lines of messages, which can hold whole images, are not parsed.
+      if (!line.includes('"ohmygame-')) return;
+      let entry: { type?: unknown; customType?: unknown; data?: unknown };
+      try {
+        entry = JSON.parse(line) as typeof entry;
+      } catch {
+        return;
+      }
+      if (
+        entry?.type === "custom" &&
+        typeof entry.customType === "string" &&
+        entry.customType.startsWith("ohmygame-")
+      )
+        collectCommits(entry.data, found);
+    };
+    // A piece at a time: a conversation with many images can be larger than one string may be.
+    const decoder = new StringDecoder("utf8");
+    let pending: string[] = [];
+    for await (const chunk of createReadStream(file, {
+      highWaterMark: 64 * 1024,
+    }) as AsyncIterable<Buffer>) {
+      const pieces = decoder.write(chunk).split("\n");
+      if (pieces.length === 1) {
+        pending.push(pieces[0]!);
+        continue;
+      }
+      read(pending.join("") + pieces[0]);
+      for (const line of pieces.slice(1, -1)) read(line);
+      pending = [pieces.at(-1)!];
+    }
+    read(pending.join("") + decoder.end());
+  }
+  return found;
+}
+
+function collectCommits(value: unknown, found: Set<string>): void {
+  if (isCommit(value)) found.add(value);
+  else if (value && typeof value === "object")
+    for (const item of Object.values(value)) collectCommits(item, found);
+}
+
 function isCommit(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{40}$/.test(value);
 }
@@ -173,23 +244,33 @@ export function checkpointExtension(
   return (pi) => {
     pi.on("message_end", async (event) => {
       if (event.message.role !== "user") return;
-      try {
-        pi.appendEntry(CHECKPOINT_ENTRY, {
-          version: 1,
-          commit: await snapshot(),
-        } satisfies StoredCheckpoint);
-      } catch (cause) {
-        // An entry without a commit says that this message has no checkpoint. A message that replaces an edited
-        // one comes right after that one's checkpoint entry, and without this it would be read as its own.
-        try {
-          pi.appendEntry(CHECKPOINT_ENTRY, { version: 1 });
-        } finally {
-          // Pi reports extension errors but does not stop the run. The host
-          // must latch the failure even when recording the empty entry fails.
-          onFailure?.(cause);
-        }
-        throw cause;
-      }
+      await recordCheckpoint((data) => pi.appendEntry(CHECKPOINT_ENTRY, data), snapshot, onFailure);
     });
   };
+}
+
+/**
+ * Snapshots the workspace and records it just before a user message is
+ * stored. Pi sessions do this from the checkpoint extension; coding agent
+ * sessions, which run no Pi extensions, call it themselves at the same point.
+ */
+export async function recordCheckpoint(
+  append: (data: StoredCheckpoint | { version: 1 }) => void,
+  snapshot: () => Promise<string>,
+  onFailure?: (cause: unknown) => void,
+): Promise<void> {
+  try {
+    append({ version: 1, commit: await snapshot() });
+  } catch (cause) {
+    // An entry without a commit says that this message has no checkpoint. A message that replaces an edited
+    // one comes right after that one's checkpoint entry, and without this it would be read as its own.
+    try {
+      append({ version: 1 });
+    } finally {
+      // Pi reports extension errors but does not stop the run. The host
+      // must latch the failure even when recording the empty entry fails.
+      onFailure?.(cause);
+    }
+    throw cause;
+  }
 }

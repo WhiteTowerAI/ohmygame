@@ -103,7 +103,8 @@ Agent 会走完一整套网页游戏流程：设计文档、关键画面 mockup�
 ### 🎬 互动故事
 
 互动电影、视觉小说和剧情游戏。每个画面都是一个自由的网页，拥有自己的图片、视频和代码：
-主菜单、案件档案、一段对话、一个谜题。你在图上把它们连起来，运行时负责状态、存档和跳转。
+主菜单、案件档案、一段对话、一个谜题。你在图上把它们连起来，运行时负责状态、存档、音乐和跳转。
+故事作为独立的网页运行，运行时也是项目的一部分，所以 Agent 可以改动它运行方式的任何地方。
 架构和创作模型见 [Playable Nodes](docs/playable-nodes/README.md)。
 
 <!-- TODO(asset): 截图或 GIF，展示节点图和两个用 OhMyGame 做好的画面。
@@ -145,6 +146,9 @@ OhMyGame 不会把你绑定在某一个模型上，也不按次收费。
   Amazon Bedrock 和 Vercel AI Gateway。
 - **直接登录你已有的订阅**，例如 ChatGPT Plus/Pro 或 GitHub Copilot，也可以粘贴 API 密钥。
   <!-- TODO(legal): 列出更多订阅前，先确认各服务商的条款 -->
+- **你已经在用的编程智能体**：Claude Code、Codex 和 OpenCode 使用各自的登录来运行对话，
+  对话记录、撤销、画布、媒体工具和插件仍由 OhMyGame 提供。在设置中启用，并遵循原生 CLI
+  的权限边界。详见[编程智能体](docs/coding-agents.md)。
 - **媒体模型**：图片、视频和 3D 生成，可通过 OpenAI、OpenRouter、火山方舟 / BytePlus ModelArk
   和 Meshy 接入。
 - **自定义服务商和模型别名**：可以选择语言、图片、视频和 3D 用途，配置协议模板和生成默认值。

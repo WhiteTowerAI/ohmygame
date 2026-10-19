@@ -20,6 +20,7 @@ import {
   rename,
   rm,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -51,6 +52,7 @@ const interception = vi.hoisted(() => ({
       ) => Promise<void>)
     | undefined,
   frozen: new Map<string, Stats>(),
+  afterRead: undefined as ((target: string) => Promise<void>) | undefined,
 }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
@@ -72,6 +74,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const mocked = {
     ...original,
     lstat,
+    readFile: (async (...parameters: Parameters<typeof original.readFile>) => {
+      const contents = await original.readFile(...parameters);
+      await interception.afterRead?.(String(parameters[0]));
+      return contents;
+    }) as typeof original.readFile,
     rm: intercepted("rm", original.rm),
     rename: intercepted("rename", original.rename, 1),
     copyFile: intercepted("copyFile", original.copyFile),
@@ -100,6 +107,7 @@ const hasGit = (() => {
 const roots: string[] = [];
 afterEach(async () => {
   interception.before = undefined;
+  interception.afterRead = undefined;
   interception.frozen.clear();
   vi.useRealTimers();
   await Promise.all(
@@ -165,6 +173,11 @@ async function locked<T>(targets: string[], run: () => Promise<T>): Promise<T> {
     for (const [index, target] of targets.entries())
       await chmod(target, modes[index]!);
   }
+}
+
+/** The paths of a list of changes. */
+function paths(changes: Array<{ path: string }>): string[] {
+  return changes.map((change) => change.path);
 }
 
 /** The paths a snapshot says it could not read. */
@@ -327,22 +340,207 @@ describe("workspace checkpoints", () => {
     });
   });
 
-  it("ignores the workspace's own .gitignore", async () => {
+  it("leaves out what the workspace's .gitignore files ignore and never touches it", async () => {
     const game = await project({
-      ".gitignore": "*.png\nsecret.txt\n",
+      ".gitignore": "*.log\nvenv/\n",
+      "assets/.gitignore": "generated/\n!keep.log\n",
       "assets/hero.png": "hero",
-      "secret.txt": "one",
+      "assets/keep.log": "kept",
+      "assets/generated/one.png": "one",
+      "venv/lib.py": "one",
+      "debug.log": "one",
     });
     const store = new CheckpointStore();
     const before = await store.snapshot(game);
-    await write(game.workspacePath, {
+    for (const ignored of [
+      "assets/generated/one.png",
+      "venv/lib.py",
+      "debug.log",
+    ])
+      expect(await store.read(game, before, ignored)).toBeUndefined();
+    expect(
+      Buffer.from(
+        (await store.read(game, before, "assets/keep.log"))!,
+      ).toString(),
+    ).toBe("kept");
+
+    const changed = {
       "assets/hero.png": "changed",
-      "secret.txt": "two",
-    });
+      "assets/keep.log": "changed",
+      "assets/generated/one.png": "two",
+      "venv/lib.py": "two",
+      "debug.log": "two",
+    };
+    await write(game.workspacePath, changed);
+    expect(
+      paths(await store.diff(game, before, await store.snapshot(game))),
+    ).toEqual(["assets/hero.png", "assets/keep.log"]);
     await store.restore(game, before);
-    expect(await contents(game.workspacePath)).toMatchObject({
+    expect(await contents(game.workspacePath)).toEqual({
+      ".gitignore": "*.log\nvenv/\n",
+      "assets/.gitignore": "generated/\n!keep.log\n",
+      ...changed,
       "assets/hero.png": "hero",
-      "secret.txt": "one",
+      "assets/keep.log": "kept",
+    });
+  });
+
+  it.each(["", "levels/"])(
+    "preserves existing files when %s.gitignore changes while a snapshot reads it",
+    async (prefix) => {
+      const game = await project({
+        [`${prefix}.gitignore`]: "notes.txt\n",
+        [`${prefix}notes.txt`]: "existing notes",
+      });
+      const store = new CheckpointStore();
+      const ignoreFile = path.join(game.workspacePath, `${prefix}.gitignore`);
+      interception.afterRead = async (file) => {
+        if (file !== ignoreFile) return;
+        interception.afterRead = undefined;
+        await writeFile(ignoreFile, "");
+      };
+
+      const before = await store.snapshot(game);
+      const after = await store.snapshot(game);
+      await store.restore(game, before);
+      expect(
+        await readFile(
+          path.join(game.workspacePath, `${prefix}notes.txt`),
+          "utf8",
+        ),
+      ).toBe("existing notes");
+      expect(paths(await store.diff(game, before, after))).not.toContain(
+        `${prefix}notes.txt`,
+      );
+    },
+  );
+
+  it("records a symlinked .gitignore without following its rules", async () => {
+    const game = await project({
+      "rules.txt": "notes.txt\n",
+      "notes.txt": "notes",
+    });
+    await symlink("rules.txt", path.join(game.workspacePath, ".gitignore"));
+    const store = new CheckpointStore();
+    const commit = await store.snapshot(game);
+    expect(
+      Buffer.from((await store.read(game, commit, ".gitignore"))!).toString(),
+    ).toBe("rules.txt");
+    expect(
+      Buffer.from((await store.read(game, commit, "notes.txt"))!).toString(),
+    ).toBe("notes");
+  });
+
+  it("keeps OhMyGame's own files and every .gitignore whatever a .gitignore says", async () => {
+    const game = await project({
+      ".gitignore": ".data/\ncanvas/\n.gitignore\n*.json\n",
+      ".data/assets.json": "{}",
+      "canvas/board.json": "{}",
+      "levels/one.json": "{}",
+      "levels/.gitignore": "*\n",
+      "levels/two.txt": "two",
+    });
+    const store = new CheckpointStore();
+    const commit = await store.snapshot(game);
+    for (const kept of [
+      ".gitignore",
+      ".data/assets.json",
+      "canvas/board.json",
+      "levels/.gitignore",
+    ])
+      expect(await store.read(game, commit, kept)).toBeDefined();
+    for (const ignored of ["levels/one.json", "levels/two.txt"])
+      expect(await store.read(game, commit, ignored)).toBeUndefined();
+  });
+
+  it("neither shows nor takes back a file that the .gitignore of only one side ignores", async () => {
+    const game = await project({
+      ".gitignore": "*.log\n",
+      "cache/data.bin": "one",
+      "game.ts": "one",
+    });
+    const store = new CheckpointStore();
+    const before = await store.snapshot(game);
+    // The turn starts to ignore one file and stops ignoring another.
+    await write(game.workspacePath, {
+      ".gitignore": "cache/\n",
+      "cache/data.bin": "two",
+      "app.log": "new",
+      "game.ts": "two",
+    });
+    const after = await store.snapshot(game);
+    expect(paths(await store.diff(game, before, after))).toEqual([
+      ".gitignore",
+      "game.ts",
+    ]);
+    expect(await store.undo(game, { before, after })).toMatchObject({
+      changed: [".gitignore", "game.ts"],
+      conflicts: [],
+    });
+    expect(await contents(game.workspacePath)).toEqual({
+      ".gitignore": "*.log\n",
+      "cache/data.bin": "two",
+      "app.log": "new",
+      "game.ts": "one",
+    });
+  });
+
+  it("names a file of the turn that a later .gitignore ignores as one an undo cannot put back", async () => {
+    const game = await project({ "notes.txt": "one", "game.ts": "one" });
+    const store = new CheckpointStore();
+    const before = await store.snapshot(game);
+    await write(game.workspacePath, { "notes.txt": "two", "game.ts": "two" });
+    const after = await store.snapshot(game);
+    await write(game.workspacePath, { ".gitignore": "notes.txt\n" });
+
+    const error = await store
+      .undo(game, { before, after })
+      .catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(CheckpointConflictError);
+    expect((error as CheckpointConflictError).blocked).toEqual(["notes.txt"]);
+    expect(
+      await store.undo(game, { before, after }, { conflicts: "keep" }),
+    ).toMatchObject({ changed: ["game.ts"], conflicts: ["notes.txt"] });
+    expect(await contents(game.workspacePath)).toEqual({
+      ".gitignore": "notes.txt\n",
+      "notes.txt": "two",
+      "game.ts": "one",
+    });
+  });
+
+  it("does not put back an ignored file from a snapshot taken before it was ignored", async () => {
+    const game = await project({ "venv/lib.py": "one", "game.ts": "one" });
+    const store = new CheckpointStore();
+    const before = await store.snapshot(game);
+    expect(await store.read(game, before, "venv/lib.py")).toBeDefined();
+    await write(game.workspacePath, {
+      ".gitignore": "venv/\n",
+      "venv/lib.py": "two",
+      "game.ts": "two",
+    });
+    expect(await store.restore(game, before)).toMatchObject({
+      changed: [".gitignore", "game.ts"],
+    });
+    expect(await contents(game.workspacePath)).toEqual({
+      "venv/lib.py": "two",
+      "game.ts": "one",
+    });
+  });
+
+  it("never removes ignored files that are where a file must come back", async () => {
+    const game = await project({ ".gitignore": "*.log\n", export: "a file" });
+    const store = new CheckpointStore();
+    const before = await store.snapshot(game);
+    await rm(path.join(game.workspacePath, "export"));
+    await write(game.workspacePath, { "export/trace.log": "trace" });
+    const error = await store
+      .restore(game, before)
+      .catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(CheckpointConflictError);
+    expect((error as CheckpointConflictError).blocked).toEqual(["export"]);
+    expect(await contents(game.workspacePath)).toEqual({
+      ".gitignore": "*.log\n",
+      "export/trace.log": "trace",
     });
   });
 
@@ -3112,5 +3310,267 @@ describe("Reapply plans", () => {
       "a.txt": "after a",
       "b.txt": "later b",
     });
+  });
+});
+
+describe("pruning", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  /** The ids of every object the store holds. */
+  async function objects(game: {
+    workspacePath: string;
+    storagePath: string;
+  }): Promise<string[]> {
+    const root = path.join(checkpointDirectory(game), "objects");
+    const ids: string[] = [];
+    for (const folder of await readdir(root))
+      for (const name of await readdir(path.join(root, folder)))
+        if (/^[0-9a-f]{38}$/.test(name)) ids.push(folder + name);
+    return ids.sort();
+  }
+
+  /** Lets the store see everything it holds as written more than a day ago. */
+  function later(): void {
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 2 * DAY });
+  }
+
+  async function text(
+    store: CheckpointStore,
+    game: { workspacePath: string; storagePath: string },
+    commit: string,
+    file: string,
+  ): Promise<string> {
+    return Buffer.from((await store.read(game, commit, file))!).toString();
+  }
+
+  it("shares an in-flight prune and protects snapshots issued while it waits", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    later();
+    let release!: (roots: string[]) => void;
+    const ready = new Promise<string[]>((resolve) => {
+      release = resolve;
+    });
+    const references = vi.fn(() => ready);
+    const pruning = store.prune(game, references);
+    await vi.waitFor(() => expect(references).toHaveBeenCalledOnce());
+    const concurrent = store.prune(game, references);
+    try {
+      expect(await store.snapshot(game)).toBe(first);
+      await write(game.workspacePath, { "level.bin": "two" });
+      await store.snapshot(game);
+    } finally {
+      release([]);
+    }
+    expect(await Promise.all([pruning, concurrent])).toEqual([
+      { removed: 0, bytes: 0 },
+      { removed: 0, bytes: 0 },
+    ]);
+    expect(references).toHaveBeenCalledOnce();
+    expect(await text(store, game, first, "level.bin")).toBe("one");
+  });
+
+  it("can retry a prune whose reference scan failed", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    await store.snapshot(game);
+    const references = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Read failed"))
+      .mockResolvedValue([]);
+    await expect(store.prune(game, references)).rejects.toThrow("Read failed");
+    expect(await store.prune(game, references)).toEqual({
+      removed: 0,
+      bytes: 0,
+    });
+    expect(references).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes what no named snapshot needs and keeps what one does", async () => {
+    const game = await project({ "level.bin": "one", "game.ts": "same" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    const second = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    const newest = await store.snapshot(game);
+    const held = await objects(game);
+
+    later();
+    const result = await store.prune(game, async () => [first]);
+    // The second snapshot's commit, its tree and the file only it held.
+    expect(result?.removed).toBe(3);
+    expect(result?.bytes).toBeGreaterThan(0);
+    expect((await objects(game)).length).toBe(held.length - 3);
+    expect(await text(store, game, first, "level.bin")).toBe("one");
+    expect(await text(store, game, first, "game.ts")).toBe("same");
+    // The newest snapshot is kept although nothing names it.
+    expect(await text(store, game, newest, "level.bin")).toBe("three");
+    await expect(store.read(game, second, "level.bin")).rejects.toThrow();
+
+    await store.restore(game, first);
+    expect(await contents(game.workspacePath)).toEqual({
+      "level.bin": "one",
+      "game.ts": "same",
+    });
+  });
+
+  it("keeps everything written in the last day, with all it needs", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    await store.snapshot(game);
+    const old = new Set(await objects(game));
+    await write(game.workspacePath, { "level.bin": "one" });
+    // This snapshot is written last, and its file is the one of the old snapshot that nothing names.
+    const recent = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    await store.snapshot(game);
+    // File times cannot be set back, so what is written last is set ahead: the store sees it as written just now.
+    const now = new Date(Date.now() + 2 * DAY);
+    for (const oid of await objects(game))
+      if (!old.has(oid))
+        await utimes(
+          path.join(
+            checkpointDirectory(game),
+            "objects",
+            oid.slice(0, 2),
+            oid.slice(2),
+          ),
+          now,
+          now,
+        );
+
+    later();
+    // The two old commits go, and the tree and the file only the second one held. The old tree and file that the
+    // recent snapshot shares with the first stay, although nothing names the first.
+    expect((await store.prune(game, async () => []))?.removed).toBe(4);
+    await expect(store.read(game, first, "level.bin")).rejects.toThrow();
+    expect(await text(store, game, recent, "level.bin")).toBe("one");
+  });
+
+  it("keeps a snapshot it hands out while it works, also one that nothing named before", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    later();
+    let handed: string | undefined;
+    const result = await store.prune(game, async () => {
+      // Nothing changed, so this hands out the old snapshot again, and the next one moves on from it.
+      handed = await store.snapshot(game);
+      await write(game.workspacePath, { "level.bin": "two" });
+      await store.snapshot(game);
+      return [];
+    });
+    expect(handed).toBe(first);
+    expect(result?.removed).toBe(0);
+    expect(await text(store, game, first, "level.bin")).toBe("one");
+  });
+
+  it("removes nothing and notes nothing when the removal is not to happen", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    await store.snapshot(game);
+    const held = await objects(game);
+    later();
+    expect(
+      await store.prune(game, async () => [], { proceed: () => false }),
+    ).toBeUndefined();
+    expect(await objects(game)).toEqual(held);
+    expect(
+      existsSync(path.join(checkpointDirectory(game), "ohmygame-pruned.json")),
+    ).toBe(false);
+    expect(
+      (await store.prune(game, async () => [], { proceed: () => true }))
+        ?.removed,
+    ).toBeGreaterThan(0);
+  });
+
+  it("keeps the snapshot an unfinished restore goes back to", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    await store.snapshot(game);
+    await writeFile(
+      path.join(checkpointDirectory(game), "ohmygame-unfinished.json"),
+      JSON.stringify({ previous: first }),
+    );
+    later();
+    expect((await store.prune(game, async () => []))?.removed).toBe(0);
+    expect(await text(store, game, first, "level.bin")).toBe("one");
+  });
+
+  it("passes over a named snapshot that is not there, and removes nothing when one cannot be read", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "two" });
+    const second = await store.snapshot(game);
+    await write(game.workspacePath, { "level.bin": "three" });
+    await store.snapshot(game);
+    later();
+    expect(
+      (await store.prune(game, async () => ["0".repeat(40), first]))?.removed,
+    ).toBe(3);
+
+    const held = await objects(game);
+    const tree = (await readCommit(checkpointDirectory(game), first)).tree;
+    const file = path.join(
+      checkpointDirectory(game),
+      "objects",
+      tree.slice(0, 2),
+      tree.slice(2),
+    );
+    await chmod(file, 0o644);
+    await writeFile(file, "damaged");
+    await expect(
+      store.prune(game, async () => [first, second]),
+    ).rejects.toThrow();
+    expect(await objects(game)).toEqual(held);
+  });
+
+  it("prunes at most once in an interval, and makes no store for a project without one", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    expect(await store.prune(game, async () => [])).toEqual({
+      removed: 0,
+      bytes: 0,
+    });
+    expect(existsSync(checkpointDirectory(game))).toBe(false);
+
+    await store.snapshot(game);
+    expect(
+      await store.prune(game, async () => [], { interval: DAY }),
+    ).toBeDefined();
+    expect(
+      await store.prune(game, async () => [], { interval: DAY }),
+    ).toBeUndefined();
+    later();
+    expect(
+      await store.prune(game, async () => [], { interval: DAY }),
+    ).toBeDefined();
+  });
+
+  it("clears away what an object write that was cut off left behind long ago", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    await store.snapshot(game);
+    const folder = path.join(checkpointDirectory(game), "objects", "ab");
+    await mkdir(folder, { recursive: true });
+    const existing = await readdir(folder);
+    await writeFile(path.join(folder, "tmp_obj_left"), "partial");
+    await writeFile(path.join(folder, "README"), "not an object");
+    later();
+    await store.prune(game, async () => []);
+    expect((await readdir(folder)).sort()).toEqual(
+      [...existing, "README"].sort(),
+    );
   });
 });

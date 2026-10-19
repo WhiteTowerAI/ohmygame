@@ -65,6 +65,12 @@ export default async function checkPackagedDesktop(context) {
     console.log("Packaged Pi patch, daemon startup and authenticated API passed.");
   } finally {
     await daemon?.stop();
+    // Windows can retain the executable image lock briefly after the process
+    // closes. electron-builder edits this executable as soon as afterPack
+    // returns, so give the loader time to release it first.
+    if (electronPlatformName === "win32") {
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
     await rm(directory, { recursive: true, force: true });
   }
 }

@@ -116,7 +116,9 @@ can open in any editor.
 Interactive films, visual novels, and story games. Each screen is a free web
 page with its own images, video, and code: a main menu, a case archive, a
 dialogue, a puzzle. You connect them on a graph, and the runtime handles state,
-saves, and navigation. The architecture and authoring model are documented in
+saves, music, and navigation. The story plays as its own web page, and the
+runtime is part of the project, so the agent can change anything about how it
+plays. The architecture and authoring model are documented in
 [Playable Nodes](docs/playable-nodes/README.md).
 
 <!-- TODO(asset): screenshot or GIF, Node Graph with two finished screens,
@@ -166,6 +168,10 @@ OhMyGame does not lock you into one model or charge per run.
 - **Sign in with a subscription you already have**, such as ChatGPT Plus/Pro or
   GitHub Copilot, or paste an API key.
   <!-- TODO(legal): check each provider's terms before naming more subscriptions -->
+- **Coding agents you already use**: Claude Code, Codex, and OpenCode run a
+  conversation with their own sign-in, while OhMyGame keeps its history, Undo,
+  canvas, media tools, and plugins. Enable them in Settings; native CLI
+  permission limits apply. See [coding agents](docs/coding-agents.md).
 - **Media models** for images, video, and 3D through OpenAI, OpenRouter,
   Volcengine Ark / BytePlus ModelArk, and Meshy.
 - **Custom providers and model aliases** with selectable language, image, video

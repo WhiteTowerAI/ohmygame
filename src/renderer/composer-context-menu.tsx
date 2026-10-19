@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
-import type { ConversationCapabilities } from "../shared/contracts.js";
+import type { AgentUsageLimit, ConversationCapabilities } from "../shared/contracts.js";
+import { AgentUsageInline } from "./agent-usage.js";
 import { FileText, Lightbulb, Package, Plus, Upload, WandSparkles } from "./icons.js";
 import { attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
 import { matchingMentions, mentionQuery, slashCommandQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
@@ -53,7 +54,7 @@ export function composerContextItems({ capabilities, query, planning, canToggleP
   ];
 }
 
-export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onMention, onChange, onSelectionChange, contextPercent }: {
+export function useComposerContextMenu({ prompt, cursor, textarea, disabled, capabilities, planning, canTogglePlanning, onFiles, onDesignReference, onTogglePlanning, onCompact, onMention, onChange, onSelectionChange, contextPercent, usageLimits }: {
   prompt: string;
   cursor: number;
   textarea: RefObject<HTMLTextAreaElement | null>;
@@ -69,6 +70,8 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
   onChange: (value: string) => void;
   onSelectionChange: (cursor: number) => void;
   contextPercent?: number;
+  /** A coding agent's account quota, shown under the commands when they are opened with "/". */
+  usageLimits?: AgentUsageLimit[];
 }) {
   const id = useId();
   const menu = useRef<HTMLDivElement>(null);
@@ -200,13 +203,14 @@ export function useComposerContextMenu({ prompt, cursor, textarea, disabled, cap
         textarea.current?.focus();
       }} />
     </>,
-    overlay: open ? <ComposerContextMenu id={id} menuRef={menu} items={items} selected={selectedIndex} onSelect={select} onHover={setSelected} /> : null,
+    overlay: open ? <ComposerContextMenu id={id} menuRef={menu} items={items} selected={selectedIndex} onSelect={select} onHover={setSelected} usageLimits={query?.trigger === "/" ? usageLimits : undefined} /> : null,
     suggestions: open ? { id, activeId: items[selectedIndex] ? `${id}-${items[selectedIndex].id}` : undefined } : undefined,
   };
 }
 
-function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover }: {
+function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, usageLimits }: {
   id: string;
+  usageLimits?: AgentUsageLimit[];
   menuRef: RefObject<HTMLDivElement | null>;
   items: ContextMenuItem[];
   selected: number;
@@ -267,5 +271,6 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover }
         <small>{item.description}</small>
       </button>
     </Fragment>) : <div className="composer-context-menu-empty" role="status">{t("contextMenu.noMatch")}</div>}
+    {usageLimits?.length ? <div className="composer-context-menu-usage" role="status" aria-label={t("agentUsage.title")}><AgentUsageInline limits={usageLimits} /></div> : null}
   </div>;
 }

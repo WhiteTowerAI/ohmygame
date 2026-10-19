@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePlayableSourceLocation, replacePlayableElementText } from "../src/shared/playable-text-edit.js";
+import { parsePlayableSourceLocation, replacePlayableElementText, replacePlayableLineText } from "../src/shared/playable-text-edit.js";
 
 const html = [
   "<main>",
@@ -46,5 +46,22 @@ describe("replacePlayableElementText", () => {
   it("changes nothing else", () => {
     const next = replacePlayableElementText(html, { line: 2, column: 3 }, "Night Train", "Day Train")!;
     expect(next.replace("Day Train", "Night Train")).toBe(html);
+  });
+});
+
+describe("replacePlayableLineText", () => {
+  const script = "@show mio\nmio: You came alone.  \r\n  Narration here.\n";
+
+  it("replaces a line's words from where they start, keeping the rest of the file", () => {
+    expect(replacePlayableLineText(script, { line: 2, column: 6 }, "You came alone.", "You came back."))
+      .toBe("@show mio\nmio: You came back.  \r\n  Narration here.\n");
+    expect(replacePlayableLineText(script, { line: 3, column: 3 }, "Narration here.", "Rain."))
+      .toBe("@show mio\nmio: You came alone.  \r\n  Rain.\n");
+  });
+
+  it("refuses words that changed since the preview, and text that would break the line", () => {
+    expect(replacePlayableLineText(script, { line: 2, column: 6 }, "Something else.", "x")).toBeUndefined();
+    expect(replacePlayableLineText(script, { line: 2, column: 6 }, "You came alone.", "two\nlines")).toBeUndefined();
+    expect(replacePlayableLineText(script, { line: 9, column: 1 }, "", "x")).toBeUndefined();
   });
 });

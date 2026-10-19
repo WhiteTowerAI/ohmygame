@@ -44,6 +44,27 @@ export function replacePlayableElementText(
   return `${html.slice(0, open)}${leading}${escapeText(after.trim())}${trailing}${html.slice(close)}`;
 }
 
+/**
+ * Replaces the text from `location` to the end of its line in a plain text
+ * source, such as a Visual Novel script line whose words start there. The
+ * text there must still read `before`. Returns undefined when it does not, or
+ * when `after` would break the line.
+ */
+export function replacePlayableLineText(
+  text: string,
+  location: Pick<PlayableSourceLocation, "line" | "column">,
+  before: string,
+  after: string,
+): string | undefined {
+  const start = offsetOf(text, location.line, location.column);
+  if (start === undefined || /[\r\n]/.test(after)) return undefined;
+  const lineEnd = /\r?\n|$/.exec(text.slice(start))!;
+  const end = start + lineEnd.index;
+  if (normalize(text.slice(start, end)) !== normalize(before)) return undefined;
+  const trailing = /\s*$/.exec(text.slice(start, end))![0];
+  return `${text.slice(0, start)}${after.trim()}${trailing}${text.slice(end)}`;
+}
+
 /** The offset of a 1-based line and column in `html`, or undefined past its end. */
 export function offsetOf(html: string, line: number, column: number): number | undefined {
   let offset = 0;

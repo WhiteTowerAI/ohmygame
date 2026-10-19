@@ -28,7 +28,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
-  const activity = useProjectActivity(phase === "ready" && projects.length > 0);
+  const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
   const [error, setError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
@@ -118,11 +118,10 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
           {phase === "error" ? <p className="home-project-state" role="alert">{error}</p> : null}
           {phase === "ready" && !projects.length ? <div className="asset-canvas-empty"><Image size={18} /><span>{t("assetCanvasHome.none")}</span></div> : null}
           {phase === "ready" && projects.length ? <div className="home-project-grid">
-            {projects.map((project, index) => <ProjectCard
+            {projects.map((project) => <ProjectCard
               key={project.id}
               project={project}
               agentStatus={activity.get(project.id)}
-              fallback={index % 4}
               onOpen={() => onOpenProject(project.id)}
               actions={{
                 onRename: () => {

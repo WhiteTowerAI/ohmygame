@@ -79,7 +79,10 @@ export async function startStaticPreview(
       }
       // Media can only seek when the server answers byte ranges.
       const { size } = await stat(filename);
-      const range = byteRange(incoming.headers.range, size);
+      const range =
+        incoming.method === "GET"
+          ? byteRange(incoming.headers.range, size)
+          : undefined;
       if (range === "unsatisfiable") {
         outgoing.writeHead(416, { "content-range": `bytes */${size}` }).end();
         return;

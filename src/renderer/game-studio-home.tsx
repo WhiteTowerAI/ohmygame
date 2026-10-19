@@ -59,7 +59,7 @@ export function GameStudioHome({
   const studio = GAME_STUDIOS[projectType];
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
-  const activity = useProjectActivity(phase === "ready" && projects.length > 0);
+  const activity = useProjectActivity(phase === "ready" && projects.length > 0, setProjects);
   const [error, setError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
@@ -168,12 +168,11 @@ export function GameStudioHome({
           ) : null}
           {phase === "ready" && projects.length > 0 ? (
             <div className="studio-project-grid">
-              {visibleProjects.map((project, index) => (
+              {visibleProjects.map((project) => (
                 <ProjectCard
                   key={project.id}
                   project={project}
                   agentStatus={activity.get(project.id)}
-                  fallback={index % 4}
                   onOpen={() => onOpenProject(project.id)}
                   actions={{
                     onRename: () => {

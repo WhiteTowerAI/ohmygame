@@ -1,8 +1,9 @@
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Search, Settings } from "./icons.js";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { AgentModel, AgentModelCatalog, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
+import { AGENT_REASONING_LEVELS, type AgentModel, type AgentModelCatalog, type AgentModelRef, type AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
+import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
 import { reasoningLabel } from "./reasoning-label.js";
 import { t } from "./i18n.js";
 import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
@@ -14,16 +15,18 @@ interface ModelSelectorProps {
   status?: AgentModelCatalogStatus;
   value?: AgentModelRef | AgentModel;
   reasoningLevel?: AgentReasoningLevel;
+  nativeReasoningLevel?: string;
   disabled?: boolean;
   variant?: "chat" | "canvas";
   placement?: "above" | "below";
   onChange: (model: AgentModel, reasoningLevel: AgentReasoningLevel) => void;
   onReasoningChange: (level: AgentReasoningLevel) => void;
+  onNativeReasoningChange?: (level: string) => void;
 }
 
 type ModelPanel = "models" | "reasoning";
 
-export function ModelSelector({ models, status = "ready", value, reasoningLevel, disabled, variant = "chat", placement = "above", onChange, onReasoningChange }: ModelSelectorProps) {
+export function ModelSelector({ models, status = "ready", value, reasoningLevel, nativeReasoningLevel, disabled, variant = "chat", placement = "above", onChange, onReasoningChange, onNativeReasoningChange }: ModelSelectorProps) {
   const [panel, setPanel] = useState<ModelPanel>();
   const [position, setPosition] = useState<{ top: number; left: number }>();
   const [query, setQuery] = useState("");
@@ -39,8 +42,12 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
   const visibleModels = status === "ready" ? filterModels(models, query) : [];
   const providerGroups = groupModelsByProvider(visibleModels);
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? "medium", current?.reasoningLevels ?? []);
-  const reasoningText = reasoningLabel(effectiveReasoning);
-  const supportsReasoning = !!current && current.reasoningLevels.length > 1;
+  const native = isAgentRuntimeId(current?.provider) && variant !== "canvas";
+  const levels = native ? current?.nativeReasoningLevels ?? [] : current?.reasoningLevels ?? [];
+  const effectiveLevel = native ? nativeEffort(current, nativeReasoningLevel) : effectiveReasoning;
+  const label = (level: string | undefined) => level && (AGENT_REASONING_LEVELS as readonly string[]).includes(level) ? reasoningLabel(level as AgentReasoningLevel) : level ?? "";
+  const reasoningText = label(effectiveLevel);
+  const supportsReasoning = levels.length > 1;
   const open = !!panel;
   const showReasoning = panel === "reasoning";
   const positioned = position !== undefined;
@@ -167,7 +174,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 </label>
                 <button className="model-selector-manage" type="button" aria-label={t("modelSelector.manage")} title={t("modelSelector.manage")} onClick={() => {
                   close(true);
-                  window.location.hash = settingsHash("providers");
+                  window.location.hash = settingsHash(native ? "agents" : "providers");
                 }}><Settings aria-hidden="true" size={13} /></button>
               </div>
               <div className="model-selector-model-list">
@@ -219,8 +226,8 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                 <ChevronLeft aria-hidden="true" size={12} />
                 <span>{t("models.reasoning")}</span>
               </button>
-              {(current?.reasoningLevels ?? []).map((level) => {
-                const selected = level === effectiveReasoning;
+              {levels.map((level) => {
+                const selected = level === effectiveLevel;
                 return (
                   <button
                     className={selected ? "active" : ""}
@@ -229,11 +236,11 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
                     aria-checked={selected}
                     key={level}
                     onClick={() => {
-                      if (!selected) onReasoningChange(level);
+                      if (!selected) { if (native) onNativeReasoningChange?.(level); else onReasoningChange(level as AgentReasoningLevel); }
                       close(true);
                     }}
                   >
-                    <span>{reasoningLabel(level)}</span>
+                    <span>{label(level)}</span>
                     {selected ? <Check aria-hidden="true" size={12} /> : null}
                   </button>
                 );
@@ -251,27 +258,39 @@ export type AgentModelCatalogStatus = "loading" | "ready" | "error";
 export type AgentModelCatalogState = AgentModelCatalog & { status: AgentModelCatalogStatus };
 
 const EMPTY_CATALOG: AgentModelCatalogState = { models: [], defaultReasoningLevel: "medium", status: "loading" };
-export function useAgentModels(): AgentModelCatalogState {
+/** The models a picker offers. Conversations pass `agentRuntimes` to list coding agents' models with OhMyGame's own. */
+export function useAgentModels(options: { agentRuntimes?: boolean } = {}): AgentModelCatalogState {
   const [catalog, setCatalog] = useState<AgentModelCatalogState>(EMPTY_CATALOG);
+  const agentRuntimes = options.agentRuntimes === true;
   useEffect(() => {
     let disposed = false;
     let generation = 0;
-    const load = () => {
+    let retries = 0;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const load = (quiet = false) => {
       const request = ++generation;
-      setCatalog((current) => ({ ...current, status: "loading" }));
-      void waitForRuntime().then(listModels).then((available) => {
-        if (!disposed && request === generation) setCatalog({ ...available, status: "ready" });
+      if (!quiet) setCatalog((current) => ({ ...current, status: "loading" }));
+      void waitForRuntime().then(() => listModels({ agentRuntimes })).then((available) => {
+        if (disposed || request !== generation) return;
+        setCatalog({ ...available, status: "ready" });
+        // A coding agent that was slow to list its models is asked again, a few times, without hiding the others.
+        if (available.loadingRuntimes?.length && retries < 5) {
+          retries++;
+          retry = setTimeout(() => load(true), 3_000);
+        }
       }).catch(() => {
         if (!disposed && request === generation) setCatalog((current) => ({ ...current, models: [], hiddenModels: undefined, defaultModel: undefined, status: "error" }));
       });
     };
-    load();
-    window.addEventListener(MODELS_CHANGED_EVENT, load);
+    const reload = () => { retries = 0; load(); };
+    reload();
+    window.addEventListener(MODELS_CHANGED_EVENT, reload);
     return () => {
       disposed = true;
-      window.removeEventListener(MODELS_CHANGED_EVENT, load);
+      clearTimeout(retry);
+      window.removeEventListener(MODELS_CHANGED_EVENT, reload);
     };
-  }, []);
+  }, [agentRuntimes]);
   return catalog;
 }
 
