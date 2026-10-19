@@ -206,6 +206,9 @@ export function toolchainRoots(
   }
   if (platform === "darwin")
     for (const developer of [
+      // Node/npm read the system OpenSSL configuration when starting TLS.
+      // Grant this immutable file without exposing the whole system Library.
+      "/System/Library/OpenSSL/openssl.cnf",
       "/Library/Developer/CommandLineTools",
       "/Applications/Xcode.app",
     ])

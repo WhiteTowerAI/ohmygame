@@ -391,6 +391,10 @@ orphan recovery.
 
 Real inference is opt-in and consumes the provider's quota:
 
+On macOS, Codex's command profile includes read-only access to the system
+`/System/Library/OpenSSL/openssl.cnf` file so Node/npm can initialize TLS.
+This does not grant access to the rest of the system Library.
+
 ```bash
 bun run test:agent-runtimes:live opencode-cli opencode/mimo-v2.6-flash-free
 bun run test:agent-runtimes:live codex-cli YOUR_AVAILABLE_MODEL
