@@ -253,7 +253,9 @@ saved switch choices are preserved.
   runtime validation pending. No editor bridge/add-on is required. Use
   `--apply-modifiers` for baked static geometry; keep it off for shape-key export.
 - **Godot:** dedicated Godot Skill plus the existing pinned
-  `@coding-solo/godot-mcp@0.1.1`. The Godot executable configuration defaults to
+  `@coding-solo/godot-mcp@0.1.1`, available in both General Game and Godot Game
+  projects. Keep Web preview off when using General for native Godot development.
+  The Godot executable configuration defaults to
   `godot` for upstream automatic discovery and can be replaced with an absolute
   executable path. Check the actual engine version and import/run logs after
   testing the MCP connection. Viewport capture and gameplay input are not

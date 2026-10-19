@@ -28,7 +28,7 @@
       "Inspect the current Godot project and suggest the next implementation step.",
       "Build a player controller for the current Godot scene."
     ],
-    "projectTypes": ["godot-game"]
+    "projectTypes": ["godot-game", "general"]
   },
   "mcpServers": "./mcp.json"
 }

@@ -88,6 +88,13 @@ describe("native plugin capabilities", () => {
     expect(await service.definition(godot, "godot")).toMatchObject({
       env: { GODOT_PATH: "godot" }, lifecycle: "lazy",
     });
+    const godotSkill = path.resolve("plugins/godot/skills/godot-game/SKILL.md");
+    for (const projectType of ["general", "godot-game"] as const) {
+      expect((await service.effective(projectType)).mcpServers).toHaveProperty(godotName);
+      expect(await resolvePluginSkillPaths([bundled], settings, projectType)).toContain(godotSkill);
+    }
+    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(godotName);
+    expect(await resolvePluginSkillPaths([bundled], settings, "web-game")).not.toContain(godotSkill);
     const probe = vi.spyOn(service.host, "probe").mockResolvedValue({ status: "connected", toolCount: 14, message: "godot: get_godot_version" });
     expect((await service.test(godot, "godot")).message).toBe("godot: get_godot_version");
     probe.mockRestore();

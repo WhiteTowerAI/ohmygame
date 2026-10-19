@@ -50,6 +50,9 @@ describe("plugin catalog API", () => {
 
     expect(await mentionIds("web-game")).toContain("personal:web-only");
     expect(await mentionIds("general")).not.toContain("personal:web-only");
+    expect(await mentionIds("general")).toContain("ohmygame:godot");
+    expect(await mentionIds("godot-game")).toContain("ohmygame:godot");
+    expect(await mentionIds("web-game")).not.toContain("ohmygame:godot");
     expect((await app.inject({ method: "GET", url: "/composer/capabilities" })).json().plugins)
       .toEqual(expect.arrayContaining([expect.objectContaining({ id: "personal:web-only" })]));
   });
@@ -176,7 +179,7 @@ describe("plugin catalog API", () => {
       longDescription: expect.any(String),
       mcpServers: [{ id: "godot", name: "Godot" }],
       defaultPrompts: expect.any(Array),
-      projectTypes: ["godot-game"],
+      projectTypes: ["godot-game", "general"],
     });
   });
 
