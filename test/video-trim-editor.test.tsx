@@ -17,8 +17,6 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
 }));
 const { VideoTrimmer, saveTrimmedVideo } =
   await import("../src/renderer/video-trimmer.js");
-const { PlayableVideoTrimDialog } =
-  await import("../src/renderer/playable-video-trim-dialog.js");
 
 let root: Root;
 let container: HTMLDivElement;
@@ -26,8 +24,6 @@ let paused: boolean;
 let play: ReturnType<typeof vi.spyOn>;
 const loadSource = vi.fn();
 const save = vi.fn();
-const apply = vi.fn();
-const close = vi.fn();
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
@@ -48,15 +44,12 @@ beforeEach(() => {
     paused = true;
     this.dispatchEvent(new Event("pause"));
   });
-  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:scene-trim");
-  vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   loadSource.mockResolvedValue(new Blob(["original"], { type: "video/mp4" }));
   vi.mocked(videoFilmstrip).mockResolvedValue(["data:image/jpeg;base64,AA=="]);
   vi.mocked(trimVideo).mockResolvedValue(
     new Blob(["trimmed"], { type: "video/mp4" }),
   );
   save.mockResolvedValue(undefined);
-  apply.mockResolvedValue(undefined);
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -180,44 +173,6 @@ it("stops preview playback at the selected out point", async () => {
   expect(paused).toBe(true);
   expect(video.currentTime).toBe(11);
   expect(save).not.toHaveBeenCalled();
-});
-
-it("disables Scene Apply after a video fails to load", async () => {
-  await act(async () =>
-    root.render(
-      <PlayableVideoTrimDialog
-        blob={new Blob(["original"])}
-        clip={{ start: 2, end: 8 }}
-        onApply={apply}
-        onClose={close}
-      />,
-    ),
-  );
-  const video = await metadata();
-  await act(async () => video.dispatchEvent(new Event("error")));
-  expect(button("Apply trim").disabled).toBe(true);
-  expect(document.querySelector('[role="alert"]')).not.toBeNull();
-  expect(apply).not.toHaveBeenCalled();
-});
-
-it("uses the same handles for Scene Apply without encoding or uploading", async () => {
-  await act(async () =>
-    root.render(
-      <PlayableVideoTrimDialog
-        blob={new Blob(["original"])}
-        clip={{ start: 2, end: 8 }}
-        onApply={apply}
-        onClose={close}
-      />,
-    ),
-  );
-  await metadata();
-  await key(handle("start"), "ArrowRight", true);
-  await act(async () => button("Apply trim").click());
-  expect(apply).toHaveBeenCalledExactlyOnceWith({ start: 2.1, end: 8 });
-  expect(close).toHaveBeenCalledOnce();
-  expect(trimVideo).not.toHaveBeenCalled();
-  expect(uploadLibraryAsset).not.toHaveBeenCalled();
 });
 
 it("disables range edits while encoding and can cancel without saving", async () => {

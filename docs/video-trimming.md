@@ -26,20 +26,19 @@ everything that uses it.
 A Scene uses a trimmed video like any other video, for example through
 **Media → As background** in its Workbench.
 
-## Scene playback ranges
-
-Interactive Stories use the same preview and yellow-handle timeline through
-**Media → Trim video** on a Scene with a video background. **Apply trim** only
-changes that Scene's playback range; it does not encode or upload a new video.
-The Library original and other Scenes stay unchanged. The edit supports Undo
-and Redo. See [Scene trimming](playable-nodes/authoring.md#trimming-a-background-video).
-
-Both entry points use `VideoTrimEditor` and the `.video-trimmer-*` styles.
-`VideoTrimmer` wraps that shared UI with the encode/upload action for Library
-and Asset Canvas. `PlayableVideoTrimDialog` wraps it with draft time inputs and
-the existing Scene source update; the shared editor never performs either save.
-
 ## How a trim is encoded
+
+The preview and yellow-handle timeline live in the controlled
+`src/renderer/video-trim-editor.tsx` component. It only edits a range and
+previews it; it never encodes, uploads, or writes project files.
+`VideoTrimmer` wraps that component with the Library/Asset Canvas save action.
+Other editing flows can reuse the same controls and `.video-trimmer-*` styles
+without inheriting the encode/upload action.
+
+Space on the timeline or either handle toggles playback once. Failed video
+loading disables playback/saving and shows a translated error. Encoding can
+be cancelled; once uploading starts, Cancel is disabled because the upload
+cannot be cancelled by the encoder's abort signal.
 
 Trimming runs in the renderer with [Mediabunny](https://mediabunny.dev)
 (MPL-2.0) and the browser's WebCodecs encoders, so no media tools are

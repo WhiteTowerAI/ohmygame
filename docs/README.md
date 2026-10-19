@@ -54,7 +54,6 @@ are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`, and
 | [preview-runtime.md](preview-runtime.md)         | Startup modes, dependency installation, leases, browser storage, and diagnostics.                                              |
 | [runtime-recovery.md](runtime-recovery.md)       | Preview isolation, daemon supervision, reconnect behavior, and recovery scenarios.                                             |
 | [canvas-agent.md](canvas-agent.md)               | Canvas files, concurrent editing, agent tools, media, and migration.                                                           |
-| [video-trimming.md](video-trimming.md)           | Trimming Library and Asset Canvas videos, how the cut is encoded, and the Library record.                                      |
 | [plugins.md](plugins.md)                         | Plugin packages, configuration, credentials, MCP sessions, authoring, and migration.                                           |
 | [custom-models.md](custom-models.md)             | Provider protocols, capabilities, visibility, model definitions, and defaults.                                                 |
 | [3d-providers.md](3d-providers.md)               | 3D operations, provider compatibility, paid-task recovery, and GLB validation.                                                 |
@@ -63,6 +62,9 @@ are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`, and
 | [model-image-history.md](model-image-history.md) | Request image budgets, recall, OpenAI continuation, and file lifecycle.                                                        |
 | [desktop-releases.md](desktop-releases.md)       | Maintainer packaging, signing, update feeds, publishing, and rollback.                                                         |
 | [ui-languages.md](ui-languages.md)               | Renderer translations, language selection, what stays in English, and terminology.                                             |
+
+[Video trimming](video-trimming.md) covers Library and Asset Canvas video
+trimming, the shared preview controls, encoding, and the Library record.
 
 [Playable Nodes](playable-nodes/README.md) has its own vocabulary and index:
 [runtime](playable-nodes/runtime.md) is the node contract,
