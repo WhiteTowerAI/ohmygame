@@ -24,7 +24,10 @@ const isSetup = (action: PluginIntegrationAction) =>
 
 /** Actions whose adapter result reports the current connection. */
 const checksConnection = (action: PluginIntegrationAction) =>
-  isSetup(action) || action === "status" || action === "bind";
+  isSetup(action) || action === "status" || isProjectWrite(action);
+
+const isProjectWrite = (action: PluginIntegrationAction) =>
+  action === "bind" || action === "create";
 
 /** Shared by HTTP routes, the prompt gate and the host itself. */
 export function assertIntegrationPlugin(
@@ -104,10 +107,12 @@ export class PluginIntegrationHost {
       );
     if (action === "bind" && (!project || !projectId))
       throw new LocalPluginError("Select a project to connect", 400);
+    if (action === "create" && (!project || !plugin.integration!.createProject))
+      throw new LocalPluginError("Plugin cannot create this project", 400);
     const key = this.#key(plugin.id, project?.id);
     const previous = this.#tasks.get(key);
     if (previous?.state.running) {
-      if (previous.state.action === action && action !== "bind")
+      if (previous.state.action === action && !isProjectWrite(action))
         return structuredClone(previous.state);
       throw new LocalPluginError("Another plugin operation is running", 409);
     }
@@ -134,7 +139,7 @@ export class PluginIntegrationHost {
       this.#run(plugin, action, project, projectId, state, controller.signal);
     const done = Promise.resolve()
       .then(() =>
-        action === "bind" && project
+        isProjectWrite(action) && project
           ? this.withWrite(project, operation)
           : operation(),
       )
@@ -147,7 +152,7 @@ export class PluginIntegrationHost {
           }
         }
         if (isSetup(action)) this.changed();
-        else if (action === "bind") this.changed(project);
+        else if (isProjectWrite(action)) this.changed(project);
         state.authorizationUrl = undefined;
         return state.result;
       })
@@ -260,6 +265,7 @@ export class PluginIntegrationHost {
       workspacePath: project?.workspacePath,
       configuration: this.capabilities.configuration.resolved(plugin),
       projectId,
+      ...(action === "create" ? { projectName: project!.name } : {}),
     };
     const child = spawn(process.execPath, [entry], {
       cwd: root,

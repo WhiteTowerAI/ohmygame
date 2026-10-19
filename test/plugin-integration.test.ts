@@ -42,6 +42,7 @@ async function source() {
       version: "1.0.0",
       integration: {
         entry: "./integration.mjs",
+        createProject: true,
         projectFiles: ["./.fixture/project.json"],
         preview: "external",
       },
@@ -81,6 +82,32 @@ async function environment() {
 }
 
 describe("plugin integration", () => {
+  it("creates through the workspace write guard using the registered project name", async () => {
+    const { host, plugin, project, write, changed } = await environment();
+    await expect(host.execute(plugin, "create")).rejects.toThrow(
+      "cannot create",
+    );
+    const unsupported = {
+      ...plugin,
+      integration: { ...plugin.integration!, createProject: false },
+    };
+    expect(() => host.start(unsupported, "create", project)).toThrow(
+      "cannot create",
+    );
+    host.start(plugin, "create", project);
+    expect(() => host.start(plugin, "create", project)).toThrow(
+      "Another plugin operation",
+    );
+    await vi.waitFor(() =>
+      expect(host.state(plugin.id, project.id)?.running).toBe(false),
+    );
+    expect(host.state(plugin.id, project.id)).toMatchObject({
+      result: { project: { id: project.name } },
+      connectionCheckedAt: expect.any(Number),
+    });
+    expect(write).toHaveBeenCalledOnce();
+    expect(changed).toHaveBeenCalledWith(project);
+  });
   it("selects types by compatibility and keeps helper plugins engine-independent", () => {
     expect(
       pluginProjectType("web-game", [{ projectTypes: ["general"] }, {}]),

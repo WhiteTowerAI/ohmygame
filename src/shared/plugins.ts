@@ -267,6 +267,7 @@ export const PluginManifestSchema = Type.Object({
   mcpServers: Type.Optional(RelativePathSchema),
   integration: Type.Optional(Type.Object({
     entry: RelativePathSchema,
+    createProject: Type.Optional(Type.Boolean()),
     projectFiles: Type.Optional(Type.Array(RelativePathSchema, { minItems: 1, maxItems: 20, uniqueItems: true })),
     preview: Type.Optional(Type.Literal("external")),
   }, { additionalProperties: false })),

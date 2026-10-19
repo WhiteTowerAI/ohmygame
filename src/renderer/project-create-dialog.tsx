@@ -1,7 +1,8 @@
 import { LoaderCircle, X } from "./icons.js";
 import { useEffect, useId, useRef, useState } from "react";
-import type { ProjectState, ProjectType } from "../shared/contracts.js";
-import { createProject } from "./api.js";
+import type { ConversationCapabilities, ProjectState, ProjectType } from "../shared/contracts.js";
+import { createProject, getHomeComposerCapabilities } from "./api.js";
+import { usePluginIntegrationGate } from "./plugin-integration.js";
 import { defaultProjectName, PROJECT_TYPES, ProjectTypeIcon, projectTypeLabel, type ProjectTypeOption } from "./project-types.js";
 import { t } from "./i18n.js";
 
@@ -23,8 +24,18 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
   const [selectingWorkspace, setSelectingWorkspace] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
+  const [plugins, setPlugins] = useState<ConversationCapabilities["plugins"]>([]);
+  const [pluginId, setPluginId] = useState("");
+  const created = useRef<ProjectState | undefined>(undefined);
+  const integrationGate = usePluginIntegrationGate();
+  const integrations = plugins.filter(plugin => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
   creatingRef.current = creating;
   onCloseRef.current = onClose;
+  useEffect(() => {
+    let active = true;
+    void getHomeComposerCapabilities().then(value => { if (active) setPlugins(value.plugins); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
@@ -32,7 +43,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     const handleKeyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !creatingRef.current) onCloseRef.current();
       if (event.key !== "Tab" || !dialog.current) return;
-      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex='-1'])")];
+      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex='-1'])")];
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -57,11 +68,17 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     setCreating(true);
     setError(undefined);
     try {
-      const project = await createProject({
+      const plugin = integrations.find(plugin => plugin.id === pluginId);
+      created.current ??= await createProject({
         ...(name.trim() ? { name: name.trim() } : {}),
         type,
         ...(workspacePath ? { workspacePath } : {}),
+        ...(plugin ? { pluginId: plugin.id } : {}),
       });
+      const integrationId = plugin?.id ?? created.current.integration?.pluginId;
+      const integration = plugins.find(plugin => plugin.id === integrationId)?.integration;
+      const project = await integrationGate.ensure(created.current, integrationId, integrationId ? { canCreate: !!integration?.createProject } : undefined);
+      if (!project) { setCreating(false); return; }
       onCreated(project);
     } catch (cause) {
       setError(errorMessage(cause));
@@ -82,6 +99,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
       const selected = await selectDirectory();
       if (!selected) return;
       setWorkspacePath(selected);
+      created.current = undefined;
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -90,6 +108,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
   }
 
   function clearWorkspace(): void {
+    created.current = undefined;
     setWorkspacePath(undefined);
     setError(undefined);
   }
@@ -98,12 +117,12 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     <div className="project-create-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !creating) onClose();
     }}>
-      <section ref={dialog} className="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}>
-        <header>
+      <section ref={dialog} className="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby={integrationGate.creation ? undefined : titleId} aria-label={integrationGate.creation ? t("integration.createTitle") : undefined} tabIndex={-1}>
+        {!integrationGate.creation ? <header>
           <h2 id={titleId}>{fixedType ? t("createDialog.newType", { type: projectTypeLabel(fixedType) }) : t("createDialog.newProject")}</h2>
           <button type="button" disabled={creating} onClick={onClose} aria-label={t("common.close")}><X size={16} /></button>
-        </header>
-        <form onSubmit={(event) => void submit(event)}>
+        </header> : null}
+        {integrationGate.creation ? <div className="project-create-integration">{integrationGate.creation}</div> : <form onSubmit={(event) => void submit(event)} onChange={() => { created.current = undefined; }}>
           <label className="project-create-name">
             <span>{t("common.name")}</span>
             <input ref={nameInput} value={name} maxLength={120} disabled={creating} placeholder={defaultProjectName(type)} onChange={(event) => setName(event.target.value)} />
@@ -124,13 +143,20 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
             <fieldset className="project-create-types">
               <legend>{t("createDialog.type")}</legend>
               {projectTypes.map((option) => (
-                <button className={option.value === type ? "is-active" : undefined} type="button" key={option.value} aria-pressed={option.value === type} disabled={creating} onClick={() => setType(option.value)}>
+                <button className={option.value === type ? "is-active" : undefined} type="button" key={option.value} aria-pressed={option.value === type} disabled={creating} onClick={() => { setType(option.value); setPluginId(""); created.current = undefined; }}>
                   <ProjectTypeIcon type={option.value} size={17} />
                   <span>{option.label}</span>
                 </button>
               ))}
             </fieldset>
           ) : null}
+          {integrations.length ? <label className="project-create-name">
+            <span>{t("integration.plugin")}</span>
+            <select value={pluginId} disabled={creating} onChange={event => setPluginId(event.target.value)}>
+              <option value="">{t("integration.noPlugin")}</option>
+              {integrations.map(plugin => <option key={plugin.id} value={plugin.id}>{plugin.displayName}</option>)}
+            </select>
+          </label> : null}
           {error ? <p className="project-create-error" role="alert">{error}</p> : null}
           <footer>
             <button type="button" disabled={creating} onClick={onClose}>{t("common.cancel")}</button>
@@ -139,7 +165,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
               {t("common.create")}
             </button>
           </footer>
-        </form>
+        </form>}
       </section>
     </div>
   );

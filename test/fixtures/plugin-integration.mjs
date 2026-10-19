@@ -21,18 +21,20 @@ if (request.action === "connect") {
   emit({ type: "progress", message: "Preparing" });
   await new Promise((resolve) => setTimeout(resolve, 50));
   emit({ type: "result", result: { connection: { status: "ready" } } });
-} else if (request.action === "bind") {
+} else if (request.action === "bind" || request.action === "create") {
+  const projectId =
+    request.action === "create" ? request.projectName : request.projectId;
   await mkdir(path.join(request.workspacePath, ".fixture"), {
     recursive: true,
   });
   await writeFile(
     path.join(request.workspacePath, ".fixture/project.json"),
-    JSON.stringify({ id: request.projectId }),
+    JSON.stringify({ id: projectId }),
   );
   emit({
     type: "result",
     result: {
-      project: { id: request.projectId },
+      project: { id: projectId },
       connection: { status: "ready" },
     },
   });

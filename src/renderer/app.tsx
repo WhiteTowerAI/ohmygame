@@ -15,11 +15,12 @@ import { PluginBuilder } from "./plugin-builder.js";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { pluginMentionToken } from "../shared/plugins.js";
-import { createConversation, createProject, MODELS_CHANGED_EVENT } from "./api.js";
+import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { Onboarding, OnboardingLoading } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
+import { usePluginIntegrationGate } from "./plugin-integration.js";
 
 export function App() {
   const serviceGeneration = useReadyRuntimeGeneration();
@@ -28,6 +29,7 @@ export function App() {
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
   const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
+  const creationGate = usePluginIntegrationGate();
 
   // Provider catalogs are slow; load them now so asset canvas quick starts open without waiting.
   useEffect(() => {
@@ -38,6 +40,8 @@ export function App() {
     window.addEventListener(MODELS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
   }, [serviceGeneration]);
+
+  if (creationGate.creation) return <main className="plugin-project-creation-page">{creationGate.creation}</main>;
 
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
@@ -107,7 +111,12 @@ export function App() {
   }
 
   async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
-    const project = projectId ? { id: projectId, type: undefined, integration: undefined } : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game", ...(plugin.integration ? { pluginId: plugin.id } : {}) });
+    let project = projectId ? await getProject(projectId) : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game", ...(plugin.integration ? { pluginId: plugin.id } : {}) });
+    if (!projectId && plugin.integration) {
+      const ready = await creationGate.ensure(project, plugin.id, { canCreate: !!plugin.integration.createProject });
+      if (!ready) return;
+      project = ready;
+    }
     const conversation = await createConversation(project.id);
     const mention: PluginMention = {
       name: plugin.name,

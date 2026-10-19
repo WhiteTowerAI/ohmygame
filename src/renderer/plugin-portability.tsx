@@ -189,7 +189,7 @@ export function PluginDependencyPanel({ plugin }: { plugin: PluginDetail }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   return (
-    <section className="plugin-management">
+    <section className="plugin-management plugin-dependencies">
       <h2>{t("pluginPortability.dependencies")}</h2>
       <p>{t("pluginPortability.dependenciesHint")}</p>
       <button

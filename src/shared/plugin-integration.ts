@@ -6,6 +6,7 @@ export const PLUGIN_INTEGRATION_ACTIONS = [
   "prepare",
   "connect",
   "projects",
+  "create",
   "bind",
   "preview-status",
   "preview-install",
@@ -18,6 +19,8 @@ export type PluginIntegrationAction =
   (typeof PLUGIN_INTEGRATION_ACTIONS)[number];
 export interface PluginIntegrationDefinition {
   entry: string;
+  /** The adapter can create and initialize a new service project. */
+  createProject?: boolean;
   /** Files relative to a workspace, all of which must exist to recognize it. */
   projectFiles?: string[];
   preview?: "external";
@@ -109,6 +112,7 @@ export interface PluginIntegrationRequest {
   workspacePath?: string;
   configuration: Record<string, string | boolean>;
   projectId?: string;
+  projectName?: string;
 }
 
 export interface PluginIntegrationState {

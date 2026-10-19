@@ -278,11 +278,17 @@ editors. Private dependencies survive package updates and disabling, are removed
 when an installed integration plugin is uninstalled, and stay outside exported
 plugin packages. Credentials remain in Maker's own store.
 
-![Maker connection panel](assets/maker-connection.png)
+![Maker project creation](assets/maker-project-creation.png)
 
-Reference Maker when creating a project to select General automatically. Before
-the first prompt, choose an existing Maker project explicitly and connect its
-empty local directory, or import an already bound directory. Reconnecting the
+Reference Maker when creating a project to select General automatically, or select
+it under Project plugin in the new-project window. Project creation includes an
+inline setup step before opening a conversation. It defaults to **New project**:
+enter a name and choose **Create and connect** to create the Maker project and
+initialize its empty local directory. **Existing project** retains explicit remote
+project selection; an already bound directory can also be imported. Closing setup
+preserves the home prompt. A failed checkout resumes the created project instead
+of creating another one; an unknown creation outcome requires checking the project
+list before reconnecting. Reconnecting the
 same binding only checks its status; it does not run initialization again.
 A newly imported directory with a Maker binding uses the plugin's compatible
 type. A directory already registered as an OhMyGame project reopens unchanged.
@@ -293,7 +299,7 @@ Disconnect plugin on the Preview tab returns the project to an ordinary General
 project, also while the plugin is disabled. It stops a running native preview and
 keeps Maker's binding files, so the project can connect again; Web preview stays
 off until you turn it on in Project settings. Conflicting plugin references
-require a compatible selection. Remote project creation stays in Maker's service.
+require a compatible selection.
 
 View provides install/start/refresh/stop/status/log controls for Maker's separate
 native Runtime window. Web preview is disabled for these projects. Controls load
@@ -375,6 +381,7 @@ A native manifest can declare an integration without adding a host project type:
 ```json
 "integration": {
   "entry": "./scripts/integration.mjs",
+  "createProject": true,
   "projectFiles": ["./.maker-mcp/config.json"],
   "preview": "external"
 }
@@ -387,6 +394,10 @@ JSON-lines progress/result/error messages, validated against
 an action, private data directory, resolved plugin configuration, and (for project
 actions) the registered workspace path. `projectId` on a bind request is the
 explicitly selected service project; the HTTP query uses the OhMyGame project ID.
+Plugins with `createProject: true` also accept `create`, with the registered
+`projectName` and workspace path. Creation and binding both acquire the project's
+write guard. The adapter must preserve a created identity across initialization
+failures and must not repeat creation when its outcome is unknown.
 The renderer cannot submit arbitrary filesystem paths.
 
 The adapter owns service-specific dependencies, credentials, binding and preview

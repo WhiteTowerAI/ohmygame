@@ -9,6 +9,7 @@ import {
 } from "../src/renderer/plugin-integration.js";
 import type { PluginIntegrationState } from "../src/shared/plugin-integration.js";
 import type { ProjectState } from "../src/shared/contracts.js";
+import { ProjectCreateDialog } from "../src/renderer/project-create-dialog.js";
 
 const project: ProjectState = {
   id: "native",
@@ -23,6 +24,7 @@ let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 let state: PluginIntegrationState;
 let actions: Array<{ action: string; projectId?: string }>;
 let projectRequests: Array<{ method?: string; url: string }>;
+let projectName: string;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state = {
@@ -33,11 +35,16 @@ beforeEach(() => {
   };
   actions = [];
   projectRequests = [];
+  projectName = project.name;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, init: RequestInit = {}) => {
       if (String(url).includes("/projects/")) {
         projectRequests.push({ method: init.method, url: String(url) });
+        if (init.method === "PATCH")
+          projectName = JSON.parse(String(init.body)).name;
+        if (!init.method || init.method === "PATCH")
+          return Response.json({ ...project, name: projectName });
         const { integration: _integration, ...plain } = project;
         return Response.json(init.method === "PUT" ? project : plain);
       }
@@ -67,6 +74,8 @@ beforeEach(() => {
           };
         if (input.action === "bind")
           state.result = { ...state.result, project: { id: input.projectId } };
+        if (input.action === "create")
+          state.result = { ...state.result, project: { id: "created" } };
         if (input.action === "preview-status")
           state.result = { ...state.result, preview: { status: "stopped" } };
         if (input.action === "preview-start")
@@ -96,8 +105,177 @@ async function click(text: string) {
   expect(button.disabled).toBe(false);
   await act(async () => button.click());
 }
+async function fillName(value: string) {
+  const input = container.querySelector("input")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
 
 describe("plugin connection UI", () => {
+  it("initializes a new project inline before opening its conversation", async () => {
+    state.result = { connection: { status: "ready" }, project: null };
+    const opened = vi.fn();
+    function Creator() {
+      const gate = usePluginIntegrationGate();
+      return (
+        <>
+          {gate.creation}
+          {gate.dialog}
+          <button
+            onClick={() =>
+              void gate
+                .ensure(project, "fixture", { canCreate: true })
+                .then((ready) => {
+                  if (ready) opened(ready);
+                })
+            }
+          >
+            Create game
+          </button>
+        </>
+      );
+    }
+    await act(async () => root.render(<Creator />));
+    await click("Create game");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Set up project"]'),
+    ).not.toBeNull();
+    expect(container.querySelector('[aria-pressed="true"]')?.textContent).toBe(
+      "New project",
+    );
+    expect(container.querySelector("select")).toBeNull();
+    expect(opened).not.toHaveBeenCalled();
+    await fillName("Pixel garden");
+    await click("Create and connect");
+    expect(actions).toEqual([{ action: "create" }]);
+    expect(opened).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Pixel garden" }),
+    );
+    expect(container.querySelector('[aria-label="Set up project"]')).toBeNull();
+  });
+  it("keeps new-project initialization inside the explicit creation window", async () => {
+    state.result = { connection: { status: "ready" }, project: null };
+    const fetchIntegration = fetch;
+    const create = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init: RequestInit = {}) => {
+        const route = new URL(String(url), "http://localhost").pathname;
+        if (route.endsWith("/composer/capabilities"))
+          return Response.json({
+            plugins: [
+              {
+                id: "fixture",
+                name: "fixture",
+                displayName: "Maker",
+                marketplaceId: "test",
+                projectTypes: ["general"],
+                integration: { entry: "./adapter.mjs", createProject: true },
+              },
+            ],
+            skills: [],
+          });
+        if (route.endsWith("/projects") && init.method === "POST") {
+          create(JSON.parse(String(init.body)));
+          return Response.json(project);
+        }
+        return fetchIntegration(url, init);
+      }),
+    );
+    const opened = vi.fn();
+    await act(async () =>
+      root.render(
+        <ProjectCreateDialog
+          initialType="general"
+          onClose={() => {}}
+          onCreated={opened}
+        />,
+      ),
+    );
+    const select = container.querySelector("select")!;
+    await act(async () => {
+      select.value = "fixture";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () =>
+      container
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "general", pluginId: "fixture" }),
+    );
+    expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[role="dialog"] h2')).toHaveLength(1);
+    expect(opened).not.toHaveBeenCalled();
+    await click("Create and connect");
+    expect(opened).toHaveBeenCalledOnce();
+    expect(create).toHaveBeenCalledOnce();
+    expect(projectRequests.some((request) => request.method === "PATCH")).toBe(
+      false,
+    );
+  });
+  it("does not start remote creation when setup is cancelled during a name save", async () => {
+    state.result = { connection: { status: "ready" }, project: null };
+    const fetchIntegration = fetch;
+    let saveName: (() => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init: RequestInit = {}) => {
+        if (init.method === "PATCH")
+          await new Promise<void>((resolve) => {
+            saveName = resolve;
+          });
+        return fetchIntegration(url, init);
+      }),
+    );
+    function Creator() {
+      const gate = usePluginIntegrationGate();
+      return (
+        <>
+          {gate.creation}
+          <button
+            onClick={() =>
+              void gate.ensure(project, "fixture", { canCreate: true })
+            }
+          >
+            Create game
+          </button>
+        </>
+      );
+    }
+    await act(async () => root.render(<Creator />));
+    await click("Create game");
+    await fillName("Pixel garden");
+    await click("Create and connect");
+    expect(saveName).toBeDefined();
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[aria-label="Refresh status"]',
+      )!.disabled,
+    ).toBe(true);
+    expect(
+      [...container.querySelectorAll("button")].find(
+        (button) => button.textContent === "Reconnect",
+      )!.disabled,
+    ).toBe(true);
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Cancel"]')!
+        .click(),
+    );
+    await act(async () => saveName!());
+    expect(actions).toEqual([]);
+    expect(container.querySelector('[aria-label="Set up project"]')).toBeNull();
+  });
   it("requires explicit environment, login and project selection before continuing", async () => {
     const ready = vi.fn();
     await act(async () =>
@@ -157,6 +335,10 @@ describe("plugin connection UI", () => {
     await act(async () => root.render(<Composer />));
     await click("Send");
     expect(container.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(container.querySelectorAll('[role="dialog"] h2')).toHaveLength(1);
+    expect(
+      container.querySelector(".plugin-integration-footer button")?.textContent,
+    ).toBe("Continue");
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[aria-label="Close"]')!

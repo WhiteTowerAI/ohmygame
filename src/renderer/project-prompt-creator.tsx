@@ -110,7 +110,10 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
         created.current = { project: await createProject({ type, pluginId, ...(workspacePath ? { workspacePath } : {}) }), workspacePath };
       }
       // An imported workspace may be registered already; connecting it is confirmed in the panel.
-      const project = await integrationGate.ensure(created.current.project, pluginId);
+      const integrationId = pluginId ?? created.current.project.integration?.pluginId;
+      const project = await integrationGate.ensure(created.current.project, integrationId, integrationId ? {
+        canCreate: !!capabilities.plugins.find(plugin => plugin.id === integrationId)?.integration?.createProject,
+      } : undefined);
       if (!project) { setCreating(false); return; }
       created.current.project = project;
       created.current.conversationId ??= (await createConversation(project.id)).id;
@@ -299,9 +302,10 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
     return false;
   }
 
+  if (integrationGate.creation) return integrationGate.creation;
+
   return (
     <>
-      {integrationGate.dialog}
       <PromptBox
         actions={(
           <>

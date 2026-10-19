@@ -7,6 +7,7 @@
   "mcpServers": "./mcp.json",
   "integration": {
     "entry": "./scripts/integration.mjs",
+    "createProject": true,
     "projectFiles": ["./.maker-mcp/config.json"],
     "preview": "external"
   },
@@ -17,7 +18,7 @@
     "beta": true,
     "displayName": "TapTap Maker",
     "shortDescription": "Connect Maker projects, preview locally, and submit builds.",
-    "longDescription": "Connect an existing Maker workspace or initialize an empty directory with the official CLI. Develop UrhoX/Lua games, preview with Maker Runtime, and submit builds to Maker. A Maker account is required for project access and remote operations.",
+    "longDescription": "Create a new Maker project or connect an existing workspace with the official CLI. Develop UrhoX/Lua games, preview with Maker Runtime, and submit builds to Maker. A Maker account is required for project access and remote operations.",
     "icon": {
       "type": "asset",
       "path": "./assets/icon.svg"

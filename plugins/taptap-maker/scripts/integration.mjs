@@ -1,4 +1,6 @@
-import { readFile, readdir, realpath } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { renameSync, writeFileSync } from "node:fs";
+import { mkdir, readFile, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { installed, maker, prepare, verifyDiagnostics } from "./runtime.mjs";
 
@@ -40,8 +42,71 @@ function projects(value) {
   }));
 }
 
-async function status(directory, workspace) {
+async function initialization(directory, workspace) {
+  const key = createHash("sha256")
+    .update(await realpath(workspace))
+    .digest("hex");
+  const filename = path.join(directory, "initializations", `${key}.json`);
+  try {
+    return { filename, state: JSON.parse(await readFile(filename, "utf8")) };
+  } catch (cause) {
+    if (cause.code === "ENOENT") return { filename };
+    throw cause;
+  }
+}
+
+function saveInitialization(filename, state) {
+  writeFileSync(`${filename}.tmp`, JSON.stringify(state), { mode: 0o600 });
+  renameSync(`${filename}.tmp`, filename);
+}
+
+async function initialize(directory, workspace, selection, record) {
+  await mkdir(path.dirname(record.filename), { recursive: true });
+  saveInitialization(record.filename, {
+    projectId:
+      selection[0] === "--app-id" ? selection[1] : record.state?.projectId,
+  });
+  await maker(
+    directory,
+    [
+      "init",
+      ...selection,
+      "--target-dir",
+      workspace,
+      "--skip-mcp-install",
+      "--skip-confirm",
+      "--json",
+    ],
+    (line) => {
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        return;
+      }
+      if (event.step === "app" && typeof event.data?.app_id === "string") {
+        // Persist the new identity before checkout: retries must never create twice.
+        saveInitialization(record.filename, { projectId: event.data.app_id });
+        progress("Initializing the Maker workspace…");
+      }
+    },
+  );
   const project = await binding(workspace);
+  if (!project)
+    throw new Error("Maker initialization did not bind the workspace");
+  saveInitialization(record.filename, {
+    projectId: project.id,
+    completed: true,
+  });
+  return status(directory, workspace);
+}
+
+async function status(directory, workspace) {
+  let project = await binding(workspace);
+  const pending = workspace
+    ? (await initialization(directory, workspace)).state
+    : undefined;
+  if (pending && !pending.completed) project = null;
   if (!(await installed(directory)))
     return {
       connection: { status: "needs-setup" },
@@ -128,15 +193,49 @@ async function main(request) {
     return { projects: projects(await maker(directory, ["apps", "--json"])) };
   if (!workspace || !path.isAbsolute(workspace))
     throw new Error("Select a local project workspace first");
+  if (action === "create") {
+    const current = await binding(workspace);
+    const record = await initialization(directory, workspace);
+    if (current && (!record.state || record.state.completed))
+      return status(directory, workspace);
+    const remoteId = current?.id ?? record.state?.projectId;
+    if (record.state && !remoteId)
+      throw new Error(
+        "Project creation outcome is unknown. Refresh the project list and connect the created project instead of creating another one.",
+      );
+    if (!remoteId && (await readdir(workspace)).length)
+      throw new Error(
+        "Choose an empty directory or import an existing Maker workspace",
+      );
+    if (!request.projectName?.trim()) throw new Error("Enter a project name");
+    await verifyDiagnostics(directory);
+    progress(
+      remoteId
+        ? "Resuming Maker project initialization…"
+        : "Creating a new Maker project…",
+    );
+    return initialize(
+      directory,
+      workspace,
+      remoteId
+        ? ["--app-id", remoteId]
+        : ["--create", "--name", request.projectName.trim()],
+      record,
+    );
+  }
   if (action === "bind") {
     if (!request.projectId) throw new Error("Select a Maker project first");
     const current = await binding(workspace);
+    const record = await initialization(directory, workspace);
     if (current) {
       if (current.id !== request.projectId)
         throw new Error(
           "This directory is already bound to another Maker project",
         );
-      return status(directory, workspace);
+      if (!record.state || record.state.completed)
+        return status(directory, workspace);
+      await verifyDiagnostics(directory);
+      return initialize(directory, workspace, ["--app-id", current.id], record);
     }
     if ((await readdir(workspace)).length)
       throw new Error(
@@ -147,17 +246,12 @@ async function main(request) {
     if (!available.some((item) => item.id === request.projectId))
       throw new Error("Selected Maker project is unavailable to this account");
     progress("Connecting the selected Maker project…");
-    await maker(directory, [
-      "init",
-      "--app-id",
-      request.projectId,
-      "--target-dir",
+    return initialize(
+      directory,
       workspace,
-      "--skip-mcp-install",
-      "--skip-confirm",
-      "--json",
-    ]);
-    return status(directory, workspace);
+      ["--app-id", request.projectId],
+      record,
+    );
   }
   if (action.startsWith("preview-")) {
     if (!(await binding(workspace)))
