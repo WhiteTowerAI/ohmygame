@@ -41,7 +41,7 @@ import {
 } from "./process-recovery.js";
 import { NativeCodingSession, type NativeDriver } from "./native-session.js";
 import { ToolBridge } from "./tool-bridge.js";
-import type { DriverContext, HttpBridgeHandlers } from "./driver-context.js";
+import type { DriverContext, HttpBridgeHandlers, SaveGeneratedImage } from "./driver-context.js";
 import type { AgentPolicyContext } from "./policy.js";
 import { AgentRuntimeSettingsStore } from "./settings.js";
 import { stagedSkillsRoot } from "./skills.js";
@@ -81,6 +81,7 @@ export interface NativeSessionRequest {
   sessionManager: SessionManager;
   /** OhMyGame's tools for the project, as Pi gets them. */
   tools: ToolDefinition[];
+  saveGeneratedImage?: SaveGeneratedImage;
   pluginMcp?: {
     config: EffectiveMcpConfig;
     host: PluginMcpHost;
@@ -446,6 +447,7 @@ export class AgentRuntimeService {
       isolateUserConfig: settings.isolateUserConfig,
       instructions: `${request.instructions}\n\n${NATIVE_INSTRUCTIONS}`,
       bridge,
+      saveGeneratedImage: request.saveGeneratedImage,
       policy: {
         ...request.policy,
         fullAccess: settings.permissionMode === "full",

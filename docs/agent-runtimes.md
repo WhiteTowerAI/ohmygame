@@ -268,6 +268,25 @@ not portable. Native canvas file edits still need `canvas_check`; media jobs,
 artifacts, retries, defaults, and cancellation reuse their existing handlers.
 A native language model is not an image, video, or 3D model.
 
+Codex can also return images from its own built-in image generation. The
+adapter imports completed `imageGeneration` items through the same project
+generated-asset and Library pipeline as `generate_image`, and records a file
+artifact in the conversation. Chat displays that artifact outside the tool
+details, including after reopening the conversation; the game Preview still
+shows only the running game. Imports finish before turn-end checkpoints are
+recorded. Duplicate completion events are imported once per turn, and a failed
+generation or import is reported as a failed tool and turn rather than a
+successful text-only response. Planning turns do not import generated files.
+
+Inline PNG, JPEG, and WebP results are accepted up to 32 MiB. If Codex returns
+only a saved path, it must resolve inside that native thread's
+`$CODEX_HOME/generated_images/<threadId>/` directory (or
+`$HOME/.codex/generated_images/<threadId>/`). Images are copied into the project;
+chat does not depend on the continued existence of Codex's source file. The
+adapter does not scan other conversations or download image URLs.
+
+![A Codex-generated image displayed in chat while tool details remain collapsed](assets/codex-image-delivery.webp)
+
 ## Permission and configuration boundary
 
 Approvals ship with each adapter, including exact command/path/access/network

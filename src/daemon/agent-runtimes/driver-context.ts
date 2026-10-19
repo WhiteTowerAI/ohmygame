@@ -14,6 +14,13 @@ import type { ToolBridge } from "./tool-bridge.js";
 export const PLANNING_DENIAL =
   "This is a planning turn: do not change anything. Use Read, or one simple read command at a time (ls, cat, head, tail, wc, grep, rg) without pipes, &&, redirection or globs.";
 
+/** Imports a native image through the project's existing generated-asset and Library pipeline. */
+export type SaveGeneratedImage = (
+  fileName: string,
+  bytes: Uint8Array,
+  prompt?: string,
+) => Promise<string>;
+
 /** What every protocol adapter is given to run one conversation. */
 export interface DriverContext {
   binaryPath: string;
@@ -26,6 +33,7 @@ export interface DriverContext {
   /** OhMyGame's instructions for the project, added to the agent's own. */
   instructions: string;
   bridge: ToolBridge;
+  saveGeneratedImage?: SaveGeneratedImage;
   policy: AgentPolicyContext;
   /** Folders that each hold a SKILL.md: plugin Skills and OhMyGame's own. */
   skillDirectories: readonly string[];

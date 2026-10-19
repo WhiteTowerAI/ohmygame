@@ -1,6 +1,6 @@
 import { defineTool, SessionManager } from "@earendil-works/pi-coding-agent";
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -20,6 +20,7 @@ import type {
 import { setAgentProcessSpawner } from "../src/daemon/agent-runtimes/process.js";
 import { canonicalPath } from "../src/daemon/agent-runtimes/policy.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
+import { conversationItems } from "../src/daemon/agent.js";
 import {
   NativeCodingSession,
   NativeSessionExpiredError,
@@ -940,6 +941,103 @@ describe("Claude Code adapter", () => {
 });
 
 describe("Codex adapter", () => {
+  const generatedPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+
+  function imageCli(item: Record<string, unknown>, options: { started?: boolean; duplicate?: boolean } = {}) {
+    return fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined) return;
+      const params = message.params as Record<string, unknown>;
+      cli.send({ id: message.id, result: message.method === "thread/start"
+        ? { thread: { id: "image-thread" }, activePermissionProfile: { id: params.permissions } }
+        : {} });
+      if (message.method !== "turn/start") return;
+      setTimeout(() => {
+        if (options.started) cli.send({ method: "item/started", params: { item: { ...item, status: "inProgress", result: "" } } });
+        cli.send({ method: "item/completed", params: { item } });
+        if (options.duplicate) cli.send({ method: "item/completed", params: { item } });
+        cli.send({ method: "item/completed", params: { item: { type: "agentMessage", id: "final", text: "Here is your cat." } } });
+        cli.send({ method: "turn/completed", params: { turn: { status: "completed" } } });
+      });
+    });
+  }
+
+  it.each([true, false])("delivers native images once and waits for project import (started=%s)", async (started) => {
+    imageCli({ type: "imageGeneration", id: "cat", status: "completed", revisedPrompt: "Orange cat", result: generatedPng }, { started, duplicate: true });
+    let finish!: (path: string) => void;
+    const saveGeneratedImage = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const driver = new CodexDriver(await context({ saveGeneratedImage }));
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    let completed = false;
+    const run = driver.runTurn({ text: "cat", images: [], readOnly: false }, recorded.sink, new AbortController().signal)
+      .then((outcome) => { completed = true; return outcome; });
+    await expect.poll(() => saveGeneratedImage.mock.calls.length).toBe(1);
+    expect(completed).toBe(false);
+    expect(saveGeneratedImage).toHaveBeenCalledWith(expect.stringMatching(/^codex-[a-f0-9]{24}\.png$/), Buffer.from(generatedPng, "base64"), "Orange cat");
+    finish("assets/generated/cat.png");
+    expect(await run).toEqual({ status: "completed" });
+    expect(recorded.results.get("cat")).toMatchObject({ isError: false, result: {
+      details: { artifact: { type: "image", path: "assets/generated/cat.png", mediaType: "image/png" } },
+    } });
+    expect(recorded.calls.filter((call) => call.startsWith("toolResult:cat:"))).toHaveLength(1);
+  });
+
+  it.each(["failed", "invalid", "save", "planning"])("surfaces %s native image delivery failures", async (failure) => {
+    imageCli({ type: "imageGeneration", id: "cat", status: failure === "failed" ? "failed" : "completed", result: failure === "invalid" ? "not-an-image" : generatedPng });
+    const saveGeneratedImage = vi.fn(async () => {
+      if (failure === "save") throw new Error("disk full");
+      return "assets/generated/cat.png";
+    });
+    const driver = new CodexDriver(await context({ saveGeneratedImage }));
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    expect(await driver.runTurn({ text: "cat", images: [], readOnly: failure === "planning" }, recorded.sink, new AbortController().signal))
+      .toMatchObject({ status: "failed", error: expect.stringContaining("Codex image could not be delivered") });
+    expect(recorded.results.get("cat")?.isError).toBe(true);
+    if (failure !== "save") expect(saveGeneratedImage).not.toHaveBeenCalled();
+  });
+
+  it("does not publish a late image result after cancellation", async () => {
+    imageCli({ type: "imageGeneration", id: "cat", status: "completed", result: generatedPng });
+    let finish!: (path: string) => void;
+    const saveGeneratedImage = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const driver = new CodexDriver(await context({ saveGeneratedImage }));
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    const abort = new AbortController();
+    const run = driver.runTurn({ text: "cat", images: [], readOnly: false }, recorded.sink, abort.signal);
+    await expect.poll(() => saveGeneratedImage.mock.calls.length).toBe(1);
+    abort.abort();
+    finish("assets/generated/cat.png");
+    expect(await run).toEqual({ status: "aborted" });
+    expect(recorded.results.size).toBe(0);
+  });
+
+  it("retains the project artifact across a transcript reopen without storing image Base64", async () => {
+    imageCli({ type: "imageGeneration", id: "cat", status: "completed", result: generatedPng });
+    const ctx = await context();
+    const savedPath = path.join(ctx.privateDirectory, "cat.png");
+    ctx.saveGeneratedImage = async (_name, bytes) => {
+      await writeFile(savedPath, bytes);
+      return "assets/generated/cat.png";
+    };
+    const manager = SessionManager.create(ctx.workspacePath, ctx.privateDirectory);
+    const session = new NativeCodingSession({
+      runtime: "codex-cli", model: "gpt-test", sessionManager: manager, toolNames: [],
+      createDriver: () => new CodexDriver(ctx), requestApproval: async () => "deny",
+    });
+    cleanup.push(() => session.dispose());
+    await session.prompt("Generate a cat");
+    expect(await readFile(savedPath)).toEqual(Buffer.from(generatedPng, "base64"));
+    const transcript = await readFile(manager.getSessionFile()!, "utf8");
+    expect(transcript).not.toContain(generatedPng);
+    const reopened = SessionManager.open(manager.getSessionFile()!);
+    expect(conversationItems(reopened.getBranch())).toContainEqual(expect.objectContaining({
+      type: "dynamicToolCall", tool: "generate_image", status: "completed",
+      artifact: { type: "image", path: "assets/generated/cat.png", mediaType: "image/png" },
+    }));
+  });
+
   it("fails before sending input when the CLI ignores named filesystem permissions", async () => {
     const methods: string[] = [];
     fakeCli((message, cli) => {

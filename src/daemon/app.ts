@@ -879,6 +879,7 @@ export function createApp(options: AppOptions = {}) {
       workspacePath: project.workspacePath,
       sessionManager: conversations.open(project, conversation),
       tools: projectAgentTools(project, conversation),
+      saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
       pluginMcp: { config: effectiveMcp, host: pluginCapabilities.host, agentDir: piAgentDirectory },
       skillDirectories: [...pluginSkills.map((skill) => skill.path), ...ownSkills],
       instructions: appendSystemPromptForProject(project).join("\n\n"),
