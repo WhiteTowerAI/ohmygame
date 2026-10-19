@@ -1,8 +1,58 @@
 diff --git a/out/differentialDownloader/multipleRangeDownloader.js b/out/differentialDownloader/multipleRangeDownloader.js
-index 56adc38fe831b39d8430ad8aabe8fd7a35c36b9f..79fd6e85b61a746029772b3a5acc3ce74822eeac 100644
 --- a/out/differentialDownloader/multipleRangeDownloader.js
 +++ b/out/differentialDownloader/multipleRangeDownloader.js
-@@ -74,6 +74,7 @@ function doExecuteTasks(differentialDownloader, options, out, resolve, reject) {
+@@ -6,6 +6,24 @@
+ const DataSplitter_1 = require("./DataSplitter");
+ const downloadPlanBuilder_1 = require("./downloadPlanBuilder");
+ function executeTasksUsingMultipleRangeRequests(differentialDownloader, tasks, out, oldFileFd, reject) {
++    const downloadBytes = task => task.kind === downloadPlanBuilder_1.OperationKind.DOWNLOAD ? task.end - task.start : 0;
++    const total = tasks.reduce((sum, task) => sum + downloadBytes(task), 0);
++    const started = Date.now();
++    const onProgress = differentialDownloader.options.onProgress;
++    let completed = 0;
++    let reported = 0;
++    const report = transferred => {
++        if (onProgress == null) return;
++        const delta = transferred - reported;
++        reported = transferred;
++        onProgress({
++            total,
++            delta,
++            transferred,
++            percent: total === 0 ? 100 : transferred / total * 100,
++            bytesPerSecond: Math.round(transferred / Math.max((Date.now() - started) / 1000, 1)),
++        });
++    };
+     const w = (taskOffset) => {
+         if (taskOffset >= tasks.length) {
+             if (differentialDownloader.fileMetadataBuffer != null) {
+@@ -14,13 +32,22 @@
+             out.end();
+             return;
+         }
+-        const nextOffset = taskOffset + 1000;
++        // CDNs can ignore oversized Range headers and return the full file.
++        // Bound batches and aggregate progress across multipart/single/copy batches.
++        const nextOffset = Math.min(tasks.length, taskOffset + 64);
++        const batchStart = completed;
++        const batchBytes = tasks.slice(taskOffset, nextOffset).reduce((sum, task) => sum + downloadBytes(task), 0);
+         doExecuteTasks(differentialDownloader, {
+             tasks,
+             start: taskOffset,
+-            end: Math.min(tasks.length, nextOffset),
++            end: nextOffset,
+             oldFileFd,
+-        }, out, () => w(nextOffset), reject);
++            onProgress: progress => report(batchStart + progress.transferred),
++        }, out, () => {
++            completed += batchBytes;
++            report(completed);
++            w(nextOffset);
++        }, reject);
+     };
+     return w;
+ }
+@@ -74,6 +101,7 @@
      const requestOptions = differentialDownloader.createRequestOptions();
      requestOptions.headers.Range = ranges.substring(0, ranges.length - 2);
      const request = differentialDownloader.httpExecutor.createRequest(requestOptions, response => {
@@ -10,3 +60,26 @@ index 56adc38fe831b39d8430ad8aabe8fd7a35c36b9f..79fd6e85b61a746029772b3a5acc3ce7
          if (!checkIsRangesSupported(response, reject)) {
              return;
          }
+@@ -83,11 +111,20 @@
+             reject(new Error(`Content-Type "multipart/byteranges" is expected, but got "${contentType}"`));
+             return;
+         }
+-        const dicer = new DataSplitter_1.DataSplitter(out, options, partIndexToTaskIndex, m[1] || m[2], partIndexToLength, resolve, grandTotalBytes, differentialDownloader.options.onProgress);
++        let finished = false;
++        let endTimer;
++        const finish = () => {
++            finished = true;
++            if (endTimer != null) clearTimeout(endTimer);
++            resolve();
++        };
++        const dicer = new DataSplitter_1.DataSplitter(out, options, partIndexToTaskIndex, m[1] || m[2], partIndexToLength, finish, grandTotalBytes, options.onProgress);
+         dicer.on("error", reject);
+         response.pipe(dicer);
+         response.on("end", () => {
+-            setTimeout(() => {
++            if (finished) return;
++            endTimer = setTimeout(() => {
++                if (finished) return;
+                 request.abort();
+                 reject(new Error("Response ends without calling any handlers"));
+             }, 10000);
