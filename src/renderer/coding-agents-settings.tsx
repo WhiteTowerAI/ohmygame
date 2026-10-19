@@ -341,6 +341,18 @@ export function CodingAgentDetail({
             />
           </button>
         </div>
+        {agent.installed && agent.testedVersion ? (
+          <div className="settings-provider-setting-row">
+            <span className="settings-search-field-label">
+              {t("codingAgents.testedVersion")}
+            </span>
+            <span className="settings-provider-setting-value">
+              {t("codingAgents.testedVersionValue", {
+                version: agent.testedVersion,
+              })}
+            </span>
+          </div>
+        ) : null}
         {agent.installed ? (
           <div className="settings-provider-setting-row settings-provider-auth-row">
             <span className="settings-search-field-label">
@@ -542,7 +554,7 @@ function Diagnostic({
       className={`coding-agent-diagnostic is-${diagnostic.code}`}
       role={
         diagnostic.code === "not-installed" ||
-        diagnostic.code === "version-unsupported"
+        diagnostic.code === "runtime-incompatible"
           ? "alert"
           : "status"
       }
@@ -632,7 +644,7 @@ function agentSummary(agent: AgentRuntimeStatus): string {
     : t("codingAgents.versionUnknown");
   if (
     agent.diagnostics.some(
-      (diagnostic) => diagnostic.code === "version-unsupported",
+      (diagnostic) => diagnostic.code === "runtime-incompatible",
     )
   )
     return t("codingAgents.needsUpdate", { version });
@@ -670,10 +682,16 @@ function diagnosticText(
   switch (diagnostic.code) {
     case "not-installed":
       return t("codingAgents.diagnostic.notInstalled", { name: agent.name });
-    case "version-unsupported":
-      return t("codingAgents.diagnostic.versionUnsupported", {
-        name: agent.name,
-      });
+    case "runtime-incompatible":
+      return t(
+        diagnostic.capability
+          ? "codingAgents.diagnostic.capabilityMissing"
+          : "codingAgents.diagnostic.runtimeIncompatible",
+        {
+          name: agent.name,
+          capability: diagnostic.capability,
+        },
+      );
     case "signed-out":
       return t("codingAgents.diagnostic.signedOut", { name: agent.name });
     case "models-unavailable":

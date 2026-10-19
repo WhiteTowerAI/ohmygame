@@ -612,7 +612,7 @@ export type TurnStatus = Extract<ItemStatus, "inProgress" | "completed" | "cance
 export type ThreadItemErrorCode = "model_not_configured" | "authentication_failed" | "access_denied" |
   "quota_exceeded" | "rate_limited" | "invalid_request" | "model_unavailable" | "provider_unavailable" |
   "dns_error" | "connection_refused" | "connection_reset" | "timeout" | "tls_error" |
-  "stream_error" | "network_error";
+  "stream_error" | "network_error" | "runtime_incompatible" | "runtime_probe_failed";
 
 export interface AgentErrorCause {
   name?: string;

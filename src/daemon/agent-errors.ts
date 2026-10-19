@@ -86,6 +86,8 @@ function classifyAgentError(message: string, diagnostics: AgentErrorDiagnostics)
   const causes = diagnostics.causes ?? [];
   const transportText = [message, ...causes.flatMap((cause) => [cause.name, cause.message])].filter(Boolean).join(" ");
   const codes = [diagnostics.errorCode, ...causes.map((cause) => cause.code)].filter(Boolean).join(" ").toUpperCase();
+  if (/AGENT_RUNTIME_INCOMPATIBLE/.test(codes) || /^Local CLI compatibility: /.test(message)) return "runtime_incompatible";
+  if (/AGENT_RUNTIME_PROBE_FAILED/.test(codes) || /^Local CLI check failed: /.test(message)) return "runtime_probe_failed";
   if (/^No API key\b/i.test(message) || /select an available model|selected model .* is not available|provider .* is disabled/i.test(message)) return "model_not_configured";
   const quota = /insufficient[_ ](?:quota|balance)|quota[_ ]exceeded|out of budget|billing[_ ](?:hard[_ ]|soft[_ ])?limit|usage limit|subscription_sharing_usage_limit_exceeded|GoUsageLimitError|FreeUsageLimitError/i;
   if (status === 402 || quota.test(diagnostics.errorCode ?? "") || ((!Number.isFinite(status) || status < 400 || status === 429) && quota.test(message))) return "quota_exceeded";

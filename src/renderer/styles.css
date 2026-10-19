@@ -1836,7 +1836,7 @@ body {
   margin-top: 1px;
 }
 
-.coding-agent-diagnostic:is(.is-not-installed, .is-version-unsupported, .is-signed-out) {
+.coding-agent-diagnostic:is(.is-not-installed, .is-runtime-incompatible, .is-signed-out) {
   color: var(--text);
 }
 

@@ -28,6 +28,7 @@ import { stageSkills, stagedSkillsRoot } from "./skills.js";
 import { canonicalPath, judgeApproval, planningPolicy } from "./policy.js";
 import { sessionCaches } from "./environment.js";
 import { NativeSessionExpiredError } from "./native-session.js";
+import { cliProbeError, runtimeStartupError } from "./compatibility.js";
 
 const CONTROL_TIMEOUT_MS = 30_000;
 
@@ -103,7 +104,7 @@ export class ClaudeCodeDriver implements NativeDriver {
         )
       )
         throw new NativeSessionExpiredError(String(cause));
-      throw cause;
+      throw runtimeStartupError(cause);
     }
     if (signal.aborted) return { status: "aborted" };
     await this.#setPermissionMode(input.readOnly ? "default" : "acceptEdits");
@@ -712,7 +713,10 @@ export class ClaudeCodeDriver implements NativeDriver {
     if (this.#process === child) this.#process = undefined;
     for (const control of this.#controls.values())
       control.reject(
-        new Error(processFailure("Claude Code", code, signal, stderr)),
+        cliProbeError(
+          "Claude Code",
+          processFailure("Claude Code", code, signal, stderr),
+        ),
       );
     this.#controls.clear();
     const turn = this.#turn;

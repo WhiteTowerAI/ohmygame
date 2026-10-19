@@ -9,7 +9,12 @@ tool activity stops it, and successful retries disappear.
 
 Authentication, account limits, request compatibility, provider server errors,
 DNS, TLS, timeouts and interrupted responses have distinct presentations.
-Unknown failures remain explicitly unclassified.
+Unknown failures remain explicitly unclassified. Local CLI compatibility failures
+use `runtime_incompatible`; temporary startup or unverified checks use
+`runtime_probe_failed`. Both show CLI details instead of a provider response and
+omit the network configuration row. The `Local CLI compatibility:` and
+`Local CLI check failed:` prefixes remain in native turn records so replay
+preserves these classifications.
 
 The details can be copied and include the provider, model, endpoint, transport, HTTP status,
 provider request ID, available underlying error codes and causes, and the number

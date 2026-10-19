@@ -1213,9 +1213,11 @@ const en = {
     notFound: "Not found on this computer",
     installed: "Installed · {{version}}",
     installedSignedOut: "Installed · {{version}} · Not signed in",
-    needsUpdate: "{{version}} · Update required",
+    needsUpdate: "{{version}} · CLI incompatible",
     versionUnknown: "version unknown",
     status: "Status",
+    testedVersion: "Verified version",
+    testedVersionValue: "v{{version}} (reference only)",
     recheck: "Check again",
     account: "Account",
     signedIn: "Signed in",
@@ -1251,7 +1253,8 @@ const en = {
     executablePlaceholder: "Found automatically",
     diagnostic: {
       notInstalled: "{{name}} is not installed on this computer.",
-      versionUnsupported: "This version of {{name}} is too old. Update it to use it here.",
+      runtimeIncompatible: "{{name}} does not support a required CLI capability. Update it and check again.",
+      capabilityMissing: "{{name}} is missing a required capability: {{capability}}. Update it and check again.",
       signedOut: "{{name}} is not signed in.",
       modelsUnavailable: "{{name}} did not list its models.",
       probeFailed: "{{name}} did not answer when checked.",
@@ -1289,6 +1292,14 @@ const en = {
     submit: "Submit answer",
   },
   agentError: {
+    runtime_probe_failed: {
+      title: "Local CLI check failed",
+      message: "The local coding agent could not be checked or started. Review the CLI details below and try checking it again in Settings.",
+    },
+    runtime_incompatible: {
+      title: "Local CLI incompatible",
+      message: "The local coding agent could not enable a required capability. Review the CLI details below, then update it or check its configuration in Settings.",
+    },
     model_not_configured: {
       title: "Model setup required",
       message:
@@ -1373,6 +1384,7 @@ const en = {
       error: "Error",
       notConfigured: "The selected model isn't configured.",
       providerResponse: "Provider response",
+      localCli: "Local CLI details",
       provider: "Provider",
       model: "Model",
       endpoint: "Endpoint",

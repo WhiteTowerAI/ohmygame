@@ -20,8 +20,8 @@ export interface AgentRuntimeDefinition {
    */
   bundledPaths?: Partial<Record<NodeJS.Platform, readonly string[]>>;
   versionArgs: readonly string[];
-  /** The oldest version whose protocol the adapter speaks. */
-  minimumVersion: string;
+  /** A real acceptance run, not a minimum version or a guarantee about later releases. */
+  testedVersion: string;
   /** What to run in a terminal to sign in, when OhMyGame cannot start it itself. */
   loginCommand: string;
   installUrl: string;
@@ -36,7 +36,7 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     name: "Claude Code",
     binaries: ["claude"],
     versionArgs: ["--version"],
-    minimumVersion: "2.1.83",
+    testedVersion: "2.1.302",
     loginCommand: "claude auth login",
     installUrl: "https://docs.anthropic.com/en/docs/claude-code/setup",
   },
@@ -51,7 +51,7 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
       ],
     },
     versionArgs: ["--version"],
-    minimumVersion: "0.163.0-alpha.10.2",
+    testedVersion: "0.163.0",
     loginCommand: "codex login",
     installUrl: "https://developers.openai.com/codex/cli",
   },
@@ -60,7 +60,7 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     name: "OpenCode",
     binaries: ["opencode"],
     versionArgs: ["--version"],
-    minimumVersion: "1.18.33",
+    testedVersion: "1.18.33",
     loginCommand: "opencode auth login",
     installUrl: "https://opencode.ai/docs/",
   },

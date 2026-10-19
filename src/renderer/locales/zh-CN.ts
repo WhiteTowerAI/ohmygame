@@ -1189,9 +1189,11 @@ const zhCN: typeof en = {
     notFound: "这台电脑上未找到",
     installed: "已安装 · {{version}}",
     installedSignedOut: "已安装 · {{version}} · 未登录",
-    needsUpdate: "{{version}} · 需要更新",
+    needsUpdate: "{{version}} · CLI 不兼容",
     versionUnknown: "版本未知",
     status: "状态",
+    testedVersion: "已验证版本",
+    testedVersionValue: "v{{version}}（仅供参考）",
     recheck: "重新检查",
     account: "账号",
     signedIn: "已登录",
@@ -1227,7 +1229,8 @@ const zhCN: typeof en = {
     executablePlaceholder: "自动查找",
     diagnostic: {
       notInstalled: "这台电脑上没有安装 {{name}}。",
-      versionUnsupported: "这个版本的 {{name}} 太旧，请更新后再在这里使用。",
+      runtimeIncompatible: "{{name}} 不支持所需的 CLI 能力，请更新后重新检查。",
+      capabilityMissing: "{{name}} 缺少所需的能力：{{capability}}。请更新后重新检查。",
       signedOut: "{{name}} 尚未登录。",
       modelsUnavailable: "{{name}} 没有返回模型列表。",
       probeFailed: "检查时 {{name}} 没有响应。",
@@ -1265,6 +1268,14 @@ const zhCN: typeof en = {
     submit: "提交答案",
   },
   agentError: {
+    runtime_probe_failed: {
+      title: "本地 CLI 检查失败",
+      message: "无法检查或启动本地编程智能体。请查看下方 CLI 详情，并在设置中重新检查。",
+    },
+    runtime_incompatible: {
+      title: "本地 CLI 不兼容",
+      message: "本地编程智能体无法启用所需的能力。请查看下方 CLI 详情，更新 CLI 或在设置中检查其配置。",
+    },
     model_not_configured: {
       title: "需要设置模型",
       message:
@@ -1338,6 +1349,7 @@ const zhCN: typeof en = {
       error: "错误",
       notConfigured: "所选模型尚未配置。",
       providerResponse: "服务商返回",
+      localCli: "本地 CLI 详情",
       provider: "服务商",
       model: "模型",
       endpoint: "端点",

@@ -14,8 +14,9 @@ accepted tradeoffs, and validation limits.
 agent comes first: it uses the models set up in Providers & Models, and its row
 links there. The coding agent CLIs follow, under **Coding agent CLIs on this
 computer**; **Rescan** checks for them again. Each row shows whether the CLI
-was found and its version; the detail page shows its account and how its
-requests are billed. The agent whose model new conversations start with is
+was found and its version; the detail page shows its account, billing, and a
+verified version for reference. The verified version records a real acceptance
+run and is not a minimum version. The agent whose model new conversations start with is
 marked **Default**. Providers & Models points to Agents when it is filtered to
 language models or searched for a coding agent.
 Agents are off by default. Enabling the switch offers their models in the conversation model picker; the
@@ -318,7 +319,7 @@ signature; choosing Pi never starts a CLI.
 ## Adding an agent
 
 1. Add its ID to `AGENT_RUNTIME_IDS` and a definition to
-   `AGENT_RUNTIME_DEFINITIONS` (binaries, version arguments, minimum version,
+   `AGENT_RUNTIME_DEFINITIONS` (binaries, version arguments, tested version,
    sign-in command).
 2. Teach `probeAuth` and `probeModels` how to ask it who it is and what models
    it has.
@@ -331,11 +332,46 @@ The Provider, media, canvas, checkpoint and plugin code does not change.
 
 ## Compatibility and real acceptance
 
-The tested compatibility floors are Claude Code 2.1.83, Codex
-0.163.0-alpha.10.2 (named permission profiles) and OpenCode 1.18.33. Version checks are protocol floors, not certification of every newer
-release. Claude discovery accepts catalogs from either `initialize` or
-`list_models`; failed/empty catalogs produce a `models-unavailable` diagnostic.
+Compatibility follows the capabilities the adapter needs, rather than a CLI
+being older than the version used for acceptance. Settings records Claude Code
+2.1.302, Codex 0.163.0 and OpenCode 1.18.33 as verified versions, not minimums.
+Enabling or rechecking an agent uses the same discovery checks as its model
+catalog; incompatible agents do not offer models. Results are cached by the
+executable signature and invalidated when settings change or **Check again** is
+used. Temporary failures remain probe/catalog errors and retry after the short
+failure cache expires; they are not classified as unsupported capabilities.
+
+- Codex discovery starts an ephemeral thread with a dynamic tool, OhMyGame's
+  approval policy and a named permission profile, and checks the returned
+  `activePermissionProfile`. It sends no model turn. The real driver checks the
+  profile again on start/resume. Codex 0.162.0-alpha.17.2 has passed this protocol
+  probe; that alone is not a full inference or sandbox acceptance run.
+- Claude discovery registers the SDK tool server and PreToolUse callback during
+  its control handshake, and accepts catalogs from `initialize` or `list_models`.
+  Standard permissions on a platform where approvals rely on its OS sandbox
+  require `sandbox.failIfUnavailable`, introduced in
+  [Claude Code 2.1.83](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#2183).
+  This documented feature requirement does not apply to Full access or platforms
+  using the strict command approval policy without an OS sandbox. An unknown
+  version cannot establish that sandbox requirement and remains a probe failure.
+- OpenCode discovery checks `serve --help` for `--hostname` and `--port`, and for
+  `--pure` when CLI configuration isolation is enabled, then lists its models.
+  Discovery also starts a private server, establishes its event stream, checks
+  `/path.worktree`, and reads `/config` to verify the file/shell permissions use
+  callbacks. The real driver repeats these startup checks before sending a
+  prompt. No session or inference is created by this probe. Configuration
+  readback is not a full sandbox acceptance run; real acceptance still exercises
+  approvals and tools.
+
+Missing optional quota or reasoning metadata stays unavailable. Local CLI
+compatibility failures have their own chat error presentation and CLI details.
 Being signed in and seeing a model does not guarantee account entitlement.
+
+![CLI capability diagnostic and reference acceptance version](assets/coding-agent-compatibility.png)
+
+This screenshot uses a simulated CLI reporting `99.0.0` that ignores the
+requested permission profile. A higher version cannot bypass the capability
+check, and the verified version remains a reference.
 
 The direct adapters preserve the installed executable and shared host services.
 The Claude Agent SDK was evaluated and not adopted: it bundles its own Claude

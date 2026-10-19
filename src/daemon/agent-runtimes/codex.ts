@@ -10,7 +10,12 @@ import type {
   NativeTurnOutcome,
   NativeTurnSink,
 } from "./native-session.js";
-import { CodexAppServer, codexLimits } from "./codex-app-server.js";
+import {
+  CodexAppServer,
+  codexLimits,
+  CODEX_APPROVAL_POLICY,
+  requireCodexPermissionProfile,
+} from "./codex-app-server.js";
 import {
   BridgeResults,
   number,
@@ -26,6 +31,7 @@ import { NativeSessionExpiredError } from "./native-session.js";
 import { canonicalPath, judgeApproval } from "./policy.js";
 import { sandboxedPath, sessionCaches, toolchainRoots } from "./environment.js";
 import type { AgentContextUsage } from "../../shared/contracts.js";
+import { runtimeStartupError } from "./compatibility.js";
 
 /** A turn on a shared server must stop on its own: the process outlives the conversation. */
 const INTERRUPT_TIMEOUT_MS = 5_000;
@@ -84,7 +90,7 @@ export class CodexDriver implements NativeDriver {
       if (signal.aborted) return { status: "aborted" };
       return {
         status: "failed",
-        error: cause instanceof Error ? cause.message : String(cause),
+        error: runtimeStartupError(cause).message,
       };
     }
     return new Promise<NativeTurnOutcome>((resolve) => {
@@ -224,15 +230,7 @@ export class CodexDriver implements NativeDriver {
       cwd: this.context.workspacePath,
       // Never approve unrestricted sandbox escapes. Scoped permission requests
       // can still be reviewed without removing the protected-read boundary.
-      approvalPolicy: {
-        granular: {
-          sandbox_approval: false,
-          rules: false,
-          mcp_elicitations: false,
-          request_permissions: true,
-          skill_approval: false,
-        },
-      },
+      approvalPolicy: CODEX_APPROVAL_POLICY,
       permissions: this.#writeProfile,
       model: this.context.model,
       developerInstructions: this.context.instructions,
@@ -252,7 +250,7 @@ export class CodexDriver implements NativeDriver {
           thread?: { id?: string };
           activePermissionProfile?: { id?: string };
         }>("thread/resume", { threadId: this.#threadId, ...settings });
-        this.#requireProfile(resumed);
+        requireCodexPermissionProfile(resumed, this.#writeProfile);
         const id = resumed.thread?.id ?? this.#threadId;
         this.#threadId = id;
         this.#lease?.bind(id);
@@ -272,22 +270,13 @@ export class CodexDriver implements NativeDriver {
       thread?: { id?: string };
       activePermissionProfile?: { id?: string };
     }>("thread/start", { ...settings, dynamicTools: tools });
-    this.#requireProfile(started);
+    requireCodexPermissionProfile(started, this.#writeProfile);
     const id = started.thread?.id;
     if (!id) throw new Error("Codex did not start a thread");
     this.#threadId = id;
     this.#lease?.bind(id);
     sink.nativeSession(id);
     return id;
-  }
-
-  #requireProfile(response: {
-    activePermissionProfile?: { id?: string };
-  }): void {
-    if (response.activePermissionProfile?.id !== this.#writeProfile)
-      throw new Error(
-        "Codex did not activate OhMyGame's filesystem permissions. Update Codex to a version supporting named permission profiles, then check again in Settings.",
-      );
   }
 
   /** Overrides that keep the person's own Codex MCP servers and notification hook out of OhMyGame's runs. */

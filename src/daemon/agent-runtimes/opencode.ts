@@ -13,7 +13,7 @@ import type {
   NativeTurnSink,
 } from "./native-session.js";
 import { AgentProcess, processFailure } from "./process.js";
-import { BRIDGE_SERVER_NAME } from "./tool-bridge.js";
+import { BRIDGE_SERVER_NAME, ToolBridge } from "./tool-bridge.js";
 import {
   decideApproval,
   number,
@@ -26,8 +26,22 @@ import {
 import { stageSkills, stagedSkillsRoot } from "./skills.js";
 import { judgeApproval, planningPolicy } from "./policy.js";
 import { NativeSessionExpiredError } from "./native-session.js";
+import {
+  AgentRuntimeCompatibilityError,
+  cliProbeError,
+  runtimeStartupError,
+} from "./compatibility.js";
 
 const START_TIMEOUT_MS = 30_000;
+const MEDIATED_PERMISSIONS = [
+  "edit",
+  "read",
+  "glob",
+  "grep",
+  "list",
+  "bash",
+  "external_directory",
+];
 
 interface OpenCodeServer {
   process: AgentProcess;
@@ -61,6 +75,35 @@ interface OpenCodeTurn {
  * this conversation runs.
  */
 export class OpenCodeDriver implements NativeDriver {
+  /** The same server startup checks as a real session, without creating a session or prompt. */
+  static async checkCompatibility(
+    context: Pick<
+      DriverContext,
+      "binaryPath" | "env" | "privateDirectory" | "isolateUserConfig"
+    >,
+  ): Promise<void> {
+    const driver = new OpenCodeDriver({
+      ...context,
+      workspacePath: context.privateDirectory,
+      policy: { workspacePath: context.privateDirectory, neverTouch: [] },
+      bridge: new ToolBridge([]),
+      instructions: "",
+      model: "",
+      skillDirectories: [],
+    });
+    try {
+      await driver.#start();
+    } catch (cause) {
+      if (cause instanceof AgentRuntimeCompatibilityError) throw cause;
+      throw cliProbeError(
+        "OpenCode",
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    } finally {
+      await driver.dispose();
+    }
+  }
+
   #disposed = false;
   #server?: OpenCodeServer;
   #launching?: AgentProcess;
@@ -96,7 +139,7 @@ export class OpenCodeDriver implements NativeDriver {
       if (cause instanceof NativeSessionExpiredError) throw cause;
       return {
         status: "failed",
-        error: cause instanceof Error ? cause.message : String(cause),
+        error: runtimeStartupError(cause).message,
       };
     }
     return new Promise<NativeTurnOutcome>((resolve) => {
@@ -327,8 +370,29 @@ export class OpenCodeDriver implements NativeDriver {
           typeof nativePath?.worktree !== "string" ||
           !path.isAbsolute(nativePath.worktree)
         )
-          throw new Error("OpenCode did not report its permission path root");
+          throw new AgentRuntimeCompatibilityError(
+            "OpenCode did not report its permission path root. Update OpenCode and check again in Settings.",
+            "/path.worktree",
+          );
         this.#worktree = nativePath.worktree;
+        const config = record(await this.#api("GET", "/config"));
+        const permissions = record(config?.permission);
+        const missing = MEDIATED_PERMISSIONS.filter((name) => {
+          const value = permissions?.[name];
+          if (value === "ask") return false;
+          const patterns = record(value);
+          return (
+            patterns?.["*"] !== "ask" ||
+            Object.values(patterns).some(
+              (decision) => decision !== "ask" && decision !== "deny",
+            )
+          );
+        });
+        if (missing.length)
+          throw new AgentRuntimeCompatibilityError(
+            `OpenCode did not enable OhMyGame's permission callbacks for ${missing.join(", ")}. Check its configuration or update OpenCode, then check again in Settings.`,
+            missing.map((name) => `permission.${name}=ask`).join(", "),
+          );
         return server;
       } finally {
         this.#launching = undefined;

@@ -1695,6 +1695,8 @@ describe("OpenCode adapter", () => {
       expect(request.headers.authorization).toMatch(/^Basic /);
       if (request.url === "/path")
         return response.end(JSON.stringify({ worktree: "/tmp/workspace" }));
+      if (request.url === "/config")
+        return response.end(clis[0]!.env.OPENCODE_CONFIG_CONTENT);
       if (request.url === "/event") {
         response.writeHead(200, { "content-type": "text/event-stream" });
         response.write(": connected\n\n");
