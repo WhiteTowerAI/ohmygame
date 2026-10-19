@@ -55,6 +55,9 @@ Older versions are documented in
 
 ### Fixed
 
+- Codex's macOS command sandbox can read the system OpenSSL configuration
+  required by Node/npm when installing project dependencies.
+  ([#321](https://github.com/WhiteTowerAI/ohmygame/pull/321) by @dihuangdh)
 - Compatible coding-agent CLIs are checked for required capabilities instead
   of rejected solely by version; local compatibility and startup failures have
   clearer diagnostics.
