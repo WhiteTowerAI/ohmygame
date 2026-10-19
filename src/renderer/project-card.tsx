@@ -6,6 +6,7 @@ import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js"
 import { getProjectCover } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { language, t } from "./i18n.js";
+import { ProjectPlaceholder } from "./project-placeholder.js";
 
 export interface ProjectCardActions {
   onRename: () => void;
@@ -16,13 +17,12 @@ export interface ProjectCardActions {
 
 interface ProjectCardProps {
   project: ProjectState;
-  fallback: number;
   onOpen: () => void;
   actions?: ProjectCardActions;
   agentStatus?: ProjectAgentActivity["status"];
 }
 
-export function ProjectCard({ project, fallback, onOpen, actions, agentStatus }: ProjectCardProps) {
+export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCardProps) {
   const activityLabel = agentStatus === "cancelling" ? t("projectCard.stopping") : t("projectCard.working");
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>();
@@ -66,7 +66,7 @@ export function ProjectCard({ project, fallback, onOpen, actions, agentStatus }:
   return (
     <article className="project-card">
       <button className="project-card-open" type="button" onClick={onOpen} aria-label={t("projectCard.open", { name: project.name })}>
-        <ProjectCover projectId={project.id} fallback={fallback} />
+        <ProjectCover projectId={project.id} />
         <span className="project-card-meta">
           <span className="project-card-copy">
             <span className="project-card-name" title={project.name}>{project.name}</span>
@@ -118,10 +118,11 @@ export function ProjectCard({ project, fallback, onOpen, actions, agentStatus }:
   );
 }
 
-export function ProjectCover({ projectId, fallback }: { projectId: string; fallback: number }) {
+export function ProjectCover({ projectId }: { projectId: string }) {
   const [url, setUrl] = useState<string>();
 
   useEffect(() => {
+    setUrl(undefined);
     let objectUrl: string | undefined;
     let disposed = false;
     void getProjectCover(projectId).then((cover) => {
@@ -136,8 +137,8 @@ export function ProjectCover({ projectId, fallback }: { projectId: string; fallb
   }, [projectId]);
 
   return (
-    <span className={`project-card-preview project-card-preview-${fallback}`} aria-hidden="true">
-      {url ? <img src={url} alt="" /> : null}
+    <span className="project-card-preview" aria-hidden="true">
+      {url ? <img src={url} alt="" onError={() => setUrl(undefined)} /> : <ProjectPlaceholder projectId={projectId} />}
     </span>
   );
 }

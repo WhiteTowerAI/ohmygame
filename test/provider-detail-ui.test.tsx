@@ -82,6 +82,7 @@ async function render(onViewChange = vi.fn()) {
       <ModelsSettings
         view={{ page: "provider", provider: openai }}
         onViewChange={onViewChange}
+        onOpenAgents={() => {}}
       />,
     ),
   );

@@ -76,9 +76,18 @@ not when enqueued. Each range is linked by checkpoint entry IDs, which remain
 the same when the live conversation is reloaded from disk.
 
 Checkpoint boundaries drain daemon HTTP handlers and canvas generation callbacks,
-including callbacks whose job already reports cancellation. They temporarily
-stop preview processes and resume an existing active preview afterward. Explicit
-Undo and Reapply leave the preview stopped until the user resumes it.
+including callbacks whose job already reports cancellation. Ordinary snapshots
+keep preview servers and pages running, including while a server is starting;
+chatting or opening a turn's file changes does not restart the game. Source edits
+use the development server's HMR or the static preview's file refresh. Explicit
+Undo, Reapply and Restore stop the preview until the user resumes it.
+
+Requests that arrive during a checkpoint wait or go on depending on what it
+does to the files. A snapshot only reads them: project reads go on, and
+writes wait for it to end. Undo and Reapply replace them: reads wait for the
+restored files, and writes are refused. A request that waits more than two
+minutes gets `409 workspace_busy`, which the Story editor treats as a reason
+to load again shortly rather than an error.
 
 Daemon project requests use `x-workspace-version`. Undo and Reapply change this
 version and emit `workspace.restored` with the version and changed paths. These events are
@@ -95,18 +104,67 @@ an operation rolls back when possible rather than silently overwriting them.
 
 ## Storage and file scope
 
-The store currently retains all snapshots without garbage collection; file modes
-retain only whether a file is executable.
-
 The daemon stores Git-compatible objects in the project's storage directory at
-`checkpoints/`, outside its workspace. The workspace does not need Git; its
-`.git`, branches, index, and `.gitignore` are untouched. This is internal snapshot
-storage rather than a user-facing Git workflow.
+`checkpoints/`, outside its workspace. The workspace does not need Git;
+snapshotting never writes its `.git`, branches, index, or `.gitignore` files.
+Explicit Undo, Reapply and Restore can restore `.gitignore` alongside other
+project files. This is internal snapshot storage rather than a user-facing Git
+workflow. File modes retain only whether a file is executable.
 
 Snapshots include creative project files and workspace asset metadata. They
 exclude `node_modules` and `.git` anywhere, and these paths at the workspace root:
 `dist`, `build`, `out`, `.godot`, `.ohmygame`, `.ohmygame-install-pending`,
-`.data/agent-attachments`, and `canvas/jobs.json`. The global asset Library,
+`.data/agent-attachments`, and `canvas/jobs.json`.
+
+Snapshots also leave out what the workspace's `.gitignore` files ignore, at any
+depth, with Git's rules: the deepest `.gitignore` that matches a path decides,
+`!` patterns re-include, and nothing below an ignored folder is read. This works
+without a Git repository. `.git/info/exclude` and global Git excludes are not
+read, because they differ between machines. Two kinds of path are always
+recorded whatever a `.gitignore` says: `.data/` and `canvas/` at the workspace
+root, which OhMyGame keeps together with the assets they describe, and the
+`.gitignore` files themselves. A `.gitignore` that is not a regular file, cannot
+be read, or is larger than 1 MiB ignores nothing.
+
+Each directory's `.gitignore` is recorded before its other entries, and its
+stored content supplies the rules for that snapshot, also if an external editor
+changes the file during the scan. Because every snapshot holds the `.gitignore`
+files that applied when it was taken, Diff, Undo, Reapply and Restore leave out
+any path that the `.gitignore` files of any snapshot they compare ignore. A turn
+that adds `cache/` to `.gitignore` therefore neither lists nor takes back the files in `cache/`, and
+a turn that stops ignoring `*.log` does not list the logs it then writes.
+Ignored files are never written or removed, and a file that must come back
+where a folder holds ignored files is refused, as with excluded files. Undo and
+Reapply name a file of the turn that the current `.gitignore` ignores as one
+they cannot put back, so the user can keep it and undo the rest. These conflicts
+count as kept files even though they are omitted from the current Diff. Snapshots
+taken before this rule existed may hold files that are ignored now; Restore
+does not put these back either. Ignored generated assets, such as images
+matched by `*.png`, are not recorded, so Undo cannot bring them back.
+
+A snapshot lives as long as something names it. After a completed run, at most
+once a day, the daemon removes the stored objects that no snapshot it keeps
+needs. It keeps every snapshot named by an OhMyGame entry on any branch of any
+of the project's session files, read as text so that no file is rewritten; a
+line that is not JSON is passed over, as Pi passes it over. It also keeps the
+newest snapshot, the recovery target of an unfinished restore, every snapshot
+handed out while the prune runs, and everything written in the last 24 hours
+with all it needs: the snapshot that closes a turn is recorded only when the
+run ends. Concurrent cleanup requests for the same project share one running
+pass. What the named snapshots need is worked out beside other operations;
+object enumeration, final reachability checks and removal run in the project's
+checkpoint queue. That phase is left for a later run when an agent, Undo,
+Reapply, Restore or project removal is under way. A named object that exists but
+cannot be read stops the prune before anything is removed.
+
+Conversations cannot be deleted, so pruning only frees snapshots that no entry
+ever named, such as those taken to show current file states or left by failed
+runs. Turns stay undoable for as long as their conversation exists, and the
+store keeps every version of every file that a turn boundary recorded. Commits
+keep their parent links, so Git tools reading the store stop at a pruned
+parent.
+
+The global asset Library,
 generation history, and conversation session files are preserved. Snapshot
 metadata uses `ohmygame-checkpoint`, `ohmygame-turn-end`, and
 `ohmygame-checkpoint-undone` entries in the Pi session. These are the single
@@ -151,7 +209,8 @@ appending duplicate messages to their histories.
 - UI: `src/renderer/turn-changes.tsx`, `src/renderer/project-shell.tsx`,
   `src/renderer/workspace-version.ts`.
 - Tests: `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
-  `test/checkpoint-routes.test.ts`, and the canvas storage suites.
+  `test/checkpoint-routes.test.ts`, `test/checkpoint-references.test.ts`,
+  `test/preview-checkpoints.test.ts`, and the canvas storage suites.
 
 The routes under `/projects/:projectId` are:
 

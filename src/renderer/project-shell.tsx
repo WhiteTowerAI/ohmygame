@@ -1,4 +1,5 @@
 import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
+import { isAgentRuntimeId, type ApprovalDecision } from "../shared/agent-runtimes.js";
 import {
   ArrowLeft,
   LoaderCircle,
@@ -19,7 +20,7 @@ import {
   lazy,
   Suspense,
 } from "react";
-import type { AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
+import type { AgentContextUsage, AgentModel, AgentModelRef, AgentReasoningLevel, CheckpointChangeItem, ConversationCapabilities, ConversationSummary, PendingPrompt, PluginMention, ProjectState, PromptAttachment, PromptContext, PromptImage, PromptMode, PromptReference, ThreadItem } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
 import {
@@ -28,6 +29,7 @@ import {
   releasePreview,
   stopPreview,
   approvePlan,
+  answerApproval,
   answerQuestionnaire,
   cancelPrompt,
   cancelPlan,
@@ -69,6 +71,7 @@ import type { PlayableChatState } from "./playable-chat.js";
 import { Composer, type ComposerDraft } from "./composer.js";
 import { composerDrafts } from "./composer-drafts.js";
 import { QuestionnaireCard } from "./questionnaire-card.js";
+import { ApprovalCard } from "./approval-card.js";
 import { PlanApprovalCard } from "./plan-approval-card.js";
 import { initialRendererState, rendererReducer } from "./state.js";
 import { useAgentModels } from "./model-selector.js";
@@ -156,7 +159,7 @@ export function ProjectShell({
   const [dismissedDesign, setDismissedDesign] = useState<string>();
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   usePlaytestAskRequests(state.project?.id, requestPrompt);
-  const modelCatalog = useAgentModels();
+  const modelCatalog = useAgentModels({ agentRuntimes: true });
   const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
@@ -407,6 +410,11 @@ export function ProjectShell({
   const questionnaire = activeTurn?.items.find((item): item is Extract<ThreadItem, { type: "userInputRequest" }> => (
     item.type === "userInputRequest" && item.status === "inProgress"
   ));
+  const approvals = (activeTurn?.items ?? []).filter((item): item is Extract<ThreadItem, { type: "approvalRequest" }> => (
+    item.type === "approvalRequest" && item.status === "inProgress"
+  ));
+  const approval = approvals[0];
+  const approvalAgent = approval ? modelCatalog.models.find((model) => model.provider === state.settings.model?.provider)?.providerName : undefined;
   const currentConversationBusy = Boolean(activeTurn);
   const agentBusy = sendingInitialPrompt || currentConversationBusy || state.agent.status === "running" || state.agent.status === "cancelling";
   const activePlanItem = activeTurn
@@ -475,12 +483,9 @@ export function ProjectShell({
     }
   }
 
-  async function currentContextPercent(): Promise<number | undefined> {
+  async function currentContextUsage(): Promise<AgentContextUsage | undefined> {
     if (!project || !conversation) return undefined;
-    const usage = await getConversationContextUsage(project.id, conversation.id);
-    return usage?.percent === null || usage?.percent === undefined
-      ? undefined
-      : Math.round(Math.max(0, Math.min(100, usage.percent)));
+    return getConversationContextUsage(project.id, conversation.id);
   }
 
   async function executePlan(): Promise<boolean> {
@@ -511,6 +516,17 @@ export function ProjectShell({
     try {
       await refinePlan(project.id, conversation.id);
       return submitPrompt(feedback.trim(), [], [], "planning");
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+      return false;
+    }
+  }
+
+  async function respondToApproval(decision: ApprovalDecision): Promise<boolean> {
+    if (!project || !conversation || !approval) return false;
+    try {
+      await answerApproval(project.id, conversation.id, approval.requestId, decision);
+      return true;
     } catch (error) {
       dispatch({ type: "notice", message: errorMessage(error) });
       return false;
@@ -671,7 +687,9 @@ export function ProjectShell({
     setCreatingConversation(true);
     dispatch({ type: "notice", message: undefined });
     try {
-      const created = await createConversation(project.id);
+      // A new conversation stays with the coding agent the person was using; otherwise it takes the default model.
+      const current = state.settings.model;
+      const created = await createConversation(project.id, current && isAgentRuntimeId(current.provider) ? current : undefined);
       setCreatingConversation(false);
       onOpenConversation(created.id);
     } catch (error) {
@@ -707,6 +725,16 @@ export function ProjectShell({
     } finally {
       setModelChanging(false);
     }
+  }
+
+  async function changeNativeReasoning(level: string) {
+    if (!project || !conversation || !displayedModel || agentBusy || modelChanging) return;
+    setModelChanging(true);
+    try {
+      const nativeReasoningLevel = await setConversationReasoning(project.id, conversation.id, level);
+      dispatch({ type: "conversation-settings", settings: { model: displayedModel, nativeReasoningLevel } });
+    } catch (error) { dispatch({ type: "notice", message: errorMessage(error) }); }
+    finally { setModelChanging(false); }
   }
 
   async function rename(conversationId: string, title: string): Promise<void> {
@@ -808,7 +836,7 @@ export function ProjectShell({
                 workspacePath={project?.workspacePath}
                 onOpenWorkspaceFile={project ? openWorkspaceFile : undefined}
                 revisionDisabled={agentBusy || restoring || unfinishedRestore || state.plan.mode !== "normal" || state.pendingPrompts.length > 0 || state.connection !== "open"}
-                waitingForInput={Boolean(questionnaire)}
+                waitingForInput={Boolean(questionnaire || approval)}
                 onRevise={revisePrompt}
                 onRestore={restoreToMessage}
                 changeControls={turnChanges}
@@ -818,6 +846,15 @@ export function ProjectShell({
               </ErrorBoundary>
             </Activity>
           </div>
+
+          {approval ? (
+            <ApprovalCard
+              request={approval}
+              agentName={approvalAgent}
+              waiting={approvals.length - 1}
+              onDecide={respondToApproval}
+            />
+          ) : null}
 
           {questionnaire ? (
             <QuestionnaireCard
@@ -867,6 +904,7 @@ export function ProjectShell({
             modelStatus={modelCatalog.status}
             model={effectiveModel}
             reasoningLevel={state.settings.reasoningLevel}
+            nativeReasoningLevel={state.settings.nativeReasoningLevel}
             modelChanging={modelChanging}
             promptHistory={[
               ...items.flatMap((item) => item.type === "userMessage" && item.text.trim()
@@ -887,10 +925,11 @@ export function ProjectShell({
               else playableChat?.removeAttachment(key);
             }}
             onCompact={compactCurrentConversation}
-            onContextUsage={currentContextPercent}
+            onContextUsage={currentContextUsage}
             onCancelPlan={discardPlan}
             onModelChange={(model) => void changeModel(model)}
             onReasoningChange={(level) => void changeReasoning(level)}
+            onNativeReasoningChange={(level) => void changeNativeReasoning(level)}
             onStop={() => void stopAgent()}
             onRemovePending={removeFollowUp}
             onSteerPending={steerFollowUp}
@@ -1064,7 +1103,8 @@ function leftUnfinished(error: unknown): boolean {
 
 async function initialConversationModel(): Promise<AgentModelRef | undefined> {
   try {
-    const catalog = await listModels();
+    // OhMyGame's own models come first; with none connected, the first coding agent that is set up.
+    const catalog = await listModels({ agentRuntimes: true });
     return catalog.defaultModel ?? catalog.models[0];
   } catch {
     return undefined;

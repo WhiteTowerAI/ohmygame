@@ -3,10 +3,11 @@ import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ProjectAgentActivity, ProjectState } from "../src/shared/contracts.js";
+import type { ProjectActivitySnapshot, ProjectAgentActivity, ProjectState } from "../src/shared/contracts.js";
 
 let activity: ProjectAgentActivity[] = [];
-const listActivity = vi.fn(async (_signal?: AbortSignal) => activity);
+let names: ProjectActivitySnapshot["names"] = [];
+const listActivity = vi.fn(async (_signal?: AbortSignal): Promise<ProjectActivitySnapshot> => ({ activity, names }));
 const listProjects = vi.fn<() => Promise<ProjectState[]>>();
 vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
@@ -50,7 +51,8 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   activity = [];
-  listActivity.mockReset().mockImplementation(async () => activity);
+  names = [];
+  listActivity.mockReset().mockImplementation(async () => ({ activity, names }));
   listProjects.mockReset().mockResolvedValue([]);
   updateRuntimeConnection({ status: "ready", generation: runtimeConnection().generation + 1, recovered: false });
   container = document.createElement("div");
@@ -67,6 +69,32 @@ afterEach(async () => {
 const tick = () => act(async () => vi.advanceTimersByTimeAsync(2_000));
 
 describe("project activity on project lists", () => {
+  it.each(pages)("refreshes a generated name on $name without changing the cover", async ({ type, view }) => {
+    const initial = { ...project("active", type), nameSource: "default" as const };
+    listProjects.mockResolvedValue([initial]);
+    await act(async () => root.render(view));
+    const cover = container.querySelector(".project-card-preview")!.innerHTML;
+    names = [{ ...initial, name: "Moon Garden", nameSource: "ai" }];
+    await tick();
+    expect(container.querySelector(".project-card-name")?.textContent).toBe("Moon Garden");
+    expect(container.querySelector(".project-card-preview")!.innerHTML).toBe(cover);
+    const calls = listProjects.mock.calls.length;
+    await tick();
+    expect(listProjects).toHaveBeenCalledTimes(calls);
+  });
+  it("receives a name after a short turn between polls without extra project requests", async () => {
+    const initial = { ...project("active", "web-game"), nameSource: "default" as const };
+    listProjects.mockResolvedValue([initial]);
+    await act(async () => root.render(pages[1].view));
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    const calls = listProjects.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(60_000));
+    expect(listProjects).toHaveBeenCalledTimes(calls);
+    names = [{ ...initial, name: "Moon Garden", nameSource: "ai" }];
+    await tick();
+    expect(container.querySelector(".project-card-name")?.textContent).toBe("Moon Garden");
+    expect(listProjects).toHaveBeenCalledTimes(calls);
+  });
   it.each(pages)("updates Working, Stopping and idle cards on $name", async ({ type, view }) => {
     listProjects.mockResolvedValue([project("active", type), project("idle", type)]);
     activity = [{ projectId: "active", status: "running" }];
@@ -96,7 +124,7 @@ describe("project activity on project lists", () => {
 
 describe("project activity refresh", () => {
   it("avoids overlapping requests and aborts polling on unmount", async () => {
-    let finish!: (value: ProjectAgentActivity[]) => void;
+    let finish!: (value: ProjectActivitySnapshot) => void;
     listActivity.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
     await act(async () => root.render(<Activity />));
     const signal = listActivity.mock.calls[0]![0]!;
@@ -106,7 +134,7 @@ describe("project activity refresh", () => {
     await act(async () => root.render(null));
     expect(signal.aborted).toBe(true);
     const previous = snapshot;
-    await act(async () => finish([{ projectId: "late", status: "running" }]));
+    await act(async () => finish({ activity: [{ projectId: "late", status: "running" }], names: [] }));
     await tick();
     await act(async () => window.dispatchEvent(new Event("focus")));
     expect(listActivity).toHaveBeenCalledTimes(1);

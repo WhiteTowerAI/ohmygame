@@ -53,7 +53,10 @@ The workspace keeps the current Interactive Story layout:
   **Export project** downloads the editable project: its source files without
   `node_modules/` or hidden folders such as `.data/` and `.ohmygame/`, with
   each Library asset copied to `assets/library/` and `graph.json` pointing at
-  the copy. Choosing the unzipped folder in **New project** opens the same
+  the copy. Copied filenames avoid collisions between letter case variants
+  and canonically equivalent Unicode spellings, so extracting on Windows
+  or macOS preserves distinct Library assets.
+  Choosing the unzipped folder in **New project** opens the same
   project on another computer.
 
 ### Source files

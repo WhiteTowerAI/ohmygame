@@ -938,6 +938,67 @@ describe("Agent checkpoints", () => {
 });
 
 describe("Agent turn changes", () => {
+  it("counts later-ignored files kept by a partial Undo and persists that count", async () => {
+    const { app, project, start, detail, send, ended, undo, file, published } =
+      await studio([
+        { write: { "notes.txt": "second", "game.ts": "second" } },
+        { say: "Updated both files." },
+      ]);
+    await writeFile(path.join(project.workspacePath, "notes.txt"), "first");
+    await writeFile(path.join(project.workspacePath, "game.ts"), "first");
+    await send("Update the files");
+    const turn = await ended("Update the files");
+    await writeFile(
+      path.join(project.workspacePath, ".gitignore"),
+      "notes.txt\n",
+    );
+
+    const response = await undo(turn.checkpointId!, "keep");
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toEqual({
+      changed: ["game.ts"],
+      conflicts: ["notes.txt"],
+      undone: true,
+      kept: 1,
+    });
+    expect(await file("notes.txt")).toBe("second");
+    expect(await file("game.ts")).toBe("first");
+    expect((await published("workspace.undone"))[0]!.data).toMatchObject({
+      kept: 1,
+    });
+    await app.close();
+    const restored = await detail(start());
+    const message = restored.turns
+      .flatMap((item) => item.items)
+      .find((item) => item.type === "userMessage");
+    expect(message).toMatchObject({ changes: { undone: true, kept: 1 } });
+  });
+
+  it("prunes the checkpoints once a run is completed, and the turns stay undoable", async () => {
+    const { project, send, ended, undo, file } = await studio([
+      { write: { "notes.txt": "first" } },
+      { say: "Wrote the notes." },
+      { write: { "notes.txt": "second" } },
+      { say: "Changed the notes." },
+    ]);
+    const record = path.join(
+      checkpointDirectory(project),
+      "ohmygame-pruned.json",
+    );
+    await send("Write the notes");
+    await ended("Write the notes");
+    const pruned = await vi.waitFor(
+      async () => JSON.parse(await readFile(record, "utf8")) as { at: number },
+      { timeout: 15_000 },
+    );
+    await send("Change the notes");
+    const second = await ended("Change the notes");
+    // Within a day the next completed run leaves the store alone.
+    expect(JSON.parse(await readFile(record, "utf8"))).toEqual(pruned);
+    expect((await undo(second.checkpointId!)).statusCode).toBe(200);
+    expect(await file("notes.txt")).toBe("first");
+  });
+
   it("lists what each turn changed", async () => {
     const { project, send, ended, changes, published } = await studio([
       { write: { "notes.txt": "first", "player.txt": "changed by the Agent" } },
@@ -2258,7 +2319,7 @@ describe("The end of a turn", () => {
     await send("Write the notes");
     await closing.reached;
     expect(
-      (await app.inject({ method: "GET", url: "/projects/activity" })).json(),
+      (await app.inject({ method: "GET", url: "/projects/activity" })).json().activity,
     ).toEqual([]);
 
     // The conversation reads as idle, so the edit is not refused. It waits for the end of the turn and then starts.

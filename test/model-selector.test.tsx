@@ -75,6 +75,19 @@ describe("ModelSelector interaction", () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
 
+  it("selects an arbitrary native variant without changing Pi reasoning", async () => {
+    const native: AgentModel = { ...model, provider: "opencode-cli", reasoningLevels: [], nativeReasoningLevels: ["low", "balanced-custom"] };
+    const onNativeReasoningChange = vi.fn(), onReasoningChange = vi.fn();
+    await act(async () => root.render(<ModelSelector models={[native]} value={native} nativeReasoningLevel="low" onChange={() => {}} onReasoningChange={onReasoningChange} onNativeReasoningChange={onNativeReasoningChange} />));
+    await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>(".model-selector-reasoning")!.click());
+    const custom = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((option) => option.textContent === "balanced-custom")!;
+    expect(custom).toBeDefined();
+    await act(async () => custom.click());
+    expect(onNativeReasoningChange).toHaveBeenCalledExactlyOnceWith("balanced-custom");
+    expect(onReasoningChange).not.toHaveBeenCalled();
+  });
+
   it.each(["chat", "canvas"] as const)("shows the model and reasoning in one button and changes depth through its menu in the %s variant", async (variant) => {
     const onChange = vi.fn(), onReasoningChange = vi.fn();
     function Selector() {
@@ -93,19 +106,20 @@ describe("ModelSelector interaction", () => {
     const menu = document.querySelector('[role="menu"]')!;
     expect(menu.getAttribute("aria-label")).toBe("Reasoning levels");
     expect(menu.parentElement?.id).toBe(button.getAttribute("aria-controls"));
-    expect(menu.textContent).toContain("xHigh");
-    expect(menu.textContent).not.toContain("Extra high");
+    const options = menu.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]');
+    expect(options).toHaveLength(reasoningModel.reasoningLevels.length);
     expect(button.getAttribute("aria-expanded")).toBe("true");
-    expect(document.activeElement?.textContent).toBe("High");
+    expect(document.activeElement).toBe(options[2]);
     await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect(document.activeElement?.textContent).toBe("xHigh");
+    expect(document.activeElement).toBe(options[3]);
+    const nextLabel = options[3]!.textContent;
     await act(async () => (document.activeElement as HTMLButtonElement).click());
     expect(onReasoningChange).toHaveBeenCalledExactlyOnceWith("xhigh");
     expect(onChange).not.toHaveBeenCalled();
     expect(document.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(button);
-    expect(button.querySelector(".model-selector-reasoning-value")?.textContent).toBe("xHigh");
-    expect(button.getAttribute("aria-description")).toBe("Reasoning: xHigh");
+    expect(button.querySelector(".model-selector-reasoning-value")?.textContent).toBe(nextLabel);
+    expect(button.getAttribute("aria-description")).toBe(`Reasoning: ${nextLabel}`);
   });
 
   it("returns from reasoning with Escape, arrow keys or Back, and restores focus when closing", async () => {

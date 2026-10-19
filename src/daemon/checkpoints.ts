@@ -14,6 +14,7 @@ import {
   symlink,
 } from "node:fs/promises";
 import path from "node:path";
+import ignore, { type Ignore } from "ignore";
 import type { ProjectState, TurnChanges } from "../shared/contracts.js";
 import { countLineChanges } from "../shared/line-diff.js";
 import { changeText, MAX_CHANGE_BYTES } from "./file-line-changes.js";
@@ -21,6 +22,7 @@ import {
   BUFFERED_BYTES,
   FileChangedError,
   CheckpointFileTooLargeError,
+  DamagedObjectError,
   ObjectVerifier,
   SourceError,
   TREE_MODE,
@@ -33,7 +35,11 @@ import {
   readCommitTree,
   readHead,
   readObject,
+  readObjectType,
   readTree,
+  hasObjectFile,
+  listObjects,
+  removeObject,
   writeAtomically,
   writeBlobTo,
   writeCommit,
@@ -67,6 +73,12 @@ export interface CheckpointUndoResult extends CheckpointRestoreResult {
    * as they are, and with a list of paths to overwrite they were overwritten.
    */
   conflicts: string[];
+}
+
+export interface CheckpointPruneResult {
+  /** How many stored objects were removed, and how many bytes they took on disk. */
+  removed: number;
+  bytes: number;
 }
 
 /** Two snapshots that enclose the changes to undo, such as one Agent turn. */
@@ -170,6 +182,8 @@ interface Snapshot extends Commit {
   /** Every file the snapshot holds, as the walk saw it. */
   seen: Signatures;
   paths: WorkspacePaths;
+  /** The `.gitignore` rules of each folder the walk went into. */
+  rules: Map<string, GitignoreRules>;
 }
 
 interface Walk {
@@ -182,6 +196,7 @@ interface Walk {
   paths: WorkspacePaths;
   objects: ObjectVerifier;
   unreadable: string[];
+  rules: Map<string, GitignoreRules>;
 }
 
 interface Comparison {
@@ -197,6 +212,10 @@ interface Progress {
 
 const STAT_CACHE_FILE = "ohmygame-stat-cache.json";
 const UNFINISHED_FILE = "ohmygame-unfinished.json";
+const PRUNED_FILE = "ohmygame-pruned.json";
+// A snapshot can be taken some time before the entry that names it is written: the snapshot that closes a turn is
+// recorded when the whole run is over. What was written this recently is kept, with everything it needs.
+const PRUNE_GRACE_MS = 24 * 60 * 60 * 1000;
 const FILE_CONCURRENCY = 16;
 const READ_ATTEMPTS = 3;
 // A file changed this recently can change again without its size or times showing it: file systems keep times
@@ -218,6 +237,14 @@ const EXCLUDED_AT_ROOT = new Set([
   ".data/agent-attachments",
   "canvas/jobs.json",
 ]);
+// What a project's `.gitignore` files ignore is left out as well, wherever they are, except the files OhMyGame keeps
+// for the project at the workspace root, which must go back together with the assets they describe, and the
+// `.gitignore` files themselves, which say what each snapshot left out.
+const GITIGNORE = ".gitignore";
+const KEPT_DESPITE_GITIGNORE = [".data", "canvas"];
+const MAX_GITIGNORE_BYTES = 1024 * 1024;
+const CASE_INSENSITIVE =
+  process.platform === "darwin" || process.platform === "win32";
 const TEMPORARY_PREFIX = ".ohmygame-checkpoint-";
 const TEMPORARY_SUFFIX = ".tmp";
 // A file that is gone by the time it is read is left out of a snapshot: the folder it was listed in changed meanwhile.
@@ -247,11 +274,69 @@ function temporary(name: string): boolean {
 }
 
 /**
+ * The `.gitignore` rules that apply in one folder of a workspace, from the
+ * root down. As in git, the deepest file that says anything about a path
+ * decides, and nothing below an ignored folder is looked at.
+ */
+class GitignoreRules {
+  static readonly none = new GitignoreRules([]);
+
+  private constructor(
+    readonly levels: ReadonlyArray<{ base: string; rules: Ignore }>,
+  ) {}
+
+  /** The rules of a folder at `base` whose `.gitignore` holds `rules`. */
+  within(base: string, rules: Ignore | undefined): GitignoreRules {
+    return rules ? new GitignoreRules([...this.levels, { base, rules }]) : this;
+  }
+
+  ignores(relativePath: string, folder: boolean): boolean {
+    if (
+      path.posix.basename(relativePath) === GITIGNORE ||
+      KEPT_DESPITE_GITIGNORE.some(
+        (kept) => relativePath === kept || relativePath.startsWith(`${kept}/`),
+      )
+    )
+      return false;
+    for (let index = this.levels.length - 1; index >= 0; index -= 1) {
+      const { base, rules } = this.levels[index]!;
+      const local = base ? relativePath.slice(base.length + 1) : relativePath;
+      let result: { ignored: boolean; unignored: boolean };
+      try {
+        result = rules.test(folder ? `${local}/` : local);
+      } catch {
+        // A name the matcher does not take is recorded, which never loses anything.
+        return false;
+      }
+      if (result.ignored) return true;
+      if (result.unignored) return false;
+    }
+    return false;
+  }
+}
+
+/** The rules a `.gitignore` holds. Undefined for one that is too large or that the matcher cannot take: it ignores nothing. */
+function gitignoreRules(content: Buffer): Ignore | undefined {
+  if (content.length > MAX_GITIGNORE_BYTES) return undefined;
+  try {
+    // Git compares names without case where the file system does by default.
+    return ignore({ ignorecase: CASE_INSENSITIVE }).add(
+      content.toString("utf8"),
+    );
+  } catch {
+    // Rules the matcher cannot take ignore nothing, wherever they are read.
+    return undefined;
+  }
+}
+
+/**
  * Snapshots of a project's workspace in a git object store, so the changes
  * between two snapshots can be shown and undone. The store never uses the
- * workspace's own `.git` or `.gitignore`. Excluded paths are never recorded
- * and never touched. Neither is a path that could not be read when one of the
- * snapshots an operation looks at was taken: each snapshot names those paths.
+ * workspace's own `.git`, but leaves out what its `.gitignore` files ignore.
+ * Excluded paths are never recorded and never touched. Neither is a path that
+ * a `.gitignore` of one of the snapshots an operation looks at ignores, nor a
+ * path that could not be read when one of them was taken: each snapshot
+ * names those paths.
  *
  * A restore or an undo replaces or removes a file only when a snapshot holds
  * it exactly as it is on disk, so what it overwrites can be had back. The
@@ -262,6 +347,15 @@ export class CheckpointStore {
   readonly #queues = new Map<string, Promise<unknown>>();
   readonly #limit = limiter(FILE_CONCURRENCY);
   readonly #objects = new ObjectVerifier();
+  readonly #gitignores = new Map<string, Ignore | undefined>();
+  /** One prune per store, including the snapshots handed out while it runs. */
+  readonly #prunes = new Map<
+    string,
+    {
+      issued: Set<string>;
+      result: Promise<CheckpointPruneResult | undefined>;
+    }
+  >();
 
   /** Records the workspace as it is now and returns the commit that holds it. */
   snapshot(project: CheckpointProject): Promise<string> {
@@ -393,6 +487,122 @@ export class CheckpointStore {
       throw new Error("Invalid checkpoint recovery record");
     await readCommit(gitdir, previous);
     return previous;
+  }
+
+  /**
+   * Removes the snapshots that nothing names any more, with the files that
+   * only they held. `referenced` lists the snapshots that something outside
+   * the store still names, such as the entries on every branch of every
+   * conversation.
+   *
+   * Kept besides are the newest snapshot, the one an unfinished restore goes
+   * back to, every snapshot this store hands out while the prune runs, and
+   * everything written in the last day, with all they need. A snapshot is not
+   * kept for being the parent of another: every snapshot is, so `git log` on
+   * the store stops where one was removed. A snapshot or folder that is named
+   * and cannot be read stops the prune before anything is removed, because
+   * what it needs is not known. One that is not there at all needs nothing.
+   *
+   * What the named snapshots need is worked out beside other operations.
+   * Object enumeration, final reachability checks and removal wait for them.
+   * `proceed` is asked once it is their turn, and the prune is left for later
+   * when it says no, for example while the project is being removed or changed.
+   *
+   * Concurrent requests share the running prune. Undefined when the last
+   * prune was less than `interval` ago.
+   */
+  prune(
+    project: CheckpointProject,
+    referenced: () => Promise<Iterable<string>>,
+    options: {
+      interval?: number;
+      proceed?: () => boolean;
+    } = {},
+  ): Promise<CheckpointPruneResult | undefined> {
+    const gitdir = checkpointDirectory(project);
+    const pending = this.#prunes.get(gitdir);
+    if (pending) return pending.result;
+    // A snapshot handed out from now on may be named before the removal although nothing named it before.
+    const issued = new Set<string>();
+    const run = async (): Promise<CheckpointPruneResult | undefined> => {
+      // A project without checkpoints does not get a store from this.
+      if (!(await present(path.join(gitdir, "HEAD"))))
+        return { removed: 0, bytes: 0 };
+      if (!(await due(gitdir, Date.now(), options.interval ?? 0)))
+        return undefined;
+      const kept = new Set<string>();
+      for (const root of await referenced())
+        if (/^[0-9a-f]{40}$/.test(root)) await this.#keep(gitdir, root, kept);
+      return this.#serialize(project, async () => {
+        const started = Date.now();
+        if (
+          options.proceed?.() === false ||
+          !(await present(path.join(gitdir, "HEAD"))) ||
+          !(await due(gitdir, started, options.interval ?? 0))
+        )
+          return undefined;
+        const recent = started - PRUNE_GRACE_MS;
+        const objects = await listObjects(gitdir, recent);
+        const roots = [
+          ...issued,
+          (await readHead(gitdir)) ?? "",
+          (await this.#unfinished(gitdir)) ?? "",
+          ...objects
+            .filter((object) => object.changedMs >= recent)
+            .map((object) => object.oid),
+        ];
+        for (const root of roots)
+          if (/^[0-9a-f]{40}$/.test(root)) await this.#keep(gitdir, root, kept);
+        const result: CheckpointPruneResult = { removed: 0, bytes: 0 };
+        for (const object of objects) {
+          if (kept.has(object.oid) || object.changedMs >= recent) continue;
+          await removeObject(gitdir, object.oid);
+          result.removed += 1;
+          result.bytes += object.size;
+        }
+        await writeAtomically(
+          gitdir,
+          path.join(gitdir, PRUNED_FILE),
+          JSON.stringify({ at: started }),
+        );
+        return result;
+      });
+    };
+    const result = run().finally(() => this.#prunes.delete(gitdir));
+    this.#prunes.set(gitdir, { issued, result });
+    return result;
+  }
+
+  /** Adds an object to `kept` with everything it needs. Reading goes on beside other reads, a few at a time. */
+  async #keep(gitdir: string, oid: string, kept: Set<string>): Promise<void> {
+    if (kept.has(oid)) return;
+    kept.add(oid);
+    let type: "blob" | "tree" | "commit";
+    try {
+      type = await this.#limit(() => readObjectType(gitdir, oid));
+    } catch (error) {
+      // An object that is not there at all needs nothing. One that is there and cannot be read stops the prune.
+      if (
+        error instanceof DamagedObjectError &&
+        !(await hasObjectFile(gitdir, oid))
+      )
+        return;
+      throw error;
+    }
+    if (type === "commit")
+      await this.#keep(
+        gitdir,
+        (await this.#limit(() => readCommit(gitdir, oid))).tree,
+        kept,
+      );
+    if (type !== "tree") return;
+    const entries = await this.#limit(() => readTree(gitdir, oid));
+    await all(
+      entries.map(async (entry) => {
+        if (entry.mode === TREE_MODE) await this.#keep(gitdir, entry.oid, kept);
+        else kept.add(entry.oid);
+      }),
+    );
   }
 
   /**
@@ -571,7 +781,7 @@ export class CheckpointStore {
     gitdir: string,
     before: Commit,
     after: Commit,
-    current: Commit,
+    current: Snapshot,
     overwrite: boolean,
     scope?: Set<string>,
   ): Promise<{
@@ -644,7 +854,10 @@ export class CheckpointStore {
     return {
       changes: [...changes.values()],
       changedAgain,
-      unreadable: [...inRange].filter((file) => within(file, now)),
+      // A file of the range that the workspace's `.gitignore` ignores by now is not touched either, and is named.
+      unreadable: [...inRange].filter(
+        (file) => within(file, now) || ignoredNow(current, file),
+      ),
     };
   }
 
@@ -713,7 +926,12 @@ export class CheckpointStore {
         if (
           found === "taken" ||
           (found === "folder" &&
-            !(await current.paths.holdsOnly(change.path, removing, unreadable)))
+            !(await current.paths.holdsOnly(
+              change.path,
+              removing,
+              unreadable,
+              current.rules,
+            )))
         )
           blocked.push(change.path);
       }),
@@ -932,6 +1150,10 @@ export class CheckpointStore {
     }
   }
 
+  #issue(gitdir: string, commit: string): void {
+    this.#prunes.get(gitdir)?.issued.add(commit);
+  }
+
   async #snapshot(project: CheckpointProject): Promise<Snapshot> {
     const gitdir = checkpointDirectory(project);
     // A project that is being removed has no workspace any more, and must not get the folder of its store back.
@@ -949,9 +1171,10 @@ export class CheckpointStore {
       paths,
       objects: this.#objects,
       unreadable: [],
+      rules: new Map(),
     };
     const tree =
-      (await this.#writeDirectory(walk, "")) ??
+      (await this.#writeDirectory(walk, "", GitignoreRules.none)) ??
       (await writeTree(gitdir, [], walk.objects));
     // The cache is only there for speed, so a failure to write it is not a failure of the snapshot.
     await writeAtomically(
@@ -968,8 +1191,17 @@ export class CheckpointStore {
       head &&
       recorded?.tree === tree &&
       recorded.unreadable.join("\0") === unreadable.join("\0")
-    )
-      return { commit: head, tree, unreadable, seen: walk.seen, paths };
+    ) {
+      this.#issue(gitdir, head);
+      return {
+        commit: head,
+        tree,
+        unreadable,
+        seen: walk.seen,
+        paths,
+        rules: walk.rules,
+      };
+    }
     const commit = await writeCommit(
       gitdir,
       tree,
@@ -978,68 +1210,103 @@ export class CheckpointStore {
       walk.objects,
     );
     await writeHead(gitdir, commit);
-    return { commit, tree, unreadable, seen: walk.seen, paths };
+    this.#issue(gitdir, commit);
+    return {
+      commit,
+      tree,
+      unreadable,
+      seen: walk.seen,
+      paths,
+      rules: walk.rules,
+    };
   }
 
   /**
    * Writes one folder as a tree and returns its id, or undefined when nothing
    * in it is kept. An entry that may not be read is noted, a folder once and
-   * under its own path, and left out.
+   * under its own path, and left out. So is what a `.gitignore` ignores.
    */
   async #writeDirectory(
     walk: Walk,
     relative: string,
+    inherited: GitignoreRules,
   ): Promise<string | undefined> {
     await walk.paths.directory(relative);
     const names = await this.#limit(() =>
       fromSource(readdir(path.join(walk.workspace, relative))),
     );
+    // Record the ignore file first, then use those exact bytes as the rules.
+    // Reading it separately could skip files under rules the snapshot never held.
+    const own = names.includes(GITIGNORE)
+      ? await this.#writeEntry(walk, relative, GITIGNORE, inherited)
+      : undefined;
+    const rules =
+      own && own.mode !== TREE_MODE && own.mode !== "120000"
+        ? inherited.within(
+            relative,
+            await this.#gitignore(walk.gitdir, own.oid),
+          )
+        : inherited;
+    walk.rules.set(relative, rules);
     const entries = (
       await all(
-        names.map(async (name): Promise<TreeEntry | undefined> => {
-          const entryPath = relative ? `${relative}/${name}` : name;
-          if (excluded(entryPath)) {
-            // What a restore that was cut off left behind. No restore is under way now: operations run one at a time.
-            if (temporary(name)) {
-              await walk.paths.check(entryPath);
-              await rm(path.join(walk.workspace, entryPath), {
-                force: true,
-              }).catch(() => {});
-            }
-            return undefined;
-          }
-          try {
-            const file = await this.#limit(async () => {
-              await walk.paths.check(entryPath);
-              const stats = await fromSource(
-                lstat(path.join(walk.workspace, entryPath)),
-              );
-              if (stats.isDirectory()) {
-                walk.paths.record(entryPath, stats);
-                return "folder" as const;
-              }
-              return stats.isFile() || stats.isSymbolicLink()
-                ? await this.#writeFile(walk, entryPath, stats)
-                : undefined;
-            });
-            if (file !== "folder") return file && { ...file, name };
-            const oid = await this.#writeDirectory(walk, entryPath);
-            return oid ? { mode: TREE_MODE, name, oid } : undefined;
-          } catch (error) {
-            if (!(error instanceof SourceError)) throw error;
-            // The workspace is in use: something listed a moment ago, such as a build tool's temporary file, can be gone by now.
-            if (GONE.has(error.code ?? "")) return undefined;
-            if (!UNREADABLE.has(error.code ?? "")) throw error;
-            walk.unreadable.push(entryPath);
-            return undefined;
-          }
-        }),
+        names.map(async (name) =>
+          name === GITIGNORE
+            ? own
+            : this.#writeEntry(walk, relative, name, rules),
+        ),
       )
     ).filter((entry) => entry !== undefined);
     await walk.paths.directory(relative);
     return entries.length
       ? await this.#limit(() => writeTree(walk.gitdir, entries, walk.objects))
       : undefined;
+  }
+
+  /** Records one directory entry, including the ignore file used by its siblings. */
+  async #writeEntry(
+    walk: Walk,
+    relative: string,
+    name: string,
+    rules: GitignoreRules,
+  ): Promise<TreeEntry | undefined> {
+    const entryPath = relative ? `${relative}/${name}` : name;
+    if (excluded(entryPath)) {
+      // What a restore that was cut off left behind. No restore is under way now: operations run one at a time.
+      if (temporary(name)) {
+        await walk.paths.check(entryPath);
+        await rm(path.join(walk.workspace, entryPath), { force: true }).catch(
+          () => {},
+        );
+      }
+      return undefined;
+    }
+    try {
+      const file = await this.#limit(async () => {
+        await walk.paths.check(entryPath);
+        const stats = await fromSource(
+          lstat(path.join(walk.workspace, entryPath)),
+        );
+        if (rules.ignores(entryPath, stats.isDirectory())) return undefined;
+        if (stats.isDirectory()) {
+          walk.paths.record(entryPath, stats);
+          return "folder" as const;
+        }
+        return stats.isFile() || stats.isSymbolicLink()
+          ? await this.#writeFile(walk, entryPath, stats)
+          : undefined;
+      });
+      if (file !== "folder") return file && { ...file, name };
+      const oid = await this.#writeDirectory(walk, entryPath, rules);
+      return oid ? { mode: TREE_MODE, name, oid } : undefined;
+    } catch (error) {
+      if (!(error instanceof SourceError)) throw error;
+      // Build tools and external editors can remove or replace a listed file before it is read.
+      if (GONE.has(error.code ?? "")) return undefined;
+      if (!UNREADABLE.has(error.code ?? "")) throw error;
+      walk.unreadable.push(entryPath);
+      return undefined;
+    }
   }
 
   /** Stores one file or symbolic link and returns its tree entry. A file that changes while it is read is read again. */
@@ -1110,7 +1377,8 @@ export class CheckpointStore {
    * snapshot. The snapshot does not tell what was there, so the path must not
    * show as added or removed, and must be neither written nor removed. That
    * holds for the path in whichever spelling: see `folded`. `also` are
-   * further snapshots the caller looks at together with these two.
+   * further snapshots the caller looks at together with these two. A path
+   * that the `.gitignore` files of any of them ignore is left out entirely.
    */
   async #compare(
     gitdir: string,
@@ -1118,9 +1386,14 @@ export class CheckpointStore {
     to: Commit,
     also: Commit[] = [],
   ): Promise<Comparison> {
-    const unreadable = unread([from, to, ...also]);
+    const snapshots = [from, to, ...also];
+    const unreadable = unread(snapshots);
     const comparison: Comparison = { changes: [], omitted: [] };
-    for (const change of await this.#diff(gitdir, from.tree, to.tree))
+    for (const change of await this.#diff(
+      gitdir,
+      snapshots.map((snapshot) => snapshot.tree),
+      snapshots.map(() => GitignoreRules.none),
+    ))
       (within(change.path, unreadable)
         ? comparison.omitted
         : comparison.changes
@@ -1128,19 +1401,41 @@ export class CheckpointStore {
     return comparison;
   }
 
-  /** Collects the files that differ between two trees, for `#compare` alone. Subtrees with the same id are skipped whole. */
+  /**
+   * Collects the files that differ between the first two trees, for
+   * `#compare` alone. Subtrees with the same id are skipped whole. The other
+   * trees are only read for their `.gitignore` files: each snapshot holds the
+   * ones that applied when it was taken, so a turn that changes a
+   * `.gitignore` neither shows nor takes back the files that only one side
+   * ignores.
+   */
   async #diff(
     gitdir: string,
-    from: string | undefined,
-    to: string | undefined,
+    trees: Array<string | undefined>,
+    inherited: GitignoreRules[],
     prefix = "",
     changes: Change[] = [],
   ): Promise<Change[]> {
+    const [from, to] = trees;
     if (from === to) return changes;
-    const [before, after] = await Promise.all([
-      this.#entries(gitdir, from),
-      this.#entries(gitdir, to),
-    ]);
+    const entries = await Promise.all(
+      trees.map((tree) => this.#entries(gitdir, tree)),
+    );
+    const rules = await Promise.all(
+      entries.map(async (found, index) => {
+        const file = found.get(GITIGNORE);
+        return file && file.mode !== TREE_MODE && file.mode !== "120000"
+          ? inherited[index]!.within(
+              prefix,
+              await this.#gitignore(gitdir, file.oid),
+            )
+          : inherited[index]!;
+      }),
+    );
+    const [before, after] = entries as [
+      Map<string, TreeEntry>,
+      Map<string, TreeEntry>,
+    ];
     for (const name of new Set([...before.keys(), ...after.keys()])) {
       const left = before.get(name);
       const right = after.get(name);
@@ -1148,10 +1443,36 @@ export class CheckpointStore {
       // Old checkpoints may contain paths that are now excluded.
       if (excluded(entryPath)) continue;
       if (left?.oid === right?.oid && left?.mode === right?.mode) continue;
+      // Each snapshot's rules are asked about the path as what it is there; one that does not hold it asks for both.
+      const kinds = [left, right].flatMap((entry) =>
+        entry ? [entry.mode === TREE_MODE] : [],
+      );
+      if (
+        rules.some((own, index) => {
+          const entry = entries[index]!.get(name);
+          return (entry ? [entry.mode === TREE_MODE] : kinds).some((folder) =>
+            own.ignores(entryPath, folder),
+          );
+        })
+      )
+        continue;
       const leftTree = left?.mode === TREE_MODE ? left.oid : undefined;
       const rightTree = right?.mode === TREE_MODE ? right.oid : undefined;
       if (leftTree || rightTree)
-        await this.#diff(gitdir, leftTree, rightTree, entryPath, changes);
+        await this.#diff(
+          gitdir,
+          [
+            leftTree,
+            rightTree,
+            ...entries.slice(2).map((found) => {
+              const entry = found.get(name);
+              return entry?.mode === TREE_MODE ? entry.oid : undefined;
+            }),
+          ],
+          rules,
+          entryPath,
+          changes,
+        );
       const leftFile =
         left && !leftTree ? { oid: left.oid, mode: left.mode } : undefined;
       const rightFile =
@@ -1164,6 +1485,24 @@ export class CheckpointStore {
         });
     }
     return changes;
+  }
+
+  /** The rules of a stored `.gitignore`. They are kept by content, which is the same in every store. */
+  async #gitignore(gitdir: string, oid: string): Promise<Ignore | undefined> {
+    if (!this.#gitignores.has(oid)) {
+      let rules: Ignore | undefined;
+      try {
+        rules = gitignoreRules(
+          await readBlobLimited(gitdir, oid, MAX_GITIGNORE_BYTES),
+        );
+      } catch (cause) {
+        if (!(cause instanceof CheckpointFileTooLargeError)) throw cause;
+      }
+      if (this.#gitignores.size >= 1_024)
+        this.#gitignores.delete(this.#gitignores.keys().next().value!);
+      this.#gitignores.set(oid, rules);
+    }
+    return this.#gitignores.get(oid);
   }
 
   async #entries(
@@ -1193,6 +1532,27 @@ export class CheckpointStore {
     });
     return result;
   }
+}
+
+/**
+ * Whether the workspace's `.gitignore` files ignored a path when the snapshot
+ * was taken, as a file or below an ignored folder. A path below a folder that
+ * was not there is not ignored.
+ */
+function ignoredNow(snapshot: Snapshot, filePath: string): boolean {
+  const names = filePath.split("/");
+  for (let index = 0; index < names.length; index += 1) {
+    const rules = snapshot.rules.get(names.slice(0, index).join("/"));
+    if (!rules) return false;
+    if (
+      rules.ignores(
+        names.slice(0, index + 1).join("/"),
+        index < names.length - 1,
+      )
+    )
+      return true;
+  }
+  return false;
 }
 
 /** Waits for every operation, also after one failed, so that nothing is still running when the failure is reported. */
@@ -1352,16 +1712,25 @@ class WorkspacePaths {
     relative: string,
     removing: ReadonlySet<string>,
     unreadable: ReadonlySet<string>,
+    rules: ReadonlyMap<string, GitignoreRules>,
   ): Promise<boolean> {
     await this.directory(relative);
+    // A folder the snapshot did not go into was left out as a whole.
+    const here = rules.get(relative);
     for (const entry of await readdir(path.join(this.workspace, relative), {
       withFileTypes: true,
     })) {
       const entryPath = `${relative}/${entry.name}`;
-      // An excluded file is never removed, even when it is a hard link to an included one.
-      if (excluded(entryPath) || within(entryPath, unreadable)) return false;
+      // An excluded or ignored file is never removed, even when it is a hard link to an included one.
+      if (
+        excluded(entryPath) ||
+        within(entryPath, unreadable) ||
+        !here ||
+        here.ignores(entryPath, entry.isDirectory())
+      )
+        return false;
       if (entry.isDirectory()) {
-        if (!(await this.holdsOnly(entryPath, removing, unreadable)))
+        if (!(await this.holdsOnly(entryPath, removing, unreadable, rules)))
           return false;
       } else {
         await this.check(entryPath);
@@ -1415,6 +1784,28 @@ async function present(target: string): Promise<Stats | undefined> {
     if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined;
     throw error;
   });
+}
+
+/** Whether the store was last pruned at least `interval` ago, or at a time that is not known or still to come. */
+async function due(
+  gitdir: string,
+  now: number,
+  interval: number,
+): Promise<boolean> {
+  let at: unknown;
+  try {
+    ({ at } = JSON.parse(
+      await readFile(path.join(gitdir, PRUNED_FILE), "utf8"),
+    ) as { at?: unknown });
+  } catch {
+    return true;
+  }
+  return (
+    typeof at !== "number" ||
+    !Number.isFinite(at) ||
+    at > now ||
+    now - at >= interval
+  );
 }
 
 async function readStatCache(gitdir: string): Promise<StatCache> {

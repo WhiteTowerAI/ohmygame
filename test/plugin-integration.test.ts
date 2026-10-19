@@ -491,7 +491,7 @@ describe("plugin integration", () => {
       });
       await vi.waitFor(async () =>
         expect(
-          (await app.inject({ url: "/projects/activity" })).json(),
+          (await app.inject({ url: "/projects/activity" })).json().activity,
         ).toEqual([]),
       );
       return response.statusCode;

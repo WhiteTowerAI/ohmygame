@@ -21,6 +21,8 @@ const MIME: Record<string, string> = {
   ".ogg": "audio/ogg",
   ".wav": "audio/wav",
   ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".txt": "text/plain; charset=utf-8",
   ".woff2": "font/woff2",
   ".glb": "model/gltf-binary",
 };
@@ -75,16 +77,29 @@ export async function startStaticPreview(
           .end();
         return;
       }
-      outgoing.writeHead(200, {
+      // Media can only seek when the server answers byte ranges.
+      const { size } = await stat(filename);
+      const range =
+        incoming.method === "GET"
+          ? byteRange(incoming.headers.range, size)
+          : undefined;
+      if (range === "unsatisfiable") {
+        outgoing.writeHead(416, { "content-range": `bytes */${size}` }).end();
+        return;
+      }
+      outgoing.writeHead(range ? 206 : 200, {
         "content-type":
           MIME[path.extname(filename)] ?? "application/octet-stream",
         "cache-control": "no-store",
+        "accept-ranges": "bytes",
+        "content-length": String(range ? range.end - range.start + 1 : size),
+        ...(range ? { "content-range": `bytes ${range.start}-${range.end}/${size}` } : {}),
       });
       if (incoming.method === "HEAD") {
         outgoing.end();
         return;
       }
-      const stream = createReadStream(filename);
+      const stream = createReadStream(filename, range ?? {});
       stream.on("error", () => outgoing.destroy());
       outgoing.once("close", () => stream.destroy());
       stream.pipe(outgoing);
@@ -107,4 +122,14 @@ export async function startStaticPreview(
         server.close(() => resolve());
       }),
   };
+}
+
+/** One `bytes=` range of a file, as browsers ask for media; anything else gets the whole file. */
+function byteRange(header: string | undefined, size: number): { start: number; end: number } | "unsatisfiable" | undefined {
+  const match = header && /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (!match[1] && !match[2])) return undefined;
+  const start = match[1] ? Number(match[1]) : Math.max(0, size - Number(match[2]));
+  const end = match[1] && match[2] ? Math.min(Number(match[2]), size - 1) : size - 1;
+  if (start >= size || start > end) return "unsatisfiable";
+  return { start, end };
 }

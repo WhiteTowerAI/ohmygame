@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process";
+import { mkdirSync, rmSync } from "node:fs";
 import {
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rename,
   rm,
   symlink,
@@ -11,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import {
   listWorkspaceGitChanges,
@@ -19,11 +21,27 @@ import {
 } from "../src/daemon/workspace-git.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  const wrapped = vi.fn(actual.execFile);
+  // Keep Node's custom promisify behavior for real Git fixture commands.
+  for (const key of Object.getOwnPropertySymbols(actual.execFile)) {
+    Object.defineProperty(
+      wrapped,
+      key,
+      Object.getOwnPropertyDescriptor(actual.execFile, key)!,
+    );
+  }
+  return { ...actual, execFile: wrapped };
+});
+
 const run = promisify(execFile);
 let directory: string;
 let workspace: string;
 beforeEach(async () => {
-  directory = await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-git-"));
+  directory = await realpath(
+    await mkdtemp(path.join(tmpdir(), "ohmygame-workspace-git-")),
+  );
   workspace = path.join(directory, "workspace");
   await mkdir(workspace);
 });
@@ -108,6 +126,248 @@ describe("read-only workspace Git changes", () => {
     });
     expect(await readFile(path.join(workspace, ".git/index"))).toEqual(index);
     expect((await git("rev-parse", "HEAD")).stdout).toBe(head.stdout);
+  });
+
+  it.each(["before\n", "", "after\nextra\n"])(
+    "compares an index removal with the remaining workspace content %j",
+    async (content) => {
+      await git("init", "-q");
+      await write("game.txt", "before\n");
+      await commit();
+      await git("rm", "--cached", "game.txt");
+      await write("game.txt", content);
+      const index = await readFile(path.join(workspace, ".git/index"));
+      const head = (await git("rev-parse", "HEAD")).stdout;
+      const objects = (await git("count-objects", "-v")).stdout;
+      expect((await listWorkspaceGitChanges(workspace)).changes).toEqual(
+        content === "before\n"
+          ? []
+          : [
+              {
+                path: "game.txt",
+                kind: "modified",
+                untracked: true,
+                lines: { added: content === "" ? 0 : 2, removed: 1 },
+              },
+            ],
+      );
+      if (content === "before\n") {
+        await expect(
+          readWorkspaceGitFile(workspace, "game.txt"),
+        ).rejects.toMatchObject({ code: "ENOENT" });
+      } else {
+        expect(await readWorkspaceGitFile(workspace, "game.txt")).toMatchObject(
+          {
+            before: { content: "before\n" },
+            after: { content },
+          },
+        );
+      }
+      expect(await readFile(path.join(workspace, ".git/index"))).toEqual(index);
+      expect((await git("rev-parse", "HEAD")).stdout).toBe(head);
+      expect((await git("count-objects", "-v")).stdout).toBe(objects);
+    },
+  );
+
+  it("retains binary attributes and bounded previews after an index removal", async () => {
+    await git("init", "-q");
+    await write(".gitattributes", "data.txt -diff\n");
+    await write("data.txt", "before\n");
+    await write("binary.bin", Buffer.from([0, 1]));
+    await write("large.txt", "before\n".repeat(40_000));
+    await commit();
+    await git("rm", "--cached", "data.txt", "binary.bin", "large.txt");
+    expect((await listWorkspaceGitChanges(workspace)).changes).toEqual([]);
+    await write("data.txt", "after\n");
+    await write("binary.bin", Buffer.from([0, 2]));
+    await write("large.txt", "after\n");
+    expect((await listWorkspaceGitChanges(workspace)).changes).toEqual([
+      { path: "binary.bin", kind: "modified", untracked: true },
+      { path: "data.txt", kind: "modified", untracked: true },
+      {
+        path: "large.txt",
+        kind: "modified",
+        untracked: true,
+        lines: { added: 1, removed: 40_000 },
+      },
+    ]);
+    expect(await readWorkspaceGitFile(workspace, "data.txt")).toMatchObject({
+      before: { binary: true },
+      after: { binary: true },
+    });
+    expect(await readWorkspaceGitFile(workspace, "binary.bin")).toMatchObject({
+      before: { binary: true },
+      after: { binary: true },
+    });
+    expect(await readWorkspaceGitFile(workspace, "large.txt")).toMatchObject({
+      before: { truncated: true },
+      after: { content: "after\n" },
+    });
+  });
+
+  it.each([false, true])(
+    "honors CRLF normalization and core.filemode after an index removal (binary attribute: %s)",
+    async (binary) => {
+      await git("init", "-q");
+      await git("config", "core.autocrlf", "true");
+      await git("config", "core.filemode", "false");
+      await write(".gitattributes", binary ? "game.txt -diff\n" : "");
+      await write("game.txt", "before\r\n");
+      await git("add", ".");
+      await git("update-index", "--chmod=+x", "game.txt");
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "executable",
+      );
+      await git("rm", "--cached", "game.txt");
+      expect((await listWorkspaceGitChanges(workspace)).changes).toEqual([]);
+      await write("game.txt", "after\r\n");
+      expect((await listWorkspaceGitChanges(workspace)).changes).toEqual([
+        {
+          path: "game.txt",
+          kind: "modified",
+          untracked: true,
+          ...(binary ? {} : { lines: { added: 1, removed: 1 } }),
+        },
+      ]);
+    },
+  );
+
+  it.each(["sha1", "sha256"])(
+    "preserves literal paths after an index removal in a %s repository",
+    async (format) => {
+      await git("init", "-q", `--object-format=${format}`);
+      const names = ["场景 space.txt", "-option.txt"];
+      for (const name of names) await write(name, "before\n");
+      await commit();
+      await git("rm", "--cached", "--", ...names);
+      expect((await listWorkspaceGitChanges(workspace)).changes).toEqual([]);
+      for (const name of names) await write(name, "after\n");
+      expect((await listWorkspaceGitChanges(workspace)).changes).toHaveLength(
+        2,
+      );
+      for (const name of names) {
+        expect(await readWorkspaceGitFile(workspace, name)).toMatchObject({
+          before: { content: "before\n" },
+          after: { content: "after\n" },
+        });
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "honors core.symlinks=%s after an index removal without following links",
+    async (symlinks) => {
+      await git("init", "-q");
+      await git("config", "core.symlinks", String(symlinks));
+      await write("link.txt", "target.txt");
+      const oid = (await git("hash-object", "-w", "link.txt")).stdout.trim();
+      await git(
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `120000,${oid},link.txt`,
+      );
+      await git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-qm",
+        "link",
+      );
+      await git("rm", "--cached", "link.txt");
+      expect((await listWorkspaceGitChanges(workspace)).changes).toEqual(
+        symlinks
+          ? [
+              {
+                path: "link.txt",
+                kind: "modified",
+                untracked: true,
+                lines: { added: 0, removed: 0 },
+              },
+            ]
+          : [],
+      );
+      await write("link.txt", "another.txt");
+      expect((await listWorkspaceGitChanges(workspace)).changes).toEqual([
+        {
+          path: "link.txt",
+          kind: "modified",
+          untracked: true,
+          lines: { added: 1, removed: 1 },
+        },
+      ]);
+      expect(
+        (await readWorkspaceGitFile(workspace, "link.txt")).unsupported,
+      ).toBe(true);
+    },
+  );
+
+  it.each(["removed", "directory"])(
+    "retains the deletion when an untracked file becomes %s during inspection",
+    async (replacement) => {
+      await git("init", "-q");
+      await write("game.txt", "before\n");
+      await commit();
+      await git("rm", "--cached", "game.txt");
+      const original =
+        await vi.importActual<typeof import("node:child_process")>(
+          "node:child_process",
+        );
+      let changedDuringInspection = false;
+      const spy = vi
+        .mocked(execFile)
+        .mockImplementation((file, args, options, callback) =>
+          original.execFile(file, args, options, (error, stdout, stderr) => {
+            if (
+              !error &&
+              file === "git" &&
+              args?.includes(workspace) &&
+              args.includes("ls-files") &&
+              args.includes("--others") &&
+              stdout.toString().split("\0").includes("game.txt")
+            ) {
+              // Deliver the real Git snapshot after the working file changes.
+              rmSync(path.join(workspace, "game.txt"));
+              if (replacement === "directory")
+                mkdirSync(path.join(workspace, "game.txt"));
+              changedDuringInspection = true;
+            }
+            callback?.(error, stdout, stderr);
+          }),
+        );
+      try {
+        expect((await listWorkspaceGitChanges(workspace)).changes).toEqual([
+          {
+            path: "game.txt",
+            kind: "removed",
+            lines: { added: 0, removed: 1 },
+          },
+        ]);
+        expect(changedDuringInspection).toBe(true);
+      } finally {
+        spy.mockImplementation(original.execFile);
+      }
+    },
+  );
+
+  it("keeps staged deletions for ignored files after an index removal", async () => {
+    await git("init", "-q");
+    await write(".gitignore", "ignored.txt\n");
+    await write("ignored.txt", "before\n");
+    await git("add", "-f", "ignored.txt");
+    await commit();
+    await git("rm", "--cached", "ignored.txt");
+    expect((await listWorkspaceGitChanges(workspace)).changes).toEqual([
+      { path: "ignored.txt", kind: "removed", lines: { added: 0, removed: 1 } },
+    ]);
   });
 
   it.each(["sha1", "sha256"])(

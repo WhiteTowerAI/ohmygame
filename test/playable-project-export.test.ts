@@ -65,6 +65,71 @@ describe("Interactive Story project export", () => {
     expect((await readNodeCodebase(opened)).graph.nodes.map((node) => node.id)).toEqual(["start"]);
   });
 
+  it.each([
+    ["workspace", "HERO.png", "Hero.png"],
+    ["library", "hero.png", "Hero.png"],
+    ["workspace", "Σ.png", "σ.png"],
+    ["library", "σ.png", "Σ.png"],
+    ["workspace", "ς.png", "Σ.png"],
+    ["library", "ς.png", "Σ.png"],
+    ["workspace", "ſ.png", "S.png"],
+    ["library", "ſ.png", "S.png"],
+    ["workspace", "ẞ.png", "ß.png"],
+    ["library", "ẞ.png", "ß.png"],
+    ["workspace", "e\u0301.png", "é.png"],
+  ] as const)("keeps Library filenames distinct from case or normalization equivalent %s assets (%s, %s)", async (source, originalName, portraitName) => {
+    const workspace = await temporaryDirectory();
+    const library = new AssetLibrary(await temporaryDirectory());
+    await library.load();
+    const portrait = await library.add(portraitName, Buffer.from("new portrait"));
+    const codebase = createStarterCodebaseWithScene("Story", { width: 1280, height: 720 });
+    codebase.graph.assets = {
+      portrait: { type: "image", source: { kind: "library", assetId: portrait.id } },
+    };
+    if (source === "workspace") {
+      await mkdir(path.join(workspace, "assets/library"), { recursive: true });
+      const originalPath = `assets/library/${originalName}`;
+      await writeFile(path.join(workspace, originalPath), "original portrait");
+      codebase.graph.assets.original = { type: "image", source: { kind: "workspace", path: originalPath } };
+    } else {
+      const original = await library.add(originalName, Buffer.from("original portrait"));
+      codebase.graph.assets.original = { type: "image", source: { kind: "library", assetId: original.id } };
+    }
+    await createNodeCodebase(workspace, codebase);
+
+    const files = await unzip(await exportPlayableProject(workspace, library));
+    const assets = JSON.parse(files["graph.json"]!.toString()).assets;
+    const opened = await temporaryDirectory();
+    for (const [file, content] of Object.entries(files)) {
+      await mkdir(path.dirname(path.join(opened, file)), { recursive: true });
+      await writeFile(path.join(opened, file), content);
+    }
+    expect(await readFile(path.join(opened, assets.portrait.source.path), "utf8")).toBe("new portrait");
+    expect(await readFile(path.join(opened, assets.original.source.path), "utf8")).toBe("original portrait");
+    const renamed = source === "workspace" ? assets.portrait : assets.original;
+    expect(renamed.source.path).toMatch(/-2\.png$/);
+  });
+
+  it("skips occupied numeric suffixes without replacing existing assets", async () => {
+    const workspace = await temporaryDirectory();
+    const library = new AssetLibrary(await temporaryDirectory());
+    await library.load();
+    const portrait = await library.add("Hero.png", Buffer.from("new portrait"));
+    const codebase = createStarterCodebaseWithScene("Story", { width: 1280, height: 720 });
+    codebase.graph.assets = { portrait: { type: "image", source: { kind: "library", assetId: portrait.id } } };
+    await mkdir(path.join(workspace, "assets/library"), { recursive: true });
+    await writeFile(path.join(workspace, "assets/library/HERO.png"), "first portrait");
+    await writeFile(path.join(workspace, "assets/library/HERO-2.PNG"), "second portrait");
+    await createNodeCodebase(workspace, codebase);
+
+    const files = await unzip(await exportPlayableProject(workspace, library));
+    const assets = JSON.parse(files["graph.json"]!.toString()).assets;
+    expect(assets.portrait.source.path).toBe("assets/library/Hero-3.png");
+    expect(files[assets.portrait.source.path]?.toString()).toBe("new portrait");
+    expect(files["assets/library/HERO.png"]?.toString()).toBe("first portrait");
+    expect(files["assets/library/HERO-2.PNG"]?.toString()).toBe("second portrait");
+  });
+
   it("keeps graph.json byte for byte when the project uses no Library assets", async () => {
     const workspace = await temporaryDirectory();
     const library = new AssetLibrary(await temporaryDirectory());
