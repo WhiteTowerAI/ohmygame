@@ -39,7 +39,7 @@ async function runtime(hold = false, type: ProjectType = "web-game") {
   const project = (await app.inject({ method: "POST", url: "/projects", payload: { name: "Sky garden", type } })).json();
   const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
   const url = `/projects/${project.id}/conversations/${conversation.id}/turns`;
-  const idle = () => vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json()).toEqual([]));
+  const idle = () => vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json().activity).toEqual([]));
   return { app, project, prompt, followUp, finish, url, idle, items: () => conversationItems(sessionManager.getBranch(), false) };
 }
 

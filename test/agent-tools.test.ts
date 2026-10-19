@@ -105,7 +105,10 @@ describe("agent tools", () => {
     expect(result.details).toEqual({ webSearch: { provider: "parallel", providerName: "Parallel", fallbackFrom: "exa" } });
   });
 
-  it("installs a plugin only from inside the current workspace", async () => {
+  it.each([
+    { skills: [{ id: "skills/character/SKILL.md", name: "Character", enabled: true }], mcpServers: [], count: "1 Skill" },
+    { skills: [], mcpServers: [{ id: "api", name: "API", enabled: true }], count: "1 MCP service" },
+  ])("reports installed capabilities and only installs from the current workspace ($count)", async ({ skills, mcpServers, count }) => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-tool-"));
     const projects = new ProjectManager(dataDirectory);
     await projects.load();
@@ -114,13 +117,20 @@ describe("agent tools", () => {
     const outsideDirectory = path.join(path.dirname(project.workspacePath), "outside");
     await Promise.all([mkdir(pluginDirectory), mkdir(outsideDirectory)]);
     await symlink(outsideDirectory, path.join(project.workspacePath, "linked-plugin"));
+    await mkdir(path.join(pluginDirectory, ".ohmygame-plugin"));
+    await writeFile(path.join(pluginDirectory, ".ohmygame-plugin/plugin.json"), JSON.stringify({
+      name: "character-workflow", version: "0.1.0", description: "Characters",
+      ...(skills.length ? { skills: "./skills/" } : { mcpServers: "./mcp.json" }),
+    }));
+    if (skills.length) await mkdir(path.join(pluginDirectory, "skills/character"), { recursive: true });
+    else await writeFile(path.join(pluginDirectory, "mcp.json"), JSON.stringify({ mcpServers: { api: { url: "https://example.com/mcp" } } }));
     const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
     await runner.load();
     let installedPath = "";
     const plugin = {
       id: "personal:character-workflow", name: "character-workflow", displayName: "Character Workflow", description: "Characters", version: "0.1.0",
       marketplace: { id: "personal", displayName: "Personal" }, source: { type: "directory" as const }, installed: true, enabled: true,
-      skills: [{ id: "skills/character/SKILL.md", name: "Character", enabled: true }], connections: [],
+      skills, mcpServers, connections: [],
     };
     const tool = createAgentTools(project, runner, projects, undefined, async (sourcePath) => {
       installedPath = sourcePath;
@@ -128,10 +138,18 @@ describe("agent tools", () => {
     }).find(({ name }) => name === "install_plugin");
     if (!tool) throw new Error("Expected install plugin tool");
 
+    if (skills.length) {
+      const skillFile = path.join(pluginDirectory, "skills/character/SKILL.md");
+      await writeFile(skillFile, "# Character\nCreate a game character.");
+      await expect(tool.execute("invalid-skill", { path: "character-workflow" }, undefined, undefined, {} as never)).rejects.toThrow("frontmatter");
+      expect(installedPath).toBe("");
+      await writeFile(skillFile, "---\nname: character\ndescription: Create a game character.\n---\n\nUse the project's character brief.");
+    }
     const result = await tool.execute("call-plugin", { path: "character-workflow" }, undefined, undefined, {} as never);
 
     expect(installedPath).toBe(await realpath(pluginDirectory));
     expect(result.content).toEqual([{ type: "text", text: expect.stringContaining("Created and installed Character Workflow") }]);
+    expect(result.content).toEqual([{ type: "text", text: expect.stringContaining(count) }]);
     await expect(tool.execute("call-outside", { path: "../outside" }, undefined, undefined, {} as never))
       .rejects.toThrow("inside the current workspace");
     await expect(tool.execute("call-linked", { path: "linked-plugin" }, undefined, undefined, {} as never))

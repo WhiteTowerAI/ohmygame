@@ -31,7 +31,7 @@ afterEach(async () => {
 });
 
 const provider = (id: string, custom = false): ProviderSummary => ({ id, name: id, configured: true, status: "connected", capabilities: ["3d"], methods: [{ type: "api_key", label: "API key" }], custom });
-const render = (value: ProviderSummary) => act(async () => root.render(<ModelsSettings view={{ page: "provider", provider: value }} onViewChange={() => {}} />));
+const render = (value: ProviderSummary) => act(async () => root.render(<ModelsSettings view={{ page: "provider", provider: value }} onViewChange={() => {}} onOpenAgents={() => {}} />));
 
 it.each(["meshy", "tripo"])("shows %s account credits with a stable connection ID", async (id) => {
   await render(provider(id));

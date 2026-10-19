@@ -599,47 +599,39 @@ describe("native plugin capabilities", () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "ohmygame-setup-model-"),
     );
-    let requests = 0,
-      receivedToolResult = false;
+    const calls = [
+      { action: "create-mcp", input: { name: "ai-created", servers: { api: {
+        command: process.execPath, args: [path.resolve("test/fixtures/plugin-mcp-server.mjs")],
+      } }, configuration: { tag: { type: "text", label: "Tag" }, key: { type: "secret", label: "API key" } } } },
+      { action: "configure", input: { tag: "original" } },
+      { action: "read" },
+      { action: "test", server: "api" },
+      { action: "configure", input: { tag: "updated" } },
+      { action: "read" },
+      { action: "configure", input: { key: "rejected-secret" } },
+      { action: "create-mcp", input: { name: "ai-created", servers: { replacement: { url: "https://example.com/mcp" } } } },
+      { action: "test", server: "api" },
+    ];
+    let requests = 0;
+    const toolResults = new Map<string, string>();
     const server = createServer(async (req, res) => {
       let body = "";
       for await (const chunk of req) body += chunk;
       const payload = JSON.parse(body);
-      receivedToolResult ||= payload.messages.some(
-        (m: { role: string }) => m.role === "tool",
-      );
-      const delta =
-        requests++ === 0
-          ? {
-              role: "assistant",
-              tool_calls: [
-                {
-                  index: 0,
-                  id: "plugin-tool-call",
-                  type: "function",
-                  function: {
-                    name: "plugin_manage",
-                    arguments: JSON.stringify({
-                      action: "create-mcp",
-                      input: {
-                        name: "ai-created",
-                        servers: { api: { url: "https://example.com/mcp" } },
-                      },
-                    }),
-                  },
-                },
-              ],
-            }
-          : {
-              role: "assistant",
-              content: "Prepared the MCP plugin draft. Review it in the builder.",
-            };
+      for (const message of payload.messages)
+        if (message.role === "tool") toolResults.set(message.tool_call_id, message.content);
+      const index = requests++;
+      const delta = index < calls.length
+        ? { role: "assistant", tool_calls: [{ index: 0, id: `plugin-tool-${index}`, type: "function",
+          function: { name: "plugin_manage", arguments: JSON.stringify(calls[index]) },
+        }] }
+        : { role: "assistant", content: "Prepared the MCP plugin draft. Review it in the builder." };
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(
         `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta, finish_reason: null }] })}\n\n`,
       );
       res.write(
-        `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta: {}, finish_reason: requests === 1 ? "tool_calls" : "stop" }] })}\n\n`,
+        `data: ${JSON.stringify({ id: "fixture", object: "chat.completion.chunk", model: "fixture", choices: [{ index: 0, delta: {}, finish_reason: index < calls.length ? "tool_calls" : "stop" }] })}\n\n`,
       );
       res.end("data: [DONE]\n\n");
     });
@@ -723,6 +715,15 @@ describe("native plugin capabilities", () => {
     );
     const draft = (await app.inject({ method: "GET", url: `/plugins/setup-sessions/${state.id}/draft` })).json();
     expect(draft).toMatchObject({ plugin: { id: "personal:ai-created", installed: false }, errors: [] });
+    expect(JSON.parse(toolResults.get("plugin-tool-2")!)).toMatchObject({
+      plugin: { installed: false }, configuration: { values: { tag: "original" } },
+    });
+    expect(JSON.parse(toolResults.get("plugin-tool-3")!)).toMatchObject({ status: "connected", toolCount: 1 });
+    expect(JSON.parse(toolResults.get("plugin-tool-5")!)).toMatchObject({ checks: {}, configuration: { values: { tag: "updated" } } });
+    expect(toolResults.get("plugin-tool-6")).toContain("configuration form");
+    expect(toolResults.get("plugin-tool-7")).toContain("already exists");
+    expect(draft.plugin.mcpServers).toMatchObject([{ id: "api" }]);
+    expect(draft.checks.api).toMatchObject({ revision: draft.revision, result: { status: "connected", toolCount: 1 } });
     expect((await app.inject({ method: "GET", url: "/plugins/personal%3Aai-created" })).statusCode).toBe(404);
     const installed = await app.inject({ method: "POST", url: `/plugins/setup-sessions/${state.id}/install`, payload: { revision: draft.revision } });
     expect(installed.statusCode, installed.body).toBe(200);
@@ -758,7 +759,7 @@ describe("native plugin capabilities", () => {
       expect.objectContaining({ type: "userMessage", text: "Create an MCP plugin" }),
       expect.objectContaining({ type: "agentMessage", text: "Prepared the MCP plugin draft. Review it in the builder." }),
     ]));
-    expect(receivedToolResult).toBe(true);
+    expect(toolResults.size).toBe(calls.length);
     expect(
       (
         await restarted.inject({

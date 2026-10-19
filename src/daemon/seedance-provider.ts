@@ -48,7 +48,7 @@ export class SeedanceProvider {
         resolution: resolution === "4K" ? "4k" : resolution,
         ratio: aspectRatio,
         duration,
-        generate_audio: false,
+        generate_audio: true,
         watermark: false,
       }),
       signal,

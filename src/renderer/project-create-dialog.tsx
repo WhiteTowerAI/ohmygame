@@ -58,7 +58,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     setError(undefined);
     try {
       const project = await createProject({
-        name: name.trim() || defaultProjectName(type),
+        ...(name.trim() ? { name: name.trim() } : {}),
         type,
         ...(workspacePath ? { workspacePath } : {}),
       });

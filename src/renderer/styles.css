@@ -44,6 +44,11 @@
   --control-selected: color-mix(in srgb, var(--text) 8%, var(--surface));
   --content-column-width: 820px;
   --segmented-control-motion: 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --project-cover-bg-0: #637fad;
+  --project-cover-bg-1: #6c9587;
+  --project-cover-bg-2: #8a7ead;
+  --project-cover-bg-3: #ad8777;
+  --project-cover-ink: rgb(255 255 255 / 72%);
 }
 
 :root[data-appearance="light"] {
@@ -1735,6 +1740,130 @@ body {
 .settings-responses-transport > .settings-detail-hint {
   display: block;
   margin-left: 84px;
+}
+
+/* Agents: OhMyGame's own agent and the coding agent CLIs */
+.agent-usage-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-usage-inline > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-usage-inline small {
+  font-size: 10px;
+}
+
+.agent-usage-inline .agent-usage-meter {
+  width: 56px;
+}
+
+.agent-usage-meter.is-warning > span {
+  background: var(--warning);
+}
+
+.agent-usage-meter.is-danger > span {
+  background: var(--danger);
+}
+
+.settings-agents-pointer {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.coding-agent-permission {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.coding-agent-warning {
+  margin: 0;
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.coding-agent-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.coding-agent-option > span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.coding-agent-option strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.coding-agent-option small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.coding-agent-diagnostic {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.coding-agent-diagnostic > svg {
+  margin-top: 1px;
+}
+
+.coding-agent-diagnostic:is(.is-not-installed, .is-version-unsupported, .is-signed-out) {
+  color: var(--text);
+}
+
+.coding-agent-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.coding-agent-command code {
+  overflow-wrap: anywhere;
+}
+
+.coding-agent-command .icon-button {
+  width: 22px;
+  height: 22px;
+}
+
+.coding-agent-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
 }
 
 .settings-provider-setting-row {
@@ -3677,17 +3806,12 @@ button.home-nav-item-active:hover {
   object-fit: cover;
 }
 
-.project-card-preview-0 {
-  background: linear-gradient(180deg, #102720, #245c49);
-}
-.project-card-preview-1 {
-  background: linear-gradient(180deg, #101e2b, #28536a);
-}
-.project-card-preview-2 {
-  background: linear-gradient(180deg, #29171e, #613631);
-}
-.project-card-preview-3 {
-  background: linear-gradient(180deg, #29243e, #5f507d);
+.project-cover-placeholder {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  color: var(--project-cover-ink);
+  place-items: center;
 }
 
 .project-card-meta {
@@ -11266,6 +11390,67 @@ button {
   align-items: center;
 }
 
+/* A coding agent's approval request, above the composer like a questionnaire */
+.approval-card > header {
+  justify-content: flex-start;
+  gap: 8px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.approval-card > header strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.approval-card > header small {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.approval-card-detail {
+  max-height: 140px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approval-card-path,
+.approval-card-reason {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.approval-card > footer {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.approval-card > footer button {
+  height: 30px;
+}
+
+.timeline-event .approval-outcome {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-event-muted {
+  color: var(--text-faint);
+}
+
 .inline-answer {
   display: flex;
   min-width: 0;
@@ -11849,6 +12034,38 @@ button {
   padding: 16px 10px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* The coding agent's quota under the slash commands, kept in view as they scroll. */
+.composer-context-menu-usage {
+  position: sticky;
+  bottom: -6px;
+  margin: 4px -6px -6px;
+  padding: 8px 16px 9px;
+  border-top: 1px solid var(--menu-border);
+  background: var(--menu-surface);
+}
+
+/* One line under the commands; the menu's own item text rules do not apply.
+   In a narrow menu the bars shrink rather than the line wrapping. */
+.composer-context-menu-usage .agent-usage-inline {
+  flex-wrap: nowrap;
+  gap: 18px;
+}
+
+.composer-context-menu-usage .agent-usage-inline > span {
+  min-width: 0;
+}
+
+.composer-context-menu-usage small {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.composer-context-menu-usage .agent-usage-meter {
+  flex: 0 1 44px;
+  min-width: 12px;
 }
 
 .composer-plan-mode,
@@ -15058,6 +15275,10 @@ button {
 
 :root[data-appearance="light"] .settings-provider-mark {
   background: var(--surface-hover);
+}
+
+:root[data-appearance="light"] .settings-provider-mark.is-brand img {
+  filter: brightness(0) saturate(100%);
 }
 
 :root[data-appearance="light"] .settings-provider-mark.is-monochrome {

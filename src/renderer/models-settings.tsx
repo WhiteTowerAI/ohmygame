@@ -24,6 +24,7 @@ import {
   updateMinimaxApiKey,
   updateSeedanceApiKey,
   updateVolcengineTtsApiKey,
+  updateVolcengineSeedAudioApiKey,
   getVolcengineTtsSettings,
   saveVolcengineTtsDefaultVoiceId,
   previewVolcengineTtsSpeech,
@@ -61,6 +62,8 @@ const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; la
   { value: "3d", label: t("capability.3d") },
   { value: "audio", label: t("capability.audio") },
 ];
+/** Searches that look for a coding agent, which lives in Agents rather than here. */
+const CODING_AGENT_SEARCH = /claude|codex|opencode|\bcli\b|agent|智能体/;
 const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
   language: t("capability.language"),
   image: t("capability.image"),
@@ -69,15 +72,13 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
   audio: t("capability.audio"),
 };
 
-export function ModelsSettings({ view, onViewChange }: { view: ModelsView; onViewChange: (view: ModelsView) => void }) {
+export function ModelsSettings({ view, onViewChange, onOpenAgents }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void }) {
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
-  if (view.page === "providers") {
-    return <ProviderList onProvider={openProvider} />;
-  }
+  if (view.page === "providers") return <ProviderList onProvider={openProvider} onOpenAgents={onOpenAgents} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
 }
 
-function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
+function ProviderList({ onProvider, onOpenAgents }: { onProvider: (provider: ProviderSummary) => void; onOpenAgents: () => void }) {
   const auth = useAuth();
   const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -177,6 +178,12 @@ function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) 
           <button className="settings-add-button settings-provider-add" type="button" onClick={() => setAdding("custom")}><Plus size={13} />{t("providers.add")}</button>
         </div>
         {capability !== "language" ? <GlobalMediaModelDefaults capability={capability} /> : null}
+        {capability === "language" || CODING_AGENT_SEARCH.test(normalizedQuery) ? (
+          <p className="settings-agents-pointer">
+            {t("agents.providersPointer")}{" "}
+            <button className="coding-agent-link" type="button" onClick={onOpenAgents}>{t("agents.open")}</button>
+          </p>
+        ) : null}
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />{t("providers.loadingProviders")}</div> : null}
         {!loading && visibleProviders.length === 0 ? <p className="settings-empty">{t("providers.noMatch")}</p> : null}
         {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}
@@ -249,6 +256,7 @@ function ProviderAuthView({ provider, onBack, onCompleted }: { provider: Provide
   if (SEEDANCE_PROVIDER_IDS.has(provider.id)) return <SeedanceAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (MINIMAX_PROVIDER_IDS.has(provider.id)) return <MinimaxAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   if (provider.id === "volcengine-tts") return <VolcengineTtsAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
+  if (provider.id === "volcengine-seed-audio") return <VolcengineSeedAudioAuthView provider={provider} onBack={onBack} onCompleted={onCompleted} />;
   const [method, setMethod] = useState<ModelAuthMethod | undefined>(provider.configured ? undefined : provider.methods.length === 1 ? provider.methods[0]?.type : undefined);
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
@@ -617,6 +625,56 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted }: { provider: Pr
         </section>
       ) : null}
       {provider.configured ? <AudioModels key={`audio-${modelsRevision}`} providerId={provider.id} /> : null}
+    </section>
+  );
+}
+
+function VolcengineSeedAudioAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+  const deletion = useProviderDeletion(provider.id, onCompleted);
+  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+  const [modelsRevision, setModelsRevision] = useState(0);
+
+  async function save(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    setSaving(true);
+    setError(undefined);
+    try {
+      await updateVolcengineSeedAudioApiKey(apiKey.trim());
+      setApiKey("");
+      onCompleted();
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setSaving(false); }
+  }
+
+  const inputId = "volcengine-seed-audio-api-key";
+  return (
+    <section className="settings-panel settings-provider-detail">
+      <ProviderDetailHeader provider={provider} description={t("providers.seedAudioDescription")} onBack={onBack}>
+        {provider.configured ? <><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /><ProviderDeleteButton deletion={deletion} disabled={saving} /></> : null}
+      </ProviderDetailHeader>
+      {provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} /> : null}
+      <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
+        <label className="settings-search-field-label" htmlFor={inputId}>{t("providers.apiKey")}</label>
+        <div className="settings-detail-inline">
+          <input
+            id={inputId}
+            className="settings-search-input"
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            placeholder={provider.configured ? t("providers.replaceKeyPlaceholder") : t("providers.keyPlaceholder", { name: provider.name })}
+            disabled={saving || deletion.busy}
+          />
+          <button className="settings-primary-button" type="submit" disabled={saving || deletion.busy || !apiKey.trim()}>
+            {saving ? t("common.saving") : t("common.save")}
+          </button>
+        </div>
+        <p className="settings-detail-hint">{t("providers.seedAudioHint")}</p>
+      </form>
+      {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
+      {provider.configured ? <AudioModels key={`seed-audio-${modelsRevision}`} providerId={provider.id} /> : null}
     </section>
   );
 }

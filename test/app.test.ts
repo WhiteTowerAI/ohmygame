@@ -36,7 +36,7 @@ describe("daemon", () => {
       }),
     });
     apps.push(app);
-    const activity = async () => (await app.inject({ method: "GET", url: "/projects/activity" })).json();
+    const activity = async () => (await app.inject({ method: "GET", url: "/projects/activity" })).json().activity;
     expect(await activity()).toEqual([]);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
@@ -321,7 +321,7 @@ describe("daemon", () => {
     const turn = await app.inject({ method: "POST", url: `/projects/${project.id}/conversations/${conversation.id}/turns`, payload: { prompt: "Build browser output" } });
     expect(turn.statusCode).toBe(202);
     const readProject = async () => (await app.inject({ method: "GET", url: `/projects/${project.id}` })).json();
-    await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json()).toEqual([]));
+    await vi.waitFor(async () => expect((await app.inject({ method: "GET", url: "/projects/activity" })).json().activity).toEqual([]));
     if (webPreviewEnabled) {
       await vi.waitFor(async () => expect((await readProject()).preview.status).toBe("ready"), { timeout: 3_000 });
       const url = (await readProject()).preview.url;
@@ -858,6 +858,12 @@ describe("daemon", () => {
       payload: { apiKey: "test-key" },
     });
     expect(settings.statusCode).toBe(200);
+    const seedAudioSettings = await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-seed-audio",
+      payload: { apiKey: "seed-audio-key" },
+    });
+    expect(seedAudioSettings.statusCode).toBe(200);
     const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
 
@@ -881,6 +887,8 @@ describe("daemon", () => {
       "generate_video",
       "animate_3d_asset",
       "generate_speech",
+      "generate_sound_effect",
+      "generate_music",
     ]);
   });
 
@@ -1617,7 +1625,10 @@ describe("daemon", () => {
       .toEqual({ configured: false });
     expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
       models: [],
-      providers: [expect.objectContaining({ provider: "volcengine-tts", configured: false, state: "not_configured" })],
+      providers: [
+        expect.objectContaining({ provider: "volcengine-tts", configured: false, state: "not_configured" }),
+        expect.objectContaining({ provider: "volcengine-seed-audio", configured: false, state: "not_configured" }),
+      ],
     });
     expect((await app.inject({
       method: "PUT",
@@ -1646,7 +1657,10 @@ describe("daemon", () => {
 
     expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
       models: [expect.objectContaining({ provider: "volcengine-tts", id: "seed-tts-2.0" })],
-      providers: [expect.objectContaining({ provider: "volcengine-tts", state: "ready" })],
+      providers: [
+        expect.objectContaining({ provider: "volcengine-tts", state: "ready" }),
+        expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
+      ],
     });
 
     expect((await app.inject({
@@ -1659,8 +1673,48 @@ describe("daemon", () => {
       .toEqual({ configured: false });
     expect((await app.inject({ method: "GET", url: "/audio-models/catalog" })).json()).toEqual({
       models: [],
-      providers: [expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" })],
+      providers: [
+        expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" }),
+        expect.objectContaining({ provider: "volcengine-seed-audio", state: "not_configured" }),
+      ],
     });
+  });
+
+  it("stores the Doubao Seed Audio key independently and exposes compatible models", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-volcengine-seed-audio-settings-")) });
+    apps.push(app);
+
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-seed-audio" })).json())
+      .toEqual({ configured: false });
+    expect((await app.inject({
+      method: "PUT",
+      url: "/settings/models/providers/volcengine-seed-audio",
+      payload: { apiKey: "seed-audio-key" },
+    })).json()).toEqual({ configured: true });
+
+    const providers = (await app.inject({ method: "GET", url: "/settings/providers" })).json();
+    expect(providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "volcengine-seed-audio", configured: true, capabilities: ["audio"] }),
+      expect.objectContaining({ id: "volcengine-tts", configured: false }),
+    ]));
+    expect(JSON.stringify(providers)).not.toContain("seed-audio-key");
+
+    const catalog = (await app.inject({ method: "GET", url: "/audio-models/catalog" })).json();
+    expect(catalog.models).toEqual([
+      expect.objectContaining({
+        provider: "volcengine-seed-audio",
+        id: "seed-audio-1.0",
+        capabilities: expect.objectContaining({ operations: ["sound-effect", "music"] }),
+      }),
+    ]);
+    expect(catalog.providers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: "volcengine-seed-audio", state: "ready" }),
+      expect.objectContaining({ provider: "volcengine-tts", state: "not_configured" }),
+    ]));
+
+    expect((await app.inject({ method: "DELETE", url: "/settings/models/providers/volcengine-seed-audio" })).statusCode).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/settings/models/providers/volcengine-seed-audio" })).json())
+      .toEqual({ configured: false });
   });
 
   it("previews Doubao Speech audio through the saved connection", async () => {

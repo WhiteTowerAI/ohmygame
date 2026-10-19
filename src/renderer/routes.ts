@@ -12,7 +12,7 @@ export type SidebarPage =
   | "asset-canvas"
   | "community";
 
-export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "web-search" | "network" | "plugins" | "about";
+export type SettingsSection = "account" | "billing" | "appearance" | "providers" | "agents" | "web-search" | "network" | "plugins" | "about";
 export type AppNavigationTarget = SidebarPage | "settings";
 export type ProjectSort = "updated" | "name";
 export interface ProjectListFilters {
@@ -52,7 +52,7 @@ export function parseAppRoute(hash: string): AppRoute {
       return { page: "settings", section: "plugins" };
     }
   }
-  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|web-search|network|connections|about))?$/.exec(hash);
+  const settingsMatch = /^#\/settings(?:\/(account|billing|appearance|providers|agents|web-search|network|connections|about))?$/.exec(hash);
   if (settingsMatch?.[1] === "connections") return { page: "settings", section: "plugins" };
   if (settingsMatch) return { page: "settings", section: (settingsMatch[1] as SettingsSection | undefined) ?? DEFAULT_SETTINGS_SECTION };
   const communityMatch = /^#\/community(?:\/games)?$/.exec(hash);

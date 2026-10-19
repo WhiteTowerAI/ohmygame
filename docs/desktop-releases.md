@@ -87,6 +87,9 @@ change an already published tag or its release description.
 Windows builds are unsigned, so Windows may show an unknown-publisher or
 SmartScreen warning during download and installation. The update manifest still
 provides the SHA-512 digest used by `electron-updater` to validate downloads.
+The Windows setup wizard lets users choose between a current-user or all-users
+installation and select the installation directory. Existing installations keep
+their recorded scope and directory during upgrades.
 
 For a local package build, export `DESKTOP_UPDATE_URL` before running
 `bun run package:mac` or `bun run package:win`. Development builds do not use

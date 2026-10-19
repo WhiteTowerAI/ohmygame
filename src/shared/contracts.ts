@@ -2,6 +2,7 @@ import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
+import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -14,10 +15,20 @@ export type PreviewViewport = (typeof PREVIEW_VIEWPORTS)[number];
 export const PROJECT_FILE_OPEN_MODES = ["default", "reveal", "vscode", "zed", "text-editor"] as const;
 export type ProjectFileOpenMode = (typeof PROJECT_FILE_OPEN_MODES)[number];
 
+/** One quota window of a coding agent's account, such as its 5-hour or weekly limit. */
+export interface AgentUsageLimit {
+  id: string;
+  usedPercent: number;
+  windowMinutes?: number;
+  /** Unix seconds. */
+  resetsAt?: number;
+}
+
 export interface AgentContextUsage {
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
+  limits?: AgentUsageLimit[];
 }
 
 export interface ModelRef {
@@ -30,14 +41,21 @@ export type AgentModelRef = ModelRef;
 export interface AgentModel extends AgentModelRef {
   name: string;
   providerName: string;
+  /** Pi's reasoning levels; empty for a coding agent's model, whose provider is the agent's ID. */
   reasoningLevels: AgentReasoningLevel[];
+  /** A coding agent model's own effort/variant values, kept separate from Pi's reasoning enum. */
+  nativeReasoningLevels?: string[];
+  contextWindow?: number;
 }
 
 export interface AgentModelCatalog {
   models: AgentModel[];
   hiddenModels?: AgentModel[];
+  /** Coding agents whose models were still loading; asking again a little later lists them. */
+  loadingRuntimes?: AgentRuntimeId[];
   defaultModel?: AgentModelRef;
   defaultReasoningLevel: AgentReasoningLevel;
+  defaultNativeReasoningLevel?: string;
 }
 
 export const AGENT_REASONING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
@@ -363,9 +381,13 @@ export interface PreviewRuntimeState {
   stopReason?: "manual" | "idle" | "settings" | "recovery";
 }
 
+export type ProjectNameSource = "default" | "ai" | "manual";
+
 export interface ProjectState extends ProjectPreviewSettings {
   id: string;
   name: string;
+  /** Missing on legacy projects, which are not automatically renamed. */
+  nameSource?: ProjectNameSource;
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
@@ -404,6 +426,11 @@ export interface ProjectRunSettings extends ProjectPreviewSettings {
 export interface ProjectAgentActivity {
   projectId: string;
   status: Extract<AgentStatus, "running" | "cancelling">;
+}
+
+export interface ProjectActivitySnapshot {
+  activity: ProjectAgentActivity[];
+  names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
 export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table";
@@ -780,6 +807,16 @@ export type ThreadItem = (
   | {
       id: string;
       turnId: string;
+      /** A coding agent asks before it runs a command, changes a file or calls a tool. */
+      type: "approvalRequest";
+      requestId: string;
+      request: ApprovalRequestDetails;
+      status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "failed">;
+      decision?: ApprovalDecision;
+    }
+  | {
+      id: string;
+      turnId: string;
       type: "userInputRequest";
       requestId: string;
       questions: QuestionnaireQuestion[];
@@ -856,20 +893,26 @@ export interface CreateProjectRequest {
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;
 }
+/** `reasoningLevel` is for a Pi model and `nativeReasoningLevel` for a coding agent's. */
 export interface CreateConversationRequest {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+  nativeReasoningLevel?: string;
 }
+/** `reasoningLevel` is for a Pi model and `nativeReasoningLevel` for a coding agent's. */
 export interface UpdateAgentDefaultsRequest {
   model: AgentModelRef;
-  reasoningLevel: AgentReasoningLevel;
+  reasoningLevel?: AgentReasoningLevel;
+  nativeReasoningLevel?: string;
 }
 export interface RenameConversationRequest { title: string }
 export type SetConversationModelRequest = AgentModelRef;
-export interface SetConversationReasoningRequest { level: AgentReasoningLevel }
+/** Validated against the selected model: Pi enum or native effort/variant. */
+export interface SetConversationReasoningRequest { level: string }
 export interface ConversationAgentSettings {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
+  nativeReasoningLevel?: string;
 }
 export interface PromptRequest {
   prompt: string;

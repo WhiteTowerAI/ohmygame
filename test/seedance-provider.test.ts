@@ -50,7 +50,7 @@ describe("Seedance provider", () => {
       resolution: "4k",
       ratio: "16:9",
       duration: 8,
-      generate_audio: false,
+      generate_audio: true,
       watermark: false,
     });
     expect(request.mock.calls[4]?.[1]?.headers).toBeUndefined();

@@ -2,7 +2,7 @@ import { inspectPreviewConfiguration } from "./preview-configuration.js";
 import { CheckpointStore } from "./checkpoints.js";
 import { ProjectWrites } from "./project-writes.js";
 import { registerCheckpointRoutes } from "./checkpoint-routes.js";
-import { readWorkspaceVersion } from "./workspace-notice.js";
+import { readWorkspaceNotice, readWorkspaceVersion } from "./workspace-notice.js";
 import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
 import { previewPageUrl } from "../shared/preview-page.js";
@@ -33,10 +33,16 @@ import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
 import { CHECKPOINT_UNDONE_ENTRY, TURN_END_ENTRY, referencedSnapshots } from "./checkpoint-extension.js";
 import { createAgentTools, projectPiToolNames } from "./agent-tools.js";
+import { AgentRuntimeService } from "./agent-runtimes/service.js";
+import { neverTouchPaths } from "./agent-runtimes/policy.js";
+import { skillFolders } from "./agent-runtimes/skills.js";
+import { appendSystemPromptForProject } from "./agent-prompts.js";
+import { isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest, type UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
-import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable } from "./text-generation.js";
+import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateProjectName } from "./text-generation.js";
+import { ProjectNaming, type ProjectNameGenerator } from "./project-naming.js";
 import { resolveCanvasTextReferences } from "./canvas-text-references.js";
 import type { CanvasDocumentGenerationRequest, CanvasDocumentDetail } from "../shared/canvas-document.js";
 import type { CanvasTableDetail, CanvasTableGenerationRequest } from "../shared/canvas-table.js";
@@ -84,7 +90,9 @@ import { ProviderVideos } from "./provider-videos.js";
 import { AudioGenerationError, ProviderAudio, type AudioGenerator } from "./audio-generation.js";
 import { VolcengineTtsProvider } from "./volcengine-tts-provider.js";
 import { VolcengineTtsSettingsStore } from "./volcengine-tts-settings.js";
-import { AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, DOUBAO_SPEECH_PROVIDER_NAME, availableAudioOperations, type AudioOperation } from "../shared/audio.js";
+import { VolcengineSeedAudioProvider } from "./volcengine-seed-audio-provider.js";
+import { VolcengineSeedAudioSettingsStore } from "./volcengine-seed-audio-settings.js";
+import { AUDIO_OUTPUT_FORMATS, AUDIO_SAMPLE_RATES, AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, DOUBAO_SEED_AUDIO_PROVIDER_NAME, DOUBAO_SPEECH_PROVIDER_NAME, availableAudioOperations, type AudioOperation } from "../shared/audio.js";
 import { isSeedanceProviderId, SEEDANCE_PROVIDER_IDS, SEEDANCE_PROVIDERS } from "./seedance-models.js";
 import { SeedanceSettingsStore } from "./seedance-settings.js";
 import { isMinimaxProviderId, MINIMAX_PROVIDER_IDS, MINIMAX_PROVIDERS } from "./minimax-models.js";
@@ -98,7 +106,7 @@ import { PreinstalledPluginManager } from "./preinstalled-plugins.js";
 import { registerPluginPortabilityRoutes } from "./plugin-portability.js";
 import { PluginSkillContentError, readPluginSkillContent, resolvePluginSkillFile, resolvePluginSkills } from "./plugin-runtime.js";
 import { LegacyMcpConfiguration } from "./legacy-mcp.js";
-import { hasPluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
+import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
@@ -142,6 +150,7 @@ export interface AppOptions {
   /** Enabled by the development entry point only when product auth is unconfigured. */
   localDebug?: boolean;
   createSession?: SessionFactory;
+  generateProjectName?: ProjectNameGenerator;
   imageGenerator?: ImageGenerator;
   imageFetch?: typeof fetch;
   model3DGenerator?: Model3DGenerator;
@@ -359,6 +368,31 @@ const reviseLastPromptSchema = {
   },
 } as const;
 
+const AGENT_RUNTIME_BRIDGE_PATH = "/agent-runtime-bridge/mcp";
+
+const answerApprovalSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["decision"],
+    properties: { decision: { enum: ["allow", "allow-session", "deny"] } },
+  },
+} as const;
+
+const updateAgentRuntimeSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    minProperties: 1,
+    properties: {
+      enabled: { type: "boolean" },
+      isolateUserConfig: { type: "boolean" },
+      permissionMode: { enum: ["standard", "full"] },
+      binaryPath: { type: "string", maxLength: 4_096 },
+    },
+  },
+} as const;
+
 const answerQuestionnaireSchema = {
   body: {
     type: "object",
@@ -409,7 +443,7 @@ const setConversationReasoningSchema = {
     type: "object",
     additionalProperties: false,
     required: ["level"],
-    properties: { level: { enum: AGENT_REASONING_LEVELS } },
+    properties: { level: { type: "string", minLength: 1, maxLength: 100 } },
   },
 } as const;
 const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
@@ -587,7 +621,15 @@ export function createApp(options: AppOptions = {}) {
   const seedanceSettings = new SeedanceSettingsStore(dataDirectory);
   const minimaxSettings = new MinimaxSettingsStore(dataDirectory);
   const volcengineTtsSettings = new VolcengineTtsSettingsStore(dataDirectory);
+  const volcengineSeedAudioSettings = new VolcengineSeedAudioSettingsStore(dataDirectory);
   const providerModelSettings = new ProviderModelSettingsStore(dataDirectory, piAgentDirectory);
+  // Coding agents reach OhMyGame's tools over loopback only when they cannot take them over their own pipe.
+  const agentRuntimes = new AgentRuntimeService(dataDirectory, () => {
+    const address = app.server.address();
+    return address && typeof address === "object" ? `http://127.0.0.1:${address.port}` : undefined;
+  });
+  /** Whether a model's provider is on: a Pi provider in Providers & Models, or a coding agent turned on there. */
+  const modelProviderEnabled = (provider: string) => isAgentRuntimeId(provider) ? agentRuntimes.settings.get(provider).enabled : providerEnabled(provider);
   const webSearch = new WebSearchService(webSearchSettings, options.webSearchFetch);
   const openAIEndpoint = new ModelEndpointSettingsStore(
     dataDirectory,
@@ -640,8 +682,15 @@ export function createApp(options: AppOptions = {}) {
     );
   };
   const publishProjectRenamed = (project: ProjectState) => {
-    events.publish(project.id, "project.renamed", { project });
+    events.publish(project.id, "project.renamed", { project: { ...project } });
   };
+  const projectNaming = new ProjectNaming(projects, options.generateProjectName ?? (async (prompt, model, signal) => {
+    if (!model) return undefined;
+    const selected = await availableModel(model.provider, model.id);
+    if (!selected || signal.aborted) return undefined;
+    const runtime = await getModelRuntime();
+    return generateProjectName(runtime, selected, prompt, signal);
+  }), publishProjectRenamed);
   const openAIImages = new OpenAIImageSettingsStore(dataDirectory);
   const imageConnection = openAIImageConnection(openAIImages, getModelRuntime);
   const modelAuth = new ModelAuthManager(getModelRuntime, {
@@ -678,7 +727,13 @@ export function createApp(options: AppOptions = {}) {
     () => providerEnabled("volcengine-tts"),
     () => volcengineTtsSettings.defaultVoiceId(),
   );
-  const providerAudio = new ProviderAudio([volcengineTtsProvider]);
+  const volcengineSeedAudioProvider = new VolcengineSeedAudioProvider(
+    () => volcengineSeedAudioSettings.key(),
+    options.audioFetch,
+    undefined,
+    () => providerEnabled("volcengine-seed-audio"),
+  );
+  const providerAudio = new ProviderAudio([volcengineTtsProvider, volcengineSeedAudioProvider]);
   const tools = new ToolRunner(
     dataDirectory,
     options.imageGenerator ?? providerImages,
@@ -770,6 +825,70 @@ export function createApp(options: AppOptions = {}) {
       app.log.warn({ err, projectId: project.id }, "Could not prune checkpoints");
     }
   };
+  /** OhMyGame's own tools for a conversation, the same for Pi and for a coding agent. */
+  const projectAgentTools = (project: ProjectState, conversation: StoredConversation) => {
+    const playtestKey = `${project.id}:${conversation.summary.id}`;
+    let playtest = agentPlaytests.get(playtestKey);
+    if (!playtest && options.playtestDriver) {
+      playtest = new OwnedPlaytestDriver(options.playtestDriver);
+      agentPlaytests.set(playtestKey, playtest);
+    }
+    return createAgentTools(
+      project,
+      tools,
+      projects,
+      (toolCallId, input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, toolCallId, input, signal),
+      async (sourcePath) => {
+        const installed = await localPlugins.install(sourcePath);
+        invalidatePluginSessions();
+        return await plugins.read(installed.id) ?? installed;
+      },
+      playtest ? {
+        driver: playtest,
+        resolveOpenTarget: async () => ({
+          runtime: "web",
+          url: project.type === "interactive-story"
+            ? await playableDrafts.open(project)
+            : previewPageUrl(await previews.ensureStarted(project, false), "playtest"),
+        }),
+      } : undefined,
+      webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
+      canvasStore,
+    );
+  };
+  /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
+  const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
+    const resolvePlugins = () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type);
+    const [pluginSkills, ownSkills, catalog, effectiveMcp, reasoningLevel] = await Promise.all([
+      resolvePlugins(),
+      skillFolders(path.join(piAgentDirectory, "skills")),
+      loadPiSkills(project.workspacePath, piAgentDirectory, resolvePlugins).catch(() => []),
+      pluginCapabilities.effective(project.type),
+      conversations.nativeReasoningLevel(project, conversation, { provider: runtime, id: modelId }),
+    ]);
+    const model = await agentRuntimes.model(runtime, modelId);
+    const effort = nativeEffort(model, reasoningLevel);
+    return agentRuntimes.createSession({
+      runtime,
+      model: modelId,
+      ...(effort ? { reasoningLevel: effort } : {}),
+      ...(model?.contextWindow ? { contextWindow: model.contextWindow } : {}),
+      workspacePath: project.workspacePath,
+      sessionManager: conversations.open(project, conversation),
+      tools: projectAgentTools(project, conversation),
+      pluginMcp: { config: effectiveMcp, host: pluginCapabilities.host, agentDir: piAgentDirectory },
+      skillDirectories: [...pluginSkills.map((skill) => skill.path), ...ownSkills],
+      instructions: appendSystemPromptForProject(project).join("\n\n"),
+      policy: {
+        workspacePath: project.workspacePath,
+        neverTouch: neverTouchPaths(dataDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)),
+      },
+      snapshotBeforeMessage: () => snapshotWorkspace(project),
+      turnNotice: () => readWorkspaceNotice(project),
+      requestApproval: (details, toolCallId, signal) => agents.askApproval(project.id, conversation.summary.id, toolCallId, details, signal),
+      skills: () => catalog,
+    });
+  };
   agents = new AgentManager(events, {
     errorDiagnostics: () => {
       const route = networkSettings.get().active;
@@ -784,46 +903,20 @@ export function createApp(options: AppOptions = {}) {
       ),
     }),
     createSession: options.createSession ?? (async (project, conversation) => {
-      const modelRuntime = await getModelRuntime();
       const selected = await conversations.model(project, conversation);
       if (!selected) throw new Error("Select an available model before sending a prompt.");
+      if (isAgentRuntimeId(selected.provider)) return createNativeSession(project, conversation, selected.provider, selected.id);
+      const modelRuntime = await getModelRuntime();
       if (!providerEnabled(selected.provider)) throw new Error(`Provider ${selected.provider} is disabled. Enable it in Settings to continue.`);
       const model = resolveModel(modelRuntime, modelRuntime.getModel(selected.provider, selected.id));
       if (!model || !modelRuntime.hasConfiguredAuth(selected.provider)) {
         throw new Error(`The selected model ${selected.provider}/${selected.id} is not available`);
       }
-      const playtestKey = `${project.id}:${conversation.summary.id}`;
-      let playtest = agentPlaytests.get(playtestKey);
-      if (!playtest && options.playtestDriver) {
-        playtest = new OwnedPlaytestDriver(options.playtestDriver);
-        agentPlaytests.set(playtestKey, playtest);
-      }
       const effectiveMcp = await pluginCapabilities.effective(project.type);
       return createPiSession(
         project,
         conversations.open(project, conversation),
-        createAgentTools(
-          project,
-          tools,
-          projects,
-          (toolCallId, input, signal) => agents.askQuestionnaire(project.id, conversation.summary.id, toolCallId, input, signal),
-          async (sourcePath) => {
-            const installed = await localPlugins.install(sourcePath);
-            invalidatePluginSessions();
-            return await plugins.read(installed.id) ?? installed;
-          },
-          playtest ? {
-            driver: playtest,
-            resolveOpenTarget: async () => ({
-              runtime: "web",
-              url: project.type === "interactive-story"
-                ? await playableDrafts.open(project)
-                : previewPageUrl(await previews.ensureStarted(project, false), "playtest"),
-            }),
-          } : undefined,
-          webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
-          canvasStore,
-        ),
+        projectAgentTools(project, conversation),
         modelRuntime,
         model,
         piAgentDirectory,
@@ -893,7 +986,7 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), volcengineTtsSettings.load(), providerModelSettings.load()]);
+    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), volcengineTtsSettings.load(), volcengineSeedAudioSettings.load(), providerModelSettings.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
     const examplesWarning = await examples.load();
@@ -914,6 +1007,8 @@ export function createApp(options: AppOptions = {}) {
     }
     if (request.method === "OPTIONS") return reply.code(204).send();
     if (!options.accessToken || (request.method === "GET" && PLAYABLE_SANDBOX_FILES.has(request.url))) return;
+    // A coding agent's tool calls carry their session's own token, never the app's; the route checks it.
+    if (request.url === AGENT_RUNTIME_BRIDGE_PATH) return;
     if (!matchesBearerToken(request.headers.authorization, options.accessToken)) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
@@ -1201,7 +1296,10 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/projects", async () => projects.list());
 
-  app.get("/projects/activity", async () => agents.projectActivity());
+  app.get("/projects/activity", async () => ({
+    activity: agents.projectActivity(),
+    names: projects.list().map(({ id, name, nameSource }) => ({ id, name, nameSource })),
+  }));
 
   app.get("/examples", async () => examples.list());
 
@@ -1988,7 +2086,7 @@ export function createApp(options: AppOptions = {}) {
     return conversations.list(project);
   });
 
-  app.get("/models", async () => {
+  app.get<{ Querystring: { runtimes?: string } }>("/models", async (request) => {
     const runtime = await getModelRuntime();
     const available = resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider)));
     const models = available.filter((model) => providerModelSettings.isVisible(model));
@@ -2001,10 +2099,15 @@ export function createApp(options: AppOptions = {}) {
       name: model.name,
       reasoningLevels: supportedReasoningLevels(model),
     });
+    // Conversations also list coding agents' models; canvas text and other one-off generation use Pi's only.
+    const agents = request.query.runtimes === "1" ? await agentRuntimes.models() : { models: [], loading: [] };
+    const nativeDefaults = request.query.runtimes === "1" ? agentRuntimes.settings.defaultModel() : undefined;
+    const nativeDefault = nativeDefaults ? findAgentModel(agents.models, nativeDefaults.model) : undefined;
     return {
-      models: models.map(summary),
+      models: [...models.map(summary), ...agents.models],
+      ...(agents.loading.length ? { loadingRuntimes: agents.loading } : {}),
       ...(hidden.length ? { hiddenModels: hidden.map(summary) } : {}),
-      ...(defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
+      ...(nativeDefault ? { defaultModel: { provider: nativeDefault.provider, id: nativeDefault.id }, ...(nativeDefaults?.nativeReasoningLevel ? { defaultNativeReasoningLevel: nativeDefaults.nativeReasoningLevel } : {}) } : defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
       defaultReasoningLevel: defaultReasoningLevel(dataDirectory, piAgentDirectory),
     };
   });
@@ -2013,6 +2116,17 @@ export function createApp(options: AppOptions = {}) {
     if (!isUpdateAgentDefaultsRequest(request.body)) {
       return reply.code(400).send({ error: "Invalid agent defaults" });
     }
+    if (isAgentRuntimeId(request.body.model.provider)) {
+      if (request.body.reasoningLevel !== undefined) return reply.code(400).send({ error: "Use nativeReasoningLevel for a coding agent's model" });
+      const native = await agentRuntimes.model(request.body.model.provider, request.body.model.id);
+      if (!native) return reply.code(400).send({ error: "Model is not available" });
+      const level = request.body.nativeReasoningLevel;
+      if (level && !native.nativeReasoningLevels?.includes(level)) return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+      await agentRuntimes.settings.setDefaultModel({ model: { provider: request.body.model.provider, id: native.id }, ...(level ? { nativeReasoningLevel: level } : {}) });
+      return reply.code(204).send();
+    }
+    if (request.body.nativeReasoningLevel !== undefined) return reply.code(400).send({ error: "Native reasoning is only available for coding agents" });
+    if (request.body.reasoningLevel === undefined) return reply.code(400).send({ error: "Invalid agent defaults" });
     if (!providerEnabled(request.body.model.provider)) return reply.code(400).send({ error: "Provider is disabled" });
     const model = await availableModel(request.body.model.provider, request.body.model.id);
     if (!model) return reply.code(400).send({ error: "Model is not available" });
@@ -2025,6 +2139,7 @@ export function createApp(options: AppOptions = {}) {
     await settings.flush();
     const failure = settings.drainErrors()[0];
     if (failure) throw failure.error;
+    await agentRuntimes.settings.setDefaultModel(undefined);
     return reply.code(204).send();
   });
 
@@ -2099,6 +2214,16 @@ export function createApp(options: AppOptions = {}) {
       custom: false,
       status: volcengineTtsSettings.get().configured ? "connected" as const : "not_configured" as const,
       methods: [{ type: "api_key" as const, label: `${DOUBAO_SPEECH_PROVIDER_NAME} API key` }],
+      credentialType: "api_key" as const,
+      capabilities: ["audio"] as const,
+    }, {
+      id: "volcengine-seed-audio",
+      name: DOUBAO_SEED_AUDIO_PROVIDER_NAME,
+      configured: volcengineSeedAudioSettings.get().configured,
+      enabled: providerEnabled("volcengine-seed-audio"),
+      custom: false,
+      status: volcengineSeedAudioSettings.get().configured ? "connected" as const : "not_configured" as const,
+      methods: [{ type: "api_key" as const, label: `${DOUBAO_SEED_AUDIO_PROVIDER_NAME} API key` }],
       credentialType: "api_key" as const,
       capabilities: ["audio"] as const,
     }];
@@ -2224,7 +2349,8 @@ export function createApp(options: AppOptions = {}) {
     const seedance = isSeedanceProviderId(providerId);
     const minimax = isMinimaxProviderId(providerId);
     const volcengineTts = providerId === "volcengine-tts";
-    if (!native && !seedance && !minimax && !volcengineTts && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    const volcengineSeedAudio = providerId === "volcengine-seed-audio";
+    if (!native && !seedance && !minimax && !volcengineTts && !volcengineSeedAudio && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
       await providerModelSettings.removeProviderSettings(providerId, async () => {
@@ -2234,6 +2360,7 @@ export function createApp(options: AppOptions = {}) {
         else if (seedance) await seedanceSettings.clear(providerId);
         else if (minimax) await minimaxSettings.clear(providerId);
         else if (volcengineTts) await volcengineTtsSettings.clear();
+        else if (volcengineSeedAudio) await volcengineSeedAudioSettings.clear();
         else await runtime.logout(providerId);
         await syncOpenAIEndpoint(runtime);
         if (providerId === "openai") await openAIImages.clear(false);
@@ -2343,6 +2470,16 @@ export function createApp(options: AppOptions = {}) {
   );
   app.delete("/settings/models/providers/volcengine-tts", async (_request, reply) => {
     await volcengineTtsSettings.clear();
+    return reply.code(204).send();
+  });
+
+  app.get("/settings/models/providers/volcengine-seed-audio", async () => volcengineSeedAudioSettings.get());
+  app.put<{ Body: { apiKey: string } }>("/settings/models/providers/volcengine-seed-audio", { schema: apiKeySettingsSchema }, async (request, reply) => {
+    try { return await volcengineSeedAudioSettings.update(request.body.apiKey); }
+    catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+  app.delete("/settings/models/providers/volcengine-seed-audio", async (_request, reply) => {
+    await volcengineSeedAudioSettings.clear();
     return reply.code(204).send();
   });
 
@@ -2593,7 +2730,23 @@ export function createApp(options: AppOptions = {}) {
       if (!isCreateConversationRequest(request.body)) {
         return reply.code(400).send({ error: "Invalid conversation request" });
       }
-      const requestedModel = request.body?.model;
+      const defaults = agentRuntimes.settings.defaultModel();
+      const defaultModel = !request.body?.model && defaults ? await agentRuntimes.model(defaults.model.provider, defaults.model.id) : undefined;
+      const requestedModel = request.body?.model ?? (defaultModel ? defaults?.model : undefined);
+      if (requestedModel && isAgentRuntimeId(requestedModel.provider)) {
+        const agentModel = await agentRuntimes.model(requestedModel.provider, requestedModel.id);
+        if (!agentModel) return reply.code(400).send({ error: "Model is not available" });
+        if (request.body?.reasoningLevel !== undefined) return reply.code(400).send({ error: "Use nativeReasoningLevel for a coding agent's model" });
+        const matchingDefaults = defaults?.model.provider === agentModel.provider && defaults.model.id === agentModel.id;
+        const nativeLevel = request.body?.nativeReasoningLevel ?? (matchingDefaults ? defaults?.nativeReasoningLevel : undefined);
+        if (nativeLevel && !agentModel.nativeReasoningLevels?.includes(nativeLevel)) {
+          return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+        }
+        const conversation = await conversations.create(project, { provider: agentModel.provider, id: agentModel.id });
+        if (nativeLevel) conversations.setNativeReasoningLevel(project, conversation, agentModel, nativeLevel);
+        return reply.code(201).send(conversation.summary);
+      }
+      if (request.body?.nativeReasoningLevel !== undefined) return reply.code(400).send({ error: "Native reasoning is only available for coding agents" });
       let selectedModel: RuntimeModel | undefined;
       if (requestedModel) {
         selectedModel = await availableModel(requestedModel.provider, requestedModel.id);
@@ -2638,17 +2791,20 @@ export function createApp(options: AppOptions = {}) {
       const modelRef = await conversations.model(project, conversation);
       const planState = await conversations.planState(project, conversation);
       agents.restorePlanState(conversation, planState);
-      const runtime = modelRef ? await getModelRuntime() : undefined;
+      const agentRuntime = modelRef && isAgentRuntimeId(modelRef.provider) ? modelRef.provider : undefined;
+      const runtime = modelRef && !agentRuntime ? await getModelRuntime() : undefined;
       const model = runtime && modelRef ? resolveModel(runtime, runtime.getModel(modelRef.provider, modelRef.id)) : undefined;
+      // A coding agent's models load from its CLI; a slow one leaves the level to the picker rather than delay the conversation.
+      const agentModel = agentRuntime && modelRef ? await Promise.race([agentRuntimes.model(agentRuntime, modelRef.id), new Promise<undefined>((resolve) => setTimeout(resolve, 2_000))]) : undefined;
+      const storedLevel = model || agentModel ? await conversations.reasoningLevel(project, conversation) : undefined;
+      const fallbackLevel = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
+      const nativeStoredLevel = agentRuntime && modelRef ? await conversations.nativeReasoningLevel(project, conversation, modelRef) : undefined;
+      // Slow discovery must not erase a persisted choice in the initial UI state.
+      const nativeLevel = agentModel ? nativeEffort(agentModel, nativeStoredLevel) : nativeStoredLevel;
       const settings = {
         ...(modelRef ? { model: modelRef } : {}),
-        ...(model ? {
-          reasoningLevel: effectiveReasoningLevel(
-            model,
-            await conversations.reasoningLevel(project, conversation),
-            defaultReasoningLevel(project.workspacePath, piAgentDirectory),
-          ),
-        } : {}),
+        ...(model ? { reasoningLevel: effectiveReasoningLevel(model, storedLevel, fallbackLevel) } : {}),
+        ...(nativeLevel ? { nativeReasoningLevel: nativeLevel } : {}),
       };
       // Cache reads revalidate after earlier readers settle. Retry only when a
       // run or a delayed turn end changed during this read, so the response's
@@ -2737,12 +2893,15 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const model = await availableModel(request.body.provider, request.body.id);
-      if (!model) return reply.code(400).send({ error: "Model is not available" });
+      const agentModel = isAgentRuntimeId(request.body.provider) ? await agentRuntimes.model(request.body.provider, request.body.id) : undefined;
+      const model = agentModel ? undefined : await availableModel(request.body.provider, request.body.id);
+      if (!model && !agentModel) return reply.code(400).send({ error: "Model is not available" });
       try {
-        await agents.setModel(project.id, conversation.summary.id, model, () => {
-          conversations.setModel(project, conversation, request.body);
-        });
+        const persist = () => conversations.setModel(project, conversation, request.body);
+        // A session runs one agent: moving to or from a coding agent starts the next message in a new session.
+        const current = agents.sessionRuntime(project.id, conversation.summary.id);
+        if (agentModel || current) await agents.replaceSession(project.id, conversation.summary.id, persist);
+        else await agents.setModel(project.id, conversation.summary.id, model!, persist);
         if (conversation.summary.messageCount > 0) {
           const itemId = randomUUID();
           events.publish(project.id, "conversation.model.changed", {
@@ -2751,17 +2910,20 @@ export function createApp(options: AppOptions = {}) {
               turnId: itemId,
               type: "modelChange",
               model: request.body,
-              name: model.name,
+              name: agentModel?.name ?? model!.name,
             },
           }, { conversationId: conversation.summary.id, turnId: itemId });
         }
+        if (agentModel) {
+          const effort = nativeEffort(agentModel, await conversations.nativeReasoningLevel(project, conversation, agentModel));
+          return { model: request.body, ...(effort ? { nativeReasoningLevel: effort } : {}) } satisfies ConversationAgentSettings;
+        }
+        const levels = supportedReasoningLevels(model!);
+        const stored = await conversations.reasoningLevel(project, conversation);
+        const fallback = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
         return {
           model: request.body,
-          reasoningLevel: effectiveReasoningLevel(
-            model,
-            await conversations.reasoningLevel(project, conversation),
-            defaultReasoningLevel(project.workspacePath, piAgentDirectory),
-          ),
+          ...(levels.length ? { reasoningLevel: clampReasoningLevel(stored ?? fallback, levels) } : {}),
         } satisfies ConversationAgentSettings;
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -2779,17 +2941,22 @@ export function createApp(options: AppOptions = {}) {
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const modelRef = await conversations.model(project, conversation);
       if (!modelRef) return reply.code(409).send({ error: "Select a model before changing reasoning" });
-      const model = await availableModel(modelRef.provider, modelRef.id);
-      if (!model) return reply.code(400).send({ error: "Model is not available" });
-      const levels = supportedReasoningLevels(model);
-      if (!levels.includes(request.body.level)) {
-        return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+      if (isAgentRuntimeId(modelRef.provider)) {
+        const model = await agentRuntimes.model(modelRef.provider, modelRef.id);
+        if (!model?.nativeReasoningLevels?.includes(request.body.level)) return reply.code(400).send({ error: "Reasoning level is not available for this model" });
+        try {
+          await agents.replaceSession(project.id, conversation.summary.id, () => conversations.setNativeReasoningLevel(project, conversation, model, request.body.level));
+          return { level: request.body.level };
+        } catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
       }
+      const model = await availableModel(modelRef.provider, modelRef.id);
+      const level = parseReasoningLevel(request.body.level);
+      if (!model || !level || !supportedReasoningLevels(model).includes(level)) return reply.code(400).send({ error: "Reasoning level is not available for this model" });
       try {
-        const active = await agents.setReasoningLevel(project.id, conversation.summary.id, request.body.level, () => {
-          conversations.setReasoningLevel(project, conversation, request.body.level);
+        const active = await agents.setReasoningLevel(project.id, conversation.summary.id, level, () => {
+          conversations.setReasoningLevel(project, conversation, level);
         });
-        return { level: active ?? request.body.level };
+        return { level: active ?? level };
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -2882,7 +3049,7 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const selectedModel = await conversations.model(project, conversation);
-      if (selectedModel && !providerEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
+      if (selectedModel && !modelProviderEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       if (!request.body?.prompt?.trim() && !request.body?.images?.length && !request.body?.attachments?.length) return reply.code(400).send({ error: "Prompt or attachment is required" });
       let mentions;
       try {
@@ -2970,6 +3137,8 @@ export function createApp(options: AppOptions = {}) {
       }
       const titled = conversations.setInitialTitle(project, conversation.summary.id, request.body.prompt);
       if (titled) publishConversationRenamed(titled);
+      const namingPrompt = mentions.reduce((prompt, mention) => prompt.replaceAll(pluginMentionToken(mention), " "), request.body.prompt);
+      projectNaming.start(project, namingPrompt, selectedModel);
       return reply.code(202).send({ turnId: turn.turnId, queued: turn.queued });
     },
   );
@@ -2991,7 +3160,7 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const selectedModel = await conversations.model(project, conversation);
-      if (selectedModel && !providerEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
+      if (selectedModel && !modelProviderEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       try {
         const turn = await agents.compact(project, conversation, request.body?.instructions?.trim() || undefined);
         await turn.result;
@@ -3025,7 +3194,7 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const selectedModel = await conversations.model(project, conversation);
-      if (selectedModel && !providerEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
+      if (selectedModel && !modelProviderEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       agents.restorePlanState(conversation, await conversations.planState(project, conversation));
       try {
         const turn = await agents.approvePlan(project, conversation);
@@ -3093,6 +3262,60 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.post<{ Params: { projectId: string; conversationId: string; requestId: string }; Body: AnswerApprovalRequest }>(
+    "/projects/:projectId/conversations/:conversationId/approvals/:requestId",
+    { schema: answerApprovalSchema },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      try {
+        agents.answerApproval(project.id, conversation.summary.id, request.params.requestId, request.body.decision);
+        return reply.code(204).send();
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
+  app.get<{ Querystring: { recheck?: string } }>("/agent-runtimes", async (request) => agentRuntimes.statuses(request.query.recheck === "1"));
+
+  app.patch<{ Params: { runtimeId: string }; Body: UpdateAgentRuntimeRequest }>("/agent-runtimes/:runtimeId", { schema: updateAgentRuntimeSchema }, async (request, reply) => {
+    if (!isAgentRuntimeId(request.params.runtimeId)) return reply.code(404).send({ error: "Coding agent not found" });
+    try {
+      const status = await agentRuntimes.update(request.params.runtimeId, request.body);
+      // Open conversations pick up how the agent runs with their next message.
+      if (request.body.permissionMode !== undefined || request.body.isolateUserConfig !== undefined || request.body.binaryPath !== undefined) agents.releaseRuntimeSessions(request.params.runtimeId);
+      return status;
+    } catch (cause) {
+      return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.post<{ Params: { runtimeId: string } }>("/agent-runtimes/:runtimeId/recheck", async (request, reply) => {
+    if (!isAgentRuntimeId(request.params.runtimeId)) return reply.code(404).send({ error: "Coding agent not found" });
+    return agentRuntimes.status(request.params.runtimeId, true);
+  });
+
+  app.post<{ Params: { runtimeId: string } }>("/agent-runtimes/:runtimeId/login", async (request, reply) => {
+    if (!isAgentRuntimeId(request.params.runtimeId)) return reply.code(404).send({ error: "Coding agent not found" });
+    try {
+      return await agentRuntimes.login(request.params.runtimeId);
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  });
+
+  app.post(AGENT_RUNTIME_BRIDGE_PATH, { bodyLimit: 8 * 1024 * 1024 }, async (request, reply) => {
+    const answer = await agentRuntimes.handleBridgeRequest(request.headers.authorization, request.body);
+    if (answer.body === undefined) return reply.code(answer.status).send();
+    return reply.code(answer.status).type("application/json").send(answer.body);
+  });
+  // Streamable HTTP clients may open an event stream; this server has nothing to push.
+  app.get(AGENT_RUNTIME_BRIDGE_PATH, async (_request, reply) => reply.code(405).header("allow", "POST").send());
+  app.delete(AGENT_RUNTIME_BRIDGE_PATH, async (_request, reply) => reply.code(405).header("allow", "POST").send());
+
   app.post<{ Params: { projectId: string; conversationId: string }; Body: ReviseLastPromptRequest }>(
     "/projects/:projectId/conversations/:conversationId/revise-last",
     { schema: reviseLastPromptSchema },
@@ -3102,7 +3325,7 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const selectedModel = await conversations.model(project, conversation);
-      if (selectedModel && !providerEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
+      if (selectedModel && !modelProviderEnabled(selectedModel.provider)) return reply.code(409).send({ error: "The selected provider is disabled. Enable it in Settings to continue." });
       if (!request.body.prompt.trim()) return reply.code(400).send({ error: "Prompt is required" });
       try {
         const turn = await agents.reviseLast(project, conversation, request.body.prompt, async (reference) => ({
@@ -3304,12 +3527,14 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    await projectNaming.close();
     await pluginCapabilities.host.close();
     await cloudModels.setSession(null);
     await canvasStore.close();
     await tools.close();
     modelAuth.close();
     await agents.close();
+    await agentRuntimes.close();
     await Promise.allSettled([...agentPlaytests.values()].map((driver) => driver.cleanup()));
     options.playtestDriver?.close();
     await conversationImages.flush();
@@ -3391,7 +3616,8 @@ function isCreateConversationRequest(value: unknown): value is CreateConversatio
   if (value === undefined) return true;
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  if (Object.keys(body).some((key) => key !== "model" && key !== "reasoningLevel")) return false;
+  if (Object.keys(body).some((key) => key !== "model" && key !== "reasoningLevel" && key !== "nativeReasoningLevel")) return false;
+  if (body.nativeReasoningLevel !== undefined && (typeof body.nativeReasoningLevel !== "string" || !body.nativeReasoningLevel || body.nativeReasoningLevel.length > 100)) return false;
   if (body.reasoningLevel !== undefined && !AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel)) return false;
   if (body.model === undefined) return true;
   return isAgentModelRef(body.model);
@@ -3400,8 +3626,9 @@ function isCreateConversationRequest(value: unknown): value is CreateConversatio
 function isUpdateAgentDefaultsRequest(value: unknown): value is UpdateAgentDefaultsRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const body = value as Record<string, unknown>;
-  return Object.keys(body).every((key) => key === "model" || key === "reasoningLevel") &&
-    isAgentModelRef(body.model) && AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel);
+  if (body.nativeReasoningLevel !== undefined && (typeof body.nativeReasoningLevel !== "string" || !body.nativeReasoningLevel || body.nativeReasoningLevel.length > 100)) return false;
+  return Object.keys(body).every((key) => key === "model" || key === "reasoningLevel" || key === "nativeReasoningLevel") &&
+    isAgentModelRef(body.model) && (body.reasoningLevel === undefined || AGENT_REASONING_LEVELS.includes(body.reasoningLevel as AgentReasoningLevel));
 }
 
 function isAgentModelRef(value: unknown): value is AgentModelRef {
