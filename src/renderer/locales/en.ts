@@ -774,7 +774,7 @@ const en = {
     open: "Open {{name}}",
     agentStatus: "Agent {{status}}",
     actions: "Project actions for {{name}}",
-    gameDesign: "Game design",
+    openFolder: "Open in folder",
     remove: "Remove from OhMyGame",
     editedJustNow: "Edited just now",
     editedMinutes: "Edited {{count}}m ago",

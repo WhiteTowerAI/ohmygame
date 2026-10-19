@@ -709,6 +709,7 @@ body {
   overflow: auto;
   padding: 0 40px 48px;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
@@ -2885,6 +2886,7 @@ button.home-nav-item-active:hover {
   overflow: auto;
   padding: 161px 32px 44px;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
@@ -2929,6 +2931,7 @@ button.home-nav-item-active:hover {
   overflow: auto;
   padding: 0 36px 48px;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
@@ -3869,7 +3872,9 @@ button.home-nav-item-active:hover {
   position: fixed;
   z-index: 50;
   display: grid;
-  width: 108px;
+  width: max-content;
+  min-width: 108px;
+  max-width: min(260px, calc(100vw - 16px));
   padding: 4px;
   overflow: hidden;
   border: 0;
@@ -3898,6 +3903,16 @@ button.home-nav-item-active:hover {
 }
 .project-card-actions-menu .project-card-actions-delete {
   color: #ff6b62;
+}
+.project-card-actions-menu button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.project-card-folder-error {
+  margin: 4px 8px;
+  color: #ff6b62;
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .project-card-actions-menu
   .project-card-actions-delete:is(:hover, :focus-visible) {
@@ -12289,6 +12304,7 @@ button {
 }
 
 .composer-plan-mode {
+  flex: 0 0 auto;
   gap: 9px;
   color: var(--text-muted);
   font-size: 11px;
@@ -12304,6 +12320,7 @@ button {
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
+  white-space: nowrap;
 }
 
 .composer-plan-mode button:hover:not(:disabled) {
@@ -12449,11 +12466,18 @@ button {
 
 .prompt-box-toolbar {
   display: flex;
+  container: prompt-toolbar / inline-size;
   min-width: 0;
   min-height: 32px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+@container prompt-toolbar (max-width: 360px) {
+  .composer-plan-mode button > span {
+    display: none;
+  }
 }
 
 .prompt-box-leading,

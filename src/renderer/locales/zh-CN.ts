@@ -755,7 +755,7 @@ const zhCN: typeof en = {
     open: "打开 {{name}}",
     agentStatus: "Agent {{status}}",
     actions: "{{name}} 的项目操作",
-    gameDesign: "游戏设计",
+    openFolder: "在文件夹中打开",
     remove: "从 OhMyGame 移除",
     editedJustNow: "刚刚编辑",
     editedMinutes: "{{count}} 分钟前编辑",
