@@ -86,6 +86,7 @@ import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
+import type { ExternalAgentClientId, ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
 import type { NetworkConnectionTest, NetworkSettings, NetworkSettingsState } from "../shared/network-settings.js";
@@ -530,6 +531,22 @@ export async function getWebSearchSettings(): Promise<WebSearchSettings> {
 
 export async function updateWebSearchSettings(input: UpdateWebSearchSettings): Promise<WebSearchSettings> {
   return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function getExternalAgentSettings(): Promise<ExternalAgentSettings> {
+  return request("/settings/external-agents");
+}
+
+export async function updateExternalAgentSettings(input: UpdateExternalAgentSettings): Promise<ExternalAgentSettings> {
+  return request("/settings/external-agents", { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function connectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
+  return request(`/settings/external-agents/clients/${id}`, { method: "PUT" });
+}
+
+export async function disconnectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
+  return request(`/settings/external-agents/clients/${id}`, { method: "DELETE" });
 }
 
 export async function listExploreGames(accessToken?: string, options: CommunityGamesQuery = {}): Promise<CommunityGame[]> {

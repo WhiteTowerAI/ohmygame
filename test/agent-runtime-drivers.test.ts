@@ -937,6 +937,10 @@ describe("Claude Code adapter", () => {
       ]),
     );
     expect(clis[0]!.args).not.toContain("--strict-mcp-config");
+    // The person's own configuration may connect Claude Code to OhMyGame from outside.
+    expect(clis[0]!.args).toEqual(
+      expect.arrayContaining(["--disallowedTools", "mcp__ohmygame-studio"]),
+    );
   });
 });
 
@@ -1159,6 +1163,53 @@ describe("Codex adapter", () => {
       ":danger-full-access",
     ]);
     expect(profiles.at(-1)).toMatch(/^ohmygame-.*-read$/);
+  });
+
+  it("leaves out an external OhMyGame connection from the person's own configuration", async () => {
+    let config: Record<string, unknown> = {};
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined)
+        return;
+      const params = message.params as Record<string, unknown>;
+      if (message.method === "thread/start")
+        config = params.config as Record<string, unknown>;
+      cli.send({
+        id: message.id,
+        result:
+          message.method === "config/read"
+            ? {
+                config: {
+                  mcp_servers: {
+                    personal: { command: "x" },
+                    "ohmygame-studio": { command: "ohmygame-mcp" },
+                  },
+                },
+              }
+            : message.method === "thread/start"
+              ? {
+                  thread: { id: "thread-1" },
+                  activePermissionProfile: { id: params.permissions },
+                }
+              : {},
+      });
+      if (message.method === "turn/start")
+        setTimeout(() =>
+          cli.send({
+            method: "turn/completed",
+            params: { turn: { status: "completed" } },
+          }),
+        );
+    });
+    const driver = new CodexDriver(await context({ isolateUserConfig: false }));
+    cleanup.push(() => driver.dispose());
+    await driver.runTurn(
+      { text: "hi", images: [], readOnly: false },
+      recordingSink().sink,
+      new AbortController().signal,
+    );
+    expect(config["mcp_servers.ohmygame-studio.enabled"]).toBe(false);
+    expect(config).not.toHaveProperty("mcp_servers.personal.enabled");
+    expect(config).not.toHaveProperty("notify");
   });
 
   it("denies the shared temporary folders Codex's minimal access would read", async () => {

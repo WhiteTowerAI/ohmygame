@@ -629,6 +629,16 @@ export class AgentRuntimeService {
     this.#modelLoads.delete(id);
   }
 
+  /** The CLI's executable and the environment its commands run in, or undefined when it is not installed. */
+  async cli(
+    id: AgentRuntimeId,
+  ): Promise<{ path: string; env: Record<string, string> } | undefined> {
+    const binary = await resolveBinary(id, this.settings.get(id).binaryPath);
+    return binary
+      ? { path: binary.path, env: await this.#environment(id, binary.path) }
+      : undefined;
+  }
+
   async #environment(
     id: AgentRuntimeId,
     binaryPath: string,

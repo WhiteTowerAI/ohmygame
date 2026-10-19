@@ -3,6 +3,7 @@ import { existsSync, readdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentRuntimeId } from "../../shared/agent-runtimes.js";
+import { EXTERNAL_MCP_DISABLED_ENV } from "../../shared/external-mcp.js";
 
 /**
  * Variables a coding agent CLI may inherit. The environment is built from
@@ -86,7 +87,8 @@ export function agentEnvironment(
     result[pathKey] ?? "",
     ...commonBinaryDirectories(),
   ]);
-  return { ...result, ...extra };
+  // The person may have connected this CLI to OhMyGame; inside OhMyGame it already has OhMyGame's tools.
+  return { ...result, [EXTERNAL_MCP_DISABLED_ENV]: "1", ...extra };
 }
 
 /** Where people usually install these CLIs, for an app started from the Dock with only the system PATH. */

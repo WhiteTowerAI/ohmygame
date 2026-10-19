@@ -1857,6 +1857,35 @@ body {
   height: 22px;
 }
 
+/* Connect and Disconnect are text buttons in the columns a row's toggle and icon use. */
+.external-agents-group .settings-provider-row > .settings-secondary-button {
+  width: auto;
+  grid-column: 3 / 5;
+  padding: 0 15px;
+  background: var(--settings-row-surface-emphasis);
+  color: var(--text);
+}
+
+.external-agents-manual {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--settings-row-surface);
+}
+
+.external-agents-manual summary {
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.external-agents-manual .settings-provider-description,
+.external-agents-manual code {
+  font-size: 12px;
+}
+
 .coding-agent-link {
   padding: 0;
   border: 0;

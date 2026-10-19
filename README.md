@@ -86,6 +86,15 @@ Sign in and publish: OhMyGame builds your game and gives it a link anyone can
 play in the browser. Republishing updates the same link. Published games are
 listed in the in-app Community, where you can play what others have made.
 
+### 🔌 Use OhMyGame from Claude Code, Codex, and other agents
+
+Already working in another coding agent? Turn on **Settings → Agents → Use
+OhMyGame from other agents** and connect Claude Code or Codex with one click.
+They get OhMyGame's media generation with your providers, the canvas, and
+playtesting, plus a Skill that explains the workflow. DeepSeek Harness and
+other MCP clients can add the `ohmygame-studio` command shown there. See
+[External agents](docs/external-agents.md).
+
 ## What you can make
 
 Three games our team made with OhMyGame:

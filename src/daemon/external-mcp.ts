@@ -6,7 +6,8 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ProjectState } from "../shared/contracts.js";
 import {
   EXTERNAL_MCP_CONTRACT_VERSION,
-  type ExternalAgentSettings,
+  EXTERNAL_MCP_SERVER_NAME,
+  type ExternalMcpCatalog,
   type ExternalMcpEndpoint,
 } from "../shared/external-mcp.js";
 import { matchesBearerToken } from "./access.js";
@@ -14,7 +15,6 @@ import type { NativeToolResult } from "./agent-runtimes/native-session.js";
 import { ToolBridge, type BridgeTool } from "./agent-runtimes/tool-bridge.js";
 
 const MCP_PROTOCOL_VERSION = "2025-06-18";
-const SERVER_NAME = "ohmygame";
 
 /** Project tools external agents may call. Their names and schemas are the public contract. */
 export const EXTERNAL_PROJECT_TOOLS = [
@@ -187,17 +187,15 @@ export class ExternalMcpService {
     }
   }
 
-  settings(): ExternalAgentSettings {
-    return { enabled: this.#enabled };
+  get enabled(): boolean {
+    return this.#enabled;
   }
 
-  async update(settings: ExternalAgentSettings): Promise<ExternalAgentSettings> {
-    if (settings.enabled !== this.#enabled) {
-      this.#enabled = settings.enabled;
-      await this.#write(this.#settingsPath, { version: 1, enabled: this.#enabled } satisfies StoredSettings);
-      await this.#publish();
-    }
-    return this.settings();
+  async setEnabled(enabled: boolean): Promise<void> {
+    if (enabled === this.#enabled) return;
+    this.#enabled = enabled;
+    await this.#write(this.#settingsPath, { version: 1, enabled } satisfies StoredSettings);
+    await this.#publish();
   }
 
   /** The daemon accepts connections at `url`; publishes the endpoint when enabled. */
@@ -256,6 +254,10 @@ export class ExternalMcpService {
     return path.join(this.#directory, "endpoint.json");
   }
 
+  get #catalogPath(): string {
+    return path.join(this.#directory, "tools.json");
+  }
+
   #now(): number {
     return this.#options.now?.() ?? Date.now();
   }
@@ -263,6 +265,13 @@ export class ExternalMcpService {
   async #publish(): Promise<void> {
     if (!this.#enabled || !this.#url) return this.#revoke();
     if (this.#token) return;
+    // The launcher lists these while OhMyGame is closed, so a client starting does not start the app.
+    await this.#write(this.#catalogPath, {
+      version: 1,
+      contractVersion: EXTERNAL_MCP_CONTRACT_VERSION,
+      instructions: INSTRUCTIONS,
+      tools: this.tools(),
+    } satisfies ExternalMcpCatalog);
     this.#token = randomBytes(32).toString("base64url");
     await this.#write(this.#endpointPath, {
       version: 1,
@@ -359,7 +368,7 @@ export class ExternalMcpService {
           result: {
             protocolVersion: typeof params.protocolVersion === "string" ? params.protocolVersion : MCP_PROTOCOL_VERSION,
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: SERVER_NAME, version: String(EXTERNAL_MCP_CONTRACT_VERSION) },
+            serverInfo: { name: EXTERNAL_MCP_SERVER_NAME, version: String(EXTERNAL_MCP_CONTRACT_VERSION) },
             instructions: INSTRUCTIONS,
           },
         };

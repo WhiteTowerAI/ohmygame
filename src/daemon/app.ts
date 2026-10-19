@@ -45,6 +45,8 @@ import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
 import { createGameUseTool } from "./playtest-tools.js";
 import { ExternalMcpService } from "./external-mcp.js";
+import { ExternalAgentClients } from "./external-agent-clients.js";
+import { runCli } from "./agent-runtimes/discovery.js";
 import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateProjectName } from "./text-generation.js";
 import { ProjectNaming, type ProjectNameGenerator } from "./project-naming.js";
 import { resolveCanvasTextReferences } from "./canvas-text-references.js";
@@ -117,7 +119,7 @@ import { AssetLibrary, AssetLibraryError, isLibraryAssetDerivation } from "./ass
 import { exportPlayableProject, PlayableProjectExportError } from "./playable-project-export.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type GameUseOpenTarget } from "../shared/playtest.js";
-import { EXTERNAL_MCP_PATH, EXTERNAL_MCP_ROOTS_HEADER, type ExternalAgentSettings } from "../shared/external-mcp.js";
+import { EXTERNAL_AGENT_CLIENT_IDS, EXTERNAL_MCP_PATH, EXTERNAL_MCP_ROOTS_HEADER, type ExternalAgentClientId, type ExternalAgentSettings, type ExternalMcpLauncher, type UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { UpdateWebSearchSettings } from "../shared/web-search.js";
 import { WebSearchSettingsStore } from "./web-search-settings.js";
 import { WebSearchService } from "./web-search.js";
@@ -174,6 +176,12 @@ export interface AppOptions {
   playtestDriver?: GameRuntimeAdapter;
   webSearchFetch?: typeof fetch;
   networkSettings?: NetworkSettingsService;
+  /** How Claude Code and Codex start the `ohmygame-mcp` launcher; the desktop app provides it. */
+  externalMcpLauncher?: ExternalMcpLauncher;
+  /** The Skill copied to connected clients; defaults to the repository's. */
+  externalAgentSkillDirectory?: string;
+  /** Runs a client CLI's `mcp` commands; tests replace it. */
+  runExternalAgentCli?: typeof runCli;
 }
 
 const createProjectSchema = {
@@ -909,6 +917,18 @@ export function createApp(options: AppOptions = {}) {
       agentPlaytests.delete(key);
     },
   });
+  const externalClients = new ExternalAgentClients({
+    dataDirectory,
+    ...(options.externalMcpLauncher ? { launcher: options.externalMcpLauncher } : {}),
+    skillDirectory: options.externalAgentSkillDirectory ?? path.join(repositoryRoot, "integrations", "skills", "ohmygame-studio"),
+    resolve: (runtime) => agentRuntimes.cli(runtime),
+    run: options.runExternalAgentCli ?? runCli,
+  });
+  const externalAgentSettings = async (): Promise<ExternalAgentSettings> => ({
+    enabled: externalMcp.enabled,
+    ...(externalClients.launcher ? { launcher: externalClients.launcher } : {}),
+    clients: await externalClients.states(),
+  });
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
     const resolvePlugins = () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type);
@@ -1040,9 +1060,11 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), volcengineTtsSettings.load(), volcengineSeedAudioSettings.load(), providerModelSettings.load(), externalMcp.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), volcengineTtsSettings.load(), volcengineSeedAudioSettings.load(), providerModelSettings.load(), externalMcp.load(), externalClients.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
+    // Updates the Skill and launcher path in connected clients without holding up startup.
+    void externalClients.refresh();
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
     await localPlugins.list();
@@ -1118,8 +1140,23 @@ export function createApp(options: AppOptions = {}) {
 
   app.get("/settings/web-search", async () => webSearchSettings.get());
 
-  app.get("/settings/external-agents", async () => externalMcp.settings());
-  app.put<{ Body: ExternalAgentSettings }>("/settings/external-agents", { schema: externalAgentSettingsSchema }, async (request) => externalMcp.update(request.body));
+  app.get("/settings/external-agents", externalAgentSettings);
+  app.put<{ Body: UpdateExternalAgentSettings }>("/settings/external-agents", { schema: externalAgentSettingsSchema }, async (request) => {
+    await externalMcp.setEnabled(request.body.enabled);
+    return externalAgentSettings();
+  });
+  app.put<{ Params: { client: string } }>("/settings/external-agents/clients/:client", async (request, reply) => {
+    if (!isExternalAgentClientId(request.params.client)) return reply.code(404).send({ error: "Unknown agent" });
+    try { await externalClients.connect(request.params.client); }
+    catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+    return externalAgentSettings();
+  });
+  app.delete<{ Params: { client: string } }>("/settings/external-agents/clients/:client", async (request, reply) => {
+    if (!isExternalAgentClientId(request.params.client)) return reply.code(404).send({ error: "Unknown agent" });
+    try { await externalClients.disconnect(request.params.client); }
+    catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+    return externalAgentSettings();
+  });
 
   app.put<{ Body: UpdateWebSearchSettings }>("/settings/web-search", { schema: webSearchSettingsSchema }, async (request, reply) => {
     try {
@@ -3648,6 +3685,10 @@ export function createApp(options: AppOptions = {}) {
     await localPublisher?.close();
   });
   return app;
+}
+
+function isExternalAgentClientId(value: string): value is ExternalAgentClientId {
+  return (EXTERNAL_AGENT_CLIENT_IDS as readonly string[]).includes(value);
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {

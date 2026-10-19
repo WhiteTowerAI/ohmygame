@@ -76,6 +76,13 @@ https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 重新发布会更新同一个链接。发布的游戏会出现在应用内的社区（Community）里，
 你也可以在那里玩到别人做的游戏。
 
+### 🔌 在 Claude Code、Codex 等 Agent 中使用 OhMyGame
+
+已经在用别的编程 Agent？在 **设置 → 智能体 → 让其他 Agent 使用 OhMyGame** 中打开开关，
+一键连接 Claude Code 或 Codex。它们会获得 OhMyGame 的媒体生成（使用你配置的服务商）、
+画布和试玩能力，以及一个讲解工作流程的 Skill。DeepSeek Harness 和其他 MCP 客户端可以添加
+那里显示的 `ohmygame-studio` 命令。详见 [External agents](docs/external-agents.md)。
+
 ## 你可以做什么
 
 我们团队用 OhMyGame 做的三款游戏：

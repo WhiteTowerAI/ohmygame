@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { AgentRuntimeStatus } from "../src/shared/agent-runtimes.js";
 import type { AgentModelCatalog } from "../src/shared/contracts.js";
+import type { ExternalAgentSettings } from "../src/shared/external-mcp.js";
 
 const agent = (
   id: AgentRuntimeStatus["id"],
@@ -23,7 +24,15 @@ const agent = (
   diagnostics: [],
 });
 let catalog: AgentModelCatalog;
+let external: ExternalAgentSettings;
 const api = {
+  getExternalAgentSettings: vi.fn(async () => external),
+  updateExternalAgentSettings: vi.fn(async ({ enabled }: { enabled: boolean }) => (external = { ...external, enabled })),
+  connectExternalAgent: vi.fn(async (id: string) => (external = {
+    ...external,
+    clients: external.clients.map((client) => (client.id === id ? { ...client, connected: true } : client)),
+  })),
+  disconnectExternalAgent: vi.fn(async () => external),
   listModels: vi.fn(async () => catalog),
   waitForRuntime: vi.fn(async () => {}),
   updateAgentRuntime: vi.fn(
@@ -65,6 +74,14 @@ let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
   vi.clearAllMocks();
+  external = {
+    enabled: false,
+    launcher: { command: "/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp", args: [], env: {} },
+    clients: [
+      { id: "claude-code", available: true, connected: false },
+      { id: "codex", available: false, connected: false },
+    ],
+  };
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   host = document.createElement("div");
   document.body.append(host);
@@ -106,7 +123,9 @@ it("lists OhMyGame's own agent with its default model above the coding agent CLI
   const onOpenProviders = vi.fn();
   await render(vi.fn(), onOpenProviders);
   const names = [
-    ...host.querySelectorAll(".settings-provider-name > span"),
+    ...host.querySelectorAll(
+      ".settings-provider-group:not(.external-agents-group) .settings-provider-name > span",
+    ),
   ].map((item) => item.textContent);
   expect(names).toEqual(["OhMyGame", "Claude Code", "Codex"]);
   expect(
@@ -297,4 +316,29 @@ it("shows each CLI's usage limits in its row and on its detail page", async () =
   expect(host.textContent).toContain("Shown after a conversation with Codex.");
   await detail("opencode-cli");
   expect(host.textContent).not.toContain("Usage limits");
+});
+
+it("lets other agents use OhMyGame and connects a CLI found on this computer", async () => {
+  catalog = { models: [gpt], defaultModel: { provider: "openai", id: "gpt-5" }, defaultReasoningLevel: "medium" };
+  await render();
+  const group = () => host.querySelector(".external-agents-group")!;
+  expect(group().querySelectorAll(".settings-provider-row")).toHaveLength(1);
+  await act(async () =>
+    group().querySelector<HTMLInputElement>('input[aria-label="Allow other agents to use OhMyGame"]')!.click(),
+  );
+  expect(api.updateExternalAgentSettings).toHaveBeenCalledWith({ enabled: true });
+  const rows = [...group().querySelectorAll(".settings-provider-row")];
+  expect(rows.map((item) => item.querySelector(".settings-provider-description")?.textContent)).toEqual([
+    expect.stringContaining("Claude Code, Codex"),
+    "Not connected",
+    "Not found on this computer",
+  ]);
+  // Codex is not installed, so it has nothing to connect.
+  expect(rows[2]!.querySelector("button")).toBeNull();
+  await act(async () => rows[1]!.querySelector<HTMLButtonElement>("button")!.click());
+  expect(api.connectExternalAgent).toHaveBeenCalledWith("claude-code");
+  expect(group().querySelectorAll(".settings-provider-row")[1]!.textContent).toContain("Connected");
+  expect(group().querySelector(".external-agents-manual code")?.textContent).toBe(
+    '"/Users/me/Library/Application Support/OhMyGame/bin/ohmygame-mcp"',
+  );
 });

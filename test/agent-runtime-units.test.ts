@@ -671,6 +671,8 @@ describe("coding agent discovery", () => {
     expect(env).not.toHaveProperty("OHMYGAME_DAEMON_TOKEN");
     // Another CLI's own folder is not this one's to see.
     expect(env).not.toHaveProperty("CODEX_HOME");
+    // An ohmygame-mcp launcher the CLI may start must not connect back to OhMyGame.
+    expect(env.OHMYGAME_EXTERNAL_MCP_DISABLED).toBe("1");
   });
 });
 

@@ -7,7 +7,7 @@ import { afterEach, expect, it } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import { ExternalMcpService } from "../src/daemon/external-mcp.js";
 import type { ProjectState } from "../src/shared/contracts.js";
-import type { ExternalMcpEndpoint } from "../src/shared/external-mcp.js";
+import type { ExternalMcpCatalog, ExternalMcpEndpoint } from "../src/shared/external-mcp.js";
 
 const cleanup: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => {
@@ -84,7 +84,7 @@ async function fixture() {
   cleanup.push(() => service.close());
   await service.load();
   await service.listening("http://127.0.0.1:1/external-mcp");
-  await service.update({ enabled: true });
+  await service.setEnabled(true);
   const endpoint = JSON.parse(await readFile(path.join(root, "external-mcp", "endpoint.json"), "utf8")) as ExternalMcpEndpoint;
   const authorization = `Bearer ${endpoint.token}`;
   let id = 0;
@@ -112,16 +112,19 @@ it("publishes a token only while enabled and revokes it when turned off", async 
   const file = path.join(root, "external-mcp", "endpoint.json");
   expect(endpoint).toMatchObject({ version: 1, url: "http://127.0.0.1:1/external-mcp", contractVersion: 1 });
   expect((await stat(file)).mode & 0o777).toBe(0o600);
+  const catalog = JSON.parse(await readFile(path.join(root, "external-mcp", "tools.json"), "utf8")) as ExternalMcpCatalog;
+  expect(catalog).toMatchObject({ version: 1, contractVersion: 1, instructions: expect.stringContaining("wait_job") });
+  expect(catalog.tools.map((tool) => tool.name)).toContain("generate_image");
   expect(await service.handle({ authorization: "Bearer wrong", sessionId: undefined, roots: undefined, body: {} })).toMatchObject({ status: 401 });
   const session = await open();
   expect((await rpc(session, "ping")).status).toBe(200);
 
-  await service.update({ enabled: false });
+  await service.setEnabled(false);
   await expect(stat(file)).rejects.toMatchObject({ code: "ENOENT" });
   expect(await service.handle({ authorization, sessionId: session, roots: undefined, body: { jsonrpc: "2.0", id: 1, method: "ping" } }))
     .toMatchObject({ status: 401 });
 
-  await service.update({ enabled: true });
+  await service.setEnabled(true);
   const renewed = JSON.parse(await readFile(file, "utf8")) as ExternalMcpEndpoint;
   expect(renewed.token).not.toBe(endpoint.token);
   expect(JSON.parse(await readFile(path.join(root, "external-mcp", "settings.json"), "utf8"))).toEqual({ version: 1, enabled: true });
@@ -223,7 +226,7 @@ it("serves the public contract from the daemon without the app token", async () 
     headers: { authorization: "Bearer app-token" },
     payload: { enabled: true },
   });
-  expect(settings.json()).toEqual({ enabled: true });
+  expect(settings.json()).toMatchObject({ enabled: true, clients: [{ id: "claude-code" }, { id: "codex" }] });
   const endpoint = JSON.parse(await readFile(path.join(dataDirectory, "external-mcp", "endpoint.json"), "utf8")) as ExternalMcpEndpoint;
   expect(endpoint.url).toBe(`http://127.0.0.1:${(app.server.address() as { port: number }).port}/external-mcp`);
 
@@ -231,7 +234,7 @@ it("serves the public contract from the daemon without the app token", async () 
     app.inject({ method: "POST", url: "/external-mcp", headers: { authorization: `Bearer ${endpoint.token}`, ...headers }, payload });
   expect((await app.inject({ method: "POST", url: "/external-mcp", headers: { authorization: "Bearer app-token" }, payload: {} })).statusCode).toBe(401);
   const initialized = await post({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } });
-  expect(initialized.json()).toMatchObject({ result: { serverInfo: { name: "ohmygame", version: "1" } } });
+  expect(initialized.json()).toMatchObject({ result: { serverInfo: { name: "ohmygame-studio", version: "1" } } });
   const session = initialized.headers["mcp-session-id"] as string;
   const listed = await post({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { "mcp-session-id": session });
   const names = (listed.json() as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name);
