@@ -52,6 +52,7 @@ const interception = vi.hoisted(() => ({
       ) => Promise<void>)
     | undefined,
   frozen: new Map<string, Stats>(),
+  afterRead: undefined as ((target: string) => Promise<void>) | undefined,
 }));
 vi.mock("node:fs/promises", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs/promises")>();
@@ -73,6 +74,11 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const mocked = {
     ...original,
     lstat,
+    readFile: (async (...parameters: Parameters<typeof original.readFile>) => {
+      const contents = await original.readFile(...parameters);
+      await interception.afterRead?.(String(parameters[0]));
+      return contents;
+    }) as typeof original.readFile,
     rm: intercepted("rm", original.rm),
     rename: intercepted("rename", original.rename, 1),
     copyFile: intercepted("copyFile", original.copyFile),
@@ -101,6 +107,7 @@ const hasGit = (() => {
 const roots: string[] = [];
 afterEach(async () => {
   interception.before = undefined;
+  interception.afterRead = undefined;
   interception.frozen.clear();
   vi.useRealTimers();
   await Promise.all(
@@ -376,6 +383,52 @@ describe("workspace checkpoints", () => {
       "assets/hero.png": "hero",
       "assets/keep.log": "kept",
     });
+  });
+
+  it.each(["", "levels/"])(
+    "preserves existing files when %s.gitignore changes while a snapshot reads it",
+    async (prefix) => {
+      const game = await project({
+        [`${prefix}.gitignore`]: "notes.txt\n",
+        [`${prefix}notes.txt`]: "existing notes",
+      });
+      const store = new CheckpointStore();
+      const ignoreFile = path.join(game.workspacePath, `${prefix}.gitignore`);
+      interception.afterRead = async (file) => {
+        if (file !== ignoreFile) return;
+        interception.afterRead = undefined;
+        await writeFile(ignoreFile, "");
+      };
+
+      const before = await store.snapshot(game);
+      const after = await store.snapshot(game);
+      await store.restore(game, before);
+      expect(
+        await readFile(
+          path.join(game.workspacePath, `${prefix}notes.txt`),
+          "utf8",
+        ),
+      ).toBe("existing notes");
+      expect(paths(await store.diff(game, before, after))).not.toContain(
+        `${prefix}notes.txt`,
+      );
+    },
+  );
+
+  it("records a symlinked .gitignore without following its rules", async () => {
+    const game = await project({
+      "rules.txt": "notes.txt\n",
+      "notes.txt": "notes",
+    });
+    await symlink("rules.txt", path.join(game.workspacePath, ".gitignore"));
+    const store = new CheckpointStore();
+    const commit = await store.snapshot(game);
+    expect(
+      Buffer.from((await store.read(game, commit, ".gitignore"))!).toString(),
+    ).toBe("rules.txt");
+    expect(
+      Buffer.from((await store.read(game, commit, "notes.txt"))!).toString(),
+    ).toBe("notes");
   });
 
   it("keeps OhMyGame's own files and every .gitignore whatever a .gitignore says", async () => {
@@ -3290,6 +3343,50 @@ describe("pruning", () => {
     return Buffer.from((await store.read(game, commit, file))!).toString();
   }
 
+  it("shares an in-flight prune and protects snapshots issued while it waits", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    const first = await store.snapshot(game);
+    later();
+    let release!: (roots: string[]) => void;
+    const ready = new Promise<string[]>((resolve) => {
+      release = resolve;
+    });
+    const references = vi.fn(() => ready);
+    const pruning = store.prune(game, references);
+    await vi.waitFor(() => expect(references).toHaveBeenCalledOnce());
+    const concurrent = store.prune(game, references);
+    try {
+      expect(await store.snapshot(game)).toBe(first);
+      await write(game.workspacePath, { "level.bin": "two" });
+      await store.snapshot(game);
+    } finally {
+      release([]);
+    }
+    expect(await Promise.all([pruning, concurrent])).toEqual([
+      { removed: 0, bytes: 0 },
+      { removed: 0, bytes: 0 },
+    ]);
+    expect(references).toHaveBeenCalledOnce();
+    expect(await text(store, game, first, "level.bin")).toBe("one");
+  });
+
+  it("can retry a prune whose reference scan failed", async () => {
+    const game = await project({ "level.bin": "one" });
+    const store = new CheckpointStore();
+    await store.snapshot(game);
+    const references = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Read failed"))
+      .mockResolvedValue([]);
+    await expect(store.prune(game, references)).rejects.toThrow("Read failed");
+    expect(await store.prune(game, references)).toEqual({
+      removed: 0,
+      bytes: 0,
+    });
+    expect(references).toHaveBeenCalledTimes(2);
+  });
+
   it("removes what no named snapshot needs and keeps what one does", async () => {
     const game = await project({ "level.bin": "one", "game.ts": "same" });
     const store = new CheckpointStore();
@@ -3467,10 +3564,13 @@ describe("pruning", () => {
     await store.snapshot(game);
     const folder = path.join(checkpointDirectory(game), "objects", "ab");
     await mkdir(folder, { recursive: true });
+    const existing = await readdir(folder);
     await writeFile(path.join(folder, "tmp_obj_left"), "partial");
     await writeFile(path.join(folder, "README"), "not an object");
     later();
     await store.prune(game, async () => []);
-    expect(await readdir(folder)).toEqual(["README"]);
+    expect((await readdir(folder)).sort()).toEqual(
+      [...existing, "README"].sort(),
+    );
   });
 });

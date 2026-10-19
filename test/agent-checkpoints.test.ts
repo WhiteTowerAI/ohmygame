@@ -938,6 +938,42 @@ describe("Agent checkpoints", () => {
 });
 
 describe("Agent turn changes", () => {
+  it("counts later-ignored files kept by a partial Undo and persists that count", async () => {
+    const { app, project, start, detail, send, ended, undo, file, published } =
+      await studio([
+        { write: { "notes.txt": "second", "game.ts": "second" } },
+        { say: "Updated both files." },
+      ]);
+    await writeFile(path.join(project.workspacePath, "notes.txt"), "first");
+    await writeFile(path.join(project.workspacePath, "game.ts"), "first");
+    await send("Update the files");
+    const turn = await ended("Update the files");
+    await writeFile(
+      path.join(project.workspacePath, ".gitignore"),
+      "notes.txt\n",
+    );
+
+    const response = await undo(turn.checkpointId!, "keep");
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toEqual({
+      changed: ["game.ts"],
+      conflicts: ["notes.txt"],
+      undone: true,
+      kept: 1,
+    });
+    expect(await file("notes.txt")).toBe("second");
+    expect(await file("game.ts")).toBe("first");
+    expect((await published("workspace.undone"))[0]!.data).toMatchObject({
+      kept: 1,
+    });
+    await app.close();
+    const restored = await detail(start());
+    const message = restored.turns
+      .flatMap((item) => item.items)
+      .find((item) => item.type === "userMessage");
+    expect(message).toMatchObject({ changes: { undone: true, kept: 1 } });
+  });
+
   it("prunes the checkpoints once a run is completed, and the turns stay undoable", async () => {
     const { project, send, ended, undo, file } = await studio([
       { write: { "notes.txt": "first" } },

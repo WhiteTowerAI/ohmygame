@@ -479,13 +479,17 @@ export function registerCheckpointRoutes(
                       (file) => file.path,
                     ),
                   );
-                  remaining = (
-                    await store.diff(
-                      project,
-                      range.before,
-                      await store.snapshot(project),
-                    )
-                  ).filter((file) => turnPaths.has(file.path)).length;
+                  // Ignored conflicts are absent from the current diff but were still kept by this action.
+                  const remainingPaths = new Set(
+                    kept.filter((file) => turnPaths.has(file)),
+                  );
+                  for (const file of await store.diff(
+                    project,
+                    range.before,
+                    await store.snapshot(project),
+                  ))
+                    if (turnPaths.has(file.path)) remainingPaths.add(file.path);
+                  remaining = remainingPaths.size;
                 }
                 return {
                   ...result,

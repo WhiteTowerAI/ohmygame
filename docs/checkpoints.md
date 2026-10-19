@@ -105,10 +105,11 @@ an operation rolls back when possible rather than silently overwriting them.
 ## Storage and file scope
 
 The daemon stores Git-compatible objects in the project's storage directory at
-`checkpoints/`, outside its workspace. The workspace does not need Git; its
-`.git`, branches, index, and `.gitignore` files are never written. This is
-internal snapshot storage rather than a user-facing Git workflow. File modes
-retain only whether a file is executable.
+`checkpoints/`, outside its workspace. The workspace does not need Git;
+snapshotting never writes its `.git`, branches, index, or `.gitignore` files.
+Explicit Undo, Reapply and Restore can restore `.gitignore` alongside other
+project files. This is internal snapshot storage rather than a user-facing Git
+workflow. File modes retain only whether a file is executable.
 
 Snapshots include creative project files and workspace asset metadata. They
 exclude `node_modules` and `.git` anywhere, and these paths at the workspace root:
@@ -125,15 +126,18 @@ root, which OhMyGame keeps together with the assets they describe, and the
 `.gitignore` files themselves. A `.gitignore` that is not a regular file, cannot
 be read, or is larger than 1 MiB ignores nothing.
 
-Because every snapshot holds the `.gitignore` files that applied when it was
-taken, Diff, Undo, Reapply and Restore leave out any path that the `.gitignore`
-files of any snapshot they compare ignore. A turn that adds `cache/` to
-`.gitignore` therefore neither lists nor takes back the files in `cache/`, and
+Each directory's `.gitignore` is recorded before its other entries, and its
+stored content supplies the rules for that snapshot, also if an external editor
+changes the file during the scan. Because every snapshot holds the `.gitignore`
+files that applied when it was taken, Diff, Undo, Reapply and Restore leave out
+any path that the `.gitignore` files of any snapshot they compare ignore. A turn
+that adds `cache/` to `.gitignore` therefore neither lists nor takes back the files in `cache/`, and
 a turn that stops ignoring `*.log` does not list the logs it then writes.
 Ignored files are never written or removed, and a file that must come back
 where a folder holds ignored files is refused, as with excluded files. Undo and
 Reapply name a file of the turn that the current `.gitignore` ignores as one
-they cannot put back, so the user can keep it and undo the rest. Snapshots
+they cannot put back, so the user can keep it and undo the rest. These conflicts
+count as kept files even though they are omitted from the current Diff. Snapshots
 taken before this rule existed may hold files that are ignored now; Restore
 does not put these back either. Ignored generated assets, such as images
 matched by `*.png`, are not recorded, so Undo cannot bring them back.
@@ -146,11 +150,12 @@ line that is not JSON is passed over, as Pi passes it over. It also keeps the
 newest snapshot, the recovery target of an unfinished restore, every snapshot
 handed out while the prune runs, and everything written in the last 24 hours
 with all it needs: the snapshot that closes a turn is recorded only when the
-run ends. What the named snapshots need is worked out beside other operations;
-only the removal runs in the project's checkpoint queue, and it is left for a
-later run when an agent, Undo, Reapply, Restore or project removal is under
-way. A named object that exists but cannot be read stops the prune before
-anything is removed.
+run ends. Concurrent cleanup requests for the same project share one running
+pass. What the named snapshots need is worked out beside other operations;
+object enumeration, final reachability checks and removal run in the project's
+checkpoint queue. That phase is left for a later run when an agent, Undo,
+Reapply, Restore or project removal is under way. A named object that exists but
+cannot be read stops the prune before anything is removed.
 
 Conversations cannot be deleted, so pruning only frees snapshots that no entry
 ever named, such as those taken to show current file states or left by failed
