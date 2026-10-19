@@ -12075,6 +12075,7 @@ button {
 }
 
 .composer-plan-mode {
+  flex: 0 0 auto;
   gap: 9px;
   color: var(--text-muted);
   font-size: 11px;
@@ -12090,6 +12091,7 @@ button {
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
+  white-space: nowrap;
 }
 
 .composer-plan-mode button:hover:not(:disabled) {
@@ -12235,11 +12237,18 @@ button {
 
 .prompt-box-toolbar {
   display: flex;
+  container: prompt-toolbar / inline-size;
   min-width: 0;
   min-height: 32px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+@container prompt-toolbar (max-width: 360px) {
+  .composer-plan-mode button > span {
+    display: none;
+  }
 }
 
 .prompt-box-leading,
