@@ -543,16 +543,25 @@ export class CodexDriver implements NativeDriver {
     switch (item.type) {
       case "imageGeneration": {
         const turn = this.#turn;
-        if (!turn || turn.finishing || turn.signal.aborted || turn.images.has(id))
+        if (
+          !turn ||
+          turn.finishing ||
+          turn.signal.aborted ||
+          turn.images.has(id)
+        )
           return;
         // Some versions only emit the completed item. The sink deduplicates starts by call id.
         this.#itemStarted(sink, item);
         const importing = (async () => {
           try {
             if (turn.readOnly)
-              throw new Error("Cannot import generated images during a planning turn");
+              throw new Error(
+                "Cannot import generated images during a planning turn",
+              );
             if (item.status !== "completed" || item.failure)
-              throw new Error(`Codex image generation failed (${String(item.status)})`);
+              throw new Error(
+                `Codex image generation failed (${String(item.status)})`,
+              );
             const result = await importCodexImage(
               item,
               this.#threadId!,
