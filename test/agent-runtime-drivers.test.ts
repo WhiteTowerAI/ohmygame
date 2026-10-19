@@ -1158,7 +1158,8 @@ describe("Codex adapter", () => {
       two.sink,
       new AbortController().signal,
     );
-    await vi.waitFor(() => expect(turns).toHaveLength(2));
+    // Preparing the shared app server took over two seconds on a Windows runner, past the default wait.
+    await vi.waitFor(() => expect(turns).toHaveLength(2), { timeout: 10_000 });
     expect(clis).toHaveLength(1);
     const cli = clis[0]!;
     // Threads are numbered in the order the conversations asked for them.
