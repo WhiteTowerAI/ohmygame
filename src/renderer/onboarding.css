@@ -549,9 +549,16 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   font-size: 12px;
 }
 .onboarding-media > .onboarding-content {
-  padding-block: 24px;
+  flex: 1 1 auto;
+  min-height: 0;
+  justify-content: flex-start;
+  padding: clamp(40px, 10dvh, 72px) 0 24px;
 }
 section.onboarding-media {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   width: min(100%, 400px);
   margin-top: 24px;
   text-align: left;
@@ -575,7 +582,9 @@ section.onboarding-media {
   color: var(--text);
 }
 section.onboarding-media .onboarding-provider-list {
-  max-height: 220px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
 }
 .onboarding-media-detail {
   width: min(100%, 460px);
