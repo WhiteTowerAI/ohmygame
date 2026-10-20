@@ -33,9 +33,11 @@ import { sandboxedPath, sessionCaches, toolchainRoots } from "./environment.js";
 import type { AgentContextUsage } from "../../shared/contracts.js";
 import { runtimeStartupError } from "./compatibility.js";
 import { importCodexImage } from "./codex-images.js";
+import { BRIDGE_SERVER_NAME } from "./tool-bridge.js";
 
 /** A turn on a shared server must stop on its own: the process outlives the conversation. */
 const INTERRUPT_TIMEOUT_MS = 5_000;
+const TOOL_PREFIX = `${BRIDGE_SERVER_NAME}_`;
 
 interface CodexTurn {
   sink: NativeTurnSink;
@@ -67,7 +69,6 @@ export class CodexDriver implements NativeDriver {
   #threadId?: string;
   #turn?: CodexTurn;
   #bridged = new BridgeResults();
-  #toolNames = new Map<string, string>();
 
   constructor(private readonly context: DriverContext) {
     this.#threadId = context.resume;
@@ -242,19 +243,6 @@ export class CodexDriver implements NativeDriver {
       developerInstructions: this.context.instructions,
       config: await this.#config(server),
     };
-    // Dynamic tools are fixed when the thread starts, and a thread that starts
-    // in planning continues after the plan is approved.
-    const tools = this.context.bridge.list("all").map((tool) => {
-      // Names such as mcp are reserved by Codex, even for a function tool.
-      const name = `ohmygame_${tool.name}`;
-      this.#toolNames.set(name, tool.name);
-      return {
-        type: "function",
-        name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      };
-    });
     if (this.#threadId) {
       try {
         const resumed = await server.request<{
@@ -277,6 +265,14 @@ export class CodexDriver implements NativeDriver {
         throw cause;
       }
     }
+    // Dynamic tools are fixed when the thread starts, including in planning.
+    // Names such as mcp are reserved by Codex, so prefix the host's tools.
+    const tools = this.context.bridge.list("all").map((tool) => ({
+      type: "function",
+      name: `${TOOL_PREFIX}${tool.name}`,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    }));
     const started = await server.request<{
       thread?: { id?: string };
       activePermissionProfile?: { id?: string };
@@ -670,7 +666,7 @@ export class CodexDriver implements NativeDriver {
   #bridgeToolName(tool: unknown): string {
     const name = String(tool ?? "");
     // Existing native threads may still call the original unprefixed names.
-    return this.#toolNames.get(name) ?? name;
+    return name.startsWith(TOOL_PREFIX) ? name.slice(TOOL_PREFIX.length) : name;
   }
 
   async #request(
