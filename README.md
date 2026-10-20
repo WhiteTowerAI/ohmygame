@@ -211,6 +211,8 @@ Click **Next** to connect a model before your first prompt:
    permissions or personal configuration. Agents appear side by side, and model
    provider setup belongs to OhMyGame. A check marks an enabled agent. Choose the
    default conversation model below the selected agent's configuration.
+   Selecting an uninstalled CLI shows setup guidance; its **Installation guide**
+   opens only when clicked, and **Check again** detects it after installation.
    **Next** continues when a language model is ready; **Skip and start**
    enters without setup. Setup resumes where you left off; existing installations
    go straight to the studio.

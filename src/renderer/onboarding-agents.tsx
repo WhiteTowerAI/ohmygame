@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentModel } from "../shared/contracts.js";
 import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
 import type {
@@ -29,6 +29,7 @@ export function OnboardingAgents({
   onBusyChange,
   onConnected,
   onUseBuiltIn,
+  children,
 }: {
   busy: boolean;
   models: readonly AgentModel[];
@@ -38,6 +39,7 @@ export function OnboardingAgents({
   onBusyChange: (busy: boolean) => void;
   onConnected: (id: AgentRuntimeId) => Promise<void>;
   onUseBuiltIn: () => Promise<void>;
+  children: ReactNode;
 }) {
   const [agents, setAgents] = useState<AgentRuntimeStatus[]>();
   const [error, setError] = useState<string>();
@@ -132,6 +134,11 @@ export function OnboardingAgents({
     }
   }
 
+  const selected = agents?.find((agent) => agent.id === selectedAgent);
+  const installUrl = selected?.diagnostics.find(
+    (diagnostic) => diagnostic.code === "not-installed",
+  )?.command;
+
   return (
     <section
       className="onboarding-agents"
@@ -180,6 +187,7 @@ export function OnboardingAgents({
           aria-pressed={selectedAgent === "pi"}
           disabled={busy || Boolean(pending)}
           onClick={() => {
+            setError(undefined);
             onSelectAgent("pi");
             if (models.some((model) => !isAgentRuntimeId(model.provider)))
               void onUseBuiltIn();
@@ -208,6 +216,7 @@ export function OnboardingAgents({
           .map((agent) => {
             const icon = PROVIDER_ICONS[agent.id];
             const ready =
+              agent.installed &&
               agent.enabled &&
               models.some((model) => model.provider === agent.id);
             const checking = loadingRuntimes?.includes(agent.id);
@@ -218,9 +227,6 @@ export function OnboardingAgents({
                 diagnostic.code === "models-unavailable",
             );
             const signedOut = agent.auth.status === "signed-out";
-            const installUrl = agent.diagnostics.find(
-              (diagnostic) => diagnostic.code === "not-installed",
-            )?.command;
             return (
               <button
                 type="button"
@@ -230,11 +236,11 @@ export function OnboardingAgents({
                 aria-pressed={selectedAgent === agent.id}
                 disabled={busy || Boolean(pending) || Boolean(checking)}
                 onClick={() => {
+                  setError(undefined);
                   onSelectAgent(agent.id);
+                  if (!agent.installed) return;
                   void run(agent.id, async () => {
-                    if (!agent.installed) {
-                      if (installUrl) await openModelAuthExternal(installUrl);
-                    } else if (signedOut) {
+                    if (signedOut) {
                       const started = await loginAgentRuntime(agent.id);
                       loginId.current = agent.id;
                       setCopied(false);
@@ -275,7 +281,7 @@ export function OnboardingAgents({
                 <span>{agent.name}</span>
                 <small>
                   {!agent.installed
-                    ? t("codingAgents.installGuide")
+                    ? t("codingAgents.notInstalled")
                     : signedOut
                       ? t("common.signIn")
                       : problem
@@ -288,64 +294,107 @@ export function OnboardingAgents({
             );
           })}
       </div>
-      {!agents && !error ? (
-        <p className="onboarding-status" role="status">
-          <LoaderCircle className="spin" size={14} />
-          {t("codingAgents.checking")}
-        </p>
-      ) : null}
-      {login && login.id === selectedAgent ? (
-        <div className="onboarding-agent-login" role="status">
-          {login.url ? (
-            <button
-              type="button"
-              className="onboarding-text-button"
-              onClick={() =>
-                void run(login.id, () => openModelAuthExternal(login.url!))
-              }
-            >
-              {t("codingAgents.openAgain")}
-            </button>
-          ) : login.command ? (
-            <>
-              <p>{t("codingAgents.loginCommand")}</p>
-              <code>{login.command}</code>
+      <div className="onboarding-agent-config">
+        {selectedAgent !== "pi" ? (
+          <>
+            <p className="onboarding-agent-hint">
+              {selected && !selected.installed
+                ? t("onboarding.installAgentHint", { name: selected.name })
+                : t("onboarding.cliHint")}
+            </p>
+            {selected && !selected.installed ? (
+              <div className="onboarding-agent-install-actions">
+                {installUrl ? (
+                  <button
+                    type="button"
+                    className="onboarding-text-button"
+                    disabled={busy || Boolean(pending)}
+                    onClick={() =>
+                      void run(selected.id, () =>
+                        openModelAuthExternal(installUrl),
+                      )
+                    }
+                  >
+                    {t("codingAgents.installGuide")}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="onboarding-text-button"
+                  disabled={busy || Boolean(pending)}
+                  onClick={() =>
+                    void run(selected.id, async () => {
+                      remember(await recheckAgentRuntime(selected.id));
+                      notifyAgentModelsChanged();
+                    })
+                  }
+                >
+                  {t("codingAgents.recheck")}
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+        {!agents && !error ? (
+          <p className="onboarding-status" role="status">
+            <LoaderCircle className="spin" size={14} />
+            {t("codingAgents.checking")}
+          </p>
+        ) : null}
+        {login && login.id === selectedAgent ? (
+          <div className="onboarding-agent-login" role="status">
+            {login.url ? (
               <button
                 type="button"
                 className="onboarding-text-button"
                 onClick={() =>
-                  void navigator.clipboard.writeText(login.command!).then(
-                    () => setCopied(true),
-                    (cause) => setError(errorMessage(cause)),
-                  )
+                  void run(login.id, () => openModelAuthExternal(login.url!))
                 }
               >
-                {copied
-                  ? t("codingAgents.copied")
-                  : t("codingAgents.copyCommand")}
+                {t("codingAgents.openAgain")}
               </button>
-            </>
-          ) : null}
-          <button
-            type="button"
-            className="onboarding-text-button"
-            disabled={busy || Boolean(pending)}
-            onClick={() =>
-              void run(login.id, async () => {
-                remember(await recheckAgentRuntime(login.id));
-                notifyAgentModelsChanged();
-              })
-            }
-          >
-            {t("codingAgents.recheck")}
-          </button>
-        </div>
-      ) : null}
-      {error ? (
-        <p className="onboarding-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+            ) : login.command ? (
+              <>
+                <p>{t("codingAgents.loginCommand")}</p>
+                <code>{login.command}</code>
+                <button
+                  type="button"
+                  className="onboarding-text-button"
+                  onClick={() =>
+                    void navigator.clipboard.writeText(login.command!).then(
+                      () => setCopied(true),
+                      (cause) => setError(errorMessage(cause)),
+                    )
+                  }
+                >
+                  {copied
+                    ? t("codingAgents.copied")
+                    : t("codingAgents.copyCommand")}
+                </button>
+              </>
+            ) : null}
+            <button
+              type="button"
+              className="onboarding-text-button"
+              disabled={busy || Boolean(pending)}
+              onClick={() =>
+                void run(login.id, async () => {
+                  remember(await recheckAgentRuntime(login.id));
+                  notifyAgentModelsChanged();
+                })
+              }
+            >
+              {t("codingAgents.recheck")}
+            </button>
+          </div>
+        ) : null}
+        {error ? (
+          <p className="onboarding-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        {children}
+      </div>
     </section>
   );
 }

@@ -322,8 +322,7 @@ export function Onboarding({
             setRefresh((value) => value + 1);
           }
         }}
-      />
-      <div className="onboarding-agent-config">
+      >
         {activeAgent === "pi" ? (
           <>
             <div className="onboarding-provider-heading">
@@ -350,9 +349,7 @@ export function Onboarding({
               />
             )}
           </>
-        ) : (
-          <p className="onboarding-agent-hint">{t("onboarding.cliHint")}</p>
-        )}
+        ) : null}
         {agentModel ? (
           <ReadyModel
             models={agentModels}
@@ -371,7 +368,7 @@ export function Onboarding({
             {t("onboarding.loadingAgentModels")}
           </p>
         ) : null}
-      </div>
+      </OnboardingAgents>
     </>
   );
 

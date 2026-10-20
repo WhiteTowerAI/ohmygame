@@ -1333,6 +1333,49 @@ describe("three-step setup with coding agents", () => {
     expect(button("Next").disabled).toBe(false);
   });
 
+  it("opens the installation guide only from its explicit action and can recheck installation", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    const installUrl = "https://developers.openai.com/codex/cli";
+    api.listAgentRuntimes.mockResolvedValue([
+      {
+        ...codex,
+        installed: false,
+        diagnostics: [
+          {
+            code: "not-installed",
+            message: "Not installed",
+            command: installUrl,
+          },
+        ],
+      },
+    ]);
+    api.recheckAgentRuntime.mockResolvedValue(codex);
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+    await act(async () => agentButton("Codex").click());
+    expect(open).not.toHaveBeenCalled();
+    expect(api.loginAgentRuntime).not.toHaveBeenCalled();
+    expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+    expect(
+      container.querySelector(".onboarding-agent-config")?.textContent,
+    ).toContain("Install Codex, then check again.");
+    await act(async () => button("Installation guide").click());
+    expect(open).toHaveBeenCalledExactlyOnceWith(
+      installUrl,
+      "_blank",
+      "noopener,noreferrer",
+    );
+    await act(async () => button("Check again").click());
+    expect(api.recheckAgentRuntime).toHaveBeenCalledWith("codex-cli");
+    expect(
+      container.querySelector(".onboarding-agent-install-actions"),
+    ).toBeNull();
+    expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+  });
+
   it("polls a slow CLI catalog while retaining a usable provider model", async () => {
     vi.useFakeTimers();
     try {

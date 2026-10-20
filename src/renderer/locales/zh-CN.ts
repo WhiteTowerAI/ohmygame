@@ -83,6 +83,7 @@ const zhCN: typeof en = {
     builtInHint: "默认",
     providers: "OhMyGame 模型服务商",
     cliHint: "使用此智能体的账户与模型。",
+    installAgentHint: "安装 {{name}} 后，点击「重新检查」。",
     agentReady: "已就绪",
     agentDetected: "已安装",
     moreAgents: "更多智能体",

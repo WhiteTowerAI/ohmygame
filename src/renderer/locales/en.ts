@@ -82,6 +82,7 @@ const en = {
     builtInHint: "Default",
     providers: "OhMyGame model providers",
     cliHint: "Uses this agent's own account and models.",
+    installAgentHint: "Install {{name}}, then check again.",
     agentReady: "Ready",
     agentDetected: "Installed",
     moreAgents: "More agents",
