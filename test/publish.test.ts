@@ -133,7 +133,7 @@ describePublishContract("remote publish", () => {
     expect(await readFile(path.join(output, ...manifest.assets.clip.path.slice(2).split("/")))).toEqual(videoContents);
   }, 20_000);
 
-  it("does not apply the remote publish size limit to a local Interactive Story build", async () => {
+  it("builds a local Interactive Story larger than the former 25 MiB publish limit", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Story", "interactive-story");
     await playInSandbox(project.workspacePath);
@@ -492,7 +492,7 @@ describePublishContract("remote publish", () => {
     );
   });
 
-  it("rejects an artifact larger than the publish limit before upload", async () => {
+  it("publishes media larger than the former 25 MiB limit", async () => {
     const publishFetch = vi.fn(fetch);
     const runtime = await testRuntime(undefined, publishFetch);
     const project = await createProject(runtime.daemon, "Large");
@@ -501,9 +501,9 @@ describePublishContract("remote publish", () => {
 
     const response = await publishProject(runtime.daemon, project.id);
 
-    expect(response.statusCode).toBe(413);
-    expect(response.json()).toEqual({ error: "Publish artifact exceeds 25 MB" });
-    expect(publishFetch).not.toHaveBeenCalled();
+    expect(response.statusCode, response.body).toBe(201);
+    expect(publishFetch).toHaveBeenCalled();
+    expect((await readFile(path.join(runtime.publishData, "artifacts", response.json().deployment.id, "large.bin"))).length).toBe(26 * 1024 * 1024);
   });
 
   it("keeps the user token out of the project and published artifact", async () => {

@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
+import { getGlobalDispatcher, type Dispatcher } from "undici/index.js";
 import { RemotePublisher, RemotePublishError } from "../src/daemon/publish/client.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 
 describe("Publish v1 client contract", () => {
   it("creates, deploys, and lists a game using the hosted HTTP contract", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
     const artifact = Buffer.from("zip contents");
     const requests: Request[] = [];
     const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
@@ -41,6 +43,14 @@ describe("Publish v1 client contract", () => {
       artifactBytes: artifact.length,
     });
     expect((deploymentForm.get("artifact") as File).name).toBe("game.zip");
+    expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([60_000, 60_000, 60_000, 600_000, 60_000]);
+    timeout.mockRestore();
+    const dispatch = vi.spyOn(getGlobalDispatcher(), "dispatch").mockReturnValue(true);
+    try {
+      const init = fetcher.mock.calls[3]![1] as RequestInit & { dispatcher: Pick<Dispatcher, "dispatch"> };
+      init.dispatcher.dispatch({ origin: "https://publish.ohmygame.test", path: "/", method: "POST" }, {});
+      expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ headersTimeout: 600_000, bodyTimeout: 600_000 }), {});
+    } finally { dispatch.mockRestore(); }
   });
 
   it("preserves listing state when publishing an existing work", async () => {
