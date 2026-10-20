@@ -172,6 +172,7 @@ export class ExternalMcpService {
   #enabled = false;
   #token?: string;
   #url?: string;
+  #publishing: Promise<void> = Promise.resolve();
 
   constructor(options: ExternalMcpOptions) {
     this.#options = options;
@@ -206,7 +207,7 @@ export class ExternalMcpService {
 
   async close(): Promise<void> {
     this.#url = undefined;
-    await this.#revoke();
+    await this.#publish();
     for (const job of this.#jobs.values()) job.controller.abort();
   }
 
@@ -262,7 +263,14 @@ export class ExternalMcpService {
     return this.#options.now?.() ?? Date.now();
   }
 
-  async #publish(): Promise<void> {
+  /** Enabling and the daemon starting to listen may overlap; one at a time keeps the file and token in step. */
+  #publish(): Promise<void> {
+    const next = this.#publishing.then(() => this.#publishNow());
+    this.#publishing = next.catch(() => {});
+    return next;
+  }
+
+  async #publishNow(): Promise<void> {
     if (!this.#enabled || !this.#url) return this.#revoke();
     if (this.#token) return;
     // The launcher lists these while OhMyGame is closed, so a client starting does not start the app.

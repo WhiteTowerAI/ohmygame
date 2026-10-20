@@ -156,8 +156,17 @@ export class ExternalMcpLauncher {
     const controller = new AbortController();
     if (message.id !== undefined && message.id !== null) this.#inFlight.set(message.id, controller);
     for (let attempt = 0; ; attempt++) {
-      const connection = await this.#connect(start);
-      const response = await this.#post(connection, message, controller.signal);
+      let response: Response;
+      try {
+        const connection = await this.#connect(start);
+        response = await this.#post(connection, message, controller.signal);
+      } catch (cause) {
+        if (cause instanceof UnavailableError || controller.signal.aborted) throw cause;
+        // A daemon that just closed: look for the current one once.
+        this.#connection = undefined;
+        if (attempt === 0) continue;
+        throw new Error(`Could not reach OhMyGame (${errorMessage(cause)}). ${NOT_RUNNING}`);
+      }
       // A restarted daemon has a new token; an idle session expires. Connect again once.
       if ((response.status === 401 || response.status === 404) && attempt === 0) {
         this.#connection = undefined;
@@ -194,16 +203,29 @@ export class ExternalMcpLauncher {
   async #endpoint(start: boolean): Promise<{ url: string; token: string }> {
     const current = await this.#liveEndpoint();
     if (current) return current;
-    if (!(await this.#enabled())) throw new Error(TURNED_OFF);
-    if (!start || !this.#options.startApp) throw new Error(NOT_RUNNING);
-    this.#options.startApp();
+    if (!(await this.#enabled())) throw new UnavailableError(TURNED_OFF);
+    if (!start) throw new UnavailableError(NOT_RUNNING);
+    // An app that is starting or restarting its daemon is waited for, never started twice.
+    if (!(await this.#appRunning())) {
+      if (!this.#options.startApp) throw new UnavailableError(NOT_RUNNING);
+      this.#options.startApp();
+    }
     const deadline = Date.now() + (this.#options.startTimeoutMs ?? START_TIMEOUT_MS);
     while (Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, START_POLL_MS));
       const started = await this.#liveEndpoint();
       if (started) return started;
     }
-    throw new Error(`OhMyGame could not be started. ${NOT_RUNNING}`);
+    throw new UnavailableError(`OhMyGame could not be started. ${NOT_RUNNING}`);
+  }
+
+  async #appRunning(): Promise<boolean> {
+    try {
+      const app = JSON.parse(await readFile(path.join(this.#directory, "app.json"), "utf8")) as { pid?: unknown };
+      return typeof app.pid === "number" && (this.#options.isAlive ?? isAlive)(app.pid);
+    } catch {
+      return false;
+    }
   }
 
   async #liveEndpoint(): Promise<{ url: string; token: string } | undefined> {
@@ -250,6 +272,9 @@ export class ExternalMcpLauncher {
 const TURNED_OFF =
   "OhMyGame is not accepting other agents. Open OhMyGame and turn on Settings → Agents → Use OhMyGame from other agents.";
 const NOT_RUNNING = "Open the OhMyGame app and try again.";
+
+/** OhMyGame is off or closed; retrying the request would not help. */
+class UnavailableError extends Error {}
 
 function isAlive(pid: number): boolean {
   try {

@@ -34,7 +34,6 @@ async function main(): Promise<void> {
     },
   });
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
-  const pending = new Set<Promise<void>>();
   lines.on("line", (line) => {
     if (!line.trim()) return;
     let message: Message;
@@ -44,9 +43,7 @@ async function main(): Promise<void> {
       process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } })}\n`);
       return;
     }
-    const work = launcher.receive(message);
-    pending.add(work);
-    void work.finally(() => pending.delete(work));
+    void launcher.receive(message);
   });
   lines.once("close", () => {
     void launcher.close().finally(() => process.exit(0));

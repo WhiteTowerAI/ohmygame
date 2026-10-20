@@ -1,13 +1,13 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { Type } from "typebox";
 import { afterEach, expect, it } from "vitest";
 import { ExternalMcpService } from "../src/daemon/external-mcp.js";
-import { installExternalMcpLauncher } from "../src/desktop/external-mcp-install.js";
+import { installExternalMcpLauncher, markExternalMcpApp } from "../src/desktop/external-mcp-install.js";
 import { ExternalMcpLauncher, type Message } from "../src/desktop/external-mcp-launcher.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 
@@ -62,11 +62,18 @@ async function fixture() {
   };
   const written: Message[] = [];
   let starts = 0;
+  let failures = 0;
   const create = (overrides: { startApp?: () => void } = {}) =>
     new ExternalMcpLauncher({
       dataDirectory: root,
       write: (message) => written.push(message),
-      fetch: fetchDaemon,
+      fetch: async (url, init) => {
+        if (failures > 0) {
+          failures--;
+          throw new TypeError("fetch failed");
+        }
+        return fetchDaemon(url, init);
+      },
       environment: {},
       cwd: game,
       isAlive: () => true,
@@ -84,7 +91,7 @@ async function fixture() {
     const result = answer?.result as { content: Array<{ text: string }>; isError?: boolean };
     return { text: result.content[0]!.text, isError: !!result.isError };
   };
-  return { root, game, service, requests, written, create, ask, call, starts: () => starts };
+  return { root, game, service, requests, written, create, ask, call, starts: () => starts, failNext: (count: number) => { failures = count; } };
 }
 
 it("answers the handshake and tool list itself, without starting OhMyGame", async () => {
@@ -140,6 +147,40 @@ it("starts OhMyGame on the first tool call and binds the folder the client works
 
   await launcher.close();
   expect(requests.at(-1)).toMatchObject({ method: "DELETE" });
+});
+
+it("waits for an app that is already starting instead of starting a second one", async () => {
+  const { root, service, create, ask, call, starts } = await fixture();
+  await service.setEnabled(true);
+  await markExternalMcpApp(root, 4242);
+  const launcher = create();
+  await ask(launcher, "initialize", { capabilities: {} });
+  setTimeout(() => void service.listening("http://127.0.0.1:1/external-mcp"), 700);
+  expect(await call(launcher, "canvas_check")).toEqual({ isError: false, text: "canvas of game" });
+  expect(starts()).toBe(0);
+});
+
+it("looks for the daemon again after a dropped connection, then explains", async () => {
+  const { service, create, ask, call, failNext } = await fixture();
+  await service.listening("http://127.0.0.1:1/external-mcp");
+  await service.setEnabled(true);
+  const launcher = create();
+  await ask(launcher, "initialize", { capabilities: {} });
+  failNext(1);
+  expect(await call(launcher, "canvas_check")).toEqual({ isError: false, text: "canvas of game" });
+  failNext(2);
+  expect(await call(launcher, "canvas_check")).toEqual({
+    isError: true,
+    text: "Could not reach OhMyGame (fetch failed). Open the OhMyGame app and try again.",
+  });
+});
+
+it("forgets the app's record only when it is still the app's own", async () => {
+  const { root } = await fixture();
+  const first = await markExternalMcpApp(root, 1);
+  await markExternalMcpApp(root, 2);
+  await first();
+  expect(JSON.parse(await readFile(path.join(root, "external-mcp", "app.json"), "utf8"))).toEqual({ version: 1, pid: 2 });
 });
 
 it("uses the client's MCP roots when it offers them", async () => {

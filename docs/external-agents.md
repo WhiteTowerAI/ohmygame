@@ -91,7 +91,8 @@ Daemon: ExternalMcpService
 
 Settings → Agents → **Use OhMyGame from other agents** turns the feature on
 and lists Claude Code and Codex with **Connect** and **Disconnect**. Other
-clients get the launcher command to configure by hand. The renderer uses:
+clients get the launcher command to configure by hand. See the
+[Settings section](assets/external-agents-settings.webp). The renderer uses:
 
 | Route                                              | Purpose                                        |
 | -------------------------------------------------- | ---------------------------------------------- |
@@ -107,6 +108,7 @@ Files in `<dataDirectory>/external-mcp/`:
 | `endpoint.json` | URL, token, contract version and daemon `pid`, mode `0600`; only while the daemon runs.     |
 | `tools.json`    | The public tool list and instructions, kept so the launcher works while OhMyGame is closed. |
 | `clients.json`  | Connected clients and the launcher each was connected with.                                 |
+| `app.json`      | The desktop app's `pid` while it runs, written before its daemon starts.                    |
 
 - The token is random for each daemon launch and is never stored elsewhere.
   Turning the feature off, or the daemon closing, deletes `endpoint.json`,
@@ -132,8 +134,11 @@ Files in `<dataDirectory>/external-mcp/`:
   every configured MCP server when a session opens, in any folder, so the app
   must not start just because a client did.
 - The first tool call starts OhMyGame if `endpoint.json` is missing or its
-  `pid` is gone, and waits up to 30 seconds. If the feature is off, the call
-  instead explains where to turn it on.
+  `pid` is gone, and waits up to 30 seconds. An app whose `app.json` process
+  is alive is starting or restarting its daemon, so the launcher only waits:
+  the app has no single-instance lock, and a second copy would run a second
+  daemon on the same data. If the feature is off, the call instead explains
+  where to turn it on.
 - It sends the client's MCP roots in `X-OhMyGame-Roots`, or, for clients
   without roots, `CLAUDE_PROJECT_DIR` and its working directory. A restarted
   daemon or an expired session is reconnected once, transparently. Closing
