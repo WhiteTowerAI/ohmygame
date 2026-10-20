@@ -124,6 +124,76 @@ async function fillName(value: string) {
 }
 
 describe("plugin connection UI", () => {
+  it("restores the opening button's focus when the project window closes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ plugins: [], skills: [] })),
+    );
+    function Creator() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>New project</button>
+          {open ? (
+            <ProjectCreateDialog
+              fixedType="general"
+              onClose={() => setOpen(false)}
+              onCreated={() => setOpen(false)}
+            />
+          ) : null}
+        </>
+      );
+    }
+    await act(async () => root.render(<Creator />));
+    const opener = container.querySelector("button")!;
+    opener.focus();
+    await click("New project");
+    expect(document.activeElement).toBe(container.querySelector("input"));
+    await click("Cancel");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("opens a ready bound project without reading dialog metadata", async () => {
+    state.result = {
+      connection: { status: "ready" },
+      project: { id: "bound" },
+    };
+    const fetchIntegration = fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init?: RequestInit) => {
+        if (String(url).endsWith("/plugins/fixture"))
+          throw new Error("Plugin details unavailable");
+        return fetchIntegration(url, init);
+      }),
+    );
+    const opened = vi.fn(),
+      failed = vi.fn();
+    function Creator() {
+      const gate = usePluginIntegrationGate();
+      return (
+        <>
+          {gate.dialog}
+          <button
+            onClick={() =>
+              void gate
+                .ensure(project, "fixture", { canCreate: true })
+                .then(opened, failed)
+            }
+          >
+            Create game
+          </button>
+        </>
+      );
+    }
+    await act(async () => root.render(<Creator />));
+    await click("Create game");
+    expect(opened).toHaveBeenCalledWith(project);
+    expect(failed).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it("creates in a branded dialog while keeping the original description mounted", async () => {
     state.result = { connection: { status: "ready" }, project: null };
     const opened = vi.fn();

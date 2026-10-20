@@ -34,9 +34,6 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
   creatingRef.current = creating;
   onCloseRef.current = onClose;
   useEffect(() => {
-    if (!integrationGate.creation && !creating) nameInput.current?.focus();
-  }, [!!integrationGate.creation, creating]);
-  useEffect(() => {
     let active = true;
     void getHomeComposerCapabilities().then(value => { if (active) setPlugins(value.plugins); }).catch(() => {});
     return () => { active = false; };
@@ -44,7 +41,6 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    nameInput.current?.focus();
     const handleKeyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape" && integrationRef.current.creation) {
         event.preventDefault();
@@ -72,6 +68,10 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
       previousFocus?.focus();
     };
   }, []);
+
+  useEffect(() => {
+    if (!integrationGate.creation && !creating) nameInput.current?.focus();
+  }, [!!integrationGate.creation, creating]);
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();

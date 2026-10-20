@@ -465,11 +465,7 @@ export function usePluginIntegrationGate(
     if (creation) project = await getProject(project.id);
     if (project.integration && project.integration.pluginId !== pluginId)
       throw new Error(t("integration.conflict"));
-    const [initialState, plugin] = await Promise.all([
-      getPluginIntegration(pluginId, project.id),
-      creation ? readPlugin(pluginId) : Promise.resolve(undefined),
-    ]);
-    let state = initialState;
+    let state = await getPluginIntegration(pluginId, project.id);
     if (!state.running && state.error)
       state = await runPluginIntegration(pluginId, "status", project.id);
     if (!mounted.current) return undefined;
@@ -482,6 +478,8 @@ export function usePluginIntegrationGate(
     ) {
       return project;
     }
+    const plugin = creation ? await readPlugin(pluginId) : undefined;
+    if (!mounted.current) return undefined;
     const ready = await new Promise<boolean>((resolve) => {
       resolveDialog.current = resolve;
       setDialog({ project, pluginId, initial: state, creation, plugin });
@@ -506,6 +504,9 @@ export function usePluginIntegrationGate(
     close(false);
   }
   const pluginName = dialog?.plugin?.displayName ?? t("integration.plugin");
+  const creationTitle = dialog?.creation
+    ? t("integration.createTitle", { plugin: pluginName })
+    : undefined;
   const panel = dialog ? (
     <PluginIntegrationPanel
       pluginId={dialog.pluginId}
@@ -529,7 +530,7 @@ export function usePluginIntegrationGate(
               <PluginGlyph plugin={dialog.plugin} size={32} />
             </span>
           ) : null}
-          <h2>{t("integration.createTitle", { plugin: pluginName })}</h2>
+          <h2>{creationTitle}</h2>
         </div>
         <button
           className="plugin-detail-secondary plugin-integration-refresh"
@@ -546,20 +547,14 @@ export function usePluginIntegrationGate(
   return {
     ensure,
     creation: dialog?.creation?.embedded ? creationContent : null,
-    creationTitle: dialog?.creation
-      ? t("integration.createTitle", { plugin: pluginName })
-      : undefined,
+    creationTitle,
     cancelCreation: dismiss,
     dialog:
       dialog && !dialog.creation?.embedded ? (
         <IntegrationDialog
           onClose={dismiss}
           creation={!!dialog.creation}
-          title={
-            dialog.creation
-              ? t("integration.createTitle", { plugin: pluginName })
-              : t("integration.title")
-          }
+          title={creationTitle ?? t("integration.title")}
         >
           {creationContent ?? panel}
         </IntegrationDialog>
