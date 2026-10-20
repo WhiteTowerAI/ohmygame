@@ -162,21 +162,15 @@ describe("plugin catalog browsing", () => {
     expect(cards()).toContain("Tiled");
   });
 
-  it("filters enabled plugins and keeps card positions stable when toggled", async () => {
+  it("keeps enabled and disabled cards in place when toggled", async () => {
     await renderCatalog();
     const before = cards();
     await click("Disable Godot");
     expect(cards()).toEqual(before);
-    await click("Enabled only");
-    expect(cards()).toEqual([
-      "Game Studio",
-      "Web Game Studio",
-      "Three.js World",
-      "Blender",
-      "Image to Three.js",
-      "New tool",
-    ]);
-    await click("Enabled only");
+    expect(
+      container.querySelector('[aria-label="Enable Godot"]'),
+    ).not.toBeNull();
+    await click("Enable Godot");
     expect(cards()).toEqual(before);
   });
 
@@ -186,7 +180,7 @@ describe("plugin catalog browsing", () => {
     expect(cards()).toEqual(["WeChat Mini Games", "Douyin Mini Games"]);
     expect(container.querySelectorAll(".plugins-installed h2")).toHaveLength(0);
     expect(container.querySelector(".plugins-show-more")).toBeNull();
-    await click("Enabled only");
+    await search("missing tool");
     expect(cards()).toEqual([]);
     expect(container.textContent).toContain("No plugins in this collection.");
   });
@@ -205,8 +199,6 @@ describe("plugin catalog browsing", () => {
     expect(document.activeElement).toBe(tabs[1]);
     expect(tabs[1].getAttribute("aria-selected")).toBe("true");
     expect(cards()).toEqual(["Alpha", "Zebra"]);
-    await click("Enabled only");
-    expect(cards()).toEqual(["Zebra"]);
     await act(async () =>
       tabs[1].dispatchEvent(
         new KeyboardEvent("keydown", { key: "Home", bubbles: true }),

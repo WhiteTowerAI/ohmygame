@@ -73,7 +73,6 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [query, setQuery] = useState("");
   const [collection, setCollection] = useState<"public" | "personal">("public");
-  const [enabledOnly, setEnabledOnly] = useState(false);
   const catalogId = useId();
   const [updating, setUpdating] = useState<string>();
   const [adding, setAdding] = useState<"install">();
@@ -255,7 +254,7 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   }
 
   const normalizedQuery = query.trim().toLowerCase();
-  const visible = plugins.filter(plugin => pluginCollection(plugin) === collection && (!enabledOnly || plugin.enabled) && pluginSearchText(plugin).includes(normalizedQuery))
+  const visible = plugins.filter(plugin => pluginCollection(plugin) === collection && pluginSearchText(plugin).includes(normalizedQuery))
     .sort(compareCatalogPlugins);
   const groups = collection === "public" && !normalizedQuery
     ? PLUGIN_CATEGORIES.map(category => ({ id: category.id, title: t(`plugins.categories.${category.id}`), plugins: visible.filter(plugin => pluginCategory(plugin) === category.id) }))
@@ -310,26 +309,23 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       onMcpToggle={(id, enabled) => detail && void updatePlugin(detail, { enabled: detail.enabled, components: { ...componentSettings(detail).components, [pluginComponentKey("mcp", id)]: enabled } })}
       onTry={onTryPlugin}
     /> : <>
-      <div className="plugins-catalog-controls">
-        <div className="plugins-collection-tabs" role="tablist" aria-label={t("plugins.collections")}>
-          {(["public", "personal"] as const).map(source => <button key={source} id={`${catalogId}-${source}`} type="button" role="tab"
-            aria-selected={collection === source} aria-controls={`${catalogId}-panel`} tabIndex={collection === source ? 0 : -1}
-            onClick={() => setCollection(source)} onKeyDown={event => {
-              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-              event.preventDefault();
-              const next = event.key === "Home" ? "public" : event.key === "End" ? "personal" : collection === "public" ? "personal" : "public";
-              setCollection(next);
-              document.getElementById(`${catalogId}-${next}`)?.focus();
-            }}>{t(`plugins.${source}`)}</button>)}
-        </div>
-        <button className="plugins-enabled-filter" type="button" aria-pressed={enabledOnly} onClick={() => setEnabledOnly(current => !current)}>{t("plugins.enabledOnly")}</button>
+      <div className="plugins-collection-tabs" role="tablist" aria-label={t("plugins.collections")}>
+        {(["public", "personal"] as const).map(source => <button key={source} id={`${catalogId}-${source}`} type="button" role="tab"
+          aria-selected={collection === source} aria-controls={`${catalogId}-panel`} tabIndex={collection === source ? 0 : -1}
+          onClick={() => setCollection(source)} onKeyDown={event => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const next = event.key === "Home" ? "public" : event.key === "End" ? "personal" : collection === "public" ? "personal" : "public";
+            setCollection(next);
+            document.getElementById(`${catalogId}-${next}`)?.focus();
+          }}>{t(`plugins.${source}`)}</button>)}
       </div>
       <div id={`${catalogId}-panel`} role="tabpanel" aria-labelledby={`${catalogId}-${collection}`}>
       {phase === "ready" && ((!gitDialogOpen && error) || catalogWarning) ? <p className="plugins-inline-error" role="alert">{!gitDialogOpen && error ? error : catalogWarning}</p> : null}
       {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
       {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
       {phase === "ready" ? <>
-        {collection === "personal" && !normalizedQuery && !enabledOnly ? <PluginBuilderSessions /> : null}
+        {collection === "personal" && !normalizedQuery ? <PluginBuilderSessions /> : null}
         {visible.length ? groups.filter(group => group.plugins.length).map(group => <PluginCollection key={`${collection}-${group.id}`} id={`${catalogId}-${group.id}`} title={group.title}
           plugins={group.plugins} collapsible={!normalizedQuery}
           updating={Boolean(updating)} onOpenPlugin={onPluginChange}

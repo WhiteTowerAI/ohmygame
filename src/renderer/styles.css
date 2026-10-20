@@ -6577,17 +6577,12 @@ button.home-nav-item-active:hover {
   }
 }
 
-.plugins-catalog-controls {
+.plugins-collection-tabs {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 6px;
   margin-bottom: 24px;
 }
-.plugins-collection-tabs { display: flex; gap: 6px; }
-.plugins-collection-tabs button,
-.plugins-enabled-filter {
+.plugins-collection-tabs button {
   min-height: 34px;
   padding: 0 14px;
   border: 0;
@@ -6598,11 +6593,8 @@ button.home-nav-item-active:hover {
   font-size: 12px;
   cursor: pointer;
 }
-.plugins-collection-tabs button:hover,
-.plugins-enabled-filter:hover { background: var(--control-surface); color: var(--text); }
-.plugins-collection-tabs button[aria-selected="true"],
-.plugins-enabled-filter[aria-pressed="true"] { background: var(--control-selected); color: var(--text); }
-.plugins-enabled-filter { border: 1px solid var(--border); }
+.plugins-collection-tabs button:hover { background: var(--control-surface); color: var(--text); }
+.plugins-collection-tabs button[aria-selected="true"] { background: var(--control-selected); color: var(--text); }
 .plugins-group-count { margin-left: 8px; color: var(--text-faint); font-size: 11px; font-weight: 400; }
 
 .plugins-installed {

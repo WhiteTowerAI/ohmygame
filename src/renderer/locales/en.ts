@@ -1808,7 +1808,6 @@ const en = {
     public: "Public",
     personal: "Personal",
     collections: "Plugin sources",
-    enabledOnly: "Enabled only",
     viewAll: "View all ({{count}})",
     categories: {
       creation: "Game creation",
@@ -1845,7 +1844,6 @@ const en = {
     install: "Install",
     noMatch: "No plugins in this collection.",
     showLess: "Show less",
-    showMore: "Show more ({{count}})",
     needsConfiguration: "Needs configuration",
     installToTry: "Install this plugin to try an example.",
     enableToTry: "Enable this plugin to try an example.",

@@ -1759,7 +1759,6 @@ const zhCN: typeof en = {
     public: "公开",
     personal: "个人",
     collections: "插件来源",
-    enabledOnly: "已启用",
     viewAll: "查看全部（{{count}}）",
     categories: {
       creation: "游戏创作",
@@ -1796,7 +1795,6 @@ const zhCN: typeof en = {
     install: "安装",
     noMatch: "此分类中没有插件。",
     showLess: "收起",
-    showMore: "显示更多（{{count}}）",
     needsConfiguration: "需要配置",
     installToTry: "安装这个插件后才能试用示例。",
     enableToTry: "启用这个插件后才能试用示例。",

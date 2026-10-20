@@ -9,7 +9,7 @@ grouped into **Game creation**, **Engines & platforms**, and **Art & assets**,
 with **Other plugins** for packages not yet in the curated grouping. Each group
 shows its count and up to six cards; **View all** expands that group. Personal
 plugins use a flat alphabetical list. Search shows all matching plugins in the
-selected tab without group expansion, and combines with **Enabled only**.
+selected tab without group expansion, including disabled plugins.
 Enabling or disabling a plugin does not change its position in the catalog.
 Beta remains a status badge, and saved enablement choices are preserved.
 
