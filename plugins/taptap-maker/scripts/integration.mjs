@@ -107,31 +107,22 @@ async function status(directory, workspace) {
     ? (await initialization(directory, workspace)).state
     : undefined;
   if (pending && !pending.completed) project = null;
-  if (!(await installed(directory)))
-    return {
-      connection: { status: "needs-setup" },
-      ...(workspace ? { project } : {}),
-    };
+  const result = (status) => ({
+    connection: { status },
+    ...(workspace ? { project } : {}),
+  });
+  if (!(await installed(directory))) return result("needs-setup");
   try {
     await verifyDiagnostics(directory);
   } catch {
-    return {
-      connection: { status: "needs-setup" },
-      ...(workspace ? { project } : {}),
-    };
+    return result("needs-setup");
   }
   try {
     await maker(directory, ["apps", "--json"]);
-    return {
-      connection: { status: "ready" },
-      ...(workspace ? { project } : {}),
-    };
+    return result("ready");
   } catch (cause) {
     if (/authorization is missing/.test(cause.message))
-      return {
-        connection: { status: "needs-auth" },
-        ...(workspace ? { project } : {}),
-      };
+      return result("needs-auth");
     throw cause;
   }
 }

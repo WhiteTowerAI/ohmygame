@@ -333,7 +333,7 @@ Community publishing is unavailable for integrated projects.
 
 ![Native preview controls, exercised with a test adapter](assets/plugin-native-preview.png)
 
-See the [Maker setup reference](../plugins/taptap-maker/skills/taptap-maker/references/setup.md).
+See the [TapTap Maker Skill](../plugins/taptap-maker/skills/taptap-maker/SKILL.md).
 
 For a local Blender integration check, set `BLENDER_EXECUTABLE` to its absolute
 executable path and run `bun run test -- test/blender-export.test.ts`. This

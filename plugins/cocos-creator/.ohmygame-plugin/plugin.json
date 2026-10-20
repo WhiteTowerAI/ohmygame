@@ -8,7 +8,7 @@
     "beta": true,
     "displayName": "Cocos Creator",
     "shortDescription": "Develop Cocos games and build platform artifacts.",
-    "longDescription": "Use a local Cocos Creator installation to edit TypeScript, scenes, and assets and build Web, WeChat, or Douyin artifacts. The initial workflow targets Creator 3.8 LTS and preserves each project's editor version. Enable a platform plugin for mini-game integration and device checks. Disabled by default; engine and device validation remain part of Beta acceptance.",
+    "longDescription": "Edit TypeScript, scenes, and assets with a local Cocos Creator installation and build Web, WeChat, or Douyin output. Targets Creator 3.8 LTS and keeps each project's editor version. Enable a platform plugin for mini-game packaging and device checks.",
     "icon": {
       "type": "asset",
       "path": "./assets/icon.svg"

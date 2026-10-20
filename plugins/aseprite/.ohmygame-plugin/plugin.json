@@ -8,7 +8,7 @@
     "beta": true,
     "displayName": "Aseprite",
     "shortDescription": "Create pixel art and export animation sheets with metadata.",
-    "longDescription": "Use an installed Aseprite executable and its Lua/CLI workflow to create or refine editable pixel art, export PNG sheets and JSON animation metadata, and check the result in the target engine. No editor bridge is required. Disabled by default; local Aseprite and target-engine validation are required for the full workflow.",
+    "longDescription": "Create or refine editable pixel art with a local Aseprite installation, export PNG sheets with JSON animation metadata, and check them in the target engine.",
     "icon": {
       "type": "asset",
       "path": "./assets/icon.png"

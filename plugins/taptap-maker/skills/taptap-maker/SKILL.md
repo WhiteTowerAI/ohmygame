@@ -1,22 +1,20 @@
 ---
 name: taptap-maker
-description: Develop bound TapTap Maker workspaces with the official MCP, preview locally, and submit explicitly requested Maker builds.
+description: Develop bound TapTap Maker (UrhoX/Lua) projects with the official Maker MCP, run the native Maker preview, and submit explicitly requested Maker builds.
 ---
 
 # TapTap Maker
 
-Use the workspace's absolute path as `target_dir` on project MCP tools. Discover the connected schemas and read `maker_status_lite` for that directory. Preserve its existing binding. If setup or authorization is missing, direct the user to the plugin connection panel; see [setup.md](references/setup.md).
+Maker games use UrhoX and Lua. Pass the workspace's absolute path as `target_dir` to Maker MCP tools, and start with `maker_status_lite`. Read the workspace instructions and the needed `.agents/skills/*/SKILL.md` files directly; OhMyGame does not load them automatically.
 
-Maker uses UrhoX/Lua. Read the workspace's instructions and relevant dev-kit documentation, templates, or examples before implementing engine behavior. List its `.agents/skills` descriptions and read the needed `SKILL.md` files directly; OhMyGame does not automatically discover them. Keep these resources in place.
+## Setup and binding
 
-## Local preview
+The plugin's connection panel prepares the pinned CLI and diagnostics, signs in, and binds the directory. When setup, sign-in, or binding is missing, direct the user there. Do not ask for tokens, run Maker installers, upgrade the CLI, run `init`, or create remote projects yourself. Keep the existing binding, Git history, and dev-kit files.
 
-Use `project_preview` for status, start, refresh, stop, and logs. Install a missing Runtime from View. It opens a native window; process liveness does not verify gameplay. Refresh a running preview after relevant edits; refresh resets game state. Never revive a stopped preview automatically. Stop a preview started for a bounded test when finished.
+## Preview
 
-For Lua validation, follow the project's available validation Skill and inspect its actual reports. CLI 0.0.36 does not support `preview validate` or native preview screenshots. Do not invent a Web preview or use Web `game_use` tools for Maker.
+Use `project_preview` with `status`, `start`, `refresh`, `stop`, or `logs`; a missing Runtime is installed from View. The game opens in its own window, and a running process does not prove gameplay. Refresh after relevant edits, which resets game state. Never restart a preview the user stopped, and stop one you started for a test. CLI 0.0.36 has no `preview validate` or screenshots; validate Lua with the project's validation Skill and read its reports.
 
-## Submit and publish
+## Submit
 
-For an explicitly requested Maker submit, push, or remote build, inspect the changes and call `maker_build_current_directory` with `target_dir`. It commits and pushes the bound `main` branch before triggering a build; even a clean workspace may receive a wake-up commit. Follow the returned error classification, report partial success, and inspect unknown outcomes before retrying.
-
-After a successful build, return its result/link and guide the user to Maker's preview/publish page. A build does not prove publication. OhMyGame Community publishing is a separate destination.
+Submit, push, or build remotely only on an explicit request: review the changes, then call `maker_build_current_directory` with `target_dir`. It commits and pushes `main` before building, even in a clean workspace. Report partial success, and inspect an unknown outcome before retrying. A build is not a publication; give the user the returned link to Maker's preview and publish page.

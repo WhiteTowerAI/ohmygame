@@ -1,33 +1,29 @@
 ---
 name: godot-game
-description: Create or edit Godot projects, scenes, GDScript, and imported assets; diagnose Godot import and runtime errors.
+description: Create or edit Godot projects, scenes, GDScript, and imported assets, and diagnose Godot import or runtime errors.
 ---
 
 # Godot Game
 
-Use the project's existing Godot version, scene organization, input map, and renderer. Inspect `project.godot` before choosing APIs; avoid migrating the engine or rewriting project settings as setup.
+Read `project.godot` first. Keep the project's Godot version, renderer, input map, and scene layout; do not migrate the engine or rewrite settings as setup.
 
-## Tools and readiness
+## Tools
 
-The bundled Godot MCP can inspect project files, create scenes and nodes, launch the editor or game, and collect debug output. Edit GDScript and text resources with the agent's file tools. Discover the connected server's tool schemas before calling it; pass the current project's absolute path.
+The bundled Godot MCP takes the project's absolute path. Start with `get_godot_version` and `get_project_info`; a connected MCP does not prove Godot is installed. If the executable is not found, ask the user to set **Godot executable** in this plugin's configuration.
 
-Call `get_godot_version` to check the engine, then inspect the current project with `get_project_info`. A successful MCP connection alone does not prove Godot is installed. If discovery fails, configure **Godot executable** in this plugin and test again. Keep the established server identity and user configuration.
+Use the MCP to create scenes and nodes and to run the game with `run_project`, `get_debug_output`, and `stop_project`; stop what you started. Edit GDScript and text resources with file tools. The MCP cannot capture the viewport or send gameplay input, so name the visual checks the user still needs.
 
-Existing service-definition overrides take precedence over the bundled definition. If the configured executable is ignored, inspect that override and use plugin configuration assistance to bind its `GODOT_PATH` to `${config.godot-path}`, preserving the other custom fields.
+Preserve `.uid` files and resource references (UID tools need Godot 4.4+). Never edit `.godot/`; Godot regenerates its import cache.
 
-UID tools require Godot 4.4+. Preserve `.uid` files and existing resource references; let Godot generate import caches rather than editing `.godot/`.
+## Assets
 
-## Assets and scenes
+Prefer GLB for 3D assets and keep editable sources outside imported folders or behind `.gdignore`. Put gameplay scripts and collision in a wrapper or inherited scene so reimporting the model keeps them. After import, check scale, orientation, pivots, materials, and animation names; glTF already converts axes.
 
-- Prefer GLB for Blender runtime assets and retain editable `.blend` source in the project's established source-art location. A source directory inside Godot's resource tree may use `.gdignore` when it should not be imported.
-- Confirm scale, orientation, pivots, materials, and animation names in Godot after import. Let the glTF exporter perform axis conversion; avoid adding an unverified extra rotation.
-- Keep imported scenes reusable. Put gameplay behavior and collision in the project's wrapper or inherited scenes so reimporting the model preserves that work.
-- Add collision, LOD, animation setup, and compression only for the asset's actual runtime needs.
+## Verify from the CLI
 
-## Verification
+```text
+<godot> --headless --path <PROJECT> --editor --import
+<godot> --headless --path <PROJECT> --quit-after <FRAMES>
+```
 
-Use the detected/configured executable for CLI checks. Import first with `<godot> --headless --path <PROJECT> --editor --import`, then run the intended scene or project. Read the complete import/runtime errors and fix the affected resource or script.
-
-For a bounded smoke run, use `<godot> --headless --path <PROJECT> --quit-after <FRAMES>` with a frame budget appropriate to the test. MCP `run_project`, `get_debug_output`, and `stop_project` provide the interactive process loop; stop the process started for the test when finished.
-
-Distinguish successful import, process startup, gameplay assertions, and visual inspection. The bundled MCP does not provide live viewport screenshots or gameplay input, and OhMyGame's web `game_use` workflow does not cover Godot. Report the evidence obtained and any remaining visual/manual checks.
+Import first, then run the project or scene and fix every reported import or script error.

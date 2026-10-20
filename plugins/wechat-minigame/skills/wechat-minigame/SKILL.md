@@ -1,30 +1,24 @@
 ---
 name: wechat-minigame
-description: Adapt and package WeChat Mini Games, diagnose WeChat DevTools or device failures, and prepare explicitly requested test-version uploads.
+description: Adapt and package games for WeChat Mini Games, diagnose WeChat DevTools or device issues, and perform explicitly requested test uploads.
 ---
 
 # WeChat Mini Games
 
-Identify the source engine, source directory, generated mini-game directory, AppID, and installed WeChat DevTools version. Use a General workspace for engine sources. WeChat Mini Games use a platform runtime rather than a browser DOM; a Web build or ordinary mini-program automation does not establish mini-game compatibility.
+Mini games run on WeChat's own runtime, not a browser DOM, and differ from mini programs. Identify the engine, its WeChat exporter or SDK, the generated mini-game directory, and the AppID.
 
-## Adapt and package
+## Package
 
-Use the engine's existing WeChat exporter and matching SDK. For Cocos Creator, pair with its engine workflow and preserve the exported adapter. For Unity, identify the platform conversion SDK and its supported Unity version before building; a generic WebGL export alone is insufficient. If no supported exporter exists, report the missing integration rather than inventing a conversion command.
+Use the engine's own route: Cocos Creator's `wechatgame` build target, or the platform's Unity conversion SDK with its supported Unity versions. A generic Web or WebGL build is not a mini game; do not hand-write a conversion. Keep changes in engine source or build configuration, not generated output.
 
-Make reproducible changes in source or build configuration. Keep `game.json`, `project.config.json`, generated entrypoints, engine adapters, subpackages, and resource paths consistent with the actual mini-game output directory. Preserve existing project and private developer-tool settings. Configure an AppID supplied by the user or existing project; a placeholder or tourist mode does not prove real account access.
+Keep `game.json`, `project.config.json`, subpackages, and resource paths consistent with the output directory, and keep the existing AppID and developer settings. Use `wx` APIs for lifecycle, touch, storage, audio, and networking. Check package-size limits, domain allowlists, and base-library versions against the current official docs.
 
-Use the installed platform SDK's supported `wx` APIs for lifecycle, touch input, storage, audio, network, and assets as required by the feature. Check current package limits, domain allowlists, and base-library requirements against the project's target instead of hardcoding historical limits. Disabling checks in the simulator is not a device fix.
+## DevTools
 
-## Developer tools and device checks
+Use **WeChat DevTools**, not the WeChat chat app. Its CLI is `<install>/Contents/MacOS/cli` on macOS and `<install>/cli.bat` on Windows. The CLI requires the service port enabled in Settings → Security. Use `cli open --project <DIR>` and `cli preview --project <DIR>`. Mini-program automation tools cannot inspect a game canvas.
 
-Locate **WeChat DevTools**, not the ordinary WeChat chat app. Open/import the generated mini-game directory. Use the installed developer tool's CLI help and [official CLI documentation](https://developers.weixin.qq.com/minigame/dev/devtools/cli.html) for its actual commands and service prerequisites; do not assume a CLI or MCP intended for mini-program pages can inspect a game canvas.
+Read compile and runtime logs in the simulator, then check touch, storage after relaunch, and any changed audio or networking on a device preview.
 
-Read compilation and runtime logs, exercise the changed interaction in the simulator, and generate a device preview when account access permits. Verify touch input, relaunch/storage behavior, and any changed audio or network flow on the device. OhMyGame's browser `game_use` does not control WeChat DevTools or prove device behavior. If these environments are unavailable, report the exact checks still needed.
+## Upload
 
-## Upload and release
-
-A local build or device preview request does not authorize a test-version upload, review submission, or publication. For an explicitly requested test upload, confirm the selected AppID, artifact directory, version, description, and account permissions. Use the official logged-in developer tool or supported CI flow; keep private keys in the platform's private local setup, outside plugin files and chat. Inspect the result before retrying an upload whose outcome is unknown.
-
-Report build, simulator, device preview, upload, review, and release separately. A test-version upload is not a production publication. OhMyGame Community publishing targets a different destination.
-
-Reference for the initial engine route: [Creator WeChat integration](https://docs.cocos.com/creator/3.8/manual/en/editor/publish/publish-wechatgame.html).
+A build or preview request does not authorize an upload. Upload only when explicitly asked: confirm the AppID, output directory, version, and description, then run `cli upload --project <DIR> -v <VERSION> -d <DESCRIPTION>` or the project's CI setup. Keep upload keys out of the workspace and chat. Check an upload with an unknown outcome before retrying. Upload, review, and release are separate steps.

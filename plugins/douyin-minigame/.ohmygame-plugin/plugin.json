@@ -8,7 +8,7 @@
     "beta": true,
     "displayName": "Douyin Mini Games",
     "shortDescription": "Adapt, preview, and check Douyin mini-game builds.",
-    "longDescription": "Use the engine's Douyin export route, check platform configuration, and run developer-tool and device previews. Requires the official Douyin game developer tools and an authorized game account for remote operations. Includes no third-party MCP bridge. Disabled by default; test upload does not imply review or production publication.",
+    "longDescription": "Package games through the engine's Douyin route, check platform configuration, and verify developer-tool and device previews. Requires Douyin's game developer tool and an authorized game account for remote operations. Uploads happen only on request.",
     "icon": {
       "type": "asset",
       "path": "./assets/icon.png"

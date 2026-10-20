@@ -101,11 +101,22 @@ function useIntegration(
       if (current === generation.current) setPending(false);
     }
   }
+  /** Reads the host's retained state without starting an adapter process. */
+  async function reload() {
+    const current = generation.current;
+    try {
+      const next = await getPluginIntegration(pluginId, projectId);
+      if (current === generation.current) setState(next);
+    } catch {
+      // The next explicit action or poll reports a persistent failure.
+    }
+  }
   return {
     state,
     error: error ?? state?.error,
     busy: pending || !!state?.running,
     run,
+    reload,
   };
 }
 
@@ -351,7 +362,9 @@ function IntegrationContents({
                   );
                 }}
               >
-                {t(busy ? "integration.working" : "integration.createAndConnect")}
+                {t(
+                  busy ? "integration.working" : "integration.createAndConnect",
+                )}
               </button>
             </>
           ) : (
@@ -687,21 +700,26 @@ export function ExternalProjectPreview({
       onDisconnected={onProjectUpdated}
     />
   );
-  const { state, busy, error, run } = integration;
+  const { state, busy, error, run, reload } = integration;
   const ready =
     state?.result?.connection?.status === "ready" && !!state.result.project;
   const preview = state?.result?.preview;
+  const running = preview?.status === "running";
+  const checkPreview =
+    ready && !busy && !preview && state?.action === "status" && !error;
   useEffect(() => {
-    if (ready && !busy && !preview && state?.action === "status" && !error)
-      void run("preview-status");
-  }, [ready, busy, !!preview]);
+    if (checkPreview) void run("preview-status");
+  }, [checkPreview]);
+  // Only a running window can close on its own and needs the adapter. Other
+  // changes, such as an agent's project_preview call, are in the host state.
   useEffect(() => {
-    if (!ready) return;
-    const timer = setInterval(() => {
-      if (!busy) void run("preview-status");
-    }, 10_000);
+    if (!ready || busy) return;
+    const timer = setInterval(
+      () => void (running ? run("preview-status") : reload()),
+      10_000,
+    );
     return () => clearInterval(timer);
-  }, [ready, busy]);
+  }, [ready, busy, running]);
   if (!ready)
     return (
       <section className="external-project-preview">

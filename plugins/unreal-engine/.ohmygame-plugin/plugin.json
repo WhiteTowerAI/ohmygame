@@ -17,7 +17,7 @@
     "beta": true,
     "displayName": "Unreal Engine",
     "shortDescription": "Inspect scenes and edit actors through Unreal MCP.",
-    "longDescription": "Connect to the official experimental Model Context Protocol plugin documented for Unreal Engine 5.8. Requires an Editor build containing that plugin, selected toolsets, and a running local MCP server. Available scene and actor operations depend on the enabled toolsets; full Blueprint graph editing is not promised. Disabled by default; earlier engine versions need their own existing workflow.",
+    "longDescription": "Inspect scenes and edit actors through the official experimental Unreal MCP documented for Unreal Engine 5.8. Requires an Editor with the plugin enabled and its local MCP server running; available operations depend on the enabled toolsets.",
     "icon": {
       "type": "asset",
       "path": "./assets/icon.svg"

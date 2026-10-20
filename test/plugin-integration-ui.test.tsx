@@ -742,6 +742,30 @@ describe("plugin connection UI", () => {
     await act(async () => root.render(null));
     expect(container.childElementCount).toBe(0);
   });
+  it("runs the adapter on a timer only while the native preview is running", async () => {
+    vi.useFakeTimers();
+    state.result = {
+      connection: { status: "ready" },
+      project: { id: "a" },
+      preview: { status: "stopped" },
+    };
+    await act(async () =>
+      root.render(<ExternalProjectPreview project={project} />),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(actions).toEqual([]);
+    // An agent's project_preview start appears through the retained host state.
+    state = {
+      ...state,
+      action: "preview-start",
+      result: { ...state.result, preview: { status: "running" } },
+    };
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(container.textContent).toContain("Preview running");
+    expect(actions).toEqual([]);
+    await act(async () => vi.advanceTimersByTimeAsync(10_000));
+    expect(actions.map((item) => item.action)).toEqual(["preview-status"]);
+  });
   it("asks before switching an existing project to an integration", async () => {
     const { integration: _integration, ...existing } = project;
     state.result = {

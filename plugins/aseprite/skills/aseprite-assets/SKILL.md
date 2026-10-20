@@ -1,24 +1,24 @@
 ---
 name: aseprite-assets
-description: Create or edit pixel art in Aseprite, retain editable sources, and export PNG sprite sheets with JSON frame, timing, and animation-tag metadata for a game.
+description: Create or edit Aseprite pixel art and export PNG sprite sheets with JSON frame, tag, and timing metadata for a game engine.
 ---
 
 # Aseprite Assets
 
-Locate the installed Aseprite executable, using an absolute path when it is not on PATH; macOS applications commonly keep it inside the app bundle. Read `--version` and `--help` before using version-specific CLI or Lua features. This workflow needs a local installation and does not supply an MCP bridge.
+Use the installed CLI; on macOS it is inside the app bundle, commonly `/Applications/Aseprite.app/Contents/MacOS/aseprite`. Check `--version` and `--help` before relying on version-specific options.
 
-Inspect the target engine's sprite loader and existing asset conventions before choosing frame sizes, anchors, palette, tags, and sheet layout. Preserve editable `.aseprite` or `.ase` source separately from runtime exports. Use Aseprite's Lua API for repeatable document/layer/frame edits when appropriate; retain existing layers, tags, slices, and timing outside the requested change.
+Keep the editable `.aseprite` or `.ase` source separate from runtime exports and never save over it while exporting. For repeatable edits to layers, frames, tags, or palettes, run a Lua script with `--batch --script <FILE>`. Preserve existing layers, tags, slices, and frame durations outside the requested change.
 
-## Export and integrate
+## Export
 
-Use the official batch CLI for export, with quoted absolute paths. A typical metadata-preserving export is:
+Match the engine's loader first: packed atlases need per-frame rectangles, while fixed-grid loaders need uniform cells (`--sheet-type rows`, no `--trim`). A packed export with full metadata:
 
 ```text
-<ASEPRITE> --batch <SOURCE.aseprite> --sheet-type packed --sheet <OUTPUT.png> --data <OUTPUT.json> --format json-array --list-tags --list-slices
+<ASEPRITE> --batch <SOURCE.aseprite> --sheet-type packed --sheet <OUT.png> --data <OUT.json> --format json-array --list-tags --list-slices
 ```
 
-Match the consuming loader: packed/trimmed frames need atlas metadata, while fixed-grid loaders need a consistent cell layout. Keep frame durations, tag direction/ranges, trim offsets, and slice/pivot information when used. CLI exports overwrite destination files; inspect existing outputs and use a separate test destination when replacements are outside the requested change. Do not save over the editable source as a side effect of exporting it.
+The CLI overwrites the `--sheet` and `--data` targets without asking.
 
-Open the exported sheet, parse the JSON, and check that every frame rectangle lies within the image and that required tags reference valid frames. Integrate both the image and metadata through the engine's actual loader. Confirm animation speed, transparency, anchors, and tag selection in the running game; a PNG alone cannot prove animation correctness. In Asset Canvas, deliver the source and exports and name the target-engine check still needed.
+## Verify
 
-Official references: [CLI](https://www.aseprite.org/docs/cli/), [Lua API](https://www.aseprite.org/api/).
+Parse the JSON and check that every frame rectangle lies inside the sheet and every tag references existing frames. Load the sheet through the engine's real loader and check frame timing, transparency, pivots, and tag playback in the running game.
