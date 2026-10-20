@@ -10,7 +10,11 @@ import {
   preferredAgentModel,
   recommendedAgentModel,
 } from "../shared/agent-models.js";
-import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
+import {
+  isAgentRuntimeId,
+  nativeEffort,
+  type AgentRuntimeId,
+} from "../shared/agent-runtimes.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import {
   getCustomProvider,
@@ -20,14 +24,7 @@ import {
   setProviderEnabled,
   updateAgentDefaults,
 } from "./api.js";
-import {
-  Check,
-  ChevronDown,
-  LoaderCircle,
-  Plus,
-  Search,
-  Server,
-} from "./icons.js";
+import { ChevronDown, LoaderCircle, Plus, Search, Server } from "./icons.js";
 import { ActiveProviderAuth } from "./models-settings.js";
 import { CustomProviderForm } from "./custom-provider-dialog.js";
 import { CanvasChipSelect } from "./canvas-chip-select.js";
@@ -71,11 +68,27 @@ export function Onboarding({
   const [customSettings, setCustomSettings] =
     useState<Awaited<ReturnType<typeof getCustomProvider>>>();
   const [refresh, setRefresh] = useState(0);
+  const [selectedAgent, setSelectedAgent] = useState<"pi" | AgentRuntimeId>();
   const heading = useRef<HTMLHeadingElement>(null);
-  const providerSection = useRef<HTMLDivElement>(null);
-  const model =
+  const preferredModel = preferredAgentModel(
+    catalog.models,
+    undefined,
+    catalog.defaultModel,
+  );
+  const model = phase === "ready" ? preferredModel : undefined;
+  const activeAgent =
+    selectedAgent ??
+    (isAgentRuntimeId(preferredModel?.provider)
+      ? preferredModel.provider
+      : "pi");
+  const agentModels = catalog.models.filter((item) =>
+    activeAgent === "pi"
+      ? !isAgentRuntimeId(item.provider)
+      : item.provider === activeAgent,
+  );
+  const agentModel =
     phase === "ready"
-      ? preferredAgentModel(catalog.models, undefined, catalog.defaultModel)
+      ? preferredAgentModel(agentModels, undefined, catalog.defaultModel)
       : undefined;
   const languageProviders = providers.filter(
     (provider) =>
@@ -167,7 +180,10 @@ export function Onboarding({
   /** The provider connected last during setup supplies the default model. */
   async function selectProviderModel(providerId: string) {
     const latest = await listModels({ agentRuntimes: true });
-    const next = recommendedAgentModel(latest.models, providerId);
+    const next =
+      (latest.defaultModel?.provider === providerId
+        ? findAgentModel(latest.models, latest.defaultModel)
+        : undefined) ?? recommendedAgentModel(latest.models, providerId);
     if (next) await chooseModel(latest, next);
     else if (isAgentRuntimeId(providerId))
       throw new Error(t("onboarding.agentModelsUnavailable"));
@@ -280,13 +296,10 @@ export function Onboarding({
       <OnboardingAgents
         busy={busy}
         models={catalog.models}
+        selectedAgent={activeAgent}
+        onSelectAgent={setSelectedAgent}
         loadingRuntimes={catalog.loadingRuntimes}
         onBusyChange={setSavingAgent}
-        onOpenProviders={() =>
-          providerSection.current
-            ?.querySelector<HTMLInputElement>("input")
-            ?.focus()
-        }
         onUseBuiltIn={() =>
           run(async () => {
             const latest = await listModels({ agentRuntimes: true });
@@ -310,50 +323,55 @@ export function Onboarding({
           }
         }}
       />
-      <div className="onboarding-provider-heading">
-        {t("onboarding.providers")}
-      </div>
-      {phase === "loading" ? (
-        <p className="onboarding-status" role="status">
-          <LoaderCircle className="spin" size={16} />
-          {t("onboarding.loadingProviders")}
-        </p>
-      ) : null}
-      <div ref={providerSection} className="onboarding-language-providers">
-        {phase !== "loading" ? (
-          <ProviderPicker
-            providers={languageProviders}
+      <div className="onboarding-agent-config">
+        {activeAgent === "pi" ? (
+          <>
+            <div className="onboarding-provider-heading">
+              {t("onboarding.providers")}
+            </div>
+            {phase === "loading" ? (
+              <p className="onboarding-status" role="status">
+                <LoaderCircle className="spin" size={16} />
+                {t("onboarding.loadingProviders")}
+              </p>
+            ) : (
+              <ProviderPicker
+                providers={languageProviders}
+                busy={busy}
+                onChoose={(provider, method) =>
+                  void run(() => connect(provider, method))
+                }
+                onAdd={() => {
+                  setCustomSettings(undefined);
+                  setError(undefined);
+                  failedAction.current = undefined;
+                  setAdding(true);
+                }}
+              />
+            )}
+          </>
+        ) : (
+          <p className="onboarding-agent-hint">{t("onboarding.cliHint")}</p>
+        )}
+        {agentModel ? (
+          <ReadyModel
+            models={agentModels}
+            model={agentModel}
             busy={busy}
-            onChoose={(provider, method) =>
-              void run(() => connect(provider, method))
+            onChange={(next) =>
+              void run(async () => {
+                await chooseModel(catalog, next);
+                setRefresh((value) => value + 1);
+              })
             }
-            onAdd={() => {
-              setCustomSettings(undefined);
-              setError(undefined);
-              failedAction.current = undefined;
-              setAdding(true);
-            }}
           />
         ) : null}
+        {catalog.loadingRuntimes?.length ? (
+          <p className="onboarding-status" role="status">
+            {t("onboarding.loadingAgentModels")}
+          </p>
+        ) : null}
       </div>
-      {model ? (
-        <ReadyModel
-          models={catalog.models}
-          model={model}
-          busy={busy}
-          onChange={(next) =>
-            void run(async () => {
-              await chooseModel(catalog, next);
-              setRefresh((value) => value + 1);
-            })
-          }
-        />
-      ) : null}
-      {catalog.loadingRuntimes?.length ? (
-        <p className="onboarding-status" role="status">
-          {t("onboarding.loadingAgentModels")}
-        </p>
-      ) : null}
     </>
   );
 
@@ -430,10 +448,10 @@ export function Onboarding({
               <button
                 className="onboarding-primary-button"
                 type="button"
-                disabled={busy || !model}
+                disabled={busy || !agentModel}
                 onClick={() =>
                   void run(async () => {
-                    if (model) await chooseModel(catalog, model);
+                    if (agentModel) await chooseModel(catalog, agentModel);
                     await onStepChange("media");
                   })
                 }
@@ -522,8 +540,7 @@ function ReadyModel({
   onChange: (model: AgentModelCatalog["models"][number]) => void;
 }) {
   return (
-    <div className="onboarding-ready" role="status">
-      <Check size={16} />
+    <div className="onboarding-ready">
       {t("onboarding.defaultModel")}{" "}
       {models.length > 1 ? (
         <span className="onboarding-model-select">

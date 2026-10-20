@@ -163,6 +163,13 @@ function providerButton(name: string, label: string) {
   if (!result) throw new Error(`Missing ${name} button: ${label}`);
   return result;
 }
+function agentButton(name: string) {
+  const result = container.querySelector<HTMLButtonElement>(
+    `.onboarding-agent-option[aria-label="${name}"]`,
+  );
+  if (!result) throw new Error(`Missing agent: ${name}`);
+  return result;
+}
 async function openCustomProvider() {
   await act(async () =>
     container
@@ -1120,7 +1127,7 @@ describe("three-step setup with coding agents", () => {
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
     expect(button("Next").disabled).toBe(true);
     expect(container.querySelector('[aria-label="Default model"]')).toBeNull();
-    await act(async () => providerButton("Codex", "Use").click());
+    await act(async () => agentButton("Codex").click());
     expect(api.updateAgentRuntime).toHaveBeenCalledWith("codex-cli", {
       enabled: true,
     });
@@ -1180,11 +1187,11 @@ describe("three-step setup with coding agents", () => {
         .querySelector<HTMLButtonElement>('[aria-label="Rescan"]')!
         .click(),
     );
-    expect(providerButton("Codex", "Use")).toBeDefined();
+    expect(agentButton("Codex")).toBeDefined();
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
   });
 
-  it("shows CLI login instructions, rechecks and waits for an explicit use", async () => {
+  it("shows CLI login instructions, rechecks and waits for explicit agent selection", async () => {
     const signedOut = {
       ...codex,
       auth: { status: "signed-out", billing: "unknown" },
@@ -1197,13 +1204,83 @@ describe("three-step setup with coding agents", () => {
         <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
       ),
     );
-    await act(async () => providerButton("Codex", "Sign in").click());
+    await act(async () => agentButton("Codex").click());
     expect(container.textContent).toContain("codex login");
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
     await act(async () => button("Check again").click());
     expect(api.recheckAgentRuntime).toHaveBeenCalledWith("codex-cli");
-    expect(providerButton("Codex", "Use")).toBeDefined();
+    expect(agentButton("Codex")).toBeDefined();
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+  });
+
+  it("keeps providers under OhMyGame and limits the model picker to the selected agent", async () => {
+    const builtIn = {
+      ...nativeModel,
+      provider: "openrouter",
+      providerName: "OpenRouter",
+      id: "chat",
+      name: "Chat",
+      reasoningLevels: ["off"] as const,
+    };
+    const models = [
+      nativeModel,
+      { ...nativeModel, id: "second", name: "Second native model" },
+      builtIn,
+    ];
+    api.listAgentRuntimes.mockResolvedValue([{ ...codex, enabled: true }]);
+    api.listModels.mockResolvedValue({
+      ...catalog,
+      models,
+      defaultModel: models[1],
+    });
+    api.updateAgentDefaults.mockImplementation(async ({ model }) => {
+      api.listModels.mockResolvedValue({
+        ...catalog,
+        models,
+        defaultModel: model,
+      });
+    });
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+    expect(agentButton("Codex").getAttribute("aria-pressed")).toBe("true");
+    expect(
+      agentButton("Codex").querySelector('[aria-label="Ready"]'),
+    ).not.toBeNull();
+    expect(agentButton("Codex").textContent).not.toContain("Use");
+    expect(container.querySelector(".onboarding-picker")).toBeNull();
+    await act(async () => agentButton("Codex").click());
+    expect(api.updateAgentDefaults).not.toHaveBeenCalled();
+    expect(container.querySelector(".onboarding-ready")?.textContent).toContain(
+      "Second native model",
+    );
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>(".onboarding-model-select > button")!
+        .click(),
+    );
+    const menu = document.querySelector(".canvas-chip-menu")!;
+    expect(menu.textContent).toContain("Second native model");
+    expect(menu.textContent).not.toContain("Chat");
+    await act(async () =>
+      menu.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    await act(async () => agentButton("OhMyGame").click());
+    expect(container.querySelector(".onboarding-picker")).not.toBeNull();
+    expect(container.querySelector(".onboarding-ready")?.textContent).toContain(
+      "Chat",
+    );
+    expect(
+      container.querySelector(".onboarding-ready")?.textContent,
+    ).not.toContain("Native");
+    expect(api.updateAgentDefaults).toHaveBeenCalledWith({
+      model: builtIn,
+      reasoningLevel: "off",
+    });
   });
 
   it("retries a failed native default save without enabling the CLI again", async () => {
@@ -1220,12 +1297,40 @@ describe("three-step setup with coding agents", () => {
         <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
       ),
     );
-    await act(async () => providerButton("Codex", "Use").click());
+    await act(async () => agentButton("Codex").click());
     expect(container.textContent).toContain("Native default failed");
-    await act(async () => providerButton("Codex", "Use").click());
+    await act(async () => agentButton("Codex").click());
     expect(api.updateAgentDefaults).toHaveBeenCalledTimes(2);
     expect(api.updateAgentRuntime).toHaveBeenCalledOnce();
     expect(container.textContent).not.toContain("Native default failed");
+  });
+
+  it("requires a model from the selected agent before continuing", async () => {
+    const builtIn = {
+      ...nativeModel,
+      provider: "openrouter",
+      providerName: "OpenRouter",
+    };
+    api.listModels.mockResolvedValue({
+      ...catalog,
+      models: [builtIn],
+      defaultModel: builtIn,
+    });
+    api.listAgentRuntimes.mockResolvedValue([{ ...codex, installed: false }]);
+    await act(async () =>
+      root.render(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      ),
+    );
+    expect(button("Next").disabled).toBe(false);
+    await act(async () => agentButton("Codex").click());
+    expect(button("Next").disabled).toBe(true);
+    expect(container.querySelector(".onboarding-ready")).toBeNull();
+    expect(container.querySelector(".onboarding-picker")).toBeNull();
+    expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+    expect(api.updateAgentDefaults).not.toHaveBeenCalled();
+    await act(async () => agentButton("OhMyGame").click());
+    expect(button("Next").disabled).toBe(false);
   });
 
   it("polls a slow CLI catalog while retaining a usable provider model", async () => {
@@ -1303,10 +1408,13 @@ describe("optional creative tools and built-in agent", () => {
     expect(row.textContent).not.toContain("Uses your model providers");
     expect(row.querySelector('[role="switch"]')).toBeNull();
     expect(button("Next").disabled).toBe(true);
-    await act(async () => providerButton("OhMyGame", "Connect model").click());
-    expect(document.activeElement).toBe(
-      container.querySelector('input[type="search"]'),
-    );
+    expect(row.querySelector('[aria-label="Enabled"]')).not.toBeNull();
+    expect(row.textContent).not.toContain("Connect model");
+    await act(async () => agentButton("OhMyGame").click());
+    expect(agentButton("OhMyGame").getAttribute("aria-pressed")).toBe("true");
+    expect(
+      container.querySelector(".onboarding-agent-config")?.textContent,
+    ).toContain("OhMyGame model providers");
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
   });
 
@@ -1337,12 +1445,17 @@ describe("optional creative tools and built-in agent", () => {
         <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
       ),
     );
-    await act(async () => providerButton("OhMyGame", "Use").click());
+    await act(async () => agentButton("OhMyGame").click());
     expect(api.updateAgentDefaults).toHaveBeenCalledWith({
       model: builtIn,
       reasoningLevel: "off",
     });
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+    expect(agentButton("OhMyGame").getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector(".onboarding-picker")).not.toBeNull();
+    const modelLine = container.querySelector(".onboarding-ready")!;
+    expect(modelLine.textContent).toContain("Chat");
+    expect(modelLine.textContent).not.toContain("Native");
   });
 
   it("filters creative providers by image, video, 3D and audio", async () => {

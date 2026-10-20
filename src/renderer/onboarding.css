@@ -162,10 +162,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   stroke-dasharray: 180;
   animation: onboarding-demo-path var(--demo-duration) ease both;
 }
-.onboarding-demo-water {
-  fill: color-mix(in srgb, #849ead 45%, var(--canvas));
-  animation: onboarding-demo-water var(--demo-duration) ease both;
-}
 .onboarding-demo-trunk {
   stroke: var(--demo-tree);
   stroke-width: 3;
@@ -321,28 +317,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
     stroke-dashoffset: 0;
   }
 }
-@keyframes onboarding-demo-water {
-  0%,
-  14% {
-    opacity: 0;
-    d: path(
-      "M164 86C168 84 174 84 178 86C182 88 182 90 178 92C174 94 168 94 164 92C160 90 160 88 164 86Z"
-    );
-  }
-  30% {
-    opacity: 1;
-    d: path(
-      "M153 81C162 73 181 76 187 86C196 95 185 104 171 104C156 104 145 95 145 89C145 85 148 83 153 81Z"
-    );
-  }
-  50%,
-  100% {
-    opacity: 1;
-    d: path(
-      "M159 73C172 67 193 77 206 89C215 98 199 106 181 106C163 107 155 99 150 94C144 86 148 78 159 73Z"
-    );
-  }
-}
 @keyframes onboarding-demo-stones {
   0%,
   22% {
@@ -415,9 +389,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   color: var(--text-secondary);
   font-size: 12px;
 }
-.onboarding-ready > svg {
-  color: var(--success);
-}
 .onboarding-ready strong {
   color: var(--text);
   font-weight: inherit;
@@ -431,11 +402,11 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 }
 .onboarding-model-select .canvas-chip {
   max-width: min(260px, 55vw);
-  height: 32px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
+  height: 28px;
+  padding: 4px 6px;
+  border: 0;
   border-radius: var(--radius);
-  background: var(--settings-row-surface-emphasis);
+  background: transparent;
   color: var(--text);
   font: inherit;
 }
@@ -465,12 +436,16 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   flex-direction: row;
   gap: 16px;
 }
-.onboarding-connect .onboarding-content {
-  padding-block: 12px;
+.onboarding-connect > .onboarding-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  justify-content: flex-start;
+  padding: clamp(40px, 10dvh, 72px) 0 24px;
 }
 .onboarding-agents {
-  width: min(100%, 400px);
-  margin-top: 20px;
+  flex: none;
+  width: min(100%, 460px);
+  margin-top: 24px;
   text-align: left;
 }
 .onboarding-section-heading,
@@ -486,49 +461,85 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   min-height: 32px;
   padding-left: 4px;
 }
-.onboarding-provider-heading {
+.onboarding-agent-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.onboarding-agent-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.onboarding .onboarding-agent-option {
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+}
+.onboarding-agent-option[aria-pressed="true"] {
+  background: var(--settings-row-surface-emphasis);
+}
+.onboarding-agent-option:hover:not(:disabled) {
+  background: var(--menu-hover);
+}
+.onboarding-agent-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 18px;
+}
+.onboarding-agent-option small {
+  min-height: 14px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 14px;
+}
+.onboarding-agent-ready {
+  color: var(--success);
+}
+.onboarding-agent-config {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   width: min(100%, 400px);
-  margin-top: 16px;
+  margin-top: 24px;
+  text-align: left;
+}
+.onboarding-provider-heading {
   padding-left: 4px;
 }
-.onboarding-language-providers {
-  width: min(100%, 400px);
-}
-.onboarding-language-providers .onboarding-picker {
+.onboarding-agent-config .onboarding-picker {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   width: 100%;
   margin-top: 8px;
 }
 .onboarding-connect .onboarding-provider-list {
-  max-height: 156px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 200px;
+}
+.onboarding-agent-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
 }
 .onboarding-media-connected {
   align-self: center;
   color: var(--text-muted);
   font-size: 11px;
-}
-.onboarding-agent-copy > span > small {
-  margin-left: 3px;
-}
-.onboarding-agent-row {
-  min-height: 48px;
-}
-.onboarding-agent-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-.onboarding-agent-row > span {
-  min-width: 0;
-}
-.onboarding-agent-copy small {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.onboarding-agent-ready {
-  display: inline-flex;
-  align-items: center;
-  color: var(--success);
 }
 .onboarding-agent-login {
   margin-top: 8px;
@@ -543,6 +554,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   margin-top: 8px;
 }
 .onboarding-connect .onboarding-ready {
+  flex: none;
   flex-wrap: wrap;
   max-width: 100%;
   margin-top: 16px;
@@ -865,6 +877,20 @@ section.onboarding-media .settings-generation-defaults {
   }
   .onboarding-provider-list {
     max-height: 180px;
+  }
+  .onboarding-connect > .onboarding-content {
+    padding: 16px 0 12px;
+  }
+  .onboarding-connect .onboarding-footer {
+    margin-bottom: 8px;
+  }
+  .onboarding-agents,
+  .onboarding-agent-config {
+    margin-top: 16px;
+  }
+  .onboarding .onboarding-agent-option {
+    gap: 4px;
+    padding-block: 8px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

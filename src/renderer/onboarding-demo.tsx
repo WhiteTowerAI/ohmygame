@@ -75,10 +75,6 @@ function DemoWorld() {
           className="onboarding-demo-path"
           d="M70 59C90 75 130 69 143 83S166 106 206 116"
         />
-        <path
-          className="onboarding-demo-water"
-          d="M159 73C172 67 193 77 206 89C215 98 199 106 181 106C163 107 155 99 150 94C144 86 148 78 159 73Z"
-        />
         {["128 45", "84 60", "213 83", "111 106"].map((position, index) => (
           <g
             key={position}

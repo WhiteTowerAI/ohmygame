@@ -207,9 +207,11 @@ Click **Next** to connect a model before your first prompt:
    providers; connect a provider with sign-in or an API key, or use an installed
    Claude Code or Codex CLI. OpenCode is under **More agents**. Use **+** beside
    provider search to add a custom or local endpoint. CLI connections use their
-   own sign-in; **Use** enables the agent without changing its permissions or
-   personal configuration. The default conversation model can be changed on this
-   screen. **Next** continues when a language model is ready; **Skip and start**
+   own sign-in; choosing a connected agent enables it without changing its
+   permissions or personal configuration. Agents appear side by side, and model
+   provider setup belongs to OhMyGame. A check marks an enabled agent. Choose the
+   default conversation model below the selected agent's configuration.
+   **Next** continues when a language model is ready; **Skip and start**
    enters without setup. Setup resumes where you left off; existing installations
    go straight to the studio.
 2. **Add creative tools (optional).** The last screen offers image, video, 3D,

@@ -23,18 +23,20 @@ import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 export function OnboardingAgents({
   busy,
   models,
+  selectedAgent,
+  onSelectAgent,
   loadingRuntimes,
   onBusyChange,
   onConnected,
-  onOpenProviders,
   onUseBuiltIn,
 }: {
   busy: boolean;
   models: readonly AgentModel[];
+  selectedAgent: "pi" | AgentRuntimeId;
+  onSelectAgent: (id: "pi" | AgentRuntimeId) => void;
   loadingRuntimes?: AgentRuntimeId[];
   onBusyChange: (busy: boolean) => void;
   onConnected: (id: AgentRuntimeId) => Promise<void>;
-  onOpenProviders: () => void;
   onUseBuiltIn: () => Promise<void>;
 }) {
   const [agents, setAgents] = useState<AgentRuntimeStatus[]>();
@@ -137,57 +139,154 @@ export function OnboardingAgents({
     >
       <div className="onboarding-section-heading">
         <span>{t("onboarding.localAgents")}</span>
-        <button
-          type="button"
-          className="onboarding-text-button"
-          aria-label={t("agents.rescan")}
-          disabled={busy || Boolean(pending)}
-          onClick={() =>
-            void run("scan", async () => {
-              setAgents(await listAgentRuntimes(true));
-              notifyAgentModelsChanged();
-            })
-          }
-        >
-          <RefreshCw
-            size={13}
-            className={pending === "scan" ? "spin" : undefined}
-            aria-hidden="true"
-          />
-        </button>
-      </div>
-      <div
-        className="onboarding-provider-row onboarding-agent-row"
-        role="group"
-        aria-label="OhMyGame"
-      >
-        <span>
-          <span className="settings-provider-mark is-brand" aria-hidden="true">
-            <img src={brandMark} alt="" />
-          </span>
-          <span className="onboarding-agent-copy">
-            <span>
-              OhMyGame <small>Pi</small>
-            </span>
-            <small>{t("onboarding.builtInHint")}</small>
-          </span>
-        </span>
-        <div>
+        <div className="onboarding-agent-actions">
+          {agents?.some(
+            (agent) => agent.id === "opencode-cli" && !agent.enabled,
+          ) ? (
+            <button
+              type="button"
+              className="onboarding-text-button"
+              aria-expanded={more}
+              onClick={() => setMore(!more)}
+            >
+              {more ? t("onboarding.fewerAgents") : t("onboarding.moreAgents")}
+            </button>
+          ) : null}
           <button
-            className="onboarding-text-button"
             type="button"
+            className="onboarding-text-button"
+            aria-label={t("agents.rescan")}
             disabled={busy || Boolean(pending)}
             onClick={() =>
-              models.some((model) => !isAgentRuntimeId(model.provider))
-                ? void onUseBuiltIn()
-                : onOpenProviders()
+              void run("scan", async () => {
+                setAgents(await listAgentRuntimes(true));
+                notifyAgentModelsChanged();
+              })
             }
           >
-            {models.some((model) => !isAgentRuntimeId(model.provider))
-              ? t("onboarding.useAgent")
-              : t("onboarding.connectModel")}
+            <RefreshCw
+              size={13}
+              className={pending === "scan" ? "spin" : undefined}
+              aria-hidden="true"
+            />
           </button>
         </div>
+      </div>
+      <div className="onboarding-agent-options">
+        <button
+          type="button"
+          className="onboarding-agent-option"
+          aria-label="OhMyGame"
+          aria-pressed={selectedAgent === "pi"}
+          disabled={busy || Boolean(pending)}
+          onClick={() => {
+            onSelectAgent("pi");
+            if (models.some((model) => !isAgentRuntimeId(model.provider)))
+              void onUseBuiltIn();
+          }}
+        >
+          <span className="onboarding-agent-title">
+            <span
+              className="settings-provider-mark is-brand"
+              aria-hidden="true"
+            >
+              <img src={brandMark} alt="" />
+            </span>
+            <Check
+              size={13}
+              className="onboarding-agent-ready"
+              aria-label={t("common.enabled")}
+            />
+          </span>
+          <span>OhMyGame</span>
+          <small>Pi · {t("onboarding.builtInHint")}</small>
+        </button>
+        {(agents ?? [])
+          .filter(
+            (agent) => agent.id !== "opencode-cli" || more || agent.enabled,
+          )
+          .map((agent) => {
+            const icon = PROVIDER_ICONS[agent.id];
+            const ready =
+              agent.enabled &&
+              models.some((model) => model.provider === agent.id);
+            const checking = loadingRuntimes?.includes(agent.id);
+            const problem = agent.diagnostics.some(
+              (diagnostic) =>
+                diagnostic.code === "runtime-incompatible" ||
+                diagnostic.code === "probe-failed" ||
+                diagnostic.code === "models-unavailable",
+            );
+            const signedOut = agent.auth.status === "signed-out";
+            const installUrl = agent.diagnostics.find(
+              (diagnostic) => diagnostic.code === "not-installed",
+            )?.command;
+            return (
+              <button
+                type="button"
+                className="onboarding-agent-option"
+                key={agent.id}
+                aria-label={agent.name}
+                aria-pressed={selectedAgent === agent.id}
+                disabled={busy || Boolean(pending) || Boolean(checking)}
+                onClick={() => {
+                  onSelectAgent(agent.id);
+                  void run(agent.id, async () => {
+                    if (!agent.installed) {
+                      if (installUrl) await openModelAuthExternal(installUrl);
+                    } else if (signedOut) {
+                      const started = await loginAgentRuntime(agent.id);
+                      loginId.current = agent.id;
+                      setCopied(false);
+                      setLogin({ id: agent.id, ...started });
+                      if (started.url) await openModelAuthExternal(started.url);
+                    } else if (problem) {
+                      remember(await recheckAgentRuntime(agent.id));
+                      notifyAgentModelsChanged();
+                    } else {
+                      await useAgent(agent);
+                    }
+                  });
+                }}
+              >
+                <span className="onboarding-agent-title">
+                  {icon ? (
+                    <span
+                      className={`settings-provider-mark is-${icon.tone}`}
+                      aria-hidden="true"
+                    >
+                      <img src={icon.src} alt="" />
+                    </span>
+                  ) : null}
+                  {pending === agent.id || checking ? (
+                    <LoaderCircle
+                      size={13}
+                      className="spin"
+                      aria-label={t("common.loading")}
+                    />
+                  ) : ready ? (
+                    <Check
+                      size={13}
+                      className="onboarding-agent-ready"
+                      aria-label={t("onboarding.agentReady")}
+                    />
+                  ) : null}
+                </span>
+                <span>{agent.name}</span>
+                <small>
+                  {!agent.installed
+                    ? t("codingAgents.installGuide")
+                    : signedOut
+                      ? t("common.signIn")
+                      : problem
+                        ? t("codingAgents.recheck")
+                        : ready
+                          ? null
+                          : t("onboarding.agentDetected")}
+                </small>
+              </button>
+            );
+          })}
       </div>
       {!agents && !error ? (
         <p className="onboarding-status" role="status">
@@ -195,118 +294,7 @@ export function OnboardingAgents({
           {t("codingAgents.checking")}
         </p>
       ) : null}
-      {(agents ?? [])
-        .filter((agent) => agent.id !== "opencode-cli" || more || agent.enabled)
-        .map((agent) => {
-          const icon = PROVIDER_ICONS[agent.id];
-          const ready =
-            agent.enabled &&
-            models.some((model) => model.provider === agent.id);
-          const checking = loadingRuntimes?.includes(agent.id);
-          const problem = agent.diagnostics.some(
-            (diagnostic) =>
-              diagnostic.code === "runtime-incompatible" ||
-              diagnostic.code === "probe-failed" ||
-              diagnostic.code === "models-unavailable",
-          );
-          const signedOut = agent.auth.status === "signed-out";
-          const installUrl = agent.diagnostics.find(
-            (diagnostic) => diagnostic.code === "not-installed",
-          )?.command;
-          return (
-            <div
-              className="onboarding-provider-row onboarding-agent-row"
-              key={agent.id}
-              role="group"
-              aria-label={agent.name}
-            >
-              <span>
-                {icon ? (
-                  <span
-                    className={`settings-provider-mark is-${icon.tone}`}
-                    aria-hidden="true"
-                  >
-                    <img src={icon.src} alt="" />
-                  </span>
-                ) : null}
-                <span className="onboarding-agent-copy">
-                  <span>{agent.name}</span>
-                  <small>
-                    {ready
-                      ? t("onboarding.agentReady")
-                      : !agent.installed
-                        ? t("codingAgents.notInstalled")
-                        : signedOut
-                          ? t("codingAgents.signedOut")
-                          : problem
-                            ? t("onboarding.agentNeedsCheck")
-                            : t("onboarding.agentDetected")}
-                  </small>
-                </span>
-              </span>
-              <div>
-                {ready ? (
-                  <span className="onboarding-agent-ready">
-                    <Check size={14} aria-label={t("onboarding.agentReady")} />
-                  </span>
-                ) : null}
-                <button
-                  type="button"
-                  className="onboarding-text-button"
-                  disabled={busy || Boolean(pending) || Boolean(checking)}
-                  onClick={() =>
-                    void run(agent.id, async () => {
-                      if (!agent.installed) {
-                        if (installUrl) await openModelAuthExternal(installUrl);
-                      } else if (signedOut) {
-                        const started = await loginAgentRuntime(agent.id);
-                        loginId.current = agent.id;
-                        setCopied(false);
-                        setLogin({ id: agent.id, ...started });
-                        if (started.url)
-                          await openModelAuthExternal(started.url);
-                      } else if (problem) {
-                        remember(await recheckAgentRuntime(agent.id));
-                        notifyAgentModelsChanged();
-                      } else {
-                        await useAgent(agent);
-                      }
-                    })
-                  }
-                >
-                  {pending === agent.id || checking ? (
-                    <LoaderCircle
-                      size={13}
-                      className="spin"
-                      aria-label={t("common.loading")}
-                    />
-                  ) : !agent.installed ? (
-                    t("codingAgents.installGuide")
-                  ) : signedOut ? (
-                    t("common.signIn")
-                  ) : problem ? (
-                    t("codingAgents.recheck")
-                  ) : (
-                    t("onboarding.useAgent")
-                  )}
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      {agents?.some(
-        (agent) => agent.id === "opencode-cli" && !agent.enabled,
-      ) ? (
-        <button
-          type="button"
-          className="onboarding-text-button onboarding-more-providers"
-          aria-expanded={more}
-          onClick={() => setMore(!more)}
-        >
-          {more ? t("onboarding.fewerAgents") : t("onboarding.moreAgents")}
-        </button>
-      ) : null}
-      {login ? (
+      {login && login.id === selectedAgent ? (
         <div className="onboarding-agent-login" role="status">
           {login.url ? (
             <button
