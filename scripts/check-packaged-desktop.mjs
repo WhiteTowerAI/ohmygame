@@ -13,7 +13,7 @@ export default async function checkPackagedDesktop(context) {
   const archive = path.join(resources, "app.asar");
   const appDirectory = packager.info.appDir;
   const metadata = JSON.parse(await readFile(path.join(appDirectory, "package.json"), "utf8"));
-  const storyResources = "dist/story-web/resources.json";
+  const storyResources = path.join("dist", "story-web", "resources.json");
   assert(
     extractFile(archive, storyResources).equals(await readFile(path.join(appDirectory, storyResources))),
     "Packaged story resources must match the build",
