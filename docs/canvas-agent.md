@@ -79,6 +79,11 @@ for explicit adoption. Invalid or incomplete output preserves the table, and AI
 instructions and valid candidates survive reloads. Adopting an AI draft is one
 table undo step.
 
+Canvas generation prompts use Enter to generate and Shift+Enter for a new line.
+Enter confirms an active input-method composition or a video `@` reference
+suggestion before it can generate. Text and document content, negative prompts,
+and lyrics keep ordinary multiline editing.
+
 `assets.json` maps asset IDs to readable names and project-relative paths.
 Descriptions describe purpose; prompts record generation instructions.
 Neither is a verified description of image pixels. The agent reads local
