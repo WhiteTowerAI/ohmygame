@@ -4,7 +4,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PluginDetail } from "../src/shared/plugins.js";
 import type { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { resolvePluginSkillPaths, resolvePluginSkills } from "../src/daemon/plugin-runtime.js";
+import { pluginSkillFolders, resolvePluginSkillPaths, resolvePluginSkills } from "../src/daemon/plugin-runtime.js";
+import { stageSkills } from "../src/daemon/agent-runtimes/skills.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
@@ -23,6 +24,18 @@ describe("plugin runtime", () => {
     expect((await resolvePluginSkills([store], settings, "godot-game")).some(skill => skill.pluginDisplayName === "TapTap Maker")).toBe(false);
     await settings.update(maker, { enabled: false, components: {} });
     expect(await resolvePluginSkills([store], settings, "general")).toEqual(before);
+  });
+
+  it("stages enabled plugin Skills for coding agent CLIs", async () => {
+    const store = new BundledPluginStore(path.resolve("plugins"));
+    await store.load();
+    const settings = await settingsStore();
+    await settings.update(store.read("ohmygame:taptap-maker")!, { enabled: true, components: {} });
+    const skills = await resolvePluginSkills([store], settings, "general");
+    const target = await mkdtemp(path.join(tmpdir(), "ohmygame-staged-skills-"));
+    const staged = await stageSkills(pluginSkillFolders(skills), target);
+    expect(staged).toHaveLength(skills.length);
+    expect(staged).toEqual(expect.arrayContaining(["taptap-maker", "game-studio", "blender-assets"]));
   });
 
   it("keeps Game Studio isolated from Web Game skills and honors its disabled setting", async () => {
