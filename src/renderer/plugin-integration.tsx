@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { ProjectState } from "../shared/contracts.js";
+import type { PluginSummary } from "../shared/plugins.js";
 import type {
   PluginIntegrationAction,
   PluginIntegrationState,
@@ -9,12 +10,17 @@ import {
   clearProjectIntegration,
   getPluginIntegration,
   getProject,
+  readPlugin,
   renameProject,
   runPluginIntegration,
   setProjectIntegration,
 } from "./api.js";
 import { Check, LoaderCircle, RefreshCw, X } from "./icons.js";
 import { t } from "./i18n.js";
+import { PluginGlyph } from "./plugin-icons.js";
+
+type ProjectCreation = { name: string; canCreate: boolean; pluginName: string };
+type CreationOptions = { canCreate: boolean; embedded?: boolean };
 
 function useIntegration(
   pluginId: string,
@@ -116,7 +122,7 @@ export function PluginIntegrationPanel({
   initial?: PluginIntegrationState;
   candidate?: boolean;
   onReady?: () => void;
-  creation?: { name: string; canCreate: boolean };
+  creation?: ProjectCreation;
 }) {
   const integration = useIntegration(pluginId, projectId, initial);
   return (
@@ -147,17 +153,25 @@ function IntegrationContents({
   /** The project selects the plugin only when the user continues. */
   candidate?: boolean;
   onReady?: () => void;
-  creation?: { name: string; canCreate: boolean };
+  creation?: ProjectCreation;
 }) {
   const [selected, setSelected] = useState("");
   const [mode, setMode] = useState(creation?.canCreate ? "new" : "existing");
   const [name, setName] = useState(creation?.name ?? "");
+  const [projectSubmitted, setProjectSubmitted] = useState(false);
+  const panel = useRef<HTMLElement>(null);
   const result = state?.result;
   const ready = result?.connection?.status === "ready";
   const bound = !!result?.project;
+  const projectOperation =
+    state?.action === "create" || state?.action === "bind";
+  useEffect(() => {
+    if (busy) panel.current?.closest<HTMLElement>('[role="dialog"]')?.focus();
+  }, [busy]);
   useEffect(() => {
     if (
-      (creation || (!candidate && state?.action === "status")) &&
+      ((!candidate && (creation || state?.action === "status")) ||
+        (creation && projectSubmitted && projectOperation)) &&
       ready &&
       (!projectId || bound) &&
       !busy &&
@@ -168,6 +182,8 @@ function IntegrationContents({
     candidate,
     creation,
     state?.action,
+    projectOperation,
+    projectSubmitted,
     ready,
     bound,
     projectId,
@@ -175,15 +191,65 @@ function IntegrationContents({
     error,
     onReady,
   ]);
+  const connectionActions = (
+    <div className="plugin-integration-actions">
+      {result?.connection?.status === "needs-setup" ? (
+        <button
+          className="plugin-detail-primary"
+          type="button"
+          disabled={busy}
+          onClick={() => void run("prepare")}
+        >
+          {t("integration.prepare")}
+        </button>
+      ) : null}
+      {["needs-auth", "ready"].includes(result?.connection?.status ?? "") ? (
+        <button
+          className={
+            ready ? "plugin-detail-secondary" : "plugin-detail-primary"
+          }
+          type="button"
+          disabled={busy}
+          onClick={() => void run("connect")}
+        >
+          {t(ready ? "integration.reconnect" : "integration.connect")}
+        </button>
+      ) : null}
+      <button
+        className="plugin-detail-secondary plugin-integration-refresh"
+        type="button"
+        aria-label={t("integration.refresh")}
+        title={t("integration.refresh")}
+        disabled={busy}
+        onClick={() => void run("status")}
+      >
+        <RefreshCw size={14} aria-hidden="true" />
+      </button>
+      {state?.running ? (
+        <button
+          className="plugin-detail-secondary"
+          type="button"
+          onClick={() =>
+            void cancelPluginIntegration(pluginId, projectId).catch(() => {})
+          }
+        >
+          {t("common.cancel")}
+        </button>
+      ) : null}
+    </div>
+  );
   return (
     <section
       className="plugin-integration-panel"
+      ref={panel}
       aria-label={t("integration.title")}
     >
-      <header>
-        {!onReady ? <h2>{t("integration.title")}</h2> : null}
-        <p>{t("integration.description")}</p>
-      </header>
+      {!creation ? (
+        <header>
+          {!onReady ? <h2>{t("integration.title")}</h2> : null}
+          <p>{t("integration.description")}</p>
+        </header>
+      ) : null}
       {candidate ? (
         <p className="plugin-integration-notice">
           {t("integration.candidate")}
@@ -207,65 +273,28 @@ function IntegrationContents({
       <div className="plugin-integration-connection">
         {busy || ready ? (
           <p className="plugin-integration-status" role="status">
-            {busy ? (
+            {busy && !(creation && projectOperation) ? (
               <LoaderCircle size={14} className="spin" aria-hidden="true" />
             ) : (
               <Check size={14} aria-hidden="true" />
             )}
-            {busy
+            {busy && !(creation && projectOperation)
               ? (state?.message ?? t("integration.working"))
-              : t("integration.connected")}
+              : creation
+                ? t("integration.connectedWith", {
+                    plugin: creation.pluginName,
+                  })
+                : t("integration.connected")}
           </p>
         ) : null}
-        <div className="plugin-integration-actions">
-          {result?.connection?.status === "needs-setup" ? (
-            <button
-              className="plugin-detail-primary"
-              type="button"
-              disabled={busy}
-              onClick={() => void run("prepare")}
-            >
-              {t("integration.prepare")}
-            </button>
-          ) : null}
-          {["needs-auth", "ready"].includes(
-            result?.connection?.status ?? "",
-          ) ? (
-            <button
-              className={
-                ready ? "plugin-detail-secondary" : "plugin-detail-primary"
-              }
-              type="button"
-              disabled={busy}
-              onClick={() => void run("connect")}
-            >
-              {t(ready ? "integration.reconnect" : "integration.connect")}
-            </button>
-          ) : null}
-          <button
-            className="plugin-detail-secondary plugin-integration-refresh"
-            type="button"
-            aria-label={t("integration.refresh")}
-            title={t("integration.refresh")}
-            disabled={busy}
-            onClick={() => void run("status")}
-          >
-            <RefreshCw size={14} aria-hidden="true" />
-          </button>
-          {state?.running ? (
-            <button
-              className="plugin-detail-secondary"
-              type="button"
-              onClick={() =>
-                void cancelPluginIntegration(pluginId, projectId).catch(
-                  () => {},
-                )
-              }
-            >
-              {t("common.cancel")}
-            </button>
-          ) : null}
-        </div>
+        {creation && ready ? (
+          <details className="plugin-integration-account-options">
+            <summary>{t("integration.accountOptions")}</summary>
+            {connectionActions}
+          </details>
+        ) : (
+          connectionActions
+        )}
       </div>
       {projectId && ready ? (
         <div className="plugin-integration-binding">
@@ -304,7 +333,7 @@ function IntegrationContents({
           ) : creation && mode === "new" ? (
             <>
               <label>
-                {t("common.name")}
+                {t("integration.projectName")}
                 <input
                   autoFocus
                   value={name}
@@ -313,21 +342,27 @@ function IntegrationContents({
                   onChange={(event) => setName(event.target.value)}
                 />
               </label>
-              <p>{t("integration.newProjectHint")}</p>
+              <p>
+                {t("integration.newProjectHint", {
+                  plugin: creation.pluginName,
+                })}
+              </p>
               <button
                 className="plugin-detail-primary"
                 type="button"
                 disabled={busy || !name.trim()}
-                onClick={() =>
+                onClick={() => {
+                  setProjectSubmitted(true);
                   void run(
                     "create",
                     undefined,
                     name.trim() !== creation.name ? name.trim() : undefined,
-                  )
-                }
+                  );
+                }}
               >
                 {t(
                   busy ? "integration.working" : "integration.createAndConnect",
+                  { plugin: creation.pluginName },
                 )}
               </button>
             </>
@@ -366,9 +401,16 @@ function IntegrationContents({
                     className="plugin-detail-secondary"
                     type="button"
                     disabled={busy || !selected}
-                    onClick={() => void run("bind", selected)}
+                    onClick={() => {
+                      setProjectSubmitted(true);
+                      void run("bind", selected);
+                    }}
                   >
-                    {t("integration.bind")}
+                    {t(
+                      creation
+                        ? "integration.connectAndStart"
+                        : "integration.bind",
+                    )}
                   </button>
                 </>
               ) : null}
@@ -376,7 +418,17 @@ function IntegrationContents({
           )}
         </div>
       ) : null}
-      {onReady && !creation ? (
+      {creation && busy && projectOperation ? (
+        <p className="plugin-project-progress" role="status">
+          <LoaderCircle size={14} className="spin" aria-hidden="true" />
+          {t(
+            state?.action === "bind"
+              ? "integration.connectingProject"
+              : "integration.preparingProject",
+          )}
+        </p>
+      ) : null}
+      {onReady && (!creation || (candidate && bound)) ? (
         <div className="plugin-integration-footer">
           <button
             className="plugin-detail-primary"
@@ -399,7 +451,11 @@ export function usePluginIntegrationGate(
     project: ProjectState;
     pluginId: string;
     initial: PluginIntegrationState;
-    creation?: { canCreate: boolean };
+    creation?: CreationOptions;
+    plugin?: Pick<
+      PluginSummary,
+      "id" | "displayName" | "icon" | "iconRevision"
+    >;
   }>();
   const resolveDialog = useRef<((ready: boolean) => void) | undefined>(
     undefined,
@@ -415,13 +471,17 @@ export function usePluginIntegrationGate(
   async function ensure(
     project: ProjectState,
     pluginId = project.integration?.pluginId,
-    creation?: { canCreate: boolean },
+    creation?: CreationOptions,
   ): Promise<ProjectState | undefined> {
     if (!pluginId) return project;
     if (creation) project = await getProject(project.id);
     if (project.integration && project.integration.pluginId !== pluginId)
       throw new Error(t("integration.conflict"));
-    let state = await getPluginIntegration(pluginId, project.id);
+    const [initialState, plugin] = await Promise.all([
+      getPluginIntegration(pluginId, project.id),
+      creation ? readPlugin(pluginId) : Promise.resolve(undefined),
+    ]);
+    let state = initialState;
     if (!state.running && state.error)
       state = await runPluginIntegration(pluginId, "status", project.id);
     if (!mounted.current) return undefined;
@@ -436,7 +496,7 @@ export function usePluginIntegrationGate(
     }
     const ready = await new Promise<boolean>((resolve) => {
       resolveDialog.current = resolve;
-      setDialog({ project, pluginId, initial: state, creation });
+      setDialog({ project, pluginId, initial: state, creation, plugin });
     });
     if (!ready || !mounted.current) return undefined;
     if (project.integration) return creation ? getProject(project.id) : project;
@@ -450,6 +510,14 @@ export function usePluginIntegrationGate(
     resolveDialog.current = undefined;
     setDialog(undefined);
   }
+  function dismiss() {
+    if (dialog?.creation)
+      void cancelPluginIntegration(dialog.pluginId, dialog.project.id).catch(
+        () => {},
+      );
+    close(false);
+  }
+  const pluginName = dialog?.plugin?.displayName ?? t("integration.plugin");
   const panel = dialog ? (
     <PluginIntegrationPanel
       pluginId={dialog.pluginId}
@@ -458,46 +526,57 @@ export function usePluginIntegrationGate(
       candidate={!dialog.project.integration}
       creation={
         dialog.creation
-          ? { ...dialog.creation, name: dialog.project.name }
+          ? { ...dialog.creation, name: dialog.project.name, pluginName }
           : undefined
       }
       onReady={() => close(true)}
     />
   ) : null;
-  return {
-    ensure,
-    creation: dialog?.creation ? (
-      <section
-        className="plugin-project-creation"
-        aria-label={t("integration.createTitle")}
-      >
-        <header>
+  const creationContent = dialog?.creation ? (
+    <section className="plugin-project-creation">
+      <header>
+        <div className="plugin-project-identity">
+          {dialog.plugin ? (
+            <span className="plugin-project-icon">
+              <PluginGlyph plugin={dialog.plugin} size={32} />
+            </span>
+          ) : null}
           <div>
-            <h2>{t("integration.createTitle")}</h2>
+            <h2>{t("integration.createTitle", { plugin: pluginName })}</h2>
             <p>{t("integration.creationHint")}</p>
           </div>
-          <button
-            className="plugin-detail-secondary plugin-integration-refresh"
-            type="button"
-            aria-label={t("common.cancel")}
-            onClick={() => {
-              void cancelPluginIntegration(
-                dialog.pluginId,
-                dialog.project.id,
-              ).catch(() => {});
-              close(false);
-            }}
-          >
-            <X size={14} />
-          </button>
-        </header>
-        {panel}
-      </section>
-    ) : null,
+        </div>
+        <button
+          className="plugin-detail-secondary plugin-integration-refresh"
+          type="button"
+          aria-label={t("common.cancel")}
+          onClick={dismiss}
+        >
+          <X size={14} />
+        </button>
+      </header>
+      {panel}
+    </section>
+  ) : null;
+  return {
+    ensure,
+    creation: dialog?.creation?.embedded ? creationContent : null,
+    creationTitle: dialog?.creation
+      ? t("integration.createTitle", { plugin: pluginName })
+      : undefined,
+    cancelCreation: dismiss,
     dialog:
-      dialog && !dialog.creation ? (
-        <IntegrationDialog onClose={() => close(false)}>
-          {panel}
+      dialog && !dialog.creation?.embedded ? (
+        <IntegrationDialog
+          onClose={dismiss}
+          creation={!!dialog.creation}
+          title={
+            dialog.creation
+              ? t("integration.createTitle", { plugin: pluginName })
+              : t("integration.title")
+          }
+        >
+          {creationContent ?? panel}
         </IntegrationDialog>
       ) : null,
   };
@@ -506,10 +585,15 @@ export function usePluginIntegrationGate(
 function IntegrationDialog({
   children,
   onClose,
+  creation,
+  title,
 }: {
   children: ReactNode;
   onClose: () => void;
+  creation?: boolean;
+  title: string;
 }) {
+  const titleId = useId();
   const root = useRef<HTMLElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -518,15 +602,37 @@ function IntegrationDialog({
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : undefined;
-    root.current?.focus();
+    (
+      root.current?.querySelector<HTMLElement>(
+        "input:not(:disabled), select:not(:disabled)",
+      ) ?? root.current
+    )?.focus();
+    const inertElements: Array<[HTMLElement, boolean]> = [];
+    let overlay = root.current?.parentElement;
+    while (overlay && overlay !== document.body) {
+      for (const sibling of overlay.parentElement?.children ?? []) {
+        if (sibling !== overlay && sibling instanceof HTMLElement) {
+          inertElements.push([sibling, sibling.inert]);
+          sibling.inert = true;
+        }
+      }
+      overlay = overlay.parentElement;
+    }
     const keyboard = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close.current();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close.current();
+      }
       if (event.key !== "Tab" || !root.current) return;
       const controls = [
         ...root.current.querySelectorAll<HTMLElement>(
-          "button:not(:disabled), select:not(:disabled), a[href]",
+          "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), a[href], summary",
         ),
-      ];
+      ].filter(
+        (element) =>
+          !element.closest("details:not([open])") ||
+          element.tagName === "SUMMARY",
+      );
       const first = controls[0],
         last = controls.at(-1);
       if (
@@ -548,7 +654,8 @@ function IntegrationDialog({
     window.addEventListener("keydown", keyboard);
     return () => {
       window.removeEventListener("keydown", keyboard);
-      previous?.focus();
+      for (const [element, wasInert] of inertElements) element.inert = wasInert;
+      requestAnimationFrame(() => previous?.focus());
     };
   }, []);
   return (
@@ -559,23 +666,26 @@ function IntegrationDialog({
       }}
     >
       <section
-        className="project-create-dialog plugin-integration-dialog"
+        className={`project-create-dialog plugin-integration-dialog${creation ? " plugin-project-dialog" : ""}`}
         role="dialog"
         aria-modal="true"
-        aria-label={t("integration.title")}
+        aria-label={creation ? title : undefined}
+        aria-labelledby={creation ? undefined : titleId}
         ref={root}
         tabIndex={-1}
       >
-        <header>
-          <h2>{t("integration.title")}</h2>
-          <button
-            type="button"
-            aria-label={t("common.close")}
-            onClick={onClose}
-          >
-            <X size={16} />
-          </button>
-        </header>
+        {!creation ? (
+          <header>
+            <h2 id={titleId}>{title}</h2>
+            <button
+              type="button"
+              aria-label={t("common.close")}
+              onClick={onClose}
+            >
+              <X size={16} />
+            </button>
+          </header>
+        ) : null}
         {children}
       </section>
     </div>

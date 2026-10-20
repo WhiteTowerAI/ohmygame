@@ -43,8 +43,6 @@ export function App() {
     return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
   }, [serviceGeneration]);
 
-  if (creationGate.creation) return <main className="plugin-project-creation-page">{creationGate.creation}</main>;
-
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
       onStepChange={(step) => onboarding.save({ status: "pending", step })}
@@ -55,9 +53,9 @@ export function App() {
   if (route.page === "settings") {
     return <SettingsPage section={route.section} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onOpenOnboarding={onboarding.open} />;
   }
-  if (route.page === "plugins") return <SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
+  if (route.page === "plugins") return <>{creationGate.dialog}<SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
     <PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} />
-  </SidebarPageLayout>;
+  </SidebarPageLayout></>;
   if (route.page === "home") {
     return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
   }

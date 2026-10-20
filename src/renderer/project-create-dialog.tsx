@@ -28,9 +28,14 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
   const [pluginId, setPluginId] = useState("");
   const created = useRef<ProjectState | undefined>(undefined);
   const integrationGate = usePluginIntegrationGate();
+  const integrationRef = useRef(integrationGate);
+  integrationRef.current = integrationGate;
   const integrations = plugins.filter(plugin => plugin.integration && (!plugin.projectTypes?.length || plugin.projectTypes.includes(type)));
   creatingRef.current = creating;
   onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!integrationGate.creation && !creating) nameInput.current?.focus();
+  }, [!!integrationGate.creation, creating]);
   useEffect(() => {
     let active = true;
     void getHomeComposerCapabilities().then(value => { if (active) setPlugins(value.plugins); }).catch(() => {});
@@ -41,9 +46,15 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     nameInput.current?.focus();
     const handleKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && integrationRef.current.creation) {
+        event.preventDefault();
+        integrationRef.current.cancelCreation();
+        return;
+      }
       if (event.key === "Escape" && !creatingRef.current) onCloseRef.current();
       if (event.key !== "Tab" || !dialog.current) return;
-      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex='-1'])")];
+      const focusable = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href], summary, [tabindex]:not([tabindex='-1'])")]
+        .filter(element => !element.closest('details:not([open])') || element.tagName === "SUMMARY");
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -77,7 +88,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
       });
       const integrationId = plugin?.id ?? created.current.integration?.pluginId;
       const integration = plugins.find(plugin => plugin.id === integrationId)?.integration;
-      const project = await integrationGate.ensure(created.current, integrationId, integrationId ? { canCreate: !!integration?.createProject } : undefined);
+      const project = await integrationGate.ensure(created.current, integrationId, integrationId ? { canCreate: !!integration?.createProject, embedded: true } : undefined);
       if (!project) { setCreating(false); return; }
       onCreated(project);
     } catch (cause) {
@@ -117,7 +128,7 @@ export function ProjectCreateDialog({ initialType = "web-game", fixedType, proje
     <div className="project-create-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !creating) onClose();
     }}>
-      <section ref={dialog} className="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby={integrationGate.creation ? undefined : titleId} aria-label={integrationGate.creation ? t("integration.createTitle") : undefined} tabIndex={-1}>
+      <section ref={dialog} className="project-create-dialog" role="dialog" aria-modal="true" aria-labelledby={integrationGate.creation ? undefined : titleId} aria-label={integrationGate.creationTitle} tabIndex={-1}>
         {!integrationGate.creation ? <header>
           <h2 id={titleId}>{fixedType ? t("createDialog.newType", { type: projectTypeLabel(fixedType) }) : t("createDialog.newProject")}</h2>
           <button type="button" disabled={creating} onClick={onClose} aria-label={t("common.close")}><X size={16} /></button>

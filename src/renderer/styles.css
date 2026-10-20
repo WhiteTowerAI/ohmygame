@@ -16774,7 +16774,21 @@ button {
 .plugin-project-creation > header h2 { margin: 0 0 8px; color: var(--text); font-size: 15px; font-weight: 600; }
 .plugin-project-creation > header p { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 1.6; }
 .plugin-project-creation .plugin-integration-panel { margin: 0; }
-.plugin-project-creation-page { display: grid; min-height: 100dvh; padding: 40px 20px; align-content: center; }
+.plugin-project-dialog { width: min(560px, 100%); }
+.plugin-project-dialog .plugin-project-creation { width: 100%; margin: 0; border: 0; }
+.plugin-project-dialog .plugin-integration-panel { padding: 0; }
+.plugin-project-identity { display: flex; min-width: 0; align-items: start; gap: 12px; }
+.plugin-project-identity > div { min-width: 0; }
+.plugin-project-icon { display: flex; flex: 0 0 44px; width: 44px; height: 44px; align-items: center; justify-content: center; border-radius: 10px; background: var(--surface); }
+.plugin-project-creation .plugin-integration-connection { gap: 8px; }
+.plugin-project-creation .plugin-integration-binding { gap: 16px; }
+.plugin-project-creation .plugin-integration-binding > .plugin-detail-primary { justify-self: stretch; margin-top: 4px; }
+.plugin-project-creation .plugin-integration-binding label { font-size: 12px; }
+.plugin-project-creation .plugin-integration-binding :is(input, select) { height: 40px; font-size: 13px; }
+.plugin-integration-account-options { min-width: 0; }
+.plugin-integration-account-options summary { cursor: pointer; color: var(--text-muted); font-size: 11px; }
+.plugin-integration-account-options[open] > summary { margin-bottom: 8px; }
+.plugin-project-creation .plugin-project-progress { display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 6px; background: var(--surface); }
 .project-create-integration { padding: 20px; }
 .project-create-integration .plugin-project-creation { padding: 0; border: 0; }
 :is(.plugin-integration-panel, .external-project-preview, .plugin-project-creation) :is(button, a, select, input):focus-visible {

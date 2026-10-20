@@ -10,6 +10,7 @@ import {
 import type { PluginIntegrationState } from "../src/shared/plugin-integration.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { ProjectCreateDialog } from "../src/renderer/project-create-dialog.js";
+import { ProjectPromptCreator } from "../src/renderer/project-prompt-creator.js";
 
 const project: ProjectState = {
   id: "native",
@@ -39,6 +40,12 @@ beforeEach(() => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url, init: RequestInit = {}) => {
+      if (String(url).endsWith("/plugins/fixture"))
+        return Response.json({
+          id: "fixture",
+          displayName: "TapTap Maker",
+          icon: { type: "preset", id: "gamepad" },
+        });
       if (String(url).includes("/projects/")) {
         projectRequests.push({ method: init.method, url: String(url) });
         if (init.method === "PATCH")
@@ -117,15 +124,15 @@ async function fillName(value: string) {
 }
 
 describe("plugin connection UI", () => {
-  it("initializes a new project inline before opening its conversation", async () => {
+  it("creates in a branded dialog while keeping the original description mounted", async () => {
     state.result = { connection: { status: "ready" }, project: null };
     const opened = vi.fn();
     function Creator() {
       const gate = usePluginIntegrationGate();
       return (
         <>
-          {gate.creation}
           {gate.dialog}
+          <textarea defaultValue="Make a forest game" />
           <button
             onClick={() =>
               void gate
@@ -142,22 +149,116 @@ describe("plugin connection UI", () => {
     }
     await act(async () => root.render(<Creator />));
     await click("Create game");
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector("textarea")?.value).toBe(
+      "Make a forest game",
+    );
     expect(
-      container.querySelector('[aria-label="Set up project"]'),
+      container.querySelector(
+        '[aria-label="Create a project with TapTap Maker"]',
+      ),
     ).not.toBeNull();
     expect(container.querySelector('[aria-pressed="true"]')?.textContent).toBe(
       "New project",
     );
     expect(container.querySelector("select")).toBeNull();
+    expect(container.querySelector("details")?.open).toBe(false);
+    expect(container.textContent).toContain("TapTap Maker account connected");
     expect(opened).not.toHaveBeenCalled();
     await fillName("Pixel garden");
-    await click("Create and connect");
+    await click("Create TapTap Maker project and start");
     expect(actions).toEqual([{ action: "create" }]);
     expect(opened).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Pixel garden" }),
     );
-    expect(container.querySelector('[aria-label="Set up project"]')).toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="Create a project with TapTap Maker"]',
+      ),
+    ).toBeNull();
+  });
+  it("preserves the real home composer on cancel and continues with its description after creation", async () => {
+    state.result = { connection: { status: "ready" }, project: null };
+    const fetchIntegration = fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init: RequestInit = {}) => {
+        const route = new URL(String(url), "http://localhost").pathname;
+        if (route.endsWith("/composer/capabilities"))
+          return Response.json({
+            plugins: [
+              {
+                id: "fixture",
+                name: "fixture",
+                displayName: "TapTap Maker",
+                marketplaceId: "test",
+                integration: { entry: "./adapter.mjs", createProject: true },
+                projectTypes: ["general"],
+              },
+            ],
+            skills: [],
+          });
+        if (route.endsWith("/models")) return Response.json({ models: [] });
+        if (route.endsWith("/projects") && init.method === "POST")
+          return Response.json(project);
+        if (route.endsWith("/conversations") && init.method === "POST")
+          return Response.json({ id: "chat" });
+        return fetchIntegration(url, init);
+      }),
+    );
+    const opened = vi.fn();
+    await act(async () =>
+      root.render(
+        <ProjectPromptCreator
+          projectType="general"
+          placeholder="Describe your game"
+          onCreate={opened}
+        />,
+      ),
+    );
+    const textarea = container.querySelector("textarea")!;
+    async function fillPrompt(value: string) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value",
+        )!.set!.call(textarea, value);
+        textarea.setSelectionRange(value.length, value.length);
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    }
+    await fillPrompt("@");
+    const option = [
+      ...container.querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((element) => element.textContent?.includes("TapTap Maker"))!;
+    await act(async () => option.click());
+    await fillPrompt("Make a forest adventure");
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[type="submit"]')!
+        .click(),
+    );
+    expect(container.querySelector("textarea")).toBe(textarea);
+    expect(textarea.value).toBe("Make a forest adventure");
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(textarea.closest("[inert]")).not.toBeNull();
+    await act(async () =>
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      ),
+    );
+    await vi.waitFor(() => expect(document.activeElement).toBe(textarea));
+    expect(textarea.value).toBe("Make a forest adventure");
+    expect(textarea.closest("[inert]")).toBeNull();
+    expect(opened).not.toHaveBeenCalled();
+    await act(async () =>
+      container
+        .querySelector<HTMLButtonElement>('button[type="submit"]')!
+        .click(),
+    );
+    await click("Create TapTap Maker project and start");
+    expect(opened).toHaveBeenCalledOnce();
+    expect(opened.mock.calls[0]?.[2]).toContain("Make a forest adventure");
   });
   it("keeps new-project initialization inside the explicit creation window", async () => {
     state.result = { connection: { status: "ready" }, project: null };
@@ -216,11 +317,152 @@ describe("plugin connection UI", () => {
     expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(container.querySelectorAll('[role="dialog"] h2')).toHaveLength(1);
     expect(opened).not.toHaveBeenCalled();
-    await click("Create and connect");
+    await click("Create TapTap Maker project and start");
     expect(opened).toHaveBeenCalledOnce();
     expect(create).toHaveBeenCalledOnce();
     expect(projectRequests.some((request) => request.method === "PATCH")).toBe(
       false,
+    );
+  });
+  it("connects an existing Maker project from the creation dialog", async () => {
+    state.result = { connection: { status: "ready" }, project: null };
+    const opened = vi.fn();
+    function Creator() {
+      const gate = usePluginIntegrationGate();
+      return (
+        <>
+          {gate.dialog}
+          <button
+            onClick={() =>
+              void gate
+                .ensure(project, "fixture", { canCreate: true })
+                .then(opened)
+            }
+          >
+            Create game
+          </button>
+        </>
+      );
+    }
+    await act(async () => root.render(<Creator />));
+    await click("Create game");
+    await click("Existing project");
+    await click("Load projects");
+    await act(async () => {
+      const select = container.querySelector("select")!;
+      select.value = "b";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click("Connect and start");
+    expect(actions).toEqual([
+      { action: "projects" },
+      { action: "bind", projectId: "b" },
+    ]);
+    expect(opened).toHaveBeenCalledOnce();
+  });
+  it("keeps an entered name after a creation error and retries the same local project", async () => {
+    state.result = { connection: { status: "ready" }, project: null };
+    const fetchIntegration = fetch;
+    let fail = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init: RequestInit = {}) => {
+        if (
+          init.method === "POST" &&
+          JSON.parse(String(init.body)).action === "create" &&
+          fail
+        ) {
+          state = {
+            ...state,
+            action: "create",
+            error: "Checkout failed; resume the existing project",
+          };
+          return Response.json(state);
+        }
+        return fetchIntegration(url, init);
+      }),
+    );
+    const opened = vi.fn();
+    function Creator() {
+      const gate = usePluginIntegrationGate();
+      return (
+        <>
+          {gate.dialog}
+          <button
+            onClick={() =>
+              void gate
+                .ensure(project, "fixture", { canCreate: true })
+                .then(opened)
+            }
+          >
+            Create game
+          </button>
+        </>
+      );
+    }
+    await act(async () => root.render(<Creator />));
+    await click("Create game");
+    await fillName("Fox forest");
+    await click("Create TapTap Maker project and start");
+    expect(container.querySelector("input")?.value).toBe("Fox forest");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "resume",
+    );
+    expect(opened).not.toHaveBeenCalled();
+    fail = false;
+    await click("Create TapTap Maker project and start");
+    expect(opened).toHaveBeenCalledOnce();
+    expect(
+      projectRequests.every((request) =>
+        request.url.includes("/projects/native"),
+      ),
+    ).toBe(true);
+  });
+  it("requires confirmation when the creation entry reopens an existing bound workspace", async () => {
+    const { integration: _integration, ...existing } = project;
+    state = {
+      ...state,
+      action: "bind",
+      result: { connection: { status: "ready" }, project: { id: "bound" } },
+    };
+    const fetchIntegration = fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url, init: RequestInit = {}) => {
+        if (String(url).endsWith("/projects/native") && !init.method)
+          return Response.json(existing);
+        return fetchIntegration(url, init);
+      }),
+    );
+    const opened = vi.fn();
+    function Creator() {
+      const gate = usePluginIntegrationGate();
+      return (
+        <>
+          {gate.dialog}
+          <button
+            onClick={() =>
+              void gate
+                .ensure(existing, "fixture", { canCreate: true })
+                .then(opened)
+            }
+          >
+            Create game
+          </button>
+        </>
+      );
+    }
+    await act(async () => root.render(<Creator />));
+    await click("Create game");
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(opened).not.toHaveBeenCalled();
+    expect(projectRequests.some((request) => request.method === "PUT")).toBe(
+      false,
+    );
+    await click("Continue");
+    expect(opened).toHaveBeenCalledOnce();
+    expect(projectRequests.some((request) => request.method === "PUT")).toBe(
+      true,
     );
   });
   it("does not start remote creation when setup is cancelled during a name save", async () => {
@@ -241,7 +483,7 @@ describe("plugin connection UI", () => {
       const gate = usePluginIntegrationGate();
       return (
         <>
-          {gate.creation}
+          {gate.dialog}
           <button
             onClick={() =>
               void gate.ensure(project, "fixture", { canCreate: true })
@@ -255,7 +497,7 @@ describe("plugin connection UI", () => {
     await act(async () => root.render(<Creator />));
     await click("Create game");
     await fillName("Pixel garden");
-    await click("Create and connect");
+    await click("Create TapTap Maker project and start");
     expect(saveName).toBeDefined();
     expect(
       container.querySelector<HTMLButtonElement>(
@@ -274,7 +516,11 @@ describe("plugin connection UI", () => {
     );
     await act(async () => saveName!());
     expect(actions).toEqual([]);
-    expect(container.querySelector('[aria-label="Set up project"]')).toBeNull();
+    expect(
+      container.querySelector(
+        '[aria-label="Create a project with TapTap Maker"]',
+      ),
+    ).toBeNull();
   });
   it("requires explicit environment, login and project selection before continuing", async () => {
     const ready = vi.fn();

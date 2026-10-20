@@ -114,7 +114,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
       const project = await integrationGate.ensure(created.current.project, integrationId, integrationId ? {
         canCreate: !!capabilities.plugins.find(plugin => plugin.id === integrationId)?.integration?.createProject,
       } : undefined);
-      if (!project) { setCreating(false); return; }
+      if (!project) { setCreating(false); requestAnimationFrame(() => promptRef.current?.focus()); return; }
       created.current.project = project;
       created.current.conversationId ??= (await createConversation(project.id)).id;
       const uploaded = await uploadAttachments(project.id, crypto.randomUUID(), attachments);
@@ -302,10 +302,9 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
     return false;
   }
 
-  if (integrationGate.creation) return integrationGate.creation;
-
   return (
     <>
+      {integrationGate.dialog}
       <PromptBox
         actions={(
           <>
