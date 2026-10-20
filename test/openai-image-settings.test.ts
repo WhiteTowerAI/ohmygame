@@ -46,6 +46,8 @@ async function fixture(
     path.join(tmpdir(), "ohmygame-openai-images-"),
   );
   directories.push(directory);
+  // OpenAI connection tests must not discover a real Codex image provider.
+  await writeFile(path.join(directory, "agent-runtimes.json"), JSON.stringify({ runtimes: { "codex-cli": { binaryPath: path.join(directory, "missing-codex") } } }));
   if (credential)
     await writeFile(
       path.join(directory, "auth.json"),

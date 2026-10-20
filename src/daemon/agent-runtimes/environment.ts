@@ -120,15 +120,20 @@ export function commonBinaryDirectories(home = os.homedir()): string[] {
 }
 
 let shellPath: Promise<string | undefined> | undefined;
+let readingShellPath = false;
 
 /**
  * The PATH a login shell sets up, which an app started from the Dock does not
- * get. Read once, with a short limit, between markers so that whatever the
+ * get. Cache until a rescan, with a short limit, between markers so whatever the
  * shell's startup files print is ignored.
  */
-export function loginShellPath(): Promise<string | undefined> {
+export function loginShellPath(recheck = false): Promise<string | undefined> {
   if (process.platform === "win32") return Promise.resolve(undefined);
-  return (shellPath ??= new Promise((resolve) => {
+  // Concurrent rescans share a read; a completed read is refreshed on demand.
+  if (recheck && !readingShellPath) shellPath = undefined;
+  if (shellPath) return shellPath;
+  readingShellPath = true;
+  shellPath = new Promise<string | undefined>((resolve) => {
     const shell = process.env.SHELL || "/bin/zsh";
     const marker = "__OHMYGAME_PATH__";
     execFile(
@@ -147,7 +152,13 @@ export function loginShellPath(): Promise<string | undefined> {
         resolve(match?.[1] || undefined);
       },
     );
-  }));
+  }).then((value) => {
+    readingShellPath = false;
+    // A transient startup failure must not poison discovery until restart.
+    if (!value) shellPath = undefined;
+    return value;
+  });
+  return shellPath;
 }
 
 /**
@@ -206,6 +217,9 @@ export function toolchainRoots(
   }
   if (platform === "darwin")
     for (const developer of [
+      // Node/npm read the system OpenSSL configuration when starting TLS.
+      // Grant this immutable file without exposing the whole system Library.
+      "/System/Library/OpenSSL/openssl.cnf",
       "/Library/Developer/CommandLineTools",
       "/Applications/Xcode.app",
     ])

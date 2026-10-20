@@ -85,6 +85,7 @@ export async function validateWorkspaceFile(workspacePath: string, requestedPath
 }
 
 export async function locateWorkspaceEntry(workspacePath: string, requestedPath: string): Promise<string> {
+  if (requestedPath === ".") return resolveWorkspaceDirectory(workspacePath);
   const { absolutePath } = await resolveWorkspaceEntry(workspacePath, requestedPath);
   const entryStat = await stat(absolutePath);
   if (!entryStat.isFile() && !entryStat.isDirectory()) throw new WorkspaceError("Path is not a file or directory");

@@ -72,6 +72,9 @@ it.skipIf(process.platform === "win32")("does not let an old in-flight catalog o
     binaryPath: old.binary,
     enabled: true,
   });
+  const now = Date.now();
+  vi.spyOn(Date, "now").mockReturnValue(now + 11 * 60_000);
+  await rm(old.started);
   await writeFile(old.gate, "hold");
   const stale = service.model("claude-code-cli", "claude-old");
   await expect
@@ -95,7 +98,7 @@ it.skipIf(process.platform === "win32")("loads every page of the native Codex mo
 require("node:readline").createInterface({input:process.stdin}).on("line", line => {
   const m = JSON.parse(line);
   if (m.id === undefined) return;
-  const result = m.method === "model/list" ? (m.params.cursor ? {data:[{id:"second",supportedReasoningEfforts:[{reasoningEffort:"high"}]}]} : {data:[{id:"first"}],nextCursor:"page-2"}) : {};
+  const result = m.method === "thread/start" ? {thread:{id:"probe"},activePermissionProfile:{id:m.params.permissions}} : m.method === "model/list" ? (m.params.cursor ? {data:[{id:"second",supportedReasoningEfforts:[{reasoningEffort:"high"}]}]} : {data:[{id:"first"}],nextCursor:"page-2"}) : {};
   console.log(JSON.stringify({id:m.id,result}));
 });
 `,

@@ -20,6 +20,8 @@ import type { NodePlayerDefinition } from "../../shared/playable-player-protocol
 import { isPublishedNodeManifest, PLAYTEST_SCOPE_PREFIX, type PublishedNodeAsset, type PublishedNodeManifest } from "../../shared/playable-publish.js";
 import { isNodeGraph } from "../../shared/playable-graph-validation.js";
 import { getWorkspaceMedia } from "../workspace.js";
+import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
+import { compressArchiveFile } from "../archive-compression.js";
 
 interface PackageJson {
   scripts?: { build?: unknown };
@@ -51,7 +53,10 @@ export class ArtifactBuilder {
     let temporary: string | undefined;
     try {
       let source: string;
-      if (project.type === "interactive-story") {
+      if (project.type === "interactive-story" && await isWebStory(project.workspacePath)) {
+        temporary = await prepareWebStory(project);
+        source = temporary;
+      } else if (project.type === "interactive-story") {
         temporary = await prepareInteractiveStory(project, this.library, this.playerDirectory);
         source = temporary;
       } else {
@@ -110,6 +115,36 @@ async function publishStartupDirectory(project: ProjectState): Promise<string> {
     return (await resolveStartupDirectory(project.workspacePath, project.startupDirectory ?? ".")).absolutePath;
   } catch (cause) {
     throw new PublishError(cause instanceof Error ? cause.message : String(cause));
+  }
+}
+
+/**
+ * A web story publishes as its own page: the files that play it, checked
+ * against the publish rules first, as a static site.
+ */
+async function prepareWebStory(project: ProjectState): Promise<string> {
+  try {
+    if (!await buildPlayableProject(project.workspacePath, "publish")) throw new Error("This project has no graph.json.");
+  } catch (cause) {
+    throw new PublishError(cause instanceof Error ? cause.message : String(cause));
+  }
+  let files: string[];
+  try {
+    files = await publishableWebStoryFiles(project.workspacePath);
+  } catch (cause) {
+    throw new PublishError(cause instanceof Error ? cause.message : String(cause));
+  }
+  const output = await mkdtemp(path.join(tmpdir(), "ohmygame-web-story-build-"));
+  try {
+    for (const relative of files) {
+      const destination = path.join(output, ...relative.split("/"));
+      await mkdir(path.dirname(destination), { recursive: true });
+      await cp(path.join(project.workspacePath, ...relative.split("/")), destination);
+    }
+    return output;
+  } catch (cause) {
+    await rm(output, { recursive: true, force: true });
+    throw cause;
   }
 }
 
@@ -332,9 +367,10 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
   for (const file of files) {
     const filename = path.join(source, ...file.split("/"));
     const executable = preserveExecutable && ((await stat(filename)).mode & 0o111) !== 0;
-    zip.addFile(filename, file, executable ? { ...zipOptions, mode: 0o100755 } : zipOptions);
+    const options = { ...zipOptions, compress: !plugin && compressArchiveFile(file) };
+    zip.addFile(filename, file, executable ? { ...options, mode: 0o100755 } : options);
   }
-  if (cover !== undefined) zip.addBuffer(cover, PUBLISH_GAME_COVER_PATH, zipOptions);
+  if (cover !== undefined) zip.addBuffer(cover, PUBLISH_GAME_COVER_PATH, { ...zipOptions, compress: false });
   const chunks: Buffer[] = [];
   const output = zip.outputStream as Readable;
   const completed = new Promise<Buffer>((resolve, reject) => {

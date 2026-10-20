@@ -30,6 +30,8 @@ import {
   previewVolcengineTtsSpeech,
   listVideoModelCatalog,
   listAudioModelCatalog,
+  loginAgentRuntime,
+  recheckCodexImages,
 } from "./api.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN, VOLCENGINE_TTS_VOICES, type AudioModel } from "../shared/audio.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
@@ -75,7 +77,7 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
 export function ModelsSettings({ view, onViewChange, onOpenAgents }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void }) {
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
   if (view.page === "providers") return <ProviderList onProvider={openProvider} onOpenAgents={onOpenAgents} />;
-  return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} />;
+  return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} onOpenAgents={onOpenAgents} />;
 }
 
 function ProviderList({ onProvider, onOpenAgents }: { onProvider: (provider: ProviderSummary) => void; onOpenAgents: () => void }) {
@@ -153,7 +155,7 @@ function ProviderList({ onProvider, onOpenAgents }: { onProvider: (provider: Pro
   } = groupProviders(visibleProviders, {
     isConnected: (provider) => provider.status === "connected",
     isFree: (provider) => provider.managed === "free_cloud" || provider.id === "hyper3d",
-    isLocal: isLocalModelProvider,
+    isLocal: (provider) => provider.id === "codex-cli" || isLocalModelProvider(provider),
   });
   const filteredProviders = [...connectedProviders, ...freeProviders, ...popularProviders, ...localProviders, ...moreProviders];
   const filtering = capability !== "all" || Boolean(normalizedQuery);
@@ -248,7 +250,8 @@ function ProviderMark({ provider }: { provider: Pick<ProviderSummary, "id" | "pr
   return <span className={`settings-provider-mark is-${icon.tone}`} aria-hidden="true"><img src={icon.src} alt="" /></span>;
 }
 
-function ProviderAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
+function ProviderAuthView({ provider, onBack, onCompleted, onOpenAgents }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void; onOpenAgents?: () => void }) {
+  if (provider.id === "codex-cli") return <CodexImageProviderDetail provider={provider} onBack={onBack} onOpenAgents={onOpenAgents} />;
   if (provider.id === "hyper3d" || provider.id === HYPER3D_CONNECTION_ID) return <Hyper3DProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (provider.managed === "free_cloud") return <FreeCloudProviderDetail provider={provider} onBack={onBack} />;
   if (provider.custom) return <CustomProviderDetail provider={provider} onBack={onBack} onRemoved={onCompleted} />;
@@ -261,6 +264,49 @@ function ProviderAuthView({ provider, onBack, onCompleted }: { provider: Provide
   if (provider.configured || provider.id === "openai") return <ConnectedProvider provider={provider} onBack={onBack} onRemoved={onCompleted} />;
   if (!method) return <AuthMethodChoice provider={provider} onBack={onBack} onChoose={setMethod} />;
   return <ActiveProviderAuth provider={provider} method={method} onBack={onBack} onCompleted={onCompleted} />;
+}
+
+function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider: ProviderSummary; onBack: () => void; onOpenAgents?: () => void }) {
+  const [current, setCurrent] = useState(provider);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const [command, setCommand] = useState<string>();
+  const [revision, setRevision] = useState(0);
+  async function recheck() {
+    setBusy(true); setError(undefined);
+    try { setCurrent(await recheckCodexImages()); setRevision((value) => value + 1); notifyAgentModelsChanged(); }
+    catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+  async function login() {
+    setBusy(true); setError(undefined); setCommand(undefined);
+    try {
+      const result = await loginAgentRuntime("codex-cli");
+      if (result.url) await openExternal(result.url);
+      if (result.command) setCommand(result.command);
+    } catch (cause) { setError(errorMessage(cause)); }
+    finally { setBusy(false); }
+  }
+  return <section className="settings-panel settings-provider-detail">
+    <ProviderDetailHeader provider={current} onBack={onBack}>
+      <ProviderEnableControl provider={current} label={t("codexImages.enable")} disabled={busy} onChanged={() => setRevision((value) => value + 1)} />
+    </ProviderDetailHeader>
+    <section className="settings-detail-section">
+      <h4>{current.configured ? t("codexImages.ready") : t("codexImages.unavailable")}</h4>
+      <p className="settings-detail-hint">{t("codexImages.hint")}</p>
+      <p className="settings-detail-hint">{t("codexImages.managedOptions")}</p>
+      {current.error ? <p className="settings-detail-hint">{current.error}</p> : null}
+      <div className="settings-form-actions">
+        <button type="button" className="settings-secondary-button" disabled={busy} onClick={() => void recheck()}><RefreshCw size={13} className={busy ? "spin" : undefined} />{t("codexImages.checkAgain")}</button>
+        <button type="button" className="settings-secondary-button" disabled={busy} onClick={() => void login()}>{t("common.signIn")}</button>
+        {onOpenAgents ? <button type="button" className="settings-secondary-button" onClick={onOpenAgents}>{t("agents.open")}</button> : null}
+      </div>
+      {command ? <p className="settings-detail-hint">{t("codingAgents.loginCommand")} <code>{command}</code></p> : null}
+      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    </section>
+    <ProviderImageModels key={revision} providerId="codex-cli" />
+    <GlobalMediaModelDefaults key={`defaults-${revision}`} capability="image" />
+  </section>;
 }
 
 function Hyper3DProviderDetail({ provider, onBack, onRemoved }: { provider: ProviderSummary; onBack: () => void; onRemoved: () => void }) {
@@ -1276,6 +1322,7 @@ function useProviderEndpoint(providerId: string) {
 }
 
 function providerDescription(provider: Pick<ProviderSummary, "id" | "methods" | "custom" | "preset" | "managed">): string {
+  if (provider.id === "codex-cli") return t("codexImages.description");
   if (provider.id === "hyper3d") return t("providers.description.hyper3d");
   if (provider.managed) return t("providers.group.free");
   if (isLocalModelProvider(provider)) return t("providers.description.local");

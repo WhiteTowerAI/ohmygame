@@ -15,6 +15,7 @@ import type { AgentModel, AgentUsageLimit } from "../../shared/contracts.js";
 import type {
   AgentRuntimeAuthStatus,
   AgentRuntimeBilling,
+  AgentRuntimeBinarySource,
   AgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
 import {
@@ -29,12 +30,22 @@ import {
 } from "./environment.js";
 import { leaseAgentDirectory } from "./process-recovery.js";
 import { AgentProcess } from "./process.js";
-import { CodexAppServer, codexLimits } from "./codex-app-server.js";
+import {
+  CodexAppServer,
+  codexLimits,
+  checkCodexCompatibility,
+} from "./codex-app-server.js";
+import {
+  AgentRuntimeCompatibilityError,
+  cliProbeError,
+} from "./compatibility.js";
+import { OpenCodeDriver } from "./opencode.js";
 
 const PROBE_TIMEOUT_MS = 15_000;
 
 export interface ResolvedBinary {
   path: string;
+  source: AgentRuntimeBinarySource;
   /** Changes when the CLI is updated in place, so a cached probe is not trusted past it. */
   signature: string;
 }
@@ -52,19 +63,22 @@ export async function resolveBinary(
   override?: string,
   recheck = false,
 ): Promise<ResolvedBinary | undefined> {
+  if (recheck) await loginShellPath(true);
   if (recheck)
     for (const key of versionCache.keys())
       if (key.startsWith(`${id}:`)) versionCache.delete(key);
   const definition = AGENT_RUNTIME_DEFINITIONS[id];
   const candidates = override
-    ? [override]
+    ? [{ path: override, source: "manual" as const }]
     : [
         ...(await searchCandidates(definition.binaries)),
         ...(definition.bundledPaths?.[process.platform] ?? []).map(
-          (candidate) =>
-            candidate.startsWith("~/")
-              ? path.join(os.homedir(), candidate.slice(2))
-              : candidate,
+          (candidate) => ({
+            ...candidate,
+            path: candidate.path.startsWith("~/")
+              ? path.join(os.homedir(), candidate.path.slice(2))
+              : candidate.path,
+          }),
         ),
       ];
   const found: ResolvedBinary[] = [];
@@ -72,18 +86,18 @@ export async function resolveBinary(
   for (const candidate of candidates) {
     try {
       await access(
-        candidate,
+        candidate.path,
         process.platform === "win32" ? constants.F_OK : constants.X_OK,
       );
-      const info = await stat(candidate);
+      const info = await stat(candidate.path);
       if (!info.isFile()) continue;
       // One installation is often reachable through several links.
-      const target = await realpath(candidate);
+      const target = await realpath(candidate.path);
       if (seen.has(target)) continue;
       seen.add(target);
       found.push({
-        path: candidate,
-        signature: `${candidate}:${info.size}:${info.mtimeMs}`,
+        ...candidate,
+        signature: `${candidate.path}:${info.size}:${info.mtimeMs}`,
       });
     } catch {
       continue;
@@ -135,25 +149,27 @@ function cachedVersion(
   return entry.promise;
 }
 
-async function searchCandidates(names: readonly string[]): Promise<string[]> {
+async function searchCandidates(
+  names: readonly string[],
+): Promise<Array<{ path: string; source: AgentRuntimeBinarySource }>> {
   const shell = await loginShellPath();
-  const directories = [
-    ...new Set(
-      [
-        ...(process.env.PATH ?? "").split(path.delimiter),
-        ...(shell ?? "").split(path.delimiter),
-        ...commonBinaryDirectories(),
-      ].filter(Boolean),
-    ),
-  ];
+  const directories = new Map<string, AgentRuntimeBinarySource>();
+  for (const [folders, source] of [
+    [(process.env.PATH ?? "").split(path.delimiter), "path"],
+    [(shell ?? "").split(path.delimiter), "login-shell"],
+    [commonBinaryDirectories(), "common-directory"],
+  ] as const)
+    for (const folder of folders)
+      if (folder && !directories.has(folder)) directories.set(folder, source);
   // Node cannot start a .cmd or .bat script, such as an npm shim, without a
   // shell, and the CLIs' long JSON arguments are not safe to pass through one.
   const extensions = process.platform === "win32" ? [".exe"] : [""];
-  return directories.flatMap((directory) =>
+  return [...directories].flatMap(([directory, source]) =>
     names.flatMap((name) =>
-      extensions.map((extension) =>
-        path.join(directory, `${name}${extension}`),
-      ),
+      extensions.map((extension) => ({
+        path: path.join(directory, `${name}${extension}`),
+        source,
+      })),
     ),
   );
 }
@@ -301,7 +317,8 @@ export async function probeModels(
   if (id === "codex-cli") {
     const server = new CodexAppServer(binaryPath, privateDirectory, env);
     try {
-      await server.initialize();
+      await server.initialize(PROBE_TIMEOUT_MS);
+      await checkCodexCompatibility(server, privateDirectory, PROBE_TIMEOUT_MS);
       const [list, account, limits] = await Promise.all([
         codexModels(server),
         server
@@ -342,6 +359,12 @@ export async function probeModels(
           : {}),
         ...(limits?.length ? { limits } : {}),
       };
+    } catch (cause) {
+      if (cause instanceof AgentRuntimeCompatibilityError) throw cause;
+      throw cliProbeError(
+        "Codex",
+        cause instanceof Error ? cause.message : String(cause),
+      );
     } finally {
       await server.stop();
     }
@@ -353,6 +376,34 @@ export async function probeModels(
   });
   await writeFile(path.join(configHome, "opencode", "opencode.json"), "{}\n", {
     mode: 0o600,
+  });
+  // Inspect the actual command, rather than assuming an installed version
+  // supports serving or the flag that isolates external plugins.
+  const help = await runCli(
+    binaryPath,
+    ["serve", "--help"],
+    env,
+    privateDirectory,
+  );
+  if (help.code !== 0)
+    throw cliProbeError(
+      "OpenCode",
+      help.stderr.trim() || "OpenCode serve help failed",
+    );
+  const required = ["--hostname", "--port", ...(isolate ? ["--pure"] : [])];
+  const missing = required.filter(
+    (flag) => !`${help.stdout}\n${help.stderr}`.includes(flag),
+  );
+  if (missing.length)
+    throw new AgentRuntimeCompatibilityError(
+      `OpenCode serve does not advertise ${missing.join(", ")}, required by OhMyGame${isolate ? " with CLI configuration isolation enabled" : ""}. Update OpenCode and check again in Settings.`,
+      missing.join(", "),
+    );
+  await OpenCodeDriver.checkCompatibility({
+    binaryPath,
+    env,
+    privateDirectory,
+    isolateUserConfig: isolate,
   });
   const { stdout, stderr, code } = await runCli(
     binaryPath,
@@ -368,7 +419,8 @@ export async function probeModels(
     60_000,
   );
   if (code !== 0)
-    throw new Error(
+    throw cliProbeError(
+      "OpenCode",
       `OpenCode could not list its models: ${stderr.trim().slice(-500) || `exit ${code}`}`,
     );
   return {
@@ -463,7 +515,8 @@ async function claudeModels(
           if (!isInitialize && message.response?.request_id !== id) return;
           if (message.response.subtype === "error")
             finish(
-              new Error(
+              cliProbeError(
+                "Claude Code",
                 message.response.error ??
                   "Claude Code could not list its models",
               ),
@@ -490,7 +543,8 @@ async function claudeModels(
       },
       onExit: (_code, _signal, stderr) =>
         finish(
-          new Error(
+          cliProbeError(
+            "Claude Code",
             stderr.trim().split("\n").at(-1) ||
               "Claude Code exited before listing its models",
           ),
@@ -503,7 +557,11 @@ async function claudeModels(
     child.write({
       type: "control_request",
       request_id: `init-${id}`,
-      request: { subtype: "initialize" },
+      request: {
+        subtype: "initialize",
+        sdkMcpServers: ["ohmygame"],
+        hooks: { PreToolUse: [{ hookCallbackIds: ["ohmygame-policy"] }] },
+      },
     });
   });
 }

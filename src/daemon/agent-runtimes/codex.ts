@@ -10,7 +10,12 @@ import type {
   NativeTurnOutcome,
   NativeTurnSink,
 } from "./native-session.js";
-import { CodexAppServer, codexLimits } from "./codex-app-server.js";
+import {
+  CodexAppServer,
+  codexLimits,
+  CODEX_APPROVAL_POLICY,
+  requireCodexPermissionProfile,
+} from "./codex-app-server.js";
 import {
   BridgeResults,
   number,
@@ -26,6 +31,8 @@ import { NativeSessionExpiredError } from "./native-session.js";
 import { canonicalPath, judgeApproval } from "./policy.js";
 import { sandboxedPath, sessionCaches, toolchainRoots } from "./environment.js";
 import type { AgentContextUsage } from "../../shared/contracts.js";
+import { runtimeStartupError } from "./compatibility.js";
+import { importCodexImage } from "./codex-images.js";
 
 /** A turn on a shared server must stop on its own: the process outlives the conversation. */
 const INTERRUPT_TIMEOUT_MS = 5_000;
@@ -37,6 +44,9 @@ interface CodexTurn {
   turnId?: string;
   error?: string;
   readOnly?: boolean;
+  images: Map<string, Promise<void>>;
+  imageError?: string;
+  finishing?: boolean;
 }
 
 /**
@@ -84,7 +94,7 @@ export class CodexDriver implements NativeDriver {
       if (signal.aborted) return { status: "aborted" };
       return {
         status: "failed",
-        error: cause instanceof Error ? cause.message : String(cause),
+        error: runtimeStartupError(cause).message,
       };
     }
     return new Promise<NativeTurnOutcome>((resolve) => {
@@ -93,6 +103,7 @@ export class CodexDriver implements NativeDriver {
         signal,
         resolve,
         readOnly: input.readOnly,
+        images: new Map(),
       };
       this.#turn = turn;
       server
@@ -138,7 +149,7 @@ export class CodexDriver implements NativeDriver {
     const threadId = await this.#thread(server, sink);
     sink.compaction("start");
     const outcome = await new Promise<NativeTurnOutcome>((resolve) => {
-      const turn: CodexTurn = { sink, signal, resolve };
+      const turn: CodexTurn = { sink, signal, resolve, images: new Map() };
       this.#turn = turn;
       server.request("thread/compact/start", { threadId }).catch((cause) => {
         if (this.#turn !== turn) return;
@@ -224,15 +235,7 @@ export class CodexDriver implements NativeDriver {
       cwd: this.context.workspacePath,
       // Never approve unrestricted sandbox escapes. Scoped permission requests
       // can still be reviewed without removing the protected-read boundary.
-      approvalPolicy: {
-        granular: {
-          sandbox_approval: false,
-          rules: false,
-          mcp_elicitations: false,
-          request_permissions: true,
-          skill_approval: false,
-        },
-      },
+      approvalPolicy: CODEX_APPROVAL_POLICY,
       permissions: this.#writeProfile,
       model: this.context.model,
       developerInstructions: this.context.instructions,
@@ -252,7 +255,7 @@ export class CodexDriver implements NativeDriver {
           thread?: { id?: string };
           activePermissionProfile?: { id?: string };
         }>("thread/resume", { threadId: this.#threadId, ...settings });
-        this.#requireProfile(resumed);
+        requireCodexPermissionProfile(resumed, this.#writeProfile);
         const id = resumed.thread?.id ?? this.#threadId;
         this.#threadId = id;
         this.#lease?.bind(id);
@@ -272,22 +275,13 @@ export class CodexDriver implements NativeDriver {
       thread?: { id?: string };
       activePermissionProfile?: { id?: string };
     }>("thread/start", { ...settings, dynamicTools: tools });
-    this.#requireProfile(started);
+    requireCodexPermissionProfile(started, this.#writeProfile);
     const id = started.thread?.id;
     if (!id) throw new Error("Codex did not start a thread");
     this.#threadId = id;
     this.#lease?.bind(id);
     sink.nativeSession(id);
     return id;
-  }
-
-  #requireProfile(response: {
-    activePermissionProfile?: { id?: string };
-  }): void {
-    if (response.activePermissionProfile?.id !== this.#writeProfile)
-      throw new Error(
-        "Codex did not activate OhMyGame's filesystem permissions. Update Codex to a version supporting named permission profiles, then check again in Settings.",
-      );
   }
 
   /** Overrides that keep the person's own Codex MCP servers and notification hook out of OhMyGame's runs. */
@@ -450,20 +444,10 @@ export class CodexDriver implements NativeDriver {
         return;
       }
       case "turn/completed": {
-        const completed = record(params.turn);
-        this.#turn = undefined;
-        const status = completed?.status;
-        if (status === "interrupted" || turn.signal.aborted)
-          turn.resolve({ status: "aborted" });
-        else if (status === "failed")
-          turn.resolve({
-            status: "failed",
-            error:
-              codexError(record(completed?.error)?.message) ||
-              turn.error ||
-              "Codex could not finish the turn",
-          });
-        else turn.resolve({ status: "completed" });
+        if (!turn.finishing) {
+          turn.finishing = true;
+          void this.#completeTurn(turn, record(params.turn) ?? {});
+        }
         return;
       }
       default:
@@ -471,10 +455,41 @@ export class CodexDriver implements NativeDriver {
     }
   }
 
+  async #completeTurn(
+    turn: CodexTurn,
+    completed: Record<string, unknown>,
+  ): Promise<void> {
+    // Image imports must reach the shared transcript before checkpoints and turn-end are recorded.
+    await Promise.all(turn.images.values());
+    if (this.#turn !== turn) return;
+    this.#turn = undefined;
+    if (completed.status === "interrupted" || turn.signal.aborted)
+      turn.resolve({ status: "aborted" });
+    else if (completed.status === "failed" || turn.imageError)
+      turn.resolve({
+        status: "failed",
+        error:
+          turn.imageError ||
+          codexError(record(completed.error)?.message) ||
+          turn.error ||
+          "Codex could not finish the turn",
+      });
+    else turn.resolve({ status: "completed" });
+  }
+
   #itemStarted(sink: NativeTurnSink, item: Record<string, unknown>): void {
     const id = typeof item.id === "string" ? item.id : undefined;
     if (!id) return;
     switch (item.type) {
+      case "imageGeneration":
+        sink.toolCall(id, "generate_image", {
+          source: "codex",
+          ...(typeof item.revisedPrompt === "string"
+            ? { prompt: item.revisedPrompt }
+            : {}),
+        });
+        sink.toolStarted(id);
+        return;
       case "commandExecution":
         sink.toolCall(id, "bash", { command: commandText(item.command) });
         sink.toolStarted(id);
@@ -526,6 +541,43 @@ export class CodexDriver implements NativeDriver {
     const id = typeof item.id === "string" ? item.id : undefined;
     if (!id) return;
     switch (item.type) {
+      case "imageGeneration": {
+        const turn = this.#turn;
+        if (
+          !turn ||
+          turn.finishing ||
+          turn.signal.aborted ||
+          turn.images.has(id)
+        )
+          return;
+        // Some versions only emit the completed item. The sink deduplicates starts by call id.
+        this.#itemStarted(sink, item);
+        const importing = (async () => {
+          try {
+            if (turn.readOnly)
+              throw new Error(
+                "Cannot import generated images during a planning turn",
+              );
+            if (item.status !== "completed" || item.failure)
+              throw new Error(
+                `Codex image generation failed (${String(item.status)})`,
+              );
+            const result = await importCodexImage(
+              item,
+              this.#threadId!,
+              this.context,
+            );
+            if (this.#turn === turn && !turn.signal.aborted)
+              sink.toolResult(id, result, false);
+          } catch (cause) {
+            if (this.#turn !== turn || turn.signal.aborted) return;
+            turn.imageError = `Codex image could not be delivered: ${cause instanceof Error ? cause.message : String(cause)}`;
+            sink.toolResult(id, textResult(turn.imageError), true);
+          }
+        })();
+        turn.images.set(id, importing);
+        return;
+      }
       case "agentMessage":
         sink.textDone(
           id,

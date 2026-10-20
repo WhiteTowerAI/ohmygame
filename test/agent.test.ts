@@ -3,8 +3,9 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { AgentManager, compatibleRuntimeModel, conversationItems, lastAssistantError, loadPiSkills, skillInvocationPrompt, type CodingSession, type RuntimeModel } from "../src/daemon/agent.js";
+import * as gameDesignContext from "../src/daemon/game-design-context.js";
 import { promptContextBlock } from "../src/daemon/prompt-context.js";
 import type { StoredConversation } from "../src/daemon/conversations.js";
 import type { AgentReasoningLevel, ProjectState } from "../src/shared/contracts.js";
@@ -2133,6 +2134,11 @@ describe("AgentManager", () => {
 
   it("starts a message that is sent while a turn that has ended is being closed, once that is done", async () => {
     const { session, userMessage } = checkpointSession();
+    const metadata = deferred<undefined>();
+    const designContext = vi.spyOn(gameDesignContext, "gameDesignMetadata")
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(() => metadata.promise);
+    onTestFinished(() => designContext.mockRestore());
     const second = deferred<void>();
     let sent = 0;
     session.prompt.mockImplementation(async () => {
@@ -2159,7 +2165,10 @@ describe("AgentManager", () => {
 
     snapshot.resolve("b".repeat(40));
     await Promise.all([turn.result, next.result, later.result]);
-    expect(session.prompt).toHaveBeenCalledTimes(2);
+    // Taking the message does not wait for its asynchronous context read or for the run to finish.
+    expect(session.prompt).toHaveBeenCalledOnce();
+    metadata.resolve(undefined);
+    await vi.waitFor(() => expect(session.prompt).toHaveBeenCalledTimes(2));
     expect(session.prompt).toHaveBeenLastCalledWith("Add a title");
     // The second one found the run of the first and was queued behind it like any message sent to a working Agent.
     expect(session.followUp).toHaveBeenCalledExactlyOnceWith("And a score", undefined);
@@ -2171,8 +2180,9 @@ describe("AgentManager", () => {
       { type: "agent.completed", turnId: turn.turnId },
       { type: "checkpoint.completed", turnId: undefined },
       { type: "agent.started", turnId: next.turnId },
-      { type: "checkpoint.created", turnId: next.turnId },
+      // The follow-up can be queued while the new run is still reading its context.
       { type: "prompt.queued", turnId: later.turnId },
+      { type: "checkpoint.created", turnId: next.turnId },
     ]);
 
     second.resolve();

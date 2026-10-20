@@ -3,8 +3,34 @@ import { createProviderFailureDiagnostic } from "@earendil-works/pi-ai/utils/pro
 import { assistantMessageError, normalizeAgentError, thrownAgentError } from "../src/daemon/agent-errors.js";
 import { agentErrorDiagnosticText, agentErrorPresentation } from "../src/renderer/agent-error-presentation.js";
 import type { ThreadItemErrorCode } from "../src/shared/contracts.js";
+import { AgentRuntimeCompatibilityError, AgentRuntimeProbeError } from "../src/daemon/agent-runtimes/compatibility.js";
 
 describe("agent error diagnostics", () => {
+  it("presents local CLI compatibility failures separately in live and replayed errors", () => {
+    const cause = new AgentRuntimeCompatibilityError("Codex did not activate the requested permissions");
+    for (const error of [
+      thrownAgentError(cause),
+      assistantMessageError({ errorMessage: cause.message, provider: "codex-cli", model: "fixture" }),
+      normalizeAgentError(cause.message, { network: { source: "manual", proxyUrl: "http://localhost:7890" } }),
+    ]) {
+      expect(error.code).toBe("runtime_incompatible");
+      const text = agentErrorDiagnosticText(error);
+      expect(text).toContain("Local CLI incompatible");
+      expect(text).toContain("Local CLI details:");
+      expect(text).not.toContain("Provider response:");
+      expect(text).not.toContain("Network configuration:");
+    }
+  });
+
+  it("does not turn an unverified local startup into an incompatible CLI or provider timeout", () => {
+    const cause = new AgentRuntimeProbeError("Codex did not answer initialize in time");
+    for (const error of [thrownAgentError(cause), assistantMessageError({ errorMessage: cause.message })]) {
+      expect(error.code).toBe("runtime_probe_failed");
+      expect(agentErrorPresentation(error).title).toBe("Local CLI check failed");
+      expect(agentErrorDiagnosticText(error)).toContain("Local CLI details:");
+    }
+  });
+
   it("shows WebSocket transport without presenting the SSE adapter's synthetic 200 as an HTTP status", () => {
     const error = Object.assign(new Error("OpenAI WebSocket idle timeout"), { code: "WEBSOCKET_IDLE_TIMEOUT", transport: "websocket" });
     const message = { errorMessage: error.message, diagnostics: [createProviderFailureDiagnostic(error, "https://api.openai.com/v1", new Response())] };

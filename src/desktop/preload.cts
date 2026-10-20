@@ -5,6 +5,7 @@ import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
 import type { DesktopRuntimeState } from "../shared/desktop-runtime.js";
+import type { PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 
 function argument(name: string): string {
   const prefix = `--${name}=`;
@@ -66,6 +67,9 @@ if (process.isMainFrame) {
       ipcRenderer.invoke("ohmygame:capture-page", bounds) as Promise<Uint8Array>,
     captureNodeThumbnail: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) =>
       ipcRenderer.invoke("ohmygame:capture-node-thumbnail", projectId, nodeId, viewport, batchId) as Promise<boolean>,
+    prepareNodeThumbnails: (projectId: string, batchId: string, snapshot: PlayableThumbnailSnapshot) =>
+      ipcRenderer.invoke("ohmygame:prepare-node-thumbnails", projectId, batchId, snapshot) as Promise<void>,
+    nodeThumbnailSnapshot: () => ipcRenderer.invoke("ohmygame:node-thumbnail-snapshot") as Promise<PlayableThumbnailSnapshot | undefined>,
     cancelNodeThumbnails: (batchId: string) =>
       ipcRenderer.invoke("ohmygame:cancel-node-thumbnails", batchId) as Promise<void>,
     finishNodeThumbnail: (captured: boolean) => ipcRenderer.invoke("ohmygame:finish-node-thumbnail", captured) as Promise<void>,

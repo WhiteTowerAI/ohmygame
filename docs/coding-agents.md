@@ -14,20 +14,43 @@ accepted tradeoffs, and validation limits.
 agent comes first: it uses the models set up in Providers & Models, and its row
 links there. The coding agent CLIs follow, under **Coding agent CLIs on this
 computer**; **Rescan** checks for them again. Each row shows whether the CLI
-was found and its version; the detail page shows its account and how its
-requests are billed. The agent whose model new conversations start with is
+was found and its version; the detail page shows its account, billing, and a
+verified version for reference. The verified version records a real acceptance
+run and is not a minimum version. The agent whose model new conversations start with is
 marked **Default**. Providers & Models points to Agents when it is filtered to
 language models or searched for a coding agent.
 Agents are off by default. Enabling the switch offers their models in the conversation model picker; the
 detail page signs in, checks again, chooses the executable, and decides whether
 the person's own CLI configuration applies.
 
+On macOS, discovery includes the CLIs bundled with Codex and ChatGPT in
+`/Applications` and `~/Applications`, as well as PATH, the login shell's PATH
+and usual CLI install folders. The detail page shows the resolved executable
+and where it was found. With several installations, the newest version wins;
+equal versions keep discovery order. A manually selected executable takes
+precedence even when another installation is newer.
+
+An undetected CLI is not necessarily uninstalled. Choose its absolute executable
+path for a custom installation, or leave the path field empty and save to restore
+automatic discovery. An unavailable manual path is reported explicitly rather
+than silently switching installations. **Rescan** and **Check again** refresh the
+login shell's PATH and probe caches, so installing a CLI or changing shell setup
+does not normally require restarting OhMyGame. Discovery, CLI startup, protocol
+compatibility and sign-in are separate checks; finding a bundled CLI does not
+guarantee that its version supports OhMyGame's integration.
+
+![Codex settings showing the desktop-bundled executable and automatic detection](assets/codex-cli-discovery.png)
+
 The model picker lists each agent's models in a group named after the agent.
+Each CLI group shows its brand icon; the conversation's model button keeps the
+same icon beside the selected model name.
 Choosing one runs the conversation on that agent. A model reference names both:
 its provider is the agent's ID (`claude-code-cli`, `codex-cli`, `opencode-cli`),
 its ID is the agent's own model name, such as `sonnet` or
 `anthropic/claude-sonnet-5`. The `-cli` suffix keeps these apart from Pi
 providers of the same name; Pi has its own `opencode` provider.
+
+![Agent brand icons in the model picker and composer (sample data)](assets/model-selector-agent-icons.png)
 
 `GET /models` lists Pi's models only, for canvas text and other one-off
 generation. Conversation pickers ask for `GET /models?runtimes=1`, which adds
@@ -49,9 +72,10 @@ back to Pi does not look larger than it is. Missing measurements remain unknown
 rather than being inferred from token totals.
 
 An account's quota windows show in **Settings → Agents**: a bar per window in
-each agent's row (5-hour, weekly), and the share used and reset time on its
-detail page. In a conversation they stay out of the composer and appear only
-under the commands when `/` is typed. A conversation shows the account's latest
+each agent's row (5-hour, weekly), labeled as used. The detail page adds reset
+times. In a conversation they stay out of the composer and appear only
+under the commands when `/` is typed, with compact percentages and a tooltip
+on each window stating the share used. A conversation shows the account's latest
 report, so it has them before its own first turn. Codex reports them whenever its
 models are checked and while it works; Claude Code reports them during a
 conversation (its `rate_limit_event`), so they appear after its first one.
@@ -59,7 +83,46 @@ The latest report is kept in `agent-runtimes/limits.json`, and a window whose
 reset time has passed shows as empty. OpenCode bills each model provider and
 has no quota of its own.
 
+![Claude Code and Codex quotas labeled as used (sample data)](assets/agent-usage-used-label.png)
+
+![Compact quota percentages in the slash menu (sample data)](assets/agent-usage-compact.png)
+
 ![Codex conversation with a denied read, a cancelled turn, and Medium effort selected](assets/coding-agent-native-effort.png)
+
+## Codex as an image provider
+
+**Providers & Models → Codex CLI** exposes one image entry, **Codex Image**,
+using the installed CLI and its saved sign-in. Its image switch is independent
+of the Codex conversation-agent switch in Agents. Any chat agent can use it
+through `generate_image`; canvas image nodes and global/project image defaults
+use the same provider. Closing a terminal does not disconnect the provider.
+
+![Codex Image selected in the asset canvas](assets/codex-image-canvas.png)
+
+Discovery asks `modelProvider/capabilities/read` without submitting a model
+turn. Missing CLI, signed-out accounts, unsupported capability probes and
+unavailable image backends keep the provider entry visible with a diagnostic,
+but offer no image model. **Check again** refreshes sign-in and capabilities.
+Capability detection does not guarantee account entitlement; generation failures
+are reported without switching providers or automatically retrying inference.
+The provider list and first-run setup return the last known image status without
+waiting for the CLI. Enabled image providers refresh that status in the background;
+disabled ones do not start a probe. **Check again** explicitly waits for a fresh
+login and capability check, including when image generation is disabled.
+
+Each generation starts its own ephemeral app-server thread, with no OhMyGame
+dynamic tools, external MCP servers, shell tools or subagents. The process is
+started on demand and stopped on completion, failure or cancellation. Multiple
+reference images are passed in order as inline image inputs, without staging
+reference files; the app's shared 16-image limit applies. Codex manages the
+actual image model and dimensions, so the canvas hides resolution and
+aspect-ratio controls for this provider. Built-in Codex chat generation remains
+a separate native path; the image provider does not force a Codex chat to stop
+using its own tools.
+
+Validation includes simulated canvas-to-Library generation, image-toggle
+persistence, failure/cancellation fixtures, and a real image generation with
+Codex 0.163.0-alpha.10.2 on macOS while its conversation agent was disabled.
 
 ## What OhMyGame keeps
 
@@ -313,12 +376,13 @@ back to the defaults. Credentials remain in the CLI's own store.
 | `POST /projects/:p/conversations/:c/approvals/:requestId` | Answer an approval request: `allow`, `allow-session` or `deny`         |
 
 Status and models are probed only when asked for and cached by executable
-signature; choosing Pi never starts a CLI.
+signature. Conversation model discovery does not start disabled CLIs; the
+image catalog independently probes Codex when checking image providers.
 
 ## Adding an agent
 
 1. Add its ID to `AGENT_RUNTIME_IDS` and a definition to
-   `AGENT_RUNTIME_DEFINITIONS` (binaries, version arguments, minimum version,
+   `AGENT_RUNTIME_DEFINITIONS` (binaries, version arguments, tested version,
    sign-in command).
 2. Teach `probeAuth` and `probeModels` how to ask it who it is and what models
    it has.
@@ -331,11 +395,46 @@ The Provider, media, canvas, checkpoint and plugin code does not change.
 
 ## Compatibility and real acceptance
 
-The tested compatibility floors are Claude Code 2.1.83, Codex
-0.163.0-alpha.10.2 (named permission profiles) and OpenCode 1.18.33. Version checks are protocol floors, not certification of every newer
-release. Claude discovery accepts catalogs from either `initialize` or
-`list_models`; failed/empty catalogs produce a `models-unavailable` diagnostic.
+Compatibility follows the capabilities the adapter needs, rather than a CLI
+being older than the version used for acceptance. Settings records Claude Code
+2.1.302, Codex 0.163.0 and OpenCode 1.18.33 as verified versions, not minimums.
+Enabling or rechecking an agent uses the same discovery checks as its model
+catalog; incompatible agents do not offer models. Results are cached by the
+executable signature and invalidated when settings change or **Check again** is
+used. Temporary failures remain probe/catalog errors and retry after the short
+failure cache expires; they are not classified as unsupported capabilities.
+
+- Codex discovery starts an ephemeral thread with a dynamic tool, OhMyGame's
+  approval policy and a named permission profile, and checks the returned
+  `activePermissionProfile`. It sends no model turn. The real driver checks the
+  profile again on start/resume. Codex 0.162.0-alpha.17.2 has passed this protocol
+  probe; that alone is not a full inference or sandbox acceptance run.
+- Claude discovery registers the SDK tool server and PreToolUse callback during
+  its control handshake, and accepts catalogs from `initialize` or `list_models`.
+  Standard permissions on a platform where approvals rely on its OS sandbox
+  require `sandbox.failIfUnavailable`, introduced in
+  [Claude Code 2.1.83](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md#2183).
+  This documented feature requirement does not apply to Full access or platforms
+  using the strict command approval policy without an OS sandbox. An unknown
+  version cannot establish that sandbox requirement and remains a probe failure.
+- OpenCode discovery checks `serve --help` for `--hostname` and `--port`, and for
+  `--pure` when CLI configuration isolation is enabled, then lists its models.
+  Discovery also starts a private server, establishes its event stream, checks
+  `/path.worktree`, and reads `/config` to verify the file/shell permissions use
+  callbacks. The real driver repeats these startup checks before sending a
+  prompt. No session or inference is created by this probe. Configuration
+  readback is not a full sandbox acceptance run; real acceptance still exercises
+  approvals and tools.
+
+Missing optional quota or reasoning metadata stays unavailable. Local CLI
+compatibility failures have their own chat error presentation and CLI details.
 Being signed in and seeing a model does not guarantee account entitlement.
+
+![CLI capability diagnostic and reference acceptance version](assets/coding-agent-compatibility.png)
+
+This screenshot uses a simulated CLI reporting `99.0.0` that ignores the
+requested permission profile. A higher version cannot bypass the capability
+check, and the verified version remains a reference.
 
 The direct adapters preserve the installed executable and shared host services.
 The Claude Agent SDK was evaluated and not adopted: it bundles its own Claude
@@ -354,6 +453,10 @@ grants, child-session approvals, persisted approvals/compaction and verified
 orphan recovery.
 
 Real inference is opt-in and consumes the provider's quota:
+
+On macOS, Codex's command profile includes read-only access to the system
+`/System/Library/OpenSSL/openssl.cnf` file so Node/npm can initialize TLS.
+This does not grant access to the rest of the system Library.
 
 ```bash
 bun run test:agent-runtimes:live opencode-cli opencode/mimo-v2.6-flash-free

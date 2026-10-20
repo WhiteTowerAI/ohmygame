@@ -1,6 +1,83 @@
 import { AgentProcess, processFailure } from "./process.js";
 import type { AgentUsageLimit } from "../../shared/contracts.js";
 import { record } from "./driver-context.js";
+import { AgentRuntimeCompatibilityError } from "./compatibility.js";
+
+export const CODEX_APPROVAL_POLICY = {
+  granular: {
+    sandbox_approval: false,
+    rules: false,
+    mcp_elicitations: false,
+    request_permissions: true,
+    skill_approval: false,
+  },
+};
+
+export function requireCodexPermissionProfile(
+  response: { activePermissionProfile?: { id?: string } },
+  profile: string,
+): void {
+  if (response.activePermissionProfile?.id !== profile)
+    throw new AgentRuntimeCompatibilityError(
+      "Codex did not activate OhMyGame's filesystem permissions. A CLI supporting named permission profiles is required. Update Codex and check again in Settings.",
+      "permissions / activePermissionProfile",
+    );
+}
+
+/** Checks the experimental protocol without sending a prompt or retaining a thread. */
+export async function checkCodexCompatibility(
+  server: CodexAppServer,
+  directory: string,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<void> {
+  const profile = "ohmygame-compatibility-probe";
+  const read = await server.request<{ config?: Record<string, unknown> }>(
+    "config/read",
+    { cwd: directory },
+    timeoutMs,
+  );
+  const config: Record<string, unknown> = {
+    default_permissions: profile,
+    project_root_markers: [],
+    notify: [],
+    "features.request_permissions_tool": true,
+    "features.shell_snapshot": false,
+    permissions: {
+      [profile]: {
+        filesystem: { ":minimal": "read", ":workspace_roots": { ".": "read" } },
+        network: { enabled: true },
+      },
+    },
+  };
+  // A compatibility probe never starts the person's external MCP servers.
+  for (const name of Object.keys(record(read.config?.mcp_servers) ?? {}))
+    config[`mcp_servers.${name}.enabled`] = false;
+  const response = await server.request<{
+    thread?: { id?: string };
+    activePermissionProfile?: { id?: string };
+  }>(
+    "thread/start",
+    {
+      cwd: directory,
+      ephemeral: true,
+      approvalPolicy: CODEX_APPROVAL_POLICY,
+      permissions: profile,
+      config,
+      dynamicTools: [
+        {
+          type: "function",
+          name: "ohmygame_compatibility_probe",
+          description: "Compatibility fixture. No turn will be submitted.",
+          inputSchema: { type: "object", properties: {} },
+        },
+      ],
+    },
+    timeoutMs,
+  );
+  requireCodexPermissionProfile(response, profile);
+  if (!response.thread?.id)
+    throw new Error("Codex did not start a probe thread");
+}
 
 const REQUEST_TIMEOUT_MS = 60_000;
 export const CODEX_CLIENT = {
@@ -56,11 +133,15 @@ export class CodexAppServer {
     });
   }
 
-  async initialize(): Promise<void> {
-    await this.request("initialize", {
-      clientInfo: CODEX_CLIENT,
-      capabilities: { experimentalApi: true },
-    });
+  async initialize(timeoutMs = REQUEST_TIMEOUT_MS): Promise<void> {
+    await this.request(
+      "initialize",
+      {
+        clientInfo: CODEX_CLIENT,
+        capabilities: { experimentalApi: true },
+      },
+      timeoutMs,
+    );
     this.notify("initialized");
   }
 

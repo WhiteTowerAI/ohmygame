@@ -24,7 +24,11 @@ async function fixture(nestedWorkspace = false) {
   const executable = path.join(root, "opencode");
   await writeFile(
     executable,
-    `#!${process.execPath}\nconsole.log('1.18.33');\n`,
+    `#!${process.execPath}
+if (process.argv[2] === "serve") console.log("opencode serve --hostname --port --pure");
+else if (process.argv[2] === "models") console.log('test/model\\n{"name":"Test","capabilities":{"toolcall":true}}');
+else console.log("1.18.33");
+`,
     { mode: 0o700 },
   );
   let events: ServerResponse | undefined;
@@ -52,6 +56,22 @@ async function fixture(nestedWorkspace = false) {
     response.setHeader("content-type", "application/json");
     if (request.url === "/path")
       return response.end(JSON.stringify({ worktree: root }));
+    if (request.url === "/config")
+      return response.end(
+        JSON.stringify({
+          permission: Object.fromEntries(
+            [
+              "edit",
+              "read",
+              "glob",
+              "grep",
+              "list",
+              "bash",
+              "external_directory",
+            ].map((name) => [name, "ask"]),
+          ),
+        }),
+      );
     if (request.url === "/session/child-1")
       return response.end(
         JSON.stringify({ id: "child-1", parentID: "session-1" }),

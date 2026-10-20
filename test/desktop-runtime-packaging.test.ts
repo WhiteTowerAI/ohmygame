@@ -20,6 +20,27 @@ const {
 } = require("app-builder-lib/out/fileMatcher.js");
 
 describe("desktop runtime packaging", () => {
+  it("includes the generated story resources in the application", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-story-packaging-"));
+    try {
+      const config = parse(await readFile("electron-builder.yml", "utf8")) as Configuration;
+      const relative = "dist/story-web/resources.json";
+      await mkdir(path.join(directory, "dist/story-web"), { recursive: true });
+      await writeFile(path.join(directory, relative), "story resources");
+      const destination = path.join(directory, "app");
+      const matchers = getFileMatchers(config, "files", destination, {
+        defaultSrc: directory,
+        macroExpander: (value: string) => value,
+        customBuildOptions: {},
+        globalOutDir: path.join(directory, "release"),
+      });
+      await copyFiles(matchers.filter((matcher: { from: string }) => matcher.from === directory));
+      expect(await readFile(path.join(destination, relative), "utf8")).toBe("story resources");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     [
       "win",

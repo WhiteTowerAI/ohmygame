@@ -1,3 +1,4 @@
+import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
@@ -17,6 +18,7 @@ import {
   type ConversationCapabilities,
   type CreateLibraryImageRequest,
   type LibraryAsset,
+  type LibraryAssetDerivation,
   type LibraryAssetPurpose,
   type LibraryAssetSummary,
   type LibraryUploadMediaType,
@@ -79,7 +81,7 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
+import type { NodeRuntimeResponse, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
@@ -148,6 +150,10 @@ declare global {
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
       /** Captures a Node's thumbnail in a hidden window; `false` when it could not. */
       captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) => Promise<boolean>;
+      /** Shares the editor build once, instead of compiling again for each capture. */
+      prepareNodeThumbnails?: (projectId: string, batchId: string, snapshot: PlayableThumbnailSnapshot) => Promise<void>;
+      /** Only a hidden thumbnail window can read its assigned snapshot. */
+      nodeThumbnailSnapshot?: () => Promise<PlayableThumbnailSnapshot | undefined>;
       /** Cancels active and queued captures in a batch. */
       cancelNodeThumbnails?: (batchId: string) => Promise<void>;
       /** Called by the hidden thumbnail window once its capture is stored or failed. */
@@ -254,6 +260,10 @@ export async function recheckAgentRuntime(id: AgentRuntimeId): Promise<AgentRunt
 
 export async function loginAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntimeLoginResponse> {
   return request(`/agent-runtimes/${id}/login`, { method: "POST" });
+}
+
+export async function recheckCodexImages(): Promise<ProviderSummary> {
+  return request("/settings/models/providers/codex-cli/images/recheck", { method: "POST" });
 }
 
 export async function answerApproval(projectId: string, conversationId: string, requestId: string, decision: ApprovalDecision): Promise<void> {
@@ -671,6 +681,28 @@ export async function ensureProjectPreview(projectId: string): Promise<{ url: st
   return request(`/projects/${encodeURIComponent(projectId)}/preview?reuse=1`, { method: "POST" });
 }
 
+/** Whether an Interactive Story plays as its own page, and whether its upgrade can be taken back. */
+export async function getStoryUpgrade(projectId: string): Promise<StoryUpgradeStatus> {
+  return request(`/projects/${projectId}/interactive-story/upgrade`);
+}
+
+export async function upgradeStory(projectId: string): Promise<StoryUpgradeResult> {
+  return request(`/projects/${projectId}/interactive-story/upgrade`, { method: "POST" });
+}
+
+/** Keeps the upgrade, so it is no longer offered to be taken back. */
+export async function keepStoryUpgrade(projectId: string): Promise<void> {
+  await request(`/projects/${projectId}/interactive-story/upgrade/keep`, { method: "POST" });
+}
+
+export async function copyStoryLibraryMedia(projectId: string): Promise<StoryLibraryMediaResult> {
+  return request(`/projects/${projectId}/interactive-story/library-media`, { method: "POST" });
+}
+
+export async function undoStoryUpgrade(projectId: string): Promise<{ changed: string[] }> {
+  return request(`/projects/${projectId}/interactive-story/upgrade/undo`, { method: "POST" });
+}
+
 export async function getNodeRuntime(projectId: string): Promise<NodeRuntimeResponse> {
   return request(`/projects/${projectId}/playable`);
 }
@@ -801,10 +833,16 @@ export async function createLibraryImage(input: CreateLibraryImageRequest): Prom
   return request("/library/assets", { method: "POST", body: JSON.stringify(input) });
 }
 
-export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number, purpose?: LibraryAssetPurpose): Promise<LibraryAsset> {
+/** `derivedFrom` records the Library video an upload was cut from. */
+export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMediaType, duration?: number, purpose?: LibraryAssetPurpose, derivedFrom?: LibraryAssetDerivation): Promise<LibraryAsset> {
   const query = new URLSearchParams({ name: file.name, mediaType });
   if (duration !== undefined) query.set("duration", String(duration));
   if (purpose !== undefined) query.set("purpose", purpose);
+  if (derivedFrom) {
+    query.set("trimSource", derivedFrom.assetId);
+    query.set("trimStart", String(derivedFrom.trim.start));
+    query.set("trimEnd", String(derivedFrom.trim.end));
+  }
   return request(`/library/assets/upload?${query}`, {
     method: "POST",
     headers: { "content-type": "application/octet-stream" },

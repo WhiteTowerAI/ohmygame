@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { playableThumbnailHash } from "../shared/playable-editor.js";
 import type { NodePlayerDefinition, PlayablePreviewOptions } from "../shared/playable-player-protocol.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
-import { getNodeRuntime, playableSandboxUrl, setPlayableThumbnail } from "./api.js";
+import { ensureProjectPreview, getNodeRuntime, playableSandboxUrl, setPlayableThumbnail } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
 import { loadPlayableAssets } from "./playable-assets.js";
@@ -28,6 +28,8 @@ export function NodeThumbnailPage({
   const [playable, setPlayable] = useState<{
     definition: NodePlayerDefinition;
     assets: Record<string, Blob>;
+    /** A web story's own page, which plays instead of the sandbox. */
+    page?: string;
     hash: string;
     version: string;
   }>();
@@ -45,11 +47,26 @@ export function NodeThumbnailPage({
   }
 
   useEffect(() => {
-    void getNodeRuntime(projectId).then(async (result) => {
+    const shared = window.ohMyGameDesktop?.nodeThumbnailSnapshot;
+    const runtime = shared
+      ? shared().then((snapshot) => snapshot ? { ...snapshot, available: true as const } : getNodeRuntime(projectId))
+      : getNodeRuntime(projectId);
+    void runtime.then(async (result) => {
       const hash = result.available ? playableThumbnailHash(result.definition, nodeId) : undefined;
       if (!result.available || !hash) return finish(false);
-      const version = workspaceVersion(projectId);
-      const assets = await loadPlayableAssets(projectId, result.definition.graph);
+      const version = "version" in result && typeof result.version === "string" ? result.version : workspaceVersion(projectId);
+      if (result.web) {
+        const { url } = await ensureProjectPreview(projectId);
+        setPlayable({ definition: result.definition, assets: {}, page: url, hash, version });
+        return;
+      }
+      // Report policy stays on this Scene, so other Scenes' media is unused.
+      const graph = result.definition.graph;
+      const node = graph.nodes.find((candidate) => candidate.id === nodeId)!;
+      const assets = await loadPlayableAssets(projectId, {
+        ...graph,
+        assets: Object.fromEntries(node.assets.map((id) => [id, graph.assets[id]!])),
+      });
       setPlayable({ definition: result.definition, assets, hash, version });
     }).catch(() => finish(false));
   }, [projectId, nodeId]);
@@ -89,12 +106,14 @@ export function NodeThumbnailPage({
     setRunningHash(playable.hash);
   }
 
-  const preview: PlayablePreviewOptions = { policy: "report", startNodeId: nodeId };
+  // A capture runs unseen, so it plays no music.
+  const preview: PlayablePreviewOptions = { policy: "report", startNodeId: nodeId, silent: true };
   return <div ref={stage} className="playable-thumbnail-page">
     {playable ? <NodePlayer
       definition={playable.definition}
       frameUrl={playableSandboxUrl()}
       assets={playable.assets}
+      {...(playable.page ? { page: playable.page } : {})}
       saveKey={`ohmygame:playable:thumbnail:${projectId}`}
       storage={storage}
       preview={preview}

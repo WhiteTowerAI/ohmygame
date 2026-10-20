@@ -107,6 +107,15 @@ temporary data and verifies its authenticated API on native platform builds.
 An incomplete or unpatched dependency therefore fails packaging before an
 installer is created.
 
+`build:host` also generates `dist/story-web/resources.json`: the readable story
+runtime modules, with comments retained, and the bundled editor bridge. The
+desktop package includes this resource file. The built daemon reads it directly
+instead of asking esbuild to read modules inside `app.asar`; source development
+still generates the resources on demand. Stories keep their own editable runtime
+under `story/` and their existing manifest-based updates. The package hook checks
+the resource file against the build and, on native builds, exercises story
+creation, upgrading a legacy story, and serving the preview and editor bridge.
+
 ### Release notes
 
 Maintainers update `CHANGELOG.md` only when preparing a release. Summarize

@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { AgentRuntimeId } from "../../shared/agent-runtimes.js";
+import type {
+  AgentRuntimeBinarySource,
+  AgentRuntimeId,
+} from "../../shared/agent-runtimes.js";
 
 /**
  * What OhMyGame knows about a coding agent CLI before running it: how to find
@@ -18,10 +21,18 @@ export interface AgentRuntimeDefinition {
    * Copies other apps install outside PATH, such as the Codex that ships in the
    * ChatGPT app. `~` is the home folder.
    */
-  bundledPaths?: Partial<Record<NodeJS.Platform, readonly string[]>>;
+  bundledPaths?: Partial<
+    Record<
+      NodeJS.Platform,
+      readonly {
+        path: string;
+        source: AgentRuntimeBinarySource;
+      }[]
+    >
+  >;
   versionArgs: readonly string[];
-  /** The oldest version whose protocol the adapter speaks. */
-  minimumVersion: string;
+  /** A real acceptance run, not a minimum version or a guarantee about later releases. */
+  testedVersion: string;
   /** What to run in a terminal to sign in, when OhMyGame cannot start it itself. */
   loginCommand: string;
   installUrl: string;
@@ -36,7 +47,7 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     name: "Claude Code",
     binaries: ["claude"],
     versionArgs: ["--version"],
-    minimumVersion: "2.1.83",
+    testedVersion: "2.1.302",
     loginCommand: "claude auth login",
     installUrl: "https://docs.anthropic.com/en/docs/claude-code/setup",
   },
@@ -45,13 +56,18 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     name: "Codex",
     binaries: ["codex"],
     bundledPaths: {
-      darwin: [
-        "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
-        "~/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
-      ],
+      darwin: ["/Applications", "~/Applications"].flatMap((directory) =>
+        [
+          { app: "Codex", source: "codex-app" as const },
+          { app: "ChatGPT", source: "chatgpt-app" as const },
+        ].map(({ app, source }) => ({
+          path: `${directory}/${app}.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`,
+          source,
+        })),
+      ),
     },
     versionArgs: ["--version"],
-    minimumVersion: "0.163.0-alpha.10.2",
+    testedVersion: "0.163.0",
     loginCommand: "codex login",
     installUrl: "https://developers.openai.com/codex/cli",
   },
@@ -60,7 +76,7 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     name: "OpenCode",
     binaries: ["opencode"],
     versionArgs: ["--version"],
-    minimumVersion: "1.18.33",
+    testedVersion: "1.18.33",
     loginCommand: "opencode auth login",
     installUrl: "https://opencode.ai/docs/",
   },

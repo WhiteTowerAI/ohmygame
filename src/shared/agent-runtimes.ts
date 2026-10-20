@@ -44,7 +44,8 @@ export type AgentRuntimeAuthStatus = "signed-in" | "signed-out" | "unknown";
 
 export type AgentRuntimeDiagnosticCode =
   | "not-installed"
-  | "version-unsupported"
+  | "invalid-executable"
+  | "runtime-incompatible"
   | "signed-out"
   | "probe-failed"
   | "models-unavailable";
@@ -53,6 +54,8 @@ export interface AgentRuntimeDiagnostic {
   code: AgentRuntimeDiagnosticCode;
   /** English detail for logs and error reports; the interface shows its own text for the code. */
   message: string;
+  /** A protocol field or CLI flag that the installed program lacks. */
+  capability?: string;
   /** A command the person can run in a terminal to fix it, such as a sign-in. */
   command?: string;
 }
@@ -66,6 +69,14 @@ export interface AgentRuntimeDiagnostic {
 export const AGENT_PERMISSION_MODES = ["standard", "full"] as const;
 export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number];
 
+export type AgentRuntimeBinarySource =
+  | "manual"
+  | "path"
+  | "login-shell"
+  | "common-directory"
+  | "codex-app"
+  | "chatgpt-app";
+
 export interface AgentRuntimeStatus {
   id: AgentRuntimeId;
   name: string;
@@ -73,7 +84,12 @@ export interface AgentRuntimeStatus {
   installed: boolean;
   /** The executable that runs, resolved to an absolute path. */
   binaryPath?: string;
+  /** The person's override, kept even when it cannot be resolved. Empty means automatic discovery. */
+  configuredBinaryPath?: string;
+  binarySource?: AgentRuntimeBinarySource;
   version?: string;
+  /** Version used for real acceptance; it is not a compatibility floor. */
+  testedVersion?: string;
   auth: {
     status: AgentRuntimeAuthStatus;
     /** Account or plan text the CLI reports, such as an email address. */

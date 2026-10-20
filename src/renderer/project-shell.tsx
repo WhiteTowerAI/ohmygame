@@ -920,6 +920,8 @@ export function ProjectShell({
             onRemovePending={removeFollowUp}
             onSteerPending={steerFollowUp}
             onEditPending={editFollowUp}
+            canPublish={Boolean(project && (isWebRuntimeProjectType(project.type) || project.type === "interactive-story") && !publishing && !agentBusy)}
+            onPublish={project ? () => setPublishDialog({ projectId: project.id, status: "open" }) : undefined}
           /> : null}
       </WorkspaceAgentPane>}
     >

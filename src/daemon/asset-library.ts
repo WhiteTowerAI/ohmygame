@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { copyFile, lstat, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { LibraryAsset, LibraryAssetOrigin, LibraryAssetPurpose } from "../shared/contracts.js";
+import type { LibraryAsset, LibraryAssetDerivation, LibraryAssetOrigin, LibraryAssetPurpose } from "../shared/contracts.js";
 import { workspaceMediaInfo } from "./workspace.js";
 import { readMediaDimensions } from "./media-dimensions.js";
 
@@ -18,6 +18,7 @@ interface AddAssetOptions {
   duration?: number;
   origin?: LibraryAssetOrigin;
   purpose?: LibraryAssetPurpose;
+  derivedFrom?: LibraryAssetDerivation;
 }
 
 export class AssetLibraryError extends Error {
@@ -193,6 +194,7 @@ export class AssetLibrary {
       ...(options.model3d ? { model3d: options.model3d } : {}),
       ...(options.duration !== undefined ? { duration: options.duration } : {}),
       ...(options.prompt?.trim() ? { prompt: options.prompt.trim() } : {}),
+      ...(options.derivedFrom ? { derivedFrom: options.derivedFrom } : {}),
     });
     const state = {
       ...this.#state,
@@ -286,5 +288,16 @@ function isLibraryAsset(value: unknown): value is LibraryAsset {
     (asset.prompt === undefined || typeof asset.prompt === "string") &&
     (asset.origin === undefined || ["generated", "uploaded", "workspace", "builtin", "unknown"].includes(asset.origin)) &&
     (asset.purpose === undefined || asset.purpose === "asset" || asset.purpose === "reference") &&
-    (asset.saved === undefined || typeof asset.saved === "boolean");
+    (asset.saved === undefined || typeof asset.saved === "boolean") &&
+    (asset.derivedFrom === undefined || isLibraryAssetDerivation(asset.derivedFrom));
+}
+
+export function isLibraryAssetDerivation(value: unknown): value is LibraryAssetDerivation {
+  if (!value || typeof value !== "object") return false;
+  const derivation = value as Partial<LibraryAssetDerivation>;
+  const trim = derivation.trim as Partial<LibraryAssetDerivation["trim"]> | undefined;
+  return typeof derivation.assetId === "string" && Boolean(derivation.assetId) &&
+    Boolean(trim) && typeof trim === "object" &&
+    typeof trim.start === "number" && Number.isFinite(trim.start) && trim.start >= 0 &&
+    typeof trim.end === "number" && Number.isFinite(trim.end) && trim.end > trim.start;
 }

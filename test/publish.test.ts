@@ -103,6 +103,8 @@ describePublishContract("remote publish", () => {
   it("builds and publishes an Interactive Story as a static game", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Story", "interactive-story");
+    // A story not yet upgraded to a web story publishes with the Published Player.
+    await playInSandbox(project.workspacePath);
     const videoContents = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]);
     const video = (await runtime.daemon.inject({
       method: "POST",
@@ -134,6 +136,7 @@ describePublishContract("remote publish", () => {
   it("does not apply the remote publish size limit to a local Interactive Story build", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Story", "interactive-story");
+    await playInSandbox(project.workspacePath);
     await writePublishableGraph(project.workspacePath);
     await writeFile(path.join(runtime.playerDirectory, "large.bin"), randomBytes(26 * 1024 * 1024));
 
@@ -518,6 +521,12 @@ describePublishContract("remote publish", () => {
 });
 
 /** The Ash Club fixture, whose Signals are all connected, with an optional Library video. */
+/** A story from before web stories: no page and no runtime of its own. */
+async function playInSandbox(workspacePath: string): Promise<void> {
+  await rm(path.join(workspacePath, "index.html"));
+  await rm(path.join(workspacePath, "story"), { recursive: true });
+}
+
 async function writePublishableGraph(workspacePath: string, clipAssetId?: string): Promise<void> {
   const graph = createNodeGraphFixture();
   delete graph.assets.theme;

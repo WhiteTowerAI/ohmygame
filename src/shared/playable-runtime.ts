@@ -21,6 +21,7 @@ import {
   type PlayableNavigationMode,
   type PlayableNodeContext,
   type NodeRuntimeContext,
+  type PlayableSlotSummary,
   type PlayableStateService,
 } from "./playable-nodes.js";
 import {
@@ -48,12 +49,54 @@ export interface PlayableSave {
   currentNodeId: string;
   backStack: string[];
   state: JsonObject;
+  /** The current Node's position; saves without one start the Node from its beginning. */
+  position?: JsonValue;
+  /** A position for each back stack entry, in the same order; null where there is none. */
+  backPositions?: (JsonValue | null)[];
+  /** The Asset ID of the music playing. */
+  music?: string;
 }
 
 export interface PlayableSaveStore {
   load(): Promise<unknown | undefined>;
   save(save: PlayableSave): Promise<void>;
 }
+
+/** A game the player saved in a slot. */
+export interface PlayableSlot {
+  save: PlayableSave;
+  note?: string;
+}
+
+/**
+ * Where save slots are kept, all together and beside the save. A write
+ * replaces every slot, and slots from another version of the game are
+ * written back as they were read.
+ */
+export interface PlayableSlotStore {
+  load(): Promise<unknown | undefined>;
+  save(slots: Record<string, unknown>): Promise<void>;
+}
+
+/** Where the player's settings are kept; losing them never stops the game. */
+export interface PlayablePreferencesStore {
+  load(): Promise<unknown | undefined>;
+  save(preferences: JsonObject): Promise<void>;
+}
+
+/**
+ * Plays the Runtime's music and sounds. Hosts without sound, such as tests
+ * and thumbnail captures, leave it out.
+ */
+export interface PlayableAudioHost {
+  /** Fades to the music at `url`, or out when it is undefined. */
+  music(url: string | undefined, fadeSeconds: number): void;
+  sound(url: string): void;
+  volumes(volumes: { music: number; sound: number }): void;
+}
+
+/** Volumes before the player changes them. */
+export const PLAYABLE_DEFAULT_PREFERENCES = { musicVolume: 0.7, soundVolume: 1 } as const;
 
 /** Where the Runtime keeps what the player has seen; apart from the save slot. */
 export interface PlayableSeenStore {
@@ -88,6 +131,12 @@ export interface NodeRuntimeOptions {
   saveStore: PlayableSaveStore;
   /** Defaults to memory, so nothing seen outlasts the session. */
   seenStore?: PlayableSeenStore;
+  /** Defaults to memory. */
+  slotStore?: PlayableSlotStore;
+  /** Defaults to memory. */
+  preferencesStore?: PlayablePreferencesStore;
+  /** Defaults to silence. */
+  audio?: PlayableAudioHost;
   assetUrls: Readonly<Record<string, string>>;
   policy?: NodeRuntimePolicy;
   /** Node to enter instead of `entryNodeId`. */
@@ -156,9 +205,27 @@ export interface NodeRuntimeSnapshot {
   errors: NodeRuntimeErrorRecord[];
   /** `incompatible` when a save exists but belongs to another version of the graph. */
   save: { present: boolean; savedAt?: string; incompatible?: true };
+  /** The current Node's position. */
+  position: JsonValue | null;
+  /** The Asset ID of the music playing. */
+  music?: string;
 }
 
 const HISTORY_LIMIT = 20;
+const MAX_POSITION_BYTES = 64 * 1024;
+const MAX_PREFERENCES_BYTES = 64 * 1024;
+const MAX_SLOTS = 100;
+const MAX_SLOT_NOTE = 200;
+const SLOT_ID_PATTERN = /^[A-Za-z0-9_-]{1,40}$/;
+const DEFAULT_MUSIC_FADE = 1;
+
+/** The positions that go with a navigation state. */
+interface PlayablePositions {
+  current: JsonValue | null;
+  back: (JsonValue | null)[];
+}
+
+const NO_POSITIONS: PlayablePositions = { current: null, back: [] };
 
 export type NodeRuntimeErrorCode =
   | "not-started"
@@ -171,7 +238,10 @@ export type NodeRuntimeErrorCode =
   | "missing-asset-url"
   | "undeclared-asset"
   | "no-save"
-  | "invalid-cleanup";
+  | "invalid-cleanup"
+  | "invalid-position"
+  | "invalid-preferences"
+  | "invalid-slot";
 
 export class NodeRuntimeError extends Error {
   constructor(
@@ -204,6 +274,9 @@ export class NodeRuntime {
   readonly #surfaceHost: PlayableSurfaceHost;
   readonly #saveStore: PlayableSaveStore;
   readonly #seenStore: PlayableSeenStore;
+  readonly #slotStore: PlayableSlotStore;
+  readonly #preferencesStore: PlayablePreferencesStore;
+  readonly #audio?: PlayableAudioHost;
   #incompatibleSave = false;
   readonly #assetUrls: Readonly<Record<string, string>>;
   readonly #now: () => Date;
@@ -238,6 +311,14 @@ export class NodeRuntime {
   #seenQueue: Promise<void> = Promise.resolve();
   #seenSaveFailed = false;
   #storyLayout?: PlayableStoryLayout;
+  #positions: PlayablePositions = NO_POSITIONS;
+  #music?: string;
+  /** Slots as stored, including ones this version cannot load. */
+  #slots: Record<string, unknown> = {};
+  #slotQueue: Promise<void> = Promise.resolve();
+  #preferences: JsonObject = {};
+  #preferencesQueue: Promise<void> = Promise.resolve();
+  #preferencesSaveFailed = false;
 
   constructor(options: NodeRuntimeOptions) {
     this.#graph = options.graph;
@@ -246,6 +327,9 @@ export class NodeRuntime {
     this.#surfaceHost = options.surfaceHost;
     this.#saveStore = options.saveStore;
     this.#seenStore = options.seenStore ?? new MemoryPlayableSeenStore();
+    this.#slotStore = options.slotStore ?? new MemoryPlayableSlotStore();
+    this.#preferencesStore = options.preferencesStore ?? new MemoryPlayablePreferencesStore();
+    this.#audio = options.audio;
     this.#assetUrls = options.assetUrls;
     this.#now = options.now ?? (() => new Date());
     this.#onError = options.onError ?? (() => undefined);
@@ -301,6 +385,12 @@ export class NodeRuntime {
       this.#incompatibleSave = stored !== undefined && stored !== null && !this.#cachedSave;
       // What the player has seen only feeds the Story Map; losing it never stops the game.
       this.#seen = parsePlayableSeen(await this.#seenStore.load().catch((cause: unknown) => this.#reportError(cause)));
+      // Slots that cannot be read are kept out of the way, never lost by a later write.
+      const slots = await this.#slotStore.load().catch((cause: unknown) => this.#reportError(cause));
+      this.#slots = isRecord(slots) ? { ...slots } : {};
+      // Settings that cannot be read start over, like what the player has seen.
+      this.#preferences = parsePreferences(await this.#preferencesStore.load().catch((cause: unknown) => this.#reportError(cause)));
+      this.#applyVolumes();
       this.#assertNotDisposed();
       this.#started = true;
       this.#activeNode = await this.#mountNode(this.#navigation.currentNodeId);
@@ -335,6 +425,8 @@ export class NodeRuntime {
       save: this.#cachedSave
         ? { present: true, savedAt: this.#cachedSave.savedAt }
         : { present: false, ...(this.#incompatibleSave ? { incompatible: true as const } : {}) },
+      position: structuredClone(this.#positions.current),
+      ...(this.#music ? { music: this.#music } : {}),
     };
   }
 
@@ -424,9 +516,16 @@ export class NodeRuntime {
       declared.role === "navigation"
         ? (this.#leftStoryAt ?? this.#navigation.backStack.length)
         : undefined;
+    // A Node entered by a Signal starts afresh; Allow Back keeps where this one was.
+    const positions: PlayablePositions = {
+      current: null,
+      back: edge?.mode === "push"
+        ? [...this.#positions.back, this.#positions.current]
+        : [...this.#positions.back],
+    };
     await this.#navigate(
       () => navigatePlayableSignal(this.#graph, this.#navigation, signal),
-      undefined,
+      () => { this.#positions = positions; },
       leftStoryAt,
     );
   }
@@ -449,9 +548,13 @@ export class NodeRuntime {
       this.#navigation.backStack.length > this.#leftStoryAt
         ? this.#leftStoryAt
         : undefined;
+    const positions: PlayablePositions = {
+      current: this.#positions.back.at(-1) ?? null,
+      back: this.#positions.back.slice(0, -1),
+    };
     await this.#navigate(
       () => navigatePlayableBack(this.#navigation),
-      undefined,
+      () => { this.#positions = positions; },
       leftStoryAt,
     );
   }
@@ -595,12 +698,54 @@ export class NodeRuntime {
         ),
       },
       state: this.#stateService(token, abortController.signal),
+      position: {
+        get: this.#guard(token, () => {
+          this.#assertSurfaceActive(token);
+          return structuredClone(this.#positions.current);
+        }),
+        set: this.#guardAsync(token, async (value: JsonValue | null) => {
+          this.#assertSurfaceActive(token);
+          this.#positions = { ...this.#positions, current: checkedPosition(value) };
+          this.#changed();
+          await this.#checkpoint();
+        }),
+      },
+      audio: {
+        music: this.#guard(token, (assetId: string | null, options?: { fade?: number }) => {
+          if (assetId !== null) this.#assetUrl(token, declaredAssets, assetId);
+          else this.#assertSurfaceActive(token);
+          const fade = options?.fade ?? DEFAULT_MUSIC_FADE;
+          if (typeof fade !== "number" || !Number.isFinite(fade) || fade < 0)
+            throw new TypeError("Music fade must be a number of seconds, 0 or more.");
+          this.#playMusic(assetId ?? undefined, fade);
+        }),
+        sound: this.#guard(token, (assetId: string) => {
+          this.#audio?.sound(this.#assetUrl(token, declaredAssets, assetId));
+        }),
+      },
+      preferences: {
+        get: this.#guard(token, () => {
+          this.#assertSurfaceActive(token);
+          return { ...PLAYABLE_DEFAULT_PREFERENCES, ...cloneJsonObject(this.#preferences) };
+        }),
+        set: this.#guardAsync(token, async (values: JsonObject) => {
+          this.#assertSurfaceActive(token);
+          await this.#setPreferences(values);
+        }),
+      },
       session: {
         hasSave: () => this.#cachedSave !== undefined,
         reset: this.#guardAsync(token, () => this.#reset(token)),
         continue: this.#guardAsync(token, () => this.#continue(token)),
         save: this.#guardAsync(token, () => this.#save(token)),
         restart: this.#guardAsync(token, () => this.#restart(token)),
+        slots: this.#guard(token, () => {
+          this.#assertSurfaceActive(token);
+          return this.#slotSummaries();
+        }),
+        saveSlot: this.#guardAsync(token, (id: string, note?: string) => this.#saveSlot(token, id, note)),
+        loadSlot: this.#guardAsync(token, (id: string) => this.#loadSlot(token, id)),
+        deleteSlot: this.#guardAsync(token, (id: string) => this.#deleteSlot(token, id)),
       },
       story: {
         map: this.#guard(token, () => {
@@ -770,6 +915,7 @@ export class NodeRuntime {
     this.#assertNavigationReady(token);
     this.#state = createPlayableState(this.#graph.initialState);
     this.#navigation = { ...this.#navigation, backStack: [] };
+    this.#positions = NO_POSITIONS;
     this.#notifyState();
     await this.#checkpoint();
   }
@@ -788,6 +934,8 @@ export class NodeRuntime {
       () => createPlayableNavigation(this.#graph),
       () => {
         this.#state = createPlayableState(this.#graph.initialState);
+        this.#positions = NO_POSITIONS;
+        this.#playMusic(undefined, DEFAULT_MUSIC_FADE);
         this.#notifyState();
       },
     );
@@ -801,6 +949,11 @@ export class NodeRuntime {
         "no-save",
         "There is no compatible Playable save to continue.",
       );
+    await this.#restore(save);
+  }
+
+  /** Continues a save: its Node, back stack, State, positions, and music. */
+  async #restore(save: PlayableSave): Promise<void> {
     if (this.#policy === "report") {
       this.#report({
         kind: "continue",
@@ -820,9 +973,105 @@ export class NodeRuntime {
           this.#graph.initialState,
           save.state,
         );
+        this.#positions = {
+          current: structuredClone(save.position ?? null),
+          back: save.backStack.map((_, index) => structuredClone(save.backPositions?.[index] ?? null)),
+        };
+        this.#playMusic(save.music, DEFAULT_MUSIC_FADE);
         this.#notifyState();
       },
     );
+  }
+
+  #playMusic(assetId: string | undefined, fade: number): void {
+    if (assetId === this.#music) return;
+    this.#music = assetId;
+    this.#audio?.music(assetId === undefined ? undefined : this.#assetUrls[assetId], fade);
+    this.#changed();
+  }
+
+  #applyVolumes(): void {
+    const preferences = { ...PLAYABLE_DEFAULT_PREFERENCES, ...this.#preferences };
+    this.#audio?.volumes({
+      music: preferences.musicVolume as number,
+      sound: preferences.soundVolume as number,
+    });
+  }
+
+  async #setPreferences(values: JsonObject): Promise<void> {
+    if (!isJsonObject(values))
+      throw new NodeRuntimeError("invalid-preferences", "Preferences must be a JSON object.");
+    const next = parsePreferences({ ...this.#preferences, ...structuredClone(values) }, true);
+    this.#preferences = next;
+    this.#applyVolumes();
+    this.#changed();
+    const write = () => this.#preferencesStore.save(cloneJsonObject(next));
+    this.#preferencesQueue = this.#preferencesQueue.then(write, write).catch((cause: unknown) => {
+      if (this.#preferencesSaveFailed) return;
+      this.#preferencesSaveFailed = true;
+      this.#reportError(cause);
+    });
+    await this.#preferencesQueue;
+  }
+
+  #slotSummaries(): PlayableSlotSummary[] {
+    return Object.entries(this.#slots)
+      .filter(([id]) => SLOT_ID_PATTERN.test(id))
+      .map(([id, value]): PlayableSlotSummary | undefined => {
+        const slot = isRecord(value) ? value : {};
+        const note = typeof slot.note === "string" ? slot.note : undefined;
+        const save = this.#parseSave(slot.save);
+        if (save) return { id, savedAt: save.savedAt, nodeId: save.currentNodeId, ...(note ? { note } : {}) };
+        // Another version's slot still shows, so the player does not think it is empty.
+        const stored = isRecord(slot.save) ? slot.save : {};
+        if (typeof stored.savedAt !== "string" || typeof stored.currentNodeId !== "string") return undefined;
+        return { id, savedAt: stored.savedAt, nodeId: stored.currentNodeId, ...(note ? { note } : {}), incompatible: true };
+      })
+      .filter((summary) => summary !== undefined)
+      .sort((left, right) => left.id.localeCompare(right.id, undefined, { numeric: true }));
+  }
+
+  async #saveSlot(token: SurfaceToken, id: string, note?: string): Promise<void> {
+    this.#assertSurfaceActive(token);
+    checkSlotId(id);
+    if (note !== undefined && (typeof note !== "string" || note.length > MAX_SLOT_NOTE))
+      throw new NodeRuntimeError("invalid-slot", `A slot note must be text of at most ${MAX_SLOT_NOTE} characters.`);
+    if (!Object.hasOwn(this.#slots, id) && Object.keys(this.#slots).length >= MAX_SLOTS)
+      throw new NodeRuntimeError("invalid-slot", `A game keeps at most ${MAX_SLOTS} slots.`);
+    // Away from the story, such as in a menu reached by a navigation Signal, a slot keeps where the story is.
+    const save = this.#leftStoryAt !== undefined && this.#cachedSave ? this.#cachedSave : this.#currentSave();
+    await this.#writeSlots({ ...this.#slots, [id]: { save, ...(note ? { note } : {}) } });
+  }
+
+  async #loadSlot(token: SurfaceToken, id: string): Promise<void> {
+    this.#assertNavigationReady(token);
+    checkSlotId(id);
+    const slot = this.#slots[id];
+    if (slot === undefined)
+      throw new NodeRuntimeError("no-save", `Slot "${id}" is empty.`);
+    const save = this.#parseSave(isRecord(slot) ? slot.save : undefined);
+    if (!save)
+      throw new NodeRuntimeError("no-save", `Slot "${id}" was saved by another version of the game and cannot be loaded.`);
+    await this.#restore(save);
+  }
+
+  async #deleteSlot(token: SurfaceToken, id: string): Promise<void> {
+    this.#assertSurfaceActive(token);
+    checkSlotId(id);
+    if (!Object.hasOwn(this.#slots, id)) return;
+    const slots = { ...this.#slots };
+    delete slots[id];
+    await this.#writeSlots(slots);
+  }
+
+  async #writeSlots(slots: Record<string, unknown>): Promise<void> {
+    const write = async () => {
+      await this.#slotStore.save(structuredClone(slots));
+      this.#slots = slots;
+      this.#changed();
+    };
+    this.#slotQueue = this.#slotQueue.then(write, write);
+    await this.#slotQueue;
   }
 
   async #save(token: SurfaceToken): Promise<void> {
@@ -830,9 +1079,8 @@ export class NodeRuntime {
     await this.#checkpoint();
   }
 
-  async #checkpoint(): Promise<void> {
-    this.#leftStoryAt = undefined;
-    const save: PlayableSave = {
+  #currentSave(): PlayableSave {
+    return {
       version: 1,
       graphVersion: this.#graph.version,
       graphSignature: this.#graphSignature,
@@ -840,7 +1088,17 @@ export class NodeRuntime {
       currentNodeId: this.#navigation.currentNodeId,
       backStack: [...this.#navigation.backStack],
       state: cloneJsonObject(this.#state),
+      ...(this.#positions.current !== null ? { position: structuredClone(this.#positions.current) } : {}),
+      ...(this.#positions.back.some((position) => position !== null)
+        ? { backPositions: structuredClone(this.#positions.back) }
+        : {}),
+      ...(this.#music ? { music: this.#music } : {}),
     };
+  }
+
+  async #checkpoint(): Promise<void> {
+    this.#leftStoryAt = undefined;
+    const save = this.#currentSave();
     const write = async () => {
       await this.#saveStore.save(save);
       this.#cachedSave = save;
@@ -895,6 +1153,16 @@ export class NodeRuntime {
         this.#graph.initialState,
         value.state,
       );
+      // Saves from before positions and music, or with ones this graph lacks, still continue.
+      const position = isJsonValue(value.position) ? value.position : undefined;
+      const backPositions = Array.isArray(value.backPositions)
+        && value.backPositions.length === value.backStack.length
+        && value.backPositions.every(isJsonValue)
+        ? value.backPositions as (JsonValue | null)[]
+        : undefined;
+      const music = typeof value.music === "string" && this.#graph.assets[value.music]?.type === "audio"
+        ? value.music
+        : undefined;
       return {
         version: 1,
         graphVersion: 1,
@@ -903,6 +1171,9 @@ export class NodeRuntime {
         currentNodeId: value.currentNodeId,
         backStack: [...value.backStack],
         state,
+        ...(position !== undefined && position !== null ? { position: structuredClone(position) } : {}),
+        ...(backPositions ? { backPositions: structuredClone(backPositions) } : {}),
+        ...(music ? { music } : {}),
       };
     } catch {
       return undefined;
@@ -1009,6 +1280,38 @@ export class MemoryPlayableSaveStore implements PlayableSaveStore {
   }
 }
 
+export class MemoryPlayableSlotStore implements PlayableSlotStore {
+  #value: Record<string, unknown> | undefined;
+
+  constructor(initial?: Record<string, unknown>) {
+    this.#value = initial ? structuredClone(initial) : undefined;
+  }
+
+  async load(): Promise<unknown | undefined> {
+    return this.#value ? structuredClone(this.#value) : undefined;
+  }
+
+  async save(slots: Record<string, unknown>): Promise<void> {
+    this.#value = structuredClone(slots);
+  }
+}
+
+export class MemoryPlayablePreferencesStore implements PlayablePreferencesStore {
+  #value: JsonObject | undefined;
+
+  constructor(initial?: JsonObject) {
+    this.#value = initial ? structuredClone(initial) : undefined;
+  }
+
+  async load(): Promise<unknown | undefined> {
+    return this.#value ? structuredClone(this.#value) : undefined;
+  }
+
+  async save(preferences: JsonObject): Promise<void> {
+    this.#value = structuredClone(preferences);
+  }
+}
+
 export class MemoryPlayableSeenStore implements PlayableSeenStore {
   #value: PlayableSeen | undefined;
 
@@ -1027,4 +1330,49 @@ export class MemoryPlayableSeenStore implements PlayableSeenStore {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isJsonObject(value);
+}
+
+function checkedPosition(value: JsonValue | null): JsonValue | null {
+  if (!isJsonValue(value) || JSON.stringify(value).length > MAX_POSITION_BYTES)
+    throw new NodeRuntimeError(
+      "invalid-position",
+      `A position must be JSON of at most ${MAX_POSITION_BYTES} bytes.`,
+    );
+  return structuredClone(value);
+}
+
+function checkSlotId(id: string): void {
+  if (typeof id !== "string" || !SLOT_ID_PATTERN.test(id))
+    throw new NodeRuntimeError(
+      "invalid-slot",
+      `Slot "${String(id)}" must be 1 to 40 letters, digits, dashes, or underscores.`,
+    );
+}
+
+/**
+ * Settings as stored. With `strict`, a bad value throws, as it does when a
+ * Node sets one; otherwise stored settings that cannot be read start over.
+ */
+function parsePreferences(value: unknown, strict = false): JsonObject {
+  const fail = (message: string): JsonObject => {
+    if (strict) throw new NodeRuntimeError("invalid-preferences", message);
+    return {};
+  };
+  if (value === undefined || value === null) return {};
+  if (!isJsonObject(value)) return fail("Preferences must be a JSON object.");
+  for (const key of ["musicVolume", "soundVolume"] as const) {
+    const volume = value[key];
+    if (volume !== undefined && (typeof volume !== "number" || !(volume >= 0 && volume <= 1)))
+      return fail(`Preference "${key}" must be a number from 0 to 1.`);
+  }
+  if (JSON.stringify(value).length > MAX_PREFERENCES_BYTES)
+    return fail(`Preferences must be at most ${MAX_PREFERENCES_BYTES} bytes.`);
+  return cloneJsonObject(value);
 }

@@ -1,7 +1,9 @@
+import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
 import { CheckpointStore } from "./checkpoints.js";
 import { ProjectWrites } from "./project-writes.js";
 import { registerCheckpointRoutes } from "./checkpoint-routes.js";
+import { registerStoryWebRoutes } from "./story-web-routes.js";
 import { readWorkspaceNotice, readWorkspaceVersion } from "./workspace-notice.js";
 import { withCanvasLock } from "./canvas-workspace.js";
 import { validatePreviewSettings } from "../shared/preview-settings.js";
@@ -14,10 +16,11 @@ import { isUtf8 } from "node:buffer";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { access as fileAccess, readFile } from "node:fs/promises";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
+import { isWebStory } from "./story-web-project.js";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
@@ -109,7 +112,7 @@ import { LegacyMcpConfiguration } from "./legacy-mcp.js";
 import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, type PluginSettings, type PluginSummary, type PluginDetail } from "../shared/plugins.js";
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
-import { AssetLibrary, AssetLibraryError } from "./asset-library.js";
+import { AssetLibrary, AssetLibraryError, isLibraryAssetDerivation } from "./asset-library.js";
 import { exportPlayableProject, PlayableProjectExportError } from "./playable-project-export.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import type { GameRuntimeAdapter } from "../shared/playtest.js";
@@ -701,7 +704,9 @@ export function createApp(options: AppOptions = {}) {
   const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
     ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
     : providerModelSettings.isEnabled(id);
+  const codexImages = new CodexImageProvider(path.join(dataDirectory, "agent-runtimes"), (recheck) => agentRuntimes.codexImageConnection(recheck));
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
+    codexImages,
     openAIConnection: () => imageConnection.resolve(),
     customProviders: () => providerModelSettings.customProviderCatalog(),
     migrateLegacyModels: (id, models) => providerModelSettings.migrateLegacyImageModels(id, models, async () => { await (await getModelRuntime()).refresh({ allowNetwork: false, providers: [id] }); }),
@@ -847,7 +852,8 @@ export function createApp(options: AppOptions = {}) {
         driver: playtest,
         resolveOpenTarget: async () => ({
           runtime: "web",
-          url: project.type === "interactive-story"
+          // A web story plays its own page; older stories still use the sandbox.
+          url: project.type === "interactive-story" && !await isWebStory(project.workspacePath)
             ? await playableDrafts.open(project)
             : previewPageUrl(await previews.ensureStarted(project, false), "playtest"),
         }),
@@ -876,6 +882,7 @@ export function createApp(options: AppOptions = {}) {
       workspacePath: project.workspacePath,
       sessionManager: conversations.open(project, conversation),
       tools: projectAgentTools(project, conversation),
+      saveGeneratedImage: (fileName, bytes, prompt) => projects.addGeneratedAsset(project.id, fileName, bytes, { prompt }),
       pluginMcp: { config: effectiveMcp, host: pluginCapabilities.host, agentDir: piAgentDirectory },
       skillDirectories: [...pluginSkills.map((skill) => skill.path), ...ownSkills],
       instructions: appendSystemPromptForProject(project).join("\n\n"),
@@ -1019,6 +1026,10 @@ export function createApp(options: AppOptions = {}) {
   registerCheckpointRoutes(app, {
     store: checkpoints,
     snapshot: snapshotWorkspace, writes: projectWrites, projects, conversations, agents, previews, events,
+    busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
+  });
+  registerStoryWebRoutes(app, {
+    projects, agents, writes: projectWrites, checkpoints, snapshot: snapshotWorkspace, library, events,
     busy: (id) => publishing.has(id) || canvasStore.isProjectBusy(id) || tools.jobs().some((job) => job.context?.projectId === id && job.status === "running"),
   });
 
@@ -1327,7 +1338,10 @@ export function createApp(options: AppOptions = {}) {
     if (project.type !== "interactive-story") return reply.code(409).send({ error: "Node Runtime requires an Interactive Story project" });
     try {
       const definition = await buildPlayableProject(project.workspacePath);
-      return definition ? { available: true, definition } : { available: false };
+      if (!definition) return { available: false };
+      // A web story carries its own runtime and plays as a page.
+      const web = await isWebStory(project.workspacePath);
+      return { available: true, definition, ...(web ? { web: true } : {}) };
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }
@@ -1751,7 +1765,7 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Querystring: { name: string; mediaType: string; duration?: string; purpose?: "asset" | "reference" }; Body: Buffer }>("/library/assets/upload", {
+  app.post<{ Querystring: { name: string; mediaType: string; duration?: string; purpose?: "asset" | "reference"; trimSource?: string; trimStart?: string; trimEnd?: string }; Body: Buffer }>("/library/assets/upload", {
     schema: {
       querystring: {
         type: "object",
@@ -1762,6 +1776,9 @@ export function createApp(options: AppOptions = {}) {
           mediaType: { type: "string", enum: [...LIBRARY_UPLOAD_MEDIA_TYPES] },
           duration: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
           purpose: { enum: ["asset", "reference"] },
+          trimSource: { type: "string", minLength: 1, maxLength: 200 },
+          trimStart: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
+          trimEnd: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
         },
       },
     },
@@ -1780,8 +1797,16 @@ export function createApp(options: AppOptions = {}) {
     if (duration !== undefined && (!Number.isFinite(duration) || duration < 0 || mediaType.startsWith("image/"))) {
       return reply.code(400).send({ error: "Invalid media duration" });
     }
+    // A video cut from another records where it came from: all three fields, or none.
+    const { trimSource, trimStart, trimEnd } = request.query;
+    const derivedFrom = trimSource === undefined && trimStart === undefined && trimEnd === undefined
+      ? undefined
+      : { assetId: trimSource ?? "", trim: { start: Number(trimStart), end: Number(trimEnd) } };
+    if (derivedFrom && (!mediaType.startsWith("video/") || !isLibraryAssetDerivation(derivedFrom) || !library.get(derivedFrom.assetId))) {
+      return reply.code(400).send({ error: "Invalid trim source" });
+    }
     try {
-      return reply.code(201).send(await library.add(name, contents, { origin: "uploaded", purpose: request.query.purpose, ...(duration !== undefined ? { duration } : {}) }));
+      return reply.code(201).send(await library.add(name, contents, { origin: "uploaded", purpose: request.query.purpose, ...(duration !== undefined ? { duration } : {}), ...(derivedFrom ? { derivedFrom } : {}) }));
     } catch (cause) {
       const error = cause instanceof Error ? cause.message : String(cause);
       return reply.code(cause instanceof AssetLibraryError ? cause.statusCode : 500).send({ error });
@@ -2231,9 +2256,11 @@ export function createApp(options: AppOptions = {}) {
     // the background and serve the last known snapshot so opening Settings does
     // not wait on the cloud service.
     void cloudModels.refresh();
-    return [...providers, ...directProviders, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
+    const codex = codexImages.summarySnapshot(providerEnabled("codex-cli"));
+    return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
+  app.post("/settings/models/providers/codex-cli/images/recheck", async () => codexImages.recheck(providerEnabled("codex-cli")));
   registerOpenAIImageRoutes(app, openAIImages, imageConnection, options.modelDiscoveryFetch);
   app.get("/settings/onboarding", async () => {
     if (!onboarding.initialized) {
@@ -2285,7 +2312,7 @@ export function createApp(options: AppOptions = {}) {
     const provider = (await providerSummaries()).find((item) => item.id === request.params.providerId);
     if (!provider) return reply.code(404).send({ error: "Provider not found" });
     const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
-    if (!provider.configured && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
+    if (!provider.configured && provider.id !== "codex-cli" && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
     await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
     return { ...provider, enabled: request.body.enabled };
   });
@@ -2996,7 +3023,8 @@ export function createApp(options: AppOptions = {}) {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
     const reuse = request.query.reuse === "1";
-    if (reuse && !isWebRuntimeProjectType(project.type)) return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
+    // A web story plays its own page through the preview.
+    if (reuse && !isWebRuntimeProjectType(project.type) && project.type !== "interactive-story") return reply.code(409).send({ error: "Play requires a Web Game or General Game project." });
     try {
       const url = await (reuse ? previews.ensureStarted(project) : previews.start(project, request.query.reinstall === "1"));
       return { url, title: project.name };
@@ -3527,6 +3555,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    codexImages.close();
     await projectNaming.close();
     await pluginCapabilities.host.close();
     await cloudModels.setSession(null);

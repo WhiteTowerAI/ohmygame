@@ -19,6 +19,7 @@ files:
   - dist/desktop/**/*.cjs
   - dist/daemon/**/*.js
   - dist/shared/**/*.js
+  - dist/story-web/resources.json
   - dist/renderer/**/*
   - dist/player/**/*
   - "!node_modules/typebox/build/**/*.mjs"

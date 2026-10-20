@@ -8,6 +8,7 @@ import hotspot from "./assets/templates/hotspot.webp";
 import mainMenu from "./assets/templates/main-menu.webp";
 import qte from "./assets/templates/qte.webp";
 import storyMap from "./assets/templates/story-map.webp";
+import visualNovel from "./assets/templates/visual-novel.webp";
 import { t } from "./i18n.js";
 
 /**
@@ -15,7 +16,8 @@ import { t } from "./i18n.js";
  * default Project Style and no background, titled with the Template's name.
  * Recapture them from the canvas thumbnails when a Template's source changes.
  * The Story map's shows a sample story partly played instead, since a new
- * one has nothing seen to show.
+ * one has nothing seen to show, and the Visual Novel's shows its first line
+ * of dialogue.
  */
 const TEMPLATE_PICTURES: Record<string, string> = {
   blank,
@@ -25,6 +27,7 @@ const TEMPLATE_PICTURES: Record<string, string> = {
   "main-menu": mainMenu,
   qte,
   "story-map": storyMap,
+  "visual-novel": visualNovel,
 };
 
 /** Add a Scene: a grid of Templates, each with a picture and one line. */
