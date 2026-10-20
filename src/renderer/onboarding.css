@@ -436,7 +436,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   flex-direction: row;
   gap: 16px;
 }
-.onboarding-connect > .onboarding-content {
+:is(.onboarding-connect, .onboarding-media) > .onboarding-content {
   flex: 1 1 auto;
   min-height: 0;
   justify-content: flex-start;
@@ -455,7 +455,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
 .onboarding-provider-heading {
   color: var(--text-muted);
   font-size: 12px;
-  text-align: left;
 }
 .onboarding-section-heading {
   display: flex;
@@ -523,9 +522,7 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  width: min(100%, 400px);
   margin-top: 24px;
-  text-align: left;
 }
 .onboarding-provider-heading {
   padding-left: 4px;
@@ -548,7 +545,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.6;
-  text-align: left;
 }
 .onboarding-agent-install-actions {
   display: flex;
@@ -583,14 +579,6 @@ body:has(.onboarding) :is(input, select, textarea):is(:focus, :focus-visible) {
   flex-wrap: wrap;
   justify-content: flex-start;
   max-width: 100%;
-  margin-top: 16px;
-  font-size: 12px;
-}
-.onboarding-media > .onboarding-content {
-  flex: 1 1 auto;
-  min-height: 0;
-  justify-content: flex-start;
-  padding: clamp(40px, 10dvh, 72px) 0 24px;
 }
 section.onboarding-media {
   display: flex;
@@ -900,9 +888,6 @@ section.onboarding-media .settings-generation-defaults {
 @media (max-height: 650px) {
   .onboarding-content {
     padding: 24px 0;
-  }
-  .onboarding-provider-list {
-    max-height: 180px;
   }
   .onboarding-connect > .onboarding-content {
     padding: 16px 0 12px;

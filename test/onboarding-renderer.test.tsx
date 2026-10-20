@@ -98,6 +98,9 @@ beforeEach(() => {
   api.startModelProviderLogin.mockResolvedValue("operation");
   api.cancelModelAuth.mockResolvedValue(undefined);
   api.respondToModelAuth.mockResolvedValue(undefined);
+  api.notifyAgentModelsChanged.mockImplementation(() => {
+    window.dispatchEvent(new Event("ohmygame-models-changed"));
+  });
   api.subscribeToModelAuth.mockImplementation((_id, stream) => {
     streams.push(stream);
     return vi.fn();
@@ -653,9 +656,6 @@ describe("first-run screens", () => {
     ]);
     api.listModels.mockResolvedValue({ ...catalog, models });
     api.updateAgentDefaults.mockReturnValue(save.promise);
-    api.notifyAgentModelsChanged.mockImplementation(() => {
-      window.dispatchEvent(new Event("ohmygame-models-changed"));
-    });
 
     await event({ type: "completed" });
     expect(api.updateAgentDefaults).toHaveBeenCalledOnce();
@@ -1188,6 +1188,7 @@ describe("three-step setup with coding agents", () => {
         .click(),
     );
     expect(agentButton("Codex")).toBeDefined();
+    expect(container.textContent).not.toContain("Discovery unavailable");
     expect(api.updateAgentRuntime).not.toHaveBeenCalled();
   });
 
@@ -1198,7 +1199,10 @@ describe("three-step setup with coding agents", () => {
     };
     api.listAgentRuntimes.mockResolvedValue([signedOut]);
     api.loginAgentRuntime.mockResolvedValue({ command: "codex login" });
-    api.recheckAgentRuntime.mockResolvedValue(codex);
+    api.recheckAgentRuntime.mockImplementation(async () => {
+      api.listAgentRuntimes.mockResolvedValue([codex]);
+      return codex;
+    });
     await act(async () =>
       root.render(
         <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
@@ -1287,6 +1291,7 @@ describe("three-step setup with coding agents", () => {
     api.listAgentRuntimes.mockResolvedValue([codex]);
     api.updateAgentRuntime.mockImplementation(async () => {
       api.listModels.mockResolvedValue({ ...catalog, models: [nativeModel] });
+      api.listAgentRuntimes.mockResolvedValue([{ ...codex, enabled: true }]);
       return { ...codex, enabled: true };
     });
     api.updateAgentDefaults.mockRejectedValueOnce(
@@ -1349,7 +1354,10 @@ describe("three-step setup with coding agents", () => {
         ],
       },
     ]);
-    api.recheckAgentRuntime.mockResolvedValue(codex);
+    api.recheckAgentRuntime.mockImplementation(async () => {
+      api.listAgentRuntimes.mockResolvedValue([codex]);
+      return codex;
+    });
     await act(async () =>
       root.render(
         <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,

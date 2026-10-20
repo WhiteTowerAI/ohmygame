@@ -315,13 +315,7 @@ export function Onboarding({
             setRefresh((value) => value + 1);
           })
         }
-        onConnected={async (id) => {
-          try {
-            await selectProviderModel(id);
-          } finally {
-            setRefresh((value) => value + 1);
-          }
-        }}
+        onConnected={selectProviderModel}
       >
         {activeAgent === "pi" ? (
           <>

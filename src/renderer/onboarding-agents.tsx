@@ -43,6 +43,7 @@ export function OnboardingAgents({
 }) {
   const [agents, setAgents] = useState<AgentRuntimeStatus[]>();
   const [error, setError] = useState<string>();
+  const [loadError, setLoadError] = useState<string>();
   const [pending, setPending] = useState<AgentRuntimeId | "scan">();
   const [more, setMore] = useState(false);
   const [login, setLogin] = useState<{
@@ -64,7 +65,7 @@ export function OnboardingAgents({
         .then((loaded) => {
           if (!active || current !== revision.current) return;
           setAgents(loaded);
-          setError(undefined);
+          setLoadError(undefined);
           if (
             loaded.some(
               (agent) =>
@@ -78,7 +79,7 @@ export function OnboardingAgents({
         })
         .catch((cause) => {
           if (active && current === revision.current)
-            setError(errorMessage(cause));
+            setLoadError(errorMessage(cause));
         });
     };
     load();
@@ -124,6 +125,11 @@ export function OnboardingAgents({
     }
   }
 
+  async function recheck(id: AgentRuntimeId) {
+    remember(await recheckAgentRuntime(id));
+    notifyAgentModelsChanged();
+  }
+
   async function useAgent(agent: AgentRuntimeStatus) {
     if (!agent.enabled)
       remember(await updateAgentRuntime(agent.id, { enabled: true }));
@@ -138,6 +144,7 @@ export function OnboardingAgents({
   const installUrl = selected?.diagnostics.find(
     (diagnostic) => diagnostic.code === "not-installed",
   )?.command;
+  const displayedError = error ?? loadError;
 
   return (
     <section
@@ -167,6 +174,7 @@ export function OnboardingAgents({
             onClick={() =>
               void run("scan", async () => {
                 setAgents(await listAgentRuntimes(true));
+                setLoadError(undefined);
                 notifyAgentModelsChanged();
               })
             }
@@ -247,8 +255,7 @@ export function OnboardingAgents({
                       setLogin({ id: agent.id, ...started });
                       if (started.url) await openModelAuthExternal(started.url);
                     } else if (problem) {
-                      remember(await recheckAgentRuntime(agent.id));
-                      notifyAgentModelsChanged();
+                      await recheck(agent.id);
                     } else {
                       await useAgent(agent);
                     }
@@ -323,10 +330,7 @@ export function OnboardingAgents({
                   className="onboarding-text-button"
                   disabled={busy || Boolean(pending)}
                   onClick={() =>
-                    void run(selected.id, async () => {
-                      remember(await recheckAgentRuntime(selected.id));
-                      notifyAgentModelsChanged();
-                    })
+                    void run(selected.id, () => recheck(selected.id))
                   }
                 >
                   {t("codingAgents.recheck")}
@@ -335,7 +339,7 @@ export function OnboardingAgents({
             ) : null}
           </>
         ) : null}
-        {!agents && !error ? (
+        {!agents && !displayedError ? (
           <p className="onboarding-status" role="status">
             <LoaderCircle className="spin" size={14} />
             {t("codingAgents.checking")}
@@ -377,20 +381,15 @@ export function OnboardingAgents({
               type="button"
               className="onboarding-text-button"
               disabled={busy || Boolean(pending)}
-              onClick={() =>
-                void run(login.id, async () => {
-                  remember(await recheckAgentRuntime(login.id));
-                  notifyAgentModelsChanged();
-                })
-              }
+              onClick={() => void run(login.id, () => recheck(login.id))}
             >
               {t("codingAgents.recheck")}
             </button>
           </div>
         ) : null}
-        {error ? (
+        {displayedError ? (
           <p className="onboarding-error" role="alert">
-            {error}
+            {displayedError}
           </p>
         ) : null}
         {children}
