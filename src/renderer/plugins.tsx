@@ -17,7 +17,7 @@ import {
   Search,
   WandSparkles,
 } from "./icons.js";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   pluginComponentKey,
   pluginCollection,
@@ -37,6 +37,26 @@ import { MarkdownContent } from "./markdown-content.js";
 import { t } from "./i18n.js";
 import { PluginDependencyPanel, PluginExportButton, PluginImportDialog } from "./plugin-portability.js";
 
+const PLUGIN_CATEGORIES = [
+  { id: "creation", plugins: ["ohmygame:game-studio", "ohmygame:web-game-studio", "ohmygame:threejs-world"] },
+  { id: "engines", plugins: ["ohmygame:godot", "ohmygame:taptap-maker", "ohmygame:cocos-creator", "ohmygame:unity", "ohmygame:unreal-engine", "ohmygame:wechat-minigame", "ohmygame:douyin-minigame"] },
+  { id: "assets", plugins: ["ohmygame:blender", "ohmygame:img2threejs", "ohmygame:aseprite", "ohmygame:tiled"] },
+  { id: "other", plugins: [] },
+] as const;
+const PLUGIN_ORDER: readonly string[] = PLUGIN_CATEGORIES.flatMap(category => [...category.plugins]);
+
+function pluginCategory(plugin: PluginSummary) {
+  return PLUGIN_CATEGORIES.find(category => category.plugins.some(id => id === plugin.id))?.id ?? "other";
+}
+
+function compareCatalogPlugins(left: PluginSummary, right: PluginSummary): number {
+  const rank = (id: string) => {
+    const index = PLUGIN_ORDER.indexOf(id);
+    return index < 0 ? PLUGIN_ORDER.length : index;
+  };
+  return rank(left.id) - rank(right.id) || left.displayName.localeCompare(right.displayName) || left.id.localeCompare(right.id);
+}
+
 export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   pluginId?: string;
   onPluginChange: (pluginId?: string) => void;
@@ -52,6 +72,9 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   const [importOpen, setImportOpen] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
   const [query, setQuery] = useState("");
+  const [collection, setCollection] = useState<"public" | "personal">("public");
+  const [enabledOnly, setEnabledOnly] = useState(false);
+  const catalogId = useId();
   const [updating, setUpdating] = useState<string>();
   const [adding, setAdding] = useState<"install">();
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -95,7 +118,10 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
         await waitForRuntime();
         if (disposed) return;
         const plugin = await readPlugin(pluginId);
-        if (!disposed) setDetailResult({ pluginId, plugin });
+        if (!disposed) {
+          setDetailResult({ pluginId, plugin });
+          setCollection(pluginCollection(plugin));
+        }
       } catch (cause) {
         if (!disposed) setDetailResult({ pluginId, error: errorMessage(cause) });
       }
@@ -229,7 +255,11 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
   }
 
   const normalizedQuery = query.trim().toLowerCase();
-  const visible = plugins.filter((plugin) => pluginSearchText(plugin).includes(normalizedQuery));
+  const visible = plugins.filter(plugin => pluginCollection(plugin) === collection && (!enabledOnly || plugin.enabled) && pluginSearchText(plugin).includes(normalizedQuery))
+    .sort(compareCatalogPlugins);
+  const groups = collection === "public" && !normalizedQuery
+    ? PLUGIN_CATEGORIES.map(category => ({ id: category.id, title: t(`plugins.categories.${category.id}`), plugins: visible.filter(plugin => pluginCategory(plugin) === category.id) }))
+    : [{ id: "all", title: undefined, plugins: visible }];
   const currentDetail = detailResult?.pluginId === pluginId ? detailResult : undefined;
   const detail = currentDetail?.plugin;
   const detailTitle = pluginId
@@ -280,16 +310,32 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
       onMcpToggle={(id, enabled) => detail && void updatePlugin(detail, { enabled: detail.enabled, components: { ...componentSettings(detail).components, [pluginComponentKey("mcp", id)]: enabled } })}
       onTry={onTryPlugin}
     /> : <>
+      <div className="plugins-catalog-controls">
+        <div className="plugins-collection-tabs" role="tablist" aria-label={t("plugins.collections")}>
+          {(["public", "personal"] as const).map(source => <button key={source} id={`${catalogId}-${source}`} type="button" role="tab"
+            aria-selected={collection === source} aria-controls={`${catalogId}-panel`} tabIndex={collection === source ? 0 : -1}
+            onClick={() => setCollection(source)} onKeyDown={event => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === "Home" ? "public" : event.key === "End" ? "personal" : collection === "public" ? "personal" : "public";
+              setCollection(next);
+              document.getElementById(`${catalogId}-${next}`)?.focus();
+            }}>{t(`plugins.${source}`)}</button>)}
+        </div>
+        <button className="plugins-enabled-filter" type="button" aria-pressed={enabledOnly} onClick={() => setEnabledOnly(current => !current)}>{t("plugins.enabledOnly")}</button>
+      </div>
+      <div id={`${catalogId}-panel`} role="tabpanel" aria-labelledby={`${catalogId}-${collection}`}>
       {phase === "ready" && ((!gitDialogOpen && error) || catalogWarning) ? <p className="plugins-inline-error" role="alert">{!gitDialogOpen && error ? error : catalogWarning}</p> : null}
       {phase === "loading" ? <PluginState>{t("plugins.loading")}</PluginState> : null}
       {phase === "error" ? <PluginError message={error} onRetry={() => void load()} /> : null}
       {phase === "ready" ? <>
-        <PluginBuilderSessions />
-        {(["public", "personal"] as const).map(collection => <PluginCollection key={collection} collection={collection}
-          plugins={visible.filter(plugin => pluginCollection(plugin) === collection)} collapsible={!normalizedQuery}
+        {collection === "personal" && !normalizedQuery && !enabledOnly ? <PluginBuilderSessions /> : null}
+        {visible.length ? groups.filter(group => group.plugins.length).map(group => <PluginCollection key={`${collection}-${group.id}`} id={`${catalogId}-${group.id}`} title={group.title}
+          plugins={group.plugins} collapsible={!normalizedQuery}
           updating={Boolean(updating)} onOpenPlugin={onPluginChange}
-          onToggle={(plugin, enabled) => void updatePlugin(plugin, { enabled, components: {} })} />)}
+          onToggle={(plugin, enabled) => void updatePlugin(plugin, { enabled, components: {} })} />) : <p className="plugins-empty">{t("plugins.noMatch")}</p>}
       </> : null}
+      </div>
     </>}
     {mcpOpen ? <AddMcpPluginDialog onClose={() => setMcpOpen(false)} onInstalled={id => { setMcpOpen(false); capabilitiesChanged(); onPluginChange(id); }} /> : null}
     {importOpen ? <PluginImportDialog onClose={() => setImportOpen(false)} onInstalled={plugin => { setImportOpen(false); capabilitiesChanged(); onPluginChange(plugin.id); }} /> : null}
@@ -337,8 +383,9 @@ export function PluginsSettings({ pluginId, onPluginChange, onTryPlugin }: {
 
 const INSTALLED_PLUGIN_LIMIT = 6;
 
-function PluginCollection({ collection, plugins, collapsible, updating, onOpenPlugin, onToggle }: {
-  collection: "public" | "personal";
+function PluginCollection({ id, title, plugins, collapsible, updating, onOpenPlugin, onToggle }: {
+  id: string;
+  title?: string;
   plugins: PluginSummary[];
   collapsible: boolean;
   updating: boolean;
@@ -348,12 +395,12 @@ function PluginCollection({ collection, plugins, collapsible, updating, onOpenPl
   const [expanded, setExpanded] = useState(false);
   const limited = collapsible && !expanded && plugins.length > INSTALLED_PLUGIN_LIMIT;
   const displayed = limited ? plugins.slice(0, INSTALLED_PLUGIN_LIMIT) : plugins;
-  return <section className="plugins-installed" aria-labelledby={`${collection}-plugins-title`}>
-    <h2 id={`${collection}-plugins-title`}>{t(`plugins.${collection}`)}</h2>
-    {plugins.length ? <div className="plugins-installed-grid">
+  return <section className="plugins-installed" aria-labelledby={title ? `${id}-title` : undefined}>
+    {title ? <h2 id={`${id}-title`}>{title} <span className="plugins-group-count">{plugins.length}</span></h2> : null}
+    <div className="plugins-installed-grid">
       {displayed.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} disabled={updating} onToggle={enabled => onToggle(plugin, enabled)} onOpen={() => onOpenPlugin(plugin.id)} />)}
-    </div> : <p className="plugins-empty">{t("plugins.noMatch")}</p>}
-    {collapsible && plugins.length > INSTALLED_PLUGIN_LIMIT ? <button className="plugins-show-more" type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? t("plugins.showLess") : t("plugins.showMore", { count: plugins.length - INSTALLED_PLUGIN_LIMIT })}</button> : null}
+    </div>
+    {collapsible && plugins.length > INSTALLED_PLUGIN_LIMIT ? <button className="plugins-show-more" type="button" onClick={() => setExpanded((current) => !current)}>{expanded ? t("plugins.showLess") : t("plugins.viewAll", { count: plugins.length })}</button> : null}
   </section>;
 }
 

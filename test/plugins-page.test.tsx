@@ -8,7 +8,8 @@ describe("PluginsSettings", () => {
 
     expect(html).toContain("<h1>Plugins</h1>");
     expect(html).toContain("Loading plugins");
-    expect(html).not.toContain('role="tablist"');
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('role="tabpanel"');
   });
 
   it("opens plugin details from the route without rendering catalog controls", () => {
