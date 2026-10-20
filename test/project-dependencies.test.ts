@@ -107,11 +107,10 @@ describe("project dependencies", () => {
       await installed(directory);
     });
     await ensureProjectDependencies(directory, "npm", retry);
-    expect(retry).toHaveBeenCalledWith("npm", [
-      "install",
-      "--no-audit",
-      "--no-fund",
-    ]);
+    expect(retry).toHaveBeenCalledWith(
+      process.platform === "win32" ? "npm.cmd" : "npm",
+      ["install", "--no-audit", "--no-fund"],
+    );
     await expect(
       access(path.join(directory, ".ohmygame-install-pending")),
     ).rejects.toMatchObject({ code: "ENOENT" });

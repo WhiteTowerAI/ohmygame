@@ -1859,8 +1859,8 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
     const option = model?.generationOptions.find((candidate) => candidate.resolution === data.resolution && candidate.aspectRatio === data.aspectRatio)
       ?? preferredImageOption(model, data.aspectRatio);
-    if (!model || !option || !runtime) return;
-    runtime.onChange({ ...data, imageRuntime: undefined, model: { provider: model.provider, id: model.id }, resolution: option.resolution, aspectRatio: option.aspectRatio });
+    if (!model || !runtime) return;
+    runtime.onChange({ ...data, imageRuntime: undefined, model: { provider: model.provider, id: model.id }, ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}) });
   }
 
   function selectResolution(resolution: ImageResolution): void {
@@ -1893,20 +1893,20 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
           disabled={runtime?.busy}
           onChange={selectModel}
         />
-        <CanvasChipSelect
+        {selectedModel?.supportsAspectRatio !== false ? <CanvasChipSelect
           label={t("assetCanvas.imageAspect")}
           value={data.aspectRatio}
           options={aspectRatios.map((ratio) => ({ value: ratio, label: ratio }))}
           disabled={!selectedModel || runtime?.busy}
           onChange={(aspectRatio) => runtime?.onChange({ ...data, imageRuntime: undefined, aspectRatio })}
-        />
-        <CanvasChipSelect
+        /> : null}
+        {selectedModel?.supportsResolution !== false ? <CanvasChipSelect
           label={t("assetCanvas.imageResolution")}
           value={data.resolution}
           options={resolutions.map((resolution) => ({ value: resolution, label: resolution }))}
           disabled={!selectedModel || runtime?.busy}
           onChange={selectResolution}
-        />
+        /> : null}
         <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
     </MediaNodeShell>

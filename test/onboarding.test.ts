@@ -79,9 +79,10 @@ describe("onboarding persistence", () => {
       status: "pending",
       step: "connect",
     });
-    expect(
-      (await stat(path.join(directory, "onboarding.json"))).mode & 0o777,
-    ).toBe(0o600);
+    if (process.platform !== "win32")
+      expect(
+        (await stat(path.join(directory, "onboarding.json"))).mode & 0o777,
+      ).toBe(0o600);
     await Promise.all([
       store.update({ status: "skipped", step: "connect" }),
       store.update({ status: "pending", step: "welcome" }),

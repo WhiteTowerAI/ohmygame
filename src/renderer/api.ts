@@ -262,6 +262,10 @@ export async function loginAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntim
   return request(`/agent-runtimes/${id}/login`, { method: "POST" });
 }
 
+export async function recheckCodexImages(): Promise<ProviderSummary> {
+  return request("/settings/models/providers/codex-cli/images/recheck", { method: "POST" });
+}
+
 export async function answerApproval(projectId: string, conversationId: string, requestId: string, decision: ApprovalDecision): Promise<void> {
   await request(`/projects/${projectId}/conversations/${conversationId}/approvals/${encodeURIComponent(requestId)}`, {
     method: "POST",

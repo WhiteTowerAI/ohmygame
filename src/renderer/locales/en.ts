@@ -1,5 +1,14 @@
 // English is the source language. Add every UI string here first.
 const en = {
+  codexImages: {
+    description: "Local Codex CLI · image generation",
+    hint: "Uses your saved Codex login and account usage limits. Works in the canvas and with any chat agent, even when Codex is turned off in Agents. The terminal does not need to stay open.",
+    managedOptions: "Codex manages the image model and output dimensions. Describe the desired framing in your prompt. Multiple reference images are supported.",
+    enable: "Enable Codex CLI image generation",
+    ready: "Codex image generation is connected",
+    unavailable: "Codex image generation needs attention",
+    checkAgain: "Check again",
+  },
   common: {
     openName: "Open {{name}}",
     tryAgain: "Try again",
@@ -1451,6 +1460,8 @@ const en = {
     attachFilesHint: "Add files to this message",
     design: "Reference game design",
     designHint: "Use the saved design document",
+    publish: "Publish game",
+    publishHint: "Publish your game and get a share link",
     trigger: "Add context or attach files",
     label: "Add context",
     noMatch: "No matching items",

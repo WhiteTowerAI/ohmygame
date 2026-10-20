@@ -394,7 +394,11 @@ describe("preview policy and lifecycle", () => {
 
   it("runs arbitrary local server commands without Node dependencies and cancels their process tree", async () => {
     const { directory, project } = await fixture();
-    const executable = `'${process.execPath.replaceAll("'", "'\\''")}'`;
+    // Windows runs custom commands through cmd.exe, which only understands double quotes.
+    const executable =
+      process.platform === "win32"
+        ? `"${process.execPath}"`
+        : `'${process.execPath.replaceAll("'", "'\\''")}'`;
     await writeFile(
       path.join(directory, "server.mjs"),
       `import {createServer} from 'node:http'; import {writeFileSync} from 'node:fs'; writeFileSync('command.pid', String(process.pid)); createServer((q,r)=>r.end('Custom General game')).listen(Number(process.env.PORT),process.env.HOST);`,

@@ -1,5 +1,12 @@
 # Git changes in Code
 
+The Files view renders `.md` and `.markdown` files as formatted Markdown.
+Workspace links and images resolve relative to the document's folder; links
+open the selected file in Code, and relative paths cannot leave the project.
+Other source files keep their syntax-highlighted preview.
+
+![Markdown file preview and the publish slash command](assets/workspace-markdown-publish-command.png)
+
 When the project directory is a Git repository, Code offers **Files** and
 **Changes** in the existing explorer. Changes shows the current workspace
 against the last commit, including staged edits, unstaged edits and untracked

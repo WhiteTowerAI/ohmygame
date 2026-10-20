@@ -24,6 +24,23 @@ them against your endpoint's documentation. Refreshing the list preserves saved
 names, uses, protocols, limits and enable state, including models no longer listed
 by the endpoint. Remove those models explicitly if you no longer want them.
 
+## Gemini 4
+
+OhMyGame bundles Pi 1.3.0, including `gemini-4-argon` for Google Gemini and
+Google Vertex AI. Connect the provider with credentials that have access to the
+model, enable it in **Providers & Models**, and select it for a conversation.
+New Google connections recommend Gemini 4 Argon; saved default models are preserved.
+
+Gemini 4 supports **Low**, **Medium**, and **High** reasoning. Other levels,
+including **Off**, are unavailable; an older saved level is clamped to a supported
+level when selecting the model. Pi sends `thinkingLevel` for both Google protocols.
+Compatible custom providers using the exact `gemini-4-argon` ID inherit the
+matching protocol's reasoning template unless explicitly overridden.
+
+Upgrading Pi preserves OhMyGame's local provider-failure diagnostics and retry
+patch. Pi 1.3 also changes Kimi Coding to OpenAI Chat Completions: existing
+`kimi-coding` Base URL overrides must include `/v1`.
+
 ## Azure provider upgrade
 
 Pi 1.2 uses provider ID `azure` in place of `azure-openai-responses`.

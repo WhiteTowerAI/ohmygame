@@ -450,6 +450,12 @@ when an update is published; publication details show that snapshot.
 
 ## Publishing
 
+In web game, General, and interactive story chats, type `/publish` and select
+the command or send it to open the existing publish dialog. The command is handled locally
+and is not sent to the agent. It is available while the agent and publishing
+are idle; Godot projects do not offer it. Confirm the title, description, and
+cover in the dialog to publish and get the share link.
+
 A workspace is publishable when it has a non-empty `scripts.build` that
 produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,

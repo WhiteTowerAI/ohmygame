@@ -37,9 +37,17 @@ describe("unified composer context menu", () => {
     try {
       expect(composerContextItems({ ...options, query: mentionQuery("/plan", 5), showCompact: true }).map((item) => item.id)).toEqual(["plan"]);
       expect(composerContextItems({ ...options, query: mentionQuery("/compact", 8), showCompact: true }).map((item) => item.id)).toEqual(["compact"]);
+      expect(composerContextItems({ ...options, query: mentionQuery("/pub", 4), canPublish: true }).map((item) => item.id)).toEqual(["publish"]);
     } finally {
       await i18next.changeLanguage(previousLanguage);
     }
+  });
+
+  it("only offers publish from a slash query when publishing is available", () => {
+    const query = mentionQuery("/", 1);
+    expect(composerContextItems({ ...options, query, canPublish: true }).map((item) => item.id)).toContain("publish");
+    expect(composerContextItems({ ...options, query }).map((item) => item.id)).not.toContain("publish");
+    expect(composerContextItems({ ...options, canPublish: true }).map((item) => item.id)).not.toContain("publish");
   });
 
   it("keeps compact instructions in a slash query", () => {

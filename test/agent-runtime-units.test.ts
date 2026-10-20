@@ -522,7 +522,9 @@ describe("coding agent tool names", () => {
 });
 
 describe("coding agent discovery", () => {
-  it("uses the newest of several installations, unless one was chosen", async () => {
+  // Windows starts only .exe programs, so it cannot run these script stand-ins, and
+  // discovery ignores them there (see docs/agent-runtimes.md).
+  it.skipIf(process.platform === "win32")("uses the newest of several installations, unless one was chosen", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-binaries-"));
     const install = async (folder: string, version: string) => {
       await mkdir(path.join(root, folder));
@@ -549,7 +551,7 @@ describe("coding agent discovery", () => {
     }
   });
 
-  it("orders prereleases by SemVer and retries failed probes without changing the executable", async () => {
+  it.skipIf(process.platform === "win32")("orders prereleases by SemVer and retries failed probes without changing the executable", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-versions-"));
     const install = async (name: string, body: string) => {
       const directory = path.join(root, name);

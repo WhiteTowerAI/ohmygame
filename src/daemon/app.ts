@@ -1,3 +1,4 @@
+import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
 import { CheckpointStore } from "./checkpoints.js";
 import { ProjectWrites } from "./project-writes.js";
@@ -703,7 +704,9 @@ export function createApp(options: AppOptions = {}) {
   const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
     ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
     : providerModelSettings.isEnabled(id);
+  const codexImages = new CodexImageProvider(path.join(dataDirectory, "agent-runtimes"), (recheck) => agentRuntimes.codexImageConnection(recheck));
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
+    codexImages,
     openAIConnection: () => imageConnection.resolve(),
     customProviders: () => providerModelSettings.customProviderCatalog(),
     migrateLegacyModels: (id, models) => providerModelSettings.migrateLegacyImageModels(id, models, async () => { await (await getModelRuntime()).refresh({ allowNetwork: false, providers: [id] }); }),
@@ -2253,9 +2256,11 @@ export function createApp(options: AppOptions = {}) {
     // the background and serve the last known snapshot so opening Settings does
     // not wait on the cloud service.
     void cloudModels.refresh();
-    return [...providers, ...directProviders, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
+    const codex = codexImages.summarySnapshot(providerEnabled("codex-cli"));
+    return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
+  app.post("/settings/models/providers/codex-cli/images/recheck", async () => codexImages.recheck(providerEnabled("codex-cli")));
   registerOpenAIImageRoutes(app, openAIImages, imageConnection, options.modelDiscoveryFetch);
   app.get("/settings/onboarding", async () => {
     if (!onboarding.initialized) {
@@ -2307,7 +2312,7 @@ export function createApp(options: AppOptions = {}) {
     const provider = (await providerSummaries()).find((item) => item.id === request.params.providerId);
     if (!provider) return reply.code(404).send({ error: "Provider not found" });
     const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
-    if (!provider.configured && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
+    if (!provider.configured && provider.id !== "codex-cli" && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
     await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
     return { ...provider, enabled: request.body.enabled };
   });
@@ -3550,6 +3555,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    codexImages.close();
     await projectNaming.close();
     await pluginCapabilities.host.close();
     await cloudModels.setSession(null);

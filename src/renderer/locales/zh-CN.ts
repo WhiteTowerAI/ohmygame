@@ -1,6 +1,15 @@
 import type en from "./en.js";
 
 const zhCN: typeof en = {
+  codexImages: {
+    description: "本地 Codex CLI · 图片生成",
+    hint: "使用本机保存的 Codex 登录和账户额度。可在画布和任意聊天智能体中使用，即使已在 Agents 中关闭 Codex。无需保持终端开启。",
+    managedOptions: "图片模型和输出尺寸由 Codex 管理。请在提示词中描述所需构图，支持多张参考图。",
+    enable: "启用 Codex CLI 图片生成",
+    ready: "Codex 图片生成已连接",
+    unavailable: "Codex 图片生成需要处理",
+    checkAgain: "重新检测",
+  },
   common: {
     openName: "打开 {{name}}",
     tryAgain: "重试",
@@ -1417,6 +1426,8 @@ const zhCN: typeof en = {
     attachFilesHint: "为这条消息添加文件",
     design: "引用游戏设计",
     designHint: "使用已保存的设计文档",
+    publish: "发布游戏",
+    publishHint: "发布你的游戏并获取分享链接",
     trigger: "添加上下文或文件",
     label: "添加上下文",
     noMatch: "没有匹配的项目",

@@ -187,11 +187,15 @@ OhMyGame 不内置模型。首次启动时，一个小小的游戏世界逐渐�
    | 想做的东西              | 需要连接                                                       |
    | ----------------------- | -------------------------------------------------------------- |
    | 设计文档、代码、试玩    | 任意语言模型服务商                                             |
-   | 图片和精灵图            | OpenAI（API 密钥）、OpenRouter，或火山方舟 / BytePlus ModelArk |
+   | 图片和精灵图            | Codex CLI（本机登录）、OpenAI（API 密钥）、OpenRouter，或火山方舟 / BytePlus ModelArk |
    | 视频                    | OpenRouter，或火山方舟 / BytePlus ModelArk                     |
    | 3D 模型、骨骼绑定、动画 | Meshy、Tripo 或 Hyper3D（各服务商支持的能力不同）               |
 
-   用 ChatGPT 账号登录不包含图片生成。在 OpenAI 服务商的 **图像模型** 区域，
+   **Codex CLI** 图片服务商使用本机 Codex 登录和账户额度。可在画布中选择
+   **Codex Image**，也可设为默认图片来源。它能配合任意聊天智能体使用，
+   即使已在 Agents 中关闭 Codex，也无需保持终端开启。支持多张参考图，沿用应用统一的 16 张上限；输出尺寸由 Codex 管理。
+
+   OpenAI 服务商的 ChatGPT 浏览器登录不包含其图片 API。在 OpenAI 服务商的 **图像模型** 区域，
    可以配置独立的 API 密钥和 Base URL，拉取或手动添加图像模型，启用后保存。
    这可以与浏览器登录同时使用，也支持兼容 GPT Image 的中转服务。
    使用 API 密钥的聊天连接也可以与图片生成共用密钥和端点。
