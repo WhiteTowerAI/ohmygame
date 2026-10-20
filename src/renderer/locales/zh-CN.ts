@@ -1744,7 +1744,7 @@ const zhCN: typeof en = {
     confirmReplace: "要用此插件包替换“{{name}}”吗？插件文件和备份中的非敏感配置、启用设置将被替换，同名密钥字段的凭据会保留。",
     replacesExisting: "将替换已安装的 Personal 插件。", installsPersonal: "将安装为 Personal 插件。",
     restoresSettings: "会恢复非敏感配置和启用设置。", archiveSource: "导入的插件包",
-    dependencies: "运行依赖", dependenciesHint: "检查本机工具和脚本路径。外部服务请使用 MCP 连接测试。",
+    dependencies: "运行依赖", localTools: "本机工具与脚本", dependenciesHint: "检查本机工具和脚本路径。外部服务请使用 MCP 连接测试。",
     check: "检查依赖", checking: "正在检查…", noDependencies: "未声明额外的本机命令依赖。",
     status: { ok: "就绪", warning: "需要检查", error: "不可用" },
     checks: {
@@ -2761,6 +2761,8 @@ const zhCN: typeof en = {
     bind: "连接此目录", continue: "继续", conflict: "一个工作目录只能使用一个接入插件。请为其他接入创建独立项目。", incompatible: "引用的插件需要不同项目类型，请选择兼容的插件。",
     preview: "本地预览", externalWindow: "游戏将在独立原生窗口中打开。刷新会重启游戏并重置运行状态。",
     installRuntime: "安装 Runtime", start: "启动预览", restart: "刷新预览", stop: "停止", logs: "获取日志",
+    account: "本地环境与账号", needsSetup: "需要先准备本地环境", needsAuth: "需要连接账号", unchecked: "尚未检查",
+    logsTitle: "运行日志", hideLogs: "收起日志", noLogs: "暂无日志输出。",
     previewStatus: { missing: "尚未安装 Runtime", stopped: "预览已停止", running: "预览运行中", error: "请先检查预览状态再重试" },
   },
   textComposer: {

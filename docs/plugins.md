@@ -50,7 +50,6 @@ All paths are relative to the plugin root and start with `./`. Omit components t
 Optional `interface.beta: true` displays a Beta badge on the plugin card and
 detail page. Omit it or set it to false for plugins without that label; it does
 not change installation, configuration, or enablement behavior.
-See the [bundled engine plugin cards](assets/additional-beta-plugins.png).
 
 Optional `enabledByDefault` sets a package's initial plugin switch (default:
 `true`). A saved user choice takes precedence across restarts and package
@@ -73,8 +72,6 @@ picker, validation, and AI authoring instructions.
 The `@` and Add context menus show each plugin's configured icon. Home and
 conversation capability responses include `icon` and `iconRevision` so these
 menus share the plugin library's authenticated image loading and fallback.
-
-![Plugin icons in the composer menu](assets/composer-plugin-icons.png)
 
 Custom icons support PNG, WebP, and static SVG, up to 1 MB and 2048 × 2048.
 SVG files must be UTF-8 with an explicit positive `viewBox` no larger than
@@ -295,8 +292,6 @@ editors. Private dependencies survive package updates and disabling, are removed
 when an installed integration plugin is uninstalled, and stay outside exported
 plugin packages. Credentials remain in Maker's own store.
 
-![Maker project creation](assets/maker-project-creation.png)
-
 Reference Maker when creating a project to select General automatically, or select
 it under Project plugin in the new-project window. Project creation includes a
 branded creation dialog before opening a conversation, keeping the original
@@ -316,22 +311,23 @@ type. A directory already registered as an OhMyGame project reopens unchanged.
 Referencing Maker in an existing compatible project opens the connection panel;
 the project switches to Maker only when you continue, which turns off its Web
 preview and Community publishing. Closing the panel leaves the project as it was.
-Disconnect plugin on the Preview tab returns the project to an ordinary General
+Disconnect plugin in the Preview tab's footer returns the project to an ordinary General
 project, also while the plugin is disabled. It stops a running native preview and
 keeps Maker's binding files, so the project can connect again; Web preview stays
 off until you turn it on in Project settings. Conflicting plugin references
 require a compatible selection.
 
-View provides install/start/refresh/stop/status/log controls for Maker's separate
-native Runtime window. Web preview is disabled for these projects. Controls load
-only while View is open; idle status refreshes every ten seconds, while setup task
-polls read in-memory state. Agents use the same adapter through `project_preview`.
+View shows the state of Maker's separate native Runtime window with its
+install/start/refresh/stop controls, a status refresh, and logs. Web preview is
+disabled for these projects. Controls load only while View is open. While the
+preview runs, View checks it every ten seconds to notice a closed window;
+otherwise it rereads the daemon's in-memory state, which also reflects agent
+calls, without starting the adapter. Agents use the same adapter through
+`project_preview`.
 The pinned release does not provide `preview validate` or native screenshots.
 Local previews do not submit remotely. `maker_build_current_directory` commits,
 pushes, and builds the bound branch; use Maker's own page to publish. OhMyGame
 Community publishing is unavailable for integrated projects.
-
-![Native preview controls, exercised with a test adapter](assets/plugin-native-preview.png)
 
 See the [TapTap Maker Skill](../plugins/taptap-maker/skills/taptap-maker/SKILL.md).
 
@@ -352,8 +348,6 @@ the current project.
 Their saved switches are preserved by the same settings store as other plugins.
 These packages reuse the existing runtime; they introduce no new project types,
 client installers, custom MCP bridges, or automatic engine upgrades.
-See the [light](assets/additional-beta-plugins.png) and
-[dark](assets/additional-beta-plugins-dark.png) plugin cards.
 
 | Plugin | Project scope | Local integration and initial boundary |
 | --- | --- | --- |

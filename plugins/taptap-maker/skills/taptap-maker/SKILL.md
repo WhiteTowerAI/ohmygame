@@ -5,7 +5,7 @@ description: Develop bound TapTap Maker (UrhoX/Lua) projects with the official M
 
 # TapTap Maker
 
-Maker games use UrhoX and Lua. Pass the workspace's absolute path as `target_dir` to Maker MCP tools, and start with `maker_status_lite`. Read the workspace instructions and the needed `.agents/skills/*/SKILL.md` files directly; OhMyGame does not load them automatically.
+Maker games use UrhoX and Lua. Pass the workspace's absolute path as `target_dir` to Maker MCP tools, and start with `maker_status_lite`. Read the workspace instructions. When the needed `.agents/skills/*/SKILL.md` files are not already available as Skills, read them directly.
 
 ## Setup and binding
 

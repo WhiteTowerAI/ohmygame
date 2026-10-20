@@ -48,7 +48,7 @@ to open the workspace root; file reads and writes still require a file path.
 
 The main sidebar opens **Plugins** for the plugin library, plugin details, and
 Plugin Builder. Earlier Settings → Plugins links still open the same plugin
-on this page. See the [plugin navigation example](assets/plugins-main-navigation.png).
+on this page.
 
 [Git changes in Code](workspace-git.md) covers the read-only project changes
 view, its comparison baseline and refresh behavior.

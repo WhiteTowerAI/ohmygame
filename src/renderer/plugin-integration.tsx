@@ -15,11 +15,26 @@ import {
   runPluginIntegration,
   setProjectIntegration,
 } from "./api.js";
-import { Check, LoaderCircle, RefreshCw, X } from "./icons.js";
+import {
+  Check,
+  CircleX,
+  Download,
+  LoaderCircle,
+  Monitor,
+  Play,
+  RefreshCw,
+  Terminal,
+  UserRound,
+  X,
+} from "./icons.js";
 import { t } from "./i18n.js";
 import { PluginGlyph } from "./plugin-icons.js";
 
 type ProjectCreation = { name: string; canCreate: boolean };
+type PluginIdentity = Pick<
+  PluginSummary,
+  "id" | "displayName" | "icon" | "iconRevision"
+>;
 type CreationOptions = { canCreate: boolean; embedded?: boolean };
 
 function useIntegration(
@@ -202,8 +217,21 @@ function IntegrationContents({
     error,
     onReady,
   ]);
+  // The plugin page shows the connection like its other component sections.
+  const pluginPage = !projectId && !onReady && !creation;
+  const showProgress = busy && !(creation && projectOperation);
+  const connection = result?.connection?.status;
+  const connectionStatus = showProgress
+    ? (state?.message ?? t("integration.working"))
+    : ready
+      ? t("integration.connected")
+      : connection === "needs-auth"
+        ? t("integration.needsAuth")
+        : connection === "needs-setup"
+          ? t("integration.needsSetup")
+          : t("integration.unchecked");
   const connectionActions = (
-    <div className="plugin-integration-actions">
+    <div className="plugin-integration-actions plugin-mcp-actions">
       {result?.connection?.status === "needs-setup" ? (
         <button
           className="plugin-detail-primary"
@@ -251,11 +279,13 @@ function IntegrationContents({
   );
   return (
     <section
-      className="plugin-integration-panel"
+      className={`plugin-integration-panel${pluginPage ? " plugin-components" : ""}`}
       ref={panel}
       aria-label={t("integration.title")}
     >
-      {!creation ? (
+      {pluginPage ? (
+        <h2>{t("integration.title")}</h2>
+      ) : !creation ? (
         <header>
           {!onReady ? <h2>{t("integration.title")}</h2> : null}
           <p>{t("integration.description")}</p>
@@ -281,28 +311,51 @@ function IntegrationContents({
           {t("integration.openAuthorization")}
         </a>
       ) : null}
-      <div className="plugin-integration-connection">
-        {busy || ready ? (
-          <p className="plugin-integration-status" role="status">
-            {busy && !(creation && projectOperation) ? (
-              <LoaderCircle size={14} className="spin" aria-hidden="true" />
-            ) : (
-              <Check size={14} aria-hidden="true" />
-            )}
-            {busy && !(creation && projectOperation)
-              ? (state?.message ?? t("integration.working"))
-              : t("integration.connected")}
-          </p>
-        ) : null}
-        {creation && ready ? (
-          <details className="plugin-integration-account-options">
-            <summary>{t("integration.accountOptions")}</summary>
+      {creation ? (
+        <div className="plugin-integration-connection">
+          {busy || ready ? (
+            <p className="plugin-integration-status" role="status">
+              {showProgress ? (
+                <LoaderCircle size={14} className="spin" aria-hidden="true" />
+              ) : (
+                <Check size={14} aria-hidden="true" />
+              )}
+              {showProgress
+                ? (state?.message ?? t("integration.working"))
+                : t("integration.connected")}
+            </p>
+          ) : null}
+          {ready ? (
+            <details className="plugin-integration-account-options">
+              <summary>{t("integration.accountOptions")}</summary>
+              {connectionActions}
+            </details>
+          ) : (
+            connectionActions
+          )}
+        </div>
+      ) : (
+        <div className="plugin-integration-connection">
+          <div className="plugin-component-row plugin-mcp-row">
+            <span
+              className={`plugin-component-icon${ready && !showProgress ? " is-ready" : ""}`}
+            >
+              {showProgress ? (
+                <LoaderCircle size={15} className="spin" aria-hidden="true" />
+              ) : ready ? (
+                <Check size={15} aria-hidden="true" />
+              ) : (
+                <UserRound size={15} aria-hidden="true" />
+              )}
+            </span>
+            <span className="plugin-row-copy">
+              <strong>{t("integration.account")}</strong>
+              <span role="status">{connectionStatus}</span>
+            </span>
             {connectionActions}
-          </details>
-        ) : (
-          connectionActions
-        )}
-      </div>
+          </div>
+        </div>
+      )}
       {projectId && ready ? (
         <div className="plugin-integration-binding">
           {creation?.canCreate && !bound ? (
@@ -453,10 +506,7 @@ export function usePluginIntegrationGate(
     pluginId: string;
     initial: PluginIntegrationState;
     creation?: CreationOptions;
-    plugin?: Pick<
-      PluginSummary,
-      "id" | "displayName" | "icon" | "iconRevision"
-    >;
+    plugin?: PluginIdentity;
   }>();
   const resolveDialog = useRef<((ready: boolean) => void) | undefined>(
     undefined,
@@ -694,19 +744,27 @@ export function ExternalProjectPreview({
 }) {
   const pluginId = project.integration!.pluginId;
   const integration = useIntegration(pluginId, project.id);
-  const disconnect = (
-    <IntegrationDisconnect
-      projectId={project.id}
-      onDisconnected={onProjectUpdated}
-    />
-  );
+  const [plugin, setPlugin] = useState<PluginIdentity>();
+  const [logs, setLogs] = useState<string>();
   const { state, busy, error, run, reload } = integration;
   const ready =
     state?.result?.connection?.status === "ready" && !!state.result.project;
   const preview = state?.result?.preview;
-  const running = preview?.status === "running";
+  const status = preview?.status ?? "stopped";
+  const running = status === "running";
   const checkPreview =
     ready && !busy && !preview && state?.action === "status" && !error;
+  useEffect(() => {
+    let active = true;
+    void readPlugin(pluginId)
+      .then((value) => {
+        if (active) setPlugin(value);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [pluginId]);
   useEffect(() => {
     if (checkPreview) void run("preview-status");
   }, [checkPreview]);
@@ -720,15 +778,39 @@ export function ExternalProjectPreview({
     );
     return () => clearInterval(timer);
   }, [ready, busy, running]);
+  // Keep loaded logs while later status checks replace the preview result.
+  useEffect(() => {
+    if (preview?.logs !== undefined) setLogs(preview.logs);
+  }, [preview?.logs]);
+  const boundProject = state?.result?.project;
+  const footer = (
+    <footer className="external-preview-footer">
+      <span className="external-preview-identity">
+        {plugin ? <PluginGlyph plugin={plugin} size={16} /> : null}
+        <strong>{plugin?.displayName ?? t("integration.plugin")}</strong>
+        {boundProject ? (
+          <span>{boundProject.name ?? boundProject.id}</span>
+        ) : null}
+      </span>
+      <IntegrationDisconnect
+        projectId={project.id}
+        onDisconnected={onProjectUpdated}
+      />
+    </footer>
+  );
   if (!ready)
     return (
       <section className="external-project-preview">
-        <IntegrationContents
-          {...integration}
-          pluginId={pluginId}
-          projectId={project.id}
-        />
-        {disconnect}
+        <div className="external-preview-stage">
+          <div className="external-preview-setup">
+            <IntegrationContents
+              {...integration}
+              pluginId={pluginId}
+              projectId={project.id}
+            />
+          </div>
+        </div>
+        {footer}
       </section>
     );
   return (
@@ -736,73 +818,108 @@ export function ExternalProjectPreview({
       className="external-project-preview"
       aria-label={t("integration.preview")}
     >
-      <h2>{t("integration.preview")}</h2>
-      <p>{t("integration.externalWindow")}</p>
-      <p role="status">
-        {busy
-          ? (state?.message ?? t("integration.working"))
-          : t(`integration.previewStatus.${preview?.status ?? "stopped"}`)}
-      </p>
-      {error || preview?.message ? (
-        <p role="alert">{error ?? preview?.message}</p>
-      ) : null}
-      <div className="plugin-integration-actions">
-        {preview?.status === "missing" ? (
+      <div className="external-preview-stage">
+        <div
+          className={`preview-empty-mark external-preview-mark is-${busy ? "busy" : status}`}
+          aria-hidden="true"
+        >
+          {busy ? (
+            <LoaderCircle size={20} className="spin" />
+          ) : running ? (
+            <Monitor size={20} />
+          ) : status === "missing" ? (
+            <Download size={20} />
+          ) : status === "error" ? (
+            <CircleX size={20} />
+          ) : (
+            <Play size={20} />
+          )}
+        </div>
+        <p className="preview-empty-title" role="status">
+          {busy
+            ? (state?.message ?? t("integration.working"))
+            : t(`integration.previewStatus.${status}`)}
+        </p>
+        <p className="preview-empty-description">
+          {t("integration.externalWindow")}
+        </p>
+        {error || preview?.message ? (
+          <p role="alert" className="external-preview-error">
+            {error ?? preview?.message}
+          </p>
+        ) : null}
+        <div className="external-preview-actions">
+          {status === "missing" ? (
+            <button
+              className="plugin-detail-primary"
+              type="button"
+              disabled={busy}
+              onClick={() => void run("preview-install")}
+            >
+              {t("integration.installRuntime")}
+            </button>
+          ) : (
+            <button
+              className="plugin-detail-primary"
+              type="button"
+              disabled={busy || status === "error"}
+              onClick={() =>
+                void run(running ? "preview-refresh" : "preview-start")
+              }
+            >
+              {t(running ? "integration.restart" : "integration.start")}
+            </button>
+          )}
+          {running ? (
+            <button
+              className="plugin-detail-secondary"
+              type="button"
+              disabled={busy}
+              onClick={() => void run("preview-stop")}
+            >
+              {t("integration.stop")}
+            </button>
+          ) : null}
+        </div>
+        <div className="external-preview-tools">
           <button
-            className="plugin-detail-primary"
+            className="external-preview-tool"
             type="button"
             disabled={busy}
-            onClick={() => void run("preview-install")}
+            onClick={() => void run("preview-status")}
           >
-            {t("integration.installRuntime")}
+            <RefreshCw size={13} aria-hidden="true" />
+            {t("integration.refresh")}
           </button>
-        ) : (
           <button
-            className="plugin-detail-primary"
+            className="external-preview-tool"
             type="button"
-            disabled={busy || preview?.status === "error"}
-            onClick={() =>
-              void run(
-                preview?.status === "running"
-                  ? "preview-refresh"
-                  : "preview-start",
-              )
-            }
+            disabled={busy}
+            onClick={() => void run("preview-logs")}
           >
-            {t(
-              preview?.status === "running"
-                ? "integration.restart"
-                : "integration.start",
-            )}
+            <Terminal size={13} aria-hidden="true" />
+            {t("integration.logs")}
           </button>
-        )}
-        <button
-          className="plugin-detail-secondary"
-          type="button"
-          disabled={busy || preview?.status !== "running"}
-          onClick={() => void run("preview-stop")}
-        >
-          {t("integration.stop")}
-        </button>
-        <button
-          className="plugin-detail-secondary"
-          type="button"
-          disabled={busy}
-          onClick={() => void run("preview-status")}
-        >
-          {t("integration.refresh")}
-        </button>
-        <button
-          className="plugin-detail-secondary"
-          type="button"
-          disabled={busy}
-          onClick={() => void run("preview-logs")}
-        >
-          {t("integration.logs")}
-        </button>
+        </div>
       </div>
-      {preview?.logs ? <pre>{preview.logs}</pre> : null}
-      {disconnect}
+      {logs !== undefined ? (
+        <div className="external-preview-logs">
+          <header>
+            <span>{t("integration.logsTitle")}</span>
+            <button
+              className="external-preview-tool"
+              type="button"
+              aria-label={t("integration.hideLogs")}
+              title={t("integration.hideLogs")}
+              onClick={() => setLogs(undefined)}
+            >
+              <X size={13} aria-hidden="true" />
+            </button>
+          </header>
+          <pre>{logs || t("integration.noLogs")}</pre>
+        </div>
+      ) : null}
+      {footer}
     </section>
   );
 }
@@ -829,7 +946,9 @@ function IntegrationDisconnect({
     }
   }
   return (
-    <div className="plugin-integration-disconnect">
+    <div
+      className={`plugin-integration-disconnect${confirming ? " is-confirming" : ""}`}
+    >
       {confirming ? (
         <>
           <p>{t("integration.disconnectNotice")}</p>
@@ -838,23 +957,23 @@ function IntegrationDisconnect({
               className="plugin-detail-secondary"
               type="button"
               disabled={pending}
-              onClick={() => void disconnect()}
-            >
-              {t("integration.disconnectConfirm")}
-            </button>
-            <button
-              className="plugin-detail-secondary"
-              type="button"
-              disabled={pending}
               onClick={() => setConfirming(false)}
             >
               {t("common.cancel")}
+            </button>
+            <button
+              className="plugin-detail-primary"
+              type="button"
+              disabled={pending}
+              onClick={() => void disconnect()}
+            >
+              {t("integration.disconnectConfirm")}
             </button>
           </div>
         </>
       ) : (
         <button
-          className="plugin-detail-secondary"
+          className="external-preview-tool"
           type="button"
           onClick={() => setConfirming(true)}
         >

@@ -1793,7 +1793,7 @@ const en = {
     confirmReplace: "Replace “{{name}}” with this archive? Its package and backed-up nonsecret settings will be replaced. Saved credentials for matching fields are kept.",
     replacesExisting: "This replaces an installed Personal plugin.", installsPersonal: "This installs a Personal plugin.",
     restoresSettings: "Its nonsecret configuration and enable settings will be restored.", archiveSource: "Imported archive",
-    dependencies: "Dependencies", dependenciesHint: "Check local tools and script paths. Use the MCP connection test to check external services.",
+    dependencies: "Dependencies", localTools: "Local tools and scripts", dependenciesHint: "Check local tools and script paths. Use the MCP connection test to check external services.",
     check: "Check dependencies", checking: "Checking…", noDependencies: "No additional local commands are declared.",
     status: { ok: "Ready", warning: "Check required", error: "Unavailable" },
     checks: {
@@ -2842,6 +2842,8 @@ const en = {
     bind: "Connect this directory", continue: "Continue", conflict: "A workspace can use one integration plugin. Create a separate project for another integration.", incompatible: "The referenced plugins need different project types. Choose compatible plugins.",
     preview: "Local preview", externalWindow: "The game opens in its own native window. Refresh restarts it and resets game state.",
     installRuntime: "Install Runtime", start: "Start preview", restart: "Refresh preview", stop: "Stop", logs: "Load logs",
+    account: "Local setup and account", needsSetup: "Prepare the local environment to continue", needsAuth: "Connect your account to continue", unchecked: "Not checked yet",
+    logsTitle: "Runtime logs", hideLogs: "Hide logs", noLogs: "No log output yet.",
     previewStatus: { missing: "Runtime is not installed", stopped: "Preview stopped", running: "Preview running", error: "Check the preview state before retrying" },
   },
   textComposer: {
