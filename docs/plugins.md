@@ -281,10 +281,10 @@ plugin packages. Credentials remain in Maker's own store.
 ![Maker project creation](assets/maker-project-creation.png)
 
 Reference Maker when creating a project to select General automatically, or select
-it under Project plugin in the new-project window. Project creation includes an
+it under Project plugin in the new-project window. Project creation includes a
 branded creation dialog before opening a conversation, keeping the original
 description visible behind it. It defaults to **New project**: enter a name and
-choose **Create TapTap Maker project and start** to create the Maker project and
+choose **Create project** to create the Maker project and
 prepare its empty local directory. A ready account is summarized in one line,
 with reconnect and refresh under **Account options**. Missing environment or
 authorization steps expand only when needed. The explicit new-project window

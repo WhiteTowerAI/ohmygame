@@ -19,7 +19,7 @@ import { Check, LoaderCircle, RefreshCw, X } from "./icons.js";
 import { t } from "./i18n.js";
 import { PluginGlyph } from "./plugin-icons.js";
 
-type ProjectCreation = { name: string; canCreate: boolean; pluginName: string };
+type ProjectCreation = { name: string; canCreate: boolean };
 type CreationOptions = { canCreate: boolean; embedded?: boolean };
 
 function useIntegration(
@@ -280,11 +280,7 @@ function IntegrationContents({
             )}
             {busy && !(creation && projectOperation)
               ? (state?.message ?? t("integration.working"))
-              : creation
-                ? t("integration.connectedWith", {
-                    plugin: creation.pluginName,
-                  })
-                : t("integration.connected")}
+              : t("integration.connected")}
           </p>
         ) : null}
         {creation && ready ? (
@@ -342,11 +338,6 @@ function IntegrationContents({
                   onChange={(event) => setName(event.target.value)}
                 />
               </label>
-              <p>
-                {t("integration.newProjectHint", {
-                  plugin: creation.pluginName,
-                })}
-              </p>
               <button
                 className="plugin-detail-primary"
                 type="button"
@@ -360,15 +351,12 @@ function IntegrationContents({
                   );
                 }}
               >
-                {t(
-                  busy ? "integration.working" : "integration.createAndConnect",
-                  { plugin: creation.pluginName },
-                )}
+                {t(busy ? "integration.working" : "integration.createAndConnect")}
               </button>
             </>
           ) : (
             <>
-              <p>{t("integration.chooseProject")}</p>
+              {!creation ? <p>{t("integration.chooseProject")}</p> : null}
               <button
                 className="plugin-detail-secondary"
                 type="button"
@@ -526,7 +514,7 @@ export function usePluginIntegrationGate(
       candidate={!dialog.project.integration}
       creation={
         dialog.creation
-          ? { ...dialog.creation, name: dialog.project.name, pluginName }
+          ? { ...dialog.creation, name: dialog.project.name }
           : undefined
       }
       onReady={() => close(true)}
@@ -541,10 +529,7 @@ export function usePluginIntegrationGate(
               <PluginGlyph plugin={dialog.plugin} size={32} />
             </span>
           ) : null}
-          <div>
-            <h2>{t("integration.createTitle", { plugin: pluginName })}</h2>
-            <p>{t("integration.creationHint")}</p>
-          </div>
+          <h2>{t("integration.createTitle", { plugin: pluginName })}</h2>
         </div>
         <button
           className="plugin-detail-secondary plugin-integration-refresh"

@@ -163,10 +163,10 @@ describe("plugin connection UI", () => {
     );
     expect(container.querySelector("select")).toBeNull();
     expect(container.querySelector("details")?.open).toBe(false);
-    expect(container.textContent).toContain("TapTap Maker account connected");
+    expect(container.textContent).toContain("Account connected");
     expect(opened).not.toHaveBeenCalled();
     await fillName("Pixel garden");
-    await click("Create TapTap Maker project and start");
+    await click("Create project");
     expect(actions).toEqual([{ action: "create" }]);
     expect(opened).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Pixel garden" }),
@@ -256,7 +256,7 @@ describe("plugin connection UI", () => {
         .querySelector<HTMLButtonElement>('button[type="submit"]')!
         .click(),
     );
-    await click("Create TapTap Maker project and start");
+    await click("Create project");
     expect(opened).toHaveBeenCalledOnce();
     expect(opened.mock.calls[0]?.[2]).toContain("Make a forest adventure");
   });
@@ -317,7 +317,7 @@ describe("plugin connection UI", () => {
     expect(container.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(container.querySelectorAll('[role="dialog"] h2')).toHaveLength(1);
     expect(opened).not.toHaveBeenCalled();
-    await click("Create TapTap Maker project and start");
+    await click("Create project");
     expect(opened).toHaveBeenCalledOnce();
     expect(create).toHaveBeenCalledOnce();
     expect(projectRequests.some((request) => request.method === "PATCH")).toBe(
@@ -403,14 +403,14 @@ describe("plugin connection UI", () => {
     await act(async () => root.render(<Creator />));
     await click("Create game");
     await fillName("Fox forest");
-    await click("Create TapTap Maker project and start");
+    await click("Create project");
     expect(container.querySelector("input")?.value).toBe("Fox forest");
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(
       "resume",
     );
     expect(opened).not.toHaveBeenCalled();
     fail = false;
-    await click("Create TapTap Maker project and start");
+    await click("Create project");
     expect(opened).toHaveBeenCalledOnce();
     expect(
       projectRequests.every((request) =>
@@ -497,7 +497,7 @@ describe("plugin connection UI", () => {
     await act(async () => root.render(<Creator />));
     await click("Create game");
     await fillName("Pixel garden");
-    await click("Create TapTap Maker project and start");
+    await click("Create project");
     expect(saveName).toBeDefined();
     expect(
       container.querySelector<HTMLButtonElement>(
