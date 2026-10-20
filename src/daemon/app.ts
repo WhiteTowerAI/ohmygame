@@ -2271,14 +2271,15 @@ export function createApp(options: AppOptions = {}) {
   app.put<{ Body: UpdateOnboardingRequest }>("/settings/onboarding", {
     schema: { body: {
       type: "object", additionalProperties: false, required: ["status", "step"],
-      properties: { status: { enum: ["pending", "completed", "skipped"] }, step: { enum: ["welcome", "connect"] } },
+      properties: { status: { enum: ["pending", "completed", "skipped"] }, step: { enum: ["welcome", "connect", "media"] } },
     } },
   }, async (request, reply) => {
     if (request.body.status === "completed") {
       const runtime = await getModelRuntime();
       const available = resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider)))
         .filter((model) => providerModelSettings.isVisible(model));
-      if (!available.length) return reply.code(409).send({ error: "Connect a language model before completing setup." });
+      if (!available.length && !(await agentRuntimes.models()).models.length)
+        return reply.code(409).send({ error: "Connect a language model before completing setup." });
     }
     return onboarding.update(request.body);
   });

@@ -196,25 +196,30 @@ not code-signed yet, so Windows may show a SmartScreen warning during install.
 
 ### First run
 
-![First-run welcome and provider connection screens](docs/assets/first-run-onboarding.png)
+![First-run AI connection screen](docs/assets/first-run-onboarding.png)
 
 OhMyGame ships without a model. On first launch, a small game world forms and
 transforms into the OhMyGame logo. The wordmark, **Your own game studio.**, and
 **Next** appear in sequence over about five seconds.
 Click **Next** to connect a model before your first prompt:
 
-1. **Connect a language model.** **Choose your provider** lists available
-   providers with their sign-in or API key options. Use the **+** button beside
-   search to add a custom or local compatible endpoint in the same window.
-   **Start creating** becomes available when a language model is ready. You can
-   also choose **Skip and start** to enter without setup and configure a model
-   later in **Settings → Providers & Models**. Saved connections show **Connected**.
-   Setup resumes where you left off; existing installations go straight to
-   the studio.
-2. **Add media providers if you want them.** The agent can design and build a
-   game with only a language model. Connect image, video, and 3D providers and
-   choose default models in **Settings → Providers & Models** whenever you
-   need them. Generating art, video, or 3D needs its own provider:
+1. **Connect your AI.** OhMyGame (Pi) is enabled by default and uses your model
+   providers; connect a provider with sign-in or an API key, or use an installed
+   Claude Code or Codex CLI. OpenCode is under **More agents**. Use **+** beside
+   provider search to add a custom or local endpoint. CLI connections use their
+   own sign-in; **Use** enables the agent without changing its permissions or
+   personal configuration. The default conversation model can be changed on this
+   screen. **Next** continues when a language model is ready; **Skip and start**
+   enters without setup. Setup resumes where you left off; existing installations
+   go straight to the studio.
+2. **Add creative tools (optional).** The last screen offers image, video, 3D,
+   and audio providers. Each category shows every provider; **+** adds a custom
+   provider inline. Choose a provider to connect and configure its
+   models; connected image, video, and 3D providers also offer a default model.
+   **Start creating** enters the studio without requiring any media connection.
+   These tools remain available in **Settings → Providers & Models**; coding
+   agents are managed in **Settings → Agents**. A language model alone can design
+   and build a game. Generating media needs a corresponding provider:
 
    | To make                       | Connect                                                             |
    | ----------------------------- | ------------------------------------------------------------------- |

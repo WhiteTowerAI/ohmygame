@@ -83,6 +83,18 @@ async function start(source = FAKE_CLAUDE) {
 }
 
 describe("coding agent routes", () => {
+  it("persists the optional media step and completes setup using only a CLI", async () => {
+    const { call, claude } = await start();
+    expect((await call("PUT", "/settings/onboarding", { status: "pending", step: "media" })).status).toBe(200);
+    expect((await call<{ step: string }>("GET", "/settings/onboarding")).body.step).toBe("media");
+    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(409);
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { binaryPath: claude, enabled: true });
+    await call("PUT", "/models/default", { model: { provider: "claude-code-cli", id: "sonnet" }, nativeReasoningLevel: "high" });
+    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(200);
+    await call("PATCH", "/agent-runtimes/claude-code-cli", { enabled: false });
+    expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(409);
+  });
+
   it("accepts models returned by Claude initialize without requesting list_models", async () => {
     const { call, claude } = await start(
       FAKE_CLAUDE.replace('=== "list_models"', '=== "initialize"'),

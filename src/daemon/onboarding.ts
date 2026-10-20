@@ -27,7 +27,7 @@ export class OnboardingStore {
       if (
         value?.version !== 1 ||
         !["pending", "completed", "skipped"].includes(value.status) ||
-        !["welcome", "connect"].includes(value.step)
+        !["welcome", "connect", "media"].includes(value.step)
       )
         throw new Error("Invalid onboarding state");
       this.#state = { version: 1, status: value.status, step: value.step };

@@ -22,6 +22,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
       methods: [],
     },
   ]),
+  listAgentRuntimes: vi.fn(async () => []),
   listModels: vi.fn(async () => ({
     models: [],
     defaultReasoningLevel: "medium",
@@ -103,7 +104,7 @@ it("shows table adoption and CSV replacement warnings in Chinese", () => {
   expect(editor).not.toContain("Paste cells from a spreadsheet");
 });
 
-it("translates both onboarding steps and preserves provider names", async () => {
+it("translates all three onboarding steps and preserves provider names", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -113,11 +114,11 @@ it("translates both onboarding steps and preserves provider names", async () => 
   expect(host.querySelector("h1")?.textContent).toBe("你的专属游戏工作室。");
   expect(host.querySelector("footer")?.textContent).toBe("下一步");
   await act(async () => root!.render(<Onboarding step="connect" {...props} />));
-  expect(host.querySelector("h1")?.textContent).toBe("选择你的服务商。");
+  expect(host.querySelector("h1")?.textContent).toBe("连接你的 AI。");
   expect(host.querySelector('[aria-label="DeepSeek"]')?.textContent).toBe(
     "DeepSeek已连接",
   );
-  expect(host.querySelector("footer")?.textContent).toBe("开始创作跳过并开始");
+  expect(host.querySelector("footer")?.textContent).toBe("下一步跳过并开始");
   await act(async () =>
     host
       .querySelector<HTMLButtonElement>('[aria-label="添加自定义服务商"]')!
@@ -128,6 +129,19 @@ it("translates both onboarding steps and preserves provider names", async () => 
   expect(
     host.querySelector('[aria-label="自定义服务商"]')?.textContent,
   ).toContain("显示名称");
+  await act(async () =>
+    host
+      .querySelector<HTMLButtonElement>(
+        ".onboarding-progress > button:nth-child(2)",
+      )!
+      .click(),
+  );
+  await act(async () => root!.render(<Onboarding step="media" {...props} />));
+  expect(host.querySelector("h1")?.textContent).toBe("添加创作工具。");
+  expect(host.querySelector("footer")?.textContent).toBe("开始创作");
+  expect(host.querySelectorAll(".onboarding-progress > button")).toHaveLength(
+    3,
+  );
 });
 
 it("localizes the model selector back action", async () => {

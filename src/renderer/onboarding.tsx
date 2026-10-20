@@ -10,6 +10,7 @@ import {
   preferredAgentModel,
   recommendedAgentModel,
 } from "../shared/agent-models.js";
+import { isAgentRuntimeId, nativeEffort } from "../shared/agent-runtimes.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import {
   getCustomProvider,
@@ -29,11 +30,13 @@ import {
 } from "./icons.js";
 import { ActiveProviderAuth } from "./models-settings.js";
 import { CustomProviderForm } from "./custom-provider-dialog.js";
-import { groupModelsByProvider } from "./model-selector.js";
+import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { groupProviders } from "./provider-groups.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { WindowDragRegion } from "./window-drag-region.js";
+import { OnboardingMedia } from "./onboarding-media.js";
+import { OnboardingAgents } from "./onboarding-agents.js";
 import { OnboardingDemo } from "./onboarding-demo.js";
 import { t } from "./i18n.js";
 import "./onboarding.css";
@@ -60,7 +63,8 @@ export function Onboarding({
   const [loadError, setLoadError] = useState<string>();
   const [running, setRunning] = useState(false);
   const [savingProvider, setSavingProvider] = useState(false);
-  const busy = running || savingProvider;
+  const [savingAgent, setSavingAgent] = useState(false);
+  const busy = running || savingProvider || savingAgent;
   const failedAction = useRef<(() => Promise<void>) | undefined>(undefined);
   const [connection, setConnection] = useState<Connection>();
   const [adding, setAdding] = useState(false);
@@ -68,6 +72,7 @@ export function Onboarding({
     useState<Awaited<ReturnType<typeof getCustomProvider>>>();
   const [refresh, setRefresh] = useState(0);
   const heading = useRef<HTMLHeadingElement>(null);
+  const providerSection = useRef<HTMLDivElement>(null);
   const model =
     phase === "ready"
       ? preferredAgentModel(catalog.models, undefined, catalog.defaultModel)
@@ -82,19 +87,27 @@ export function Onboarding({
     if (!adding) heading.current?.focus({ preventScroll: true });
   }, [step, adding, connection]);
   useEffect(() => {
-    if (step !== "connect") return;
+    if (step === "welcome") return;
     setPhase("loading");
     let active = true,
       sequence = 0;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
     const load = () => {
+      clearTimeout(retry);
       const current = ++sequence;
-      void Promise.all([listProviders(), listModels()])
+      void Promise.all([
+        step === "connect" ? listProviders() : Promise.resolve([]),
+        listModels({ agentRuntimes: true }),
+      ])
         .then(([loadedProviders, loadedCatalog]) => {
           if (!active || current !== sequence) return;
           setProviders(loadedProviders);
           setCatalog(loadedCatalog);
           setPhase("ready");
           setLoadError(undefined);
+          if (loadedCatalog.loadingRuntimes?.length && attempts++ < 5)
+            retry = setTimeout(load, 3_000);
         })
         .catch((cause) => {
           if (!active || current !== sequence) return;
@@ -102,13 +115,18 @@ export function Onboarding({
           setLoadError(errorMessage(cause));
         });
     };
-    load();
-    window.addEventListener(MODELS_CHANGED_EVENT, load);
-    window.addEventListener("focus", load);
+    const reload = () => {
+      attempts = 0;
+      load();
+    };
+    reload();
+    window.addEventListener(MODELS_CHANGED_EVENT, reload);
+    window.addEventListener("focus", reload);
     return () => {
       active = false;
-      window.removeEventListener(MODELS_CHANGED_EVENT, load);
-      window.removeEventListener("focus", load);
+      clearTimeout(retry);
+      window.removeEventListener(MODELS_CHANGED_EVENT, reload);
+      window.removeEventListener("focus", reload);
     };
   }, [step, generation, refresh]);
 
@@ -148,9 +166,11 @@ export function Onboarding({
 
   /** The provider connected last during setup supplies the default model. */
   async function selectProviderModel(providerId: string) {
-    const latest = await listModels();
+    const latest = await listModels({ agentRuntimes: true });
     const next = recommendedAgentModel(latest.models, providerId);
     if (next) await chooseModel(latest, next);
+    else if (isAgentRuntimeId(providerId))
+      throw new Error(t("onboarding.agentModelsUnavailable"));
   }
 
   async function chooseModel(
@@ -158,13 +178,23 @@ export function Onboarding({
     next: AgentModelCatalog["models"][number],
   ) {
     if (findAgentModel([next], current.defaultModel)) return;
-    await updateAgentDefaults({
-      model: next,
-      reasoningLevel: clampReasoningLevel(
-        current.defaultReasoningLevel,
-        next.reasoningLevels,
-      ),
-    });
+    await updateAgentDefaults(
+      isAgentRuntimeId(next.provider)
+        ? {
+            model: next,
+            nativeReasoningLevel: nativeEffort(
+              next,
+              current.defaultNativeReasoningLevel,
+            ),
+          }
+        : {
+            model: next,
+            reasoningLevel: clampReasoningLevel(
+              current.defaultReasoningLevel,
+              next.reasoningLevels,
+            ),
+          },
+    );
   }
 
   function completed(providerId: string) {
@@ -247,27 +277,65 @@ export function Onboarding({
       <h1 ref={heading} tabIndex={-1}>
         {t("onboarding.chooseProvider")}
       </h1>
+      <OnboardingAgents
+        busy={busy}
+        models={catalog.models}
+        loadingRuntimes={catalog.loadingRuntimes}
+        onBusyChange={setSavingAgent}
+        onOpenProviders={() =>
+          providerSection.current
+            ?.querySelector<HTMLInputElement>("input")
+            ?.focus()
+        }
+        onUseBuiltIn={() =>
+          run(async () => {
+            const latest = await listModels({ agentRuntimes: true });
+            const builtIn = latest.models.filter(
+              (item) => !isAgentRuntimeId(item.provider),
+            );
+            const next = preferredAgentModel(
+              builtIn,
+              undefined,
+              latest.defaultModel,
+            );
+            if (next) await chooseModel(latest, next);
+            setRefresh((value) => value + 1);
+          })
+        }
+        onConnected={async (id) => {
+          try {
+            await selectProviderModel(id);
+          } finally {
+            setRefresh((value) => value + 1);
+          }
+        }}
+      />
+      <div className="onboarding-provider-heading">
+        {t("onboarding.providers")}
+      </div>
       {phase === "loading" ? (
         <p className="onboarding-status" role="status">
           <LoaderCircle className="spin" size={16} />
           {t("onboarding.loadingProviders")}
         </p>
       ) : null}
-      {phase !== "loading" ? (
-        <ProviderPicker
-          providers={languageProviders}
-          busy={busy}
-          onChoose={(provider, method) =>
-            void run(() => connect(provider, method))
-          }
-          onAdd={() => {
-            setCustomSettings(undefined);
-            setError(undefined);
-            failedAction.current = undefined;
-            setAdding(true);
-          }}
-        />
-      ) : null}
+      <div ref={providerSection} className="onboarding-language-providers">
+        {phase !== "loading" ? (
+          <ProviderPicker
+            providers={languageProviders}
+            busy={busy}
+            onChoose={(provider, method) =>
+              void run(() => connect(provider, method))
+            }
+            onAdd={() => {
+              setCustomSettings(undefined);
+              setError(undefined);
+              failedAction.current = undefined;
+              setAdding(true);
+            }}
+          />
+        ) : null}
+      </div>
       {model ? (
         <ReadyModel
           models={catalog.models}
@@ -280,8 +348,11 @@ export function Onboarding({
             })
           }
         />
-      ) : phase === "ready" && languageProviders.some(chatConnected) ? (
-        <p className="onboarding-lede">{t("onboarding.needsLanguageModel")}</p>
+      ) : null}
+      {catalog.loadingRuntimes?.length ? (
+        <p className="onboarding-status" role="status">
+          {t("onboarding.loadingAgentModels")}
+        </p>
       ) : null}
     </>
   );
@@ -293,7 +364,7 @@ export function Onboarding({
       aria-busy={busy}
     >
       <WindowDragRegion />
-      <div className="onboarding-content">
+      <div key={`content-${step}`} className="onboarding-content">
         {step === "welcome" ? (
           <>
             <OnboardingDemo />
@@ -308,6 +379,14 @@ export function Onboarding({
             >
               {t("onboarding.tagline")}
             </h1>
+          </>
+        ) : step === "media" ? (
+          <>
+            <h1 ref={heading} tabIndex={-1}>
+              {t("onboarding.mediaTitle")}
+            </h1>
+            <p className="onboarding-lede">{t("onboarding.mediaHint")}</p>
+            <OnboardingMedia busy={busy} onSavingChange={setSavingProvider} />
           </>
         ) : (
           connectionContent
@@ -336,7 +415,7 @@ export function Onboarding({
         ) : null}
       </div>
       {!adding && (step === "welcome" || !connection) ? (
-        <footer className="onboarding-footer">
+        <footer key={`footer-${step}`} className="onboarding-footer">
           {step === "welcome" ? (
             <button
               className="onboarding-primary-button"
@@ -346,19 +425,22 @@ export function Onboarding({
             >
               {t("onboarding.next")}
             </button>
-          ) : (
+          ) : step === "connect" ? (
             <>
               <button
                 className="onboarding-primary-button"
                 type="button"
                 disabled={busy || !model}
-                onClick={() => {
-                  if (model) void run(() => onFinish("completed"));
-                }}
+                onClick={() =>
+                  void run(async () => {
+                    if (model) await chooseModel(catalog, model);
+                    await onStepChange("media");
+                  })
+                }
               >
-                {t("onboarding.startCreating")}
+                {t("onboarding.next")}
               </button>
-              {model ? null : (
+              {!model ? (
                 <button
                   className="onboarding-text-button onboarding-skip-button"
                   type="button"
@@ -367,8 +449,21 @@ export function Onboarding({
                 >
                   {t("onboarding.skipAndStart")}
                 </button>
-              )}
+              ) : null}
             </>
+          ) : (
+            <button
+              className="onboarding-primary-button"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(() =>
+                  onFinish(catalog.models.length ? "completed" : "skipped"),
+                )
+              }
+            >
+              {t("onboarding.startCreating")}
+            </button>
           )}
         </footer>
       ) : null}
@@ -376,7 +471,7 @@ export function Onboarding({
         className="onboarding-progress"
         aria-label={t("onboarding.gettingStarted")}
       >
-        {(["welcome", "connect"] as const).map((target, index) => (
+        {(["welcome", "connect", "media"] as const).map((target, index) => (
           <button
             key={target}
             className={step === target ? "is-current" : undefined}
@@ -386,7 +481,9 @@ export function Onboarding({
               title: t(
                 target === "welcome"
                   ? "onboarding.welcomeStep"
-                  : "onboarding.providerStep",
+                  : target === "connect"
+                    ? "onboarding.providerStep"
+                    : "onboarding.mediaStep",
               ),
             })}
             aria-current={step === target ? "step" : undefined}
@@ -424,38 +521,28 @@ function ReadyModel({
   busy: boolean;
   onChange: (model: AgentModelCatalog["models"][number]) => void;
 }) {
-  const groups = groupModelsByProvider(models);
   return (
     <div className="onboarding-ready" role="status">
       <Check size={16} />
-      {t("onboarding.readyWith")}{" "}
+      {t("onboarding.defaultModel")}{" "}
       {models.length > 1 ? (
         <span className="onboarding-model-select">
-          <select
-            aria-label={t("onboarding.defaultModel")}
+          <CanvasChipSelect
+            label={t("onboarding.defaultModel")}
             value={`${model.provider}/${model.id}`}
             disabled={busy}
-            onChange={(event) => {
+            options={models.map((item) => ({
+              value: `${item.provider}/${item.id}`,
+              label: item.name,
+              group: item.providerName,
+            }))}
+            onChange={(value) => {
               const next = models.find(
-                (item) => `${item.provider}/${item.id}` === event.target.value,
+                (item) => `${item.provider}/${item.id}` === value,
               );
               if (next) onChange(next);
             }}
-          >
-            {groups.map((group) => (
-              <optgroup label={group.providerName} key={group.provider}>
-                {group.models.map((item) => (
-                  <option
-                    value={`${item.provider}/${item.id}`}
-                    key={`${item.provider}/${item.id}`}
-                  >
-                    {item.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-          <ChevronDown size={12} aria-hidden="true" />
+          />
         </span>
       ) : (
         <strong>{model.name}</strong>

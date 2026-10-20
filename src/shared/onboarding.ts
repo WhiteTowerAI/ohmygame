@@ -1,4 +1,4 @@
-export type OnboardingStep = "welcome" | "connect";
+export type OnboardingStep = "welcome" | "connect" | "media";
 export type OnboardingStatus = "pending" | "completed" | "skipped";
 
 export interface OnboardingState {
