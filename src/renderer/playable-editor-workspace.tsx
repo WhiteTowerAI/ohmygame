@@ -335,6 +335,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   useEffect(() => {
     const capture = window.ohMyGameDesktop?.captureNodeThumbnail;
     const batchId = crypto.randomUUID();
+    const version = workspaceVersion(projectId);
     let disposed = false;
     let capturing = false;
     void (async () => {
@@ -348,6 +349,19 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       });
       if (!pending.length) return;
       capturing = true;
+      if (window.ohMyGameDesktop?.prepareNodeThumbnails) {
+        const status = await getStoryUpgrade(projectId);
+        if (disposed) return;
+        await window.ohMyGameDesktop.prepareNodeThumbnails(projectId, batchId, {
+          definition: builtDefinition,
+          version,
+          ...(status.web ? { web: true } : {}),
+        });
+        if (disposed) {
+          await window.ohMyGameDesktop.cancelNodeThumbnails?.(batchId);
+          return;
+        }
+      }
       await Promise.all(pending.map(async ({ nodeId, hash }) => {
         const captured = await capture(projectId, nodeId, builtDefinition.graph.viewport, batchId).catch(() => false);
         if (!captured || disposed) return;

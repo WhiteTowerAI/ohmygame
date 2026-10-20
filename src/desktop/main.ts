@@ -21,6 +21,9 @@ import { ElectronPlaytestDriver } from "./playtest-driver.js";
 import { WebGamePlayerWindows, type WebGamePlayerTarget } from "./web-game-player.js";
 import { RendererCloseRequest } from "./renderer-close.js";
 import { AsyncTaskPool } from "./async-task-pool.js";
+import { isNodeGraph } from "../shared/playable-graph-validation.js";
+import { isCompiledNodeGraph } from "../shared/playable-compiled.js";
+import type { PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import { PROJECT_FILE_OPEN_MODES, type ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { WebGamePlayerRequest, WebGamePreviewLayout } from "../shared/web-game-player.js";
@@ -38,11 +41,11 @@ const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>(
 /** A Node that fails to start never reports back; its window gives up after this. */
 const NODE_THUMBNAIL_TIMEOUT_MS = 20_000;
 const nodeThumbnailCaptures = new AsyncTaskPool(2);
-const nodeThumbnailBatches = new Map<string, { projectId: string; controller: AbortController; requests: number }>();
+const nodeThumbnailBatches = new Map<string, { projectId: string; controller: AbortController; requests: number; snapshot?: PlayableThumbnailSnapshot }>();
 /** Hidden Node thumbnail windows by WebContents ID. */
-const nodeThumbnails = new Map<number, { window: BrowserWindow; finish: (captured: boolean) => void }>();
+const nodeThumbnails = new Map<number, { window: BrowserWindow; finish: (captured: boolean) => void; snapshot?: PlayableThumbnailSnapshot }>();
 /** Thumbnail windows run Node code, so they may only capture and report. */
-const NODE_THUMBNAIL_CHANNELS = new Set(["ohmygame:capture-page", "ohmygame:finish-node-thumbnail"]);
+const NODE_THUMBNAIL_CHANNELS = new Set(["ohmygame:capture-page", "ohmygame:finish-node-thumbnail", "ohmygame:node-thumbnail-snapshot"]);
 
 function handle(channel: string, listener: Parameters<typeof ipcMain.handle>[1]): void {
   ipcMain.handle(channel, (event, ...args) => {
@@ -238,6 +241,22 @@ handle("ohmygame:capture-page", async (event, rectangle: unknown) => {
   const bounds = captureBounds(rectangle, window.getContentBounds());
   return window.webContents.capturePage(bounds).then((image) => image.toPNG());
 });
+handle("ohmygame:prepare-node-thumbnails", (event, projectId: unknown, batchId: unknown, value: unknown) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid thumbnail source");
+  const snapshot = value as PlayableThumbnailSnapshot | undefined;
+  if (!validRouteId(projectId) || !validRouteId(batchId) || nodeThumbnailBatches.has(batchId)
+    || !snapshot || typeof snapshot.version !== "string" || (snapshot.web !== undefined && snapshot.web !== true)
+    || snapshot.definition?.version !== 1 || typeof snapshot.definition.graphSignature !== "string"
+    || !isNodeGraph(snapshot.definition.graph) || !isCompiledNodeGraph(snapshot.definition.compiled, snapshot.definition.graph)) {
+    throw new Error("Invalid thumbnail snapshot");
+  }
+  nodeThumbnailBatches.set(batchId, { projectId, snapshot, controller: new AbortController(), requests: 0 });
+});
+handle("ohmygame:node-thumbnail-snapshot", (event) => {
+  const thumbnail = nodeThumbnails.get(event.sender.id);
+  if (!thumbnail) throw new Error("Invalid thumbnail source");
+  return thumbnail.snapshot;
+});
 handle("ohmygame:capture-node-thumbnail", (event, projectId: unknown, nodeId: unknown, viewport: unknown, batchId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid thumbnail source");
   if (!validRouteId(projectId) || !validRouteId(nodeId) || !isValidPlaytestViewport(viewport) || !validRouteId(batchId)) throw new Error("Invalid thumbnail target");
@@ -245,7 +264,9 @@ handle("ohmygame:capture-node-thumbnail", (event, projectId: unknown, nodeId: un
 });
 handle("ohmygame:cancel-node-thumbnails", (event, batchId: unknown) => {
   if (!mainWindow || event.sender !== mainWindow.webContents || !validRouteId(batchId)) throw new Error("Invalid thumbnail cancellation");
-  nodeThumbnailBatches.get(batchId)?.controller.abort();
+  const batch = nodeThumbnailBatches.get(batchId);
+  batch?.controller.abort();
+  if (batch && !batch.requests) nodeThumbnailBatches.delete(batchId);
 });
 handle("ohmygame:finish-node-thumbnail", (event, captured: unknown) => {
   nodeThumbnails.get(event.sender.id)?.finish(captured === true);
@@ -610,7 +631,7 @@ async function scheduleNodeThumbnail(projectId: string, nodeId: string, viewport
   } else if (batch.projectId !== projectId) throw new Error("Invalid thumbnail batch");
   batch.requests += 1;
   return nodeThumbnailCaptures.run(
-    () => captureNodeThumbnail(projectId, nodeId, viewport, batch.controller.signal), batch.controller.signal,
+    () => captureNodeThumbnail(projectId, nodeId, viewport, batch.controller.signal, batch.snapshot), batch.controller.signal,
   ).catch(() => false).finally(() => {
     batch.requests -= 1;
     if (!batch.requests) nodeThumbnailBatches.delete(batchId);
@@ -621,7 +642,7 @@ async function scheduleNodeThumbnail(projectId: string, nodeId: string, viewport
  * Runs one Node in a hidden window. The page stores its own screenshot, with
  * the hash of what it ran, and then reports whether that worked.
  */
-async function captureNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, signal: AbortSignal): Promise<boolean> {
+async function captureNodeThumbnail(projectId: string, nodeId: string, viewport: { width: number; height: number }, signal: AbortSignal, snapshot?: PlayableThumbnailSnapshot): Promise<boolean> {
   if (!daemon || !mainWindow || signal.aborted) return false;
   let finish!: (captured: boolean) => void;
   const finished = new Promise<boolean>((resolve) => { finish = resolve; });
@@ -643,7 +664,7 @@ async function captureNodeThumbnail(projectId: string, nodeId: string, viewport:
       beforeLoad: (window) => {
         thumbnailWindow = window;
         const id = window.webContents.id;
-        nodeThumbnails.set(id, { window, finish });
+        nodeThumbnails.set(id, { window, finish, snapshot });
         window.once("closed", () => { nodeThumbnails.delete(id); finish(false); });
       },
     });

@@ -76,6 +76,8 @@ The workspace keeps the current Interactive Story layout:
   or macOS preserves distinct Library assets.
   Choosing the unzipped folder in **New project** opens the same
   project on another computer.
+  Both exports compress source text and store already compressed media, such
+  as videos and PNG images, directly in the ZIP to avoid recompressing them.
 
 ### Source files
 
@@ -600,12 +602,18 @@ web story's are taken from its own page, opened at the Scene without sound.
 
 - The canvas captures every Scene that has no thumbnail, or one of an older
   build, without it being opened: the desktop app runs the Scene in a hidden
-  window, one Scene at a time, as the Workbench preview runs it.
+  window, with at most two captures running together, as the Workbench preview
+  runs it. Each batch shares the editor's successful compiled build and
+  workspace version instead of compiling the whole project for each Scene.
+  A new build cancels the previous batch; its compiled snapshot is released
+  when the captures finish or are cancelled.
+  Sandboxed captures load only the assets declared by that Scene.
 - The Scene is captured through the desktop `capturePage` capability, the
   same mechanism that captures Web Game project covers, about one second
   after it reports ready. A run with errors is not captured. Captures keep
   the display's pixel density, up to 1280 pixels wide. The hidden window
-  runs Scene code, so it may only capture and report its result.
+  runs Scene code, so it may only read its assigned build snapshot, capture,
+  and report its result.
 - Thumbnails are editor cache stored under `.ohmygame/thumbnails/` in the
   workspace. They are not part of `graph.json`, `editor/layout.json`, or the
   published project.

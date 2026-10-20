@@ -16,6 +16,13 @@ export interface NodePlayerDefinition {
   graphSignature: string;
 }
 
+/** One editor build shared by the hidden windows in a thumbnail batch. */
+export interface PlayableThumbnailSnapshot {
+  definition: NodePlayerDefinition;
+  version: string;
+  web?: true;
+}
+
 // `available: false` marks an Interactive Story project whose graph.json is missing.
 export type NodeRuntimeResponse =
   | {

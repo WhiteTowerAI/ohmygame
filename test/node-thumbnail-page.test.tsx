@@ -16,16 +16,19 @@ const definition: NodePlayerDefinition = {
 let onSnapshot!: (snapshot: NodeRuntimeSnapshot) => void;
 let finishImage!: (image: Blob) => void;
 const upload = vi.fn(async () => {}), finish = vi.fn();
+const loadRuntime = vi.fn(async () => ({ available: true as const, definition, ...(web ? { web: true as const } : {}) }));
+const sharedSnapshot = vi.fn(async () => undefined as import("../src/shared/playable-player-protocol.js").PlayableThumbnailSnapshot | undefined);
+const loadAssets = vi.fn(async () => ({}));
 const capture = vi.fn(() => new Promise<Blob>(resolve => { finishImage = resolve; }));
 let web = false;
 let playerProps: { page?: string; preview?: unknown } = {};
 vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
-  getNodeRuntime: async () => ({ available: true, definition, ...(web ? { web: true } : {}) }),
+  getNodeRuntime: loadRuntime,
   ensureProjectPreview: async () => ({ url: "http://127.0.0.1:5555", title: "Thumbnail" }),
   setPlayableThumbnail: upload,
 }));
-vi.doMock(path.resolve("src/renderer/playable-assets.ts"), () => ({ loadPlayableAssets: async () => ({}) }));
+vi.doMock(path.resolve("src/renderer/playable-assets.ts"), () => ({ loadPlayableAssets: loadAssets }));
 vi.doMock(path.resolve("src/renderer/page-capture.ts"), () => ({ captureElementImage: capture }));
 vi.doMock(path.resolve("src/renderer/playable-player.tsx"), () => ({
   createMemoryStorage: () => ({}),
@@ -40,7 +43,8 @@ let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 beforeEach(async () => {
   vi.useFakeTimers(); vi.clearAllMocks(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0));
-  Object.defineProperty(window, "ohMyGameDesktop", { configurable: true, value: { finishNodeThumbnail: finish } });
+  sharedSnapshot.mockResolvedValue(undefined);
+  Object.defineProperty(window, "ohMyGameDesktop", { configurable: true, value: { finishNodeThumbnail: finish, nodeThumbnailSnapshot: sharedSnapshot } });
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
   await act(async () => root.render(<NodeThumbnailPage projectId="p" nodeId="start" />));
   await act(async () => onSnapshot({ status: "running", currentNodeId: "start", errors: [] } as unknown as NodeRuntimeSnapshot));
@@ -57,6 +61,33 @@ it("stores a successful capture after the ready frame has painted", async () => 
   await act(async () => finishImage(image));
   expect(upload).toHaveBeenCalledExactlyOnceWith("p", "start", playableThumbnailHash(definition, "start"), image, "0");
   expect(finish).toHaveBeenCalledExactlyOnceWith(true);
+});
+
+it("uses the batch snapshot and its workspace version without rebuilding", async () => {
+  sharedSnapshot.mockResolvedValue({ definition, version: "before-restore" });
+  loadRuntime.mockClear();
+  capture.mockClear();
+  await act(async () => root.render(<NodeThumbnailPage key="shared" projectId="p" nodeId="start" />));
+  expect(loadRuntime).not.toHaveBeenCalled();
+  await act(async () => onSnapshot({ status: "running", currentNodeId: "start", errors: [] } as unknown as NodeRuntimeSnapshot));
+  await act(async () => vi.advanceTimersByTimeAsync(1010));
+  const image = new Blob(["shared"], { type: "image/webp" });
+  await act(async () => finishImage(image));
+  expect(upload).toHaveBeenCalledExactlyOnceWith("p", "start", playableThumbnailHash(definition, "start"), image, "before-restore");
+});
+
+it("loads only the captured Scene's declared media in a sandbox project", async () => {
+  const snapshot = structuredClone(definition);
+  snapshot.graph.assets = {
+    used: { type: "image", source: { kind: "workspace", path: "used.png" } },
+    unused: { type: "video", source: { kind: "workspace", path: "other-scene.mp4" } },
+  };
+  snapshot.graph.nodes[0]!.assets = ["used"];
+  sharedSnapshot.mockResolvedValue({ definition: snapshot, version: "0" });
+  await act(async () => root.render(<NodeThumbnailPage key="assets" projectId="p" nodeId="start" />));
+  expect(loadAssets).toHaveBeenLastCalledWith("p", {
+    ...snapshot.graph, assets: { used: snapshot.graph.assets.used },
+  });
 });
 
 it("discards an in-flight capture when the runtime fails", async () => {

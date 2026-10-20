@@ -991,15 +991,12 @@ const en = {
     variables: "Variables",
     aboutVariables: "About variables",
     starts: "Starts {{value}}",
-    noVariables:
-      "Nothing yet. The game doesn't remember anything between Scenes.",
+    noVariables: "No variables yet.",
     export: "Export",
     saveBeforeExport: "Save screen size changes before exporting.",
     exporting: "Exporting...",
     exportGame: "Export game",
     exportProject: "Export project",
-    exportHint:
-      "Export game makes a build that players can play. Export project keeps everything editable: open the unzipped folder with New project to continue it in OhMyGame.",
     projectFileSuffix: "project",
     canvasFormat: "Canvas format",
   },

@@ -64,6 +64,10 @@ and gives the daemon time to stop active Pi and preview processes.
 The renderer receives a small runtime event stream over SSE rather than Pi's
 internal event objects. Reconnects replay recent events, and conversations are
 restored from Pi's session files, so a reload does not lose or duplicate turns.
+The UI reader collects incomplete JSONL records as byte chunks and decodes
+each complete line once. Large inline images therefore do not cause repeated
+copying and scanning of the growing record; the authoritative session stays
+unchanged, including when the final record is still being appended.
 
 Preview failures stay with their project. The desktop supervises unexpected
 daemon exits and reconnects the existing renderer to a fresh service generation.

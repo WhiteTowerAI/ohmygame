@@ -21,6 +21,7 @@ import { isPublishedNodeManifest, PLAYTEST_SCOPE_PREFIX, type PublishedNodeAsset
 import { isNodeGraph } from "../../shared/playable-graph-validation.js";
 import { getWorkspaceMedia } from "../workspace.js";
 import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
+import { compressArchiveFile } from "../archive-compression.js";
 import { PublishMediaOptimizer } from "./media.js";
 
 interface PackageJson {
@@ -376,9 +377,10 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
     const original = path.join(source, ...file.split("/"));
     const filename = media ? await media.optimize(original) : original;
     const executable = preserveExecutable && ((await stat(filename)).mode & 0o111) !== 0;
-    zip.addFile(filename, file, executable ? { ...zipOptions, mode: 0o100755 } : zipOptions);
+    const options = { ...zipOptions, compress: !plugin && compressArchiveFile(file) };
+    zip.addFile(filename, file, executable ? { ...options, mode: 0o100755 } : options);
   }
-  if (cover !== undefined) zip.addBuffer(cover, PUBLISH_GAME_COVER_PATH, zipOptions);
+  if (cover !== undefined) zip.addBuffer(cover, PUBLISH_GAME_COVER_PATH, { ...zipOptions, compress: false });
   const chunks: Buffer[] = [];
   const output = zip.outputStream as Readable;
   const completed = new Promise<Buffer>((resolve, reject) => {

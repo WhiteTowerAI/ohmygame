@@ -47,16 +47,26 @@ export function NodeThumbnailPage({
   }
 
   useEffect(() => {
-    void getNodeRuntime(projectId).then(async (result) => {
+    const shared = window.ohMyGameDesktop?.nodeThumbnailSnapshot;
+    const runtime = shared
+      ? shared().then((snapshot) => snapshot ? { ...snapshot, available: true as const } : getNodeRuntime(projectId))
+      : getNodeRuntime(projectId);
+    void runtime.then(async (result) => {
       const hash = result.available ? playableThumbnailHash(result.definition, nodeId) : undefined;
       if (!result.available || !hash) return finish(false);
-      const version = workspaceVersion(projectId);
+      const version = "version" in result && typeof result.version === "string" ? result.version : workspaceVersion(projectId);
       if (result.web) {
         const { url } = await ensureProjectPreview(projectId);
         setPlayable({ definition: result.definition, assets: {}, page: url, hash, version });
         return;
       }
-      const assets = await loadPlayableAssets(projectId, result.definition.graph);
+      // Report policy stays on this Scene, so other Scenes' media is unused.
+      const graph = result.definition.graph;
+      const node = graph.nodes.find((candidate) => candidate.id === nodeId)!;
+      const assets = await loadPlayableAssets(projectId, {
+        ...graph,
+        assets: Object.fromEntries(node.assets.map((id) => [id, graph.assets[id]!])),
+      });
       setPlayable({ definition: result.definition, assets, hash, version });
     }).catch(() => finish(false));
   }, [projectId, nodeId]);

@@ -16441,6 +16441,8 @@ button {
 .playable-variables-empty {
   margin: 0;
   color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 /* Playtest actions stay in the editor, outside the game's input surface. */
