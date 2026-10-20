@@ -94,6 +94,7 @@ const zhCN: typeof en = {
       webSearch: "联网搜索",
       network: "网络",
       plugins: "插件",
+      mcpServer: "MCP 服务",
       about: "关于",
       label: "设置分区",
       heading: "设置",
@@ -1167,7 +1168,8 @@ const zhCN: typeof en = {
     open: "前往智能体",
   },
   externalAgents: {
-    title: "让其他 Agent 使用 OhMyGame",
+    title: "MCP 服务",
+    clients: "连接 Agent",
     loading: "正在检查其他 Agent…",
     enable: "允许其他 Agent 使用 OhMyGame",
     description: "Claude Code、Codex 等 Agent 可以生成媒体、使用画布并试玩你的游戏。",

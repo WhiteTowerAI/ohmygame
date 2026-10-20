@@ -1858,7 +1858,7 @@ body {
 }
 
 /* Connect and Disconnect are text buttons in the columns a row's toggle and icon use. */
-.external-agents-group .settings-provider-row > .settings-secondary-button {
+.external-agents-clients .settings-provider-row > .settings-secondary-button {
   width: auto;
   grid-column: 3 / 5;
   padding: 0 15px;

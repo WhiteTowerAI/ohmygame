@@ -9,7 +9,6 @@ import {
   CodingAgentDetail,
   CodingAgentsGroup,
 } from "./coding-agents-settings.js";
-import { ExternalAgentsGroup } from "./external-agents-settings.js";
 import { useAgentModels } from "./model-selector.js";
 import { t } from "./i18n.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
@@ -141,7 +140,6 @@ function AgentList({
           defaultAgent={defaultAgent}
           onOpen={onOpen}
         />
-        <ExternalAgentsGroup />
         {error ? (
           <p className="settings-error" role="alert">
             {error}

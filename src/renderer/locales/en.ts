@@ -94,6 +94,7 @@ const en = {
       webSearch: "Web Search",
       network: "Network",
       plugins: "Plugins",
+      mcpServer: "MCP Server",
       about: "About",
       label: "Settings sections",
       heading: "SETTINGS",
@@ -1191,7 +1192,8 @@ const en = {
     open: "Open Agents",
   },
   externalAgents: {
-    title: "Use OhMyGame from other agents",
+    title: "MCP Server",
+    clients: "Connect agents",
     loading: "Checking other agents…",
     enable: "Allow other agents to use OhMyGame",
     description: "Claude Code, Codex and other agents can generate media, use the canvas and playtest your games.",

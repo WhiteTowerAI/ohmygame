@@ -22,11 +22,11 @@ const CLIENTS: Record<ExternalAgentClientId, { name: string; runtime: AgentRunti
 };
 
 /**
- * Lets coding agents outside OhMyGame use its tools through the
- * `ohmygame-studio` MCP server: the switch publishes the server, and each
- * detected CLI is connected with its own `mcp add` command.
+ * Settings → MCP Server: lets coding agents outside OhMyGame use its tools
+ * through the `ohmygame-studio` MCP server. The switch publishes the server,
+ * and each detected CLI is connected with its own `mcp add` command.
  */
-export function ExternalAgentsGroup() {
+export function ExternalAgentsSettings() {
   const [settings, setSettings] = useState<ExternalAgentSettings>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<string>();
@@ -51,95 +51,104 @@ export function ExternalAgentsGroup() {
     }
   }
   return (
-    <section className="settings-provider-group external-agents-group" aria-label={t("externalAgents.title")}>
-      <h4>{t("externalAgents.title")}</h4>
-      {!settings && !error ? (
-        <div className="settings-loading">
-          <LoaderCircle className="spin" size={18} />
-          {t("externalAgents.loading")}
-        </div>
-      ) : null}
-      {settings ? (
-        <div className="settings-provider-row">
-          <span className="settings-provider-mark-slot" aria-hidden="true">
-            <Terminal size={20} />
-          </span>
-          <span className="settings-provider-copy">
-            <strong className="settings-provider-name">
-              <span>{t("externalAgents.enable")}</span>
-            </strong>
-            <span className="settings-provider-details">
-              <span className="settings-provider-description">{t("externalAgents.description")}</span>
-            </span>
-          </span>
-          <label
-            className="settings-toggle settings-provider-toggle"
-            title={settings.enabled ? t("common.enabled") : t("common.disabled")}
-          >
-            <input
-              type="checkbox"
-              role="switch"
-              aria-label={t("externalAgents.enable")}
-              checked={settings.enabled}
-              disabled={pending !== undefined}
-              onChange={(event) => {
-                const enabled = event.target.checked;
-                void change("enabled", () => updateExternalAgentSettings({ enabled }));
-              }}
-            />
-            <span aria-hidden="true" />
-          </label>
-        </div>
-      ) : null}
-      {settings?.enabled && !settings.launcher ? (
-        <p className="settings-provider-description">{t("externalAgents.desktopOnly")}</p>
-      ) : null}
-      {settings?.enabled && settings.launcher
-        ? settings.clients.map((client) => {
-            const { name, runtime } = CLIENTS[client.id];
-            const busy = pending === client.id;
-            return (
-              <div className="settings-provider-row" key={client.id}>
-                <AgentMark id={runtime} />
-                <span className="settings-provider-copy">
-                  <strong className="settings-provider-name">
-                    <span>{name}</span>
-                  </strong>
-                  <span className="settings-provider-details">
-                    <span className="settings-provider-description">
-                      {!client.available
-                        ? t("codingAgents.notFound")
-                        : client.connected
-                          ? t("externalAgents.connected")
-                          : t("externalAgents.notConnected")}
+    <section className="settings-panel settings-overview-panel external-agents-settings">
+      <header className="settings-panel-header">
+        <h3>{t("externalAgents.title")}</h3>
+      </header>
+      <div className="settings-provider-list">
+        {!settings && !error ? (
+          <div className="settings-loading">
+            <LoaderCircle className="spin" size={18} />
+            {t("externalAgents.loading")}
+          </div>
+        ) : null}
+        {settings ? (
+          <section className="settings-provider-group">
+            <div className="settings-provider-row is-featured">
+              <span className="settings-provider-mark-slot" aria-hidden="true">
+                <Terminal size={20} />
+              </span>
+              <span className="settings-provider-copy">
+                <strong className="settings-provider-name">
+                  <span>{t("externalAgents.enable")}</span>
+                </strong>
+                <span className="settings-provider-details">
+                  <span className="settings-provider-description">{t("externalAgents.description")}</span>
+                </span>
+              </span>
+              <label
+                className="settings-toggle settings-provider-toggle"
+                title={settings.enabled ? t("common.enabled") : t("common.disabled")}
+              >
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label={t("externalAgents.enable")}
+                  checked={settings.enabled}
+                  disabled={pending !== undefined}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    void change("enabled", () => updateExternalAgentSettings({ enabled }));
+                  }}
+                />
+                <span aria-hidden="true" />
+              </label>
+            </div>
+          </section>
+        ) : null}
+        {settings?.enabled && !settings.launcher ? (
+          <p className="settings-provider-description">{t("externalAgents.desktopOnly")}</p>
+        ) : null}
+        {settings?.enabled && settings.launcher ? (
+          <section className="settings-provider-group external-agents-clients" aria-label={t("externalAgents.clients")}>
+            <h4>{t("externalAgents.clients")}</h4>
+            {settings.clients.map((client) => {
+              const { name, runtime } = CLIENTS[client.id];
+              const busy = pending === client.id;
+              return (
+                <div className="settings-provider-row" key={client.id}>
+                  <AgentMark id={runtime} />
+                  <span className="settings-provider-copy">
+                    <strong className="settings-provider-name">
+                      <span>{name}</span>
+                    </strong>
+                    <span className="settings-provider-details">
+                      <span className="settings-provider-description">
+                        {!client.available
+                          ? t("codingAgents.notFound")
+                          : client.connected
+                            ? t("externalAgents.connected")
+                            : t("externalAgents.notConnected")}
+                      </span>
                     </span>
                   </span>
-                </span>
-                {client.available ? (
-                  <button
-                    type="button"
-                    className="settings-secondary-button"
-                    disabled={pending !== undefined}
-                    onClick={() =>
-                      void change(client.id, () =>
-                        client.connected ? disconnectExternalAgent(client.id) : connectExternalAgent(client.id),
-                      )
-                    }
-                  >
-                    {busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : null}
-                    {client.connected ? t("externalAgents.disconnect") : t("externalAgents.connect")}
-                  </button>
-                ) : null}
-              </div>
-            );
-          })
-        : null}
-      {settings?.enabled && settings.launcher ? <ManualSetup launcher={settings.launcher} /> : null}
-      {error ? (
-        <p className="settings-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+                  {client.available ? (
+                    <button
+                      type="button"
+                      className="settings-secondary-button"
+                      disabled={pending !== undefined}
+                      onClick={() =>
+                        void change(client.id, () =>
+                          client.connected ? disconnectExternalAgent(client.id) : connectExternalAgent(client.id),
+                        )
+                      }
+                    >
+                      {busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : null}
+                      {client.connected ? t("externalAgents.disconnect") : t("externalAgents.connect")}
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+            <ManualSetup launcher={settings.launcher} />
+          </section>
+        ) : null}
+        {error ? (
+          <p className="settings-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
     </section>
   );
 }

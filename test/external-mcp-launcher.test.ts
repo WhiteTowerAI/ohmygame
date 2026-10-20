@@ -118,7 +118,7 @@ it("explains how to turn the feature on instead of starting the app", async () =
   await ask(launcher, "initialize", { capabilities: {} });
   expect(await call(launcher, "canvas_check")).toEqual({
     isError: true,
-    text: expect.stringContaining("Settings → Agents → Use OhMyGame from other agents"),
+    text: expect.stringContaining("Settings → MCP Server → Allow other agents to use OhMyGame"),
   });
   expect(starts()).toBe(0);
 });

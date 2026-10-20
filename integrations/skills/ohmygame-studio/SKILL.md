@@ -19,8 +19,8 @@ project.
   the project, its type and its workspace folder.
 - Otherwise call `list_projects`, then `open_project` with an ID or folder.
 - If a tool says OhMyGame is turned off or could not be started, tell the
-  person to open OhMyGame and turn on **Settings → Agents → Use OhMyGame from
-  other agents**. Do not retry in a loop.
+  person to open OhMyGame and turn on **Settings → MCP Server → Allow other
+  agents to use OhMyGame**. Do not retry in a loop.
 
 ## Generate assets
 

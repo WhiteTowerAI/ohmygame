@@ -6,14 +6,14 @@ server, `ohmygame-studio`. This is the reverse of
 [coding agents](coding-agents.md), where OhMyGame starts a CLI and offers it
 OhMyGame's tools for one conversation.
 
-| Part               | Code                                                                                      | Tests                                 |
-| ------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------- |
-| Daemon MCP server  | `src/daemon/external-mcp.ts`                                                              | `test/external-mcp.test.ts`           |
-| Client connections | `src/daemon/external-agent-clients.ts`                                                    | `test/external-agent-clients.test.ts` |
-| Launcher           | `src/desktop/external-mcp-launcher.ts`, `external-mcp-main.ts`, `external-mcp-install.ts` | `test/external-mcp-launcher.test.ts`  |
-| Settings           | `src/renderer/external-agents-settings.tsx`                                               | `test/agents-settings-ui.test.tsx`    |
-| Skill              | `integrations/skills/ohmygame-studio/SKILL.md`                                            | Manual                                |
-| Shared contract    | `src/shared/external-mcp.ts`                                                              |                                       |
+| Part               | Code                                                                                      | Tests                                       |
+| ------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Daemon MCP server  | `src/daemon/external-mcp.ts`                                                              | `test/external-mcp.test.ts`                 |
+| Client connections | `src/daemon/external-agent-clients.ts`                                                    | `test/external-agent-clients.test.ts`       |
+| Launcher           | `src/desktop/external-mcp-launcher.ts`, `external-mcp-main.ts`, `external-mcp-install.ts` | `test/external-mcp-launcher.test.ts`        |
+| Settings           | `src/renderer/external-agents-settings.tsx`                                               | `test/external-agents-settings-ui.test.tsx` |
+| Skill              | `integrations/skills/ohmygame-studio/SKILL.md`                                            | Manual                                      |
+| Shared contract    | `src/shared/external-mcp.ts`                                                              |                                             |
 
 ## Goal and scope
 
@@ -89,10 +89,12 @@ Daemon: ExternalMcpService
 
 ### Settings and files
 
-Settings → Agents → **Use OhMyGame from other agents** turns the feature on
-and lists Claude Code and Codex with **Connect** and **Disconnect**. Other
-clients get the launcher command to configure by hand. See the
-[Settings section](assets/external-agents-settings.webp). The renderer uses:
+Settings → **MCP Server** has its own page, apart from Agents, which sets up
+the agents OhMyGame runs. **Allow other agents to use OhMyGame** turns the
+feature on; **Connect agents** then lists Claude Code and Codex with
+**Connect** and **Disconnect**, and other clients get the launcher command to
+configure by hand. See the [MCP Server page](assets/external-agents-settings.webp).
+The renderer uses:
 
 | Route                                              | Purpose                                        |
 | -------------------------------------------------- | ---------------------------------------------- |

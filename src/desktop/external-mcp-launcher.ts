@@ -270,7 +270,7 @@ export class ExternalMcpLauncher {
 }
 
 const TURNED_OFF =
-  "OhMyGame is not accepting other agents. Open OhMyGame and turn on Settings → Agents → Use OhMyGame from other agents.";
+  "OhMyGame is not accepting other agents. Open OhMyGame and turn on Settings → MCP Server → Allow other agents to use OhMyGame.";
 const NOT_RUNNING = "Open the OhMyGame app and try again.";
 
 /** OhMyGame is off or closed; retrying the request would not help. */
