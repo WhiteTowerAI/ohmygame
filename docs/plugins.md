@@ -311,15 +311,18 @@ type. A directory already registered as an OhMyGame project reopens unchanged.
 Referencing Maker in an existing compatible project opens the connection panel;
 the project switches to Maker only when you continue, which turns off its Web
 preview and Community publishing. Closing the panel leaves the project as it was.
-Disconnect plugin in the Preview tab's footer returns the project to an ordinary General
-project, also while the plugin is disabled. It stops a running native preview and
+While the connection cannot be used, for example after the plugin is disabled or
+removed, the Preview tab offers Disconnect plugin. It returns the project to an
+ordinary General project, stops a running native preview, and
 keeps Maker's binding files, so the project can connect again; Web preview stays
 off until you turn it on in Project settings. Conflicting plugin references
 require a compatible selection.
 
-View shows the state of Maker's separate native Runtime window with its
-install/start/refresh/stop controls, a status refresh, and logs. Web preview is
-disabled for these projects. Controls load only while View is open. While the
+View shows the plugin and the state of Maker's separate native Runtime window,
+with install/start/refresh/stop controls, a status refresh, and logs. The live
+game cannot be embedded: Maker's Runtime is a native program with its own window.
+Web preview is disabled for these projects. Controls load only while View is
+open. While the
 preview runs, View checks it every ten seconds to notice a closed window;
 otherwise it rereads the daemon's in-memory state, which also reflects agent
 calls, without starting the adapter. Agents use the same adapter through

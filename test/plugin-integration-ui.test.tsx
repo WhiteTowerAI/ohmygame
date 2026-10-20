@@ -812,9 +812,21 @@ describe("plugin connection UI", () => {
       expect.objectContaining({ integration: project.integration }),
     );
   });
-  it("disconnects a project from View after confirmation", async () => {
+  it("offers disconnecting only while the connection is unusable", async () => {
     state.result = { connection: { status: "ready" }, project: { id: "a" } };
     const updated = vi.fn();
+    await act(async () =>
+      root.render(
+        <ExternalProjectPreview project={project} onProjectUpdated={updated} />,
+      ),
+    );
+    expect(container.textContent).not.toContain("Disconnect plugin");
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    state.result = {
+      connection: { status: "needs-auth" },
+      project: { id: "a" },
+    };
     await act(async () =>
       root.render(
         <ExternalProjectPreview project={project} onProjectUpdated={updated} />,

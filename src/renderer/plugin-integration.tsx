@@ -782,35 +782,32 @@ export function ExternalProjectPreview({
   useEffect(() => {
     if (preview?.logs !== undefined) setLogs(preview.logs);
   }, [preview?.logs]);
-  const boundProject = state?.result?.project;
-  const footer = (
-    <footer className="external-preview-footer">
-      <span className="external-preview-identity">
-        {plugin ? <PluginGlyph plugin={plugin} size={16} /> : null}
-        <strong>{plugin?.displayName ?? t("integration.plugin")}</strong>
-        {boundProject ? (
-          <span>{boundProject.name ?? boundProject.id}</span>
-        ) : null}
+  const header = (
+    <header className="external-preview-header">
+      <span className="plugin-project-icon">
+        {plugin ? <PluginGlyph plugin={plugin} size={24} /> : null}
       </span>
-      <IntegrationDisconnect
-        projectId={project.id}
-        onDisconnected={onProjectUpdated}
-      />
-    </footer>
+      <div>
+        <h2>{plugin?.displayName ?? t("integration.preview")}</h2>
+        <p>{t("integration.externalWindow")}</p>
+      </div>
+    </header>
   );
+  // Disconnecting is only offered while the connection cannot be used, such
+  // as after the plugin is disabled or removed; otherwise the project is stuck.
   if (!ready)
     return (
       <section className="external-project-preview">
-        <div className="external-preview-stage">
-          <div className="external-preview-setup">
-            <IntegrationContents
-              {...integration}
-              pluginId={pluginId}
-              projectId={project.id}
-            />
-          </div>
-        </div>
-        {footer}
+        {header}
+        <IntegrationContents
+          {...integration}
+          pluginId={pluginId}
+          projectId={project.id}
+        />
+        <IntegrationDisconnect
+          projectId={project.id}
+          onDisconnected={onProjectUpdated}
+        />
       </section>
     );
   return (
@@ -818,37 +815,43 @@ export function ExternalProjectPreview({
       className="external-project-preview"
       aria-label={t("integration.preview")}
     >
-      <div className="external-preview-stage">
-        <div
-          className={`preview-empty-mark external-preview-mark is-${busy ? "busy" : status}`}
+      {header}
+      <div className="plugin-component-row plugin-mcp-row external-preview-row">
+        <span
+          className={`plugin-component-icon external-preview-state is-${busy ? "busy" : status}`}
           aria-hidden="true"
         >
           {busy ? (
-            <LoaderCircle size={20} className="spin" />
+            <LoaderCircle size={15} className="spin" />
           ) : running ? (
-            <Monitor size={20} />
+            <Monitor size={15} />
           ) : status === "missing" ? (
-            <Download size={20} />
+            <Download size={15} />
           ) : status === "error" ? (
-            <CircleX size={20} />
+            <CircleX size={15} />
           ) : (
-            <Play size={20} />
+            <Play size={15} />
           )}
-        </div>
-        <p className="preview-empty-title" role="status">
-          {busy
-            ? (state?.message ?? t("integration.working"))
-            : t(`integration.previewStatus.${status}`)}
-        </p>
-        <p className="preview-empty-description">
-          {t("integration.externalWindow")}
-        </p>
-        {error || preview?.message ? (
-          <p role="alert" className="external-preview-error">
-            {error ?? preview?.message}
-          </p>
-        ) : null}
-        <div className="external-preview-actions">
+        </span>
+        <span className="plugin-row-copy">
+          <strong>{t("integration.preview")}</strong>
+          <span role="status">
+            {busy
+              ? (state?.message ?? t("integration.working"))
+              : t(`integration.previewStatus.${status}`)}
+          </span>
+        </span>
+        <div className="plugin-integration-actions plugin-mcp-actions">
+          {running ? (
+            <button
+              className="plugin-detail-secondary"
+              type="button"
+              disabled={busy}
+              onClick={() => void run("preview-stop")}
+            >
+              {t("integration.stop")}
+            </button>
+          ) : null}
           {status === "missing" ? (
             <button
               className="plugin-detail-primary"
@@ -870,56 +873,43 @@ export function ExternalProjectPreview({
               {t(running ? "integration.restart" : "integration.start")}
             </button>
           )}
-          {running ? (
-            <button
-              className="plugin-detail-secondary"
-              type="button"
-              disabled={busy}
-              onClick={() => void run("preview-stop")}
-            >
-              {t("integration.stop")}
-            </button>
-          ) : null}
-        </div>
-        <div className="external-preview-tools">
-          <button
-            className="external-preview-tool"
-            type="button"
-            disabled={busy}
-            onClick={() => void run("preview-status")}
-          >
-            <RefreshCw size={13} aria-hidden="true" />
-            {t("integration.refresh")}
-          </button>
-          <button
-            className="external-preview-tool"
-            type="button"
-            disabled={busy}
-            onClick={() => void run("preview-logs")}
-          >
-            <Terminal size={13} aria-hidden="true" />
-            {t("integration.logs")}
-          </button>
         </div>
       </div>
-      {logs !== undefined ? (
-        <div className="external-preview-logs">
-          <header>
-            <span>{t("integration.logsTitle")}</span>
+      {error || preview?.message ? (
+        <p role="alert" className="external-preview-error">
+          {error ?? preview?.message}
+        </p>
+      ) : null}
+      <div className="external-preview-logs">
+        <header>
+          <span>{t("integration.logsTitle")}</span>
+          <div className="external-preview-tools">
             <button
               className="external-preview-tool"
               type="button"
-              aria-label={t("integration.hideLogs")}
-              title={t("integration.hideLogs")}
-              onClick={() => setLogs(undefined)}
+              disabled={busy}
+              onClick={() => void run("preview-status")}
             >
-              <X size={13} aria-hidden="true" />
+              <RefreshCw size={13} aria-hidden="true" />
+              {t("integration.refresh")}
             </button>
-          </header>
+            <button
+              className="external-preview-tool"
+              type="button"
+              disabled={busy}
+              onClick={() => void run("preview-logs")}
+            >
+              <Terminal size={13} aria-hidden="true" />
+              {t("integration.logs")}
+            </button>
+          </div>
+        </header>
+        {logs !== undefined ? (
           <pre>{logs || t("integration.noLogs")}</pre>
-        </div>
-      ) : null}
-      {footer}
+        ) : (
+          <p>{t("integration.logsHint")}</p>
+        )}
+      </div>
     </section>
   );
 }
@@ -946,9 +936,7 @@ function IntegrationDisconnect({
     }
   }
   return (
-    <div
-      className={`plugin-integration-disconnect${confirming ? " is-confirming" : ""}`}
-    >
+    <div className="plugin-integration-disconnect">
       {confirming ? (
         <>
           <p>{t("integration.disconnectNotice")}</p>

@@ -2843,7 +2843,7 @@ const en = {
     preview: "Local preview", externalWindow: "The game opens in its own native window. Refresh restarts it and resets game state.",
     installRuntime: "Install Runtime", start: "Start preview", restart: "Refresh preview", stop: "Stop", logs: "Load logs",
     account: "Local setup and account", needsSetup: "Prepare the local environment to continue", needsAuth: "Connect your account to continue", unchecked: "Not checked yet",
-    logsTitle: "Runtime logs", hideLogs: "Hide logs", noLogs: "No log output yet.",
+    logsTitle: "Runtime logs", logsHint: "Load logs to see the latest Runtime output.", noLogs: "No log output yet.",
     previewStatus: { missing: "Runtime is not installed", stopped: "Preview stopped", running: "Preview running", error: "Check the preview state before retrying" },
   },
   textComposer: {
