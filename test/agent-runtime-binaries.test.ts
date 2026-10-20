@@ -126,19 +126,21 @@ it.skipIf(process.platform === "win32")("selects the newest CLI, keeps discovery
   });
 });
 
-it.skipIf(process.platform === "win32")("deduplicates symlinks and skips directories and non-executable files", async () => {
+it("deduplicates symlinks and skips directories and non-executable files", async () => {
   const app = await install(bundledPath(0));
   const bin = path.join(root, "bin");
   await mkdir(bin);
-  const link = path.join(bin, "codex");
+  const link = path.join(bin, process.platform === "win32" ? "codex.exe" : "codex");
   await symlink(app, link);
   vi.stubEnv("PATH", bin);
   expect(await resolveBinary("codex-cli")).toMatchObject({
     path: link,
     source: "path",
   });
-  await chmod(app, 0o600);
-  expect(await resolveBinary("codex-cli")).toBeUndefined();
+  if (process.platform !== "win32") {
+    await chmod(app, 0o600);
+    expect(await resolveBinary("codex-cli")).toBeUndefined();
+  }
   expect(await resolveBinary("codex-cli", bin)).toBeUndefined();
 });
 
