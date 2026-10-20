@@ -59,6 +59,12 @@ message. A lazy MCP service connects when requested.
 and `flag`. The shared catalog in `src/shared/plugin-icons.ts` supplies the
 picker, validation, and AI authoring instructions.
 
+The `@` and Add context menus show each plugin's configured icon. Home and
+conversation capability responses include `icon` and `iconRevision` so these
+menus share the plugin library's authenticated image loading and fallback.
+
+![Plugin icons in the composer menu](assets/composer-plugin-icons.png)
+
 Custom icons support PNG, WebP, and static SVG, up to 1 MB and 2048 × 2048.
 SVG files must be UTF-8 with an explicit positive `viewBox` no larger than
 2048 × 2048 units. The static subset accepts shapes, groups, gradients, clipping,

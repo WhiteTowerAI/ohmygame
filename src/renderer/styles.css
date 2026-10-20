@@ -12188,7 +12188,8 @@ button {
   border-radius: 18px;
 }
 
-.composer-context-menu button > svg {
+.composer-context-menu button > svg,
+.composer-context-menu button > .plugin-icon-image {
   flex: none;
   color: var(--text-secondary);
 }

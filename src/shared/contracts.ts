@@ -942,6 +942,8 @@ export interface ConversationCapabilities {
     description: string;
     marketplaceId: string;
     marketplaceDisplayName: string;
+    icon?: import("./plugins.js").PluginIcon;
+    iconRevision?: string;
     projectTypes?: ProjectType[];
     integration?: import("./plugin-integration.js").PluginIntegrationDefinition;
   }>;

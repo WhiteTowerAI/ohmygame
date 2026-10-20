@@ -1,10 +1,11 @@
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type { AgentUsageLimit, ConversationCapabilities } from "../shared/contracts.js";
 import { AgentUsageInline } from "./agent-usage.js";
-import { FileText, Lightbulb, Package, Plus, Upload, WandSparkles } from "./icons.js";
+import { FileText, Lightbulb, Plus, Upload, WandSparkles } from "./icons.js";
 import { attachmentFiles, type ComposerAttachment } from "./composer-attachments.js";
 import { matchingMentions, mentionQuery, slashCommandQuery, skillDisplayName, type ComposerMention, type ComposerMentionQuery } from "./composer-mentions.js";
 import { t } from "./i18n.js";
+import { PluginGlyph } from "./plugin-icons.js";
 
 type ContextAction = "files" | "design" | "plan" | "compact";
 interface ContextMenuItem {
@@ -266,7 +267,7 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(item)}
       >
-        {item.action === "files" ? <Upload size={16} /> : item.action === "design" ? <FileText size={16} /> : item.action === "plan" ? <Lightbulb size={16} /> : item.action === "compact" ? <FileText size={16} /> : item.mention?.type === "plugin" ? <Package size={16} /> : <WandSparkles size={16} />}
+        {item.action === "files" ? <Upload size={16} /> : item.action === "design" ? <FileText size={16} /> : item.action === "plan" ? <Lightbulb size={16} /> : item.action === "compact" ? <FileText size={16} /> : item.mention?.type === "plugin" ? <PluginGlyph plugin={item.mention.value} size={16} /> : <WandSparkles size={16} />}
         <span>{item.label}</span>
         <small>{item.description}</small>
       </button>

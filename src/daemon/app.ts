@@ -3651,11 +3651,12 @@ export function createApp(options: AppOptions = {}) {
 function enabledPluginMentions(plugins: readonly PluginSummary[], projectType?: ProjectType): ConversationCapabilities["plugins"] {
   return plugins
     .filter((plugin) => plugin.enabled && (!projectType || !plugin.projectTypes?.length || plugin.projectTypes.includes(projectType)))
-    .map(({ id, name, displayName, description, marketplace, projectTypes, integration }) => ({
+    .map(({ id, name, displayName, description, marketplace, icon, iconRevision, projectTypes, integration }) => ({
       id,
       name,
       displayName,
       description,
+      icon, iconRevision,
       projectTypes, integration,
       marketplaceId: marketplace.id,
       marketplaceDisplayName: marketplace.displayName,

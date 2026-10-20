@@ -32,8 +32,9 @@ describe("plugin catalog API", () => {
     const source = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-mention-source-"));
     await mkdir(path.join(source, ".ohmygame-plugin"), { recursive: true });
     await writeFile(path.join(source, ".ohmygame-plugin", "plugin.json"), JSON.stringify({
-      name: "web-only", version: "1.0.0", description: "Web only", interface: { projectTypes: ["web-game"] },
+      name: "web-only", version: "1.0.0", description: "Web only", interface: { projectTypes: ["web-game"], icon: { type: "asset", path: "./icon.svg" } },
     }));
+    await writeFile(path.join(source, "icon.svg"), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="green"/></svg>');
     const app = createApp({
       dataDirectory,
       createSession: async () => ({ messages: [], prompt: async () => {}, abort: async () => {}, dispose: () => {}, subscribe: () => () => {}, getSkills: () => [] }),
@@ -45,6 +46,9 @@ describe("plugin catalog API", () => {
       const project = (await app.inject({ method: "POST", url: "/projects", payload: { type } })).json();
       const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
       const capabilities = await app.inject({ method: "GET", url: `/projects/${project.id}/conversations/${conversation.id}/capabilities` });
+      if (type === "web-game") expect(capabilities.json().plugins).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "personal:web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) }),
+      ]));
       return capabilities.json().plugins.map((plugin: { id: string }) => plugin.id);
     };
 
@@ -54,7 +58,7 @@ describe("plugin catalog API", () => {
     expect(await mentionIds("godot-game")).toContain("ohmygame:godot");
     expect(await mentionIds("web-game")).not.toContain("ohmygame:godot");
     expect((await app.inject({ method: "GET", url: "/composer/capabilities" })).json().plugins)
-      .toEqual(expect.arrayContaining([expect.objectContaining({ id: "personal:web-only" })]));
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: "personal:web-only", icon: { type: "asset", path: "./icon.svg" }, iconRevision: expect.any(String) })]));
   });
 
   it("reads only a registered Skill file from an installed plugin", async () => {
