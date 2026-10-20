@@ -2,18 +2,22 @@ import {
   isPlayableHostMessage,
   type PlayableFrameMessage,
   type PlayableHostMessage,
-  type PlayableMediaCommand,
-  type PlayableMediaState,
   type PlayablePreviewTool,
 } from "../shared/playable-player-protocol.js";
 import {
   NodeRuntime,
+  type PlayablePreferencesStore,
   type PlayableSave,
   type PlayableSaveStore,
   type PlayableSeenStore,
+  type PlayableSlotStore,
 } from "../shared/playable-runtime.js";
+import type { JsonObject } from "../shared/playable-nodes.js";
 import type { PlayableSeen } from "../shared/playable-story-map.js";
-import { DocumentPlayableSurfaceHost } from "../shared/playable-sandbox.js";
+import { DocumentPlayableAudio } from "../shared/playable-audio.js";
+import { reportBackdropMedia, type BackdropMediaReport } from "../shared/playable-media-report.js";
+import { DocumentPlayableSurfaceHost, loadPlayableModule } from "../shared/playable-sandbox.js";
+import { startPlayablePicking } from "../shared/playable-picking.js";
 
 let session: SandboxSession | undefined;
 
@@ -29,8 +33,7 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     return;
   }
   if (event.data.kind === "ohmygame:playable:pick-cancel") {
-    if (session?.instanceId === event.data.instanceId)
-      session.host.stopPicking();
+    if (session?.instanceId === event.data.instanceId) stopPicking(session);
     return;
   }
   if (event.data.kind === "ohmygame:playable:media-control") {
@@ -65,17 +68,22 @@ async function startSession(
         new Blob([asset.bytes], { type: asset.contentType }),
       );
     }
-    const saveStore = new ParentSaveStore(message.instanceId, message.save);
-    const host = new DocumentPlayableSurfaceHost(document);
+    const saveStore = new ParentSaveStore(message.instanceId, message.save, message.slots);
+    const audio = message.preview?.silent ? undefined : new DocumentPlayableAudio(document);
+    const host = new DocumentPlayableSurfaceHost(document, loadPlayableModule, audio && ((root) => audio.watchNode(root)), undefined, (error) => post({ kind: "ohmygame:playable:diagnostic", instanceId: message.instanceId, error }));
+    const { silent: _silent, ...preview } = message.preview ?? {};
     const runtime = new NodeRuntime({
       graph: message.definition.graph,
       compiled: message.definition.compiled,
       graphSignature: message.definition.graphSignature,
       surfaceHost: host,
       saveStore,
+      slotStore: saveStore.slots,
       seenStore: new ParentSeenStore(message.instanceId, message.seen),
+      preferencesStore: new ParentPreferencesStore(message.instanceId, message.preferences),
+      ...(audio ? { audio } : {}),
       assetUrls,
-      ...message.preview,
+      ...preview,
       onChange: () => scheduleSnapshot(message.instanceId),
       onError: (error) =>
         post({
@@ -90,9 +98,12 @@ async function startSession(
       runtime,
       host,
       saveStore,
+      ...(audio ? { audio } : {}),
       assetUrls,
       // The timeline is an authoring tool; published sessions never report media.
-      ...(message.preview ? { media: reportBackdropMedia(host, message.instanceId) } : {}),
+      ...(message.preview ? {
+        media: reportBackdropMedia(host, (media) => post({ kind: "ohmygame:playable:media", instanceId: message.instanceId, ...(media ? { media } : {}) })),
+      } : {}),
     };
     await runtime.start();
     postSnapshot(message.instanceId);
@@ -112,52 +123,80 @@ function startPicking(instanceId: string, tool: PlayablePreviewTool): void {
   const current = session;
   // Picking is an authoring tool; published sessions never enable it.
   if (current?.instanceId !== instanceId || !current.preview) return;
-  current.host.startPicking(tool, {
+  stopPicking(current);
+  current.picking = startPlayablePicking(current.host.projectRoot, tool, {
     onPick: (pick, additive) => post({ kind: "ohmygame:playable:picked", instanceId, pick, additive }),
     onTextEdit: (edit) => post({ kind: "ohmygame:playable:text-edited", instanceId, edit }),
     onMove: (move) => post({ kind: "ohmygame:playable:moved", instanceId, move }),
-    onCancel: () => post({ kind: "ohmygame:playable:pick-cancelled", instanceId }),
+    onCancel: () => {
+      current.picking = undefined;
+      post({ kind: "ohmygame:playable:pick-cancelled", instanceId });
+    },
   });
+}
+
+function stopPicking(current: SandboxSession): void {
+  current.picking?.stop();
+  current.picking = undefined;
 }
 
 async function disposeSession(): Promise<void> {
   const current = session;
   session = undefined;
   if (!current) return;
+  stopPicking(current);
   current.saveStore.dispose();
   current.media?.stop();
   await current.runtime.dispose();
+  current.audio?.dispose();
   current.host.destroy();
   for (const url of Object.values(current.assetUrls)) URL.revokeObjectURL(url);
 }
 
+/** Keeps the save and the slots with the host, which confirms each write. */
 class ParentSaveStore implements PlayableSaveStore {
   readonly #pending = new Map<
     string,
     { resolve: () => void; reject: (error: Error) => void }
   >();
   #nextRequest = 0;
+  readonly slots: PlayableSlotStore;
 
   constructor(
     readonly instanceId: string,
     readonly initialSave: unknown,
-  ) {}
+    initialSlots: unknown,
+  ) {
+    this.slots = {
+      load: async () => initialSlots,
+      save: (slots) => this.#request((requestId) => ({
+        kind: "ohmygame:playable:slots",
+        instanceId: this.instanceId,
+        requestId,
+        slots,
+      })),
+    };
+  }
 
   async load(): Promise<unknown> {
     return this.initialSave;
   }
 
   save(save: PlayableSave): Promise<void> {
-    const requestId = String(++this.#nextRequest);
-    const result = new Promise<void>((resolve, reject) => {
-      this.#pending.set(requestId, { resolve, reject });
-    });
-    post({
+    return this.#request((requestId) => ({
       kind: "ohmygame:playable:save",
       instanceId: this.instanceId,
       requestId,
       save,
+    }));
+  }
+
+  #request(message: (requestId: string) => PlayableFrameMessage): Promise<void> {
+    const requestId = String(++this.#nextRequest);
+    const result = new Promise<void>((resolve, reject) => {
+      this.#pending.set(requestId, { resolve, reject });
     });
+    post(message(requestId));
     return result;
   }
 
@@ -199,80 +238,31 @@ class ParentSeenStore implements PlayableSeenStore {
   }
 }
 
+class ParentPreferencesStore implements PlayablePreferencesStore {
+  constructor(
+    readonly instanceId: string,
+    readonly initialPreferences: unknown,
+  ) {}
+
+  async load(): Promise<unknown> {
+    return this.initialPreferences;
+  }
+
+  async save(preferences: JsonObject): Promise<void> {
+    post({ kind: "ohmygame:playable:preferences", instanceId: this.instanceId, preferences });
+  }
+}
+
 interface SandboxSession {
   instanceId: string;
   preview: boolean;
   runtime: NodeRuntime;
   host: DocumentPlayableSurfaceHost;
   saveStore: ParentSaveStore;
+  audio?: DocumentPlayableAudio;
+  picking?: { stop: () => void };
   assetUrls: Record<string, string>;
   media?: BackdropMediaReport;
-}
-
-interface BackdropMediaReport {
-  control: (command: PlayableMediaCommand) => void;
-  stop: () => void;
-}
-
-const MEDIA_EVENTS = ["loadedmetadata", "durationchange", "timeupdate", "play", "playing", "waiting", "pause", "seeking", "seeked", "ended"] as const;
-
-/**
- * Reports the Node's background video to the Workbench timeline as it plays,
- * and applies the timeline's commands to it.
- */
-function reportBackdropMedia(host: DocumentPlayableSurfaceHost, instanceId: string): BackdropMediaReport {
-  let video: HTMLVideoElement | undefined;
-  const report = () => {
-    const media = video && mediaState(video);
-    post({ kind: "ohmygame:playable:media", instanceId, ...(media ? { media } : {}) });
-  };
-  const listen = (target: HTMLVideoElement | undefined, add: boolean) => {
-    for (const type of MEDIA_EVENTS) {
-      if (add) target?.addEventListener(type, report);
-      else target?.removeEventListener(type, report);
-    }
-  };
-  const stopWatching = host.watchBackdropVideo((next) => {
-    listen(video, false);
-    video = next;
-    listen(video, true);
-    report();
-  });
-  return {
-    control: (command) => {
-      if (!video) return;
-      if (command.action === "seek") video.currentTime = Math.min(command.time, video.duration || command.time);
-      else if (command.action === "pause") video.pause();
-      // Where sound may not start on its own, play muted rather than not at all.
-      else void video.play().catch((error: unknown) => {
-        if ((error as Error | undefined)?.name !== "NotAllowedError") return;
-        video!.muted = true;
-        return video!.play();
-      }).catch(() => {});
-    },
-    stop: () => {
-      stopWatching();
-      listen(video, false);
-      video = undefined;
-    },
-  };
-}
-
-/**
- * Undefined until the video has loaded its metadata. Its length is known a
- * moment earlier, before the Node's code can move it from the start.
- */
-function mediaState(video: HTMLVideoElement): PlayableMediaState | undefined {
-  if (video.readyState < HTMLMediaElement.HAVE_METADATA) return undefined;
-  if (!Number.isFinite(video.duration) || video.duration <= 0) return undefined;
-  const assetId = video.closest('[data-media="backdrop"]')?.getAttribute("data-asset");
-  return {
-    ...(assetId ? { assetId } : {}),
-    duration: video.duration,
-    time: Math.min(video.currentTime, video.duration),
-    paused: video.paused || video.ended,
-    advancing: !video.paused && !video.ended && !video.seeking && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA,
-  };
 }
 
 let snapshotScheduled = false;

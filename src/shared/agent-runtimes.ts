@@ -44,7 +44,7 @@ export type AgentRuntimeAuthStatus = "signed-in" | "signed-out" | "unknown";
 
 export type AgentRuntimeDiagnosticCode =
   | "not-installed"
-  | "version-unsupported"
+  | "runtime-incompatible"
   | "signed-out"
   | "probe-failed"
   | "models-unavailable";
@@ -53,6 +53,8 @@ export interface AgentRuntimeDiagnostic {
   code: AgentRuntimeDiagnosticCode;
   /** English detail for logs and error reports; the interface shows its own text for the code. */
   message: string;
+  /** A protocol field or CLI flag that the installed program lacks. */
+  capability?: string;
   /** A command the person can run in a terminal to fix it, such as a sign-in. */
   command?: string;
 }
@@ -74,6 +76,8 @@ export interface AgentRuntimeStatus {
   /** The executable that runs, resolved to an absolute path. */
   binaryPath?: string;
   version?: string;
+  /** Version used for real acceptance; it is not a compatibility floor. */
+  testedVersion?: string;
   auth: {
     status: AgentRuntimeAuthStatus;
     /** Account or plan text the CLI reports, such as an email address. */

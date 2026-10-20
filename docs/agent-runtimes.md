@@ -193,13 +193,18 @@ group; it is not an OS-wide process supervisor or resource scheduler.
 
 ## Runtime transports and compatibility
 
-| Runtime     | Interactive transport and tools                                                        | Tested protocol floor |
+| Runtime     | Interactive transport and tools                                                        | Real acceptance version |
 | ----------- | -------------------------------------------------------------------------------------- | --------------------- |
-| Claude Code | Long-lived stream-json stdin/stdout; control requests and MCP tool callbacks           | 2.1.83                |
-| Codex       | App Server JSON-RPC; native `dynamicTools`, approval responses, thread/turn lifecycle  | 0.163.0-alpha.10.2    |
+| Claude Code | Long-lived stream-json stdin/stdout; control requests and MCP tool callbacks           | 2.1.302               |
+| Codex       | App Server JSON-RPC; native `dynamicTools`, approval responses, thread/turn lifecycle  | 0.163.0               |
 | OpenCode    | Private authenticated loopback `serve`; HTTP requests, SSE events, daemon MCP endpoint | 1.18.33               |
 
-These are tested capability floors, not certification of all later releases.
+These versions record real acceptance, not minimum versions or certification of
+all later releases. Discovery checks required protocol capabilities; real drivers
+retain their startup checks. Only a documented feature that cannot be verified
+through the protocol uses a conditional version requirement: Claude
+`sandbox.failIfUnavailable` (2.1.83+) when Standard permissions rely on its OS
+sandbox. See [compatibility checks](coding-agents.md#compatibility-and-real-acceptance).
 Check required capabilities and refuse unsafe fallbacks. Direct protocols keep
 the installed executable. The Claude Agent SDK was evaluated (0.3.302) and not
 adopted: its platform package bundles a full Claude Code binary of about
@@ -262,6 +267,25 @@ New plugin capabilities must be expressible as Skills or MCP. Pi extensions are
 not portable. Native canvas file edits still need `canvas_check`; media jobs,
 artifacts, retries, defaults, and cancellation reuse their existing handlers.
 A native language model is not an image, video, or 3D model.
+
+Codex can also return images from its own built-in image generation. The
+adapter imports completed `imageGeneration` items through the same project
+generated-asset and Library pipeline as `generate_image`, and records a file
+artifact in the conversation. Chat displays that artifact outside the tool
+details, including after reopening the conversation; the game Preview still
+shows only the running game. Imports finish before turn-end checkpoints are
+recorded. Duplicate completion events are imported once per turn, and a failed
+generation or import is reported as a failed tool and turn rather than a
+successful text-only response. Planning turns do not import generated files.
+
+Inline PNG, JPEG, and WebP results are accepted up to 32 MiB. If Codex returns
+only a saved path, it must resolve inside that native thread's
+`$CODEX_HOME/generated_images/<threadId>/` directory (or
+`$HOME/.codex/generated_images/<threadId>/`). Images are copied into the project;
+chat does not depend on the continued existence of Codex's source file. The
+adapter does not scan other conversations or download image URLs.
+
+![A Codex-generated image displayed in chat while tool details remain collapsed](assets/codex-image-delivery.webp)
 
 ## Permission and configuration boundary
 
@@ -390,8 +414,7 @@ running, subagents and shells that ran in the background past the turn, Claude's
 own plan-file workflow in place of `update_plan`, planning that could not
 search, OhMyGame tools deferred behind Claude's tool search, OpenCode
 subagents refused in planning, and bare OpenCode rejections that ended the
-planning loop. Codex 0.163.0 (the first stable release with named
-permission profiles) / `gpt-6-luna` passed the same extended workflow after
+planning loop. Codex 0.163.0 / `gpt-6-luna` passed the same extended workflow after
 one more fix: it reads `AGENTS.md` from every folder between the Git root and
 the workspace through the permission profile, so a workspace inside another
 repository failed to start a thread. `project_root_markers = []` makes the

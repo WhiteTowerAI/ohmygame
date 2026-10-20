@@ -72,7 +72,7 @@ describe("player preview startup", () => {
     expect(await readFile(path.join(project.workspacePath, "server.pid"), "utf8")).not.toBe(pid);
   });
 
-  it("rejects missing, non-Web Game and empty projects without starting a server", async () => {
+  it("rejects missing and empty projects and stories without a page, and serves a web story's page", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-player-preview-"));
     const app = createApp({ dataDirectory });
     cleanups.push(async () => { await app.close(); await rm(dataDirectory, { recursive: true, force: true }); });
@@ -81,7 +81,13 @@ describe("player preview startup", () => {
     const response = await app.inject({ method: "POST", url: `/projects/${empty.id}/preview?reuse=1` });
     expect(response.statusCode).toBe(409);
     expect(response.json().error).toContain("no package.json");
-    expect((await app.inject({ method: "POST", url: `/projects/${story.id}/preview?reuse=1` })).statusCode).toBe(409);
+    // A web story plays its own page through the preview; one still in the sandbox has none to serve.
+    const page = await app.inject({ method: "POST", url: `/projects/${story.id}/preview?reuse=1` });
+    expect(page.statusCode).toBe(200);
+    expect(await (await fetch(page.json().url)).text()).toContain("story/story-web/runtime.js");
+    const legacy = (await app.inject({ method: "POST", url: "/projects", payload: { type: "interactive-story" } })).json();
+    await rm(path.join(legacy.workspacePath, "index.html"));
+    expect((await app.inject({ method: "POST", url: `/projects/${legacy.id}/preview?reuse=1` })).statusCode).toBe(409);
     expect((await app.inject({ method: "POST", url: "/projects/missing/preview?reuse=1" })).statusCode).toBe(404);
   });
 });

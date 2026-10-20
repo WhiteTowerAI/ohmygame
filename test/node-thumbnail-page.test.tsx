@@ -17,17 +17,21 @@ let onSnapshot!: (snapshot: NodeRuntimeSnapshot) => void;
 let finishImage!: (image: Blob) => void;
 const upload = vi.fn(async () => {}), finish = vi.fn();
 const capture = vi.fn(() => new Promise<Blob>(resolve => { finishImage = resolve; }));
+let web = false;
+let playerProps: { page?: string; preview?: unknown } = {};
 vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
-  getNodeRuntime: async () => ({ available: true, definition }),
+  getNodeRuntime: async () => ({ available: true, definition, ...(web ? { web: true } : {}) }),
+  ensureProjectPreview: async () => ({ url: "http://127.0.0.1:5555", title: "Thumbnail" }),
   setPlayableThumbnail: upload,
 }));
 vi.doMock(path.resolve("src/renderer/playable-assets.ts"), () => ({ loadPlayableAssets: async () => ({}) }));
 vi.doMock(path.resolve("src/renderer/page-capture.ts"), () => ({ captureElementImage: capture }));
 vi.doMock(path.resolve("src/renderer/playable-player.tsx"), () => ({
   createMemoryStorage: () => ({}),
-  NodePlayer: (props: { onSnapshot(snapshot: NodeRuntimeSnapshot): void }) => {
+  NodePlayer: (props: { onSnapshot(snapshot: NodeRuntimeSnapshot): void; page?: string; preview?: unknown }) => {
     onSnapshot = props.onSnapshot;
+    playerProps = props;
     return <div className="playable-player-frame" />;
   },
 }));
@@ -60,4 +64,16 @@ it("discards an in-flight capture when the runtime fails", async () => {
   await act(async () => finishImage(new Blob(["image"])));
   expect(upload).not.toHaveBeenCalled();
   expect(finish).toHaveBeenCalledExactlyOnceWith(false);
+});
+
+it("captures a web story from its own page, previewing the Scene without sound", async () => {
+  web = true;
+  try {
+    await act(async () => root.render(<NodeThumbnailPage key="web" projectId="p" nodeId="start" />));
+    await act(async () => vi.advanceTimersByTimeAsync(10));
+    expect(playerProps.page).toBe("http://127.0.0.1:5555");
+    expect(playerProps.preview).toEqual({ policy: "report", startNodeId: "start", silent: true });
+  } finally {
+    web = false;
+  }
 });

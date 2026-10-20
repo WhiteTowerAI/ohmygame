@@ -101,16 +101,72 @@ export interface PlayableStateService {
   subscribe(listener: (state: Readonly<JsonObject>) => void): () => void;
 }
 
+/**
+ * Where the player has got to inside the current Node, in whatever JSON the
+ * Node chooses, such as the line a script is on. It is kept with the save and
+ * on the back stack, so Continue, loading a slot, and Back return there. A
+ * Node entered through a Signal starts with none.
+ */
+export interface PlayablePositionService {
+  get(): JsonValue | null;
+  set(value: JsonValue | null): Promise<void>;
+}
+
+/**
+ * Music plays on across Nodes until a Node changes it, and is kept with the
+ * save. Asking for the music already playing leaves it playing. While a Node
+ * plays a video or audio element with sound, the music turns down.
+ */
+export interface PlayableAudioService {
+  /** Fades to the Asset, or out with null, over `fade` seconds (1 by default). */
+  music(assetId: string | null, options?: { fade?: number }): void;
+  /** Plays the Asset once over everything else. */
+  sound(assetId: string): void;
+}
+
+/**
+ * The player's settings, kept apart from saves: they outlast new games and
+ * restarts. `musicVolume` and `soundVolume` (0 to 1) set the Runtime's
+ * volumes, and sound covers videos as well; any other key is the project's.
+ */
+export interface PlayablePreferencesService {
+  get(): Readonly<JsonObject>;
+  /** Changes only the given keys. */
+  set(values: JsonObject): Promise<void>;
+}
+
+/** A saved game the player put in a slot. */
+export interface PlayableSlotSummary {
+  id: string;
+  savedAt: string;
+  /** The Node the game continues in. */
+  nodeId: string;
+  /** What the Node said about the moment, such as the current line. */
+  note?: string;
+  /** Saved from another version of the game, so it cannot be loaded. */
+  incompatible?: true;
+}
+
 export interface NodeRuntimeContext {
   root: ShadowRoot;
   assets: { url(id: string): string };
   state: PlayableStateService;
+  position: PlayablePositionService;
+  audio: PlayableAudioService;
+  preferences: PlayablePreferencesService;
   session: {
     hasSave(): boolean;
     reset(): Promise<void>;
     continue(): Promise<void>;
     save(): Promise<void>;
     restart(): Promise<void>;
+    /** Saved games in slots, by ID. */
+    slots(): PlayableSlotSummary[];
+    /** Saves the game in a slot, replacing what was there. */
+    saveSlot(id: string, note?: string): Promise<void>;
+    /** Continues the game saved in a slot. */
+    loadSlot(id: string): Promise<void>;
+    deleteSlot(id: string): Promise<void>;
   };
   /** The story the player has seen so far, across every game they started. */
   story: { map(): PlayableStoryMap };

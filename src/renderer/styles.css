@@ -709,6 +709,7 @@ body {
   overflow: auto;
   padding: 0 40px 48px;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
@@ -1836,7 +1837,7 @@ body {
   margin-top: 1px;
 }
 
-.coding-agent-diagnostic:is(.is-not-installed, .is-version-unsupported, .is-signed-out) {
+.coding-agent-diagnostic:is(.is-not-installed, .is-runtime-incompatible, .is-signed-out) {
   color: var(--text);
 }
 
@@ -2885,6 +2886,7 @@ button.home-nav-item-active:hover {
   overflow: auto;
   padding: 161px 32px 44px;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
@@ -2929,6 +2931,7 @@ button.home-nav-item-active:hover {
   overflow: auto;
   padding: 0 36px 48px;
   scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
@@ -3869,7 +3872,9 @@ button.home-nav-item-active:hover {
   position: fixed;
   z-index: 50;
   display: grid;
-  width: 108px;
+  width: max-content;
+  min-width: 108px;
+  max-width: min(260px, calc(100vw - 16px));
   padding: 4px;
   overflow: hidden;
   border: 0;
@@ -3898,6 +3903,16 @@ button.home-nav-item-active:hover {
 }
 .project-card-actions-menu .project-card-actions-delete {
   color: #ff6b62;
+}
+.project-card-actions-menu button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.project-card-folder-error {
+  margin: 4px 8px;
+  color: #ff6b62;
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .project-card-actions-menu
   .project-card-actions-delete:is(:hover, :focus-visible) {
@@ -5801,6 +5816,194 @@ button.home-nav-item-active:hover {
   width: 100%;
   height: min(64dvh, 640px);
 }
+/* A video with handles to keep part of it, in an asset preview. */
+.video-trimmer {
+  display: grid;
+  width: 100%;
+  align-self: stretch;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 0 0 12px;
+}
+.video-trimmer > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: min(56dvh, 560px);
+  min-height: 200px;
+  object-fit: contain;
+  background: #000;
+  cursor: pointer;
+}
+.video-trimmer-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+}
+.video-trimmer-play {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.video-trimmer-time {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.video-trimmer-track {
+  position: relative;
+  height: 48px;
+  flex: 1;
+  /* Room for the handles, which sit just outside the kept part. */
+  margin: 0 10px;
+  overflow: visible;
+  border-radius: 6px;
+  background: var(--surface-hover);
+  cursor: pointer;
+  touch-action: none;
+}
+.video-trimmer-track:focus-visible,
+.video-trimmer-handle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.video-trimmer-frames {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  border-radius: 6px;
+}
+.video-trimmer-frames > img {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
+/* The parts left out, shaded; the kept part is framed with a handle at each end. */
+.video-trimmer-cut {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgb(0 0 0 / 58%);
+  pointer-events: none;
+}
+.video-trimmer-kept {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  border-top: 2px solid #f2b705;
+  border-bottom: 2px solid #f2b705;
+  pointer-events: none;
+}
+.video-trimmer-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  background: #f2b705;
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+.video-trimmer-handle::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 14px;
+  border-radius: 1px;
+  background: rgb(0 0 0 / 50%);
+  transform: translate(-50%, -50%);
+  content: "";
+}
+.video-trimmer-handle.is-start {
+  left: -10px;
+  border-radius: 4px 0 0 4px;
+}
+.video-trimmer-handle.is-end {
+  right: -10px;
+  border-radius: 0 4px 4px 0;
+}
+.video-trimmer-handle[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.6;
+}
+.video-trimmer-playhead {
+  position: absolute;
+  z-index: 1;
+  top: -6px;
+  bottom: -6px;
+  width: 2px;
+  border-radius: 1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 45%);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.video-trimmer-footer {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 32px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 16px 0 58px;
+}
+.video-trimmer-summary {
+  margin-right: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.video-trimmer-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.video-trimmer-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.video-trimmer-footer > button {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.video-trimmer-footer > button.video-trimmer-save:not(:disabled) {
+  border-color: transparent;
+  background: var(--text);
+  color: var(--surface);
+}
+.video-trimmer-footer > button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
 .library-dialog-state {
   display: inline-flex;
   align-items: center;
@@ -7364,6 +7567,32 @@ button {
   min-width: 0;
   min-height: 0;
   background: var(--canvas);
+}
+
+/* The offer to upgrade a story to a web story, or to take the upgrade back. */
+.story-upgrade-notice {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 6;
+  width: min(640px, calc(100% - 24px));
+  transform: translateX(-50%);
+  box-shadow: var(--shadow-sm, 0 2px 8px rgb(0 0 0 / 0.08));
+}
+
+.story-upgrade-notice .canvas-notice-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.story-upgrade-notice button {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  font-size: 11px;
 }
 
 .interactive-story-body {
@@ -12078,6 +12307,7 @@ button {
 }
 
 .composer-plan-mode {
+  flex: 0 0 auto;
   gap: 9px;
   color: var(--text-muted);
   font-size: 11px;
@@ -12093,6 +12323,7 @@ button {
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
+  white-space: nowrap;
 }
 
 .composer-plan-mode button:hover:not(:disabled) {
@@ -12238,11 +12469,18 @@ button {
 
 .prompt-box-toolbar {
   display: flex;
+  container: prompt-toolbar / inline-size;
   min-width: 0;
   min-height: 32px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+@container prompt-toolbar (max-width: 360px) {
+  .composer-plan-mode button > span {
+    display: none;
+  }
 }
 
 .prompt-box-leading,
@@ -15823,6 +16061,21 @@ button {
 
 /* Playable Node Workbench: the shared preview with tools, toasts, and
    popovers floating over it. */
+.playable-trim-backdrop { z-index: 1000; }
+.playable-trim-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+.playable-trim-dialog > header { height: auto; padding: 18px 20px 0; align-items: start; gap: 16px; }
+.playable-trim-dialog header p { max-width: 58ch; margin: 8px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.playable-trim-dialog form { gap: 10px; padding: 16px 20px; }
+.playable-trim-dialog .video-trimmer > video { height: auto; max-height: min(36dvh, 340px); min-height: 120px; aspect-ratio: 16 / 9; }
+.playable-trim-dialog .video-trimmer-bar { padding: 0; }
+.playable-trim-times { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+.playable-trim-times label { display: grid; gap: 6px; flex: 1; min-width: 120px; font-size: 12px; }
+.playable-trim-times input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--border); border-radius: 6px; color: var(--text); background: var(--surface); font: inherit; font-variant-numeric: tabular-nums; }
+.playable-trim-times p { flex-basis: 100%; margin: 4px 0; font-size: 12px; }
+.playable-trim-error { color: var(--danger, #e78080); font-size: 12px; }
+.playable-trim-dialog footer { display: flex; flex-wrap: wrap; gap: 8px; }
+.playable-trim-dialog footer > span { flex: 1; }
+
 .playable-workbench-stage > .playable-player {
   width: 100%;
   height: 100%;

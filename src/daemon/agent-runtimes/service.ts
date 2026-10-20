@@ -19,11 +19,12 @@ import {
 } from "../../shared/agent-runtimes.js";
 import type { SkillCatalogItem } from "../agent.js";
 import type { EffectiveMcpConfig, PluginMcpHost } from "../plugin-mcp-host.js";
+import { AGENT_RUNTIME_DEFINITIONS, commandSandbox } from "./definitions.js";
 import {
-  AGENT_RUNTIME_DEFINITIONS,
-  commandSandbox,
-  versionAtLeast,
-} from "./definitions.js";
+  AgentRuntimeCompatibilityError,
+  checkRuntimeVersionRequirement,
+  runtimeStartupError,
+} from "./compatibility.js";
 import {
   privateFolder,
   probeAuth,
@@ -40,7 +41,7 @@ import {
 } from "./process-recovery.js";
 import { NativeCodingSession, type NativeDriver } from "./native-session.js";
 import { ToolBridge } from "./tool-bridge.js";
-import type { DriverContext, HttpBridgeHandlers } from "./driver-context.js";
+import type { DriverContext, HttpBridgeHandlers, SaveGeneratedImage } from "./driver-context.js";
 import type { AgentPolicyContext } from "./policy.js";
 import { AgentRuntimeSettingsStore } from "./settings.js";
 import { stagedSkillsRoot } from "./skills.js";
@@ -68,6 +69,7 @@ interface ProbeCache {
   auth: AuthProbe;
   diagnostics: AgentRuntimeDiagnostic[];
   checkedAt: number;
+  requirementError?: Error;
 }
 
 export interface NativeSessionRequest {
@@ -79,6 +81,7 @@ export interface NativeSessionRequest {
   sessionManager: SessionManager;
   /** OhMyGame's tools for the project, as Pi gets them. */
   tools: ToolDefinition[];
+  saveGeneratedImage?: SaveGeneratedImage;
   pluginMcp?: {
     config: EffectiveMcpConfig;
     host: PluginMcpHost;
@@ -116,7 +119,15 @@ export class AgentRuntimeService {
     string,
     { bridge: ToolBridge; handlers: HttpBridgeHandlers }
   >();
-  #modelErrors = new Map<AgentRuntimeId, string>();
+  #modelErrors = new Map<
+    AgentRuntimeId,
+    {
+      signature: string;
+      at: number;
+      diagnostic: AgentRuntimeDiagnostic;
+      cause?: Error;
+    }
+  >();
   /** Each account's quota windows as last reported; they outlive the conversation that reported them. */
   #limits = new Map<AgentRuntimeId, AgentUsageLimit[]>();
   #limitWrites: Promise<void> = Promise.resolve();
@@ -177,6 +188,7 @@ export class AgentRuntimeService {
     const base = {
       id,
       name: definition.name,
+      testedVersion: definition.testedVersion,
       enabled: settings.enabled,
       isolateUserConfig: settings.isolateUserConfig,
       commandSandbox: commandSandbox(id),
@@ -201,6 +213,9 @@ export class AgentRuntimeService {
       };
     }
     const probe = await this.#probe(id, binary, recheck);
+    // Enabling or rechecking a CLI checks the same protocol used by model
+    // discovery. A timeout remains a probe/catalog failure, not incompatibility.
+    if (settings.enabled) await this.#loadModels(id).catch(() => {});
     return {
       ...base,
       installed: true,
@@ -221,12 +236,7 @@ export class AgentRuntimeService {
           },
         ]),
         ...(this.#modelErrors.has(id)
-          ? [
-              {
-                code: "models-unavailable" as const,
-                message: this.#modelErrors.get(id)!,
-              },
-            ]
+          ? [this.#modelErrors.get(id)!.diagnostic]
           : []),
       ],
       ...(probe ? { checkedAt: new Date(probe.checkedAt).toISOString() } : {}),
@@ -269,9 +279,6 @@ export class AgentRuntimeService {
     const lists = await Promise.all(
       AGENT_RUNTIME_IDS.map(async (id) => {
         if (!this.settings.get(id).enabled) return [];
-        const cached = this.#models.get(id);
-        if (cached && Date.now() - cached.at < MODELS_TTL_MS)
-          return cached.models;
         const load = this.#loadModels(id).catch(() => [] as AgentModel[]);
         const late = Symbol("late");
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -379,10 +386,14 @@ export class AgentRuntimeService {
         `${definition.name} is not installed. Install it, then check again in Providers & Models.`,
       );
     const probe = await this.#probe(request.runtime, binary, false);
-    const blocking = probe?.diagnostics.find(
-      (diagnostic) => diagnostic.code === "version-unsupported",
-    );
-    if (blocking) throw new Error(blocking.message);
+    if (probe?.requirementError) throw probe.requirementError;
+    // Do not offer a catalog during setup then reject the same CLI only after
+    // its first message. This uses the discovery cache and sends no model turn.
+    try {
+      await this.#loadModels(request.runtime);
+    } catch (cause) {
+      throw runtimeStartupError(cause);
+    }
     await mkdir(path.join(this.#root, "sessions"), {
       recursive: true,
       mode: 0o700,
@@ -436,6 +447,7 @@ export class AgentRuntimeService {
       isolateUserConfig: settings.isolateUserConfig,
       instructions: `${request.instructions}\n\n${NATIVE_INSTRUCTIONS}`,
       bridge,
+      saveGeneratedImage: request.saveGeneratedImage,
       policy: {
         ...request.policy,
         fullAccess: settings.permissionMode === "full",
@@ -662,10 +674,26 @@ export class AgentRuntimeService {
           message: cause instanceof Error ? cause.message : String(cause),
         });
       }
-      if (version && !versionAtLeast(version, definition.minimumVersion)) {
+      let requirementError: Error | undefined;
+      try {
+        checkRuntimeVersionRequirement(
+          id,
+          version,
+          this.settings.get(id).permissionMode,
+        );
+      } catch (cause) {
+        requirementError =
+          cause instanceof Error ? cause : new Error(String(cause));
         diagnostics.push({
-          code: "version-unsupported",
-          message: `${definition.name} ${version} is older than ${definition.minimumVersion}, the oldest version OhMyGame supports. Update it to continue.`,
+          code:
+            cause instanceof AgentRuntimeCompatibilityError
+              ? "runtime-incompatible"
+              : "probe-failed",
+          message: requirementError.message,
+          ...(cause instanceof AgentRuntimeCompatibilityError &&
+          cause.capability
+            ? { capability: cause.capability }
+            : {}),
         });
       }
       if (auth.status === "signed-out")
@@ -680,6 +708,7 @@ export class AgentRuntimeService {
         auth,
         diagnostics,
         checkedAt: Date.now(),
+        ...(requirementError ? { requirementError } : {}),
       };
       if (this.#revisions.get(id) === revision) this.#probes.set(id, result);
       return result;
@@ -698,12 +727,21 @@ export class AgentRuntimeService {
       const settings = this.settings.get(id);
       const binary = await resolveBinary(id, settings.binaryPath);
       if (!binary) return [];
+      const probe = await this.#probe(id, binary, false);
+      if (probe?.requirementError) throw probe.requirementError;
       const cached = this.#models.get(id);
       if (
         cached?.signature === binary.signature &&
         Date.now() - cached.at < MODELS_TTL_MS
       )
         return cached.models;
+      const failed = this.#modelErrors.get(id);
+      if (
+        failed?.signature === binary.signature &&
+        failed.cause &&
+        Date.now() - failed.at < STATUS_TTL_MS
+      )
+        throw failed.cause;
       const env = await this.#environment(id, binary.path);
       await mkdir(path.join(this.#root, "probes"), {
         recursive: true,
@@ -726,10 +764,14 @@ export class AgentRuntimeService {
         });
         this.#modelErrors.delete(id);
         if (!models.length)
-          this.#modelErrors.set(
-            id,
-            `${AGENT_RUNTIME_DEFINITIONS[id].name} returned an empty model catalog. Check sign-in and CLI protocol support.`,
-          );
+          this.#modelErrors.set(id, {
+            signature: binary.signature,
+            at: Date.now(),
+            diagnostic: {
+              code: "models-unavailable",
+              message: `${AGENT_RUNTIME_DEFINITIONS[id].name} returned an empty model catalog. Check sign-in and CLI protocol support.`,
+            },
+          });
         if (limits) this.#recordLimits(id, limits);
         const probe = this.#probes.get(id);
         if (account && probe && !probe.auth.account)
@@ -737,10 +779,22 @@ export class AgentRuntimeService {
         return models;
       } catch (cause) {
         if (this.#revisions.get(id) === revision)
-          this.#modelErrors.set(
-            id,
-            cause instanceof Error ? cause.message : String(cause),
-          );
+          this.#modelErrors.set(id, {
+            signature: binary.signature,
+            at: Date.now(),
+            cause: cause instanceof Error ? cause : new Error(String(cause)),
+            diagnostic: {
+              code:
+                cause instanceof AgentRuntimeCompatibilityError
+                  ? "runtime-incompatible"
+                  : "models-unavailable",
+              message: cause instanceof Error ? cause.message : String(cause),
+              ...(cause instanceof AgentRuntimeCompatibilityError &&
+              cause.capability
+                ? { capability: cause.capability }
+                : {}),
+            },
+          });
         throw cause;
       } finally {
         await folder.remove();

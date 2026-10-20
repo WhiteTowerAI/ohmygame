@@ -29,7 +29,16 @@ import {
 } from "./environment.js";
 import { leaseAgentDirectory } from "./process-recovery.js";
 import { AgentProcess } from "./process.js";
-import { CodexAppServer, codexLimits } from "./codex-app-server.js";
+import {
+  CodexAppServer,
+  codexLimits,
+  checkCodexCompatibility,
+} from "./codex-app-server.js";
+import {
+  AgentRuntimeCompatibilityError,
+  cliProbeError,
+} from "./compatibility.js";
+import { OpenCodeDriver } from "./opencode.js";
 
 const PROBE_TIMEOUT_MS = 15_000;
 
@@ -301,7 +310,8 @@ export async function probeModels(
   if (id === "codex-cli") {
     const server = new CodexAppServer(binaryPath, privateDirectory, env);
     try {
-      await server.initialize();
+      await server.initialize(PROBE_TIMEOUT_MS);
+      await checkCodexCompatibility(server, privateDirectory, PROBE_TIMEOUT_MS);
       const [list, account, limits] = await Promise.all([
         codexModels(server),
         server
@@ -342,6 +352,12 @@ export async function probeModels(
           : {}),
         ...(limits?.length ? { limits } : {}),
       };
+    } catch (cause) {
+      if (cause instanceof AgentRuntimeCompatibilityError) throw cause;
+      throw cliProbeError(
+        "Codex",
+        cause instanceof Error ? cause.message : String(cause),
+      );
     } finally {
       await server.stop();
     }
@@ -353,6 +369,34 @@ export async function probeModels(
   });
   await writeFile(path.join(configHome, "opencode", "opencode.json"), "{}\n", {
     mode: 0o600,
+  });
+  // Inspect the actual command, rather than assuming an installed version
+  // supports serving or the flag that isolates external plugins.
+  const help = await runCli(
+    binaryPath,
+    ["serve", "--help"],
+    env,
+    privateDirectory,
+  );
+  if (help.code !== 0)
+    throw cliProbeError(
+      "OpenCode",
+      help.stderr.trim() || "OpenCode serve help failed",
+    );
+  const required = ["--hostname", "--port", ...(isolate ? ["--pure"] : [])];
+  const missing = required.filter(
+    (flag) => !`${help.stdout}\n${help.stderr}`.includes(flag),
+  );
+  if (missing.length)
+    throw new AgentRuntimeCompatibilityError(
+      `OpenCode serve does not advertise ${missing.join(", ")}, required by OhMyGame${isolate ? " with CLI configuration isolation enabled" : ""}. Update OpenCode and check again in Settings.`,
+      missing.join(", "),
+    );
+  await OpenCodeDriver.checkCompatibility({
+    binaryPath,
+    env,
+    privateDirectory,
+    isolateUserConfig: isolate,
   });
   const { stdout, stderr, code } = await runCli(
     binaryPath,
@@ -368,7 +412,8 @@ export async function probeModels(
     60_000,
   );
   if (code !== 0)
-    throw new Error(
+    throw cliProbeError(
+      "OpenCode",
       `OpenCode could not list its models: ${stderr.trim().slice(-500) || `exit ${code}`}`,
     );
   return {
@@ -463,7 +508,8 @@ async function claudeModels(
           if (!isInitialize && message.response?.request_id !== id) return;
           if (message.response.subtype === "error")
             finish(
-              new Error(
+              cliProbeError(
+                "Claude Code",
                 message.response.error ??
                   "Claude Code could not list its models",
               ),
@@ -490,7 +536,8 @@ async function claudeModels(
       },
       onExit: (_code, _signal, stderr) =>
         finish(
-          new Error(
+          cliProbeError(
+            "Claude Code",
             stderr.trim().split("\n").at(-1) ||
               "Claude Code exited before listing its models",
           ),
@@ -503,7 +550,11 @@ async function claudeModels(
     child.write({
       type: "control_request",
       request_id: `init-${id}`,
-      request: { subtype: "initialize" },
+      request: {
+        subtype: "initialize",
+        sdkMcpServers: ["ohmygame"],
+        hooks: { PreToolUse: [{ hookCallbackIds: ["ohmygame-policy"] }] },
+      },
     });
   });
 }

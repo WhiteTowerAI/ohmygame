@@ -1,0 +1,159 @@
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import type { FastifyInstance } from "fastify";
+import type { ProjectState } from "../shared/contracts.js";
+import type { RuntimeEventBus } from "../shared/events.js";
+import type { StoryLibraryMediaResult, StoryUpgradeStatus, StoryUpgradeResult } from "../shared/story-web.js";
+import type { AgentManager } from "./agent.js";
+import type { AssetLibrary } from "./asset-library.js";
+import type { CheckpointStore } from "./checkpoints.js";
+import type { ProjectManager } from "./projects.js";
+import type { ProjectWrites } from "./project-writes.js";
+import { copyLibraryAssets, isWebStory, libraryAssets, upgradeToWebStory } from "./story-web-project.js";
+import { writeWorkspaceNotice } from "./workspace-notice.js";
+
+/** The last upgrade's snapshots, so the author can take it back. Editor cache; never published. */
+const UPGRADE_RECORD = path.join(".ohmygame", "story-upgrade.json");
+
+interface UpgradeRecord {
+  before: string;
+  after: string;
+  at: string;
+}
+
+/**
+ * Upgrading a sandboxed Interactive Story to a web story, and taking the
+ * upgrade back. Both run with the workspace to themselves and tell editors
+ * and the Agent what changed, as Undo does.
+ */
+export function registerStoryWebRoutes(
+  app: FastifyInstance,
+  options: {
+    projects: ProjectManager;
+    agents: AgentManager;
+    writes: ProjectWrites;
+    checkpoints: CheckpointStore;
+    snapshot: (project: ProjectState) => Promise<string>;
+    library: AssetLibrary;
+    events: RuntimeEventBus;
+    busy: (id: string) => boolean;
+  },
+): void {
+  const { projects, agents, writes, checkpoints, snapshot, library, events } = options;
+
+  const story = (projectId: string): ProjectState => {
+    const project = projects.get(projectId);
+    if (!project) throw Object.assign(new Error("Project not found"), { statusCode: 404 });
+    if (project.type !== "interactive-story")
+      throw Object.assign(new Error("Upgrading requires an Interactive Story project"), { statusCode: 409 });
+    return project;
+  };
+  const assertIdle = (id: string) => {
+    if (agents.isProjectBusy(id) || options.busy(id))
+      throw Object.assign(new Error("Wait for agents, generation jobs and publishing to finish first."), { statusCode: 409 });
+  };
+  /** Editors reload and the Agent is told, as after Undo. */
+  const announce = async (project: ProjectState, changed: string[], content: string) => {
+    const version = writes.changed(project.id);
+    try {
+      await writeWorkspaceNotice(project, content, version);
+    } finally {
+      events.publish(project.id, "workspace.restored", { version, changed });
+    }
+  };
+  const libraryFile = async (assetId: string) => {
+    try {
+      return (await library.content(assetId)).absolutePath;
+    } catch {
+      return undefined;
+    }
+  };
+  const send = async <T>(reply: { code(status: number): { send(body: unknown): unknown } }, operation: () => Promise<T>) => {
+    try {
+      return await operation();
+    } catch (cause) {
+      const statusCode = (cause as { statusCode?: number }).statusCode ?? 409;
+      return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
+  };
+
+  app.get<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/upgrade", async (request, reply) =>
+    send(reply, async (): Promise<StoryUpgradeStatus> => {
+      const project = story(request.params.projectId);
+      const web = await isWebStory(project.workspacePath);
+      const record = web ? await readRecord(project.workspacePath) : undefined;
+      const library = web ? await libraryAssets(project.workspacePath) : [];
+      return { web, ...(record ? { upgradedAt: record.at } : {}), ...(library.length ? { libraryAssets: library } : {}) };
+    }));
+
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/upgrade", async (request, reply) =>
+    send(reply, async (): Promise<StoryUpgradeResult> => {
+      const project = story(request.params.projectId);
+      assertIdle(project.id);
+      if (await isWebStory(project.workspacePath)) throw new Error("This story is already a web story.");
+      const before = await snapshot(project);
+      const upgrade = await writes.exclusive(project.id, () => upgradeToWebStory(project.workspacePath, libraryFile));
+      const after = await snapshot(project);
+      await writeRecord(project.workspacePath, { before, after, at: new Date().toISOString() });
+      const changed = (await checkpoints.diff(project, before, after)).map((change) => change.path);
+      await announce(project, changed, `The user upgraded this Interactive Story to a web story. It now plays as its own page: index.html loads the story runtime under story/, which reads graph.json and loads each Scene's files as they are. Library assets it used were copied under assets/library/. Read AGENTS.md before changing it. Changed workspace paths: ${JSON.stringify(changed)}.`);
+      return {
+        copiedAssets: upgrade.copiedAssets,
+        missingAssets: upgrade.missingAssets,
+        rewritten: upgrade.rewritten,
+        changed,
+      };
+    }));
+
+  // A web story can still take in Library media that upgrading could not find then.
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/library-media", async (request, reply) =>
+    send(reply, async (): Promise<StoryLibraryMediaResult> => {
+      const project = story(request.params.projectId);
+      assertIdle(project.id);
+      if (!await isWebStory(project.workspacePath)) throw new Error("Upgrade the story first; upgrading copies its Library media.");
+      const copied = await writes.exclusive(project.id, () => copyLibraryAssets(project.workspacePath, libraryFile));
+      const graph = JSON.parse(await readFile(path.join(project.workspacePath, "graph.json"), "utf8")) as { assets: Record<string, { source: { path?: string } }> };
+      const changed = copied.copiedAssets.length
+        ? ["graph.json", ...copied.copiedAssets.map((id) => graph.assets[id]?.source.path).filter((file): file is string => !!file)]
+        : [];
+      if (changed.length) await announce(project, changed, `Library media this story used were copied into the project under assets/library/, and graph.json now points at them: ${JSON.stringify(copied.copiedAssets)}.`);
+      return { ...copied, changed };
+    }));
+
+  // Keeping the upgrade forgets how to take it back.
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/upgrade/keep", async (request, reply) =>
+    send(reply, async () => {
+      const project = story(request.params.projectId);
+      await rm(path.join(project.workspacePath, UPGRADE_RECORD), { force: true });
+      return {};
+    }));
+
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/upgrade/undo", async (request, reply) =>
+    send(reply, async () => {
+      const project = story(request.params.projectId);
+      assertIdle(project.id);
+      const record = await readRecord(project.workspacePath);
+      if (!record) throw new Error("There is no upgrade to take back.");
+      const result = await writes.exclusive(project.id, () => checkpoints.undo(project, { before: record.before, after: record.after }));
+      await rm(path.join(project.workspacePath, UPGRADE_RECORD), { force: true });
+      await announce(project, result.changed, `The user took back the upgrade of this Interactive Story to a web story; it plays in the sandbox again. Inspect the current files before continuing. Changed workspace paths: ${JSON.stringify(result.changed)}.`);
+      return { changed: result.changed };
+    }));
+}
+
+async function readRecord(workspacePath: string): Promise<UpgradeRecord | undefined> {
+  try {
+    const value = JSON.parse(await readFile(path.join(workspacePath, UPGRADE_RECORD), "utf8")) as Partial<UpgradeRecord>;
+    return typeof value.before === "string" && typeof value.after === "string" && typeof value.at === "string"
+      ? { before: value.before, after: value.after, at: value.at }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function writeRecord(workspacePath: string, record: UpgradeRecord): Promise<void> {
+  const file = path.join(workspacePath, UPGRADE_RECORD);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, `${JSON.stringify(record, null, 2)}\n`);
+}

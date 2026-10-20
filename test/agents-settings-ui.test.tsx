@@ -180,6 +180,36 @@ it("shows a CLI's command sandbox as one row on its detail page", async () => {
   expect(host.querySelectorAll(".settings-detail-hint")).toHaveLength(0);
 });
 
+it("labels the verified version as a reference and identifies a missing CLI capability", async () => {
+  api.listAgentRuntimes.mockResolvedValueOnce([
+    {
+      ...agent("codex-cli", "Codex", true),
+      version: "0.162.0-alpha.17.2",
+      testedVersion: "0.163.0",
+      diagnostics: [
+        {
+          code: "runtime-incompatible",
+          message: "Probe details",
+          capability: "permissions / activePermissionProfile",
+        },
+      ],
+    },
+  ]);
+  await act(async () =>
+    root.render(
+      <AgentsSettings
+        view={{ page: "agent", id: "codex-cli" }}
+        onViewChange={vi.fn()}
+        onOpenProviders={vi.fn()}
+      />,
+    ),
+  );
+  expect(host.textContent).toContain("v0.163.0 (reference only)");
+  expect(host.textContent).toContain("permissions / activePermissionProfile");
+  expect(host.textContent).toContain("CLI incompatible");
+  expect(host.textContent).not.toContain("too old");
+});
+
 it("switches a CLI to full access and says what that means", async () => {
   await act(async () =>
     root.render(

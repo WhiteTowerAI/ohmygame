@@ -23,6 +23,20 @@ afterEach(async () => {
 });
 
 describe("PreviewManager", () => {
+  it("serves a web story's own page instead of running scripts the project carries", async () => {
+    const workspacePath = await createWorkspace(false);
+    await writeFile(path.join(workspacePath, "index.html"), "<p>story page</p>");
+    const project = { ...createProject(workspacePath), type: "interactive-story" as const };
+    const manager = new PreviewManager(new RuntimeEventBus());
+    managers.push(manager);
+
+    const url = await manager.start(project);
+    expect(project.preview.command).toBe("Serve static files");
+    // The project's dev script never ran.
+    await expect(readFile(path.join(workspacePath, "server.pid"))).rejects.toThrow();
+    expect(await (await fetch(url)).text()).toContain("story page");
+  });
+
   it.skipIf(process.platform === "win32")("fails the start when the package manager is not installed and starts once it is", async () => {
     const workspacePath = await createWorkspace(false);
     const project = createProject(workspacePath);

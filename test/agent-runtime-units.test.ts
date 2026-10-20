@@ -26,7 +26,7 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { handoffSummary } from "../src/daemon/agent-runtimes/handoff.js";
 import {
   judgeApproval,
@@ -713,6 +713,19 @@ describe("sandboxed toolchains", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it.skipIf(!existsSync("/System/Library/OpenSSL/openssl.cnf"))(
+    "allows Node's macOS TLS configuration without exposing the system Library",
+    () => {
+      const roots = toolchainRoots("", home, "darwin");
+      expect(roots).toContain("/System/Library/OpenSSL/openssl.cnf");
+      expect(roots).not.toContain("/System/Library");
+      expect(roots).not.toContain("/System/Library/OpenSSL");
+      expect(toolchainRoots("", home, "linux")).not.toContain(
+        "/System/Library/OpenSSL/openssl.cnf",
+      );
+    },
+  );
 
   it("puts the macOS developer tools' own programs just before the /usr/bin shims", async () => {
     const developer = await mkdtemp(path.join(os.tmpdir(), "ohmygame-clt-"));

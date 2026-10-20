@@ -20,6 +20,19 @@ afterEach(async () => {
 });
 
 describe("Node compiler", () => {
+  it("validates video ranges for both preview and published surfaces", async () => {
+    const { workspace, graph } = await createCompilerWorkspace();
+    const file = path.join(workspace, "nodes/menu/index.html");
+    await writeFile(file, '<div data-media="backdrop" data-type="video" data-asset="intro" data-clip-start="3" data-clip-end="2"></div>');
+    for (const sourceLocations of [true, false]) {
+      await expect(compileNodeGraph(workspace, graph, { sourceLocations })).rejects.toMatchObject({ code: "invalid-video-clip", surfaceId: "menu" });
+    }
+    await writeFile(file, '<div data-media="backdrop" data-type="video" data-asset="intro" data-clip-start="2" data-clip-end="3"></div>');
+    for (const sourceLocations of [true, false]) {
+      const compiled = await compileNodeGraph(workspace, graph, { sourceLocations });
+      expect(compiled.nodes.menu!.html).toContain('data-clip-start="2" data-clip-end="3"');
+    }
+  });
   it("compiles Nodes with Shared Modules and project dependencies", async () => {
     const { workspace, graph } = await createCompilerWorkspace();
 

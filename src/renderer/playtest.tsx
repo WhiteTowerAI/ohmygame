@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getNodeRuntime, playableSandboxUrl } from "./api.js";
+import { ensureProjectPreview, getNodeRuntime, playableSandboxUrl } from "./api.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
 import { PlaytestOverlay, playtestSaveKey, playtestSeenKey, requestAskAgent, takePlaytestRequest, usePlaytestRequests, type PlaytestRequest, type PlaytestStart } from "./playable-playtest.js";
 import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
@@ -14,10 +14,12 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   const [session, setSession] = useState(0);
   const [start, setStart] = useState<PlaytestStart>();
   const [storage, setStorage] = useState(createMemoryStorage);
+  /** What a web story's page should do first this session, as its query parameters. */
+  const [pageStart, setPageStart] = useState<Record<string, string>>({});
   const history = useRef(new PlayableStateHistory());
   const [playable, setPlayable] = useState<
     | { status: "loading" }
-    | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob> }
+    | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob>; page?: string }
     | { status: "error"; error: string }
   >({ status: "loading" });
   const saveKey = playtestSaveKey(projectId);
@@ -29,6 +31,14 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     restart(takePlaytestRequest(projectId));
     void getNodeRuntime(projectId).then(async (result) => {
       if (!result.available) throw new Error(t("sceneWorkbench.noScenes"));
+      if (result.web) {
+        // A web story plays its own page, which keeps its saves on the preview's origin.
+        const { url } = await ensureProjectPreview(projectId);
+        if (disposed) return;
+        document.title = `${result.definition.graph.title} - Playtest`;
+        setPlayable({ status: "ready", definition: result.definition, assets: {}, page: url });
+        return;
+      }
       const assets = await loadPlayableAssets(projectId, result.definition.graph);
       if (disposed) return;
       document.title = `${result.definition.graph.title} - Playtest`;
@@ -52,6 +62,13 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     const nextStart = request?.action === "start" ? request.start : currentStart;
     if (request?.action === "replay" && !nextStart) window.localStorage.removeItem(saveKey);
     if (request?.action === "forget-seen") window.localStorage.removeItem(playtestSeenKey(projectId));
+    // A web story's page keeps its own storage, so it is asked to do the same.
+    setPageStart({
+      ...(request?.action === "replay" && !nextStart ? { "ohmygame-new-game": "1" } : {}),
+      ...(request?.action === "forget-seen" ? { "ohmygame-forget-seen": "1" } : {}),
+      // Play from here leaves the saved game as it was.
+      ...(nextStart ? { "ohmygame-save": "none" } : {}),
+    });
     history.current.reset();
     setSnapshot(undefined);
     setDiagnostics([]);
@@ -70,6 +87,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
           definition={playable.definition}
           frameUrl={playableSandboxUrl()}
           assets={playable.assets}
+          {...(playable.page ? { page: withParameters(playable.page, pageStart) } : {})}
           saveKey={saveKey}
           {...(start ? {
             storage,
@@ -98,6 +116,12 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
       </div>
     </main>
   );
+}
+
+function withParameters(page: string, parameters: Record<string, string>): string {
+  const url = new URL(page);
+  for (const [name, value] of Object.entries(parameters)) url.searchParams.set(name, value);
+  return url.href;
 }
 
 function errorMessage(error: unknown): string {

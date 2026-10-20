@@ -104,6 +104,19 @@ describe("renderer event stream", () => {
     );
   });
 
+  it("sends the Library video a trimmed upload was cut from", async () => {
+    installWindow();
+    const file = new File(["video"], "opening (trimmed).mp4", { type: "video/mp4" });
+    const fetchMock = vi.fn(async () => Response.json({ id: "asset-2" }, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await uploadLibraryAsset(file, "video/mp4", 3.2, undefined, { assetId: "asset-1", trim: { start: 2.2, end: 5.4 } });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/library/assets/upload?name=opening+%28trimmed%29.mp4&mediaType=video%2Fmp4&duration=3.2&trimSource=asset-1&trimStart=2.2&trimEnd=5.4",
+      expect.objectContaining({ method: "POST", body: file }),
+    );
+  });
+
   it("handles chunked UTF-8 and ignores malformed events", async () => {
     installWindow();
     const content = [

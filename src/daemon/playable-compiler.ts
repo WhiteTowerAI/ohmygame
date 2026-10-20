@@ -17,12 +17,14 @@ import type {
   NodeSource,
 } from "../shared/playable-nodes.js";
 import { annotatePlayableSourceLocations } from "../shared/playable-source-locations.js";
+import { playableBackdropClipError } from "../shared/playable-backdrop.js";
 
 export type NodeCompilerErrorCode =
   | "invalid-graph"
   | "missing-source"
   | "path-outside-workspace"
   | "build-failed"
+  | "invalid-video-clip"
   | "resource-limit";
 
 export class NodeCompilerError extends Error {
@@ -71,6 +73,7 @@ const EMBEDDED_LOADERS: NonNullable<BuildOptions["loader"]> = {
   ".wasm": "binary",
   ".frag": "text",
   ".glsl": "text",
+  ".txt": "text",
   ".vert": "text",
 };
 const MAX_CONCURRENT_SURFACE_BUILDS = 4;
@@ -129,6 +132,8 @@ async function compileSurface(
         options,
       ),
     ]);
+    const clipError = playableBackdropClipError(html);
+    if (clipError) throw new NodeCompilerError("invalid-video-clip", `${source.html}: ${clipError}`, surfaceId);
     assertNoExternalImports(buildResult.metafile);
     const explicitCss = outputText(buildResult, "style.css");
     const importedCss = outputText(buildResult, "script.css", false);
