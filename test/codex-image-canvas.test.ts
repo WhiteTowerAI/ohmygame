@@ -21,7 +21,8 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
 
-it("passes multiple canvas references to Codex while its chat agent is off, saves the image and preserves the image toggle across restarts", async () => {
+// These cases execute POSIX script fixtures; Windows cannot start them as native CLIs.
+it.skipIf(process.platform === "win32")("passes multiple canvas references to Codex while its chat agent is off, saves the image and preserves the image toggle across restarts", async () => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "ohmygame-codex-canvas-"),
   );

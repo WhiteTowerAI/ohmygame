@@ -113,7 +113,8 @@ it("does not start a disabled CLI while listing providers, initializing onboardi
   expect(enabled.json()).toMatchObject({ enabled: true, configured: false });
 });
 
-it("serves all provider operations during a stalled background probe and adopts its eventual result", async () => {
+// These cases execute POSIX script fixtures; Windows cannot start them as native CLIs.
+it.skipIf(process.platform === "win32")("serves all provider operations during a stalled background probe and adopts its eventual result", async () => {
   const { app, calls, release } = await fixture(true);
   const providers = await app.inject({
     method: "GET",
