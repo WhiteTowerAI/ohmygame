@@ -128,7 +128,9 @@ subprocesses that escape their group cannot be reclaimed this way.
 OhMyGame's tools are the handlers Pi uses (`createAgentTools`), offered through
 `ToolBridge`. Plugin MCP servers reach the agent through the same `mcp` tool
 Pi uses, run in a model-less session in the daemon, so plugin settings,
-switches and credentials stay in the daemon. Skills (plugin Skills and
+switches and credentials stay in the daemon. Codex registers bridged tools with
+an `ohmygame_` prefix to avoid reserved names such as `mcp`; dispatch and the
+conversation timeline retain the original tool names. Skills (plugin Skills and
 OhMyGame's own) are copied into a private folder for the session and handed to
 the CLI: a session plugin for Claude Code, `skills/extraRoots/set` for Codex,
 `skills.paths` for OpenCode. Staging copies regular files and omits symbolic

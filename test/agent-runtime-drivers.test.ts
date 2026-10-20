@@ -1108,8 +1108,120 @@ describe("Codex adapter", () => {
       ).toEqual({ status: "completed" });
     expect(threads).toHaveLength(1);
     expect(threads[0]!.dynamicTools).toEqual([
-      expect.objectContaining({ name: "echo_tool" }),
+      expect.objectContaining({ name: "ohmygame_echo_tool" }),
     ]);
+  });
+
+  it("routes Codex's prefixed MCP tool to the original handler and respects active tools", async () => {
+    const answers: unknown[] = [];
+    let registered: unknown;
+    fakeCli((message, cli) => {
+      const turn = { threadId: "thread-1", turnId: "turn-1" };
+      const item = {
+        type: "dynamicToolCall",
+        id: "mcp-call",
+        tool: "ohmygame_mcp",
+        arguments: { value: "plugin project" },
+      };
+      if (message.id === 900 && !message.method) {
+        answers.push(message.result);
+        cli.send({ method: "item/completed", params: { ...turn, item } });
+        cli.send({
+          method: "turn/completed",
+          params: { ...turn, turn: { id: turn.turnId, status: "completed" } },
+        });
+        return;
+      }
+      if (typeof message.method !== "string" || message.id === undefined)
+        return;
+      const params = message.params as Record<string, unknown>;
+      if (message.method === "thread/start") {
+        registered = params.dynamicTools;
+        if (
+          (registered as Array<{ name: string }>).some(
+            (tool) => tool.name === "mcp",
+          )
+        ) {
+          cli.send({
+            id: message.id,
+            error: {
+              code: -32600,
+              message: "dynamic tool name is reserved: mcp",
+            },
+          });
+          return;
+        }
+      }
+      cli.send({
+        id: message.id,
+        result:
+          message.method === "thread/start" || message.method === "thread/resume"
+            ? {
+                thread: { id: turn.threadId },
+                activePermissionProfile: { id: params.permissions },
+              }
+            : {},
+      });
+      if (message.method === "turn/start") {
+        cli.send({ method: "item/started", params: { ...turn, item } });
+        cli.send({
+          id: 900,
+          method: "item/tool/call",
+          params: {
+            ...turn,
+            callId: item.id,
+            tool: item.tool,
+            arguments: item.arguments,
+          },
+        });
+      }
+    });
+    const execute = vi.fn(async () => ({
+      content: [{ type: "text" as const, text: "plugin connected" }],
+      details: {},
+    }));
+    const bridge = new ToolBridge([
+      defineTool({
+        name: "mcp",
+        label: "MCP",
+        description: "Plugin services",
+        parameters: Type.Object({ value: Type.String() }),
+        execute,
+      }),
+    ] as never);
+    bridge.setActive(["mcp"]);
+    const driver = new CodexDriver(await context({ bridge }));
+    cleanup.push(() => driver.dispose());
+    const recorded = recordingSink();
+    expect(
+      await driver.runTurn(
+        { text: "go", images: [], readOnly: false },
+        recorded.sink,
+        new AbortController().signal,
+      ),
+    ).toEqual({ status: "completed" });
+    expect(registered).toEqual([
+      expect.objectContaining({ name: "ohmygame_mcp", type: "function" }),
+    ]);
+    expect(execute).toHaveBeenCalledOnce();
+    expect(answers[0]).toEqual({
+      contentItems: [{ type: "inputText", text: "plugin connected" }],
+      success: true,
+    });
+    expect(recorded.calls).toContain(
+      'toolCall:mcp-call:mcp:{"value":"plugin project"}',
+    );
+    expect(recorded.results.get("mcp-call")?.isError).toBe(false);
+    bridge.setActive([]);
+    expect(
+      await driver.runTurn(
+        { text: "plan", images: [], readOnly: true },
+        recordingSink().sink,
+        new AbortController().signal,
+      ),
+    ).toEqual({ status: "completed" });
+    expect((answers[1] as { success: boolean }).success).toBe(false);
+    expect(execute).toHaveBeenCalledOnce();
   });
 
   it("uses Codex's own full-access profile for work and keeps planning read-only", async () => {
@@ -1605,7 +1717,7 @@ describe("Codex adapter", () => {
         item: {
           type: "dynamicToolCall",
           id: "call-1",
-          tool: "echo_tool",
+          tool: "ohmygame_echo_tool",
           arguments: { value: "y" },
         },
       });
@@ -1613,7 +1725,7 @@ describe("Codex adapter", () => {
         await fromServer(cli, "item/tool/call", {
           ...turn,
           callId: "call-1",
-          tool: "echo_tool",
+          tool: "ohmygame_echo_tool",
           arguments: { value: "y" },
         }),
       ).toEqual({
@@ -1625,7 +1737,7 @@ describe("Codex adapter", () => {
         item: {
           type: "dynamicToolCall",
           id: "call-1",
-          tool: "echo_tool",
+          tool: "ohmygame_echo_tool",
           contentItems: [{ type: "inputText", text: "echo y" }],
           success: true,
         },
@@ -1703,7 +1815,7 @@ describe("Codex adapter", () => {
       },
     });
     expect(thread.dynamicTools).toEqual([
-      expect.objectContaining({ type: "function", name: "echo_tool" }),
+      expect.objectContaining({ type: "function", name: "ohmygame_echo_tool" }),
     ]);
     const turn = requests.find(
       (request) => request.method === "turn/start",

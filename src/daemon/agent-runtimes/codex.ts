@@ -67,6 +67,7 @@ export class CodexDriver implements NativeDriver {
   #threadId?: string;
   #turn?: CodexTurn;
   #bridged = new BridgeResults();
+  #toolNames = new Map<string, string>();
 
   constructor(private readonly context: DriverContext) {
     this.#threadId = context.resume;
@@ -243,12 +244,17 @@ export class CodexDriver implements NativeDriver {
     };
     // Dynamic tools are fixed when the thread starts, and a thread that starts
     // in planning continues after the plan is approved.
-    const tools = this.context.bridge.list("all").map((tool) => ({
-      type: "function",
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-    }));
+    const tools = this.context.bridge.list("all").map((tool) => {
+      // Names such as mcp are reserved by Codex, even for a function tool.
+      const name = `ohmygame_${tool.name}`;
+      this.#toolNames.set(name, tool.name);
+      return {
+        type: "function",
+        name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      };
+    });
     if (this.#threadId) {
       try {
         const resumed = await server.request<{
@@ -512,7 +518,7 @@ export class CodexDriver implements NativeDriver {
       case "dynamicToolCall":
         sink.toolCall(
           id,
-          String(item.tool ?? "tool"),
+          this.#bridgeToolName(item.tool ?? "tool"),
           record(item.arguments) ?? {},
         );
         sink.toolStarted(id);
@@ -661,6 +667,12 @@ export class CodexDriver implements NativeDriver {
     }
   }
 
+  #bridgeToolName(tool: unknown): string {
+    const name = String(tool ?? "");
+    // Existing native threads may still call the original unprefixed names.
+    return this.#toolNames.get(name) ?? name;
+  }
+
   async #request(
     method: string,
     params: Record<string, unknown>,
@@ -670,7 +682,7 @@ export class CodexDriver implements NativeDriver {
       if (!turn || turn.signal.aborted) throw new Error("No turn is running");
       const callId = String(params.callId ?? "");
       const outcome = await this.context.bridge.call(
-        String(params.tool ?? ""),
+        this.#bridgeToolName(params.tool),
         params.arguments,
         callId,
         turn?.signal,
