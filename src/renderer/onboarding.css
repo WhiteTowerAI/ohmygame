@@ -36,10 +36,6 @@
 .onboarding button:disabled {
   cursor: default;
 }
-.onboarding button:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 3px;
-}
 .onboarding :is(input, select):focus {
   outline: none;
   box-shadow: none;

@@ -32,7 +32,6 @@
   --composer-accent-hover: var(--theme-accent-hover);
   --composer-border: #343434;
   --composer-surface: #282828;
-  --focus-ring: color-mix(in srgb, var(--theme-accent) 55%, #777777);
   --menu-border: var(--composer-border);
   --menu-hover: rgb(255 255 255 / 5%);
   --menu-shadow: 0 2px 5px rgb(0 0 0 / 5%);
@@ -78,7 +77,6 @@
   --theme-accent-hover: #111111;
   --composer-border: #dadada;
   --composer-surface: #ffffff;
-  --focus-ring: color-mix(in srgb, var(--theme-accent) 62%, white);
   --menu-hover: rgb(0 0 0 / 6%);
   --menu-surface: #ffffff;
   --settings-row-surface: rgb(0 0 0 / 3%);
@@ -782,8 +780,6 @@ body {
 
 .settings-theme-option:focus-visible {
   background: var(--settings-row-surface-emphasis);
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 2px;
 }
 
 .settings-theme-option.is-selected {
@@ -970,11 +966,6 @@ body {
 .settings-chat-layout-control button:hover,
 .settings-chat-layout-control button:focus-visible {
   color: var(--text);
-}
-
-.settings-chat-layout-control button:focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 1px;
 }
 
 .settings-chat-layout-control button[aria-pressed="true"] {
@@ -1337,8 +1328,6 @@ body {
 }
 
 .settings-provider-filters button:focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 1px;
   color: var(--text);
 }
 
@@ -1540,11 +1529,6 @@ body {
 .settings-provider-row > button:disabled {
   cursor: default;
   opacity: 0.55;
-}
-
-.settings-provider-action:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
 }
 
 .settings-provider-more {
@@ -4537,11 +4521,6 @@ button.home-nav-item-active:hover {
   cursor: pointer;
 }
 .project-settings-fold > summary::-webkit-details-marker { display: none; }
-.project-settings-fold > summary:focus-visible {
-  outline: 2px solid var(--theme-accent);
-  outline-offset: 2px;
-  border-radius: var(--radius);
-}
 .project-settings-fold[open] > summary > svg { transform: rotate(180deg); }
 .project-settings-fold > .project-settings-section { padding: 2px 0 12px; }
 .project-settings-fold.is-nested > summary { color: var(--text-muted); font-size: 11px; }
@@ -4580,10 +4559,6 @@ button.home-nav-item-active:hover {
   justify-content: space-between;
   gap: 16px;
   font-size: 12px;
-}
-.project-settings-preview-toggle input:focus-visible + span {
-  outline: 2px solid var(--theme-accent);
-  outline-offset: 3px;
 }
 .project-settings-dialog .playable-variables {
   max-height: 180px;
@@ -4969,10 +4944,6 @@ button.home-nav-item-active:hover {
 }
 .publish-cover-automatic .settings-toggle {
   cursor: inherit;
-}
-.publish-cover-automatic input:focus-visible + span {
-  outline: 2px solid var(--composer-accent);
-  outline-offset: 3px;
 }
 .publish-cover-controls {
   justify-content: flex-end;
@@ -5871,11 +5842,6 @@ button.home-nav-item-active:hover {
   cursor: pointer;
   touch-action: none;
 }
-.video-trimmer-track:focus-visible,
-.video-trimmer-handle:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
 .video-trimmer-frames {
   position: absolute;
   inset: 0;
@@ -6342,10 +6308,6 @@ button.home-nav-item-active:hover {
 }
 .plugin-file-picker-button:hover:not(:disabled) {
   background: var(--surface-hover);
-}
-.plugin-file-picker-button:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
 }
 .plugin-file-picker-button:disabled {
   cursor: default;
@@ -7284,17 +7246,18 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-:where(input, textarea, select, [contenteditable]:not([contenteditable="false"])) {
-  outline: 0;
-}
-
+/* Keep control focus behavior without drawing a focus ring. */
 :where(
   button,
   a[href],
-  [tabindex]:not([tabindex="-1"]):not(input, textarea, select, [contenteditable])
-):focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 2px;
+  input,
+  textarea,
+  select,
+  summary,
+  [tabindex],
+  [contenteditable]:not([contenteditable="false"])
+) {
+  outline: 0;
 }
 
 .library-asset-thumbnail .model-preview {
@@ -8538,11 +8501,6 @@ button {
 
 .canvas-chip.is-toggle[aria-pressed="true"] > svg {
   color: var(--text);
-}
-
-.canvas-chip:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
 }
 
 .canvas-chip:disabled {
@@ -10726,11 +10684,6 @@ button {
   background: var(--surface-raised);
 }
 
-.plan-status-summary:focus-visible {
-  outline: 1px solid color-mix(in srgb, var(--composer-accent) 55%, transparent);
-  outline-offset: 2px;
-}
-
 .plan-status-summary > svg:first-child {
   color: var(--theme-accent);
 }
@@ -10944,12 +10897,6 @@ button {
 
 .connection-activity::-webkit-details-marker {
   display: none;
-}
-
-.connection-activity:focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 2px;
-  border-radius: 3px;
 }
 
 .connection-activity:hover .tool-label,
@@ -12827,11 +12774,6 @@ button {
   opacity: 0.5;
 }
 
-.model-selector-trigger:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
-}
-
 .model-selector-reasoning-value {
   flex: 0 0 auto;
   color: color-mix(in srgb, var(--text-muted) 75%, var(--text-faint));
@@ -13623,10 +13565,6 @@ button {
   background: transparent;
   color: var(--text);
   cursor: pointer;
-}
-
-.explore-game-tile > button:focus-visible {
-  outline-offset: -2px;
 }
 
 .explore-game-overlay {
@@ -15665,11 +15603,6 @@ button {
   color: var(--text);
 }
 
-:root[data-appearance="light"] :is(.pane-header-action, .design-header-actions > .icon-button):focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
 :root[data-appearance="light"]
   .workspace-navigation-actions
   .workspace-home-button,
@@ -15684,13 +15617,6 @@ button {
   .workspace-home-button:hover {
   background: var(--surface-hover);
   color: var(--text);
-}
-
-:root[data-appearance="light"]
-  .workspace-navigation-actions
-  .workspace-home-button:focus-visible {
-  outline: 1px solid var(--focus-ring);
-  outline-offset: 2px;
 }
 
 :root[data-appearance="light"] .project-switcher-search {
@@ -16226,11 +16152,6 @@ button {
   transform: translateX(-50%);
   pointer-events: none;
 }
-.playable-video-timeline-track:focus-visible {
-  border-radius: 4px;
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
 /* Popovers over the preview, such as the Media menu. */
 .playable-preview-popover {
   position: absolute;
@@ -16659,7 +16580,6 @@ button {
 .plugin-mcp-connection > a { text-decoration: none; }
 .plugin-mcp-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
 .plugin-change-notice { margin: 0; color: var(--text-muted); font-size: 11px; }
-.plugin-mcp :is(button, a, input, textarea):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .plugin-configuration { font-size: 12px; }
 .plugin-configuration form > button, .plugin-configuration label > button { justify-self: start; }
 .plugin-install-dialog { max-height: 90dvh; overflow: auto; }
@@ -16791,10 +16711,6 @@ button {
 .plugin-project-creation .plugin-project-progress { display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 6px; background: var(--surface); }
 .project-create-integration { padding: 20px; }
 .project-create-integration .plugin-project-creation { padding: 0; border: 0; }
-:is(.plugin-integration-panel, .external-project-preview, .plugin-project-creation) :is(button, a, select, input):focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
 .plugin-integration-footer {
   display: flex;
   justify-content: flex-end;
