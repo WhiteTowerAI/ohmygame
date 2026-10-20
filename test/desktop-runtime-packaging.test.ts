@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createPackage, extractFile } from "@electron/asar";
 import type { Configuration } from "app-builder-lib";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 
 const require = createRequire(import.meta.url);
@@ -39,7 +39,10 @@ describe("desktop runtime packaging", () => {
       expect(await readFile(path.join(destination, relative), "utf8")).toBe("story resources");
       const archive = path.join(directory, "app.asar");
       await createPackage(destination, archive);
-      expect(extractFile(archive, path.join("dist", "story-web", "resources.json")).toString()).toBe("story resources");
+      // ASAR's promise can resolve before its output stream has finished writing.
+      await vi.waitFor(() => {
+        expect(extractFile(archive, path.join("dist", "story-web", "resources.json")).toString()).toBe("story resources");
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
