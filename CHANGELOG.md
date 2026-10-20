@@ -4,6 +4,56 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.4.11] - 2026-10-20
+
+### Added
+
+- Generate images with Codex CLI using its saved sign-in, independently of the
+  conversation agent, from canvas image nodes or any agent's `generate_image` tool.
+  ([#332](https://github.com/WhiteTowerAI/ohmygame/pull/332) by @dogxii)
+- Use Gemini 4 Argon with Google Gemini and Vertex AI, including Low, Medium,
+  and High reasoning, through the bundled Pi 1.3 upgrade.
+  ([#316](https://github.com/WhiteTowerAI/ohmygame/pull/316) by @dihuangdh)
+- Preview Markdown files with project-relative links and images in Code, and
+  start publishing with the `/publish` command.
+  ([#309](https://github.com/WhiteTowerAI/ohmygame/pull/309) by @dogxii)
+
+### Changed
+
+- Load long conversation histories, generate Scene thumbnails, and export
+  media-heavy projects more efficiently.
+  ([#329](https://github.com/WhiteTowerAI/ohmygame/pull/329) by @82228)
+- Label coding-agent quota percentages as used, keep slash-menu usage compact,
+  and show agent brand icons in model selection.
+  ([#326](https://github.com/WhiteTowerAI/ohmygame/pull/326) by @dogxii)
+- Kimi Coding now uses OpenAI Chat Completions through Pi 1.3; existing custom
+  Base URL overrides for `kimi-coding` must include `/v1`.
+  ([#316](https://github.com/WhiteTowerAI/ohmygame/pull/316) by @dihuangdh)
+
+### Fixed
+
+- Merge uncontested canvas node conversions without reporting a board conflict,
+  while preserving conflict choices for incompatible concurrent edits.
+  ([#336](https://github.com/WhiteTowerAI/ohmygame/pull/336) by @dihuangdh)
+- Keep canvas connections available after importing images and saving. Generation
+  prompts support Enter to generate and Shift+Enter for a new line, with input-method
+  composition and video reference selection protected from accidental submission.
+  ([#334](https://github.com/WhiteTowerAI/ohmygame/pull/334) by @dogxii)
+- Include prebuilt Interactive Story runtime resources in desktop packages so
+  story creation, legacy upgrades, and previews work inside the packaged app.
+  ([#328](https://github.com/WhiteTowerAI/ohmygame/pull/328) by @ElenaYU-77)
+- Discover Codex CLIs bundled with the macOS Codex and ChatGPT apps, refresh
+  discovery on rescan, and explain unavailable manually selected executables.
+  ([#327](https://github.com/WhiteTowerAI/ohmygame/pull/327) by @ElenaYU-77)
+- Keep differential update downloads within bounded multipart Range batches to
+  reduce CDN-triggered full-download fallbacks. This takes effect after installing
+  this version; older installed versions keep their existing downloader.
+  ([#323](https://github.com/WhiteTowerAI/ohmygame/pull/323) by @dihuangdh)
+- Prevent the Design canvas viewport from flashing when opened, and correct
+  project settings typography and copy.
+  ([#335](https://github.com/WhiteTowerAI/ohmygame/pull/335) by @dihuangdh,
+  [#324](https://github.com/WhiteTowerAI/ohmygame/pull/324) by @82228)
+
 ## [0.0.0-beta.4.10] - 2026-10-19
 
 ### Added
