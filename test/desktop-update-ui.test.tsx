@@ -62,12 +62,11 @@ it("shows recovery actions and routes retry to the failed update phase", async (
       section="about"
       onBack={() => {}}
       onSectionChange={onSectionChange}
-      onPluginChange={() => {}}
-      onTryPlugin={async () => {}}
     />,
   ));
   await vi.waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent)
     .toContain("Your projects and conversations were not deleted."));
+  expect(container.querySelector(".settings-page-nav")?.textContent).not.toContain("Plugins");
 
   const button = (label: string) => [...container.querySelectorAll("button")]
     .find((item) => item.textContent === label) as HTMLButtonElement;
@@ -83,7 +82,7 @@ it("shows recovery actions and routes retry to the failed update phase", async (
 it("shows bundled notes in browser settings without an update bridge", async () => {
   Reflect.deleteProperty(window, "ohMyGameDesktop");
   await act(async () => root.render(
-    <SettingsPage section="about" onBack={() => {}} onSectionChange={() => {}} onPluginChange={() => {}} onTryPlugin={async () => {}} />,
+    <SettingsPage section="about" onBack={() => {}} onSectionChange={() => {}} />,
   ));
   expect(container.querySelector(".settings-changelog-content")?.textContent?.trim()).toBeTruthy();
   expect(container.querySelector<HTMLSelectElement>('[aria-label="Release notes version"]')?.value).toBe(__APP_VERSION__);
@@ -100,7 +99,7 @@ it("shows bundled notes in browser settings without an update bridge", async () 
 it("shows new notes received over the desktop update subscription while downloading", async () => {
   updates.state.mockResolvedValue({ currentVersion: "0.0.0-beta.4.6", status: { type: "idle" } });
   await act(async () => root.render(
-    <SettingsPage section="about" onBack={() => {}} onSectionChange={() => {}} onPluginChange={() => {}} onTryPlugin={async () => {}} />,
+    <SettingsPage section="about" onBack={() => {}} onSectionChange={() => {}} />,
   ));
   await act(async () => updates.onState.mock.calls[0][0]({
     currentVersion: "0.0.0-beta.4.6",
@@ -119,7 +118,7 @@ it("shows one update action and keeps download and restart controls tied to thei
   };
   updates.state.mockResolvedValue(available);
   await act(async () => root.render(
-    <SettingsPage section="about" onBack={() => {}} onSectionChange={() => {}} onPluginChange={() => {}} onTryPlugin={async () => {}} />,
+    <SettingsPage section="about" onBack={() => {}} onSectionChange={() => {}} />,
   ));
   const action = () => container.querySelector<HTMLButtonElement>(".settings-about-actions button");
   expect(action()?.textContent).toBe("Download update");

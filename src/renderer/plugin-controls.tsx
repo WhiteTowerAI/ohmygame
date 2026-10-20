@@ -17,6 +17,7 @@ import {
 } from "./api.js";
 import { LoaderCircle, Plug, Trash2, WandSparkles } from "./icons.js";
 import { t } from "./i18n.js";
+import { pluginHash } from "./routes.js";
 
 export function PluginEnabledSwitch({ plugin, disabled, onToggle }: {
   plugin: Pick<PluginDetail, "displayName" | "enabled" | "installed">;
@@ -378,7 +379,7 @@ export function PluginMcpPanel({
           {connection.ownerPluginId ? (
             <a
               className="plugin-detail-secondary"
-              href={`#/settings/plugins/${encodeURIComponent(connection.ownerPluginId)}`}
+              href={pluginHash(connection.ownerPluginId)}
             >
               {t("pluginControls.manageProvider")}
             </a>

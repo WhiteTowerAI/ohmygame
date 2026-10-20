@@ -242,8 +242,8 @@ The migration reader never modifies the old file or creates a missing one. A ret
 Blender, Godot, and TapTap Maker are marked Beta while their platform workflows
 are being validated. They use the standard Skill/MCP package contract.
 Blender and Godot default to enabled. TapTap Maker defaults to disabled: turn it
-on in Settings → Plugins when testing or developing Maker projects. Existing
-saved switch choices are preserved.
+on from **Plugins** in the main sidebar when testing or developing Maker
+projects. Existing saved switch choices are preserved.
 
 - **Blender:** local Blender CLI/Python workflow for editable `.blend` sources,
   GLB delivery, and preview images. The export helper accepts an optional
@@ -326,7 +326,8 @@ environments.
 
 Cocos Creator, WeChat Mini Games, Douyin Mini Games, Unity, Unreal Engine,
 Aseprite, and Tiled are bundled Beta plugins and default to **disabled**.
-Enable only the workflows needed for the current project in Settings → Plugins.
+Open **Plugins** in the main sidebar and enable only the workflows needed for
+the current project.
 Their saved switches are preserved by the same settings store as other plugins.
 These packages reuse the existing runtime; they introduce no new project types,
 client installers, custom MCP bridges, or automatic engine upgrades.

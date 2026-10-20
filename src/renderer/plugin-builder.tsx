@@ -19,7 +19,7 @@ import { WorkspaceTabs, type WorkspaceTabOption } from "./workspace-tabs.js";
 import { WorkspaceShell, WorkspaceAgentPane, WorkspaceBackButton } from "./workspace-shell.js";
 import { ComposerActions } from "./composer-actions.js";
 import { readChatLayout } from "./chat-layout.js";
-import { pluginBuilderHash, pluginHash, settingsHash } from "./routes.js";
+import { pluginBuilderHash, pluginHash } from "./routes.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { readPluginBuilderInput, removePluginBuilderInput, savePluginBuilderInput } from "./plugin-builder-drafts.js";
 import { openPluginBuilder } from "./plugin-builder-navigation.js";
@@ -270,7 +270,7 @@ export function PluginBuilder({ sessionId }: { sessionId: string }) {
     }
   }
 
-  const goToPlugins = () => { window.location.hash = settingsHash("plugins"); };
+  const goToPlugins = () => { window.location.hash = pluginHash(); };
   return <WorkspaceShell className="plugin-builder-shell" chatLayout={chatLayout} agentCollapsed={agentCollapsed}
     onHome={goToPlugins} homeLabel={t("pluginBuilder.backToPlugins")} homeIcon={ArrowLeft} onExpandAgent={() => setAgentCollapsed(false)}
     agent={<WorkspaceAgentPane label={t("pluginBuilder.assistant")}

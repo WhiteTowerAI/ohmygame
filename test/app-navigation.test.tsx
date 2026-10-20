@@ -88,7 +88,8 @@ describe("project return navigation", () => {
     ["#/asset-canvas", "Asset Canvas"],
     ["#/library", "Library"],
     ["#/community/games", "Community"],
-    ["#/settings/plugins/plugin", "Plugins"],
+    ["#/plugins", "Plugins"],
+    ["#/plugins/plugin", "Plugins"],
   ])(
     "returns a project opened from %s to its entry page",
     async (hash, label) => {
@@ -169,10 +170,18 @@ describe("project return navigation", () => {
   });
 
   it("keeps the plugin's canonical address as the project entry", async () => {
-    await mount("#/plugins/plugin", { settingsEntry: true });
-    expect(window.location.hash).toBe("#/settings/plugins/plugin");
+    await mount("#/settings/plugins/plugin", { settingsEntry: true });
+    expect(window.location.hash).toBe("#/plugins/plugin");
     expect(window.history.state.settingsEntry).toBe(true);
     await navigate(conversationHash("project", "chat", "design"));
-    expect(navigation.projectReturnTo).toBe("#/settings/plugins/plugin");
+    expect(navigation.projectReturnTo).toBe("#/plugins/plugin");
+  });
+
+  it("restores a saved Settings plugin return link at its new address", async () => {
+    await mount(projectHash("project"), { projectReturnTo: "#/settings/plugins/plugin" });
+    expect(navigation.projectReturnTo).toBe("#/plugins/plugin");
+    expect(container.textContent).toBe("Back to Plugins");
+    await act(async () => container.querySelector("button")!.click());
+    expect(navigation.route).toEqual({ page: "plugins", pluginId: "plugin" });
   });
 });

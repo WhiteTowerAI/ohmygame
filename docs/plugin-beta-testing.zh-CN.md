@@ -11,7 +11,7 @@ Engine、Aseprite、Tiled 的真实工作流。7 个插件均默认关闭，卡�
    在该分支的仓库目录，按 [贡献指南](../CONTRIBUTING.md#start-local-development)
    准备 Node.js 22.19+、Bun 1.4.2+，执行 `bun install --frozen-lockfile`，再运行
    `bun run dev:desktop`。为游戏对话连接一个可用语言模型。
-2. 在 Settings → Plugins 确认 7 张卡片均有 Beta 标签、初始为关闭。
+2. 在首页左侧的 Plugins（插件）确认 7 张卡片均有 Beta 标签、初始为关闭。
    每轮只打开要测的插件；重启后应保留你的开关选择。
    Aseprite、Tiled 可用于 General、Web Game、Godot、Asset Canvas；其余 5 个
    本轮用于 General。使用已有项目时，关联源码目录，而不是生成的发布目录。

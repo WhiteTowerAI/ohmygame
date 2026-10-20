@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { PluginsSettings } from "../src/renderer/plugins.js";
 
 describe("PluginsSettings", () => {
-  it("renders the catalog within Settings", () => {
+  it("renders the plugin catalog", () => {
     const html = renderToStaticMarkup(<PluginsSettings onPluginChange={() => undefined} onTryPlugin={async () => undefined} />);
 
     expect(html).toContain("<h1>Plugins</h1>");

@@ -11,6 +11,8 @@ import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { GameStudioHome } from "./game-studio-home.js";
 import { SettingsPage } from "./settings-page.js";
+import { PluginsSettings } from "./plugins.js";
+import { SidebarPageLayout } from "./sidebar-page.js";
 import { PluginBuilder } from "./plugin-builder.js";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
@@ -51,8 +53,11 @@ export function App() {
   if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
   if (route.page === "plugin-builder") return <PluginBuilder key={route.sessionId} sessionId={route.sessionId} />;
   if (route.page === "settings") {
-    return <SettingsPage section={route.section} pluginId={route.pluginId} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} onOpenOnboarding={onboarding.open} />;
+    return <SettingsPage section={route.section} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onOpenOnboarding={onboarding.open} />;
   }
+  if (route.page === "plugins") return <SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
+    <PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} />
+  </SidebarPageLayout>;
   if (route.page === "home") {
     return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
   }
@@ -166,7 +171,7 @@ export function App() {
   }
 
   function navigateToPlugin(pluginId?: string): void {
-    navigate(pluginId ? pluginHash(pluginId) : settingsHash("plugins"), { replace: true, state: historyState() });
+    navigate(pluginHash(pluginId), { replace: true, state: historyState() });
   }
 
   function leaveSettings(): void {

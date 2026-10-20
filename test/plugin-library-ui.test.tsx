@@ -40,7 +40,7 @@ let removed: string[];
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  window.location.hash = "#/settings/plugins";
+  window.location.hash = "#/plugins";
   plugins = [structuredClone(official), structuredClone(imported)];
   saved = undefined;
   removed = [];
@@ -138,7 +138,7 @@ describe("Plugin library", () => {
         ?.getAttribute("aria-checked"),
     ).toBe("false");
     expect(plugins[0]!.skills[0]!.enabled).toBe(false);
-    expect(window.location.hash).toBe("#/settings/plugins");
+    expect(window.location.hash).toBe("#/plugins");
   });
 
   it("shows compact configuration workspaces with delete in the actions menu", async () => {

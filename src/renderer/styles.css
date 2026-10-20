@@ -719,11 +719,6 @@ body {
   padding-top: 44px;
 }
 
-.settings-page-inner-plugins {
-  width: min(1100px, 100%);
-  padding-top: 0;
-}
-
 .settings-panel {
   width: 100%;
   padding: 0;
@@ -2843,6 +2838,10 @@ select.settings-search-input {
 .home-nav-icon-library {
   mask-image: url("./assets/sidebar/library.svg");
   -webkit-mask-image: url("./assets/sidebar/library.svg");
+}
+.home-nav-icon-plugins {
+  mask-image: url("./assets/sidebar/plugins.svg");
+  -webkit-mask-image: url("./assets/sidebar/plugins.svg");
 }
 .home-nav-icon-interactive-story {
   mask-image: url("./assets/sidebar/interactive-story.svg");

@@ -36,7 +36,7 @@ export function assertIntegrationPlugin(
 ): void {
   if (!plugin.installed || !plugin.enabled || !plugin.integration)
     throw new LocalPluginError(
-      "Enable the project's integration plugin in Settings > Plugins",
+      "Enable the project's integration plugin from Plugins in the main sidebar",
       409,
     );
   if (

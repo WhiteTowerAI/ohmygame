@@ -100,7 +100,7 @@ describe("Plugin Builder removal controls", () => {
     await act(async () => button("Delete plugin draft").click());
     expect(requests.filter(request => request.startsWith("DELETE"))).toEqual([`DELETE /plugins/setup-sessions/${sessionId}`]);
     expect(installed).toBe(true);
-    expect(window.location.hash).toBe("#/settings/plugins");
+    expect(window.location.hash).toBe("#/plugins");
   });
 
   it("opens built-in configuration on Setup with configuration prompts and independent workspace deletion", async () => {
@@ -160,7 +160,7 @@ describe("Plugin Builder removal controls", () => {
     await act(async () => button("Delete plugin draft").click());
     expect(requests).toContain(`DELETE /plugins/setup-sessions/${sessionId}`);
     expect(readPluginBuilderInput(sessionId, localStorage).prompt).toBe("");
-    expect(window.location.hash).toBe("#/settings/plugins");
+    expect(window.location.hash).toBe("#/plugins");
   });
 
   it("does not offer uninstalling a built-in plugin", async () => {

@@ -62,7 +62,7 @@ export async function requireIntegrationPlugin(
   const plugin = await plugins.read(pluginId);
   if (!plugin)
     throw new LocalPluginError(
-      "Enable the project's integration plugin in Settings > Plugins",
+      "Enable the project's integration plugin from Plugins in the main sidebar",
       409,
     );
   assertIntegrationPlugin(plugin, project);
