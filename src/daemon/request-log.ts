@@ -19,3 +19,15 @@ export function requestLogValue(request: LoggedRequest) {
     remotePort: request.socket?.remotePort,
   };
 }
+
+/**
+ * The daemon's pino options. pino adds the computer name to every line by
+ * default, and it often includes the person's name.
+ */
+export function daemonLoggerOptions(stream?: { write(line: string): void }) {
+  return {
+    base: { pid: process.pid },
+    serializers: { req: requestLogValue },
+    ...(stream ? { stream } : {}),
+  };
+}

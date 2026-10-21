@@ -1,5 +1,9 @@
+import Fastify from "fastify";
 import { expect, it } from "vitest";
-import { requestLogValue } from "../src/daemon/request-log.js";
+import {
+  daemonLoggerOptions,
+  requestLogValue,
+} from "../src/daemon/request-log.js";
 
 it("logs the request path without its query", () => {
   expect(
@@ -20,4 +24,23 @@ it("logs the request path without its query", () => {
   expect(requestLogValue({ method: "GET", url: "/health" }).url).toBe(
     "/health",
   );
+});
+
+it("leaves the computer name and query strings out of daemon log lines", async () => {
+  const lines: string[] = [];
+  const app = Fastify({
+    logger: daemonLoggerOptions({ write: (line) => lines.push(line) }),
+  });
+  app.get("/health", async () => ({ status: "ok" }));
+
+  await app.inject({ method: "GET", url: "/health?path=/Users/someone" });
+  await app.close();
+
+  const entries = lines.map((line) => JSON.parse(line));
+  expect(entries.length).toBeGreaterThan(0);
+  for (const entry of entries) {
+    expect(entry).not.toHaveProperty("hostname");
+    expect(entry.pid).toBe(process.pid);
+  }
+  expect(lines.join("")).not.toContain("/Users/someone");
 });
