@@ -106,11 +106,10 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   }
 
   const desktop = window.ohMyGameDesktop;
-  // The editor that opened this window, which a browser can bring forward.
-  const opener = window.opener as Window | null;
+  // A browser does not bring another tab forward; closing this window returns to the editor there.
   const openEditor = desktop?.showPlaytestEditor
     ? () => void desktop.showPlaytestEditor!(projectId).catch(() => {})
-    : opener ? () => opener.focus() : undefined;
+    : undefined;
 
   if (problem) {
     return (
