@@ -76,9 +76,9 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     : undefined;
 
   usePlaytestRequests(projectId, (request) => {
-    // Bringing a playing window forward keeps its game. Anything else loads
-    // the story again, since the editor may have changed or fixed it.
-    if (request.action === "open" && playable.status === "ready" && !problem) return;
+    // Bringing a playing or loading window forward keeps its game. Anything
+    // else loads the story again, since the editor may have changed or fixed it.
+    if (request.action === "open" && playable.status !== "error" && !problem) return;
     // Playtest without a chosen Scene starts the story as a newly opened window does.
     restart(request, request.action === "open" ? undefined : start);
     setRevision((current) => current + 1);

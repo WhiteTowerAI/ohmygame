@@ -283,6 +283,13 @@ describe("Playtest window requests", () => {
     expect(player).toHaveBeenCalledTimes(calls);
   });
 
+  it("lets a window that is still loading finish when the editor brings it forward", async () => {
+    getNodeRuntime.mockReturnValue(new Promise(() => {}));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    await deliverAction("open");
+    expect(getNodeRuntime).toHaveBeenCalledOnce();
+  });
+
   it("loads the story again for an editor action or when it could not be played", async () => {
     getNodeRuntime.mockRejectedValueOnce(new Error("The game service is unavailable."));
     await act(async () => root.render(<PlaytestPage projectId="p" />));
