@@ -3,7 +3,6 @@ import type en from "./en.js";
 const zhCN: typeof en = {
   codexImages: {
     description: "本地 Codex CLI · 图片生成",
-    hint: "使用本机保存的 Codex 登录和账户额度。可在画布和任意聊天智能体中使用，即使已在 Agents 中关闭 Codex。无需保持终端开启。",
     managedOptions: "图片模型和输出尺寸由 Codex 管理。请在提示词中描述所需构图，支持多张参考图。",
     enable: "启用 Codex CLI 图片生成",
     ready: "Codex 图片生成已连接",

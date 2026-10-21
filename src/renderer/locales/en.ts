@@ -2,7 +2,6 @@
 const en = {
   codexImages: {
     description: "Local Codex CLI · image generation",
-    hint: "Uses your saved Codex login and account usage limits. Works in the canvas and with any chat agent, even when Codex is turned off in Agents. The terminal does not need to stay open.",
     managedOptions: "Codex manages the image model and output dimensions. Describe the desired framing in your prompt. Multiple reference images are supported.",
     enable: "Enable Codex CLI image generation",
     ready: "Codex image generation is connected",
