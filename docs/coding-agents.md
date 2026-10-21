@@ -237,8 +237,10 @@ In the project folder an agent works without asking, as OhMyGame's own agent
 does. `judgeApproval` decides each request first:
 
 - **Deny** anything that reaches a CLI sign-in folder (`~/.claude`,
-  `~/.codex`, OpenCode's folders), `~/.ssh` and similar, OhMyGame's data folder,
-  or another project. Paths resolve symlinks, including missing descendants,
+  `~/.codex`, OpenCode's folders, `~/.pi`), `~/.ssh` and similar, OhMyGame's
+  data folder, OhMyGame's own agent folder (`pi-agent`, which holds provider
+  keys and sign-ins and sits beside the data folder in the desktop app), or
+  another project. Paths resolve symlinks, including missing descendants,
   and include custom CLI credential homes. A command reaches a folder when it names it or a folder
   that holds it, quoted or not.
 - **Allow** workspace file requests and a small set of simple read commands.
