@@ -2,7 +2,7 @@ import { observeWorkspaceVersion } from "../src/renderer/workspace-version.js";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssetCanvasDocument } from "../src/shared/contracts.js";
-import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
+import { createAssetCanvasDocument, isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import type { CanvasBoardDetail } from "../src/shared/canvas-workspace.js";
 
 const api = {
@@ -93,6 +93,39 @@ describe("canvas board storage", () => {
     expect(merged?.editorLayout.viewport).toEqual(remote.editorLayout.viewport);
     expect(merged?.nodes[0]!.title).toBe("Local edit");
     expect(merged?.nodes[0]!.position).toEqual(base.nodes[0]!.position);
+  });
+
+  it.each([
+    ["save", "local"], ["save", "remote"],
+    ["refresh", "local"], ["refresh", "remote"],
+  ] as const)("preserves a new prompt reference through a %s type conflict and resolves to %s after reload", async (operation, choice) => {
+    const base = canvas(), local = structuredClone(base), remote = structuredClone(base);
+    local.nodes.push({
+      id: "image", type: "image", position: { x: 500, y: 0 },
+      data: { prompt: "", resolution: "2K", aspectRatio: "16:9", images: [], promptSource: { type: "node", nodeId: "node" } },
+    });
+    local.editorLayout.nodes.image = local.nodes[1]!.position;
+    remote.nodes[0] = { id: "node", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "generated", mediaType: "image" } };
+    for (const document of [base, local, remote]) expect(isAssetCanvasDocument(document)).toBe(true);
+    api.getCanvasBoard.mockResolvedValueOnce(detail(base, "original")).mockResolvedValue(detail(remote));
+    if (operation === "save") api.saveCanvasBoard.mockRejectedValueOnce(Object.assign(new Error("Stale"), { status: 409 }));
+    const onConflict = vi.fn(), storage = adapter(onConflict);
+    await storage.load();
+
+    await expect(storage[operation](local)).rejects.toThrow("Choose a version");
+    expect(onConflict).toHaveBeenCalledWith({ local, remote: detail(remote) });
+    expect(JSON.parse(entries.get(recoveryKey)!)).toEqual({ base, local });
+    expect(api.saveCanvasBoard).toHaveBeenCalledTimes(operation === "save" ? 1 : 0);
+
+    const afterReload = vi.fn(), reloaded = adapter(afterReload);
+    expect(await reloaded.load()).toEqual(local);
+    expect(afterReload).toHaveBeenCalledWith({ local, remote: detail(remote) });
+    expect(JSON.parse(entries.get(recoveryKey)!)).toEqual({ base, local });
+    const chosen = choice === "local" ? local : remote;
+    await expect(reloaded.resolveConflict(choice, local)).resolves.toEqual(chosen);
+    if (choice === "local") expect(api.saveCanvasBoard).toHaveBeenLastCalledWith("project", detail(local), "0");
+    expect(api.saveCanvasBoard).toHaveBeenCalledTimes((operation === "save" ? 1 : 0) + (choice === "local" ? 1 : 0));
+    expect(entries.has(recoveryKey)).toBe(false);
   });
 
   it("keeps a conflicting recovery draft through autosave, polling, generation and reload", async () => {
