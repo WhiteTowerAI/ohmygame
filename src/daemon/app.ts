@@ -968,7 +968,7 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject(project).join("\n\n"),
       policy: {
         workspacePath: project.workspacePath,
-        neverTouch: neverTouchPaths(dataDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)),
+        neverTouch: neverTouchPaths(dataDirectory, piAgentDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)),
       },
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
