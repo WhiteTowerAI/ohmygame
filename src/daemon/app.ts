@@ -121,6 +121,7 @@ import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.j
 import { AssetLibrary, AssetLibraryError, isLibraryAssetDerivation } from "./asset-library.js";
 import { exportPlayableProject, PlayableProjectExportError } from "./playable-project-export.js";
 import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
+import { MAX_PROJECT_COVER_BYTES } from "./project-covers.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type GameUseOpenTarget } from "../shared/playtest.js";
@@ -482,7 +483,6 @@ const setConversationReasoningSchema = {
     properties: { level: { type: "string", minLength: 1, maxLength: 100 } },
   },
 } as const;
-const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 const MAX_LIBRARY_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_LIBRARY_UPLOAD_BYTES = 200 * 1024 * 1024;
 /** A prompt rechecks a plugin connection, such as an account login, at most this often. */

@@ -499,6 +499,30 @@ describe("project archive import", () => {
     await expectNothingImported(projects, dataDirectory);
   });
 
+  it.each([
+    ["not a WebP image", Buffer.from("not an image")],
+    [
+      "larger than a cover may be",
+      Buffer.concat([webp("large"), Buffer.alloc(6 * 1024 * 1024)]),
+    ],
+  ])(
+    "imports the project without a cover that is %s",
+    async (_case, contents) => {
+      const projects = new ProjectManager(await temporaryDirectory());
+      const archive = await zipArchive({
+        "ohmygame-project.json": JSON.stringify({
+          format: "ohmygame-project",
+          version: 1,
+          project: { name: "Game", type: "web-game" },
+          cover: { mode: "custom" },
+        }),
+        "cover.webp": contents.toString("latin1"),
+      });
+      const project = await importProjectArchive(projects, archive);
+      expect(await projects.cover(project.id)).toBeUndefined();
+    },
+  );
+
   it("removes the project when a step after creating it fails", async () => {
     const dataDirectory = await temporaryDirectory();
     const projects = new ProjectManager(dataDirectory);

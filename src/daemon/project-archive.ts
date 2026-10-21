@@ -34,6 +34,7 @@ import {
 } from "./library-asset-packing.js";
 import { sniffImageType } from "./image-format.js";
 import { ensureNodeCodebaseContract } from "./playable-codebase.js";
+import { MAX_PROJECT_COVER_BYTES } from "./project-covers.js";
 import type { ProjectManager } from "./projects.js";
 
 const GRAPH_FILE = "graph.json";
@@ -289,10 +290,14 @@ export async function importProjectArchive(
       : path.join(root, PROJECT_ARCHIVE_WORKSPACE);
     await mkdir(workspace, { recursive: true });
     if (manifest.cover) {
-      const contents = await readFile(
-        path.join(root, PROJECT_ARCHIVE_COVER),
-      ).catch(() => undefined);
-      // A missing or damaged cover is replaced by the next automatic capture.
+      // A missing, oversized or damaged cover is replaced by the next automatic capture.
+      const coverPath = path.join(root, PROJECT_ARCHIVE_COVER);
+      const size = await stat(coverPath).then(
+        (stats) => (stats.isFile() ? stats.size : Infinity),
+        () => Infinity,
+      );
+      const contents =
+        size <= MAX_PROJECT_COVER_BYTES ? await readFile(coverPath) : undefined;
       if (contents && sniffImageType(contents) === "image/webp") {
         cover = { contents, mode: manifest.cover.mode };
       }
