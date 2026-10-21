@@ -1,6 +1,39 @@
-import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+
+// nsExec hands the command line to cmd unchanged, so the test must too.
+function runCmd(commandLine: string) {
+  return spawnSync(process.env.ComSpec ?? "cmd.exe", [commandLine], {
+    windowsVerbatimArguments: true,
+  }).status;
+}
+
+async function runProcessFallback(executable: string) {
+  const include = await readFile("build/installer.nsh", "utf8");
+  const command = include.match(
+    /nsExec::Exec `"\$CmdPath" (\/D \/C tasklist [^`]+)`/,
+  )?.[1];
+  expect(command).toBeDefined();
+  const pluginsDir = await mkdtemp(join(tmpdir(), "ohmygame-installer-"));
+  try {
+    const systemDir = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
+    return runCmd(
+      command!
+        .split("${APP_EXECUTABLE_FILENAME}")
+        .join(executable)
+        .split("$PLUGINSDIR")
+        .join(pluginsDir)
+        .split("$SYSDIR")
+        .join(systemDir),
+    );
+  } finally {
+    await rm(pluginsDir, { recursive: true, force: true });
+  }
+}
 
 describe("Windows desktop installer safety", () => {
   it("offers install-scope and installation-directory choices", async () => {
@@ -26,10 +59,24 @@ describe("Windows desktop installer safety", () => {
     expect(include).toContain("if ($$running.Count -gt 0) { exit 0 } else { exit 17 }");
     expect(include).toContain("${If} $R0 == 17");
     expect(include).toContain('tasklist /FI "IMAGENAME eq ${APP_EXECUTABLE_FILENAME}"');
-    expect(include).toContain('if errorlevel 1 exit /b 18');
-    expect(include).toContain('if errorlevel 1 exit /b 17');
+    expect(include).toContain("(if errorlevel 1 exit /b 18)");
+    expect(include).toContain(
+      "(if errorlevel 2 exit /b 18) & (if errorlevel 1 exit /b 17)",
+    );
+    expect(include).not.toMatch(/& if errorlevel/);
     expect(include).not.toMatch(/KillProcess|taskkill|Stop-Process/);
   });
+
+  it.skipIf(process.platform !== "win32")(
+    "reports whether the fallback finds a running process",
+    async () => {
+      expect(runCmd("/D /C exit /b 17")).toBe(17);
+      expect(
+        await runProcessFallback(`ohmygame-missing-${process.pid}.exe`),
+      ).toBe(17);
+      expect(await runProcessFallback(basename(process.execPath))).toBe(0);
+    },
+  );
 
   it("uses recovery wording that remains accurate after a partial install", async () => {
     const messages = await readFile("build/messages.yml", "utf8");
