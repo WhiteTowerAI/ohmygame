@@ -178,7 +178,16 @@ export function mount(context) {
 ```
 
 `mount` may be async and may return a cleanup function (sync or async). The
-node is revealed after `mount` settles.
+node is revealed after `mount` settles and its background image has decoded or
+its background video has a frame ready at the current playback position.
+Background errors or a five-second readiness timeout allow the node to appear
+anyway. This waits for media inside `[data-media="backdrop"]`, not CSS background
+images or media added after `mount` settles.
+
+During navigation the outgoing node's context is invalidated, its lifecycle
+signal is aborted, and its input and media are stopped. Its picture stays until
+the incoming node is ready; then its cleanup function runs and its surface is
+removed. Cleanup also runs when the incoming node fails to mount.
 
 ```ts
 interface RuntimeContext {

@@ -105,6 +105,8 @@ export interface PlayableSeenStore {
 }
 
 export interface PlayableMountedSurface {
+  /** Stops interaction and media while retaining the outgoing picture. */
+  deactivate?(): void;
   cleanup?: PlayableCleanup;
   destroy(): void | Promise<void>;
 }
@@ -302,6 +304,7 @@ export class NodeRuntime {
   #started = false;
   #starting = false;
   #disposed = false;
+  #mountingAbortController?: AbortController;
   #failed = false;
   #transitioning = false;
   #activeOperation?: Promise<void>;
@@ -449,6 +452,7 @@ export class NodeRuntime {
   async dispose(): Promise<void> {
     if (this.#disposePromise) return this.#disposePromise;
     this.#disposed = true;
+    this.#mountingAbortController?.abort();
     this.#started = false;
     this.#changed();
     const activeOperation = this.#activeOperation;
@@ -599,10 +603,16 @@ export class NodeRuntime {
       prepare?.();
       const previous = this.#activeNode;
       this.#activeNode = undefined;
-      await this.#disposeActiveSurface(previous);
-      this.#navigation = next;
-      this.#activeNode = await this.#mountNode(next.currentNodeId);
-      this.#assertNotDisposed();
+      this.#deactivateSurface(previous);
+      try {
+        this.#navigation = next;
+        this.#activeNode = await this.#mountNode(next.currentNodeId);
+        this.#assertNotDisposed();
+      } finally {
+        // Keep the outgoing picture until the incoming surface is ready, even
+        // though its context and input have already been disabled.
+        await this.#disposeActiveSurface(previous);
+      }
       this.#activeNode.token.navigationReady = true;
       this.#see("nodes", next.currentNodeId);
     } catch (cause) {
@@ -642,6 +652,7 @@ export class NodeRuntime {
       navigationReady: false,
     };
     const abortController = new AbortController();
+    this.#mountingAbortController = abortController;
     const context: Omit<PlayableNodeContext, "root"> = {
       ...this.#baseContext(token, abortController, node.assets),
       navigation: {
@@ -664,6 +675,9 @@ export class NodeRuntime {
       token.active = false;
       abortController.abort();
       throw cause;
+    } finally {
+      if (this.#mountingAbortController === abortController)
+        this.#mountingAbortController = undefined;
     }
   }
 
@@ -1195,8 +1209,7 @@ export class NodeRuntime {
     surface: ActiveSurface | undefined,
   ): Promise<void> {
     if (!surface) return;
-    surface.token.active = false;
-    surface.abortController.abort();
+    this.#deactivateSurface(surface);
     try {
       await surface.mounted.cleanup?.();
     } catch (cause) {
@@ -1204,6 +1217,17 @@ export class NodeRuntime {
     }
     try {
       await surface.mounted.destroy();
+    } catch (cause) {
+      this.#reportError(cause);
+    }
+  }
+
+  #deactivateSurface(surface: ActiveSurface | undefined): void {
+    if (!surface || !surface.token.active) return;
+    surface.token.active = false;
+    surface.abortController.abort();
+    try {
+      surface.mounted.deactivate?.();
     } catch (cause) {
       this.#reportError(cause);
     }
