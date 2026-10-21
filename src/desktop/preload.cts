@@ -4,23 +4,21 @@ import type { ProjectFileOpenMode } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerRequest, WebGamePlayerState, WebGamePreviewLayout } from "../shared/web-game-player.js";
-import type { DesktopRuntimeState } from "../shared/desktop-runtime.js";
+import type { DaemonRuntime, DesktopRuntimeState } from "../shared/desktop-runtime.js";
 import type { PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 
-function argument(name: string): string {
-  const prefix = `--${name}=`;
-  const value = process.argv.find((entry) => entry.startsWith(prefix))?.slice(prefix.length);
-  if (!value) throw new Error(`Missing desktop runtime argument: ${name}`);
-  return value;
+function desktopRuntime(): { daemonUrl: string; token: string } {
+  const runtime = ipcRenderer.sendSync("ohmygame:desktop-runtime") as Partial<DaemonRuntime> | null;
+  if (typeof runtime?.url !== "string" || !runtime.url || typeof runtime.token !== "string" || !runtime.token) {
+    throw new Error("Missing desktop runtime");
+  }
+  return { daemonUrl: runtime.url, token: runtime.token };
 }
 
 if (process.isMainFrame) {
   contextBridge.exposeInMainWorld("ohMyGameDesktop", Object.freeze({
     platform: process.platform,
-    runtime: Object.freeze({
-      daemonUrl: argument("ohmygame-daemon-url"),
-      token: argument("ohmygame-daemon-token"),
-    }),
+    runtime: Object.freeze(desktopRuntime()),
     runtimeService: Object.freeze({
       state: () => ipcRenderer.invoke("ohmygame:runtime-state") as Promise<DesktopRuntimeState>,
       restart: () => ipcRenderer.invoke("ohmygame:restart-runtime") as Promise<DesktopRuntimeState>,

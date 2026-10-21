@@ -76,10 +76,6 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   if (!rendererTarget) throw new Error("A renderer URL or file is required");
   const loadTarget = options.rendererHash ? `${rendererTarget}${options.rendererHash}` : rendererTarget;
 
-  const runtimeArguments = [
-    `--ohmygame-daemon-url=${options.runtime.url}`,
-    `--ohmygame-daemon-token=${options.runtime.token}`,
-  ];
   const platformWindowOptions = process.platform === "darwin" && !options.nativeTitleBar
     ? {
         titleBarStyle: "hiddenInset" as const,
@@ -110,7 +106,6 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     ...platformWindowOptions,
     webPreferences: {
       preload: path.resolve(options.preloadPath),
-      additionalArguments: runtimeArguments,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -118,6 +113,14 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     },
   });
   if (options.aspectRatio) window.setAspectRatio(options.aspectRatio);
+  // The preload asks for the daemon address and token instead of reading them
+  // from its command line, which other processes of the same user can read.
+  // Only this window's own page receives them, not a frame embedded in it.
+  window.webContents.ipc.on("ohmygame:desktop-runtime", (event) => {
+    event.returnValue = event.senderFrame === window.webContents.mainFrame
+      ? { url: options.runtime.url, token: options.runtime.token }
+      : null;
+  });
 
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isHttpUrl(url)) void shell.openExternal(url);
