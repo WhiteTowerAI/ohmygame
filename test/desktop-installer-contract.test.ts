@@ -7,22 +7,20 @@ import { parse } from "yaml";
 
 // nsExec hands the command line to cmd unchanged, so the test must too.
 function runCmd(commandLine: string) {
-  return spawnSync(process.env.ComSpec ?? "cmd.exe", [commandLine], {
+  const result = spawnSync(process.env.ComSpec ?? "cmd.exe", [commandLine], {
+    encoding: "utf8",
     windowsVerbatimArguments: true,
-  }).status;
+  });
+  if (result.error) throw result.error;
+  return result;
 }
 
-async function runProcessFallback(executable: string) {
-  const include = await readFile("build/installer.nsh", "utf8");
-  const command = include.match(
-    /nsExec::Exec `"\$CmdPath" (\/D \/C tasklist [^`]+)`/,
-  )?.[1];
-  expect(command).toBeDefined();
+async function runProcessFallback(command: string, executable: string) {
   const pluginsDir = await mkdtemp(join(tmpdir(), "ohmygame-installer-"));
   try {
     const systemDir = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
     return runCmd(
-      command!
+      command
         .split("${APP_EXECUTABLE_FILENAME}")
         .join(executable)
         .split("$PLUGINSDIR")
@@ -70,11 +68,24 @@ describe("Windows desktop installer safety", () => {
   it.skipIf(process.platform !== "win32")(
     "reports whether the fallback finds a running process",
     async () => {
-      expect(runCmd("/D /C exit /b 17")).toBe(17);
-      expect(
-        await runProcessFallback(`ohmygame-missing-${process.pid}.exe`),
-      ).toBe(17);
-      expect(await runProcessFallback(basename(process.execPath))).toBe(0);
+      const include = await readFile("build/installer.nsh", "utf8");
+      const command = include.match(
+        /nsExec::Exec `"\$CmdPath" (\/D \/C tasklist [^`]+)`/,
+      )?.[1];
+      expect(command).toBeDefined();
+
+      const harness = runCmd("/D /C exit /b 17");
+      expect(harness.status, harness.stderr).toBe(17);
+      const missing = await runProcessFallback(
+        command!,
+        `ohmygame-missing-${process.pid}.exe`,
+      );
+      expect(missing.status, missing.stderr).toBe(17);
+      const running = await runProcessFallback(
+        command!,
+        basename(process.execPath),
+      );
+      expect(running.status, running.stderr).toBe(0);
     },
     // tasklist can take several seconds on a cold CI runner.
     30_000,
