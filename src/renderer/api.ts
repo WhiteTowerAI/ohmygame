@@ -668,6 +668,14 @@ export async function exportInteractiveStoryProject(projectId: string, version?:
   return response.blob();
 }
 
+/** A ZIP of the redacted desktop logs and system information, for bug reports. */
+export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: string }> {
+  const response = await fetch(apiUrl("/diagnostics/export"), { method: "POST", headers: runtimeHeaders() });
+  if (!response.ok) throw await responseError(response);
+  const fileName = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1];
+  return { blob: await response.blob(), fileName: fileName ?? "ohmygame-diagnostics.zip" };
+}
+
 export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {
   const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/build`), {
     method: "POST",

@@ -164,6 +164,13 @@ const zhCN: typeof en = {
       notesUnavailable: "此版本暂无发布说明。",
       viewRelease: "在 GitHub 查看此版本",
     },
+    diagnostics: {
+      title: "诊断信息",
+      description: "将近期日志和系统信息保存为 ZIP，附在问题反馈中。其中已去除密钥、令牌和你的用户目录，不包含对话或项目文件。",
+      export: "导出诊断信息",
+      exporting: "正在导出...",
+      exportFailed: "无法导出诊断信息：{{message}}",
+    },
   },
   capability: {
     language: "语言",

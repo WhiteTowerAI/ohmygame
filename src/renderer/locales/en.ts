@@ -164,6 +164,13 @@ const en = {
       notesUnavailable: "Release notes are unavailable for this version.",
       viewRelease: "View this release on GitHub",
     },
+    diagnostics: {
+      title: "Diagnostics",
+      description: "Save a ZIP of recent logs and system information to attach to a bug report. Keys, tokens and your home folder are removed; it contains no conversations or project files.",
+      export: "Export diagnostics",
+      exporting: "Exporting...",
+      exportFailed: "Could not export diagnostics: {{message}}",
+    },
   },
   capability: {
     language: "Language",
