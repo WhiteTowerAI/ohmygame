@@ -1044,9 +1044,6 @@ const zhCN: typeof en = {
   community: {
     myProfile: "我的主页",
     creator: "创作者",
-    filterGames: "筛选游戏",
-    filters: "筛选",
-    closeFilters: "关闭筛选",
     search: "搜索",
     searchPlaceholder: "游戏或创作者",
     sortBy: "排序方式",

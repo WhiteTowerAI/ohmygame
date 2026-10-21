@@ -45,6 +45,13 @@ See the [project menu example](assets/project-card-menu.png).
 The desktop file opener resolves `.` through `/projects/:projectId/files/location`
 to open the workspace root; file reads and writes still require a file path.
 
+Community displays games in a responsive grid with 16:10 covers, titles, creator
+links, and view/like counts visible below each cover. Search, sorting, and the
+first-listed time filter stay above the grid. Creator profiles and related games
+use the same cards, with colors following the app's light or dark theme. See the
+[dark](assets/community-gallery-dark.webp) and
+[light](assets/community-gallery-light.webp) examples (sample games).
+
 ## Architecture and feature guides
 
 The main sidebar opens **Plugins** for the plugin library, plugin details, and
