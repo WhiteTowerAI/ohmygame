@@ -1287,25 +1287,38 @@ describe("three-step setup with coding agents", () => {
     },
   );
 
-  it("retries a selected CLI's failed sign-in without reopening the agent choices", async () => {
-    const runtime = { ...codex, auth: { status: "signed-out" } };
-    api.listAgentRuntimes.mockResolvedValue([runtime]);
-    api.updateAgentRuntime.mockResolvedValue({ ...runtime, enabled: true });
-    api.loginAgentRuntime
-      .mockRejectedValueOnce(new Error("Could not start sign-in"))
-      .mockResolvedValue({ command: "codex login" });
-    await showConnection(
-      <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
-    );
-    await chooseAgent("Codex");
-    expect(container.textContent).toContain("Could not start sign-in");
-    expect(container.querySelector(".onboarding-agent-options")).toBeNull();
-    await act(async () => button("Sign in").click());
-    expect(container.textContent).toContain("codex login");
-    expect(container.textContent).not.toContain("Could not start sign-in");
-    expect(api.loginAgentRuntime).toHaveBeenCalledTimes(2);
-    expect(api.updateAgentRuntime).toHaveBeenCalledOnce();
-  });
+  it.each(["enable", "sign-in"])(
+    "retries a selected CLI's failed %s without reopening the choices",
+    async (failure) => {
+      const runtime = { ...codex, auth: { status: "signed-out" } };
+      api.listAgentRuntimes.mockResolvedValue([runtime]);
+      api.updateAgentRuntime.mockResolvedValue({ ...runtime, enabled: true });
+      api.loginAgentRuntime.mockResolvedValue({ command: "codex login" });
+      if (failure === "enable")
+        api.updateAgentRuntime.mockRejectedValueOnce(
+          new Error("Could not connect"),
+        );
+      else
+        api.loginAgentRuntime.mockRejectedValueOnce(
+          new Error("Could not connect"),
+        );
+      await showConnection(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      );
+      await chooseAgent("Codex");
+      expect(container.textContent).toContain("Could not connect");
+      expect(container.querySelector(".onboarding-agent-options")).toBeNull();
+      await act(async () => button("Sign in").click());
+      expect(container.textContent).toContain("codex login");
+      expect(container.textContent).not.toContain("Could not connect");
+      expect(api.loginAgentRuntime).toHaveBeenCalledTimes(
+        failure === "sign-in" ? 2 : 1,
+      );
+      expect(api.updateAgentRuntime).toHaveBeenCalledTimes(
+        failure === "enable" ? 2 : 1,
+      );
+    },
+  );
 
   it("keeps providers under OhMyGame and limits the model picker to the selected agent", async () => {
     const builtIn = {

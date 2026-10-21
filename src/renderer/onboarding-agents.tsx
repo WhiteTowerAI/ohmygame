@@ -453,7 +453,10 @@ export function OnboardingAgents({
                   className="onboarding-text-button"
                   disabled={busy || Boolean(pending)}
                   onClick={() =>
-                    void run(selected.id, () => signIn(selected.id))
+                    void run(selected.id, async () => {
+                      await useAgent(selected);
+                      await signIn(selected.id);
+                    })
                   }
                 >
                   <LogIn size={14} aria-hidden="true" />
