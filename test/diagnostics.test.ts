@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import yauzl from "yauzl";
 import { createApp } from "../src/daemon/app.js";
 import {
+  diagnosticSection,
   diagnosticsArchive,
   type DiagnosticsSummary,
 } from "../src/daemon/diagnostics.js";
@@ -110,6 +111,52 @@ describe("diagnostics export", () => {
 
     expect(Object.keys(files)).toEqual(["system.json"]);
     expect(JSON.parse(files["system.json"]!).logs).toBe("not recorded");
+  });
+
+  it("still exports the logs when part of the summary or the logs folder fails", async () => {
+    const logs = await directory("ohmygame-diagnostics-partial-");
+    await writeFile(path.join(logs, "daemon.log"), "service starting\n");
+
+    const partial = await unzip(
+      await diagnosticsArchive({
+        logDirectory: logs,
+        summary: async () => ({
+          ...summary,
+          plugins: await diagnosticSection(() => {
+            throw new Error("The plugin marketplace is unreadable");
+          }),
+        }),
+      }),
+    );
+    expect(partial["logs/daemon.log"]).toBe("service starting\n");
+    expect(JSON.parse(partial["system.json"]!).plugins).toEqual({
+      error: "The plugin marketplace is unreadable",
+    });
+
+    const failedSummary = await unzip(
+      await diagnosticsArchive({
+        logDirectory: logs,
+        summary: async () => {
+          throw new Error("The service is shutting down");
+        },
+      }),
+    );
+    expect(failedSummary["logs/daemon.log"]).toBe("service starting\n");
+    expect(JSON.parse(failedSummary["system.json"]!).summaryError).toBe(
+      "The service is shutting down",
+    );
+
+    const notAFolder = path.join(logs, "daemon.log");
+    const unreadableLogs = await unzip(
+      await diagnosticsArchive({
+        logDirectory: notAFolder,
+        summary: async () => summary,
+      }),
+    );
+    expect(Object.keys(unreadableLogs)).toEqual(["system.json"]);
+    expect(JSON.parse(unreadableLogs["system.json"]!).logs).toEqual({
+      error: expect.stringContaining("ENOTDIR"),
+    });
   });
 
   it("exports configured providers by name only", async () => {

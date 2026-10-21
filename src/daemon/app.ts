@@ -28,7 +28,7 @@ import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-work
 import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "fastify";
 import { daemonLoggerOptions, logFailedRequests } from "./request-log.js";
 import { ActivityLog } from "./activity-log.js";
-import { registerDiagnosticsRoutes } from "./diagnostics.js";
+import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, pluginProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
@@ -2417,17 +2417,20 @@ export function createApp(options: AppOptions = {}) {
   registerDiagnosticsRoutes(app, {
     logDirectory: options.logDirectory,
     summary: async () => {
-      const [providers, agents, catalog] = await Promise.all([providerSummaries(), agentRuntimes.statuses(), plugins.list()]);
-      const projectTypes: Record<string, number> = {};
-      for (const project of projects.list()) projectTypes[project.type] = (projectTypes[project.type] ?? 0) + 1;
-      return {
-        providers: providers.filter((provider) => provider.configured)
-          .map(({ id, enabled, custom, capabilities }) => ({ id, enabled: enabled !== false, custom: custom === true, capabilities })),
-        agents: agents.map(({ id, enabled, installed, version, auth }) => ({ id, enabled, installed, ...(version ? { version } : {}), auth: auth.status })),
-        plugins: catalog.plugins.filter((plugin) => plugin.installed)
-          .map(({ id, version, enabled, beta }) => ({ id, ...(version ? { version } : {}), enabled, ...(beta ? { beta } : {}) })),
-        projects: projectTypes,
-      };
+      const [providers, agents, installed, projectTypes] = await Promise.all([
+        diagnosticSection(async () => (await providerSummaries()).filter((provider) => provider.configured)
+          .map(({ id, enabled, custom, capabilities }) => ({ id, enabled: enabled !== false, custom: custom === true, capabilities }))),
+        diagnosticSection(async () => (await agentRuntimes.statuses())
+          .map(({ id, enabled, installed, version, auth }) => ({ id, enabled, installed, ...(version ? { version } : {}), auth: auth.status }))),
+        diagnosticSection(async () => (await plugins.list()).plugins.filter((plugin) => plugin.installed)
+          .map(({ id, version, enabled, beta }) => ({ id, ...(version ? { version } : {}), enabled, ...(beta ? { beta } : {}) }))),
+        diagnosticSection(() => {
+          const counts: Record<string, number> = {};
+          for (const project of projects.list()) counts[project.type] = (counts[project.type] ?? 0) + 1;
+          return counts;
+        }),
+      ]);
+      return { providers, agents, plugins: installed, projects: projectTypes };
     },
   });
   app.post("/settings/models/providers/codex-cli/images/recheck", async () => codexImages.recheck(providerEnabled("codex-cli")));

@@ -12,23 +12,46 @@ const APP_VERSION: string = createRequire(import.meta.url)(
 /** The files the desktop app writes; anything else in the folder stays out. */
 const LOG_FILE = /^(?:main|daemon)(?:\.\d+)?\.log$/;
 
+/** A section that could not be read says why instead of failing the export. */
+export type DiagnosticsSection<T> = T | { error: string };
+
 /** What is connected and enabled, by name only: never keys, accounts or paths. */
 export interface DiagnosticsSummary {
-  providers: {
-    id: string;
-    enabled: boolean;
-    custom: boolean;
-    capabilities: readonly string[];
-  }[];
-  agents: {
-    id: string;
-    enabled: boolean;
-    installed: boolean;
-    version?: string;
-    auth: string;
-  }[];
-  plugins: { id: string; version?: string; enabled: boolean; beta?: boolean }[];
-  projects: Record<string, number>;
+  providers: DiagnosticsSection<
+    {
+      id: string;
+      enabled: boolean;
+      custom: boolean;
+      capabilities: readonly string[];
+    }[]
+  >;
+  agents: DiagnosticsSection<
+    {
+      id: string;
+      enabled: boolean;
+      installed: boolean;
+      version?: string;
+      auth: string;
+    }[]
+  >;
+  plugins: DiagnosticsSection<
+    { id: string; version?: string; enabled: boolean; beta?: boolean }[]
+  >;
+  projects: DiagnosticsSection<Record<string, number>>;
+}
+
+/**
+ * People export diagnostics when something is broken, so a part that fails
+ * to load is recorded in place and the logs are still exported.
+ */
+export async function diagnosticSection<T>(
+  load: () => T | Promise<T>,
+): Promise<DiagnosticsSection<T>> {
+  try {
+    return await load();
+  } catch (error) {
+    return { error: errorMessage(error) };
+  }
 }
 
 export interface DiagnosticsOptions {
@@ -46,9 +69,12 @@ export async function diagnosticsArchive(
   options: DiagnosticsOptions,
 ): Promise<Buffer> {
   const createdAt = (options.now?.() ?? new Date()).toISOString();
-  const logs = await logFiles(options.logDirectory);
+  const logs = await diagnosticSection(() => logFiles(options.logDirectory));
+  const summary = await diagnosticSection(options.summary);
   const zip = new ZipFile();
-  for (const log of logs) zip.addBuffer(log.content, `logs/${log.name}`);
+  if (Array.isArray(logs)) {
+    for (const log of logs) zip.addBuffer(log.content, `logs/${log.name}`);
+  }
   const system = {
     format: 1,
     createdAt,
@@ -69,8 +95,12 @@ export async function diagnosticsArchive(
       ...(process.versions.chrome ? { chrome: process.versions.chrome } : {}),
       uptimeSeconds: Math.round(process.uptime()),
     },
-    logs: options.logDirectory ? logs.map((log) => log.name) : "not recorded",
-    ...(await options.summary()),
+    logs: !options.logDirectory
+      ? "not recorded"
+      : Array.isArray(logs)
+        ? logs.map((log) => log.name)
+        : logs,
+    ...("error" in summary ? { summaryError: summary.error } : summary),
   };
   zip.addBuffer(
     Buffer.from(`${JSON.stringify(system, null, 2)}\n`),
@@ -142,4 +172,8 @@ function zipBuffer(zip: ZipFile): Promise<Buffer> {
   });
   zip.end();
   return completed;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
