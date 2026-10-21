@@ -2704,6 +2704,7 @@ const zhCN: typeof en = {
     openingPlaytest: "正在打开试玩…",
     playtestWindow: "在新窗口中试玩",
     playtest: "试玩",
+    playtestNeedsScene: "先添加一个场景，才能试玩这个故事。",
     loadingScenes: "正在加载场景…",
     noCompile: "项目无法编译",
     code: "互动故事代码",

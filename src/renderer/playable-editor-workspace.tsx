@@ -981,6 +981,11 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   /** Saves the project, sends any requested action, and opens or focuses Playtest. */
   async function startPlaytest(request?: PlaytestRequest): Promise<void> {
     if (!codebase || building || playtesting) return;
+    // A story with no Scenes has nothing to play, so the editor says so instead of opening Playtest.
+    if (!codebase.graph.nodes.length) {
+      setNotice(t("storyEditor.playtestNeedsScene"));
+      return;
+    }
     setPlaytesting(true);
     if (request?.action !== "start") clearSelection();
     const desktop = window.ohMyGameDesktop;

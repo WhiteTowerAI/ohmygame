@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProjectState } from "../src/shared/contracts.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
+import { createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
 import { desktopSave } from "../src/renderer/desktop-save.js";
 import { takePlaytestRequest } from "../src/renderer/playable-playtest.js";
 
@@ -12,6 +13,8 @@ const codebase = createStarterCodebaseWithScene("Playtest", {
   width: 1280,
   height: 720,
 });
+/** What the editor loads from disk. */
+let disk = codebase;
 const update = vi.fn(async () => ({ revision: "saved" }));
 let move!: (
   event: unknown,
@@ -27,7 +30,7 @@ vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   getNodeCodebase: async () => ({
-    ...structuredClone(codebase),
+    ...structuredClone(disk),
     revision: "disk",
   }),
   listPlayablePresets: async () => ({ presets: [] }),
@@ -40,10 +43,15 @@ const { PlayableEditorWorkspace } =
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 
 beforeEach(async () => {
+  disk = codebase;
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.localStorage.clear();
   update.mockReset().mockResolvedValue({ revision: "saved" });
+  await renderEditor();
+});
+
+async function renderEditor(): Promise<void> {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -60,7 +68,8 @@ beforeEach(async () => {
     ),
   );
   await act(async () => move(null, { x: 32, y: 64, zoom: 1.2 }));
-});
+}
+
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
@@ -139,6 +148,25 @@ it("reports a blocked popup before saving or sending an action", async () => {
   expect(update).not.toHaveBeenCalled();
   expect(container.querySelector('[role="alert"]')?.textContent).toBe(
     "Allow pop-ups to open Playtest.",
+  );
+  expect(takePlaytestRequest("p")).toBeUndefined();
+});
+
+it("says to add a Scene instead of opening Playtest for a story with no Scenes", async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  disk = createPlayableStarterCodebase("Empty", { width: 1280, height: 720 });
+  await renderEditor();
+  update.mockClear();
+  const open = vi.spyOn(window, "open");
+  const button = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Playtest"]',
+  )!;
+  await act(async () => button.click());
+  expect(open).not.toHaveBeenCalled();
+  expect(update).not.toHaveBeenCalled();
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+    "Add a Scene to playtest the story.",
   );
   expect(takePlaytestRequest("p")).toBeUndefined();
 });

@@ -2779,6 +2779,7 @@ const en = {
     openingPlaytest: "Opening playtest...",
     playtestWindow: "Playtest in a new window",
     playtest: "Playtest",
+    playtestNeedsScene: "Add a Scene to playtest the story.",
     loadingScenes: "Loading Scenes...",
     noCompile: "The project does not compile",
     code: "Playable Nodes code",
