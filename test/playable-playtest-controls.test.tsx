@@ -359,6 +359,7 @@ describe("Playtest that cannot start", () => {
     const ask = JSON.parse(window.localStorage.getItem("ohmygame:playtest:ask:p")!) as { text: string };
     expect(ask.text).toBe("Playtest could not start the story. Find the cause and fix it.\n\nError:\n- /: graph.json is not valid JSON.");
     expect(text()).toContain("Added to the chat in the editor");
+    expect(action("Close window")).toBeTruthy();
   });
 
   it("shows a game that stopped while starting the same way", async () => {

@@ -269,7 +269,7 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
         ? <span key="ask" className="playtest-problem-sent">{t("playtest.addedToChat")}</span>
         : <button key="ask" type="button" onClick={() => { onAskAgent(); setSent(true); }}><Sparkles size={13} /><span>{t("playtest.askFix")}</span></button>,
       retry,
-      ...(onOpenEditor ? [editor] : []),
+      editor,
     ],
     unavailable: [retry, editor],
   }[problem.kind];
