@@ -26,6 +26,7 @@ import { isWebStory } from "./story-web-project.js";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import { requestLogValue } from "./request-log.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, pluginProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
@@ -1037,7 +1038,7 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
   };
   const app = Fastify({
-    logger: options.logger ?? false,
+    logger: options.logger ? { serializers: { req: requestLogValue } } : false,
     ajv: { customOptions: { coerceTypes: false } },
   });
   projectWrites.install(app);
