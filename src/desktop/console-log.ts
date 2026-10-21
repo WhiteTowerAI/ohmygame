@@ -45,7 +45,7 @@ export function rendererConsoleLines(
 
 /** Errors that would end the process; Electron reports them only to stderr. */
 export function recordUncaughtErrors(
-  log: Pick<LogWriter, "line">,
+  log: Pick<LogWriter, "line"> & { flushSync?(): void },
   target: Pick<NodeJS.Process, "on"> = process,
 ): void {
   target.on("uncaughtExceptionMonitor", (error, origin) => {
@@ -53,6 +53,8 @@ export function recordUncaughtErrors(
       error instanceof Error ? (error.stack ?? error.message) : String(error);
     for (const line of `${origin}: ${text}`.split("\n"))
       log.line(`[fatal] ${line}`);
+    // The process may end before a background write runs.
+    log.flushSync?.();
   });
 }
 

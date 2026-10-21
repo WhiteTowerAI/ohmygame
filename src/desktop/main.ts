@@ -93,8 +93,7 @@ async function stopServices(): Promise<void> {
   agentPlaytests.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
   await clearExternalMcpApp?.().catch(() => undefined);
-  daemonLog.close();
-  mainLog.close();
+  await Promise.all([daemonLog.close(), mainLog.close()]);
 }
 
 function prepareShutdown(forUpdate = false): Promise<void> {

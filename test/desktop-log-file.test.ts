@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,10 +30,11 @@ describe("rotating log file", () => {
 
     log.write("first line\nsecond ");
     log.write(Buffer.from("line\r\nunfinished"));
+    await log.idle();
     expect(await readFile(log.path, "utf8")).toBe(
       "2026-10-21T08:00:00.000Z first line\n2026-10-21T08:00:00.000Z second line\n",
     );
-    log.close();
+    await log.close();
     expect(await readFile(log.path, "utf8")).toContain(
       "2026-10-21T08:00:00.000Z unfinished\n",
     );
@@ -45,7 +47,7 @@ describe("rotating log file", () => {
     log.line(
       "[service] error (generation 1): Daemon exited before becoming ready (1)\r\n\nDaemon output:\nCould not read project metadata",
     );
-    log.close();
+    await log.close();
     expect(await readFile(log.path, "utf8")).toBe(
       [
         "2026-10-21T08:00:00.000Z [service] error (generation 1): Daemon exited before becoming ready (1)",
@@ -64,7 +66,7 @@ describe("rotating log file", () => {
 
     log.write(bytes.subarray(0, 4));
     log.write(bytes.subarray(4));
-    log.close();
+    await log.close();
     expect(await readFile(log.path, "utf8")).toBe(
       "2026-10-21T08:00:00.000Z 无法读取项目「冒险」\n",
     );
@@ -82,6 +84,7 @@ describe("rotating log file", () => {
     log.write(
       'Request failed {"apiKey":"abc123","path":"/Users/someone/Projects/game"} key sk-abcdefghijklmnop\n',
     );
+    await log.idle();
     const text = await readFile(log.path, "utf8");
     expect(text).not.toContain("abc123");
     expect(text).not.toContain("sk-abcdefghijklmnop");
@@ -101,7 +104,7 @@ describe("rotating log file", () => {
 
     for (let index = 0; index < 8; index++)
       log.write(`line ${index} ${"x".repeat(30)}\n`);
-    log.close();
+    await log.close();
     expect((await readdir(directory)).sort()).toEqual([
       "main.1.log",
       "main.2.log",
@@ -115,6 +118,21 @@ describe("rotating log file", () => {
     expect(oldest).not.toContain("line 4");
   });
 
+  it("writes waiting lines synchronously when the process is about to end", async () => {
+    const directory = await logDirectory();
+    const log = new RotatingLogFile({ directory, name: "main", now });
+
+    log.line("[fatal] uncaughtException: Error: boom");
+    log.flushSync();
+    expect(readFileSync(log.path, "utf8")).toBe(
+      "2026-10-21T08:00:00.000Z [fatal] uncaughtException: Error: boom\n",
+    );
+    await log.close();
+    expect(await readFile(log.path, "utf8")).toBe(
+      "2026-10-21T08:00:00.000Z [fatal] uncaughtException: Error: boom\n",
+    );
+  });
+
   it("stops quietly when the log cannot be written", async () => {
     const directory = await logDirectory();
     const blocked = path.join(directory, "blocked");
@@ -122,7 +140,7 @@ describe("rotating log file", () => {
     const log = new RotatingLogFile({ directory: blocked, name: "daemon" });
 
     expect(() => log.write("line\n")).not.toThrow();
-    expect(() => log.close()).not.toThrow();
+    await expect(log.close()).resolves.toBeUndefined();
   });
 });
 

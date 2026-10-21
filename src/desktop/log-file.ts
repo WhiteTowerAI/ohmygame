@@ -1,12 +1,5 @@
-import {
-  closeSync,
-  fstatSync,
-  mkdirSync,
-  openSync,
-  renameSync,
-  rmSync,
-  writeSync,
-} from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { mkdir, open, rename, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { MAX_LOG_LINE_LENGTH } from "./log-redaction.js";
@@ -68,14 +61,17 @@ class LineBuffer implements LogStream {
 }
 
 /**
- * An append-only log, each line redacted and timestamped. Only the newest
- * files are kept. A log that cannot be written stops quietly: logging never
- * fails the app.
+ * An append-only log, each line redacted and timestamped. Lines are written
+ * in the background, so logging never blocks the Electron main thread, and
+ * only the newest files are kept. A log that cannot be written stops
+ * quietly: logging never fails the app.
  */
 export class RotatingLogFile implements LogWriter, LogStream {
   readonly path: string;
   #output = new LineBuffer((line) => this.line(line));
-  #descriptor?: number;
+  #pending: Buffer[] = [];
+  #draining?: Promise<void>;
+  #handle?: FileHandle;
   #size = 0;
   #failed = false;
 
@@ -103,58 +99,103 @@ export class RotatingLogFile implements LogWriter, LogStream {
       const redacted = this.options.redact ? this.options.redact(line) : line;
       return `${time} ${redacted}\n`;
     });
-    this.#append(Buffer.from(lines.join(""), "utf8"));
+    this.#pending.push(Buffer.from(lines.join(""), "utf8"));
+    // Start on a later tick, so flushSync can still take lines logged just before it.
+    this.#draining ??= Promise.resolve().then(() => this.#drain());
   }
 
-  close(): void {
+  /** Resolves once every line logged so far is written. */
+  async idle(): Promise<void> {
+    while (this.#draining) await this.#draining;
+  }
+
+  /**
+   * Writes the lines still waiting, synchronously, for a process that is
+   * about to end and cannot wait for the background writes.
+   */
+  flushSync(): void {
     this.flush();
-    this.#closeDescriptor();
-  }
-
-  #append(bytes: Buffer): void {
+    if (this.#failed || !this.#pending.length) return;
     try {
-      if (this.#descriptor === undefined) this.#open();
-      const maxBytes = this.options.maxBytes ?? DEFAULT_MAX_BYTES;
-      if (this.#size > 0 && this.#size + bytes.length > maxBytes) {
-        this.#rotate();
-      }
-      writeSync(this.#descriptor!, bytes);
-      this.#size += bytes.length;
+      mkdirSync(this.options.directory, { recursive: true, mode: 0o700 });
+      appendFileSync(this.path, Buffer.concat(this.#pending.splice(0)), {
+        mode: 0o600,
+      });
     } catch {
-      this.#failed = true;
-      this.#closeDescriptor();
+      // Nothing more can be done for a process that is ending.
     }
   }
 
-  #open(): void {
-    mkdirSync(this.options.directory, { recursive: true, mode: 0o700 });
-    this.#descriptor = openSync(this.path, "a", 0o600);
-    this.#size = fstatSync(this.#descriptor).size;
+  async close(): Promise<void> {
+    this.flush();
+    await this.idle();
+    await this.#closeHandle();
   }
 
-  #rotate(): void {
+  async #drain(): Promise<void> {
+    const maxBytes = this.options.maxBytes ?? DEFAULT_MAX_BYTES;
+    try {
+      while (this.#pending.length) {
+        const entries = this.#pending.splice(0);
+        let batch: Buffer[] = [];
+        let batchSize = 0;
+        for (const entry of entries) {
+          if (!this.#handle) await this.#open();
+          const written = this.#size + batchSize;
+          if (written > 0 && written + entry.length > maxBytes) {
+            await this.#writeOut(batch);
+            batch = [];
+            batchSize = 0;
+            await this.#rotate();
+          }
+          batch.push(entry);
+          batchSize += entry.length;
+        }
+        await this.#writeOut(batch);
+      }
+    } catch {
+      this.#failed = true;
+      this.#pending = [];
+      await this.#closeHandle();
+    } finally {
+      this.#draining = undefined;
+    }
+  }
+
+  async #writeOut(batch: Buffer[]): Promise<void> {
+    if (!batch.length) return;
+    const bytes = Buffer.concat(batch);
+    await this.#handle!.write(bytes);
+    this.#size += bytes.length;
+  }
+
+  async #open(): Promise<void> {
+    await mkdir(this.options.directory, { recursive: true, mode: 0o700 });
+    this.#handle = await open(this.path, "a", 0o600);
+    this.#size = (await this.#handle.stat()).size;
+  }
+
+  async #rotate(): Promise<void> {
     // Windows cannot rename an open file.
-    this.#closeDescriptor();
+    await this.#closeHandle();
     const maxFiles = Math.max(1, this.options.maxFiles ?? DEFAULT_MAX_FILES);
-    rmSync(this.#file(maxFiles - 1), { force: true });
+    await rm(this.#file(maxFiles - 1), { force: true });
     for (let index = maxFiles - 2; index >= 0; index--) {
       try {
-        renameSync(this.#file(index), this.#file(index + 1));
+        await rename(this.#file(index), this.#file(index + 1));
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
     }
-    this.#open();
+    await this.#open();
   }
 
-  #closeDescriptor(): void {
-    if (this.#descriptor === undefined) return;
-    try {
-      closeSync(this.#descriptor);
-    } catch {
-      // The descriptor is gone either way.
-    }
-    this.#descriptor = undefined;
+  async #closeHandle(): Promise<void> {
+    const handle = this.#handle;
+    this.#handle = undefined;
+    await handle?.close().catch(() => {
+      // The handle is gone either way.
+    });
   }
 
   #file(index: number): string {
