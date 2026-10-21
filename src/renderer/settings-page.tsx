@@ -341,6 +341,15 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
 function DiagnosticsSettings() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string>();
+  const openLogsDirectory = window.ohMyGameDesktop?.openLogsDirectory;
+  const openLogs = async () => {
+    setError(undefined);
+    try {
+      await openLogsDirectory?.();
+    } catch (cause) {
+      setError(t("settings.diagnostics.openLogsFailed", { message: errorMessage(cause) }));
+    }
+  };
   const download = async () => {
     setExporting(true);
     setError(undefined);
@@ -366,6 +375,9 @@ function DiagnosticsSettings() {
         <button className="settings-secondary-button" type="button" disabled={exporting} onClick={() => void download()}>
           {exporting ? t("settings.diagnostics.exporting") : t("settings.diagnostics.export")}
         </button>
+        {openLogsDirectory ? (
+          <button className="settings-secondary-button" type="button" onClick={() => void openLogs()}>{t("settings.diagnostics.openLogs")}</button>
+        ) : null}
       </div>
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
     </section>

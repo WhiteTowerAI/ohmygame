@@ -170,6 +170,8 @@ const zhCN: typeof en = {
       export: "导出诊断信息",
       exporting: "正在导出...",
       exportFailed: "无法导出诊断信息：{{message}}",
+      openLogs: "打开日志文件夹",
+      openLogsFailed: "无法打开日志文件夹：{{message}}",
     },
   },
   capability: {

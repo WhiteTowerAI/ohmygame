@@ -170,6 +170,8 @@ const en = {
       export: "Export diagnostics",
       exporting: "Exporting...",
       exportFailed: "Could not export diagnostics: {{message}}",
+      openLogs: "Open logs folder",
+      openLogsFailed: "Could not open the logs folder: {{message}}",
     },
   },
   capability: {

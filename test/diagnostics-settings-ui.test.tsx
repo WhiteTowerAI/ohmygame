@@ -85,3 +85,34 @@ it("explains a failed export", async () => {
   );
   expect(button.disabled).toBe(false);
 });
+
+it("opens the logs folder in the desktop app only", async () => {
+  await renderAbout();
+  expect(container.textContent).not.toContain("Open logs folder");
+  await act(async () => root.unmount());
+  root = createRoot(container);
+
+  const openLogsDirectory = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("Folder is not available"))
+    .mockResolvedValueOnce(undefined);
+  Object.defineProperty(window, "ohMyGameDesktop", {
+    configurable: true,
+    value: { openLogsDirectory },
+  });
+  try {
+    await renderAbout();
+    const button = [...container.querySelectorAll("button")].find(
+      (item) => item.textContent === "Open logs folder",
+    ) as HTMLButtonElement;
+    await act(async () => button.click());
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+      "Could not open the logs folder: Folder is not available",
+    );
+    await act(async () => button.click());
+    expect(openLogsDirectory).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  } finally {
+    Reflect.deleteProperty(window, "ohMyGameDesktop");
+  }
+});

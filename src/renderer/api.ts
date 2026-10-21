@@ -144,6 +144,8 @@ declare global {
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
+      /** Older desktop builds do not write log files. */
+      openLogsDirectory?: () => Promise<void>;
       clipboard: {
         files: () => Promise<DesktopClipboardFile[]>;
         paste: () => Promise<void>;

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -234,6 +234,12 @@ handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId:
   const result = await response.json() as { path?: unknown };
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid Plugin Skill path");
   shell.showItemInFolder(result.path);
+});
+handle("ohmygame:open-logs-directory", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid logs folder source");
+  mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
+  const error = await shell.openPath(logDirectory);
+  if (error) throw new Error(error);
 });
 handle("ohmygame:select-plugin-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");
