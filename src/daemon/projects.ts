@@ -98,10 +98,12 @@ export class ProjectManager {
   async load(onError?: (projectDirectory: string, cause: unknown) => void): Promise<void> {
     await mkdir(this.#projectsDirectory, { recursive: true });
     const entries = await readdir(this.#projectsDirectory, { withFileTypes: true });
-    // An import interrupted by a crash leaves its staging folder behind.
-    await Promise.all(entries.filter((entry) => entry.name.startsWith(IMPORT_STAGING_PREFIX)).map((entry) => (
-      rm(path.join(this.#projectsDirectory, entry.name), { recursive: true, force: true }).catch(() => {})
-    )));
+    // An import interrupted by a crash leaves its staging folder behind. It can
+    // hold gigabytes, so remove it without delaying startup; new imports use
+    // other folder names.
+    for (const entry of entries.filter((item) => item.name.startsWith(IMPORT_STAGING_PREFIX))) {
+      void rm(path.join(this.#projectsDirectory, entry.name), { recursive: true, force: true }).catch(() => {});
+    }
     const projects = await mapConcurrent(
       entries.filter((entry) => entry.isDirectory() && isProjectId(entry.name)),
       PROJECT_LOAD_CONCURRENCY,

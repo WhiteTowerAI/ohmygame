@@ -610,8 +610,20 @@ describe("project archive import", () => {
       dataDirectory,
     ).createImportStaging();
     await writeFile(path.join(staging, "upload.zip"), "partial");
-    await new ProjectManager(dataDirectory).load();
-    expect(await readdir(path.join(dataDirectory, "projects"))).toEqual([]);
+    const projects = new ProjectManager(dataDirectory);
+    // Startup does not wait for the removal.
+    await projects.load();
+    const imported = await importProjectArchive(
+      projects,
+      await zipArchive({
+        "ohmygame-project.json": manifest({ name: "Game", type: "web-game" }),
+      }),
+    );
+    await vi.waitFor(async () => {
+      expect(await readdir(path.join(dataDirectory, "projects"))).toEqual([
+        imported.id,
+      ]);
+    });
   });
 
   it("imports an Interactive Story project file from earlier versions", async () => {
