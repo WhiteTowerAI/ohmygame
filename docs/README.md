@@ -26,6 +26,7 @@ desktop lifecycle and native game windows; shared modules define contracts.
 | Publishing and Community         | `src/daemon/publish/`, `src/shared/publish-v1.ts`, `src/renderer/publish-dialog.tsx`                                                          | [Cloud integration](../CONTRIBUTING.md#cloud-integration), [runtime publishing](runtime.md#publishing)                  | `test/publish-client.test.ts`, `test/publish-dialog.test.tsx`; remote contracts in `test/publish.test.ts` need private cloud access |
 | Shared UI and project navigation | `src/renderer/app.tsx`, `src/renderer/projects.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/styles.css`                              | [Local setup](../CONTRIBUTING.md#start-local-development), the affected module guide                                    | `test/projects-page.test.ts`, `test/project-card.test.ts`, `test/project-types.test.ts`                                             |
 | First-run setup                  | `src/renderer/onboarding.tsx`, `src/renderer/onboarding-demo.tsx`, `src/renderer/use-onboarding.ts`, `src/renderer/use-model-provider-auth.ts`, `src/renderer/custom-provider-dialog.tsx`, `src/daemon/onboarding.ts`       | [First run](../README.md#first-run), [setup state](runtime.md#first-run-setup)                                             | `test/onboarding.test.ts`, `test/onboarding-renderer.test.tsx`                                                                         |
+| Logs and diagnostics             | `src/desktop/log-file.ts`, `src/desktop/log-redaction.ts`, `src/desktop/console-log.ts`, `src/daemon/request-log.ts`, `src/daemon/diagnostics.ts`, `src/renderer/settings-page.tsx` | [Logs and diagnostics](diagnostics.md) | `test/desktop-log-file.test.ts`, `test/request-log.test.ts`, `test/diagnostics.test.ts`, `test/diagnostics-settings-ui.test.tsx` |
 
 These are entry points, not an exhaustive ownership map. HTTP API and event
 definitions live in the code; use the corresponding shared types and tests
@@ -77,6 +78,7 @@ are `test/checkpoints.test.ts`, `test/turn-checkpoints.test.ts`,
 | [model-image-history.md](model-image-history.md) | Request image budgets, recall, OpenAI continuation, and file lifecycle.                                                        |
 | [desktop-releases.md](desktop-releases.md)       | Maintainer packaging, signing, update feeds, publishing, and rollback.                                                         |
 | [ui-languages.md](ui-languages.md)               | Renderer translations, language selection, what stays in English, and terminology.                                             |
+| [diagnostics.md](diagnostics.md)                 | Desktop log files, redaction, rotation, and the diagnostics export for bug reports.                                            |
 
 [Video trimming](video-trimming.md) covers Library and Asset Canvas video
 trimming, the shared preview controls, encoding, and the Library record.

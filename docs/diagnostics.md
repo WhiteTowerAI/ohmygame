@@ -1,0 +1,91 @@
+# Logs and diagnostics
+
+The desktop app keeps logs on disk so a failure can be traced after the app
+closes, and exports them with system information for bug reports.
+
+## Log files
+
+The Electron main process writes two files to the platform logs folder
+(`app.getPath("logs")`; on macOS `~/Library/Logs/<app name>`, on Windows
+`%APPDATA%\<app name>\logs`):
+
+| File         | Contents                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `main.log`   | The main process's console output, the app version and platform at startup, and the main window's console warnings and errors. |
+| `daemon.log` | The daemon's stdout and stderr, and a line when the service starts or exits.                                                   |
+
+## What is recorded
+
+The logs record what happened and how it ended. Prompts, messages, tool input
+and successful tool output stay out. Error text is kept as reported, so it can
+quote what failed, such as a file name or a line of code in a failed preview's
+output.
+
+In `daemon.log` (`src/daemon/activity-log.ts`, `src/daemon/request-log.ts`,
+`src/daemon/tools.ts`):
+
+- Agent turns: start (with image, attachment and plugin counts), completion,
+  cancellation and failure, with the duration and the error. Model request
+  failures add the provider, model, endpoint and status code from the
+  [agent error diagnostics](agent-errors.md).
+- Conversation model changes and model request retries.
+- Failed agent tools, with the tool, MCP server and the last 500 characters
+  of their output, where the error usually is.
+- Preview status changes, with the error and the last 2,000 characters of a
+  failed preview's output.
+- Publishing start, completion and failure.
+- Each finished image, video, 3D or audio generation, with the tool, model,
+  project, duration and the error of a failed one.
+- Requests that end with an error status, by route pattern (such as
+  `/projects/:id`), and the stack of unexpected server errors. Successful
+  requests are not logged; the renderer polls the daemon and they would bury
+  everything else.
+- Startup and load failures the daemon already reported.
+
+In `main.log` (`src/desktop/console-log.ts`):
+
+- Background service status changes, such as a crash and its recovery.
+- Update failures, with the details the About page shows.
+- Uncaught errors with their stack.
+
+## Redaction and rotation
+
+Each line is timestamped and redacted before it is written
+(`src/desktop/log-redaction.ts`):
+
+- The diagnostic sanitizer from the Pi patch replaces `sk-` and `pk-` keys,
+  bearer and basic tokens, and values after `api_key`, `access_token`,
+  `refresh_token`, `authorization`, `password`, `secret` and `cookie`.
+- URL credentials, queries and fragments are removed.
+- The home folder is written as `~`, in plain, forward-slash and JSON-escaped
+  spellings.
+
+The daemon's log lines carry the process ID but not the computer name
+(`src/daemon/request-log.ts`).
+
+Each file rotates at 5 MB, and the newest three are kept (`daemon.log`,
+`daemon.1.log`, `daemon.2.log`). A log that cannot be written stops quietly;
+logging never fails the app (`src/desktop/log-file.ts`).
+
+A daemon started on its own (`bun run dev`, `bun run start`) writes no log
+files; its output stays in the terminal.
+
+## Diagnostics export
+
+**Settings → About → Diagnostics → Export diagnostics** saves a ZIP from
+`POST /diagnostics/export` (`src/daemon/diagnostics.ts`). The desktop app
+passes the logs folder to the daemon in `OHMYGAME_LOG_DIR`. The ZIP contains:
+
+- `logs/`: `main.log`, `daemon.log` and their rotated files. Nothing else in
+  the folder is included.
+- `system.json`: the app version; OS, architecture, locale, CPU count and
+  memory; Node, Electron and Chrome versions; and the IDs of configured
+  providers, coding agents (with version and sign-in status), installed
+  plugins, and the number of projects of each type. `logs` is
+  `"not recorded"` when the daemon has no logs folder.
+
+It never contains keys, account names, file paths, settings files,
+conversations or project files.
+
+**Open logs folder**, shown only in the desktop app, opens the folder so people
+can read the logs before sharing them.
