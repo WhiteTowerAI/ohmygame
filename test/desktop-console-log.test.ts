@@ -1,5 +1,8 @@
 import { expect, it, vi } from "vitest";
-import { recordConsole } from "../src/desktop/console-log.js";
+import {
+  recordConsole,
+  rendererConsoleLines,
+} from "../src/desktop/console-log.js";
 
 it("copies each console line to the log and still writes to the console", () => {
   const lines: string[] = [];
@@ -25,4 +28,25 @@ it("copies each console line to the log and still writes to the console", () => 
     code: "EPERM",
   });
   expect(error).toHaveBeenCalledWith("first\nsecond");
+});
+
+it("records renderer warnings and errors with their source file", () => {
+  expect(
+    rendererConsoleLines({
+      level: "error",
+      message: "Uncaught TypeError: x is undefined\n    at render",
+      sourceId:
+        "file:///Applications/OhMyGame.app/renderer/assets/index-abc.js?v=1",
+      lineNumber: 42,
+    }),
+  ).toEqual([
+    "[renderer error] Uncaught TypeError: x is undefined",
+    "[renderer error]     at render (index-abc.js:42)",
+  ]);
+  expect(
+    rendererConsoleLines({ level: "warning", message: "Slow frame" }),
+  ).toEqual(["[renderer warning] Slow frame"]);
+  expect(rendererConsoleLines({ level: "info", message: "Loaded" })).toEqual(
+    [],
+  );
 });

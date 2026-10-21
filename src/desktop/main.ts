@@ -17,7 +17,7 @@ import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "./log-redaction.js";
-import { recordConsole } from "./console-log.js";
+import { recordConsole, rendererConsoleLines } from "./console-log.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
@@ -576,6 +576,9 @@ async function openMainWindow(): Promise<void> {
     integratedMenuBar: true,
     beforeLoad: (window) => {
       mainWindow = window;
+      window.webContents.on("console-message", (details) => {
+        for (const line of rendererConsoleLines(details)) mainLog.line(line);
+      });
       window.on("show", () => {
         webGamePlayers.synchronize();
         updateChecks?.onFocus();
