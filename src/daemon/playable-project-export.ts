@@ -2,11 +2,11 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
-import { AssetLibraryError, type AssetLibrary } from "./asset-library.js";
+import type { AssetLibrary } from "./asset-library.js";
 import { compressArchiveFile } from "./archive-compression.js";
+import { exportPathKey, MissingLibraryAssetError, packLibraryAssets, type PackedLibraryAsset } from "./library-asset-packing.js";
 
 const GRAPH_FILE = "graph.json";
-const LIBRARY_ASSET_DIRECTORY = "assets/library";
 
 export class PlayableProjectExportError extends Error {
   constructor(message: string, readonly statusCode = 409) {
@@ -35,28 +35,12 @@ export async function exportPlayableProject(
   }
 
   // Exports must also extract safely on case-insensitive filesystems.
-  const taken = new Set(files.map(exportPathKey));
-  const copies = new Map<string, { path: string; absolutePath: string }>();
-  for (const [id, asset] of Object.entries(isRecord(graph) && isRecord(graph.assets) ? graph.assets : {})) {
-    if (!isRecord(asset) || !isRecord(asset.source) || asset.source.kind !== "library") continue;
-    const libraryId = asset.source.assetId;
-    if (typeof libraryId !== "string") continue;
-    let copy = copies.get(libraryId);
-    if (!copy) {
-      let content: Awaited<ReturnType<AssetLibrary["content"]>>;
-      try {
-        content = await library.content(libraryId);
-      } catch (cause) {
-        if (cause instanceof AssetLibraryError) {
-          throw new PlayableProjectExportError(`Asset "${id}" is missing from the Library.`);
-        }
-        throw cause;
-      }
-      copy = { path: freePath(taken, content.asset.name), absolutePath: content.absolutePath };
-      taken.add(exportPathKey(copy.path));
-      copies.set(libraryId, copy);
-    }
-    asset.source = { kind: "workspace", path: copy.path };
+  let copies: PackedLibraryAsset[];
+  try {
+    copies = await packLibraryAssets(graph, new Set(files.map(exportPathKey)), library);
+  } catch (cause) {
+    if (cause instanceof MissingLibraryAssetError) throw new PlayableProjectExportError(cause.message);
+    throw cause;
   }
 
   const zip = new ZipFile();
@@ -66,11 +50,11 @@ export async function exportPlayableProject(
     zip.addFile(path.join(workspacePath, ...file.split("/")), file, { ...options, compress: compressArchiveFile(file) });
   }
   zip.addBuffer(
-    Buffer.from(copies.size ? `${JSON.stringify(graph, null, 2)}\n` : graphText, "utf8"),
+    Buffer.from(copies.length ? `${JSON.stringify(graph, null, 2)}\n` : graphText, "utf8"),
     GRAPH_FILE,
     options,
   );
-  for (const copy of copies.values()) zip.addFile(copy.absolutePath, copy.path, { ...options, compress: compressArchiveFile(copy.path) });
+  for (const copy of copies) zip.addFile(copy.absolutePath, copy.path, { ...options, compress: compressArchiveFile(copy.path) });
   return zipBuffer(zip);
 }
 
@@ -86,21 +70,6 @@ async function projectFiles(root: string, relative = ""): Promise<string[]> {
   return files;
 }
 
-function freePath(taken: Set<string>, name: string): string {
-  const extension = path.extname(name).toLowerCase();
-  const stem = path.basename(name, path.extname(name)).replace(/[^\p{L}\p{N}_-]+/gu, "-").replace(/^-+|-+$/g, "") || "asset";
-  for (let index = 1; ; index += 1) {
-    const candidate = `${LIBRARY_ASSET_DIRECTORY}/${stem}${index > 1 ? `-${index}` : ""}${extension}`;
-    if (!taken.has(exportPathKey(candidate))) return candidate;
-  }
-}
-
-function exportPathKey(filePath: string): string {
-  // Reserve canonical spellings and case variants such as σ/ς, s/ſ and ß/ẞ.
-  // This key may merge extra names; the actual exported spelling stays intact.
-  return filePath.normalize("NFD").toLowerCase().toUpperCase();
-}
-
 function zipBuffer(zip: ZipFile): Promise<Buffer> {
   const chunks: Buffer[] = [];
   const output = zip.outputStream as Readable;
@@ -113,8 +82,4 @@ function zipBuffer(zip: ZipFile): Promise<Buffer> {
   });
   zip.end();
   return completed;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
