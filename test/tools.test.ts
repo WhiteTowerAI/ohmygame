@@ -467,28 +467,27 @@ describe("tool runner", () => {
   });
 
   it("logs each finished generation without its prompt", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const lines: { level: string; message: string; details: Record<string, unknown> }[] = [];
     const generate = vi.fn<ImageGenerator["generate"]>()
       .mockRejectedValueOnce(new ImageGenerationError("The provider rejected the request", 400))
       .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
     const runner = new ToolRunner(await temporaryData(), { generate });
+    runner.setLogger({
+      info: (details, message) => lines.push({ level: "info", message, details: details as Record<string, unknown> }),
+      warn: (details, message) => lines.push({ level: "warn", message, details: details as Record<string, unknown> }),
+    });
     await runner.load();
-    try {
-      runner.start("generate-image", { prompt: "A secret castle", imageModel: { provider: "openai", id: "gpt-image-1" } }, { context: { projectId: "p1", nodeId: "n1" } });
-      await vi.waitFor(() => expect(warn).toHaveBeenCalledOnce());
-      runner.start("generate-image", { prompt: "A secret castle", imageModel: { provider: "openai", id: "gpt-image-1" } });
-      await vi.waitFor(() => expect(info).toHaveBeenCalledOnce());
 
-      const failed = JSON.parse(String(warn.mock.calls[0]![0]).replace(/^Generation failed /, ""));
-      expect(failed).toMatchObject({ toolId: "generate-image", model: "openai/gpt-image-1", projectId: "p1", error: "The provider rejected the request" });
-      expect(failed.durationMs).toBeGreaterThanOrEqual(0);
-      expect(String(info.mock.calls[0]![0])).toMatch(/^Generation succeeded \{"toolId":"generate-image","model":"openai\/gpt-image-1","durationMs":\d+\}$/);
-      expect(JSON.stringify([...warn.mock.calls, ...info.mock.calls])).not.toContain("secret castle");
-    } finally {
-      warn.mockRestore();
-      info.mockRestore();
-    }
+    runner.start("generate-image", { prompt: "A secret castle", imageModel: { provider: "openai", id: "gpt-image-1" } }, { context: { projectId: "p1", nodeId: "n1" } });
+    await vi.waitFor(() => expect(lines).toHaveLength(1));
+    runner.start("generate-image", { prompt: "A secret castle", imageModel: { provider: "openai", id: "gpt-image-1" } });
+    await vi.waitFor(() => expect(lines).toHaveLength(2));
+
+    expect(lines).toEqual([
+      { level: "warn", message: "Generation failed", details: { toolId: "generate-image", model: "openai/gpt-image-1", projectId: "p1", durationMs: expect.any(Number), error: "The provider rejected the request" } },
+      { level: "info", message: "Generation succeeded", details: { toolId: "generate-image", model: "openai/gpt-image-1", durationMs: expect.any(Number) } },
+    ]);
+    expect(JSON.stringify(lines)).not.toContain("secret castle");
   });
 
   it("keeps only recent completed background jobs", async () => {

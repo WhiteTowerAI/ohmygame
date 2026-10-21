@@ -80,6 +80,7 @@ export class ToolRunner {
   readonly #jobs = new Map<string, ToolJobRecord>();
   #jobWrites = Promise.resolve();
   #closed = false;
+  #log?: GenerationLogger;
 
   constructor(
     dataDirectory: string,
@@ -91,6 +92,11 @@ export class ToolRunner {
     private readonly audioGenerator?: AudioGenerator,
   ) {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
+  }
+
+  /** Where finished generations are logged; the daemon passes its logger. */
+  setLogger(log: GenerationLogger): void {
+    this.#log = log;
   }
 
   async load(): Promise<void> {
@@ -200,7 +206,7 @@ export class ToolRunner {
         job.error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
-      logJobOutcome(job);
+      if (this.#log) logJobOutcome(this.#log, job);
       this.#pruneJobs();
       if (!this.#closed) await this.#saveJobsSafely();
     }
@@ -735,15 +741,19 @@ function model3DToolError(cause: unknown): never {
   throw cause;
 }
 
+interface GenerationLogger {
+  info(details: object, message: string): void;
+  warn(details: object, message: string): void;
+}
+
 /** One line per finished generation, for the daemon log. The prompt and inputs stay out. */
-function logJobOutcome(job: ToolJobRecord): void {
+function logJobOutcome(log: GenerationLogger, job: ToolJobRecord): void {
   const outcome = {
     toolId: job.toolId,
     ...(job.model ? { model: `${job.model.provider}/${job.model.id}` } : {}),
     ...(job.context?.projectId ? { projectId: job.context.projectId } : {}),
     durationMs: Date.now() - Date.parse(job.createdAt),
-    ...(job.status === "failed" && job.error ? { error: job.error } : {}),
   };
-  if (job.status === "failed") console.warn(`Generation failed ${JSON.stringify(outcome)}`);
-  else console.info(`Generation ${job.status} ${JSON.stringify(outcome)}`);
+  if (job.status === "failed") log.warn({ ...outcome, ...(job.error ? { error: job.error } : {}) }, "Generation failed");
+  else log.info(outcome, job.status === "cancelled" ? "Generation cancelled" : "Generation succeeded");
 }

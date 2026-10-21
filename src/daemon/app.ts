@@ -1049,6 +1049,7 @@ export function createApp(options: AppOptions = {}) {
   if (options.logger) {
     logFailedRequests(app);
     const activity = new ActivityLog(app.log);
+    tools.setLogger(app.log);
     events.subscribeAll((event) => activity.event(event));
   }
   projectWrites.install(app);
