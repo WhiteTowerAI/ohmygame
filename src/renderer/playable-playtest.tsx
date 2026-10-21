@@ -255,14 +255,15 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
     unavailable: { title: t("playtest.unavailableTitle"), body: t("playtest.unavailableBody") },
   }[problem.kind];
 
+  const close = <button key="close" type="button" onClick={onClose}><X size={13} /><span>{t("playtest.closeWindow")}</span></button>;
   const editor = onOpenEditor
     ? <button key="editor" type="button" onClick={onOpenEditor}><Pencil size={13} /><span>{t("playtest.openEditor")}</span></button>
-    : <button key="close" type="button" onClick={onClose}><X size={13} /><span>{t("playtest.closeWindow")}</span></button>;
+    : close;
   const retry = <button key="retry" type="button" onClick={onRetry}><RotateCcw size={13} /><span>{t("playtest.tryAgain")}</span></button>;
   const actions = {
     "no-scenes": [editor],
     "missing-start": [<button key="start" type="button" onClick={onPlayFromStart}><Play size={13} /><span>{t("playtest.playFromStart")}</span></button>, editor],
-    "not-found": [<button key="close" type="button" onClick={onClose}><X size={13} /><span>{t("playtest.closeWindow")}</span></button>],
+    "not-found": [close],
     invalid: [
       sent
         ? <span key="ask" className="playtest-problem-sent">{t("playtest.addedToChat")}</span>
