@@ -1,4 +1,5 @@
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readdir,
@@ -78,10 +79,13 @@ describe("project archive export", () => {
       });
       await writeFile(path.join(project.workspacePath, file), contents);
     }
-    await symlink(
-      path.join(project.workspacePath, "index.html"),
-      path.join(project.workspacePath, "link.html"),
-    );
+    // Creating symbolic links needs extra privileges on Windows.
+    if (process.platform !== "win32") {
+      await symlink(
+        path.join(project.workspacePath, "index.html"),
+        path.join(project.workspacePath, "link.html"),
+      );
+    }
 
     const archive = await readArchive(
       await exportProjectArchive(project, {
@@ -164,14 +168,20 @@ describe("project archive export", () => {
     });
   });
 
-  it("fails the stream instead of hanging when a file disappears while packing", async () => {
-    const projects = new ProjectManager(await temporaryDirectory());
-    const project = await projects.create("Game", "web-game");
-    await writeFile(path.join(project.workspacePath, "index.html"), "game");
-    const stream = await exportProjectArchive(project);
-    await rm(path.join(project.workspacePath, "index.html"));
-    await expect(readArchive(stream)).rejects.toThrow("ENOENT");
-  });
+  // Windows does not apply POSIX permission bits, so the file stays readable there.
+  it.skipIf(process.platform === "win32")(
+    "fails the stream instead of hanging when a file cannot be read",
+    async () => {
+      const projects = new ProjectManager(await temporaryDirectory());
+      const project = await projects.create("Game", "web-game");
+      const file = path.join(project.workspacePath, "index.html");
+      await writeFile(file, "game");
+      await chmod(file, 0o000);
+      await expect(
+        readArchive(await exportProjectArchive(project)),
+      ).rejects.toThrow("EACCES");
+    },
+  );
 
   it("downloads a project with its cover through the API", async () => {
     const app = createApp({ dataDirectory: await temporaryDirectory() });
