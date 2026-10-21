@@ -224,8 +224,13 @@ async function packStoryGraph(
   return { graph: `${JSON.stringify(graph, null, 2)}\n`, copies };
 }
 
-async function archiveFiles(root: string, relative = ""): Promise<string[]> {
-  const files: string[] = [];
+// Children are added to one list: spreading a large folder's files into
+// push() would exceed the engine's argument limit.
+async function archiveFiles(
+  root: string,
+  relative = "",
+  files: string[] = [],
+): Promise<string[]> {
   const directory = path.join(root, ...relative.split("/").filter(Boolean));
   const entries = await readdir(directory, { withFileTypes: true });
   for (const entry of entries.sort((left, right) =>
@@ -233,7 +238,7 @@ async function archiveFiles(root: string, relative = ""): Promise<string[]> {
   )) {
     const child = relative ? `${relative}/${entry.name}` : entry.name;
     if (entry.isSymbolicLink() || excludedFromProjectArchive(child)) continue;
-    if (entry.isDirectory()) files.push(...(await archiveFiles(root, child)));
+    if (entry.isDirectory()) await archiveFiles(root, child, files);
     else if (entry.isFile()) files.push(child);
   }
   return files;
