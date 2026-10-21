@@ -61,7 +61,8 @@ An Interactive Story's graph can point at Library assets outside the
 workspace. As in the story editor's project export, each one is copied to
 `workspace/assets/library/` and `graph.json` points at the copy. Export fails
 with the asset's name when one is missing from the Library, and while the
-project's agent is working.
+project's agent is working. It also fails, before anything is downloaded, when
+the archive would exceed the import limits described below.
 
 The archive streams to the response as it is written. The desktop app and the
 browser still collect the download before saving it.

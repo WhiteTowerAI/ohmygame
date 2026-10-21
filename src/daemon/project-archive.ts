@@ -75,6 +75,12 @@ export interface ProjectArchiveLimits {
   maxEntries: number;
 }
 
+const DEFAULT_LIMITS: ProjectArchiveLimits = {
+  maxBytes: PROJECT_ARCHIVE_MAX_BYTES,
+  maxEntries: PROJECT_ARCHIVE_MAX_ENTRIES,
+};
+const SIZE_CHECK_CONCURRENCY = 32;
+
 export class ProjectArchiveError extends Error {
   constructor(
     message: string,
@@ -126,6 +132,7 @@ export async function exportProjectArchive(
   options: {
     library?: AssetLibrary;
     cover?: { contents: Buffer; mode: ProjectCoverMode };
+    limits?: ProjectArchiveLimits;
   } = {},
 ): Promise<Readable> {
   if (project.workspaceAvailable === false) {
@@ -136,6 +143,16 @@ export async function exportProjectArchive(
     project,
     files,
     options.library,
+  );
+  await assertImportable(
+    [
+      ...files.map((file) =>
+        path.join(project.workspacePath, ...file.split("/")),
+      ),
+      ...copies.map((copy) => copy.absolutePath),
+    ],
+    options.cover?.contents.length ?? 0,
+    options.limits ?? DEFAULT_LIMITS,
   );
 
   const manifest: ProjectArchiveManifest = {
@@ -224,6 +241,35 @@ async function packStoryGraph(
   return { graph: `${JSON.stringify(graph, null, 2)}\n`, copies };
 }
 
+/**
+ * Refuses an export that no import would accept, before anything is streamed.
+ * The manifest and the cover count as entries, as an import counts them.
+ */
+async function assertImportable(
+  files: string[],
+  coverBytes: number,
+  limits: ProjectArchiveLimits,
+): Promise<void> {
+  const tooLarge = () =>
+    new ProjectArchiveError(
+      "This project is too large to export: a project archive holds up to 200,000 files and 10 GB.",
+      409,
+    );
+  if (files.length + 1 + (coverBytes ? 1 : 0) > limits.maxEntries) {
+    throw tooLarge();
+  }
+  let bytes = coverBytes;
+  for (let index = 0; index < files.length; index += SIZE_CHECK_CONCURRENCY) {
+    const sizes = await Promise.all(
+      files
+        .slice(index, index + SIZE_CHECK_CONCURRENCY)
+        .map(async (file) => (await stat(file)).size),
+    );
+    for (const size of sizes) bytes += size;
+    if (bytes > limits.maxBytes) throw tooLarge();
+  }
+}
+
 // Children are added to one list: spreading a large folder's files into
 // push() would exceed the engine's argument limit.
 async function archiveFiles(
@@ -258,10 +304,7 @@ export async function importProjectArchive(
     limits?: ProjectArchiveLimits;
   } = {},
 ): Promise<ProjectState> {
-  const limits = options.limits ?? {
-    maxBytes: PROJECT_ARCHIVE_MAX_BYTES,
-    maxEntries: PROJECT_ARCHIVE_MAX_ENTRIES,
-  };
+  const limits = options.limits ?? DEFAULT_LIMITS;
   const staging = await projects.createImportStaging();
   let project: ProjectState;
   let cover: { contents: Buffer; mode: ProjectCoverMode } | undefined;

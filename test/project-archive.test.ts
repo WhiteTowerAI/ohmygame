@@ -183,6 +183,28 @@ describe("project archive export", () => {
     },
   );
 
+  it.each([
+    ["too many files", { maxBytes: 1024, maxEntries: 2 }],
+    ["too many bytes", { maxBytes: 10, maxEntries: 10 }],
+  ])(
+    "refuses to export a project an import would reject for %s",
+    async (_case, limits) => {
+      const projects = new ProjectManager(await temporaryDirectory());
+      const project = await projects.create("Game", "web-game");
+      await writeFile(
+        path.join(project.workspacePath, "index.html"),
+        "x".repeat(20),
+      );
+      await writeFile(path.join(project.workspacePath, "main.js"), "start()");
+      await expect(
+        exportProjectArchive(project, { limits }),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining("too large to export"),
+        statusCode: 409,
+      });
+    },
+  );
+
   it("downloads a project with its cover through the API", async () => {
     const app = createApp({ dataDirectory: await temporaryDirectory() });
     apps.push(app);
