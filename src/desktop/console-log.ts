@@ -1,4 +1,6 @@
 import { format } from "node:util";
+import type { DesktopRuntimeState } from "../shared/desktop-runtime.js";
+import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { LogWriter } from "./log-file.js";
 
 const LEVELS = ["debug", "log", "info", "warn", "error"] as const;
@@ -39,4 +41,31 @@ export function rendererConsoleLines(
   return `${message}${source}`
     .split("\n")
     .map((line) => `[renderer ${details.level}] ${line}`);
+}
+
+/** Errors that would end the process; Electron reports them only to stderr. */
+export function recordUncaughtErrors(
+  log: Pick<LogWriter, "line">,
+  target: Pick<NodeJS.Process, "on"> = process,
+): void {
+  target.on("uncaughtExceptionMonitor", (error, origin) => {
+    const text =
+      error instanceof Error ? (error.stack ?? error.message) : String(error);
+    for (const line of `${origin}: ${text}`.split("\n"))
+      log.line(`[fatal] ${line}`);
+  });
+}
+
+/** One line per update failure, with what the Settings page shows as technical details. */
+export function updateFailureLine(
+  state: DesktopUpdateState,
+): string | undefined {
+  const status = state.status;
+  if (status.type !== "error") return undefined;
+  return `[update] ${status.phase} failed (${status.code}): ${status.title}: ${status.detail}`;
+}
+
+/** Service status changes, so a log shows when the daemon restarted or stopped. */
+export function runtimeStateLine(state: DesktopRuntimeState): string {
+  return `[service] ${state.status} (generation ${state.generation}${state.recovered ? ", recovered" : ""})${state.error ? `: ${state.error}` : ""}`;
 }

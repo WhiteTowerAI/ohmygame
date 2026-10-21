@@ -17,7 +17,7 @@ import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "./log-redaction.js";
-import { recordConsole, rendererConsoleLines } from "./console-log.js";
+import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
@@ -45,6 +45,7 @@ const redactLog = createLogRedactor();
 const mainLog = new RotatingLogFile({ directory: logDirectory, name: "main", redact: redactLog });
 const daemonLog = new RotatingLogFile({ directory: logDirectory, name: "daemon", redact: redactLog });
 recordConsole(mainLog);
+recordUncaughtErrors(mainLog);
 mainLog.line(`OhMyGame ${app.getVersion()} starting on ${process.platform} ${process.arch}`);
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
@@ -544,6 +545,7 @@ try {
     logDirectory,
     handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
     onState: (state) => {
+      mainLog.line(runtimeStateLine(state));
       if (state.status !== "ready") {
         webGamePlayers.close();
         agentPlaytests.close();
@@ -558,6 +560,13 @@ try {
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
   updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));
+  // The same failure is published again with every other change to the update state.
+  let updateFailure: string | undefined;
+  updater.subscribe((state) => {
+    const failure = updateFailureLine(state);
+    if (failure && failure !== updateFailure) mainLog.line(failure);
+    updateFailure = failure;
+  });
   await openMainWindow();
   if (app.isPackaged) {
     updateChecks = new DesktopUpdateCheckScheduler(updater);
