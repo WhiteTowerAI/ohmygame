@@ -40,6 +40,13 @@ Configure these repository secrets:
 | `APPLE_ID`                    | Apple account used for notarization              |
 | `APPLE_APP_SPECIFIC_PASSWORD` | Apple app-specific password                      |
 | `APPLE_TEAM_ID`               | Apple Developer team ID                          |
+| `SENTRY_AUTH_TOKEN`           | Sentry token that uploads renderer source maps   |
+
+When `SENTRY_AUTH_TOKEN` is set, `vite build` generates hidden renderer source
+maps, uploads them to the `ohmygame` Sentry project under the
+`ohmygame@<version>` release, and deletes them. The package also excludes
+renderer `.map` files, so a failed upload cannot ship them. Builds without the
+token, including local builds and fork PRs, generate no source maps.
 
 The R2 credentials belong only in GitHub Secrets. Do not include GitHub, R2,
 or code-signing credentials in the application or the public update bucket.
