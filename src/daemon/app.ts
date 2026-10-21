@@ -120,6 +120,7 @@ import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorksp
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError, isLibraryAssetDerivation } from "./asset-library.js";
 import { exportPlayableProject, PlayableProjectExportError } from "./playable-project-export.js";
+import { exportProjectArchive, ProjectArchiveError } from "./project-archive.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type GameUseOpenTarget } from "../shared/playtest.js";
 import { EXTERNAL_AGENT_CLIENT_IDS, EXTERNAL_MCP_PATH, EXTERNAL_MCP_ROOTS_HEADER, type ExternalAgentClientId, type ExternalAgentSettings, type ExternalMcpLauncher, type UpdateExternalAgentSettings } from "../shared/external-mcp.js";
@@ -3679,6 +3680,23 @@ export function createApp(options: AppOptions = {}) {
         .send(archive);
     } catch (cause) {
       if (cause instanceof PlayableProjectExportError) return reply.code(cause.statusCode).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/export", async (request, reply) => {
+    const project = projects.get(request.params.projectId);
+    if (!project) return reply.code(404).send({ error: "Project not found" });
+    if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before exporting" });
+    try {
+      const [cover, coverState] = await Promise.all([projects.cover(project.id), projects.coverState(project.id)]);
+      const archive = await exportProjectArchive(project, { library, ...(cover ? { cover: { contents: cover, mode: coverState.mode } } : {}) });
+      return reply
+        .header("content-type", "application/zip")
+        .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
+        .send(archive);
+    } catch (cause) {
+      if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
   });
