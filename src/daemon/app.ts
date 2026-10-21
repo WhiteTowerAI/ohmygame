@@ -120,7 +120,8 @@ import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorksp
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError, isLibraryAssetDerivation } from "./asset-library.js";
 import { exportPlayableProject, PlayableProjectExportError } from "./playable-project-export.js";
-import { exportProjectArchive, ProjectArchiveError } from "./project-archive.js";
+import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
+import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type GameUseOpenTarget } from "../shared/playtest.js";
 import { EXTERNAL_AGENT_CLIENT_IDS, EXTERNAL_MCP_PATH, EXTERNAL_MCP_ROOTS_HEADER, type ExternalAgentClientId, type ExternalAgentSettings, type ExternalMcpLauncher, type UpdateExternalAgentSettings } from "../shared/external-mcp.js";
@@ -1084,6 +1085,10 @@ export function createApp(options: AppOptions = {}) {
   app.addContentTypeParser("application/vnd.ohmygame.attachment", { bodyLimit: MAX_AGENT_ATTACHMENT_BYTES }, (_request, payload, done) => {
     done(null, payload);
   });
+  // Project archives stream to disk; importProjectArchive also counts the bytes of uploads without a length.
+  app.addContentTypeParser(PROJECT_ARCHIVE_CONTENT_TYPE, { bodyLimit: PROJECT_ARCHIVE_MAX_BYTES }, (_request, payload, done) => {
+    done(null, payload);
+  });
 
   // Damaged or newer image settings fall back to the default connection instead of blocking startup.
   const loadOpenAIImages = () => openAIImages.load().catch((err) => app.log.warn({ err }, "Could not load OpenAI image settings"));
@@ -1811,6 +1816,17 @@ export function createApp(options: AppOptions = {}) {
       return projects.setMediaModelDefaults(project.id, request.body);
     },
   );
+
+  app.post<{ Body: AsyncIterable<Buffer | string> | undefined }>("/projects/import", async (request, reply) => {
+    if (!request.body) return reply.code(400).send({ error: "Choose a project archive to import." });
+    try {
+      return reply.code(201).send(await importProjectArchive(projects, request.body));
+    } catch (cause) {
+      if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
 
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/duplicate", async (request, reply) => {
     try {

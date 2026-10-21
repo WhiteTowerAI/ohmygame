@@ -1,7 +1,7 @@
 import { PREVIEW_SETTING_KEYS, previewSettings, validPreviewSettings, validatePreviewSettings, type ProjectPreviewSettings } from "../shared/preview-settings.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
@@ -17,8 +17,11 @@ import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetRefere
 import { readCanvasAssets } from "./canvas-assets.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { ProjectCovers } from "./project-covers.js";
+import { PROJECT_ARCHIVE_SETTING_KEYS, type ProjectArchiveSettings } from "../shared/project-archive.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
+// Imports assemble a project here, next to the projects, and then move it into place.
+const IMPORT_STAGING_PREFIX = ".import-";
 
 interface ProjectMetadata extends ProjectPreviewSettings {
   version: 1;
@@ -95,6 +98,10 @@ export class ProjectManager {
   async load(onError?: (projectDirectory: string, cause: unknown) => void): Promise<void> {
     await mkdir(this.#projectsDirectory, { recursive: true });
     const entries = await readdir(this.#projectsDirectory, { withFileTypes: true });
+    // An import interrupted by a crash leaves its staging folder behind.
+    await Promise.all(entries.filter((entry) => entry.name.startsWith(IMPORT_STAGING_PREFIX)).map((entry) => (
+      rm(path.join(this.#projectsDirectory, entry.name), { recursive: true, force: true }).catch(() => {})
+    )));
     const projects = await mapConcurrent(
       entries.filter((entry) => entry.isDirectory() && isProjectId(entry.name)),
       PROJECT_LOAD_CONCURRENCY,
@@ -318,6 +325,50 @@ export class ProjectManager {
     }
     const workspacePath = path.join(duplicateDirectory, "workspace");
     const project = projectState(workspacePath, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath }), duplicateDirectory, true);
+    this.#projects.set(project.id, project);
+    return project;
+  }
+
+  /** A folder in which an import stages its files, on the same volume as the projects. */
+  async createImportStaging(): Promise<string> {
+    await mkdir(this.#projectsDirectory, { recursive: true });
+    return mkdtemp(path.join(this.#projectsDirectory, IMPORT_STAGING_PREFIX));
+  }
+
+  /**
+   * Creates a managed project around a workspace staged in a folder from
+   * createImportStaging, moving the workspace into it. Like a duplicate, the
+   * project gets a new id and no publication, and copied Canvas generation
+   * history is bound to it.
+   */
+  async import(workspacePath: string, settings: ProjectArchiveSettings): Promise<ProjectState> {
+    if (!isProjectType(settings.type)) throw new ProjectWorkspaceError("The project type is not supported");
+    const id = randomUUID();
+    const updatedAt = new Date().toISOString();
+    const staging = await this.createImportStaging();
+    let metadata: ProjectMetadata;
+    try {
+      const candidate = {
+        ...Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
+        version: 1, id, nameSource: "manual", updatedAt,
+      };
+      await writeFile(path.join(staging, "project.json"), `${JSON.stringify(candidate, null, 2)}\n`, "utf8");
+      try {
+        // Imported settings pass the same checks as saved ones.
+        ({ metadata } = await readMetadata(staging, id, updatedAt));
+      } catch {
+        throw new ProjectWorkspaceError("The project settings are invalid");
+      }
+      await writeMetadata(staging, metadata);
+      await rename(workspacePath, path.join(staging, "workspace"));
+      await bindCanvasHistory(path.join(staging, "workspace"), id);
+      await rename(staging, this.#projectDirectory(id));
+    } catch (error) {
+      await rm(staging, { recursive: true, force: true });
+      throw error;
+    }
+    const workspace = path.join(this.#projectDirectory(id), "workspace");
+    const project = projectState(workspace, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath: workspace }), this.#projectDirectory(id), true);
     this.#projects.set(project.id, project);
     return project;
   }

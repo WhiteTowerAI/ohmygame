@@ -1,17 +1,28 @@
-import { readdir, readFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, readdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
-import type { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { ZipFile } from "yazl";
 import type { ProjectCoverMode, ProjectState } from "../shared/contracts.js";
 import {
   PROJECT_ARCHIVE_COVER,
   PROJECT_ARCHIVE_FORMAT,
   PROJECT_ARCHIVE_MANIFEST,
+  PROJECT_ARCHIVE_MAX_BYTES,
+  PROJECT_ARCHIVE_MAX_ENTRIES,
+  PROJECT_ARCHIVE_SETTING_KEYS,
   PROJECT_ARCHIVE_VERSION,
   PROJECT_ARCHIVE_WORKSPACE,
   projectArchiveSettings,
   type ProjectArchiveManifest,
+  type ProjectArchiveSettings,
 } from "../shared/project-archive.js";
+import { isProjectType } from "../shared/project-runtime.js";
+import {
+  extractArchive,
+  type ArchiveExtractionFailure,
+} from "./archive-extraction.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { compressArchiveFile } from "./archive-compression.js";
 import {
@@ -20,6 +31,9 @@ import {
   packLibraryAssets,
   type PackedLibraryAsset,
 } from "./library-asset-packing.js";
+import { sniffImageType } from "./image-format.js";
+import { ensureNodeCodebaseContract } from "./playable-codebase.js";
+import type { ProjectManager } from "./projects.js";
 
 const GRAPH_FILE = "graph.json";
 
@@ -39,6 +53,24 @@ const EXCLUDED_AT_ROOT = new Set([
   ".data/agent-attachments",
   "canvas/jobs.json",
 ]);
+const SKIPPED_ON_IMPORT_AT_ROOT = new Set([
+  ".ohmygame",
+  ".ohmygame-install-pending",
+  ".data/agent-attachments",
+]);
+
+const EXTRACTION_ERRORS: Record<ArchiveExtractionFailure, string> = {
+  "invalid-zip": "The file is not a valid ZIP archive.",
+  unreadable: "The project archive could not be read.",
+  "too-large": "The project archive is too large.",
+  "invalid-path": "The project archive contains an invalid path.",
+  "symbolic-link": "The project archive contains a symbolic link.",
+};
+
+export interface ProjectArchiveLimits {
+  maxBytes: number;
+  maxEntries: number;
+}
 
 export class ProjectArchiveError extends Error {
   constructor(
@@ -51,10 +83,33 @@ export class ProjectArchiveError extends Error {
 
 /** Whether a workspace-relative path stays out of project archives. */
 export function excludedFromProjectArchive(relativePath: string): boolean {
-  if (EXCLUDED_AT_ROOT.has(relativePath)) return true;
-  // Many file systems ignore case, and there `.Git` is the same folder as `.git`.
-  const name = path.posix.basename(relativePath).toLowerCase();
-  return EXCLUDED_ANYWHERE.has(name) || name.startsWith(".env");
+  return matchesPath(relativePath, EXCLUDED_AT_ROOT, true);
+}
+
+/**
+ * Whether an import skips a workspace-relative path. Only version control,
+ * dependencies and agent data are skipped: whatever else a hand-made archive
+ * holds was put there on purpose.
+ */
+function skippedOnImport(relativePath: string): boolean {
+  return matchesPath(relativePath, SKIPPED_ON_IMPORT_AT_ROOT, false);
+}
+
+function matchesPath(
+  relativePath: string,
+  atRoot: ReadonlySet<string>,
+  environmentFiles: boolean,
+): boolean {
+  const segments = relativePath.split("/").filter(Boolean);
+  return segments.some((segment, index) => {
+    // Many file systems ignore case, and there `.Git` is the same folder as `.git`.
+    const name = segment.toLowerCase();
+    return (
+      EXCLUDED_ANYWHERE.has(name) ||
+      (environmentFiles && name.startsWith(".env")) ||
+      atRoot.has(segments.slice(0, index + 1).join("/"))
+    );
+  });
 }
 
 /**
@@ -179,4 +234,159 @@ async function archiveFiles(root: string, relative = ""): Promise<string[]> {
     else if (entry.isFile()) files.push(child);
   }
   return files;
+}
+
+/**
+ * Creates a new managed project from an uploaded archive. The upload and its
+ * files are staged on disk, never held in memory. Unsafe paths and symbolic
+ * links reject the archive. Nothing of a failed import remains.
+ */
+export async function importProjectArchive(
+  projects: ProjectManager,
+  upload: Buffer | AsyncIterable<Buffer | string>,
+  limits: ProjectArchiveLimits = {
+    maxBytes: PROJECT_ARCHIVE_MAX_BYTES,
+    maxEntries: PROJECT_ARCHIVE_MAX_ENTRIES,
+  },
+): Promise<ProjectState> {
+  const staging = await projects.createImportStaging();
+  let project: ProjectState;
+  let cover: { contents: Buffer; mode: ProjectCoverMode } | undefined;
+  try {
+    const archivePath = path.join(staging, "upload.zip");
+    await writeUpload(upload, archivePath, limits.maxBytes);
+    const root = path.join(staging, "archive");
+    await mkdir(root);
+    await extractArchive(archivePath, root, {
+      ...limits,
+      include: (relative) => {
+        if (relative === PROJECT_ARCHIVE_MANIFEST) return true;
+        if (relative === PROJECT_ARCHIVE_COVER) return true;
+        const [top, ...rest] = relative.split("/");
+        return (
+          top === PROJECT_ARCHIVE_WORKSPACE && !skippedOnImport(rest.join("/"))
+        );
+      },
+      error: (reason) =>
+        new ProjectArchiveError(
+          EXTRACTION_ERRORS[reason],
+          reason === "too-large" ? 413 : 400,
+        ),
+    });
+    await rm(archivePath);
+    const manifest = await readManifest(root);
+    if (!manifest) {
+      throw new ProjectArchiveError(
+        "The file is not an OhMyGame project archive.",
+      );
+    }
+    const workspace = path.join(root, PROJECT_ARCHIVE_WORKSPACE);
+    await mkdir(workspace, { recursive: true });
+    if (manifest.cover) {
+      const contents = await readFile(
+        path.join(root, PROJECT_ARCHIVE_COVER),
+      ).catch(() => undefined);
+      // A missing or damaged cover is replaced by the next automatic capture.
+      if (contents && sniffImageType(contents) === "image/webp") {
+        cover = { contents, mode: manifest.cover.mode };
+      }
+    }
+    project = await projects.import(workspace, manifest.project);
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+  try {
+    // Agent instructions and schemas follow this app version, not the archive.
+    if (project.type === "interactive-story") {
+      await ensureNodeCodebaseContract(project.workspacePath);
+    }
+    if (cover) await projects.setCover(project.id, cover.contents, cover.mode);
+    return await projects.refreshPreviewReadiness(project.id);
+  } catch (error) {
+    await projects.delete(project.id);
+    throw error;
+  }
+}
+
+async function readManifest(
+  root: string,
+): Promise<ProjectArchiveManifest | undefined> {
+  let text: string;
+  try {
+    text = await readFile(path.join(root, PROJECT_ARCHIVE_MANIFEST), "utf8");
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw cause;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new ProjectArchiveError("The project manifest is not valid JSON.");
+  }
+  if (!isRecord(value) || value.format !== PROJECT_ARCHIVE_FORMAT) {
+    throw new ProjectArchiveError(
+      "The file is not an OhMyGame project archive.",
+    );
+  }
+  if (
+    typeof value.version === "number" &&
+    value.version > PROJECT_ARCHIVE_VERSION
+  ) {
+    throw new ProjectArchiveError(
+      "This project was exported by a newer version of OhMyGame. Update OhMyGame to import it.",
+    );
+  }
+  if (value.version !== PROJECT_ARCHIVE_VERSION || !isRecord(value.project)) {
+    throw new ProjectArchiveError("The project manifest is invalid.");
+  }
+  const settings = value.project;
+  if (!isProjectType(settings.type)) {
+    throw new ProjectArchiveError("The project type is not supported.");
+  }
+  // Settings are checked like saved project settings when the project is created.
+  const project = Object.fromEntries(
+    PROJECT_ARCHIVE_SETTING_KEYS.filter(
+      (key) => settings[key] !== undefined,
+    ).map((key) => [key, settings[key]]),
+  ) as unknown as ProjectArchiveSettings;
+  const mode = isRecord(value.cover) ? value.cover.mode : undefined;
+  return {
+    format: PROJECT_ARCHIVE_FORMAT,
+    version: PROJECT_ARCHIVE_VERSION,
+    project,
+    ...(mode === "auto" || mode === "custom" ? { cover: { mode } } : {}),
+  };
+}
+
+async function writeUpload(
+  upload: Buffer | AsyncIterable<Buffer | string>,
+  destination: string,
+  maxBytes: number,
+): Promise<void> {
+  let size = 0;
+  const limit = new Transform({
+    transform(value: Buffer | string, _encoding, callback) {
+      const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+      size += chunk.length;
+      if (size > maxBytes) {
+        callback(
+          new ProjectArchiveError("The project archive is too large.", 413),
+        );
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+  await pipeline(
+    Readable.from(Buffer.isBuffer(upload) ? [upload] : upload),
+    limit,
+    createWriteStream(destination, { flags: "wx" }),
+  );
+  if (size === 0)
+    throw new ProjectArchiveError("Choose a project archive to import.");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
