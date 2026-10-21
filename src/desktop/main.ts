@@ -535,6 +535,7 @@ try {
     development: !useBuiltRenderer,
     healthTimeoutMs: 60_000,
     log: daemonLog,
+    logDirectory,
     handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
     onState: (state) => {
       if (state.status !== "ready") {

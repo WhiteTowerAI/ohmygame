@@ -39,6 +39,8 @@ export interface StartDaemonOptions {
   onUnexpectedExit?: (error: Error) => void;
   /** Keeps the daemon's output after the app closes. */
   log?: LogWriter;
+  /** The folder of `log`, which the daemon reads for a diagnostics export. */
+  logDirectory?: string;
 }
 
 export async function startDaemon(options: StartDaemonOptions): Promise<ManagedDaemon> {
@@ -68,6 +70,7 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.preinstalledPluginsDirectory ? { OHMYGAME_PREINSTALLED_PLUGINS_DIR: path.resolve(options.preinstalledPluginsDirectory) } : {}),
       ...(options.examplesDirectory ? { OHMYGAME_EXAMPLES_DIR: path.resolve(options.examplesDirectory) } : {}),
       ...(options.playerDirectory ? { OHMYGAME_PLAYER_DIR: path.resolve(options.playerDirectory) } : {}),
+      ...(options.logDirectory ? { OHMYGAME_LOG_DIR: path.resolve(options.logDirectory) } : {}),
       ...(options.externalMcpLauncher ? { OHMYGAME_EXTERNAL_MCP_LAUNCHER: JSON.stringify(options.externalMcpLauncher) } : {}),
       ...(options.externalSkillDirectory ? { OHMYGAME_EXTERNAL_SKILL_DIR: path.resolve(options.externalSkillDirectory) } : {}),
       ...(options.handlePlaytestRequest ? { OHMYGAME_PLAYTEST_IPC: "1" } : {}),

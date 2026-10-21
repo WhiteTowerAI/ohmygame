@@ -251,6 +251,36 @@ describe("desktop daemon process", () => {
     await daemon.stop();
   });
 
+  it("passes the log folder to the daemon", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-log-dir-"));
+    const logDirectory = path.join(directory, "logs");
+    const logDirectoryFile = path.join(directory, "log-dir-path");
+    const entry = path.join(directory, "daemon.mjs");
+    await writeFile(entry, `
+      import { writeFileSync } from "node:fs";
+      import { createServer } from "node:http";
+      writeFileSync(${JSON.stringify(logDirectoryFile)}, process.env.OHMYGAME_LOG_DIR ?? "");
+      const server = createServer((_request, response) => response.end());
+      server.listen(Number(process.env.DAEMON_PORT), "127.0.0.1");
+      process.once("SIGTERM", () => server.close(() => process.exit(0)));
+    `);
+
+    const daemon = await startDaemon({
+      daemonEntry: entry,
+      dataDirectory: directory,
+      token: "test-token",
+      allowedOrigins: ["null"],
+      executable: process.execPath,
+      environment: {},
+      logDirectory,
+      healthTimeoutMs: 2_000,
+    });
+
+    expect(await readFile(logDirectoryFile, "utf8")).toBe(logDirectory);
+    await daemon.stop();
+    await rm(directory, { recursive: true, force: true });
+  });
+
   it("passes the packaged player directory to the daemon", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-player-path-"));
     const playerDirectory = path.join(directory, "app.asar.unpacked", "dist", "player");

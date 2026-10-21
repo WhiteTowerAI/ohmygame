@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { requestLogValue } from "./request-log.js";
+import { registerDiagnosticsRoutes } from "./diagnostics.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, pluginProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
@@ -154,6 +155,8 @@ export interface AppOptions {
   dataDirectory?: string;
   piAgentDirectory?: string;
   logger?: boolean;
+  /** Where the desktop app writes the logs a diagnostics export includes. */
+  logDirectory?: string;
   accessToken?: string;
   allowedOrigins?: string[];
   publishApiUrl?: string;
@@ -2404,6 +2407,22 @@ export function createApp(options: AppOptions = {}) {
     return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
+  registerDiagnosticsRoutes(app, {
+    logDirectory: options.logDirectory,
+    summary: async () => {
+      const [providers, agents, catalog] = await Promise.all([providerSummaries(), agentRuntimes.statuses(), plugins.list()]);
+      const projectTypes: Record<string, number> = {};
+      for (const project of projects.list()) projectTypes[project.type] = (projectTypes[project.type] ?? 0) + 1;
+      return {
+        providers: providers.filter((provider) => provider.configured)
+          .map(({ id, enabled, custom, capabilities }) => ({ id, enabled: enabled !== false, custom: custom === true, capabilities })),
+        agents: agents.map(({ id, enabled, installed, version, auth }) => ({ id, enabled, installed, ...(version ? { version } : {}), auth: auth.status })),
+        plugins: catalog.plugins.filter((plugin) => plugin.installed)
+          .map(({ id, version, enabled, beta }) => ({ id, ...(version ? { version } : {}), enabled, ...(beta ? { beta } : {}) })),
+        projects: projectTypes,
+      };
+    },
+  });
   app.post("/settings/models/providers/codex-cli/images/recheck", async () => codexImages.recheck(providerEnabled("codex-cli")));
   registerOpenAIImageRoutes(app, openAIImages, imageConnection, options.modelDiscoveryFetch);
   app.get("/settings/onboarding", async () => {
