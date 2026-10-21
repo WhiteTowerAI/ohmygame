@@ -24,26 +24,12 @@ desktop lifecycle and native game windows; shared modules define contracts.
 | Plugins, Skills, and MCP         | `src/daemon/plugin-capabilities.ts`, `src/daemon/plugin-runtime.ts`, `src/daemon/plugin-authoring.ts`, `src/renderer/plugins.tsx`, `plugins/` | [Plugin package and runtime contract](plugins.md)                                                                       | `test/plugin-capabilities.test.ts`, `test/plugin-builder.test.ts`, `test/bundled-plugins.test.ts`                                   |
 | Desktop lifecycle and updates    | `src/desktop/main.ts`, `src/desktop/daemon-supervisor.ts`, `src/desktop/updater.ts`, `src/desktop/update-check-scheduler.ts`, `src/renderer/changelog-panel.tsx`, `src/shared/changelog.ts`                                                           | [Runtime](runtime.md), [service recovery](runtime-recovery.md), [desktop releases](desktop-releases.md)                 | `test/daemon-supervisor.test.ts`, `test/desktop-updater.test.ts`, `test/desktop-update-scheduler.test.ts`, `test/desktop-runtime-packaging.test.ts`, `test/desktop-release-notes.test.ts`, `test/changelog-panel.test.tsx`                          |
 | Publishing and Community         | `src/daemon/publish/`, `src/shared/publish-v1.ts`, `src/renderer/publish-dialog.tsx`                                                          | [Cloud integration](../CONTRIBUTING.md#cloud-integration), [runtime publishing](runtime.md#publishing)                  | `test/publish-client.test.ts`, `test/publish-dialog.test.tsx`; remote contracts in `test/publish.test.ts` need private cloud access |
-| Shared UI and project navigation | `src/renderer/app.tsx`, `src/renderer/projects.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/styles.css`                              | [Local setup](../CONTRIBUTING.md#start-local-development), the affected module guide                                    | `test/projects-page.test.ts`, `test/project-card.test.ts`, `test/project-types.test.ts`                                             |
+| Shared UI and project navigation | `src/renderer/app.tsx`, `src/renderer/projects.tsx`, `src/renderer/project-shell.tsx`, `src/renderer/styles.css`                              | [Local setup](../CONTRIBUTING.md#start-local-development), [project navigation](runtime.md#project-navigation)            | `test/projects-page.test.ts`, `test/project-card.test.ts`, `test/project-types.test.ts`                                             |
 | First-run setup                  | `src/renderer/onboarding.tsx`, `src/renderer/onboarding-demo.tsx`, `src/renderer/use-onboarding.ts`, `src/renderer/use-model-provider-auth.ts`, `src/renderer/custom-provider-dialog.tsx`, `src/daemon/onboarding.ts`       | [First run](../README.md#first-run), [setup state](runtime.md#first-run-setup)                                             | `test/onboarding.test.ts`, `test/onboarding-renderer.test.tsx`                                                                         |
 
 These are entry points, not an exhaustive ownership map. HTTP API and event
 definitions live in the code; use the corresponding shared types and tests
 when changing a contract.
-
-Project workspaces return to their entry page using the top-left Back arrow.
-The destination survives conversation/view changes and refreshes in the same
-tab; a project link opened without an entry page returns to Projects. The
-Projects URL preserves its type filter, search (`q`), and name sorting
-(`sort=name`) when returning or refreshing. See the
-[workspace return example](assets/project-return-navigation.webp).
-
-In the desktop app, the project card menu's **Open in folder** action opens the
-project's workspace in the system file manager, including projects using an
-existing folder. It is available in recent projects and the Projects list.
-See the [project menu example](assets/project-card-menu.png).
-The desktop file opener resolves `.` through `/projects/:projectId/files/location`
-to open the workspace root; file reads and writes still require a file path.
 
 ## Architecture and feature guides
 

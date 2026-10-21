@@ -447,6 +447,22 @@ Project lists use the existing two-second activity poll to receive names, even
 after a short turn finishes. `/projects/activity` returns `{ activity, names }`;
 `names` contains only each project's `id`, `name` and optional `nameSource`.
 
+## Project navigation
+
+Project workspaces return to their entry page using the top-left Back arrow.
+The destination survives conversation/view changes and refreshes in the same
+tab; a project link opened without an entry page returns to Projects. The
+Projects URL preserves its type filter, search (`q`), and name sorting
+(`sort=name`) when returning or refreshing. See the
+[workspace return example](assets/project-return-navigation.webp).
+
+In the desktop app, the project card menu's **Open in folder** action opens the
+project's workspace in the system file manager, including projects using an
+existing folder. It is available in recent projects and the Projects list.
+See the [project menu example](assets/project-card-menu.png).
+The desktop file opener resolves `.` through `/projects/:projectId/files/location`
+to open the workspace root; file reads and writes still require a file path.
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user
