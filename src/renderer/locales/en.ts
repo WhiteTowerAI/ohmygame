@@ -617,6 +617,8 @@ const en = {
     confirmRemove:
       "Remove “{{name}}” from OhMyGame? Files in “{{path}}” will remain on disk.",
     confirmDelete: "Delete “{{name}}”? This cannot be undone.",
+    import: "Import project",
+    importTooLarge: "Choose a project archive up to 10 GB",
   },
   home: {
     title: "What are we making today?",

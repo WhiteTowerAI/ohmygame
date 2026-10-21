@@ -1,4 +1,5 @@
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
+import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
@@ -245,6 +246,19 @@ export async function exportProject(projectId: string): Promise<Blob> {
   });
   if (!response.ok) throw await responseError(response);
   return response.blob();
+}
+
+/** Creates a new project from an archive, streaming the file to the runtime. */
+export async function importProject(file: File): Promise<ProjectState> {
+  // Names a project file from earlier versions, which has no manifest.
+  const query = new URLSearchParams({ name: file.name.replace(/\.zip$/i, "").slice(0, 255) });
+  const response = await fetch(apiUrl(`/projects/import?${query}`), {
+    method: "POST",
+    headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE, ...runtimeHeaders() },
+    body: file,
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<ProjectState>;
 }
 
 export async function deleteProject(projectId: string): Promise<void> {

@@ -602,6 +602,8 @@ const zhCN: typeof en = {
     confirmRemove:
       "要从 OhMyGame 移除“{{name}}”吗？“{{path}}”中的文件会保留在磁盘上。",
     confirmDelete: "要删除“{{name}}”吗？此操作无法撤销。",
+    import: "导入项目",
+    importTooLarge: "请选择不超过 10 GB 的项目归档",
   },
   home: {
     title: "今天想做点什么？",
