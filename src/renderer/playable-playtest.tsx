@@ -19,7 +19,8 @@ export interface PlaytestStart {
 }
 
 export type PlaytestAction = "replay" | "forget-seen";
-export type PlaytestRequest = { action: "start"; start: PlaytestStart } | { action: PlaytestAction };
+/** `open` only brings Playtest forward, and loads the story again if the window could not play it. */
+export type PlaytestRequest = { action: "start"; start: PlaytestStart } | { action: PlaytestAction | "open" };
 
 const requestKey = (projectId: string) => `ohmygame:playtest:request:${projectId}`;
 
@@ -39,7 +40,7 @@ export function takePlaytestRequest(projectId: string): PlaytestRequest | undefi
   window.localStorage.removeItem(key);
   try {
     const request = JSON.parse(raw) as Partial<PlaytestRequest> | null;
-    if (request?.action === "replay" || request?.action === "forget-seen") return { action: request.action };
+    if (request?.action === "replay" || request?.action === "forget-seen" || request?.action === "open") return { action: request.action };
     if (request?.action === "start" && typeof request.start?.nodeId === "string") {
       return { action: "start", start: { nodeId: request.start.nodeId } };
     }

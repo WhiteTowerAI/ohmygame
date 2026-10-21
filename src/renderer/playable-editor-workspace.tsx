@@ -1000,7 +1000,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       }
       await save(codebase);
       if (playtest?.closed) return;
-      if (request) requestPlaytest(projectId, request);
+      requestPlaytest(projectId, request ?? { action: "open" });
       if (desktop) {
         await desktop.openPlaytest(projectId, codebase.graph.viewport);
       } else if (playtest) {

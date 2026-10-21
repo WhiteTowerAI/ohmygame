@@ -17,6 +17,8 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   /** What a web story's page should do first this session, as its query parameters. */
   const [pageStart, setPageStart] = useState<Record<string, string>>({});
   const history = useRef(new PlayableStateHistory());
+  /** Counts how often the story was loaded, so a request can load it again. */
+  const [revision, setRevision] = useState(0);
   const [playable, setPlayable] = useState<
     | { status: "loading" }
     | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob>; page?: string }
@@ -27,8 +29,6 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   useEffect(() => {
     let disposed = false;
     setPlayable({ status: "loading" });
-    // Editor actions may arrive before the Playtest window is open.
-    restart(takePlaytestRequest(projectId));
     void getNodeRuntime(projectId).then(async (result) => {
       if (!result.available) throw new Error(t("sceneWorkbench.noScenes"));
       if (result.web) {
@@ -47,7 +47,10 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
       if (!disposed) setPlayable({ status: "error", error: errorMessage(cause) });
     });
     return () => { disposed = true; };
-  }, [projectId]);
+  }, [projectId, revision]);
+
+  // Editor actions may arrive before the Playtest window is open.
+  useEffect(() => restart(takePlaytestRequest(projectId)), [projectId]);
 
   const onSnapshot = useCallback((next: NodeRuntimeSnapshot) => {
     history.current.record(next);
@@ -55,7 +58,13 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   }, []);
   const onDiagnostic = useCallback((message: string) => setDiagnostics((current) => [...current.slice(-19), message]), []);
 
-  usePlaytestRequests(projectId, (request) => restart(request, start));
+  usePlaytestRequests(projectId, (request) => {
+    // Bringing a playing window forward keeps its game. Anything else loads
+    // the story again, since the editor may have changed or fixed it.
+    if (request.action === "open" && playable.status === "ready") return;
+    restart(request, start);
+    setRevision((current) => current + 1);
+  });
 
   /** Applies an editor request and starts a fresh Runtime session. */
   function restart(request?: PlaytestRequest, currentStart?: PlaytestStart): void {

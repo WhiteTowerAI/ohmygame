@@ -26,9 +26,10 @@ const definition: NodePlayerDefinition = {
   compiled: { version: 1, nodes: {} },
 };
 const player = vi.fn();
+const getNodeRuntime = vi.fn();
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
-  getNodeRuntime: async () => ({ available: true, definition }),
+  getNodeRuntime,
 }));
 vi.doMock(path.resolve("src/renderer/playable-assets.ts"), () => ({
   loadPlayableAssets: async () => ({}),
@@ -50,6 +51,7 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.localStorage.clear();
   player.mockClear();
+  getNodeRuntime.mockReset().mockResolvedValue({ available: true, definition });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -70,7 +72,7 @@ function button(label: string): HTMLButtonElement {
   return found;
 }
 
-async function deliverAction(action: PlaytestAction, projectId = "p") {
+async function deliverAction(action: PlaytestAction | "open", projectId = "p") {
   await act(async () => {
     requestPlaytest(projectId, { action });
     const key = `ohmygame:playtest:request:${projectId}`;
@@ -245,12 +247,12 @@ describe("Playtest window requests", () => {
   it("replays a chosen Scene with fresh session storage and preserves the project's save", async () => {
     window.localStorage.setItem(playtestSaveKey("p"), "saved game");
     window.localStorage.setItem(playtestSeenKey("p"), "explored scenes");
-    requestPlaytest("p", { action: "start", start: { nodeId: "archive" } });
+    requestPlaytest("p", { action: "start", start: { nodeId: "start" } });
     await act(async () => root.render(<PlaytestPage projectId="p" />));
     const initial = player.mock.calls.at(-1)![0];
     expect(initial.preview).toEqual({
       policy: "follow",
-      startNodeId: "archive",
+      startNodeId: "start",
     });
     await deliverAction("replay");
     const replay = player.mock.calls.at(-1)![0];
@@ -268,5 +270,24 @@ describe("Playtest window requests", () => {
       "saved game",
     );
     expect(window.localStorage.getItem(playtestSeenKey("p"))).toBeNull();
+  });
+
+  it("keeps a playing game when the editor only brings Playtest forward", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const calls = player.mock.calls.length;
+    await deliverAction("open");
+    expect(getNodeRuntime).toHaveBeenCalledOnce();
+    expect(player).toHaveBeenCalledTimes(calls);
+  });
+
+  it("loads the story again for an editor action or when it could not be played", async () => {
+    getNodeRuntime.mockRejectedValueOnce(new Error("The game service is unavailable."));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(player).not.toHaveBeenCalled();
+    await deliverAction("open");
+    expect(getNodeRuntime).toHaveBeenCalledTimes(2);
+    expect(player).toHaveBeenCalled();
+    await deliverAction("replay");
+    expect(getNodeRuntime).toHaveBeenCalledTimes(3);
   });
 });
