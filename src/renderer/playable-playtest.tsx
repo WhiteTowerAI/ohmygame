@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, History, InfoCircle, LoaderCircle, Play, RotateCcw, Sparkles, X } from "./icons.js";
+import { ChevronDown, History, InfoCircle, LoaderCircle, Pencil, Play, RotateCcw, Sparkles, X } from "./icons.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
@@ -210,4 +210,67 @@ export function askToFixPlaytest(graph: NodeGraph, record: PlayableDebugRecord |
   }
   lines.push("", "Errors:", ...errors.slice(-RECENT_LIMIT).map((error) => `- ${error}`));
   return lines.join("\n");
+}
+
+/** Why Playtest cannot start the story, with the service's message when there is one. */
+export interface PlaytestProblemState {
+  kind: "no-scenes" | "missing-start" | "not-found" | "invalid" | "unavailable";
+  detail?: string;
+}
+
+/**
+ * What the Playtest window shows instead of the game when the story cannot
+ * start: what is wrong, and the way forward for that case. Without a way to
+ * reach the editor, closing the window takes its place.
+ */
+export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStart, onAskAgent, onClose }: {
+  problem: PlaytestProblemState;
+  onOpenEditor?: () => void;
+  onRetry: () => void;
+  onPlayFromStart: () => void;
+  onAskAgent: (text: string) => void;
+  onClose: () => void;
+}) {
+  const [sent, setSent] = useState(false);
+  useEffect(() => setSent(false), [problem.kind, problem.detail]);
+  const { title, body } = {
+    "no-scenes": { title: t("playtest.noScenesTitle"), body: t("playtest.noScenesBody") },
+    "missing-start": { title: t("playtest.missingStartTitle"), body: t("playtest.missingStartBody") },
+    "not-found": { title: t("playtest.notFoundTitle"), body: t("playtest.notFoundBody") },
+    invalid: { title: t("playtest.invalidTitle"), body: t("playtest.invalidBody") },
+    unavailable: { title: t("playtest.unavailableTitle"), body: t("playtest.unavailableBody") },
+  }[problem.kind];
+
+  const editor = onOpenEditor
+    ? <button key="editor" type="button" onClick={onOpenEditor}><Pencil size={13} /><span>{t("playtest.openEditor")}</span></button>
+    : <button key="close" type="button" onClick={onClose}><X size={13} /><span>{t("playtest.closeWindow")}</span></button>;
+  const retry = <button key="retry" type="button" onClick={onRetry}><RotateCcw size={13} /><span>{t("playtest.tryAgain")}</span></button>;
+  const actions = {
+    "no-scenes": [editor],
+    "missing-start": [<button key="start" type="button" onClick={onPlayFromStart}><Play size={13} /><span>{t("playtest.playFromStart")}</span></button>, editor],
+    "not-found": [<button key="close" type="button" onClick={onClose}><X size={13} /><span>{t("playtest.closeWindow")}</span></button>],
+    invalid: [
+      sent
+        ? <span key="ask" className="playtest-problem-sent">{t("playtest.addedToChat")}</span>
+        : <button key="ask" type="button" onClick={() => { onAskAgent(askToFixPlaytestStart(problem.detail ?? title)); setSent(true); }}><Sparkles size={13} /><span>{t("playtest.askFix")}</span></button>,
+      retry,
+      ...(onOpenEditor ? [editor] : []),
+    ],
+    unavailable: [retry, editor],
+  }[problem.kind];
+
+  return <main className="playable-player-page">
+    <section className="playtest-problem" role="alert" aria-labelledby="playtest-problem-title">
+      <InfoCircle size={20} />
+      <h1 id="playtest-problem-title">{title}</h1>
+      <p>{body}</p>
+      {problem.detail ? <p className="playtest-problem-detail">{problem.detail}</p> : null}
+      <div className="playtest-problem-actions">{actions}</div>
+    </section>
+  </main>;
+}
+
+/** The chat request behind "Ask AI to fix" when the story could not start at all. */
+export function askToFixPlaytestStart(error: string): string {
+  return ["Playtest could not start the story. Find the cause and fix it.", "", "Error:", `- ${error}`].join("\n");
 }

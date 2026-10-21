@@ -16542,6 +16542,88 @@ button {
   font-weight: 600;
 }
 
+/* Playtest cannot start: what is wrong and the way forward, on the game's dark stage. */
+.playtest-problem {
+  display: grid;
+  justify-items: center;
+  align-self: center;
+  justify-self: center;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  color: #a5a7ad;
+  font-family: Inter, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+.playtest-problem > svg {
+  color: #e8b563;
+}
+.playtest-problem h1 {
+  margin: 0;
+  color: #eceef2;
+  font-size: 15px;
+  font-weight: 600;
+}
+.playtest-problem p {
+  margin: 0;
+}
+.playtest-problem .playtest-problem-detail {
+  max-width: 100%;
+  max-height: 96px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 6%);
+  color: #8a8e96;
+  font: 11px/1.45 "SF Mono", Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.playtest-problem-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.playtest-problem-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 999px;
+  background: transparent;
+  color: #eceef2;
+  font: inherit;
+  cursor: pointer;
+}
+.playtest-problem-actions button:hover {
+  background: #262a31;
+}
+.playtest-problem-actions button:first-child {
+  border-color: transparent;
+  background: #e8b563;
+  color: #1b1408;
+  font-weight: 600;
+}
+.playtest-problem-actions button:first-child:hover {
+  background: #f0c47b;
+}
+.playtest-problem-actions button:focus-visible {
+  outline: 2px solid #e8b563;
+  outline-offset: 2px;
+}
+.playtest-problem-sent {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  color: #eceef2;
+}
+
 
 /* Custom providers share the existing provider list and settings dialog. */
 .settings-provider-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }

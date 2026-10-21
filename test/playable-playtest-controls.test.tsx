@@ -45,6 +45,7 @@ vi.doMock(
   }),
 );
 const { PlaytestPage } = await import("../src/renderer/playtest.js");
+const { ApiError } = await import("../src/renderer/api.js");
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 
 beforeEach(() => {
@@ -289,5 +290,103 @@ describe("Playtest window requests", () => {
     expect(player).toHaveBeenCalled();
     await deliverAction("replay");
     expect(getNodeRuntime).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("Playtest that cannot start", () => {
+  const empty: NodePlayerDefinition = {
+    ...definition,
+    graph: { ...definition.graph, nodes: [], edges: [] },
+  };
+
+  function text(): string {
+    return container.textContent ?? "";
+  }
+
+  function action(label: string): HTMLButtonElement {
+    const found = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent === label,
+    );
+    if (!found) throw new Error(`Missing action: ${label}`);
+    return found;
+  }
+
+  it("says to add a Scene and brings the editor forward instead of starting a story with none", async () => {
+    const showPlaytestEditor = vi.fn(async () => {});
+    vi.stubGlobal("ohMyGameDesktop", { showPlaytestEditor });
+    getNodeRuntime.mockResolvedValue({ available: true, definition: empty });
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(player).not.toHaveBeenCalled();
+    expect(text()).toContain("This story has no Scenes yet");
+    expect(text()).toContain("Add a Scene in the Story editor, then click Playtest again.");
+    await act(async () => action("Open editor").click());
+    expect(showPlaytestEditor).toHaveBeenCalledExactlyOnceWith("p");
+  });
+
+  it("offers to close the window when nothing can bring the editor forward", async () => {
+    getNodeRuntime.mockResolvedValue({ available: false });
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("This story has no Scenes yet");
+    await act(async () => action("Close window").click());
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("plays from the start when the chosen Scene no longer exists", async () => {
+    requestPlaytest("p", { action: "start", start: { nodeId: "deleted" } });
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(player).not.toHaveBeenCalled();
+    expect(text()).toContain("The Scene to play from no longer exists");
+    await act(async () => action("Play from the start").click());
+    expect(player.mock.calls.at(-1)?.[0].preview).toBeUndefined();
+  });
+
+  it("asks the AI to fix a story the service refused", async () => {
+    getNodeRuntime.mockRejectedValue(new ApiError("/: graph.json is not valid JSON.", 400));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("The story can't start");
+    expect(text()).toContain("/: graph.json is not valid JSON.");
+    await act(async () => action("Ask AI to fix").click());
+    const ask = JSON.parse(window.localStorage.getItem("ohmygame:playtest:ask:p")!) as { text: string };
+    expect(ask.text).toBe("Playtest could not start the story. Find the cause and fix it.\n\nError:\n- /: graph.json is not valid JSON.");
+    expect(text()).toContain("Added to the chat in the editor");
+  });
+
+  it("shows a game that stopped while starting the same way", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    await act(async () => player.mock.calls.at(-1)![0].onError("Scene script failed"));
+    expect(text()).toContain("The story can't start");
+    expect(text()).toContain("Scene script failed");
+    const calls = player.mock.calls.length;
+    await act(async () => action("Try again").click());
+    expect(getNodeRuntime).toHaveBeenCalledTimes(2);
+    expect(player.mock.calls.length).toBeGreaterThan(calls);
+    expect(text()).not.toContain("The story can't start");
+  });
+
+  it("tries again after a failure that may pass, keeping the chosen Scene", async () => {
+    getNodeRuntime.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    requestPlaytest("p", { action: "start", start: { nodeId: "start" } });
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("Playtest couldn't load the story");
+    await act(async () => action("Try again").click());
+    expect(player.mock.calls.at(-1)?.[0].preview).toEqual({ policy: "follow", startNodeId: "start" });
+  });
+
+  it("offers only to close the window for a project that no longer exists", async () => {
+    vi.stubGlobal("ohMyGameDesktop", { showPlaytestEditor: vi.fn() });
+    getNodeRuntime.mockRejectedValue(new ApiError("Project not found", 404));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("This project is no longer available");
+    expect(Array.from(container.querySelectorAll("button"), (item) => item.textContent)).toEqual(["Close window"]);
+  });
+
+  it("translates the explanation and actions into Chinese", async () => {
+    await i18next.changeLanguage("zh-CN");
+    getNodeRuntime.mockResolvedValue({ available: true, definition: empty });
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("这个故事还没有场景");
+    expect(action("关闭窗口")).toBeTruthy();
+    expect(document.title).toBe("Playtest - Playtest");
   });
 });
