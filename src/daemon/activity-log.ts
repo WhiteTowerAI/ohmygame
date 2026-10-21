@@ -32,7 +32,23 @@ export class ActivityLog {
     private readonly now: () => number = Date.now,
   ) {}
 
+  /** Runs inside event publishing, so a logging failure must never reach the agent or preview that published. */
   event(event: RuntimeEvent): void {
+    try {
+      this.#record(event);
+    } catch (error) {
+      try {
+        this.log.warn(
+          { err: error, type: event.type },
+          "Could not log activity",
+        );
+      } catch {
+        // The logger itself failed; the event still goes on.
+      }
+    }
+  }
+
+  #record(event: RuntimeEvent): void {
     const scope = {
       projectId: event.projectId,
       ...(event.conversationId ? { conversationId: event.conversationId } : {}),

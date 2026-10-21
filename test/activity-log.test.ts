@@ -301,4 +301,26 @@ describe("activity log", () => {
       },
     ]);
   });
+
+  it("never lets a logging failure reach the code that published the event", () => {
+    const failing = new ActivityLog({
+      info: () => {
+        throw new Error("The log stream is closed");
+      },
+      warn: () => {
+        throw new Error("The log stream is closed");
+      },
+    });
+    const events = new RuntimeEventBus();
+    events.subscribeAll((event) => failing.event(event));
+
+    expect(() =>
+      events.publish("p1", "agent.started", { prompt: "Hi" }, scope),
+    ).not.toThrow();
+    expect(() =>
+      events.publish("p1", "preview.updated", {
+        preview: { status: "error", logs: 42 as never },
+      }),
+    ).not.toThrow();
+  });
 });
