@@ -206,7 +206,7 @@ definitions or returned in settings responses.
 
 Connected provider details place the delete icon to the left of the enable
 switch in the header. The icon opens an inline confirmation with **Delete
-provider** (or **Remove API key** for native 3D connections). For custom
+provider** (or **Remove API key** for Hyper3D). For custom
 providers, it removes the provider definition, credential
 and model settings. For built-in providers, including Meshy, Tripo and Hyper3D, it clears
 the saved credential, endpoint overrides, custom models and visibility/enable
@@ -223,8 +223,7 @@ description. Built-in language providers show a
 icon); when the provider offers both methods, the section heading has a button
 to switch. The model list shows the global default language model
 first with a **Default** badge; hidden models stay under **Hidden models (n)**.
-Base URL and Responses connection settings sit in the collapsed **Advanced**
-section.
+Base URL and Responses connection settings sit in the **Advanced** section.
 
 ![Provider detail header with delete before the enable switch (sample data)](assets/provider-detail-controls.png)
 
