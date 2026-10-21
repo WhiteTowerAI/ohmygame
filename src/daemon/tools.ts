@@ -200,6 +200,7 @@ export class ToolRunner {
         job.error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
+      logJobOutcome(job);
       this.#pruneJobs();
       if (!this.#closed) await this.#saveJobsSafely();
     }
@@ -732,4 +733,17 @@ function validateOperationOptions(options: Run3DToolRequest["options"], operatio
 function model3DToolError(cause: unknown): never {
   if (cause instanceof Model3DGenerationError) throw new ToolRunError(cause.message, cause.statusCode);
   throw cause;
+}
+
+/** One line per finished generation, for the daemon log. The prompt and inputs stay out. */
+function logJobOutcome(job: ToolJobRecord): void {
+  const outcome = {
+    toolId: job.toolId,
+    ...(job.model ? { model: `${job.model.provider}/${job.model.id}` } : {}),
+    ...(job.context?.projectId ? { projectId: job.context.projectId } : {}),
+    durationMs: Date.now() - Date.parse(job.createdAt),
+    ...(job.status === "failed" && job.error ? { error: job.error } : {}),
+  };
+  if (job.status === "failed") console.warn(`Generation failed ${JSON.stringify(outcome)}`);
+  else console.info(`Generation ${job.status} ${JSON.stringify(outcome)}`);
 }

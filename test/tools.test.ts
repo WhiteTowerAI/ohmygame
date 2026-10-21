@@ -466,6 +466,31 @@ describe("tool runner", () => {
     expect(generate.mock.calls.at(-1)?.[0].imageModel).toEqual({ provider: "project-1", id: "second" });
   });
 
+  it("logs each finished generation without its prompt", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const generate = vi.fn<ImageGenerator["generate"]>()
+      .mockRejectedValueOnce(new ImageGenerationError("The provider rejected the request", 400))
+      .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const runner = new ToolRunner(await temporaryData(), { generate });
+    await runner.load();
+    try {
+      runner.start("generate-image", { prompt: "A secret castle", imageModel: { provider: "openai", id: "gpt-image-1" } }, { context: { projectId: "p1", nodeId: "n1" } });
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledOnce());
+      runner.start("generate-image", { prompt: "A secret castle", imageModel: { provider: "openai", id: "gpt-image-1" } });
+      await vi.waitFor(() => expect(info).toHaveBeenCalledOnce());
+
+      const failed = JSON.parse(String(warn.mock.calls[0]![0]).replace(/^Generation failed /, ""));
+      expect(failed).toMatchObject({ toolId: "generate-image", model: "openai/gpt-image-1", projectId: "p1", error: "The provider rejected the request" });
+      expect(failed.durationMs).toBeGreaterThanOrEqual(0);
+      expect(String(info.mock.calls[0]![0])).toMatch(/^Generation succeeded \{"toolId":"generate-image","model":"openai\/gpt-image-1","durationMs":\d+\}$/);
+      expect(JSON.stringify([...warn.mock.calls, ...info.mock.calls])).not.toContain("secret castle");
+    } finally {
+      warn.mockRestore();
+      info.mockRestore();
+    }
+  });
+
   it("keeps only recent completed background jobs", async () => {
     const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator() });
     apps.push(app);
