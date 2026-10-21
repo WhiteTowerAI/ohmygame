@@ -49,6 +49,7 @@ export function neverTouchPaths(
     path.join(home, ".codex"),
     path.join(home, ".config", "opencode"),
     path.join(home, ".local", "share", "opencode"),
+    path.join(home, ".pi"),
     path.join(home, ".ssh"),
     path.join(home, ".aws"),
     path.join(home, ".gnupg"),
