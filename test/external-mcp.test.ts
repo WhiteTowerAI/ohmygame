@@ -191,7 +191,8 @@ it("publishes a token only while enabled and revokes it when turned off", async 
     url: "http://127.0.0.1:1/external-mcp",
     contractVersion: 1,
   });
-  expect((await stat(file)).mode & 0o777).toBe(0o600);
+  if (process.platform !== "win32")
+    expect((await stat(file)).mode & 0o777).toBe(0o600);
   const catalog = JSON.parse(
     await readFile(path.join(root, "external-mcp", "tools.json"), "utf8"),
   ) as ExternalMcpCatalog;

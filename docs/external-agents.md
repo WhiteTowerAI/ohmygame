@@ -104,13 +104,13 @@ The renderer uses:
 
 Files in `<dataDirectory>/external-mcp/`:
 
-| File            | Contents                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------- |
-| `settings.json` | Whether the feature is on.                                                                  |
-| `endpoint.json` | URL, token, contract version and daemon `pid`, mode `0600`; only while the daemon runs.     |
-| `tools.json`    | The public tool list and instructions, kept so the launcher works while OhMyGame is closed. |
-| `clients.json`  | Connected clients and the launcher each was connected with.                                 |
-| `app.json`      | The desktop app's `pid` while it runs, written before its daemon starts.                    |
+| File            | Contents                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------- |
+| `settings.json` | Whether the feature is on.                                                                    |
+| `endpoint.json` | URL, token, contract version and daemon `pid`, POSIX mode `0600`; only while the daemon runs. |
+| `tools.json`    | The public tool list and instructions, kept so the launcher works while OhMyGame is closed.   |
+| `clients.json`  | Connected clients and the launcher each was connected with.                                   |
+| `app.json`      | The desktop app's `pid` while it runs, written before its daemon starts.                      |
 
 - The token is random for each daemon launch and is never stored elsewhere.
   Turning the feature off, or the daemon closing, deletes `endpoint.json`,
