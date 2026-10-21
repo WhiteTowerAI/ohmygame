@@ -680,6 +680,15 @@ describe("project archive import", () => {
       }),
     );
     expect(settings.statusCode).toBe(400);
+    const json = await app.inject({
+      method: "POST",
+      url: "/projects/import",
+      payload: { archive: "not a file" },
+    });
+    expect(json.statusCode).toBe(400);
+    expect(json.json()).toEqual({
+      error: "Choose a project archive to import.",
+    });
     expect(
       (await app.inject({ method: "GET", url: "/projects" })).json(),
     ).toEqual([]);

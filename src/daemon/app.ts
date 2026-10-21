@@ -1817,12 +1817,17 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Querystring: { name?: string }; Body: AsyncIterable<Buffer | string> | undefined }>("/projects/import", {
+  app.post<{ Querystring: { name?: string }; Body: unknown }>("/projects/import", {
     schema: { querystring: { type: "object", additionalProperties: false, properties: { name: { type: "string", maxLength: 255 } } } },
   }, async (request, reply) => {
-    if (!request.body) return reply.code(400).send({ error: "Choose a project archive to import." });
+    // Other content types arrive parsed, for example as JSON objects, which are not archives.
+    const body = request.body;
+    const upload = Buffer.isBuffer(body) ? body
+      : body && typeof (body as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function" ? body as AsyncIterable<Buffer | string>
+        : undefined;
+    if (!upload) return reply.code(400).send({ error: "Choose a project archive to import." });
     try {
-      return reply.code(201).send(await importProjectArchive(projects, request.body, { name: request.query.name }));
+      return reply.code(201).send(await importProjectArchive(projects, upload, { name: request.query.name }));
     } catch (cause) {
       if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
       if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
