@@ -219,12 +219,19 @@ Click **Next** to connect a model before your first prompt:
    | To make                       | Connect                                                             |
    | ----------------------------- | ------------------------------------------------------------------- |
    | Design docs, code, playtests  | Any language model provider                                         |
-   | Images and sprites            | OpenAI (API key), OpenRouter, or Volcengine Ark / BytePlus ModelArk |
+   | Images and sprites            | Codex CLI (local sign-in), OpenAI (API key), OpenRouter, or Volcengine Ark / BytePlus ModelArk |
    | Video                         | OpenRouter, or Volcengine Ark / BytePlus ModelArk                   |
    | 3D models, rigging, animation | Meshy, Tripo, or Hyper3D (capabilities vary by provider)              |
 
-   Signing in with ChatGPT does not cover image generation. In the OpenAI
-   provider's **Image models** section, configure a separate API key and Base URL,
+   The **Codex CLI** image provider uses your local Codex sign-in and account
+   usage limits. Select **Codex Image** in the canvas or set it as your default
+   image source. It works with any conversation agent, even when Codex is off
+   in Agents; the terminal does not need to stay open. Multiple reference images
+   are supported within the app's shared 16-image limit; Codex manages output
+   dimensions.
+
+   The OpenAI provider's ChatGPT browser sign-in does not cover its image API.
+   In the OpenAI provider's **Image models** section, configure a separate API key and Base URL,
    fetch or manually add image models, enable them and save. This works alongside
    browser sign-in and supports compatible GPT Image relays. API-key chat
    connections can also share their key and endpoint with image generation.

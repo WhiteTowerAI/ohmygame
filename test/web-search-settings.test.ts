@@ -52,7 +52,8 @@ describe("web search settings", () => {
     });
 
     const file = path.join(dataDirectory, "web-search-settings.json");
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(await readFile(file, "utf8")).toContain("custom-secret");
 
     await store.update({

@@ -46,6 +46,7 @@ function Meter({ limit }: { limit: AgentUsageLimit }) {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={percent}
+      aria-valuetext={t("agentUsage.used", { percent })}
     >
       <span style={{ width: `${percent}%` }} />
     </span>
@@ -56,19 +57,25 @@ function Meter({ limit }: { limit: AgentUsageLimit }) {
 export function AgentUsageInline({
   limits,
   now = Date.now(),
+  compact = false,
 }: {
   limits: readonly AgentUsageLimit[];
   now?: number;
+  /** Keep narrow menus numeric; the whole window explains the share used on hover. */
+  compact?: boolean;
 }) {
   return (
     <span className="agent-usage-inline">
       {limits.map((reported) => {
         const limit = current(reported, now);
+        const window = usageWindowLabel(limit);
+        const percent = Math.round(limit.usedPercent);
+        const used = t("agentUsage.used", { percent });
         return (
-          <span key={limit.id}>
-            <small>{usageWindowLabel(limit)}</small>
+          <span key={limit.id} title={compact ? `${window} · ${used}` : undefined}>
+            <small>{window}</small>
             <Meter limit={limit} />
-            <small>{Math.round(limit.usedPercent)}%</small>
+            <small>{compact ? `${percent}%` : used}</small>
           </span>
         );
       })}

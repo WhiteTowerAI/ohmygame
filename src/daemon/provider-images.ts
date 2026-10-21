@@ -20,6 +20,7 @@ const LEGACY_SIZE_ASPECT_RATIOS: Record<ImageSize, ImageAspectRatio> = {
 const LEGACY_SIZE_RESOLUTIONS: readonly ImageResolution[] = ["1K", "2K", "4K", "512"];
 
 interface ProviderImagesOptions {
+  codexImages?: ImageGenerator & { catalog(signal?: AbortSignal): Promise<ImageModelCatalog> };
   openAIConnection?: () => Promise<{ source?: ImageSource; models?: ImageModel[]; message?: string; connected?: boolean }>;
   customProviders?: () => Promise<CustomProviderDetails[]>;
   migrateLegacyModels?: (provider: string, models: ImageModel[]) => Promise<void>;
@@ -28,7 +29,7 @@ interface ProviderImagesOptions {
 
 interface ImageSelection {
   model: ImageModel;
-  source: ImageSource;
+  source?: ImageSource;
 }
 
 export class ProviderImages implements ImageGenerator {
@@ -55,6 +56,7 @@ export class ProviderImages implements ImageGenerator {
       runtime || this.options.openAIConnection ? this.#openAIEntry(runtime, signal) : undefined,
       this.#seedreamEntry(),
       ...custom.map((provider) => catalogEntry(provider.id, provider.name, () => this.#customModels(runtime!, provider, signal), "Choose and enable image models in Models.")),
+      this.isEnabled("codex-cli") && this.options.codexImages ? this.options.codexImages.catalog(signal).then((catalog) => ({ models: catalog.models, status: catalog.providers[0]! })) : undefined,
     ]);
     const connected = entries.filter((entry): entry is CatalogEntry => Boolean(entry));
     const models = connected.flatMap((entry) => entry.models);
@@ -142,6 +144,15 @@ export class ProviderImages implements ImageGenerator {
     if (!selection || !definition) throw new ImageGenerationError(requested
       ? "The selected image model is unavailable. Choose a connected image provider or update the default image model in Providers."
       : "Image generation is not configured", 503);
+    if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
+    if (input.images && definition.maxReferenceImages !== undefined && input.images.length > definition.maxReferenceImages) throw new ImageGenerationError(`The selected image model supports up to ${definition.maxReferenceImages} reference images`, 400);
+    const { imageModel: _, ...generationInput } = input;
+    if (definition.protocol === "codex-cli") {
+      if (!this.options.codexImages) throw new ImageGenerationError("Codex image generation is unavailable", 503);
+      // Canvas nodes retain size preferences when switching models; Codex manages its own dimensions.
+      const { size: _size, resolution: _resolution, aspectRatio: _aspectRatio, ...cliInput } = generationInput;
+      return this.options.codexImages.generate(cliInput, signal);
+    }
     let { size, resolution, aspectRatio } = input;
     if (size !== undefined && definition.sizes.length === 0 && resolution === undefined && aspectRatio === undefined) {
       const ratio = LEGACY_SIZE_ASPECT_RATIOS[size];
@@ -159,10 +170,8 @@ export class ProviderImages implements ImageGenerator {
       const supported = definition.generationOptions.some((option) => option.resolution === resolution && option.aspectRatio === aspectRatio);
       if (!supported) throw new ImageGenerationError("Image resolution and aspect ratio are not supported by the selected model", 400);
     }
-    if (input.images?.length && !definition.supportsReferenceImage) throw new ImageGenerationError("Reference images are not supported by the selected model", 400);
-    if (input.images && definition.maxReferenceImages !== undefined && input.images.length > definition.maxReferenceImages) throw new ImageGenerationError(`The selected image model supports up to ${definition.maxReferenceImages} reference images`, 400);
+    if (!selection.source) throw new ImageGenerationError("Image connection is unavailable", 503);
     const adapter = createImageProtocolAdapters(this.request)[definition.protocol];
-    const { imageModel: _, ...generationInput } = input;
     return adapter.generate(selection.source, selection.model.id, {
       ...generationInput,
       size,
@@ -174,6 +183,7 @@ export class ProviderImages implements ImageGenerator {
   }
 
   async #selection(requested?: ImageModelRef, signal?: AbortSignal): Promise<ImageSelection | undefined> {
+    if (requested?.provider === "codex-cli") return this.#codexSelection(requested.id, signal);
     if (requested?.provider === SEEDREAM_PROVIDER_ID) return this.#seedreamSelection(requested.id);
     if (requested?.provider === "openai" && this.options.openAIConnection) return this.#configuredOpenAISelection(requested.id, signal);
     let runtime: ModelRuntime;
@@ -186,7 +196,7 @@ export class ProviderImages implements ImageGenerator {
           const selection = await this.#configuredOpenAISelection(undefined, signal);
           if (selection) return selection;
         } catch { signal?.throwIfAborted(); }
-        return this.#seedreamSelection();
+        return this.#seedreamSelection() ?? await this.#codexSelection(undefined, signal);
       }
       throw cause;
     }
@@ -204,6 +214,7 @@ export class ProviderImages implements ImageGenerator {
       () => this.options.openAIConnection ? this.#configuredOpenAISelection(undefined, signal) : this.#compatibleSelection(runtime, "openai", undefined, signal),
       () => this.#seedreamSelection(),
       ...custom.map((provider) => () => this.#customSelection(runtime, provider, undefined, signal)),
+      () => this.#codexSelection(undefined, signal),
     ];
     for (const select of candidates) {
       signal?.throwIfAborted();
@@ -215,6 +226,13 @@ export class ProviderImages implements ImageGenerator {
       }
     }
     return undefined;
+  }
+
+  async #codexSelection(id?: string, signal?: AbortSignal): Promise<ImageSelection | undefined> {
+    if (!this.isEnabled("codex-cli") || !this.options.codexImages) return undefined;
+    const catalog = await this.options.codexImages.catalog(signal);
+    const model = id ? catalog.models.find((model) => model.id === id) : catalog.models[0];
+    return model ? { model } : undefined;
   }
 
   async #openRouterSelection(runtime: ModelRuntime, requestedId?: string, signal?: AbortSignal): Promise<ImageSelection | undefined> {

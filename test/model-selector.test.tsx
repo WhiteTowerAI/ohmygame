@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { filterModels, groupModelsByProvider, ModelSelector } from "../src/renderer/model-selector.js";
 import type { AgentModel, AgentReasoningLevel } from "../src/shared/contracts.js";
+import { PROVIDER_ICONS } from "../src/renderer/provider-icons.js";
 
 const model: AgentModel = {
   provider: "openai",
@@ -74,6 +75,41 @@ describe("ModelSelector interaction", () => {
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
+
+  it("keeps CLI brand icons in group headings and updates the model button when switching agents", async () => {
+    const available: AgentModel[] = [
+      model,
+      { ...model, provider: "codex-cli", providerName: "Codex" },
+      { ...model, provider: "claude-code-cli", providerName: "Claude Code" },
+      { ...model, provider: "opencode-cli", providerName: "OpenCode" },
+    ];
+    function Selector() {
+      const [selected, setSelected] = useState(model);
+      return <ModelSelector models={available} value={selected} onChange={setSelected} onReasoningChange={() => {}} />;
+    }
+    await act(async () => root.render(<Selector />));
+    const trigger = container.querySelector<HTMLButtonElement>(".model-selector-trigger")!;
+    expect(trigger.querySelector("img")).toBeNull();
+    for (const selected of [...available.slice(1), model]) {
+      await act(async () => trigger.click());
+      const headings = [...document.querySelectorAll(".model-selector-provider-name")];
+      expect(headings.map((heading) => heading.textContent)).toEqual(available.map((item) => item.providerName));
+      expect(headings[0].querySelector("img")).toBeNull();
+      expect(headings.slice(1).map((heading) => heading.querySelector("img")?.getAttribute("src")))
+        .toEqual(available.slice(1).map((item) => PROVIDER_ICONS[item.provider]?.src));
+      await act(async () => document.querySelector<HTMLButtonElement>(`[title="${selected.provider}/${selected.id}"]`)!.click());
+      const icon = trigger.querySelector("img");
+      if (selected === model) {
+        expect(icon).toBeNull();
+      } else {
+        expect(icon?.getAttribute("src")).toBe(PROVIDER_ICONS[selected.provider]?.src);
+        expect(icon?.getAttribute("width")).toBe("14");
+        expect(icon?.getAttribute("alt")).toBe("");
+        expect(icon?.getAttribute("aria-hidden")).toBe("true");
+      }
+      expect(trigger.querySelector(".model-selector-name")?.textContent).toBe(selected.name);
+    }
+  });
 
   it("selects an arbitrary native variant without changing Pi reasoning", async () => {
     const native: AgentModel = { ...model, provider: "opencode-cli", reasoningLevels: [], nativeReasoningLevels: ["low", "balanced-custom"] };

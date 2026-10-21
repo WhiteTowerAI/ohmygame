@@ -623,9 +623,14 @@ describe("coding agent sessions", () => {
   });
 
   it("stops a turn and keeps what the agent said before it was stopped", async () => {
+    let spoke!: () => void;
+    const said = new Promise<void>((resolve) => {
+      spoke = resolve;
+    });
     const { manager, project, conversation, sessionManager, received } = setup([
       async (_input, sink, signal) => {
         sink.text("a", "Working");
+        spoke();
         await new Promise<void>((resolve) =>
           signal.addEventListener("abort", () => resolve(), { once: true }),
         );
@@ -633,7 +638,8 @@ describe("coding agent sessions", () => {
       },
     ]);
     const run = manager.prompt(project, conversation, "go");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Stop only once the agent has spoken: a fixed delay raced a slow runner.
+    await said;
     await manager.cancel(project.id, conversation.summary.id, run.turnId);
     await expect(run.result).resolves.toBe("cancelled");
     expect(received.map((event) => event.type)).toContain("agent.cancelled");

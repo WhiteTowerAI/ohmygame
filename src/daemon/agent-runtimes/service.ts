@@ -102,8 +102,9 @@ export interface NativeSessionRequest {
 
 /**
  * The coding agents OhMyGame can run conversations with. Nothing here runs
- * until something asks: choosing OhMyGame's own agent never starts or probes
- * a CLI, and a slow or broken CLI only delays its own status and models.
+ * until something asks. Conversation model discovery only probes enabled
+ * agents; the image catalog can independently probe Codex for media use.
+ * A slow or broken CLI only delays its own status and models.
  */
 export class AgentRuntimeService {
   readonly settings: AgentRuntimeSettingsStore;
@@ -174,6 +175,19 @@ export class AgentRuntimeService {
 
   async statuses(recheck = false): Promise<AgentRuntimeStatus[]> {
     return Promise.all(AGENT_RUNTIME_IDS.map((id) => this.status(id, recheck)));
+  }
+
+  /** Media can use Codex's sign-in without enabling it as a conversation agent. */
+  async codexImageConnection(recheck = false) {
+    const binary = await resolveBinary("codex-cli", this.settings.get("codex-cli").binaryPath, recheck);
+    if (!binary) return undefined;
+    const probe = await this.#probe("codex-cli", binary, recheck);
+    return {
+      ...binary,
+      env: await this.#environment("codex-cli", binary.path),
+      auth: probe?.auth,
+      error: probe?.requirementError?.message,
+    };
   }
 
   async status(

@@ -1277,7 +1277,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onExport={exportGame}
         onClose={() => setProjectSettingsOpen(false)}
       /> : null}
-      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
+      {publishDialog ? <PublishDialog project={project} publishing={publishing || building} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
     </section>
   );
 }

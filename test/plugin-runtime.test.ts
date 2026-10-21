@@ -48,7 +48,7 @@ describe("plugin runtime", () => {
     } as unknown as LocalPluginStore;
 
     await expect(resolvePluginSkills([local], settings)).resolves.toEqual([{
-      path: "/managed/plugin/0.1.0/skills/review/SKILL.md",
+      path: path.join("/managed/plugin/0.1.0", "skills/review/SKILL.md"),
       pluginDisplayName: "Test",
       marketplaceDisplayName: "Personal",
     }]);

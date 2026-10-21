@@ -450,6 +450,12 @@ when an update is published; publication details show that snapshot.
 
 ## Publishing
 
+In web game, General, and interactive story chats, type `/publish` and select
+the command or send it to open the existing publish dialog. The command is
+handled locally and is not sent to the agent. It is available while the agent
+and publishing are idle; Godot projects do not offer it. Confirm the title,
+description, and cover in the dialog to publish and get the share link.
+
 Published ZIPs may be up to 100 MiB. The matching Cloud API accepts up to
 200 MiB per file, 1 GiB after extraction, and 2,000 entries. Deploy the Cloud
 limit update before releasing the client; older services still reject larger

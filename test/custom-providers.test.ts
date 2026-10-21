@@ -25,6 +25,8 @@ const gateway = { name: "My gateway", baseUrl: "https://gateway.example/v1", api
 async function fixture(prompt = vi.fn(async () => {}), modelDiscoveryFetch?: typeof fetch, imageFetch?: typeof fetch) {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-custom-providers-"));
   directories.push(directory);
+  // Keep the catalog independent of a developer's installed and signed-in Codex.
+  await writeFile(path.join(directory, "agent-runtimes.json"), JSON.stringify({ runtimes: { "codex-cli": { binaryPath: path.join(directory, "missing-codex") } } }));
   const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
   const abort = vi.fn(async () => {});
   const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, modelDiscoveryFetch, imageFetch, createModelRuntime: async () => runtime, createSession: async () => ({ messages: [], prompt, abort, dispose: () => {}, subscribe: () => () => {} }) });

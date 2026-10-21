@@ -21,6 +21,18 @@ describe("workspaceLinkPath", () => {
     expect(workspaceLinkPath("docs", "/tmp/game")).toBeUndefined();
     expect(workspaceLinkPath("example.com", "/tmp/game")).toBeUndefined();
   });
+
+  it("resolves links relative to the Markdown file's folder without leaving the project", () => {
+    expect(workspaceLinkPath("api.md", "/tmp/game", "docs")).toBe("docs/api.md");
+    expect(workspaceLinkPath("../README.md", "/tmp/game", "docs/guide")).toBe("docs/README.md");
+    expect(workspaceLinkPath("../../src/app.ts", "/tmp/game", "docs/guide")).toBe("src/app.ts");
+    expect(workspaceLinkPath("../../secret.txt", "/tmp/game", "docs")).toBeUndefined();
+    expect(workspaceLinkPath("/tmp/game/src/app.ts", "/tmp/game", "docs")).toBe("src/app.ts");
+    expect(workspaceLinkPath("logo.png", undefined, "docs/img")).toBe("docs/img/logo.png");
+    expect(workspaceLinkPath("docs/../README.md", undefined, "")).toBe("README.md");
+    expect(workspaceLinkPath("../secret.txt", undefined, "")).toBeUndefined();
+    expect(workspaceLinkPath("%2e%2e/%2e%2e/secret.txt", undefined, "docs")).toBeUndefined();
+  });
 });
 
 describe("workspace file link icons", () => {

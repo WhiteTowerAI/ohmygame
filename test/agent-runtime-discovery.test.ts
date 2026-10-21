@@ -10,6 +10,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
   for (const close of cleanup.splice(0).reverse()) await close();
 });
+// Windows starts only .exe programs, so it cannot run these script stand-ins, and
+// discovery ignores them there (see docs/agent-runtimes.md).
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-model-cache-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -48,7 +50,7 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
   };
   return { service, install };
 }
-it("refreshes direct model lookup after the catalog TTL expires", async () => {
+it.skipIf(process.platform === "win32")("refreshes direct model lookup after the catalog TTL expires", async () => {
   const { service, install } = await fixture();
   const cli = await install("claude-a");
   await service.update("claude-code-cli", {
@@ -62,7 +64,7 @@ it("refreshes direct model lookup after the catalog TTL expires", async () => {
   expect(await service.model("claude-code-cli", "changed")).toBeDefined();
   expect(await service.model("claude-code-cli", "claude-a")).toBeUndefined();
 });
-it("does not let an old in-flight catalog overwrite a newly selected executable", async () => {
+it.skipIf(process.platform === "win32")("does not let an old in-flight catalog overwrite a newly selected executable", async () => {
   const { service, install } = await fixture();
   const old = await install("claude-old"),
     next = await install("claude-new");
@@ -86,7 +88,7 @@ it("does not let an old in-flight catalog overwrite a newly selected executable"
   expect(await service.model("claude-code-cli", "claude-old")).toBeUndefined();
 });
 
-it("loads every page of the native Codex model catalog", async () => {
+it.skipIf(process.platform === "win32")("loads every page of the native Codex model catalog", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-model-pages-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const binary = path.join(root, "codex");

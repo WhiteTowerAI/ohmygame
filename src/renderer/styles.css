@@ -12806,6 +12806,22 @@ button {
   font-size: 10px;
 }
 
+.model-selector-agent-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  vertical-align: -2px;
+}
+
+.model-selector-agent-icon.is-monochrome {
+  filter: invert(1);
+}
+
+.model-selector-provider-name .model-selector-agent-icon {
+  margin-right: 6px;
+}
+
 .model-selector-name {
   min-width: 0;
   overflow: hidden;
@@ -14841,6 +14857,21 @@ button {
   flex: 1;
 }
 
+.file-content-markdown {
+  flex: 1;
+  min-height: 0;
+  padding: 20px 28px;
+  overflow: auto;
+}
+
+.file-content-markdown img {
+  max-width: 100%;
+}
+
+.file-content-markdown-image {
+  color: var(--text-muted);
+}
+
 .assets-view {
   display: flex;
   flex: 1;
@@ -15525,6 +15556,10 @@ button {
 
 :root[data-appearance="light"] .settings-provider-mark.is-monochrome {
   background: #2d2d2d;
+}
+
+:root[data-appearance="light"] .model-selector-agent-icon.is-monochrome {
+  filter: none;
 }
 
 :root[data-appearance="light"]

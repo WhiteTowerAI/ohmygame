@@ -268,6 +268,15 @@ not portable. Native canvas file edits still need `canvas_check`; media jobs,
 artifacts, retries, defaults, and cancellation reuse their existing handlers.
 A native language model is not an image, video, or 3D model.
 
+Codex also has a separate `codex-cli` image provider with the logical model
+`codex-image`. It checks the installed CLI's saved sign-in and
+`modelProvider/capabilities/read` independently of conversation enablement.
+`ProviderImages` dispatches it without an HTTP API source; canvas jobs, image
+defaults, Library registration and cancellation use the ordinary media flow.
+Each job runs a private ephemeral thread and reads completed images through
+the same bounded decoder as native imports. No dynamic media tools are
+registered in the image thread, preventing recursive `generate_image` calls.
+
 Codex can also return images from its own built-in image generation. The
 adapter imports completed `imageGeneration` items through the same project
 generated-asset and Library pipeline as `generate_image`, and records a file
