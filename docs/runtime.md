@@ -28,7 +28,10 @@ requests to the daemon.
 `bun run dev:desktop` starts Vite and Electron. Electron starts the compiled
 daemon itself on an available loopback port, waits for `/health`, and passes
 the daemon address plus a random process-scoped token through the isolated
-preload bridge. The renderer has no Node.js access.
+preload bridge. The preload asks the main process for them when the page
+loads, and the main process answers only the renderer page in the window's
+main frame, not an embedded frame or another page. The renderer has no
+Node.js access.
 
 The main desktop window starts at 1200 × 780 logical pixels, centered on the
 display containing the pointer. It fits within 90% of that display's available
@@ -271,7 +274,9 @@ without an OhMyGame approval prompt. Provider credentials stay in the daemon
 and are never written to workspaces or returned to the renderer.
 
 The desktop app writes the daemon's access token to the daemon's stdin, not
-to its environment, which other processes of the same user can read. A daemon
+to its environment, which other processes of the same user can read. For the
+same reason the desktop app never puts the token on a command line: the
+renderer receives it over IPC rather than as a process argument. A daemon
 started on its own may be given the token in `OHMYGAME_DAEMON_TOKEN`; it
 removes the variable at startup, though the original environment may still
 be visible in process listings. Either way no process the daemon starts
