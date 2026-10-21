@@ -177,7 +177,9 @@ it("shows a CLI's command sandbox as one row on its detail page", async () => {
     (item) => item.textContent,
   );
   expect(rows).toContain("Command sandboxOperating system");
-  expect(host.querySelectorAll(".settings-detail-hint")).toHaveLength(0);
+  expect(host.textContent).toContain(
+    "Leave empty and save to find the CLI automatically.",
+  );
 });
 
 it("labels the verified version as a reference and identifies a missing CLI capability", async () => {
@@ -260,7 +262,7 @@ it("refreshes account limits when the model probe finishes after the first statu
   expect(row("Codex")!.querySelector(".agent-usage-inline")).toBeNull();
   await act(async () => finish());
   expect(row("Codex")!.querySelector(".agent-usage-inline")?.textContent).toBe(
-    "5-hour42%",
+    "5-hour42% used",
   );
 });
 
@@ -278,7 +280,7 @@ it("shows each CLI's usage limits in its row and on its detail page", async () =
   await render();
   expect(
     row("Claude Code")!.querySelector(".agent-usage-inline")?.textContent,
-  ).toBe("5-hour13%Weekly33%");
+  ).toBe("5-hour13% usedWeekly33% used");
   expect(row("Codex")!.querySelector(".agent-usage-inline")).toBeNull();
   const detail = async (id: "claude-code-cli" | "codex-cli" | "opencode-cli") =>
     act(async () =>
@@ -297,4 +299,79 @@ it("shows each CLI's usage limits in its row and on its detail page", async () =
   expect(host.textContent).toContain("Shown after a conversation with Codex.");
   await detail("opencode-cli");
   expect(host.textContent).not.toContain("Usage limits");
+});
+
+it("shows the resolved CLI source separately from an empty automatic path override", async () => {
+  const binaryPath =
+    "/Applications/Codex.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex";
+  api.listAgentRuntimes.mockResolvedValueOnce([
+    {
+      ...agent("codex-cli", "Codex", false),
+      binaryPath,
+      binarySource: "codex-app",
+    },
+  ]);
+  await act(async () =>
+    root.render(
+      <AgentsSettings
+        view={{ page: "agent", id: "codex-cli" }}
+        onViewChange={vi.fn()}
+        onOpenProviders={vi.fn()}
+      />,
+    ),
+  );
+  expect(
+    host.querySelector<HTMLInputElement>("#codex-cli-executable")!.value,
+  ).toBe("");
+  expect(host.textContent).toContain("Bundled with Codex");
+  expect(
+    host.querySelector(".coding-agent-executable-path code")?.textContent,
+  ).toBe(binaryPath);
+});
+
+it("keeps an invalid manual path editable and explains how to restore automatic detection", async () => {
+  api.listAgentRuntimes.mockResolvedValueOnce([
+    {
+      ...agent("codex-cli", "Codex", false),
+      installed: false,
+      configuredBinaryPath: "/missing/codex",
+      diagnostics: [{ code: "invalid-executable", message: "Missing" }],
+    },
+  ]);
+  await act(async () =>
+    root.render(
+      <AgentsSettings
+        view={{ page: "agent", id: "codex-cli" }}
+        onViewChange={vi.fn()}
+        onOpenProviders={vi.fn()}
+      />,
+    ),
+  );
+  expect(
+    host.querySelector<HTMLInputElement>("#codex-cli-executable")!.value,
+  ).toBe("/missing/codex");
+  expect(host.textContent).toContain("Configured executable unavailable");
+  expect(host.textContent).toContain(
+    "clear it and save to restore automatic detection",
+  );
+  expect(host.textContent).not.toContain("Installation guide");
+});
+
+it("does not label a failed CLI probe as a successful installation check", async () => {
+  api.listAgentRuntimes.mockResolvedValueOnce([
+    {
+      ...agent("codex-cli", "Codex", false),
+      diagnostics: [{ code: "probe-failed", message: "Failed to start" }],
+    },
+  ]);
+  await act(async () =>
+    root.render(
+      <AgentsSettings
+        view={{ page: "agent", id: "codex-cli" }}
+        onViewChange={vi.fn()}
+        onOpenProviders={vi.fn()}
+      />,
+    ),
+  );
+  expect(host.textContent).toContain("CLI check failed");
 });

@@ -19,6 +19,7 @@ files:
   - dist/desktop/**/*.cjs
   - dist/daemon/**/*.js
   - dist/shared/**/*.js
+  - dist/story-web/resources.json
   - dist/renderer/**/*
   - dist/player/**/*
   - "!node_modules/typebox/build/**/*.mjs"
@@ -28,6 +29,8 @@ files:
 extraResources:
   - from: plugins
     to: plugins
+  - from: integrations/skills
+    to: integrations/skills
   - from: .runtime/preinstalled-plugins
     to: preinstalled-plugins
   - from: .runtime/examples

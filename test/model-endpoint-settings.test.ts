@@ -20,7 +20,8 @@ describe("model endpoint settings", () => {
       version: 1,
       baseUrl: "https://relay.example/v1",
     });
-    expect((await stat(path.join(dataDirectory, "openai-endpoint.json"))).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(path.join(dataDirectory, "openai-endpoint.json"))).mode & 0o777).toBe(0o600);
   });
 
   it("removes the override when the official endpoint is restored", async () => {

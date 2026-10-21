@@ -59,6 +59,23 @@ and remains available in every state.
 Development builds never reach the feed: `DesktopUpdater.check` reports the
 current version as installed unless `app.isPackaged`.
 
+## Differential downloads
+
+The updater can reuse a cached installer and download only changed blocks.
+The download size is the sum of changed blocks, not the difference between the
+old and new installer sizes. A small increase in package size can still require
+a substantial download.
+
+The `electron-updater` patch limits each multipart batch to 64 copy/download
+operations. Some CDN responses ignore an oversized `Range` header and return
+the full file with HTTP 200 instead of multipart HTTP 206, causing the updater
+to fall back to a full download. Bounded batches retain differential downloads;
+progress is aggregated across all batches, including single-range and local-copy
+batches. Completed batches clear their response-end watchdog so it cannot abort
+a later batch. The reconstructed installer still requires its original SHA-512 check.
+This client fix takes effect after installation; it does not change an older
+installed app's update downloader.
+
 ## Publishing
 
 Prepare the release version in `package.json` and its notes in
@@ -106,6 +123,15 @@ and adapters match the installed patch, then starts the packaged daemon with
 temporary data and verifies its authenticated API on native platform builds.
 An incomplete or unpatched dependency therefore fails packaging before an
 installer is created.
+
+`build:host` also generates `dist/story-web/resources.json`: the readable story
+runtime modules, with comments retained, and the bundled editor bridge. The
+desktop package includes this resource file. The built daemon reads it directly
+instead of asking esbuild to read modules inside `app.asar`; source development
+still generates the resources on demand. Stories keep their own editable runtime
+under `story/` and their existing manifest-based updates. The package hook checks
+the resource file against the build and, on native builds, exercises story
+creation, upgrading a legacy story, and serving the preview and editor bridge.
 
 ### Release notes
 

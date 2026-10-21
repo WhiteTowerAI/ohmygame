@@ -15,6 +15,34 @@ afterEach(async () => {
 });
 
 describe("Interactive Story project export", () => {
+  it("stores compressed media directly while still deflating editable text", async () => {
+    const workspace = await temporaryDirectory();
+    const library = new AssetLibrary(await temporaryDirectory());
+    await library.load();
+    const video = await library.add("clip.MP4", Buffer.from("video bytes"));
+    const codebase = createStarterCodebaseWithScene("Story", { width: 1280, height: 720 });
+    codebase.graph.assets.video = { type: "video", source: { kind: "library", assetId: video.id } };
+    await createNodeCodebase(workspace, codebase);
+    await writeFile(path.join(workspace, "portrait.PNG"), "image bytes");
+    const archive = await exportPlayableProject(workspace, library);
+    const methods = await new Promise<Record<string, number>>((resolve, reject) => {
+      yauzl.fromBuffer(archive, { lazyEntries: true }, (error, zip) => {
+        if (error || !zip) return reject(error ?? new Error("ZIP could not be opened."));
+        const entries: Record<string, number> = {};
+        zip.on("entry", (entry: yauzl.Entry) => { entries[entry.fileName] = entry.compressionMethod; zip.readEntry(); });
+        zip.once("error", reject);
+        zip.once("end", () => resolve(entries));
+        zip.readEntry();
+      });
+    });
+    expect(methods["portrait.PNG"]).toBe(0);
+    expect(methods["assets/library/clip.mp4"]).toBe(0);
+    expect(methods["graph.json"]).toBe(8);
+    const files = await unzip(archive);
+    expect(files["portrait.PNG"]!.toString()).toBe("image bytes");
+    expect(files["assets/library/clip.mp4"]!.toString()).toBe("video bytes");
+  });
+
   it("packs the editable project with its Library assets and without local folders", async () => {
     const workspace = await temporaryDirectory();
     const library = new AssetLibrary(await temporaryDirectory());

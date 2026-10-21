@@ -1,7 +1,7 @@
 import { IMAGE_ASPECT_RATIOS, type ImageAspectRatio, type ImageModel, type ImageOutputCount, type ImageProtocol, type ImageResolution } from "../shared/contracts.js";
 import { knownImageReferenceLimit } from "../shared/image-reference-limits.js";
 
-type ImageModelDefinition = Omit<ImageModel, "provider" | "providerName">;
+type ImageModelDefinition = Omit<ImageModel, "provider" | "providerName" | "protocol"> & { protocol: ImageProtocol };
 
 /**
  * Model IDs a provider's `/models` list may contain that OhMyGame can drive, by family.

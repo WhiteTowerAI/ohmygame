@@ -458,7 +458,11 @@ describe("read-only workspace Git changes", () => {
       "line\nfile.txt",
       "-option.txt",
       ":[glob]*.txt",
-    ];
+      "[glob].txt",
+    ].filter(
+      // Windows file names cannot contain tabs, newlines, colons or asterisks.
+      (name) => process.platform !== "win32" || !/[\t\n:*]/.test(name),
+    );
     for (const name of names) await write(name, "before\n");
     await commit();
     for (const name of names) await write(name, "after\n");

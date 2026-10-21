@@ -203,7 +203,7 @@ export function CodingAgentDetail({
         const found = agents.find((item) => item.id === id);
         if (!active || !found) return;
         setAgent(found);
-        setBinaryPath(found.binaryPath ?? "");
+        setBinaryPath(found.configuredBinaryPath ?? "");
       })
       .catch((cause) => {
         if (active) setError(errorMessage(cause));
@@ -231,7 +231,7 @@ export function CodingAgentDetail({
     run("recheck", async () => {
       const status = await recheckAgentRuntime(id);
       setAgent(status);
-      setBinaryPath(status.binaryPath ?? "");
+      setBinaryPath(status.configuredBinaryPath ?? "");
       notifyAgentModelsChanged();
     });
   const signIn = () =>
@@ -245,7 +245,7 @@ export function CodingAgentDetail({
     run("save", async () => {
       const status = await updateAgentRuntime(id, change);
       setAgent(status);
-      setBinaryPath(status.binaryPath ?? "");
+      setBinaryPath(status.configuredBinaryPath ?? "");
       notifyAgentModelsChanged();
     });
   function savePath(event: FormEvent): void {
@@ -491,6 +491,7 @@ export function CodingAgentDetail({
           <div className="settings-detail-inline">
             <input
               id={`${agent.id}-executable`}
+              aria-describedby={`${agent.id}-executable-hint`}
               className="settings-search-input"
               value={binaryPath}
               placeholder={t("codingAgents.executablePlaceholder")}
@@ -502,13 +503,24 @@ export function CodingAgentDetail({
               className="settings-secondary-button"
               disabled={
                 busy !== undefined ||
-                binaryPath.trim() === (agent.binaryPath ?? "")
+                binaryPath.trim() === (agent.configuredBinaryPath ?? "")
               }
             >
               {t("common.save")}
             </button>
           </div>
         </form>
+        <p className="settings-detail-hint" id={`${agent.id}-executable-hint`}>
+          {t("codingAgents.executableHint")}
+        </p>
+        {agent.binaryPath ? (
+          <p className="settings-detail-hint coding-agent-executable-path">
+            {agent.binarySource
+              ? `${t(`codingAgents.binarySource.${agent.binarySource}`)}: `
+              : ""}
+            <code>{agent.binaryPath}</code>
+          </p>
+        ) : null}
       </section>
       {error ? (
         <p className="settings-error" role="alert">
@@ -585,7 +597,7 @@ function Diagnostic({
   );
 }
 
-function CommandText({ command }: { command: string }) {
+export function CommandText({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -619,7 +631,7 @@ function CommandText({ command }: { command: string }) {
   );
 }
 
-function AgentMark({ id }: { id: AgentRuntimeId }) {
+export function AgentMark({ id }: { id: AgentRuntimeId }) {
   const icon = PROVIDER_ICONS[id];
   if (!icon)
     return (
@@ -638,7 +650,12 @@ function AgentMark({ id }: { id: AgentRuntimeId }) {
 }
 
 function agentSummary(agent: AgentRuntimeStatus): string {
-  if (!agent.installed) return t("codingAgents.notFound");
+  if (!agent.installed)
+    return t(
+      agent.diagnostics.some((item) => item.code === "invalid-executable")
+        ? "codingAgents.invalidExecutable"
+        : "codingAgents.notFound",
+    );
   const version = agent.version
     ? `v${agent.version}`
     : t("codingAgents.versionUnknown");
@@ -648,6 +665,8 @@ function agentSummary(agent: AgentRuntimeStatus): string {
     )
   )
     return t("codingAgents.needsUpdate", { version });
+  if (agent.diagnostics.some((item) => item.code === "probe-failed"))
+    return t("codingAgents.checkFailed", { version });
   if (agent.auth.status === "signed-out")
     return t("codingAgents.installedSignedOut", { version });
   return t("codingAgents.installed", { version });
@@ -682,6 +701,8 @@ function diagnosticText(
   switch (diagnostic.code) {
     case "not-installed":
       return t("codingAgents.diagnostic.notInstalled", { name: agent.name });
+    case "invalid-executable":
+      return t("codingAgents.diagnostic.invalidExecutable");
     case "runtime-incompatible":
       return t(
         diagnostic.capability

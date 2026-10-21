@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { getGlobalDispatcher, type Dispatcher } from "undici/index.js";
 import type { CommunityGame, ProjectState, PublishResult } from "../../shared/contracts.js";
 import type {
   CommunityGameStats,
@@ -9,6 +10,18 @@ import type {
   PublishDeployment,
   PublishGame,
 } from "../../shared/publish-v1.js";
+
+const UPLOAD_TIMEOUT_MS = 10 * 60_000;
+// Preserve the current proxy dispatcher while allowing slow large uploads.
+const uploadDispatcher: Pick<Dispatcher, "dispatch"> = {
+  dispatch(options, handler) {
+    return getGlobalDispatcher().dispatch({
+      ...options,
+      headersTimeout: UPLOAD_TIMEOUT_MS,
+      bodyTimeout: UPLOAD_TIMEOUT_MS,
+    }, handler);
+  },
+};
 
 export interface RemotePublisherOptions {
   apiUrl: string;
@@ -119,13 +132,15 @@ export class RemotePublisher {
     const form = new FormData();
     form.set("metadata", JSON.stringify(metadata));
     form.set("artifact", new Blob([new Uint8Array(artifact)], { type: "application/zip" }), "game.zip");
-    return this.#request(`/v1/games/${gameId}/deployments`, {
+    const init: RequestInit & { dispatcher: Pick<Dispatcher, "dispatch"> } = {
       method: "POST",
       headers: {
         "idempotency-key": `publish-${project.id}-${project.publication?.deploymentId ?? "initial"}-${artifactSha256}`,
       },
       body: form,
-    }, accessToken);
+      dispatcher: uploadDispatcher,
+    };
+    return this.#request(`/v1/games/${gameId}/deployments`, init, accessToken, UPLOAD_TIMEOUT_MS);
   }
 
   async unpublish(gameId: string, accessToken: string): Promise<void> {
@@ -139,13 +154,13 @@ export class RemotePublisher {
     }, accessToken);
   }
 
-  async #request<T>(pathname: string, init: RequestInit = {}, accessToken?: string): Promise<T> {
-    const response = await this.#response(pathname, init, accessToken);
+  async #request<T>(pathname: string, init: RequestInit = {}, accessToken?: string, timeoutMs = 60_000): Promise<T> {
+    const response = await this.#response(pathname, init, accessToken, timeoutMs);
     if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
 
-  async #response(pathname: string, init: RequestInit = {}, accessToken?: string): Promise<Response> {
+  async #response(pathname: string, init: RequestInit = {}, accessToken?: string, timeoutMs = 60_000): Promise<Response> {
     const headers = new Headers(init.headers);
     if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
     if (typeof init.body === "string") headers.set("content-type", "application/json");
@@ -156,7 +171,7 @@ export class RemotePublisher {
         response = await this.#fetch(`${this.#apiUrl}${pathname}`, {
           ...init,
           headers,
-          signal: AbortSignal.timeout(60_000),
+          signal: AbortSignal.timeout(timeoutMs),
         });
         if (![502, 503, 504].includes(response.status) || attempt === 1) break;
         await response.arrayBuffer();

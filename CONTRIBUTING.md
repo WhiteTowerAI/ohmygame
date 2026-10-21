@@ -74,12 +74,14 @@ Development on localhost uses a local debug account when either Supabase value
 is missing. Click **Sign in** to use it. Local publishing builds the game and
 serves a temporary snapshot in Community while the daemon runs.
 
-New installations show a two-step welcome and model connection flow. Click
-**Start creating** on the provider screen after connecting a language model,
-or **Skip and start** to enter without setup. Connect a language model there or in
-**Settings → Providers & Models** when testing real agent conversations. Image,
-video, and 3D generation need their corresponding providers, which can be
-connected in Settings when needed. Public tests use fixtures and simulated
+New installations show three steps: welcome, AI connection, and optional creative
+tools. OhMyGame (Pi) is enabled by default and needs a model provider; an installed
+coding agent CLI can also supply the conversation model. Choose the default model
+on the connection screen and click **Next**. The final screen connects image,
+video, 3D, and audio providers; **Start creating** enters without requiring media setup.
+**Skip and start** on the connection screen enters without a language model.
+Providers and models can also be set up in **Settings → Providers & Models**, and
+coding agent CLIs in **Settings → Agents**. Public tests use fixtures and simulated
 providers.
 
 Bun installs dependencies and runs the build/test toolchain. The standalone
@@ -143,6 +145,12 @@ The [CI workflow](.github/workflows/ci.yml) runs on PRs and pushes to `dev` and
 types, tests, the renderer build, and the Node daemon/player build and startup.
 `test:node-runtime` builds the host and player before checking Node startup, so
 this sequence covers the full application build without building them twice.
+These checks run on Ubuntu. Plugin preparation, types, tests and the Node
+startup check also run on macOS and Windows, the platforms the app ships for.
+When a test cannot hold on one platform, skip only the assertion that does not
+apply there, as the file permission checks do on Windows.
+CLI integration cases that execute POSIX script fixtures run on Ubuntu and macOS;
+Windows still runs the in-process adapter and protocol tests.
 
 Remote publishing contract tests in `test/publish.test.ts` skip when the private
 cloud repository or its dependencies are unavailable. That is expected for

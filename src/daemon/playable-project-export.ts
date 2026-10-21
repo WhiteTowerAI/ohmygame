@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import { ZipFile } from "yazl";
 import { AssetLibraryError, type AssetLibrary } from "./asset-library.js";
+import { compressArchiveFile } from "./archive-compression.js";
 
 const GRAPH_FILE = "graph.json";
 const LIBRARY_ASSET_DIRECTORY = "assets/library";
@@ -62,14 +63,14 @@ export async function exportPlayableProject(
   const options = { mtime: new Date(1980, 0, 2), forceDosTimestamp: true } as const;
   for (const file of files) {
     if (file === GRAPH_FILE) continue;
-    zip.addFile(path.join(workspacePath, ...file.split("/")), file, options);
+    zip.addFile(path.join(workspacePath, ...file.split("/")), file, { ...options, compress: compressArchiveFile(file) });
   }
   zip.addBuffer(
     Buffer.from(copies.size ? `${JSON.stringify(graph, null, 2)}\n` : graphText, "utf8"),
     GRAPH_FILE,
     options,
   );
-  for (const copy of copies.values()) zip.addFile(copy.absolutePath, copy.path, options);
+  for (const copy of copies.values()) zip.addFile(copy.absolutePath, copy.path, { ...options, compress: compressArchiveFile(copy.path) });
   return zipBuffer(zip);
 }
 

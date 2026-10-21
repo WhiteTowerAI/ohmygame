@@ -5,15 +5,16 @@ import { sniffImageType } from "../image-format.js";
 import type { DriverContext } from "./driver-context.js";
 import type { NativeToolResult } from "./native-session.js";
 import { inside } from "./policy.js";
+import type { GeneratedImage } from "../openai-image.js";
 
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 
 /** The protocol carries Base64 bytes; some versions only retain a savedPath. Never fetch a URL. */
-export async function importCodexImage(
+export async function readCodexImage(
   item: Record<string, unknown>,
   threadId: string,
-  context: DriverContext,
-): Promise<NativeToolResult> {
+  env: Record<string, string>,
+): Promise<GeneratedImage> {
   let bytes: Buffer;
   if (typeof item.result === "string" && item.result) {
     const encoded = item.result.replace(
@@ -30,8 +31,8 @@ export async function importCodexImage(
     // A file-only result may read exactly this thread's generated-images directory,
     // including its real path, never an arbitrary path supplied by the agent.
     const home =
-      context.env.CODEX_HOME ||
-      (context.env.HOME && path.join(context.env.HOME, ".codex"));
+      env.CODEX_HOME ||
+      (env.HOME && path.join(env.HOME, ".codex"));
     if (
       !home ||
       !/^[A-Za-z0-9_-]+$/.test(threadId) ||
@@ -76,6 +77,15 @@ export async function importCodexImage(
   const mediaType = sniffImageType(bytes);
   if (!mediaType || bytes.length > MAX_IMAGE_BYTES)
     throw new Error("Codex returned an unsupported or invalid image");
+  return { bytes, mediaType };
+}
+
+export async function importCodexImage(
+  item: Record<string, unknown>,
+  threadId: string,
+  context: DriverContext,
+): Promise<NativeToolResult> {
+  const { bytes, mediaType } = await readCodexImage(item, threadId, context.env);
   if (!context.saveGeneratedImage)
     throw new Error("Project image import is unavailable");
   const extension =

@@ -64,6 +64,10 @@ and gives the daemon time to stop active Pi and preview processes.
 The renderer receives a small runtime event stream over SSE rather than Pi's
 internal event objects. Reconnects replay recent events, and conversations are
 restored from Pi's session files, so a reload does not lose or duplicate turns.
+The UI reader collects incomplete JSONL records as byte chunks and decodes
+each complete line once. Large inline images therefore do not cause repeated
+copying and scanning of the growing record; the authoritative session stays
+unchanged, including when the final record is still being appended.
 
 Preview failures stay with their project. The desktop supervises unexpected
 daemon exits and reconnects the existing renderer to a fresh service generation.
@@ -77,16 +81,52 @@ automatic policy, idle collection, logs, and browser storage.
 The home route reads the daemon's `/settings/onboarding` preference before
 opening the studio. The daemon stores version 1 state in `onboarding.json`
 under its data directory: `status` is `pending`, `completed`, or `skipped`,
-and `step` is `welcome` or `connect`. Atomic, serialized writes retain the
-current step across restarts. Completing setup requires a language model in
-the same enabled, visible catalog used by the home composer. This checks
-configuration and catalog availability, without sending an inference request.
-The provider screen enables **Start creating** only when a language model is
-available; it records `completed`. Until then, a separate **Skip and start**
-text button without a hover background records `skipped` and allows
-configuration later in Settings; it is hidden once a model is ready.
-**Next** and the provider screen's actions sit near the bottom, above the
-step indicators.
+and `step` is `welcome`, `connect`, or `media`. Existing version 1 records
+remain valid. Atomic, serialized writes retain the current step across restarts.
+The connection step offers model providers and local coding agent CLIs; discovery
+never enables a CLI automatically. Selecting an installed CLI enables it and
+starts sign-in when needed. Rechecking installation enables the explicitly
+selected CLI once available; finishing sign-in refreshes its models without
+requiring another selection. Failed sign-in can be retried in place.
+**Next** saves the selected model. CLI sign-in
+can return a browser URL or a terminal command,
+with a recheck after sign-in. Advanced CLI configuration stays in Settings → Agents.
+
+OhMyGame (Pi) appears first with a **Default** subtitle alongside the CLIs in a
+single horizontally scrolling row. Initially only agent choices are shown.
+Selecting one replaces those cards with a compact name and a **Switch**
+action, then shows its configuration. A short hint on the agent choices explains
+that multiple agents can stay connected and users can switch between them.
+The hint is hidden in an agent's configuration. Reopening the choices preserves model
+selections and hides configuration until an agent is selected again. It cannot be disabled. Selecting it
+does not disable any CLI. Sign-in, API key, and configuration actions use icons
+with accessible labels and tooltips. Connected
+providers show a check; disabled connections offer an enable icon without
+changing their credentials.
+Wide windows show all four agents; narrower windows hide the scrollbar and
+allow wheel, touch, keyboard, and arrow navigation. Vertical wheel events only
+move the row while there is horizontal space in that direction.
+The connection screen also selects the default conversation model. It uses
+`/models?runtimes=1`, including enabled coding agents, and retries catalogs with
+`loadingRuntimes` without hiding models already available. Native defaults use
+`nativeReasoningLevel`; provider defaults use `reasoningLevel`. **Next** saves
+the default and opens optional creative tools. Completing setup requires an
+enabled, visible provider model or an enabled CLI model, without sending inference.
+**Skip and start** on the connection screen records `skipped` when no model is ready.
+
+The final `media` step offers image, video, 3D, and audio category filters and
+reuses Settings' provider connection forms. All providers in the selected category
+are shown directly, without a More section. The **+** button opens the shared
+custom-provider form inline, without changing the conversation model. The footer
+offers **Start creating**; step indicators handle navigation. The description points
+to **Settings → Providers & Models** for later configuration.
+Media default models stay in Settings; this step does not load their catalogs.
+Media setup never changes the chat model or reloads the conversation catalog
+when media connections change. **Start creating** enters the studio without
+requiring media credentials or waiting for media catalogs; completion records
+`completed` when a conversation model is available, otherwise `skipped`.
+Actions remain outside the media form's scrolling area and above three step
+indicators.
 
 Settings → Providers and the setup list share one grouping. Every working
 connection, including free cloud and local services, is under **Connected
@@ -95,26 +135,29 @@ providers** (OpenAI, Anthropic, OpenRouter, Google, DeepSeek, Meshy, Tripo,
 filtered by capability), **Local providers**, and the collapsed **More
 providers**.
 
-The setup list shows language providers only. Without a search, connected and
+The connection step lists language providers only. Without a search, connected and
 popular providers come first, and the rest, including local services, stay
-under **More providers**. The legacy OpenAI Codex entry is hidden unless it is
+under **More providers**. Clicking it reveals the remaining providers and removes
+the button; the list stays expanded while searching and clearing the search.
+The legacy OpenAI Codex entry is hidden unless it is
 already connected, because OpenAI sign-in covers ChatGPT subscriptions.
 Searching lists every match. Saved
-built-in and custom connections show **Connected** instead of offering setup
-again. Disabled connections offer **Enable** without changing credentials.
+built-in and custom connections show a check instead of offering setup again.
+Disabled connections offer an enable icon without changing credentials.
 Before starting or retrying setup, the renderer refreshes the provider's saved
 state to avoid reopening a connection that changed since the list loaded.
 Existing provider credentials and models can be edited from Settings.
 
-Connecting, adding, or enabling a provider during setup makes its recommended
-language model the global default. Navigation and completion stay disabled
-until the default is saved, including during catalog refreshes. If saving
-fails, **Retry** saves the default again without repeating authorization.
-The recommendation mirrors Pi's
-per-provider defaults for the popular providers and falls back to the
-provider's first visible model. The ready line names the default model and its
-provider; with more than one model available, it is a menu that changes the
-default.
+Connecting, adding, or enabling a provider during setup selects its recommended
+language model within the form. The recommendation mirrors Pi's per-provider
+defaults for popular providers and falls back to the provider's first visible
+model. The ready line names the selected model and its provider; its menu lists
+only the current agent's models. Switching agents retains each model choice
+without saving or reloading catalogs. **Next**, or navigating to the media step,
+saves the selected model once. Navigation stays disabled during that save;
+**Retry** retries a failed save without repeating authorization or enabling the
+agent again. Provider listing and conversation models load independently, so a
+failed or slow provider list does not block an available CLI model.
 
 An installation with no preference but existing projects or a configured
 language provider is marked completed once. Media credentials alone do not
@@ -124,12 +167,14 @@ than blocking project access. Project links, playtest windows, and thumbnail
 renderers do not pass through the home gate.
 
 **Settings → About → View getting started** reopens the welcome. Moving to the
-connection step with **Next** saves a pending preference again. The two bottom
-step indicators are buttons for switching between the welcome and provider
-screens. Selecting the provider step also returns from its inline forms to
+connection step with **Next** saves a pending preference again. The three bottom
+step indicators switch between welcome, AI connection, and optional creative
+tools. Selecting the provider step also returns from its inline forms to
 the provider list. Step navigation is disabled while saving. The welcome's
-illustration plays once per visit in 5.2 seconds. Only the forming game world
-is visible at first: terrain rises, paths unfold, water reshapes, and trees
+illustration plays once per setup session in 5.2 seconds. Returning from a later
+step shows the final logo, title, and controls immediately, including when setup
+resumes at a later step. Only the forming game world
+is visible at first: terrain rises, paths unfold, and trees
 grow in sequence. Its outline then morphs into a small OhMyGame logo beside
 the wordmark, followed by **Your own game studio.** and **Next**. Hidden
 controls stay out of keyboard navigation. Reduced-motion preferences show the
@@ -138,8 +183,16 @@ the daemon's provider authentication flow and custom-provider form; it does
 not require an OhMyGame cloud account. The add button beside provider search
 opens that form inline. Settings uses the same form in its existing dialog.
 Saving or cancelling returns to the provider list without adding a persisted
-setup step. Image, video, and 3D connections and default models are configured
-in Settings and do not change the language-only completion requirement.
+setup step. Image, video, 3D, and audio connections can be configured in optional
+creative tools or in Settings, and never change the language-model completion
+requirement.
+
+After the completion or skip preference is saved, a 1.9-second localized
+**Welcome, Gamer!** greeting appears on one centered line in the app's system font
+and fades in and out over the studio. Its size adapts to the window. The studio loads behind
+it and remains inert until the greeting ends. Failed saves stay in setup with a
+retry action; ordinary launches do not replay the greeting. Reduced-motion
+preferences bypass the animation, including when changed during the greeting.
 
 ## Network proxy
 
@@ -446,10 +499,34 @@ when an update is published; publication details show that snapshot.
 
 ## Publishing
 
+In web game, General, and interactive story chats, type `/publish` and select
+the command or send it to open the existing publish dialog. The command is
+handled locally and is not sent to the agent. It is available while the agent
+and publishing are idle; Godot projects do not offer it. Confirm the title,
+description, and cover in the dialog to publish and get the share link.
+
+Published ZIPs may be up to 100 MiB. The matching Cloud API accepts up to
+200 MiB per file, 1 GiB after extraction, and 2,000 entries. Deploy the Cloud
+limit update before releasing the client; older services still reject larger
+uploads. Deployment uploads have a ten-minute timeout per attempt.
+
+Interactive Story publishing optimizes temporary copies of referenced media;
+workspace and Library originals, local builds, and project exports are unchanged.
+PNG scanlines are recompressed losslessly, preserving transparency and metadata.
+MP4 files are encoded as H.264 (CRF 23) with AAC audio at 128 kbit/s when FFmpeg
+is available on PATH or selected by `OHMYGAME_FFMPEG_PATH`. No encoder is bundled.
+Video dimensions are rounded down to even pixels for H.264 compatibility.
+Encoding has a two-minute limit per video. Missing encoders, failed encodes,
+and larger results keep the original. Files below 256 KiB are skipped; PNG
+optimization is bounded to 64 MiB and video encoding to 200 MiB per source.
+Other media formats keep their original encoding. ZIP compression alone offers
+little reduction for already compressed images, audio, or video.
+
 A workspace is publishable when it has a non-empty `scripts.build` that
 produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
-and symbolic links are skipped, and binary assets are preserved byte for byte.
+and symbolic links are skipped. Binary assets retain their original bytes except
+for the Interactive Story publish-copy optimizations described above.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 
 Each publish creates an immutable Deployment of the same Game, so the play link

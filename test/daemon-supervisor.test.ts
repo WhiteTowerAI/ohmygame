@@ -41,6 +41,10 @@ async function fixture(
       }
     });
     process.once('SIGTERM', () => server.close(() => process.exit(0)));
+    // Windows has no SIGTERM to catch: the supervisor asks over IPC, as the real daemon expects.
+    process.on('message', (message) => {
+      if (message?.channel === 'ohmygame:shutdown') server.close(() => process.exit(0));
+    });
   `,
   );
   const states: DesktopRuntimeState[] = [];

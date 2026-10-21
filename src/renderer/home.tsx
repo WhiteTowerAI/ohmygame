@@ -19,12 +19,13 @@ import "./studios.css";
 import { t } from "./i18n.js";
 
 interface HomeProps {
+  inert?: boolean;
   onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpen: (projectId: string, view?: "design") => void;
 }
 
-export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
+export function Home({ onNavigate, onCreate, onOpen, inert = false }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -81,7 +82,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
   const visibleExamples = examples.slice(0, columns);
 
   return (
-    <main className="home-shell">
+    <main className="home-shell" inert={inert}>
       <AppSidebar active="home" onNavigate={onNavigate} />
 
       <section className="home-content home-content-fitted">

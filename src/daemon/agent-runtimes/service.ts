@@ -102,8 +102,9 @@ export interface NativeSessionRequest {
 
 /**
  * The coding agents OhMyGame can run conversations with. Nothing here runs
- * until something asks: choosing OhMyGame's own agent never starts or probes
- * a CLI, and a slow or broken CLI only delays its own status and models.
+ * until something asks. Conversation model discovery only probes enabled
+ * agents; the image catalog can independently probe Codex for media use.
+ * A slow or broken CLI only delays its own status and models.
  */
 export class AgentRuntimeService {
   readonly settings: AgentRuntimeSettingsStore;
@@ -176,14 +177,29 @@ export class AgentRuntimeService {
     return Promise.all(AGENT_RUNTIME_IDS.map((id) => this.status(id, recheck)));
   }
 
+  /** Media can use Codex's sign-in without enabling it as a conversation agent. */
+  async codexImageConnection(recheck = false) {
+    const binary = await resolveBinary("codex-cli", this.settings.get("codex-cli").binaryPath, recheck);
+    if (!binary) return undefined;
+    const probe = await this.#probe("codex-cli", binary, recheck);
+    return {
+      ...binary,
+      env: await this.#environment("codex-cli", binary.path),
+      auth: probe?.auth,
+      error: probe?.requirementError?.message,
+    };
+  }
+
   async status(
     id: AgentRuntimeId,
     recheck = false,
   ): Promise<AgentRuntimeStatus> {
     if (recheck) this.#invalidate(id);
+    const revision = this.#revisions.get(id);
     const definition = AGENT_RUNTIME_DEFINITIONS[id];
     const settings = this.settings.get(id);
     const binary = await resolveBinary(id, settings.binaryPath, recheck);
+    if (this.#revisions.get(id) !== revision) return this.status(id);
     const limits = this.#limits.get(id);
     const base = {
       id,
@@ -193,6 +209,9 @@ export class AgentRuntimeService {
       isolateUserConfig: settings.isolateUserConfig,
       commandSandbox: commandSandbox(id),
       permissionMode: settings.permissionMode,
+      ...(settings.binaryPath
+        ? { configuredBinaryPath: settings.binaryPath }
+        : {}),
       ...(limits?.length ? { limits } : {}),
       ...(id === "codex-cli" && settings.isolateUserConfig
         ? { partialIsolation: true }
@@ -205,21 +224,26 @@ export class AgentRuntimeService {
         auth: { status: "unknown", billing: "unknown" },
         diagnostics: [
           {
-            code: "not-installed",
-            message: `${definition.name} was not found on PATH or in the usual install folders`,
-            command: definition.installUrl,
+            code: settings.binaryPath ? "invalid-executable" : "not-installed",
+            message: settings.binaryPath
+              ? `The configured executable is missing or not executable: ${settings.binaryPath}`
+              : `${definition.name} was not found on PATH or in the usual install folders`,
+            ...(!settings.binaryPath ? { command: definition.installUrl } : {}),
           },
         ],
       };
     }
     const probe = await this.#probe(id, binary, recheck);
+    if (this.#revisions.get(id) !== revision) return this.status(id);
     // Enabling or rechecking a CLI checks the same protocol used by model
     // discovery. A timeout remains a probe/catalog failure, not incompatibility.
     if (settings.enabled) await this.#loadModels(id).catch(() => {});
+    if (this.#revisions.get(id) !== revision) return this.status(id);
     return {
       ...base,
       installed: true,
       binaryPath: binary.path,
+      binarySource: binary.source,
       ...(probe?.version ? { version: probe.version } : {}),
       auth: probe
         ? {
@@ -629,6 +653,16 @@ export class AgentRuntimeService {
     this.#modelLoads.delete(id);
   }
 
+  /** The CLI's executable and the environment its commands run in, or undefined when it is not installed. */
+  async cli(
+    id: AgentRuntimeId,
+  ): Promise<{ path: string; env: Record<string, string> } | undefined> {
+    const binary = await resolveBinary(id, this.settings.get(id).binaryPath);
+    return binary
+      ? { path: binary.path, env: await this.#environment(id, binary.path) }
+      : undefined;
+  }
+
   async #environment(
     id: AgentRuntimeId,
     binaryPath: string,
@@ -696,6 +730,11 @@ export class AgentRuntimeService {
             : {}),
         });
       }
+      if (!version && !diagnostics.some((item) => item.code === "probe-failed"))
+        diagnostics.push({
+          code: "probe-failed",
+          message: `${definition.name} did not return a readable version`,
+        });
       if (auth.status === "signed-out")
         diagnostics.push({
           code: "signed-out",

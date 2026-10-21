@@ -340,7 +340,7 @@ export interface ImageModel extends ImageModelRef {
   supportsReferenceImage: boolean;
   maxReferenceImages?: number;
   maxOutputs: ImageOutputCount;
-  protocol: ImageProtocol;
+  protocol: ImageProtocol | "codex-cli";
   supportsResolution?: boolean;
   supportsAspectRatio?: boolean;
 }

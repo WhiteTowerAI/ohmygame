@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useRef, useState, type InputHTMLAttributes, type TextareaHTMLAttributes, type ReactNode, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel } from "../shared/contracts.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import { ModelSelector, type AgentModelCatalogStatus } from "./model-selector.js";
@@ -31,14 +31,16 @@ export function CanvasTextComposer({ models, modelStatus, defaultModel, defaultR
   const effectiveModel = model ?? defaultModel;
   const selectedModel = models.find((candidate) => candidate.provider === effectiveModel?.provider && candidate.id === effectiveModel.id);
   const effectiveReasoning = clampReasoningLevel(reasoningLevel ?? defaultReasoningLevel, selectedModel?.reasoningLevels ?? []);
+  const canGenerate = !busy && !generating && Boolean(instruction.trim() && selectedModel);
+  const generate = () => { if (canGenerate && selectedModel) onGenerate({ provider: selectedModel.provider, id: selectedModel.id }, effectiveReasoning); };
   return <div className="story-text-composer nodrag nowheel">
     {references}
-    <CanvasTextarea aria-label={label} rows={3} value={instruction} disabled={busy} placeholder={placeholder} onChange={onInstruction} />
+    <CanvasTextarea aria-label={label} rows={3} value={instruction} disabled={busy} placeholder={placeholder} onChange={onInstruction} onSubmit={generate} />
     {error ? <p role="alert">{error}</p> : null}
     <div className="canvas-text-composer-actions">
       <ModelSelector variant="canvas" models={models} status={modelStatus} value={effectiveModel} reasoningLevel={reasoningLevel ?? defaultReasoningLevel} disabled={busy}
         onChange={(selected, level) => onModel({ provider: selected.provider, id: selected.id }, level)} onReasoningChange={onReasoningChange} />
-      <button type="button" title={generateLabel} aria-label={generateLabel} disabled={busy || !instruction.trim() || !selectedModel} onClick={() => { if (selectedModel) onGenerate({ provider: selectedModel.provider, id: selectedModel.id }, effectiveReasoning); }}>
+      <button type="button" title={generateLabel} aria-label={generateLabel} disabled={!canGenerate} onClick={generate}>
         {generating ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
       </button>
     </div>
@@ -59,6 +61,7 @@ function useCanvasTextDraft(value: string, onChange: (value: string) => void, di
     if (!composing.current && !isComposing) onChange(text);
   };
   return {
+    composing,
     value: draft,
     onFocus: () => { editing.current = true; },
     onBlur: () => {
@@ -79,11 +82,21 @@ type CanvasTextProps<T> = Omit<T, "value" | "onChange" | "onFocus" | "onBlur" | 
   onChange: (value: string) => void;
 };
 // React Flow propagates node data one render late. Publish an IME draft only after composition ends.
-export function CanvasTextarea({ value, onChange, ...props }: CanvasTextProps<TextareaHTMLAttributes<HTMLTextAreaElement>>) {
-  const draft = useCanvasTextDraft(value, onChange, props.disabled);
-  return <textarea {...props} {...draft} />;
+export function CanvasTextarea({ value, onChange, onSubmit, ...props }: Omit<CanvasTextProps<TextareaHTMLAttributes<HTMLTextAreaElement>>, "onSubmit"> & { onSubmit?: () => void }) {
+  const { composing, ...draft } = useCanvasTextDraft(value, onChange, props.disabled);
+  return <textarea {...props} {...draft} onKeyDown={(event) => {
+    props.onKeyDown?.(event);
+    if (!composing.current) submitCanvasPrompt(event, onSubmit);
+  }} />;
 }
 export function CanvasTextInput({ value, onChange, ...props }: CanvasTextProps<InputHTMLAttributes<HTMLInputElement>>) {
-  const draft = useCanvasTextDraft(value, onChange, props.disabled);
+  const { composing, ...draft } = useCanvasTextDraft(value, onChange, props.disabled);
   return <input {...props} {...draft} />;
+}
+
+export function submitCanvasPrompt(event: KeyboardEvent<HTMLTextAreaElement>, onSubmit?: () => void): void {
+  if (!onSubmit || event.defaultPrevented || event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229 || event.currentTarget.disabled || event.currentTarget.readOnly) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (!event.repeat) onSubmit();
 }

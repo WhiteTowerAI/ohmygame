@@ -11,6 +11,7 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
+import { ExternalAgentsSettings } from "./external-agents-settings.js";
 import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
 import { SegmentedControl } from "./segmented-control.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
@@ -36,6 +37,7 @@ const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: 
   { section: "appearance", label: t("settings.nav.appearance"), icon: Palette },
   { section: "web-search", label: t("settings.nav.webSearch"), icon: Globe2 },
   { section: "network", label: t("settings.nav.network"), icon: Wifi },
+  { section: "mcp-server", label: t("settings.nav.mcpServer"), icon: Plug },
   { section: "about", label: t("settings.nav.about"), icon: InfoCircle },
 ];
 
@@ -94,6 +96,7 @@ export function SettingsPage({ section, onBack, onSectionChange, onOpenOnboardin
           {section === "agents" ? <AgentsSettings view={agentsView} onViewChange={setAgentsView} onOpenProviders={() => chooseSection("providers")} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
           {section === "network" ? <NetworkSettingsPanel /> : null}
+          {section === "mcp-server" ? <ExternalAgentsSettings /> : null}
           {section === "about" ? <AboutSettings onOpenNetwork={() => chooseSection("network")} onOpenOnboarding={onOpenOnboarding} /> : null}
         </div>
       </section>

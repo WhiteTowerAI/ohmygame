@@ -25,10 +25,11 @@ const FILE_ICON_EXTENSIONS: Record<Exclude<WorkspaceFileIconKind, "file">, Reado
   model: new Set(["blend", "dae", "fbx", "glb", "gltf", "obj", "stl"]),
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ text, className = "", workspacePath, onOpenWorkspaceFile, renderImage }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, className = "", workspacePath, baseDir, onOpenWorkspaceFile, renderImage }: {
   text: string;
   className?: string;
   workspacePath?: string;
+  baseDir?: string;
   onOpenWorkspaceFile?: (path: string) => void;
   renderImage?: (src: string | undefined, alt: string | undefined) => ReactNode;
 }) {
@@ -36,7 +37,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
   const components = useMemo<Components>(() => ({
     ...(renderImage ? { img: ({ src, alt }: { src?: string; alt?: string }) => renderImage(src, alt) } : {}),
     a: ({ href, children }) => {
-      const filePath = onOpenWorkspaceFile ? workspaceLinkPath(href, workspacePath) : undefined;
+      const filePath = onOpenWorkspaceFile ? workspaceLinkPath(href, workspacePath, baseDir) : undefined;
       if (filePath) {
         const iconKind = workspaceFileIconKind(filePath);
         const FileIcon = FILE_ICON_COMPONENTS[iconKind];
@@ -48,7 +49,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, className =
       return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
     },
     pre: MarkdownCodeBlock,
-  }), [workspacePath, onOpenWorkspaceFile, renderImage]);
+  }), [workspacePath, baseDir, onOpenWorkspaceFile, renderImage]);
 
   return (
     <div className={`markdown-content${className ? ` ${className}` : ""}`}>
@@ -68,7 +69,8 @@ export function workspaceFileIconKind(filePath: string): WorkspaceFileIconKind {
   return "file";
 }
 
-export function workspaceLinkPath(href: string | undefined, workspacePath?: string): string | undefined {
+/** `baseDir` is the workspace-relative folder that relative links resolve against. */
+export function workspaceLinkPath(href: string | undefined, workspacePath?: string, baseDir?: string): string | undefined {
   if (!href || href.startsWith("#")) return undefined;
   let value = href;
   if (/^file:/i.test(value)) {
@@ -95,8 +97,13 @@ export function workspaceLinkPath(href: string | undefined, workspacePath?: stri
     if (!root || !pathWithinRoot(value, root)) return undefined;
     value = value.slice(root.length).replace(/^\/+/, "");
   }
-  const parts = value.split("/").filter((part) => part && part !== ".");
-  if (parts.length === 0 || parts.some((part) => part === "..")) return undefined;
+  const parts: string[] = [];
+  for (const part of [...(absolute || !baseDir ? [] : baseDir.split("/")), ...value.split("/")]) {
+    if (!part || part === ".") continue;
+    if (part !== "..") parts.push(part);
+    else if (baseDir === undefined || !parts.pop()) return undefined;
+  }
+  if (parts.length === 0) return undefined;
   const filePath = parts.join("/");
   return looksLikeWorkspaceFile(filePath) ? filePath : undefined;
 }

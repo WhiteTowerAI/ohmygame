@@ -3,6 +3,7 @@ import { existsSync, readdirSync, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentRuntimeId } from "../../shared/agent-runtimes.js";
+import { EXTERNAL_MCP_DISABLED_ENV } from "../../shared/external-mcp.js";
 
 /**
  * Variables a coding agent CLI may inherit. The environment is built from
@@ -86,7 +87,8 @@ export function agentEnvironment(
     result[pathKey] ?? "",
     ...commonBinaryDirectories(),
   ]);
-  return { ...result, ...extra };
+  // The person may have connected this CLI to OhMyGame; inside OhMyGame it already has OhMyGame's tools.
+  return { ...result, [EXTERNAL_MCP_DISABLED_ENV]: "1", ...extra };
 }
 
 /** Where people usually install these CLIs, for an app started from the Dock with only the system PATH. */
@@ -120,15 +122,20 @@ export function commonBinaryDirectories(home = os.homedir()): string[] {
 }
 
 let shellPath: Promise<string | undefined> | undefined;
+let readingShellPath = false;
 
 /**
  * The PATH a login shell sets up, which an app started from the Dock does not
- * get. Read once, with a short limit, between markers so that whatever the
+ * get. Cache until a rescan, with a short limit, between markers so whatever the
  * shell's startup files print is ignored.
  */
-export function loginShellPath(): Promise<string | undefined> {
+export function loginShellPath(recheck = false): Promise<string | undefined> {
   if (process.platform === "win32") return Promise.resolve(undefined);
-  return (shellPath ??= new Promise((resolve) => {
+  // Concurrent rescans share a read; a completed read is refreshed on demand.
+  if (recheck && !readingShellPath) shellPath = undefined;
+  if (shellPath) return shellPath;
+  readingShellPath = true;
+  shellPath = new Promise<string | undefined>((resolve) => {
     const shell = process.env.SHELL || "/bin/zsh";
     const marker = "__OHMYGAME_PATH__";
     execFile(
@@ -147,7 +154,13 @@ export function loginShellPath(): Promise<string | undefined> {
         resolve(match?.[1] || undefined);
       },
     );
-  }));
+  }).then((value) => {
+    readingShellPath = false;
+    // A transient startup failure must not poison discovery until restart.
+    if (!value) shellPath = undefined;
+    return value;
+  });
+  return shellPath;
 }
 
 /**

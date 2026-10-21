@@ -479,8 +479,11 @@ export class CheckpointStore {
     try {
       text = await readFile(path.join(gitdir, UNFINISHED_FILE), "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-      throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      // Windows reports ENOENT, not ENOTDIR, when a file stands where the store's folder should be.
+      if ((await lstat(gitdir).catch(() => undefined))?.isDirectory() === false)
+        throw error;
+      return undefined;
     }
     const { previous } = JSON.parse(text) as { previous?: unknown };
     if (typeof previous !== "string" || !/^[0-9a-f]{40}$/.test(previous))

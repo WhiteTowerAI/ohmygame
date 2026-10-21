@@ -15,6 +15,7 @@ import type { AgentModel, AgentUsageLimit } from "../../shared/contracts.js";
 import type {
   AgentRuntimeAuthStatus,
   AgentRuntimeBilling,
+  AgentRuntimeBinarySource,
   AgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
 import {
@@ -44,6 +45,7 @@ const PROBE_TIMEOUT_MS = 15_000;
 
 export interface ResolvedBinary {
   path: string;
+  source: AgentRuntimeBinarySource;
   /** Changes when the CLI is updated in place, so a cached probe is not trusted past it. */
   signature: string;
 }
@@ -61,19 +63,22 @@ export async function resolveBinary(
   override?: string,
   recheck = false,
 ): Promise<ResolvedBinary | undefined> {
+  if (recheck) await loginShellPath(true);
   if (recheck)
     for (const key of versionCache.keys())
       if (key.startsWith(`${id}:`)) versionCache.delete(key);
   const definition = AGENT_RUNTIME_DEFINITIONS[id];
   const candidates = override
-    ? [override]
+    ? [{ path: override, source: "manual" as const }]
     : [
         ...(await searchCandidates(definition.binaries)),
         ...(definition.bundledPaths?.[process.platform] ?? []).map(
-          (candidate) =>
-            candidate.startsWith("~/")
-              ? path.join(os.homedir(), candidate.slice(2))
-              : candidate,
+          (candidate) => ({
+            ...candidate,
+            path: candidate.path.startsWith("~/")
+              ? path.join(os.homedir(), candidate.path.slice(2))
+              : candidate.path,
+          }),
         ),
       ];
   const found: ResolvedBinary[] = [];
@@ -81,18 +86,18 @@ export async function resolveBinary(
   for (const candidate of candidates) {
     try {
       await access(
-        candidate,
+        candidate.path,
         process.platform === "win32" ? constants.F_OK : constants.X_OK,
       );
-      const info = await stat(candidate);
+      const info = await stat(candidate.path);
       if (!info.isFile()) continue;
       // One installation is often reachable through several links.
-      const target = await realpath(candidate);
+      const target = await realpath(candidate.path);
       if (seen.has(target)) continue;
       seen.add(target);
       found.push({
-        path: candidate,
-        signature: `${candidate}:${info.size}:${info.mtimeMs}`,
+        ...candidate,
+        signature: `${candidate.path}:${info.size}:${info.mtimeMs}`,
       });
     } catch {
       continue;
@@ -144,25 +149,27 @@ function cachedVersion(
   return entry.promise;
 }
 
-async function searchCandidates(names: readonly string[]): Promise<string[]> {
+async function searchCandidates(
+  names: readonly string[],
+): Promise<Array<{ path: string; source: AgentRuntimeBinarySource }>> {
   const shell = await loginShellPath();
-  const directories = [
-    ...new Set(
-      [
-        ...(process.env.PATH ?? "").split(path.delimiter),
-        ...(shell ?? "").split(path.delimiter),
-        ...commonBinaryDirectories(),
-      ].filter(Boolean),
-    ),
-  ];
+  const directories = new Map<string, AgentRuntimeBinarySource>();
+  for (const [folders, source] of [
+    [(process.env.PATH ?? "").split(path.delimiter), "path"],
+    [(shell ?? "").split(path.delimiter), "login-shell"],
+    [commonBinaryDirectories(), "common-directory"],
+  ] as const)
+    for (const folder of folders)
+      if (folder && !directories.has(folder)) directories.set(folder, source);
   // Node cannot start a .cmd or .bat script, such as an npm shim, without a
   // shell, and the CLIs' long JSON arguments are not safe to pass through one.
   const extensions = process.platform === "win32" ? [".exe"] : [""];
-  return directories.flatMap((directory) =>
+  return [...directories].flatMap(([directory, source]) =>
     names.flatMap((name) =>
-      extensions.map((extension) =>
-        path.join(directory, `${name}${extension}`),
-      ),
+      extensions.map((extension) => ({
+        path: path.join(directory, `${name}${extension}`),
+        source,
+      })),
     ),
   );
 }

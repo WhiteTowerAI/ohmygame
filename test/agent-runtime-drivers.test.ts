@@ -938,6 +938,10 @@ describe("Claude Code adapter", () => {
       ]),
     );
     expect(clis[0]!.args).not.toContain("--strict-mcp-config");
+    // The person's own configuration may connect Claude Code to OhMyGame from outside.
+    expect(clis[0]!.args).toEqual(
+      expect.arrayContaining(["--disallowedTools", "mcp__ohmygame-studio"]),
+    );
   });
 });
 
@@ -965,14 +969,17 @@ describe("Codex adapter", () => {
   it.each([true, false])("delivers native images once and waits for project import (started=%s)", async (started) => {
     imageCli({ type: "imageGeneration", id: "cat", status: "completed", revisedPrompt: "Orange cat", result: generatedPng }, { started, duplicate: true });
     let finish!: (path: string) => void;
-    const saveGeneratedImage = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; }));
+    let markImportStarted!: () => void;
+    const importStarted = new Promise<void>((resolve) => { markImportStarted = resolve; });
+    const saveGeneratedImage = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; markImportStarted(); }));
     const driver = new CodexDriver(await context({ saveGeneratedImage }));
     cleanup.push(() => driver.dispose());
     const recorded = recordingSink();
     let completed = false;
     const run = driver.runTurn({ text: "cat", images: [], readOnly: false }, recorded.sink, new AbortController().signal)
       .then((outcome) => { completed = true; return outcome; });
-    await expect.poll(() => saveGeneratedImage.mock.calls.length).toBe(1);
+    await importStarted;
+    expect(saveGeneratedImage).toHaveBeenCalledTimes(1);
     expect(completed).toBe(false);
     expect(saveGeneratedImage).toHaveBeenCalledWith(expect.stringMatching(/^codex-[a-f0-9]{24}\.png$/), Buffer.from(generatedPng, "base64"), "Orange cat");
     finish("assets/generated/cat.png");
@@ -1001,13 +1008,16 @@ describe("Codex adapter", () => {
   it("does not publish a late image result after cancellation", async () => {
     imageCli({ type: "imageGeneration", id: "cat", status: "completed", result: generatedPng });
     let finish!: (path: string) => void;
-    const saveGeneratedImage = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; }));
+    let markImportStarted!: () => void;
+    const importStarted = new Promise<void>((resolve) => { markImportStarted = resolve; });
+    const saveGeneratedImage = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; markImportStarted(); }));
     const driver = new CodexDriver(await context({ saveGeneratedImage }));
     cleanup.push(() => driver.dispose());
     const recorded = recordingSink();
     const abort = new AbortController();
     const run = driver.runTurn({ text: "cat", images: [], readOnly: false }, recorded.sink, abort.signal);
-    await expect.poll(() => saveGeneratedImage.mock.calls.length).toBe(1);
+    await importStarted;
+    expect(saveGeneratedImage).toHaveBeenCalledTimes(1);
     abort.abort();
     finish("assets/generated/cat.png");
     expect(await run).toEqual({ status: "aborted" });
@@ -1162,6 +1172,53 @@ describe("Codex adapter", () => {
     expect(profiles.at(-1)).toMatch(/^ohmygame-.*-read$/);
   });
 
+  it("leaves out an external OhMyGame connection from the person's own configuration", async () => {
+    let config: Record<string, unknown> = {};
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined)
+        return;
+      const params = message.params as Record<string, unknown>;
+      if (message.method === "thread/start")
+        config = params.config as Record<string, unknown>;
+      cli.send({
+        id: message.id,
+        result:
+          message.method === "config/read"
+            ? {
+                config: {
+                  mcp_servers: {
+                    personal: { command: "x" },
+                    "ohmygame-studio": { command: "ohmygame-mcp" },
+                  },
+                },
+              }
+            : message.method === "thread/start"
+              ? {
+                  thread: { id: "thread-1" },
+                  activePermissionProfile: { id: params.permissions },
+                }
+              : {},
+      });
+      if (message.method === "turn/start")
+        setTimeout(() =>
+          cli.send({
+            method: "turn/completed",
+            params: { turn: { status: "completed" } },
+          }),
+        );
+    });
+    const driver = new CodexDriver(await context({ isolateUserConfig: false }));
+    cleanup.push(() => driver.dispose());
+    await driver.runTurn(
+      { text: "hi", images: [], readOnly: false },
+      recordingSink().sink,
+      new AbortController().signal,
+    );
+    expect(config["mcp_servers.ohmygame-studio.enabled"]).toBe(false);
+    expect(config).not.toHaveProperty("mcp_servers.personal.enabled");
+    expect(config).not.toHaveProperty("notify");
+  });
+
   it("denies the shared temporary folders Codex's minimal access would read", async () => {
     let config: Record<string, unknown> = {};
     fakeCli((message, cli) => {
@@ -1257,7 +1314,8 @@ describe("Codex adapter", () => {
       two.sink,
       new AbortController().signal,
     );
-    await vi.waitFor(() => expect(turns).toHaveLength(2));
+    // Preparing the shared app server took over two seconds on a Windows runner, past the default wait.
+    await vi.waitFor(() => expect(turns).toHaveLength(2), { timeout: 10_000 });
     expect(clis).toHaveLength(1);
     const cli = clis[0]!;
     // Threads are numbered in the order the conversations asked for them.

@@ -81,11 +81,12 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
 import type { ExampleSummary } from "../shared/examples.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import type { NodeRuntimeResponse } from "../shared/playable-player-protocol.js";
+import type { NodeRuntimeResponse, PlayableThumbnailSnapshot } from "../shared/playable-player-protocol.js";
 import type { NodeCodebaseDetail, NodeCodebaseUpdate } from "../shared/playable-codebase.js";
 import type { PlayableAddedNode, PlayablePresetSummary, PlayableProjectValidationResult as PlayableProjectValidation, PlayableThumbnailManifest } from "../shared/playable-editor.js";
 import type { InstallPluginRequest, PluginCatalog, PluginDetail, PluginInstallInspection, PluginSettings, PluginSkillContent } from "../shared/plugins.js";
 import type { UpdateWebSearchSettings, WebSearchSettings } from "../shared/web-search.js";
+import type { ExternalAgentClientId, ExternalAgentSettings, UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { DesktopClipboardFile } from "../shared/file-transfer.js";
 import type { WebGamePlayerBridge } from "../shared/web-game-player.js";
 import type { NetworkConnectionTest, NetworkSettings, NetworkSettingsState } from "../shared/network-settings.js";
@@ -150,6 +151,10 @@ declare global {
       capturePage: (bounds: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
       /** Captures a Node's thumbnail in a hidden window; `false` when it could not. */
       captureNodeThumbnail?: (projectId: string, nodeId: string, viewport: { width: number; height: number }, batchId: string) => Promise<boolean>;
+      /** Shares the editor build once, instead of compiling again for each capture. */
+      prepareNodeThumbnails?: (projectId: string, batchId: string, snapshot: PlayableThumbnailSnapshot) => Promise<void>;
+      /** Only a hidden thumbnail window can read its assigned snapshot. */
+      nodeThumbnailSnapshot?: () => Promise<PlayableThumbnailSnapshot | undefined>;
       /** Cancels active and queued captures in a batch. */
       cancelNodeThumbnails?: (batchId: string) => Promise<void>;
       /** Called by the hidden thumbnail window once its capture is stored or failed. */
@@ -256,6 +261,10 @@ export async function recheckAgentRuntime(id: AgentRuntimeId): Promise<AgentRunt
 
 export async function loginAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntimeLoginResponse> {
   return request(`/agent-runtimes/${id}/login`, { method: "POST" });
+}
+
+export async function recheckCodexImages(): Promise<ProviderSummary> {
+  return request("/settings/models/providers/codex-cli/images/recheck", { method: "POST" });
 }
 
 export async function answerApproval(projectId: string, conversationId: string, requestId: string, decision: ApprovalDecision): Promise<void> {
@@ -530,6 +539,22 @@ export async function getWebSearchSettings(): Promise<WebSearchSettings> {
 
 export async function updateWebSearchSettings(input: UpdateWebSearchSettings): Promise<WebSearchSettings> {
   return request("/settings/web-search", { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function getExternalAgentSettings(): Promise<ExternalAgentSettings> {
+  return request("/settings/external-agents");
+}
+
+export async function updateExternalAgentSettings(input: UpdateExternalAgentSettings): Promise<ExternalAgentSettings> {
+  return request("/settings/external-agents", { method: "PUT", body: JSON.stringify(input) });
+}
+
+export async function connectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
+  return request(`/settings/external-agents/clients/${id}`, { method: "PUT" });
+}
+
+export async function disconnectExternalAgent(id: ExternalAgentClientId): Promise<ExternalAgentSettings> {
+  return request(`/settings/external-agents/clients/${id}`, { method: "DELETE" });
 }
 
 export async function listExploreGames(accessToken?: string, options: CommunityGamesQuery = {}): Promise<CommunityGame[]> {
