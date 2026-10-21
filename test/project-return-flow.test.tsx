@@ -177,3 +177,21 @@ describe("project return flow", () => {
     ).toBe("Name");
   });
 });
+
+describe("Playtest asking for its editor", () => {
+  it("opens the project unless it is already open", async () => {
+    let show: ((projectId: string) => void) | undefined;
+    vi.stubGlobal("ohMyGameDesktop", {
+      onShowPlaytestEditor: (listener: (projectId: string) => void) => {
+        show = listener;
+        return () => { show = undefined; };
+      },
+    });
+    await act(async () => root.render(<App />));
+    await act(async () => show!("garden"));
+    expect(window.location.hash).toBe("#/projects/garden");
+    await click("Another conversation");
+    await act(async () => show!("garden"));
+    expect(window.location.hash).toBe("#/projects/garden/conversations/second");
+  });
+});

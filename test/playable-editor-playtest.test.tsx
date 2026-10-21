@@ -51,7 +51,9 @@ beforeEach(async () => {
   await renderEditor();
 });
 
-async function renderEditor(): Promise<void> {
+async function renderEditor(
+  props: { onDesignOpenChange?: (open: boolean) => void } = {},
+): Promise<void> {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -64,6 +66,7 @@ async function renderEditor(): Promise<void> {
         onPublish={async () => false}
         onOpenPublish={() => {}}
         onClosePublish={() => {}}
+        {...props}
       />,
     ),
   );
@@ -169,4 +172,30 @@ it("says to add a Scene instead of opening Playtest for a story with no Scenes",
     "Add a Scene to playtest the story.",
   );
   expect(takePlaytestRequest("p")).toBeUndefined();
+});
+
+it("shows the Story map when a Playtest window asks for its editor", async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  const show: ((projectId: string) => void)[] = [];
+  vi.stubGlobal("ohMyGameDesktop", {
+    onShowPlaytestEditor: (listener: (projectId: string) => void) => {
+      show.push(listener);
+      return () => show.splice(show.indexOf(listener), 1);
+    },
+  });
+  const onDesignOpenChange = vi.fn();
+  await renderEditor({ onDesignOpenChange });
+  const workspace = container.querySelector<HTMLElement>("[data-active-tab]")!;
+  const code = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Code",
+  )!;
+  await act(async () => code.click());
+  expect(workspace.dataset.activeTab).toBe("code");
+  onDesignOpenChange.mockClear();
+  await act(async () => show.forEach((listener) => listener("other")));
+  expect(workspace.dataset.activeTab).toBe("code");
+  await act(async () => show.forEach((listener) => listener("p")));
+  expect(workspace.dataset.activeTab).toBe("canvas");
+  expect(onDesignOpenChange).toHaveBeenCalledExactlyOnceWith(false);
 });
