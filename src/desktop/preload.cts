@@ -60,6 +60,7 @@ if (process.isMainFrame) {
     selectPluginDirectory: () => ipcRenderer.invoke("ohmygame:select-plugin-directory") as Promise<string | undefined>,
     selectProjectDirectory: () => ipcRenderer.invoke("ohmygame:select-project-directory") as Promise<string | undefined>,
     openLogsDirectory: () => ipcRenderer.invoke("ohmygame:open-logs-directory") as Promise<void>,
+    exportDiagnostics: () => ipcRenderer.invoke("ohmygame:export-diagnostics") as Promise<Uint8Array<ArrayBuffer>>,
     clipboard: Object.freeze({
       files: () => ipcRenderer.invoke("ohmygame:clipboard-files") as Promise<DesktopClipboardFile[]>,
       paste: () => ipcRenderer.invoke("ohmygame:paste-native") as Promise<void>,

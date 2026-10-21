@@ -5,6 +5,7 @@ import path from "node:path";
 import type { Readable } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { ZipFile } from "yazl";
+import { diagnosticsFileName } from "../shared/diagnostics.js";
 
 const APP_VERSION: string = createRequire(import.meta.url)(
   "../../package.json",
@@ -54,10 +55,13 @@ export async function diagnosticSection<T>(
   }
 }
 
-export interface DiagnosticsOptions {
+export interface DiagnosticsOptions<
+  Summary extends object = DiagnosticsSummary,
+> {
   /** Where the desktop app writes its logs. A daemon started on its own has none. */
   logDirectory?: string;
-  summary: () => Promise<DiagnosticsSummary>;
+  /** The daemon describes providers, agents and plugins; the desktop app, when the service is down, its status. */
+  summary: () => Promise<Summary>;
   now?: () => Date;
 }
 
@@ -65,8 +69,8 @@ export interface DiagnosticsOptions {
  * A ZIP for bug reports: the desktop logs, which are redacted as they are
  * written, and `system.json`. It holds no settings, conversations or project files.
  */
-export async function diagnosticsArchive(
-  options: DiagnosticsOptions,
+export async function diagnosticsArchive<Summary extends object>(
+  options: DiagnosticsOptions<Summary>,
 ): Promise<Buffer> {
   const createdAt = (options.now?.() ?? new Date()).toISOString();
   const logs = await diagnosticSection(() => logFiles(options.logDirectory));
@@ -116,16 +120,11 @@ export function registerDiagnosticsRoutes(
   app.post("/diagnostics/export", async (_request, reply) => {
     const now = options.now?.() ?? new Date();
     const archive = await diagnosticsArchive({ ...options, now: () => now });
-    const stamp = now
-      .toISOString()
-      .slice(0, 19)
-      .replace(/[-:]/g, "")
-      .replace("T", "-");
     return reply
       .type("application/zip")
       .header(
         "content-disposition",
-        `attachment; filename="ohmygame-diagnostics-${stamp}.zip"`,
+        `attachment; filename="${diagnosticsFileName(now)}"`,
       )
       .send(archive);
   });

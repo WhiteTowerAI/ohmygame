@@ -17,6 +17,7 @@ import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "./log-redaction.js";
+import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
 import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
@@ -240,6 +241,10 @@ handle("ohmygame:open-logs-directory", async (event) => {
   mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
   const error = await shell.openPath(logDirectory);
   if (error) throw new Error(error);
+});
+handle("ohmygame:export-diagnostics", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid diagnostics source");
+  return desktopDiagnosticsArchive({ logDirectory, logs: [mainLog, daemonLog], service: () => daemon?.state(), redact: redactLog });
 });
 handle("ohmygame:select-plugin-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");

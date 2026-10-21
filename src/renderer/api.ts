@@ -1,3 +1,4 @@
+import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
@@ -146,6 +147,8 @@ declare global {
       selectProjectDirectory: () => Promise<string | undefined>;
       /** Older desktop builds do not write log files. */
       openLogsDirectory?: () => Promise<void>;
+      /** Builds the diagnostics ZIP without the background service, for when it is not running. */
+      exportDiagnostics?: () => Promise<Uint8Array<ArrayBuffer>>;
       clipboard: {
         files: () => Promise<DesktopClipboardFile[]>;
         paste: () => Promise<void>;
@@ -670,12 +673,23 @@ export async function exportInteractiveStoryProject(projectId: string, version?:
   return response.blob();
 }
 
-/** A ZIP of the redacted desktop logs and system information, for bug reports. */
+/**
+ * A ZIP of the redacted desktop logs and system information, for bug reports.
+ * When the background service cannot build it, the desktop app builds one
+ * with the logs and the service's status.
+ */
 export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: string }> {
-  const response = await fetch(apiUrl("/diagnostics/export"), { method: "POST", headers: runtimeHeaders() });
-  if (!response.ok) throw await responseError(response);
-  const fileName = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1];
-  return { blob: await response.blob(), fileName: fileName ?? "ohmygame-diagnostics.zip" };
+  try {
+    const response = await fetch(apiUrl("/diagnostics/export"), { method: "POST", headers: runtimeHeaders() });
+    if (!response.ok) throw await responseError(response);
+    const fileName = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1];
+    return { blob: await response.blob(), fileName: fileName ?? diagnosticsFileName(new Date()) };
+  } catch (cause) {
+    const desktopExport = window.ohMyGameDesktop?.exportDiagnostics;
+    if (!desktopExport) throw cause;
+    const bytes = await desktopExport();
+    return { blob: new Blob([bytes], { type: "application/zip" }), fileName: diagnosticsFileName(new Date()) };
+  }
 }
 
 export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {
