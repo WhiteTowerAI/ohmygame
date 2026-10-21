@@ -23,6 +23,7 @@
         Goto app_closed
       ${EndIf}
       ${If} $R0 != 0
+      ${AndIf} $R1 == 0
         DetailPrint `Could not check whether "${PRODUCT_NAME}" is running (code $R0); treating it as still open.`
       ${EndIf}
     ${EndIf}
