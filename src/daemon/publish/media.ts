@@ -143,7 +143,12 @@ export class PublishMediaOptimizer {
         "+faststart",
         destination,
       ],
-      { env: projectProcessEnvironment(), stdio: "ignore", windowsHide: true },
+      {
+        env: projectProcessEnvironment(),
+        stdio: "ignore",
+        detached: process.platform !== "win32",
+        windowsHide: true,
+      },
     );
     this.track(child);
     return new Promise((resolve) => {
