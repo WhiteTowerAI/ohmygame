@@ -23,7 +23,7 @@ it("leaves the computer name out of daemon log lines", async () => {
   }
 });
 
-it("logs failed requests by route, and only those", async () => {
+it("logs each failed request once, by route", async () => {
   const lines: string[] = [];
   const app = Fastify({
     logger: daemonLoggerOptions({ write: (line) => lines.push(line) }),
@@ -46,15 +46,20 @@ it("logs failed requests by route, and only those", async () => {
 
   const entries = lines.map((line) => JSON.parse(line));
   expect(
-    entries.map(({ msg, route, statusCode }) => ({ msg, route, statusCode })),
+    entries.map(({ level, msg, route, statusCode }) => ({
+      level,
+      msg,
+      route,
+      statusCode,
+    })),
   ).toEqual([
     {
+      level: 40,
       msg: "Request returned an error",
       route: "/projects/:id",
       statusCode: 404,
     },
-    { msg: "Request failed", route: "/broken", statusCode: undefined },
-    { msg: "Request returned an error", route: "/broken", statusCode: 500 },
+    { level: 50, msg: "Request failed", route: "/broken", statusCode: 500 },
   ]);
   expect(entries[1].err.message).toBe("Could not read the project index");
   expect(entries[1].err.stack).toContain(
