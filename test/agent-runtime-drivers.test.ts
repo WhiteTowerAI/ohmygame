@@ -18,7 +18,10 @@ import type {
   NativeTurnSink,
 } from "../src/daemon/agent-runtimes/native-session.js";
 import { setAgentProcessSpawner } from "../src/daemon/agent-runtimes/process.js";
-import { canonicalPath } from "../src/daemon/agent-runtimes/policy.js";
+import {
+  canonicalPath,
+  neverTouchPaths,
+} from "../src/daemon/agent-runtimes/policy.js";
 import { ToolBridge } from "../src/daemon/agent-runtimes/tool-bridge.js";
 import { conversationItems } from "../src/daemon/agent.js";
 import {
@@ -1262,6 +1265,57 @@ describe("Codex adapter", () => {
         expect(filesystem[canonicalPath(shared)]).toBe(
           process.platform === "win32" ? undefined : "deny",
         );
+  });
+
+  it("denies Pi's agent folder in every Codex permission profile", async () => {
+    let config: Record<string, unknown> = {};
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined)
+        return;
+      const params = message.params as Record<string, unknown>;
+      if (message.method === "thread/start")
+        config = params.config as Record<string, unknown>;
+      cli.send({
+        id: message.id,
+        result:
+          message.method === "thread/start"
+            ? {
+                thread: { id: "thread-1" },
+                activePermissionProfile: { id: params.permissions },
+              }
+            : {},
+      });
+      if (message.method === "turn/start")
+        setTimeout(() =>
+          cli.send({
+            method: "turn/completed",
+            params: { turn: { status: "completed" } },
+          }),
+        );
+    });
+    // The desktop app keeps Pi's agent folder beside the data folder.
+    const piAgentDirectory = "/tmp/ohmygame/pi-agent";
+    const driver = new CodexDriver(
+      await context({
+        policy: {
+          workspacePath: "/tmp/workspace",
+          neverTouch: neverTouchPaths("/tmp/ohmygame/data", piAgentDirectory),
+        },
+      }),
+    );
+    cleanup.push(() => driver.dispose());
+    await driver.runTurn(
+      { text: "hi", images: [], readOnly: false },
+      recordingSink().sink,
+      new AbortController().signal,
+    );
+    const profiles = config.permissions as Record<
+      string,
+      { filesystem: Record<string, unknown> }
+    >;
+    expect(Object.keys(profiles)).toHaveLength(2);
+    for (const { filesystem } of Object.values(profiles))
+      expect(filesystem[canonicalPath(piAgentDirectory)]).toBe("deny");
   });
 
   it("shares one app server between conversations and keeps their threads apart", async () => {

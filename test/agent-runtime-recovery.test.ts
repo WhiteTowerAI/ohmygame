@@ -138,7 +138,9 @@ it("protects custom CLI credential roots", () => {
   const before = process.env.CODEX_HOME;
   process.env.CODEX_HOME = "/tmp/custom-codex-auth";
   try {
-    expect(neverTouchPaths("/tmp/app")).toContain("/tmp/custom-codex-auth");
+    expect(neverTouchPaths("/tmp/app", "/tmp/pi-agent")).toContain(
+      "/tmp/custom-codex-auth",
+    );
   } finally {
     if (before === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = before;

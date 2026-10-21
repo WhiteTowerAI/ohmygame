@@ -29,6 +29,7 @@ import {
 import { existsSync, realpathSync } from "node:fs";
 import { handoffSummary } from "../src/daemon/agent-runtimes/handoff.js";
 import {
+  canonicalPath,
   judgeApproval,
   neverTouchPaths,
 } from "../src/daemon/agent-runtimes/policy.js";
@@ -53,9 +54,14 @@ const workspace = path.join(
   "p1",
   "workspace",
 );
+// The desktop app's layout: Pi's agent folder sits beside the data folder.
+const piAgentDirectory = path.join(home, "OhMyGame", "pi-agent");
 const policy = {
   workspacePath: workspace,
-  neverTouch: neverTouchPaths(path.join(home, "OhMyGame", "data")),
+  neverTouch: neverTouchPaths(
+    path.join(home, "OhMyGame", "data"),
+    piAgentDirectory,
+  ),
 };
 
 it("requires Claude's sandbox when the policy automatically allows confined commands", () => {
@@ -76,6 +82,87 @@ it("requires Claude's sandbox when the policy automatically allows confined comm
       sandboxedCommands,
     );
   }
+});
+
+describe("Pi's agent folder", () => {
+  const fullAccess = { ...policy, fullAccess: true };
+
+  it("refuses its credentials even with full access", () => {
+    for (const file of ["auth.json", "models.json"]) {
+      const target = path.join(piAgentDirectory, file);
+      expect(
+        judgeApproval(
+          { kind: "file", tool: "Read", path: target, canAllowSession: true },
+          fullAccess,
+        ),
+      ).toBe("deny");
+      expect(
+        judgeApproval(
+          {
+            kind: "command",
+            tool: "Bash",
+            command: `cat ${target}`,
+            canAllowSession: true,
+          },
+          fullAccess,
+        ),
+      ).toBe("deny");
+    }
+  });
+
+  it("refuses the standalone Pi CLI's folder", () => {
+    expect(
+      judgeApproval(
+        {
+          kind: "file",
+          tool: "Read",
+          path: path.join(home, ".pi", "agent", "auth.json"),
+          canAllowSession: true,
+        },
+        fullAccess,
+      ),
+    ).toBe("deny");
+  });
+
+  it("stays protected when it is inside the data folder", () => {
+    const data = path.join(home, "OhMyGame", "data");
+    const nested = path.join(data, "pi-agent");
+    expect(
+      judgeApproval(
+        {
+          kind: "file",
+          tool: "Read",
+          path: path.join(nested, "auth.json"),
+          canAllowSession: true,
+        },
+        {
+          workspacePath: workspace,
+          neverTouch: neverTouchPaths(data, nested),
+          fullAccess: true,
+        },
+      ),
+    ).toBe("deny");
+  });
+
+  it("is unreadable in Claude Code's sandbox", () => {
+    const context: DriverContext = {
+      binaryPath: "/usr/bin/claude",
+      workspacePath: workspace,
+      privateDirectory: path.join(os.tmpdir(), "ohmygame-session"),
+      env: {},
+      isolateUserConfig: true,
+      instructions: "",
+      bridge: new ToolBridge([]),
+      skillDirectories: [],
+      model: "sonnet",
+      policy,
+    };
+    expect(claudeSandboxSettings(context).sandbox).toMatchObject({
+      filesystem: {
+        denyRead: expect.arrayContaining([canonicalPath(piAgentDirectory)]),
+      },
+    });
+  });
 });
 
 describe("coding agent approval policy", () => {
