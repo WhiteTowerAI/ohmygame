@@ -1,6 +1,7 @@
 import { assertWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
 import type { AssetCanvasDocument, ToolJob } from "../shared/contracts.js";
 import { isAssetCanvasDocument, withoutContentNodeSizes } from "../shared/asset-canvas.js";
+import { normalizeLegacyCharacterModes } from "../shared/canvas-character-tools.js";
 import { mergeCanvasDocument, type CanvasBoardDetail } from "../shared/canvas-workspace.js";
 import { cancelCanvasJob, generateCanvasMedia, getCanvasBoard, listCanvasJobs, saveCanvasBoard } from "./canvas-api.js";
 import { t } from "./i18n.js";
@@ -19,7 +20,7 @@ export interface CanvasBoardStorage {
 }
 export interface CanvasBoardConflict { local: AssetCanvasDocument; remote: CanvasBoardDetail }
 
-const canvasOnly = ({ id: _id, ...canvas }: CanvasBoardDetail["board"]): AssetCanvasDocument => canvas;
+const canvasOnly = ({ id: _id, ...canvas }: CanvasBoardDetail["board"]): AssetCanvasDocument => normalizeLegacyCharacterModes(canvas);
 const conflictMessage = t("canvas.boardEditedElsewhere");
 
 export function createCanvasBoardStorage({ projectId, boardId, onConflict, flushDocuments }: {
@@ -73,7 +74,7 @@ export function createCanvasBoardStorage({ projectId, boardId, onConflict, flush
         let canvas = canvasOnly(base.board);
         try {
           const stored = JSON.parse(localStorage.getItem(recoveryKey) ?? "null") as { base: AssetCanvasDocument; local: AssetCanvasDocument } | null;
-          const draft = stored && { base: withoutContentNodeSizes(stored.base), local: withoutContentNodeSizes(stored.local) };
+          const draft = stored && { base: withoutContentNodeSizes(normalizeLegacyCharacterModes(stored.base)), local: withoutContentNodeSizes(normalizeLegacyCharacterModes(stored.local)) };
           if (draft && isAssetCanvasDocument(draft.base) && isAssetCanvasDocument(draft.local)) {
             const merged = mergeCanvasDocument(draft.base, draft.local, canvas);
             if (merged) canvas = merged;

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateCanvasDocument, generateCanvasText, generateCanvasTable, getCanvasBoard } from "../src/renderer/canvas-api.js";
+import { generateCanvasDocument, generateCanvasText, generateCanvasTable, getCanvasBoard, runCanvasMedia } from "../src/renderer/canvas-api.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -31,7 +31,9 @@ describe("canvas generation API", () => {
     vi.stubGlobal("fetch", fetchMock);
     await getCanvasBoard("project", "board");
     await generateCanvasText("project", "Write", { provider: "openai", id: "test" });
+    await runCanvasMedia("project", { operation: "extract-video-frames", assetIds: ["video"] });
     expect(fetchMock.mock.calls[0]![1]).toHaveProperty("signal");
     expect(fetchMock.mock.calls[1]![1]).not.toHaveProperty("signal");
+    expect(fetchMock.mock.calls[2]![1]).not.toHaveProperty("signal");
   });
 });

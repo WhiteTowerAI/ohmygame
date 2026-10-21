@@ -12,6 +12,7 @@ import { listWorkspaceFiles } from "../src/daemon/workspace.js";
 import type { VideoGenerator } from "../src/daemon/video-generation.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter } from "../src/shared/playtest.js";
 import { createNodeCodebase, createPlayableStarterCodebase } from "../src/daemon/playable-codebase.js";
+import sharp from "sharp";
 
 const TEST_VIDEO_MODEL = { provider: "openrouter", id: "example/video-model" } as const;
 
@@ -340,6 +341,38 @@ describe("agent tools", () => {
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "speech", text: "Welcome", voiceId: "narrator", model }), undefined);
     expect(await readdir(path.join(dataDirectory, "tools", "runs"))).toEqual([]);
   });
+  it("registers standalone image and frame processing tools", async () => {
+    const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-media-agent-tool-"));
+    const library = new AssetLibrary(dataDirectory);
+    const projects = new ProjectManager(dataDirectory, library);
+    await Promise.all([library.load(), projects.load()]);
+    const project = await projects.create("Media Game");
+    const runner = new ToolRunner(dataDirectory, { generate: async () => ({ bytes: Buffer.from("image"), mediaType: "image/webp" }) });
+    await runner.load();
+    const tools = createAgentTools(project, runner, projects);
+    expect(tools.map(({ name }) => name)).toEqual(expect.arrayContaining([
+      "image_edit", "image_grid_split", "image_transform", "video_extract_frames", "video_frame_strip", "video_compose_frames",
+    ]));
+
+    const source = await sharp({ create: { width: 4, height: 4, channels: 4, background: "red" } }).png().toBuffer();
+    await projects.addGeneratedAsset(project.id, "source.png", source);
+    const edit = tools.find(({ name }) => name === "image_edit");
+    if (!edit) throw new Error("Expected image_edit");
+    const result = await edit.execute("media-edit", { sourcePath: "assets/generated/source.png", width: 8, height: 8 }, undefined, undefined, {} as never);
+    const text = result.content[0]?.type === "text" ? result.content[0].text : "";
+    const relativePath = text.replace("Edited image saved to ", "");
+    expect(await readFile(path.join(project.workspacePath, relativePath))).not.toHaveLength(0);
+    expect(result.details).toMatchObject({ artifact: { type: "image", mediaType: "image/png" } });
+
+    const split = tools.find(({ name }) => name === "image_grid_split");
+    if (!split) throw new Error("Expected image_grid_split");
+    const splitResult = await split.execute("media-split", { sourcePath: "assets/generated/source.png", columns: 1, rows: 1 }, undefined, undefined, {} as never);
+    const splitText = splitResult.content[0]?.type === "text" ? splitResult.content[0].text : "";
+    const splitPath = splitText.match(/(assets\/generated\/sprite-sheet-[^ ]+\.zip)/)?.[1];
+    expect(splitPath).toBeDefined();
+    expect(await readFile(path.join(project.workspacePath, splitPath!))).not.toHaveLength(0);
+  });
+
   it("registers playable_add_node only for Interactive Story and creates the Node", async () => {
     const dataDirectory = await mkdtemp(path.join(tmpdir(), "ohmygame-agent-playable-"));
     const projects = new ProjectManager(dataDirectory);

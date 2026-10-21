@@ -496,6 +496,8 @@ export type AssetCanvasNode = (
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;
+    /** Legacy drafts only; new nodes store the expanded prompt. */
+    generationMode?: "character-asset" | "continuous-actions" | "all-actions";
     promptSource?: AssetCanvasTextReference;
     model?: ImageModelRef;
     resolution: ImageResolution;

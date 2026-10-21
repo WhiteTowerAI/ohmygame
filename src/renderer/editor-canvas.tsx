@@ -4,7 +4,6 @@ import {
   Background,
   BackgroundVariant,
   MarkerType,
-  Panel,
   ReactFlow,
   ViewportPortal,
   useReactFlow,
@@ -138,7 +137,7 @@ export function EditorCanvas<N extends Node>({
       <ZoomControls />
       <PinchZoomOverScrollingContent />
       {fitViewOnLoad ? <InitialCanvasView onReady={onInitialFit} /> : null}
-      <Panel className="story-canvas-toolbar" position="bottom-center">
+      <div className="react-flow__panel bottom center story-canvas-toolbar">
         {addControl}
         <button className={mode === "pointer" ? "is-active" : undefined} type="button" title={t("editorCanvas.select")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
           <MousePointer2 size={18} />
@@ -147,7 +146,7 @@ export function EditorCanvas<N extends Node>({
           <Hand size={18} />
         </button>
         <FitViewButton />
-      </Panel>
+      </div>
       {children}
     </ReactFlow>
   );
@@ -370,10 +369,10 @@ function ZoomControls() {
   const { zoomIn, zoomOut, zoomTo } = useReactFlow();
   const { zoom } = useViewport();
   return (
-    <Panel className="story-canvas-zoom" position="bottom-left">
+    <div className="react-flow__panel bottom left story-canvas-zoom">
       <button type="button" title={t("editorCanvas.zoomOut")} aria-label={t("editorCanvas.zoomOut")} onClick={() => void zoomOut()}><Minus size={14} /></button>
       <button className="story-canvas-zoom-value" type="button" title={t("editorCanvas.resetZoom")} onClick={() => void zoomTo(1)}>{Math.round(zoom * 100)}%</button>
       <button type="button" title={t("editorCanvas.zoomIn")} aria-label={t("editorCanvas.zoomIn")} onClick={() => void zoomIn()}><Plus size={14} /></button>
-    </Panel>
+    </div>
   );
 }

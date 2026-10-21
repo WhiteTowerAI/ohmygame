@@ -72,6 +72,7 @@ const nodes = [
     required: ["prompt", "resolution", "aspectRatio", "images"],
     properties: {
       prompt: { type: "string" },
+      generationMode: { enum: ["character-asset", "continuous-actions", "all-actions"] },
       promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
       model,
       resolution: { enum: IMAGE_RESOLUTIONS },

@@ -358,7 +358,12 @@ export class ProjectManager {
     id: string,
     fileName: string,
     contents: Uint8Array,
-    metadata: { prompt?: string; preview?: { bytes: Uint8Array; extension: "png" | "jpg" }; libraryAssetId?: string } = {},
+    metadata: {
+      prompt?: string;
+      preview?: { bytes: Uint8Array; extension: "png" | "jpg" };
+      libraryAssetId?: string;
+      registerInLibrary?: boolean;
+    } = {},
   ): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
@@ -396,13 +401,15 @@ export class ProjectManager {
         await rm(previewTemporary, { force: true });
       }
     }
-    const libraryAssetId = metadata.libraryAssetId && this.assetLibrary?.get(metadata.libraryAssetId)
-      ? metadata.libraryAssetId
-      : (await this.assetLibrary?.add(fileName, contents, {
-      origin: "generated",
-      ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
-      sourceKey: `project:${id}:${assetPath}`,
-      }))?.id;
+    const libraryAssetId = metadata.registerInLibrary === false
+      ? undefined
+      : metadata.libraryAssetId && this.assetLibrary?.get(metadata.libraryAssetId)
+        ? metadata.libraryAssetId
+        : (await this.assetLibrary?.add(fileName, contents, {
+          origin: "generated",
+          ...(normalizedPrompt ? { prompt: normalizedPrompt } : {}),
+          sourceKey: `project:${id}:${assetPath}`,
+        }))?.id;
     await this.#writeAssetMetadata(id, () => writeAssetMetadata(project.workspacePath, assetPath, {
       origin: "generated",
       purpose: "asset",

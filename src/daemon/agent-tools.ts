@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { defineTool, type ToolDefinition as PiToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -20,6 +21,7 @@ import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
+import { composeVideo, editImage, extractVideoFrames, extractVideoStrip, splitImageGrid, transformImage, zipMediaOutputs } from "./media-tools.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -480,6 +482,143 @@ export function createAgentTools(
       prompt: input.prompt, model: input.model, instrumental: input.instrumental, lyrics: input.lyrics,
       durationSeconds: input.durationSeconds, loop: input.loop, output: { format: input.format },
     }, input.prompt, "music", signal),
+  }), defineTool({
+    name: "image_edit",
+    label: "Edit Image",
+    description: "Apply pixel-safe image adjustments to a project image: crop, resize, rotate, color modulation, blur, sharpen, grayscale, and pixelation. Saves the result into assets/generated.",
+    parameters: Type.Object({
+      sourcePath: Type.String({ minLength: 1, description: "PNG, JPEG, WebP, or GIF path in the current project workspace" }),
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
+      crop: Type.Optional(Type.Object({
+        left: Type.Integer({ minimum: 0 }),
+        top: Type.Integer({ minimum: 0 }),
+        width: Type.Integer({ minimum: 1 }),
+        height: Type.Integer({ minimum: 1 }),
+      }, { description: "Crop rectangle in source pixels" })),
+      width: Type.Optional(Type.Integer({ minimum: 1, maximum: 16_384 })),
+      height: Type.Optional(Type.Integer({ minimum: 1, maximum: 16_384 })),
+      fit: Type.Optional(Type.Union([Type.Literal("cover"), Type.Literal("contain"), Type.Literal("fill"), Type.Literal("inside"), Type.Literal("outside")])),
+      rotate: Type.Optional(Type.Number({ description: "Arbitrary clockwise rotation in degrees" })),
+      brightness: Type.Optional(Type.Number({ minimum: 0.1, maximum: 10 })),
+      saturation: Type.Optional(Type.Number({ minimum: 0, maximum: 10 })),
+      grayscale: Type.Optional(Type.Boolean()),
+      blur: Type.Optional(Type.Number({ minimum: 0.3, maximum: 100 })),
+      sharpen: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
+      pixelate: Type.Optional(Type.Integer({ minimum: 2, maximum: 128, description: "Pixel block size" })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!source.contentType.startsWith("image/")) throw new Error("image_edit requires an image file");
+      const output = await editImage({ ...input, inputPath: source.absolutePath });
+      const relativePath = await projects.addGeneratedAsset(project.id, `image-edit-${randomUUID()}.${path.extname(output.name).slice(1)}`, output.bytes);
+      return { content: [{ type: "text", text: `Edited image saved to ${relativePath}` }], details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } } };
+    },
+  }), defineTool({
+    name: "image_grid_split",
+    label: "Split Image Grid",
+    description: "Split a sprite sheet into row-major grid cells. The result is a ZIP containing numbered frame images and a manifest.",
+    parameters: Type.Object({
+      sourcePath: Type.String({ minLength: 1, description: "Sprite sheet image path in the current project workspace" }),
+      columns: Type.Integer({ minimum: 1, maximum: 100 }),
+      rows: Type.Integer({ minimum: 1, maximum: 100 }),
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
+      includeManifest: Type.Optional(Type.Boolean()),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!source.contentType.startsWith("image/")) throw new Error("image_grid_split requires an image file");
+      const frames = await splitImageGrid({ ...input, inputPath: source.absolutePath });
+      const archive = await zipMediaOutputs(frames);
+      const relativePath = await projects.addGeneratedAsset(project.id, `sprite-sheet-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+      return { content: [{ type: "text", text: `Split ${input.columns * input.rows} cells into ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount: input.columns * input.rows } } };
+    },
+  }), defineTool({
+    name: "image_transform",
+    label: "Rotate or Mirror Image",
+    description: "Rotate an image by 90, 180, or 270 degrees and/or mirror it horizontally or vertically.",
+    parameters: Type.Object({
+      sourcePath: Type.String({ minLength: 1 }),
+      rotate: Type.Optional(Type.Union([Type.Literal(0), Type.Literal(90), Type.Literal(180), Type.Literal(270)])),
+      flip: Type.Optional(Type.Boolean({ description: "Mirror vertically" })),
+      flop: Type.Optional(Type.Boolean({ description: "Mirror horizontally" })),
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!source.contentType.startsWith("image/")) throw new Error("image_transform requires an image file");
+      const output = await transformImage({ ...input, inputPath: source.absolutePath });
+      const relativePath = await projects.addGeneratedAsset(project.id, `image-transform-${randomUUID()}.${path.extname(output.name).slice(1)}`, output.bytes);
+      return { content: [{ type: "text", text: `Transformed image saved to ${relativePath}` }], details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } } };
+    },
+  }), defineTool({
+    name: "video_extract_frames",
+    label: "Extract Video Frames",
+    description: "Extract a bounded video range into an ordered ZIP of PNG or JPEG frames using FFmpeg.",
+    parameters: Type.Object({
+      sourcePath: Type.String({ minLength: 1 }),
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120 })),
+      startTime: Type.Optional(Type.Number({ minimum: 0, maximum: 86_400 })),
+      duration: Type.Optional(Type.Number({ minimum: 0.01, maximum: 300 })),
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpg")])),
+      includeManifest: Type.Optional(Type.Boolean({ description: "Include a JSON frame index in the ZIP; defaults to true" })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!source.contentType.startsWith("video/")) throw new Error("video_extract_frames requires a video file");
+      const frames = await extractVideoFrames({ ...input, inputPath: source.absolutePath, signal });
+      const archive = await zipMediaOutputs(frames);
+      const relativePath = await projects.addGeneratedAsset(project.id, `video-frames-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+      const frameCount = frames.filter((frame) => frame.mediaType.startsWith("image/")).length;
+      return { content: [{ type: "text", text: `Extracted ${frameCount} frames to ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount } } };
+    },
+  }), defineTool({
+    name: "video_frame_strip",
+    label: "Pull Video Strip",
+    description: "Create an ordered frame strip from a video for animation inspection, using FFmpeg and returning a ZIP of frames.",
+    parameters: Type.Object({
+      sourcePath: Type.String({ minLength: 1 }),
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120, description: "Sampling rate" })),
+      startTime: Type.Optional(Type.Number({ minimum: 0, maximum: 86_400 })),
+      duration: Type.Optional(Type.Number({ minimum: 0.01, maximum: 300 })),
+      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpg")])),
+      includeManifest: Type.Optional(Type.Boolean({ description: "Include a JSON frame index in the ZIP; defaults to true" })),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
+      if (!source.contentType.startsWith("video/")) throw new Error("video_frame_strip requires a video file");
+      const frames = await extractVideoStrip({ ...input, inputPath: source.absolutePath, signal });
+      const archive = await zipMediaOutputs(frames);
+      const relativePath = await projects.addGeneratedAsset(project.id, `video-strip-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+      const frameCount = frames.filter((frame) => frame.mediaType.startsWith("image/")).length;
+      return { content: [{ type: "text", text: `Created a ${frameCount}-frame strip at ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount } } };
+    },
+  }), defineTool({
+    name: "video_compose_frames",
+    label: "Compose Video",
+    description: "Compose project image frames into an MP4 or looping GIF using FFmpeg.",
+    parameters: Type.Object({
+      framePaths: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 1_000 }),
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120 })),
+      format: Type.Optional(Type.Union([Type.Literal("mp4"), Type.Literal("gif")])),
+    }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const framePaths = await Promise.all(input.framePaths.map(async (framePath) => {
+        const source = await getWorkspaceMedia(project.workspacePath, framePath);
+        if (!source.contentType.startsWith("image/")) throw new Error(`Frame is not an image: ${framePath}`);
+        return source.absolutePath;
+      }));
+      const output = await composeVideo({ ...input, framePaths, signal });
+      const relativePath = await projects.addGeneratedAsset(project.id, `composed-${randomUUID()}.${output.name.split(".").pop()}`, output.bytes);
+      const artifact = output.mediaType === "video/mp4" ? { type: "video" as const, path: relativePath, mediaType: "video/mp4" as const } : undefined;
+      return { content: [{ type: "text", text: `Composed ${input.format ?? "mp4"} saved to ${relativePath}` }], details: { ...(artifact ? { artifact } : {}), media: { path: relativePath, mediaType: output.mediaType } } };
+    },
+
   }), ...(project.type === "interactive-story" ? [defineTool({
     name: "playable_add_node",
     label: "Add Node",
