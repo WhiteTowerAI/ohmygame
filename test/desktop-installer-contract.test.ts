@@ -76,6 +76,8 @@ describe("Windows desktop installer safety", () => {
       ).toBe(17);
       expect(await runProcessFallback(basename(process.execPath))).toBe(0);
     },
+    // tasklist can take several seconds on a cold CI runner.
+    30_000,
   );
 
   it("uses recovery wording that remains accurate after a partial install", async () => {
