@@ -64,20 +64,25 @@ const policy = {
   ),
 };
 
+/** A Claude Code session in the workspace, for its sandbox settings. */
+function claudeContext(contextPolicy: DriverContext["policy"]): DriverContext {
+  return {
+    binaryPath: "/usr/bin/claude",
+    workspacePath: workspace,
+    privateDirectory: path.join(os.tmpdir(), "ohmygame-session"),
+    env: {},
+    isolateUserConfig: true,
+    instructions: "",
+    bridge: new ToolBridge([]),
+    skillDirectories: [],
+    model: "sonnet",
+    policy: contextPolicy,
+  };
+}
+
 it("requires Claude's sandbox when the policy automatically allows confined commands", () => {
   for (const sandboxedCommands of [true, false]) {
-    const context: DriverContext = {
-      binaryPath: "/usr/bin/claude",
-      workspacePath: workspace,
-      privateDirectory: path.join(os.tmpdir(), "ohmygame-session"),
-      env: {},
-      isolateUserConfig: true,
-      instructions: "",
-      bridge: new ToolBridge([]),
-      skillDirectories: [],
-      model: "sonnet",
-      policy: { ...policy, sandboxedCommands },
-    };
+    const context = claudeContext({ ...policy, sandboxedCommands });
     expect(claudeSandboxSettings(context).sandbox.failIfUnavailable).toBe(
       sandboxedCommands,
     );
@@ -145,19 +150,7 @@ describe("Pi's agent folder", () => {
   });
 
   it("is unreadable in Claude Code's sandbox", () => {
-    const context: DriverContext = {
-      binaryPath: "/usr/bin/claude",
-      workspacePath: workspace,
-      privateDirectory: path.join(os.tmpdir(), "ohmygame-session"),
-      env: {},
-      isolateUserConfig: true,
-      instructions: "",
-      bridge: new ToolBridge([]),
-      skillDirectories: [],
-      model: "sonnet",
-      policy,
-    };
-    expect(claudeSandboxSettings(context).sandbox).toMatchObject({
+    expect(claudeSandboxSettings(claudeContext(policy)).sandbox).toMatchObject({
       filesystem: {
         denyRead: expect.arrayContaining([canonicalPath(piAgentDirectory)]),
       },
