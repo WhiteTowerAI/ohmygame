@@ -63,9 +63,13 @@ Each line is timestamped and redacted before it is written
 The daemon's log lines carry the process ID but not the computer name
 (`src/daemon/request-log.ts`).
 
-Each file rotates at 5 MB, and the newest three are kept (`daemon.log`,
-`daemon.1.log`, `daemon.2.log`). A log that cannot be written stops quietly;
-logging never fails the app (`src/desktop/log-file.ts`).
+Lines are written in the background, so logging never blocks the Electron main
+thread; an uncaught error writes its lines synchronously, as the process may
+end first. A multi-line entry, such as a service error with the daemon's
+output, is written one timestamped line at a time. Each file rotates at 5 MB,
+and the newest three are kept (`daemon.log`, `daemon.1.log`, `daemon.2.log`).
+A log that cannot be written stops quietly; logging never fails the app
+(`src/desktop/log-file.ts`).
 
 A daemon started on its own (`bun run dev`, `bun run start`) writes no log
 files; its output stays in the terminal.
@@ -82,7 +86,13 @@ passes the logs folder to the daemon in `OHMYGAME_LOG_DIR`. The ZIP contains:
   memory; Node, Electron and Chrome versions; and the IDs of configured
   providers, coding agents (with version and sign-in status), installed
   plugins, and the number of projects of each type. `logs` is
-  `"not recorded"` when the daemon has no logs folder.
+  `"not recorded"` when the daemon has no logs folder. A part that cannot be
+  read is recorded as `{ "error": … }` and the rest is still exported.
+
+When the background service is not running, the desktop app builds the same
+ZIP itself (`src/desktop/diagnostics-export.ts`), with the service's status
+in place of providers, agents and plugins. The service's address and access
+token stay out, and its error is redacted like a log line.
 
 It never contains keys, account names, file paths, settings files,
 conversations or project files.
