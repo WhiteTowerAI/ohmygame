@@ -1,5 +1,5 @@
 diff --git a/dist/api/anthropic-messages.js b/dist/api/anthropic-messages.js
-index d0a5b0f1bcd77e4afff2c92b068a6e3150dcdd86..73c1bdb2b203d2acb366f79cd775ef02faf35ea6 100644
+index befb18b..eb9e35f 100644
 --- a/dist/api/anthropic-messages.js
 +++ b/dist/api/anthropic-messages.js
 @@ -1,3 +1,4 @@
@@ -7,15 +7,15 @@ index d0a5b0f1bcd77e4afff2c92b068a6e3150dcdd86..73c1bdb2b203d2acb366f79cd775ef02
  import Anthropic, {} from "@anthropic-ai/sdk";
  import { ANTHROPIC_FEDERATION_RULE_ID_ENV, ANTHROPIC_IDENTITY_TOKEN_FILE_ENV, ANTHROPIC_ORGANIZATION_ID_ENV, ANTHROPIC_SERVICE_ACCOUNT_ID_ENV, ANTHROPIC_WORKSPACE_ID_ENV, } from "../env-api-keys.js";
  import { calculateCost } from "../models.js";
-@@ -379,6 +380,7 @@ export const stream = (model, context, options) => {
+@@ -381,6 +382,7 @@ export const stream = (model, context, options) => {
+     const normalizedContext = resolveTranscript(context, getAnthropicCompat(model).supportsMidConvoSystemMessages);
      const currentTools = getCurrentTools(normalizedContext.messages);
      (async () => {
-         const providerThinkingLevel = model.compat?.supportsMidConvoEffort ? (options?.effort ?? "high") : undefined;
 +        let failureResponse;
          const output = {
              role: "assistant",
              content: [],
-@@ -472,6 +474,7 @@ export const stream = (model, context, options) => {
+@@ -475,6 +477,7 @@ export const stream = (model, context, options) => {
                      });
                  }
              }
@@ -23,7 +23,7 @@ index d0a5b0f1bcd77e4afff2c92b068a6e3150dcdd86..73c1bdb2b203d2acb366f79cd775ef02
              await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
              stream.push({ type: "start", partial: output });
              const blocks = output.content;
-@@ -714,6 +717,7 @@ export const stream = (model, context, options) => {
+@@ -717,6 +720,7 @@ export const stream = (model, context, options) => {
                  delete block.partialJson;
              }
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
@@ -32,7 +32,7 @@ index d0a5b0f1bcd77e4afff2c92b068a6e3150dcdd86..73c1bdb2b203d2acb366f79cd775ef02
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
 diff --git a/dist/api/azure-openai-responses.js b/dist/api/azure-openai-responses.js
-index 4615b1e502429ca4fb911dd8318658265b429c8d..44a540950b9ee19ee444fb935937692b775f1c43 100644
+index 4615b1e..44a5409 100644
 --- a/dist/api/azure-openai-responses.js
 +++ b/dist/api/azure-openai-responses.js
 @@ -1,3 +1,4 @@
@@ -65,7 +65,7 @@ index 4615b1e502429ca4fb911dd8318658265b429c8d..44a540950b9ee19ee444fb935937692b
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
 diff --git a/dist/api/google-generative-ai.js b/dist/api/google-generative-ai.js
-index a413006c758079d3b589d9425b33a947c4adbc47..799ad523a35e6dbe609107c73e3e64ff695948fd 100644
+index a413006..799ad52 100644
 --- a/dist/api/google-generative-ai.js
 +++ b/dist/api/google-generative-ai.js
 @@ -1,3 +1,4 @@
@@ -82,7 +82,7 @@ index a413006c758079d3b589d9425b33a947c4adbc47..799ad523a35e6dbe609107c73e3e64ff
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
 diff --git a/dist/api/google-vertex.js b/dist/api/google-vertex.js
-index b51f64e88b2d7b5eb7a921f2fa6da246b6f3a084..4466ec0b4f2f4553b7d2f2e73e576d36f58d4073 100644
+index b51f64e..4466ec0 100644
 --- a/dist/api/google-vertex.js
 +++ b/dist/api/google-vertex.js
 @@ -1,3 +1,4 @@
@@ -99,7 +99,7 @@ index b51f64e88b2d7b5eb7a921f2fa6da246b6f3a084..4466ec0b4f2f4553b7d2f2e73e576d36
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
 diff --git a/dist/api/openai-codex-responses.js b/dist/api/openai-codex-responses.js
-index 42aac9d5f61edf7254c975d47abb42eca59bdad8..3e0d83408f66f94c85b2116c18da62b549785873 100644
+index 42aac9d..3e0d834 100644
 --- a/dist/api/openai-codex-responses.js
 +++ b/dist/api/openai-codex-responses.js
 @@ -1,3 +1,4 @@
@@ -140,7 +140,7 @@ index 42aac9d5f61edf7254c975d47abb42eca59bdad8..3e0d83408f66f94c85b2116c18da62b5
              stream.push({ type: "error", reason: output.stopReason, error: output });
              stream.end();
 diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
-index a60f39352b776d71497e55b33b3334bacfbeb2f5..b71c8808e9fbe66a1e21f43e72e54624de6b3e68 100644
+index 0eeaffa..099bcfe 100644
 --- a/dist/api/openai-completions.js
 +++ b/dist/api/openai-completions.js
 @@ -1,3 +1,4 @@
@@ -164,7 +164,7 @@ index a60f39352b776d71497e55b33b3334bacfbeb2f5..b71c8808e9fbe66a1e21f43e72e54624
              await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
              stream.push({ type: "start", partial: output });
              let textBlock = null;
-@@ -500,6 +503,7 @@ export const stream = (model, context, options) => {
+@@ -502,6 +505,7 @@ export const stream = (model, context, options) => {
                  delete block.streamIndex;
              }
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
@@ -173,7 +173,7 @@ index a60f39352b776d71497e55b33b3334bacfbeb2f5..b71c8808e9fbe66a1e21f43e72e54624
              // Some providers via OpenRouter give additional information in this field.
              // normalizeProviderError already stringifies the parsed body (error.error)
 diff --git a/dist/api/openai-responses.js b/dist/api/openai-responses.js
-index 2a6b4e408498e33fd7685471559fbd4696755f0a..c729cebdb1a0ec60b39beb75c53c2b8f27ce54a8 100644
+index 2ab985c..3e9270b 100644
 --- a/dist/api/openai-responses.js
 +++ b/dist/api/openai-responses.js
 @@ -1,3 +1,4 @@
@@ -181,15 +181,15 @@ index 2a6b4e408498e33fd7685471559fbd4696755f0a..c729cebdb1a0ec60b39beb75c53c2b8f
  import OpenAI from "openai";
  import { clampThinkingLevel } from "../models.js";
  import { formatProviderError, normalizeProviderError } from "../utils/error-body.js";
-@@ -95,6 +96,7 @@ export const stream = (model, context, options) => {
+@@ -108,6 +109,7 @@ export const stream = (model, context, options) => {
      const normalizedContext = resolveTranscript(context, getCompat(model).supportsMidConvoSystemMessages);
      // Start async processing
      (async () => {
 +        let failureResponse;
+         const compat = getCompat(model);
+         const configurationUpdateEffort = getConfigurationUpdateEffort(model, options, compat);
          const output = {
-             role: "assistant",
-             content: [],
-@@ -135,6 +137,7 @@ export const stream = (model, context, options) => {
+@@ -150,6 +152,7 @@ export const stream = (model, context, options) => {
                  maxRetryDelayMs: options?.maxRetryDelayMs,
                  signal: options?.signal,
              });
@@ -197,7 +197,7 @@ index 2a6b4e408498e33fd7685471559fbd4696755f0a..c729cebdb1a0ec60b39beb75c53c2b8f
              await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
              stream.push({ type: "start", partial: output });
              await processResponsesStream(openaiStream, output, stream, model, {
-@@ -163,6 +166,7 @@ export const stream = (model, context, options) => {
+@@ -178,6 +181,7 @@ export const stream = (model, context, options) => {
                  delete block.customInput;
              }
              output.stopReason = options?.signal?.aborted ? "aborted" : "error";
@@ -206,7 +206,7 @@ index 2a6b4e408498e33fd7685471559fbd4696755f0a..c729cebdb1a0ec60b39beb75c53c2b8f
              // Sign in with ChatGPT shares the subscription's usage limit with other apps.
              output.errorMessage = errorMessage.includes("subscription_sharing_usage_limit_exceeded")
 diff --git a/dist/api/system-one-shared.js b/dist/api/system-one-shared.js
-index 824e39517978d66496b5b6b369844bc485170d94..9d7cd223b9dab361ff163fcf0e97a76835adcd0c 100644
+index 824e395..9d7cd22 100644
 --- a/dist/api/system-one-shared.js
 +++ b/dist/api/system-one-shared.js
 @@ -1,3 +1,4 @@
@@ -222,9 +222,9 @@ index 824e39517978d66496b5b6b369844bc485170d94..9d7cd223b9dab361ff163fcf0e97a768
          output.errorMessage = formatProviderError(normalizeProviderError(error), `${transport.label} error`);
          return output;
      }
-diff --git a/node_modules/@earendil-works/pi-ai/dist/utils/provider-failure.d.ts b/dist/utils/provider-failure.d.ts
+diff --git a/dist/utils/provider-failure.d.ts b/dist/utils/provider-failure.d.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..6da4ff5c32329db4bb4ffb0ac9f1a4516eb36e61
+index 0000000..6da4ff5
 --- /dev/null
 +++ b/dist/utils/provider-failure.d.ts
 @@ -0,0 +1,5 @@
@@ -233,9 +233,9 @@ index 0000000000000000000000000000000000000000..6da4ff5c32329db4bb4ffb0ac9f1a451
 +export declare function sanitizeDiagnosticText(value: unknown, limit?: number): string | undefined;
 +export declare function createProviderFailureDiagnostic(error: unknown, endpoint?: string, response?: { status: number; headers: Headers }): AssistantMessageDiagnostic;
 +export declare function appendProviderFailureDiagnostic(output: { diagnostics?: AssistantMessageDiagnostic[] }, error: unknown, endpoint?: string, response?: { status: number; headers: Headers }): void;
-diff --git a/node_modules/@earendil-works/pi-ai/dist/utils/provider-failure.js b/dist/utils/provider-failure.js
+diff --git a/dist/utils/provider-failure.js b/dist/utils/provider-failure.js
 new file mode 100644
-index 0000000000000000000000000000000000000000..53fb4cb64fa706f8a19a8e6fbac1ea2e75c03809
+index 0000000..53fb4cb
 --- /dev/null
 +++ b/dist/utils/provider-failure.js
 @@ -0,0 +1,77 @@
@@ -317,10 +317,10 @@ index 0000000000000000000000000000000000000000..53fb4cb64fa706f8a19a8e6fbac1ea2e
 +    output.diagnostics = [...(output.diagnostics ?? []), createProviderFailureDiagnostic(error, endpoint, response)];
 +}
 diff --git a/dist/utils/retry.js b/dist/utils/retry.js
-index a0e9b83609417e117662a40797153c1b1e71dc01..d1929ae81111f2c861b73e7e97504e374e0fac6b 100644
+index d1da13a..88781c1 100644
 --- a/dist/utils/retry.js
 +++ b/dist/utils/retry.js
-@@ -189,6 +189,13 @@ export async function retryAssistantCall(produce, policy, signal, callbacks) {
+@@ -193,6 +193,13 @@ export async function retryAssistantCall(produce, policy, signal, callbacks) {
  export function isRetryableAssistantError(message) {
      if (message.stopReason !== "error" || !message.errorMessage)
          return false;

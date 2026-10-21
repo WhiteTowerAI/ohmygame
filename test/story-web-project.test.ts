@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
   AGENT_INSTRUCTIONS,
@@ -14,6 +14,7 @@ import {
 } from "../src/daemon/playable-codebase.js";
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
 import { storyWebRuntimeModules } from "../src/daemon/story-web-bundle.js";
+import * as storyWebBundle from "../src/daemon/story-web-bundle.js";
 import {
   browserImports,
   installStoryRuntime,
@@ -26,6 +27,7 @@ import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
 const cleanups: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(cleanups.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -145,6 +147,27 @@ describe("upgrading a sandboxed story", () => {
     await addPlayableNode(root, { preset: "visual-novel", id: "chapter-1" });
     expect(await read(root, "nodes/chapter-1/node.js")).toContain('await fetch(new URL("./script.txt", import.meta.url))');
     expect(await read(root, "shared/vn/player.js")).toContain('import characters from "./characters.json" with { type: "json" };');
+  });
+});
+
+describe("upgrade resource checks", () => {
+  it("checks runtime availability before copying assets or changing project files", async () => {
+    const root = await legacyProject();
+    await addPlayableNode(root, { preset: "visual-novel", id: "chapter-1" });
+    const graph = JSON.parse(await read(root, "graph.json"));
+    graph.assets.opening = { type: "video", source: { kind: "library", assetId: "lib-video" } };
+    const before = JSON.stringify(graph);
+    await writeFile(path.join(root, "graph.json"), before);
+    const nodeBefore = await read(root, "nodes/chapter-1/node.js");
+    const libraryFile = vi.fn(async () => undefined);
+    vi.spyOn(storyWebBundle, "storyWebRuntimeModules").mockRejectedValue(new Error("Missing runtime resources"));
+
+    await expect(upgradeToWebStory(root, libraryFile)).rejects.toThrow("Missing runtime resources");
+    expect(libraryFile).not.toHaveBeenCalled();
+    expect(await read(root, "graph.json")).toBe(before);
+    expect(await read(root, "nodes/chapter-1/node.js")).toBe(nodeBefore);
+    expect(await isWebStory(root)).toBe(false);
+    await expect(read(root, "index.html")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

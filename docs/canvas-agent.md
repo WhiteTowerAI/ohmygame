@@ -79,6 +79,11 @@ for explicit adoption. Invalid or incomplete output preserves the table, and AI
 instructions and valid candidates survive reloads. Adopting an AI draft is one
 table undo step.
 
+Canvas generation prompts use Enter to generate and Shift+Enter for a new line.
+Enter confirms an active input-method composition or a video `@` reference
+suggestion before it can generate. Text and document content, negative prompts,
+and lyrics keep ordinary multiline editing.
+
 `assets.json` maps asset IDs to readable names and project-relative paths.
 Descriptions describe purpose; prompts record generation instructions.
 Neither is a verified description of image pixels. The agent reads local
@@ -89,7 +94,9 @@ records the origin of an imported or generated file.
 The editor supplies the current board path and selected node IDs as a
 removable chat context. The agent reads current files before making changes.
 Concurrent edits to different fields merge; competing edits require the user
-to choose a version. Invalid external edits leave the last valid canvas
+to choose a version. A node type change is adopted as a whole when the other
+version of that node is unchanged; competing edits during a type change require
+a version choice. Invalid external edits leave the last valid canvas
 visible with diagnostics. External node changes enter the canvas undo history.
 
 Asset Canvas has **Canvas** and **Code** navigation. Code shows the workspace

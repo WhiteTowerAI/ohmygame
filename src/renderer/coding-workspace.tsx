@@ -45,6 +45,7 @@ import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filte
 import { ProjectAssetCollectionFilters } from "./library-filters.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { HighlightedCode } from "./highlighted-code.js";
+import { MarkdownContent, workspaceLinkPath } from "./markdown-content.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { ProjectSettingsDialog } from "./project-settings-dialog.js";
 import { AssetMedia } from "./asset-gallery.js";
@@ -1075,6 +1076,7 @@ export function WorkspaceFileBrowser({
               : selectedFile.binary
               ? <WorkspaceState label={t("workspace.binaryUnavailable")} />
               : renderFile ? renderFile(selectedFile)
+              : isMarkdownFile(selectedFile.path) ? <WorkspaceMarkdownPreview projectId={projectId} revision={revision} file={selectedFile} onOpenFile={onSelect} />
               : <HighlightedCode path={selectedFile.path} content={selectedFile.content ?? ""} />}
           </>
         ) : <WorkspaceState icon={<FolderOpen size={20} />} label={t("workspace.selectFile")} />}
@@ -1358,6 +1360,33 @@ function WorkspaceMediaPreview({ projectId, file, revision }: {
   );
 }
 
+function WorkspaceMarkdownPreview({ projectId, revision, file, onOpenFile }: {
+  projectId?: string;
+  revision: number;
+  file: WorkspaceFileContent;
+  onOpenFile: (path: string) => void;
+}) {
+  const baseDir = file.path.split("/").slice(0, -1).join("/");
+  const renderImage = useCallback((src: string | undefined, alt: string | undefined) => (
+    <WorkspaceMarkdownImage projectId={projectId} revision={revision} baseDir={baseDir} src={src} alt={alt} />
+  ), [projectId, revision, baseDir]);
+  return <MarkdownContent className="file-content-markdown" text={file.content ?? ""} baseDir={baseDir} onOpenWorkspaceFile={onOpenFile} renderImage={renderImage} />;
+}
+
+function WorkspaceMarkdownImage({ projectId, revision, baseDir, src, alt }: {
+  projectId?: string;
+  revision: number;
+  baseDir: string;
+  src?: string;
+  alt?: string;
+}) {
+  const path = workspaceLinkPath(src, undefined, baseDir);
+  const { url } = useWorkspaceAssetUrl(path ? projectId : undefined, path ?? "", revision);
+  const external = src && /^(?:https?:|data:image\/)/i.test(src) ? src : undefined;
+  const resolved = url ?? external;
+  return resolved ? <img src={resolved} alt={alt ?? ""} loading="lazy" /> : <span className="file-content-markdown-image">{alt}</span>;
+}
+
 function loadWorkspaceFile(projectId: string, filePath: string, files: WorkspaceFile[]): Promise<WorkspaceFileContent> {
   const file = files.find((candidate) => candidate.path === filePath);
   if (file?.directory) return Promise.reject(new Error("Path is a directory"));
@@ -1381,6 +1410,11 @@ interface MutableWorkspaceFileNode {
   path?: string;
   directory?: true;
   children: Map<string, MutableWorkspaceFileNode>;
+}
+
+function isMarkdownFile(path: string): boolean {
+  const ext = path.split(".").at(-1)?.toLocaleLowerCase();
+  return ext === "md" || ext === "markdown";
 }
 
 export function workspaceFileTree(files: readonly WorkspaceFile[]): WorkspaceFileNode[] {

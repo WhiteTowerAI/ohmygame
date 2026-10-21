@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
+import { submitCanvasPrompt } from "./canvas-text-composer.js";
 import { t } from "./i18n.js";
 
 export interface VideoMentionOption {
@@ -9,11 +10,12 @@ export interface VideoMentionOption {
 }
 
 /** Plain text aliases stay editable; their stable asset bindings live on the video node. */
-export function VideoReferencePrompt({ value, disabled, options, onChange }: {
+export function VideoReferencePrompt({ value, disabled, options, onChange, onSubmit }: {
   value: string;
   disabled?: boolean;
   options: VideoMentionOption[];
   onChange(value: string): void;
+  onSubmit?: () => void;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState(value);
@@ -59,15 +61,18 @@ export function VideoReferencePrompt({ value, disabled, options, onChange }: {
       onCompositionEnd={(event) => { composing.current = false; setDraft(event.currentTarget.value); onChange(event.currentTarget.value); inspect(); }}
       onBlur={() => { editing.current = false; if (composing.current) { composing.current = false; onChange(input.current?.value ?? draft); } setQuery(undefined); }}
       onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing || !open) return;
+        if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
+        if (!open) { submitCanvasPrompt(event, onSubmit); return; }
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setQuery(undefined); }
         if ((event.key === "ArrowDown" || event.key === "ArrowUp") && candidates.length) {
           event.preventDefault(); event.stopPropagation();
           setActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + candidates.length) % candidates.length);
         }
-        if ((event.key === "Enter" || event.key === "Tab") && candidates[active]) {
+        if ((event.key === "Enter" || event.key === "Tab") && !event.shiftKey && candidates[active]) {
           event.preventDefault(); event.stopPropagation(); insert(candidates[active]!);
+          return;
         }
+        submitCanvasPrompt(event, onSubmit);
       }} />
     {open ? <div className="video-mention-menu nowheel" role="listbox" id={listId} aria-label={t("videoPrompt.references")}>
       {candidates.length ? candidates.map((option, index) => <button key={option.alias} id={`${listId}-${index}`}

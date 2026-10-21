@@ -1,7 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { build, transform } from "esbuild";
 
 /** Where a web story project keeps its runtime, and the module its page loads. */
 export const STORY_WEB_DIRECTORY = "story";
@@ -9,10 +8,31 @@ export const STORY_WEB_ENTRY = "story/story-web/runtime.js";
 
 let bridge: Promise<string> | undefined;
 let modules: Promise<Record<string, string>> | undefined;
+let resources: Promise<StoryWebResources> | undefined;
+
+interface StoryWebResources {
+  modules: Record<string, string>;
+  bridge: string;
+}
+
+// Only source development generates resources on demand. Builds must carry
+// them: esbuild's native process cannot read modules inside Electron's ASAR.
+const fromSource = fileURLToPath(import.meta.url).endsWith(".ts");
+
+function builtResources(): Promise<StoryWebResources> {
+  resources ??= readFile(new URL("../story-web/resources.json", import.meta.url), "utf8").then(
+    (text) => JSON.parse(text) as StoryWebResources,
+    (cause) => { throw new Error("The web story resources are missing from this build. Rebuild the application.", { cause }); },
+  );
+  resources.catch(() => { resources = undefined; });
+  return resources;
+}
 
 /** The editor bridge the preview injects into a web story's pages, as one classic script. */
 export function storyWebEditorBridge(): Promise<string> {
   bridge ??= (async () => {
+    if (!fromSource) return (await builtResources()).bridge;
+    const { build } = await import("esbuild");
     const result = await build({
       entryPoints: [await sourceFile("story-web/editor-bridge")],
       bundle: true,
@@ -34,6 +54,8 @@ export function storyWebEditorBridge(): Promise<string> {
  */
 export function storyWebRuntimeModules(): Promise<Record<string, string>> {
   modules ??= (async () => {
+    if (!fromSource) return (await builtResources()).modules;
+    const { build } = await import("esbuild");
     const entry = await sourceFile("story-web/runtime");
     const sourceRoot = path.dirname(path.dirname(entry));
     const { metafile } = await build({ entryPoints: [entry], bundle: true, format: "esm", write: false, metafile: true });
@@ -51,8 +73,8 @@ export function storyWebRuntimeModules(): Promise<Record<string, string>> {
 
 /**
  * A module with its comments, which explain the runtime to whoever changes
- * it. A build already holds it compiled by tsc; in development TypeScript
- * strips the types, falling back to esbuild, which drops comments.
+ * it. Resource preparation strips types with TypeScript, falling back to
+ * esbuild, which drops comments.
  */
 async function readableModule(file: string): Promise<string> {
   const source = await readFile(file, "utf8");
@@ -63,11 +85,12 @@ async function readableModule(file: string): Promise<string> {
       compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
     }).outputText;
   } catch {
+    const { transform } = await import("esbuild");
     return (await transform(source, { loader: "ts", format: "esm", target: "es2022" })).code;
   }
 }
 
-/** Source in development, the compiled module in a build. */
+/** Finds the modules used to prepare resources, before packaging. */
 async function sourceFile(name: string): Promise<string> {
   for (const extension of [".ts", ".js"]) {
     // Built from the module's own path, not the global URL, which test DOMs replace.

@@ -1,6 +1,6 @@
 {
   "name": "ohmygame",
-  "version": "0.0.0-beta.4.10",
+  "version": "0.0.0-beta.4.11",
   "description": "An open-source local-first agent for creating and publishing games.",
   "author": "WhiteTowerAI",
   "license": "Apache-2.0",
@@ -16,7 +16,7 @@
   "main": "dist/desktop/bootstrap.cjs",
   "scripts": {
     "build": "bun run build:host && bun run build:renderer && bun run build:player",
-    "build:host": "bun --bun node_modules/typescript/bin/tsc -p tsconfig.build.json",
+    "build:host": "bun --bun node_modules/typescript/bin/tsc -p tsconfig.build.json && node --import tsx scripts/build-story-web.mjs",
     "build:daemon": "bun run build:host && bun run build:player",
     "build:renderer": "bun --bun node_modules/vite/bin/vite.js build && bun --bun node_modules/vite/bin/vite.js build --config vite.sandbox.config.ts --outDir dist/renderer",
     "build:player": "bun --bun node_modules/vite/bin/vite.js build --config vite.player.config.ts && bun --bun node_modules/vite/bin/vite.js build --config vite.sandbox.config.ts --outDir dist/player",
@@ -46,8 +46,8 @@
     "test:desktop-game": "bun run build:host && bun run build:renderer && node scripts/test-web-game-runtime.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "1.2.0",
-    "@earendil-works/pi-coding-agent": "1.2.0",
+    "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-coding-agent": "1.3.0",
     "@gltf-transform/core": "4.5.1",
     "@gltf-transform/extensions": "4.5.1",
     "@sentry/electron": "^7.20.0",
@@ -104,7 +104,7 @@
     "bun": ">=1.4.2"
   },
   "patchedDependencies": {
-    "@earendil-works/pi-ai@1.2.0": "patches/@earendil-works%2Fpi-ai@1.2.0.patch",
+    "@earendil-works/pi-ai@1.3.0": "patches/@earendil-works%2Fpi-ai@1.3.0.patch",
     "electron-updater@6.8.9": "patches/electron-updater@6.8.9.patch"
   }
 }

@@ -24,6 +24,16 @@ describe("agent model selection", () => {
     expect(findAgentModel(models, { provider: "two", id: "first" })).toBeUndefined();
   });
 
+  it("recommends Gemini 4 for new Google connections while preserving saved defaults", () => {
+    const catalog = [
+      { provider: "google", id: "gemini-3.1-pro-preview" },
+      { provider: "google", id: "gemini-4-argon" },
+    ];
+    expect(recommendedAgentModel(catalog, "google")).toBe(catalog[1]);
+    expect(preferredAgentModel(catalog, undefined, catalog[0])).toBe(catalog[0]);
+    expect(recommendedAgentModel(catalog.slice(0, 1), "google")).toBe(catalog[0]);
+  });
+
   it("recommends a provider's flagship model and falls back to its first model", () => {
     const catalog = [
       { provider: "anthropic", id: "claude-3-haiku" },

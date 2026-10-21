@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startDaemon } from "../dist/desktop/daemon-process.js";
+import { checkStoryWeb } from "./check-story-web.mjs";
 
 assert(
   !process.versions.bun,
@@ -31,6 +32,7 @@ try {
     const body = await response.json();
     if (route === "/projects") assert.deepEqual(body, []);
   }
+  await checkStoryWeb(daemon.runtime);
   const headers = { authorization: `Bearer ${daemon.runtime.token}`, "content-type": "application/json" };
   const installedResponse = await fetch(`${daemon.runtime.url}/plugins/mcp`, {
     method: "POST", headers, body: JSON.stringify({ name: "node-runtime-fixture", servers: { local: {
@@ -54,5 +56,5 @@ try {
   await rm(directory, { recursive: true, force: true });
 }
 console.log(
-  `Node.js ${process.versions.node}: daemon startup, authenticated API, native MCP runtime and graceful shutdown passed`,
+  `Node.js ${process.versions.node}: daemon startup, authenticated API, story creation, upgrade and preview, native MCP runtime and graceful shutdown passed`,
 );

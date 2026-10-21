@@ -56,7 +56,11 @@ export function isCanvasBoard(value: unknown): value is CanvasBoard {
 }
 export function createCanvasBoard(id = crypto.randomUUID()): CanvasBoard { return { ...createAssetCanvasDocument(), id }; }
 export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanvasDocument, remote: AssetCanvasDocument): AssetCanvasDocument | undefined {
-  const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const serialize = (value: unknown) => JSON.stringify(value, (_key, item) =>
+    item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]]))
+      : item);
+  const equal = (a: unknown, b: unknown) => serialize(a) === serialize(b);
   const merge = <T>(a: T, b: T, c: T): T | undefined => equal(b, c) || equal(a, c) ? b : equal(a, b) ? c : undefined;
   const nodes: AssetCanvasNode[] = [];
   for (const id of new Set([...local.nodes, ...remote.nodes].map((node) => node.id))) {
@@ -64,6 +68,9 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     if (!ours && before) continue;
     if (!theirs && before) { if (!equal(before, ours)) return undefined; continue; }
     if (!ours || !theirs || !before) { if (ours && theirs && !equal(ours, theirs)) return undefined; nodes.push((ours ?? theirs)!); continue; }
+    // Adopt an uncontested node as a whole before comparing type-specific fields.
+    if (equal(ours, theirs) || equal(before, theirs)) { nodes.push(ours); continue; }
+    if (equal(before, ours)) { nodes.push(theirs); continue; }
     if (before.type !== ours.type || ours.type !== theirs.type) return undefined;
     const position = merge(before.position, ours.position, theirs.position);
     if (!position) return undefined;

@@ -17,6 +17,7 @@ const definition = { version: 1 as const, graph: codebase.graph, graphSignature:
   nodes: Object.fromEntries(codebase.graph.nodes.map(node => [node.id, { id: node.id, inputs: [], html: `<p>${node.id}</p>`, css: "", javascript: "" }])) } };
 let manifest: PlayableThumbnailManifest;
 let currentDefinition = structuredClone(definition);
+let preparation: Promise<void> | undefined;
 let canvasNodes: Array<{ id: string; data: { thumbnail?: { stale: boolean } } }>;
 
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async original => ({
@@ -29,11 +30,12 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async original => ({
   listPlayablePresets: async () => ({ presets: [] }),
   listPlayableThumbnails: async () => structuredClone(manifest),
   getPlayableValidation: async () => ({ issues: [], definition: structuredClone(currentDefinition) }),
+  getStoryUpgrade: async () => ({ web: true }),
   getWorkspaceFile: async (_id: string, file: string) => ({ path: file, content: "source", truncated: false }),
 }));
 const { PlayableEditorWorkspace } = await import("../src/renderer/playable-editor-workspace.js");
 let dispose: (() => Promise<void>) | undefined;
-beforeEach(() => { manifest = {}; canvasNodes = []; currentDefinition = structuredClone(definition); });
+beforeEach(() => { manifest = {}; canvasNodes = []; currentDefinition = structuredClone(definition); preparation = undefined; });
 afterEach(async () => { await dispose?.(); dispose = undefined; vi.unstubAllGlobals(); });
 
 async function openWorkspace() {
@@ -55,8 +57,9 @@ async function openWorkspace() {
     }, controller.signal).catch(() => false);
   });
   const cancel = vi.fn(async (batchId: string) => { controllers.get(batchId)?.abort(); });
+  const prepare = vi.fn(async (_projectId: string, _batchId: string, _snapshot: unknown) => { await preparation; });
   Object.defineProperty(window, "ohMyGameDesktop", { configurable: true, value: {
-    captureNodeThumbnail: capture, cancelNodeThumbnails: cancel,
+    captureNodeThumbnail: capture, cancelNodeThumbnails: cancel, prepareNodeThumbnails: prepare,
   } });
   const container = document.createElement("div"); document.body.appendChild(container);
   const root = createRoot(container);
@@ -69,8 +72,31 @@ async function openWorkspace() {
     workspaceRevision={revision} onPublish={async () => false} onOpenPublish={() => {}} onClosePublish={() => {}}
   />));
   await render(0);
-  return { capture, cancel, render, jobs };
+  return { capture, cancel, prepare, render, jobs };
 }
+
+it("shares one compiled snapshot for every capture in a batch", async () => {
+  const { prepare, capture } = await openWorkspace();
+  expect(prepare).toHaveBeenCalledExactlyOnceWith("p", expect.any(String), {
+    definition: currentDefinition, version: "0", web: true,
+  });
+  const batchId = prepare.mock.calls[0]![1];
+  expect(capture).toHaveBeenCalledTimes(4);
+  expect(capture.mock.calls.every((call) => call[3] === batchId)).toBe(true);
+});
+
+it("does not start captures from a snapshot prepared after its build was cancelled", async () => {
+  let release!: () => void;
+  preparation = new Promise<void>((resolve) => { release = resolve; });
+  const { capture, cancel, prepare, render } = await openWorkspace();
+  expect(capture).not.toHaveBeenCalled();
+  await render(1);
+  expect(prepare).toHaveBeenCalledTimes(2);
+  await act(async () => release());
+  expect(cancel).toHaveBeenCalledWith(prepare.mock.calls[0]![1]);
+  expect(capture).toHaveBeenCalledTimes(4);
+  expect(capture.mock.calls.every((call) => call[3] === prepare.mock.calls[1]![1])).toBe(true);
+});
 
 it("resubmits queued thumbnails after a workspace revision cancels the old batch", async () => {
   const { capture, cancel, render } = await openWorkspace();

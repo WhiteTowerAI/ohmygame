@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { AgentRuntimeId } from "../../shared/agent-runtimes.js";
+import type {
+  AgentRuntimeBinarySource,
+  AgentRuntimeId,
+} from "../../shared/agent-runtimes.js";
 
 /**
  * What OhMyGame knows about a coding agent CLI before running it: how to find
@@ -18,7 +21,15 @@ export interface AgentRuntimeDefinition {
    * Copies other apps install outside PATH, such as the Codex that ships in the
    * ChatGPT app. `~` is the home folder.
    */
-  bundledPaths?: Partial<Record<NodeJS.Platform, readonly string[]>>;
+  bundledPaths?: Partial<
+    Record<
+      NodeJS.Platform,
+      readonly {
+        path: string;
+        source: AgentRuntimeBinarySource;
+      }[]
+    >
+  >;
   versionArgs: readonly string[];
   /** A real acceptance run, not a minimum version or a guarantee about later releases. */
   testedVersion: string;
@@ -45,10 +56,15 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     name: "Codex",
     binaries: ["codex"],
     bundledPaths: {
-      darwin: [
-        "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
-        "~/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
-      ],
+      darwin: ["/Applications", "~/Applications"].flatMap((directory) =>
+        [
+          { app: "Codex", source: "codex-app" as const },
+          { app: "ChatGPT", source: "chatgpt-app" as const },
+        ].map(({ app, source }) => ({
+          path: `${directory}/${app}.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`,
+          source,
+        })),
+      ),
     },
     versionArgs: ["--version"],
     testedVersion: "0.163.0",

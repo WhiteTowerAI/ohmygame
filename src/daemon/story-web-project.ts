@@ -192,6 +192,8 @@ export async function upgradeToWebStory(
   const graphText = await readText(workspacePath, "graph.json");
   if (graphText === undefined) throw new Error("This project has no graph.json.");
   const graph = JSON.parse(graphText) as NodeGraph;
+  // Check the shipped runtime before copying media or rewriting project code.
+  await storyWebRuntimeModules();
   const { copiedAssets, missingAssets } = await copyLibraryAssets(workspacePath, libraryFile);
 
   const rewritten: string[] = [];

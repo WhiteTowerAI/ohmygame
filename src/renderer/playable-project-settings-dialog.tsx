@@ -141,7 +141,6 @@ export function PlayableProjectSettingsDialog({
               {t("storySettings.saveBeforeExport")}
             </p>
           ) : null}
-          <p className="project-settings-hint">{t("storySettings.exportHint")}</p>
           <div className="project-settings-export-actions">
             {(["game", "project"] as const).map((kind) => (
               <button

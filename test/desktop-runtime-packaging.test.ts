@@ -9,8 +9,9 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createPackage, extractFile } from "@electron/asar";
 import type { Configuration } from "app-builder-lib";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
 
 const require = createRequire(import.meta.url);
@@ -20,6 +21,33 @@ const {
 } = require("app-builder-lib/out/fileMatcher.js");
 
 describe("desktop runtime packaging", () => {
+  it("includes the generated story resources in the application", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-story-packaging-"));
+    try {
+      const config = parse(await readFile("electron-builder.yml", "utf8")) as Configuration;
+      const relative = "dist/story-web/resources.json";
+      await mkdir(path.join(directory, "dist/story-web"), { recursive: true });
+      await writeFile(path.join(directory, relative), "story resources");
+      const destination = path.join(directory, "app");
+      const matchers = getFileMatchers(config, "files", destination, {
+        defaultSrc: directory,
+        macroExpander: (value: string) => value,
+        customBuildOptions: {},
+        globalOutDir: path.join(directory, "release"),
+      });
+      await copyFiles(matchers.filter((matcher: { from: string }) => matcher.from === directory));
+      expect(await readFile(path.join(destination, relative), "utf8")).toBe("story resources");
+      const archive = path.join(directory, "app.asar");
+      await createPackage(destination, archive);
+      // ASAR's promise can resolve before its output stream has finished writing.
+      await vi.waitFor(() => {
+        expect(extractFile(archive, path.join("dist", "story-web", "resources.json")).toString()).toBe("story resources");
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     [
       "win",

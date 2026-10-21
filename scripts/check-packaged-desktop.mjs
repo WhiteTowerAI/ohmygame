@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { extractFile } from "@electron/asar";
 import { startDaemon } from "../dist/desktop/daemon-process.js";
+import { checkStoryWeb } from "./check-story-web.mjs";
 
 // Run against the assembled app, before creating installers or publishing it.
 export default async function checkPackagedDesktop(context) {
@@ -13,6 +14,11 @@ export default async function checkPackagedDesktop(context) {
   const archive = path.join(resources, "app.asar");
   const appDirectory = packager.info.appDir;
   const metadata = JSON.parse(await readFile(path.join(appDirectory, "package.json"), "utf8"));
+  const storyResources = path.join("dist", "story-web", "resources.json");
+  assert(
+    extractFile(archive, storyResources).equals(await readFile(path.join(appDirectory, storyResources))),
+    "Packaged story resources must match the build",
+  );
   const piVersion = metadata.dependencies["@earendil-works/pi-ai"];
   const patch = await readFile(path.join(appDirectory, metadata.patchedDependencies[`@earendil-works/pi-ai@${piVersion}`]), "utf8");
   const patchedFiles = [...patch.matchAll(/^diff --git .* b\/(\S+\.js)$/gm)].map(match => match[1]);
@@ -24,7 +30,7 @@ export default async function checkPackagedDesktop(context) {
   }
 
   if (electronPlatformName !== process.platform) {
-    console.log("Packaged Pi patch verified; daemon startup requires the target platform.");
+    console.log("Packaged Pi patch and story resources verified; daemon startup requires the target platform.");
     return;
   }
   const name = packager.appInfo.productFilename;
@@ -66,7 +72,8 @@ export default async function checkPackagedDesktop(context) {
     await access(path.join(resources, "integrations", "skills", "ohmygame-studio", "SKILL.md"));
     const handshake = await externalMcpHandshake(executable, path.join(archive, "dist", "desktop", "external-mcp-main.js"), path.join(directory, "data"), environment);
     assert.equal(handshake.result?.serverInfo?.name, "ohmygame-studio", "Packaged MCP launcher must answer from the app archive");
-    console.log("Packaged Pi patch, daemon startup, authenticated API and MCP launcher passed.");
+    await checkStoryWeb(daemon.runtime);
+    console.log("Packaged Pi patch, daemon startup, authenticated API, MCP launcher and story creation, upgrade and preview passed.");
   } finally {
     await daemon?.stop();
     // Windows can retain the executable image lock briefly after the process

@@ -29,6 +29,36 @@ async function fixture() {
 }
 
 describe("conversation UI cache", () => {
+  it("reads large records with UTF-8 characters split across chunks without changing the session", async () => {
+    const { project, stored, session } = await fixture();
+    const original = await readFile(stored.sessionPath);
+    const entry = { type: "custom", id: "large", parentId: session.getLeafId(), timestamp: new Date().toISOString(),
+      customType: "large-record", data: { text: "" } };
+    const prefix = `${JSON.stringify(entry).split('"text":"')[0]}"text":"`;
+    // Put the first three-byte character across the reader's 64 KiB boundary.
+    const padding = (65535 - (original.length + Buffer.byteLength(prefix)) % 65536 + 65536) % 65536;
+    entry.data.text = `${"a".repeat(padding)}${"影游🚀".repeat(120_000)}`;
+    await appendFile(stored.sessionPath, `${JSON.stringify(entry)}\r\n`);
+    const before = await readFile(stored.sessionPath);
+    const cache = new ConversationCache();
+    const view = await cache.read(project, stored.sessionPath);
+    expect(view!.getEntries().find((item) => item.id === "large")).toEqual(entry);
+    expect((await readFile(stored.sessionPath)).equals(before)).toBe(true);
+    expect(await cache.read(project, stored.sessionPath)).toBe(view);
+  });
+
+  it("continues after a valid UTF-8 record without a final newline", async () => {
+    const { project, stored, session } = await fixture();
+    const entry = { type: "session_info", id: "tail", parentId: session.getLeafId(), timestamp: new Date().toISOString(), name: "影游🚀" };
+    await appendFile(stored.sessionPath, JSON.stringify(entry));
+    const cache = new ConversationCache();
+    expect((await cache.read(project, stored.sessionPath))!.getSessionName()).toBe("影游🚀");
+    await appendFile(stored.sessionPath, `\n${JSON.stringify({ ...entry, id: "next", parentId: "tail", name: "下一幕" })}\n`);
+    const view = (await cache.read(project, stored.sessionPath))!;
+    expect(view.getSessionName()).toBe("下一幕");
+    expect(view.getEntries().filter((item) => item.id === "tail")).toHaveLength(1);
+  });
+
   it("loads legacy inline images as references without changing the authoritative Pi file", async () => {
     const { project, stored, images, conversations } = await fixture();
     const original = await readFile(stored.sessionPath);

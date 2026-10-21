@@ -28,7 +28,8 @@ describe("shared 3D recovery journals", () => {
     expect(create).toHaveBeenCalledTimes(1);
     expect(refine).toHaveBeenCalledTimes(1);
     expect(Object.keys(JSON.parse(await readFile(path.join(directory, "shared.json"), "utf8")))).toEqual(["preview", "refine"]);
-    expect((await stat(path.join(directory, "shared.json"))).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(path.join(directory, "shared.json"))).mode & 0o777).toBe(0o600);
     expect(await readdir(directory)).toEqual(["shared.json"]);
   });
 

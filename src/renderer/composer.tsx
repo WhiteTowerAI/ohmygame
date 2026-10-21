@@ -57,6 +57,8 @@ interface ComposerProps {
   /** Editor context the next message carries, such as the open Node. */
   contexts?: ChatContextChip[];
   onRemoveContext?: (key: string) => void;
+  canPublish?: boolean;
+  onPublish?: () => void;
 }
 
 export function Composer({
@@ -93,6 +95,8 @@ export function Composer({
   onEditPending,
   contexts = [],
   onRemoveContext,
+  canPublish,
+  onPublish,
 }: ComposerProps) {
   const [draftSession] = useState(() => composerDrafts.get(
     projectId && conversationId ? { projectId, conversationId } : undefined,
@@ -264,6 +268,7 @@ export function Composer({
   // Backspace (delete the selected Node) would take the next keystrokes.
   const textareaReadOnly = submitting || referencingDesign;
   const inputDisabled = textareaDisabled || textareaReadOnly;
+  const publishAvailable = Boolean(canPublish && onPublish && !running && !stopping);
   useEffect(() => {
     const requestId = draft.focusRequestId;
     if (!requestId || inputDisabled) return;
@@ -292,10 +297,12 @@ export function Composer({
     onDesignReference: supportsDesign ? () => { void referenceDesign(); } : undefined,
     onTogglePlanning: () => { void togglePlanning(false); },
     onCompact: conversationReady && !running && !stopping && !selectedSkill && !selectedPlugin ? () => { void runCompact(compactInstructions(prompt) ?? undefined); } : undefined,
+    onPublish,
     onMention: selectMention,
     onChange: changePrompt,
     onSelectionChange: setMentionCursor,
     contextPercent,
+    canPublish: publishAvailable,
     usageLimits: isAgentRuntimeId(model?.provider) ? runtimeUsage?.limits : undefined,
   });
 
@@ -331,6 +338,12 @@ export function Composer({
   }
 
   function submitOrRunCommand() {
+    if (publishAvailable && !inputDisabled && !selectedSkill && !selectedPlugin && prompt.trim().toLowerCase() === "/publish") {
+      changePrompt("");
+      setMentionCursor(0);
+      onPublish?.();
+      return;
+    }
     const instructions = compactInstructions(prompt);
     if (showCompactCommand && instructions !== null && !running && !stopping) {
       void runCompact(instructions ?? undefined);

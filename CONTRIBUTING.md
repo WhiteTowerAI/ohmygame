@@ -143,6 +143,12 @@ The [CI workflow](.github/workflows/ci.yml) runs on PRs and pushes to `dev` and
 types, tests, the renderer build, and the Node daemon/player build and startup.
 `test:node-runtime` builds the host and player before checking Node startup, so
 this sequence covers the full application build without building them twice.
+These checks run on Ubuntu. Plugin preparation, types, tests and the Node
+startup check also run on macOS and Windows, the platforms the app ships for.
+When a test cannot hold on one platform, skip only the assertion that does not
+apply there, as the file permission checks do on Windows.
+CLI integration cases that execute POSIX script fixtures run on Ubuntu and macOS;
+Windows still runs the in-process adapter and protocol tests.
 
 Remote publishing contract tests in `test/publish.test.ts` skip when the private
 cloud repository or its dependencies are unavailable. That is expected for

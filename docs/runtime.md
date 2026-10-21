@@ -64,6 +64,10 @@ and gives the daemon time to stop active Pi and preview processes.
 The renderer receives a small runtime event stream over SSE rather than Pi's
 internal event objects. Reconnects replay recent events, and conversations are
 restored from Pi's session files, so a reload does not lose or duplicate turns.
+The UI reader collects incomplete JSONL records as byte chunks and decodes
+each complete line once. Large inline images therefore do not cause repeated
+copying and scanning of the growing record; the authoritative session stays
+unchanged, including when the final record is still being appended.
 
 Preview failures stay with their project. The desktop supervises unexpected
 daemon exits and reconnects the existing renderer to a fresh service generation.
@@ -445,6 +449,12 @@ The Community cover is a snapshot in the published Deployment and changes only
 when an update is published; publication details show that snapshot.
 
 ## Publishing
+
+In web game, General, and interactive story chats, type `/publish` and select
+the command or send it to open the existing publish dialog. The command is handled locally
+and is not sent to the agent. It is available while the agent and publishing
+are idle; Godot projects do not offer it. Confirm the title, description, and
+cover in the dialog to publish and get the share link.
 
 A workspace is publishable when it has a non-empty `scripts.build` that
 produces a static `index.html` under `dist`, `build`, or `out`, or has a root

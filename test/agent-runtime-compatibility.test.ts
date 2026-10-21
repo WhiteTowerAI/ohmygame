@@ -113,7 +113,8 @@ it("uses Claude's documented sandbox requirement only for modes that rely on it"
   }
 });
 
-it("accepts the reported Codex alpha by checking an ephemeral thread, not its version", async () => {
+// These cases execute POSIX script fixtures; Windows cannot start them as native CLIs.
+it.skipIf(process.platform === "win32")("accepts the reported Codex alpha by checking an ephemeral thread, not its version", async () => {
   const { service, binary, messages } = await fixture(
     codex("0.162.0-alpha.17.2"),
   );
@@ -139,7 +140,7 @@ it("accepts the reported Codex alpha by checking an ephemeral thread, not its ve
   ).toHaveLength(1);
 });
 
-it("rejects a newer Codex that ignores permissions during setup, before offering its models", async () => {
+it.skipIf(process.platform === "win32")("rejects a newer Codex that ignores permissions during setup, before offering its models", async () => {
   const { service, binary, messages } = await fixture(codex("99.0.0", false));
   const status = await service.update("codex-cli", {
     enabled: true,
@@ -161,7 +162,7 @@ it("rejects a newer Codex that ignores permissions during setup, before offering
   ).toBe(false);
 });
 
-it("keeps a temporary Codex probe failure distinct and retries on an explicit recheck", async () => {
+it.skipIf(process.platform === "win32")("keeps a temporary Codex probe failure distinct and retries on an explicit recheck", async () => {
   const { service, binary, messages } = await fixture(
     codex("0.162.0-alpha.17.2", true, true),
   );
@@ -209,7 +210,7 @@ if (args[0] === "serve") {
 } else
 process.exit(99);`;
 
-it("accepts an older OpenCode that advertises the required serving and isolation flags", async () => {
+it.skipIf(process.platform === "win32")("accepts an older OpenCode that advertises the required serving and isolation flags", async () => {
   const { service, binary } = await fixture(opencode(true));
   const status = await service.update("opencode-cli", {
     enabled: true,
@@ -223,7 +224,7 @@ it("accepts an older OpenCode that advertises the required serving and isolation
   expect(await service.model("opencode-cli", "fixture/model")).toBeDefined();
 });
 
-it("requires OpenCode's pure flag only when CLI configuration isolation is selected", async () => {
+it.skipIf(process.platform === "win32")("requires OpenCode's pure flag only when CLI configuration isolation is selected", async () => {
   const { service, binary } = await fixture(opencode(false));
   const status = await service.update("opencode-cli", {
     enabled: true,
@@ -243,7 +244,7 @@ it("requires OpenCode's pure flag only when CLI configuration isolation is selec
   expect(await service.model("opencode-cli", "fixture/model")).toBeDefined();
 });
 
-it("rejects an OpenCode server that would bypass permission callbacks, even on a newer version", async () => {
+it.skipIf(process.platform === "win32")("rejects an OpenCode server that would bypass permission callbacks, even on a newer version", async () => {
   const { service, binary, messages } = await fixture(
     opencode(true, false, "99.0.0"),
   );
