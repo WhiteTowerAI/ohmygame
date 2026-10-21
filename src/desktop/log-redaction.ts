@@ -35,8 +35,9 @@ function homeFolderPattern(
   const alternatives = [...forms]
     .sort((left, right) => right.length - left.length)
     .map((form) => form.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  // Any character that cannot continue the account name ends the home folder.
   return new RegExp(
-    `(?:${alternatives.join("|")})(?=[\\\\/"'\\s:;,)\\]}]|$)`,
-    platform === "win32" ? "gi" : "g",
+    `(?:${alternatives.join("|")})(?![\\p{L}\\p{N}_-])`,
+    platform === "win32" ? "giu" : "gu",
   );
 }

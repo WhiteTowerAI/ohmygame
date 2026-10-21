@@ -135,6 +135,25 @@ describe("log redaction", () => {
     );
   });
 
+  it("ends the home folder at any character that cannot continue the account name", () => {
+    const redact = createLogRedactor("/Users/alice", "darwin");
+
+    expect(
+      redact(
+        "Could not create /Users/alice. Then /Users/alice|grep, </Users/alice>, `/Users/alice`",
+      ),
+    ).toBe("Could not create ~. Then ~|grep, <~>, `~`");
+    expect(redact("/Users/alice_b /Users/alice-b /Users/alice2")).toBe(
+      "/Users/alice_b /Users/alice-b /Users/alice2",
+    );
+    expect(
+      createLogRedactor(
+        "/Users/张三",
+        "darwin",
+      )("/Users/张三/游戏 /Users/张三丰"),
+    ).toBe("~/游戏 /Users/张三丰");
+  });
+
   it("replaces Windows home folders in every spelling", () => {
     const redact = createLogRedactor("C:\\Users\\Someone", "win32");
 
