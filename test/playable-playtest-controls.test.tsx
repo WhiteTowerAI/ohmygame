@@ -385,6 +385,13 @@ describe("Playtest that cannot start", () => {
     expect(player.mock.calls.at(-1)?.[0].preview).toEqual({ policy: "follow", startNodeId: "start" });
   });
 
+  it("does not blame the story's files for a request the service refused for another reason", async () => {
+    getNodeRuntime.mockRejectedValue(new ApiError("Unauthorized", 401));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("Playtest couldn't load the story");
+    expect(text()).not.toContain("Ask AI to fix");
+  });
+
   it("offers only to close the window for a project that no longer exists", async () => {
     vi.stubGlobal("ohMyGameDesktop", { showPlaytestEditor: vi.fn() });
     getNodeRuntime.mockRejectedValue(new ApiError("Project not found", 404));

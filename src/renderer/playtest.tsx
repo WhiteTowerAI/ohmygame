@@ -187,7 +187,7 @@ function storyProblem(cause: unknown): PlaytestProblemState {
   const detail = errorMessage(cause);
   if (cause instanceof ApiError && cause.status === 404) return { kind: "not-found", detail };
   // The service read the story and refused it: its files need fixing.
-  if (cause instanceof ApiError && cause.status < 500) return { kind: "invalid", detail };
+  if (cause instanceof ApiError && cause.status === 400) return { kind: "invalid", detail };
   return { kind: "unavailable", detail };
 }
 
