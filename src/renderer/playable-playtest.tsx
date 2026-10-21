@@ -150,21 +150,34 @@ export function requestAskAgent(projectId: string, text: string): void {
   window.localStorage.setItem(askKey(projectId), JSON.stringify({ text, id: Date.now() }));
 }
 
-/** Calls `onAsk` in the editor whenever its Playtest window hands over a request. */
+/** How long a request waits for an editor that is still opening. */
+const ASK_WAIT_MS = 60_000;
+
+/**
+ * Calls `onAsk` in the editor whenever its Playtest window hands over a
+ * request, including one sent just before the editor opened, since Playtest
+ * can bring the editor forward with the request.
+ */
 export function usePlaytestAskRequests(projectId: string | undefined, onAsk: (text: string) => void): void {
   const handler = useRef(onAsk);
   handler.current = onAsk;
   useEffect(() => {
     if (!projectId) return;
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== askKey(projectId) || event.newValue === null) return;
+    const take = (value: string, waiting: boolean) => {
       window.localStorage.removeItem(askKey(projectId));
       try {
-        const request = JSON.parse(event.newValue) as { text?: unknown };
+        const request = JSON.parse(value) as { text?: unknown; id?: unknown };
+        if (waiting && !(typeof request.id === "number" && Date.now() - request.id < ASK_WAIT_MS)) return;
         if (typeof request.text === "string") handler.current(request.text);
       } catch {
         // Not a request this editor wrote.
       }
+    };
+    const waiting = window.localStorage.getItem(askKey(projectId));
+    if (waiting !== null) take(waiting, true);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== askKey(projectId) || event.newValue === null) return;
+      take(event.newValue, false);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);

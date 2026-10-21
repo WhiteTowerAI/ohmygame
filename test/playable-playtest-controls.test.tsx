@@ -12,6 +12,8 @@ import {
   playtestSeenKey,
   requestPlaytest,
   takePlaytestRequest,
+  requestAskAgent,
+  usePlaytestAskRequests,
   type PlaytestAction,
 } from "../src/renderer/playable-playtest.js";
 
@@ -388,5 +390,28 @@ describe("Playtest that cannot start", () => {
     expect(text()).toContain("这个故事还没有场景");
     expect(action("关闭窗口")).toBeTruthy();
     expect(document.title).toBe("Playtest - Playtest");
+  });
+});
+
+describe("Ask AI to fix from Playtest", () => {
+  function Editor({ onAsk }: { onAsk: (text: string) => void }) {
+    usePlaytestAskRequests("p", onAsk);
+    return null;
+  }
+
+  it("takes a request sent just before the editor opened, but not an old one", async () => {
+    requestAskAgent("p", "Fix the start");
+    const onAsk = vi.fn();
+    await act(async () => root.render(<Editor onAsk={onAsk} />));
+    expect(onAsk).toHaveBeenCalledExactlyOnceWith("Fix the start");
+    expect(window.localStorage.getItem("ohmygame:playtest:ask:p")).toBeNull();
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    window.localStorage.setItem("ohmygame:playtest:ask:p", JSON.stringify({ text: "Old", id: Date.now() - 120_000 }));
+    const later = vi.fn();
+    await act(async () => root.render(<Editor onAsk={later} />));
+    expect(later).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("ohmygame:playtest:ask:p")).toBeNull();
   });
 });

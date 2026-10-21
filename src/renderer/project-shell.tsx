@@ -158,7 +158,8 @@ export function ProjectShell({
   const [designContext, setDesignContext] = useState<PromptContext>();
   const [dismissedDesign, setDismissedDesign] = useState<string>();
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
-  usePlaytestAskRequests(state.project?.id, requestPrompt);
+  // The chat takes the request once its conversation is open.
+  usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
   const modelCatalog = useAgentModels({ agentRuntimes: true });
   const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
