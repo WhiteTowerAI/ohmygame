@@ -353,7 +353,9 @@ export async function importProjectArchive(
     }
     project = await projects.import(workspace, manifest.project);
   } finally {
-    await rm(staging, { recursive: true, force: true });
+    // The project may already exist, so a failed cleanup must not fail the
+    // import; the next start removes what is left of the staging folder.
+    await rm(staging, { recursive: true, force: true }).catch(() => {});
   }
   try {
     // Agent instructions and schemas follow this app version, not the archive.
