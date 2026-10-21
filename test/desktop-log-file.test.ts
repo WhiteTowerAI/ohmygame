@@ -38,6 +38,19 @@ describe("rotating log file", () => {
     );
   });
 
+  it("keeps characters that are split between two chunks", async () => {
+    const directory = await logDirectory();
+    const log = new RotatingLogFile({ directory, name: "daemon", now });
+    const bytes = Buffer.from("无法读取项目「冒险」\n");
+
+    log.write(bytes.subarray(0, 4));
+    log.write(bytes.subarray(4));
+    log.close();
+    expect(await readFile(log.path, "utf8")).toBe(
+      "2026-10-21T08:00:00.000Z 无法读取项目「冒险」\n",
+    );
+  });
+
   it("redacts each line before writing it", async () => {
     const directory = await logDirectory();
     const log = new RotatingLogFile({

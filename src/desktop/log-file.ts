@@ -8,6 +8,7 @@ import {
   writeSync,
 } from "node:fs";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { MAX_LOG_LINE_LENGTH } from "./log-redaction.js";
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
@@ -39,12 +40,16 @@ export interface RotatingLogFileOptions {
 
 class LineBuffer implements LogStream {
   #pending = "";
+  // A character can be split between two chunks of a process's output.
+  readonly #decoder = new StringDecoder("utf8");
 
   constructor(private readonly emit: (line: string) => void) {}
 
   write(chunk: string | Uint8Array): void {
     this.#pending +=
-      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+      typeof chunk === "string"
+        ? chunk
+        : this.#decoder.write(Buffer.from(chunk));
     let end = this.#pending.indexOf("\n");
     while (end !== -1) {
       const line = this.#pending.slice(0, end);
@@ -56,6 +61,7 @@ class LineBuffer implements LogStream {
   }
 
   flush(): void {
+    this.#pending += this.#decoder.end();
     if (this.#pending) this.emit(this.#pending);
     this.#pending = "";
   }
