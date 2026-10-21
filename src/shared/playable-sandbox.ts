@@ -157,8 +157,13 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
         throw cause;
       }
       host.style.opacity = "1";
-      host.inert = false;
+      const playing = [...root.querySelectorAll<HTMLMediaElement>("video, audio")].filter((media) => !media.paused);
+      for (const media of playing) media.pause();
       return {
+        activate: () => {
+          host.inert = false;
+          for (const media of playing) void media.play().catch(() => {});
+        },
         deactivate: () => {
           host.inert = true;
           for (const media of root.querySelectorAll<HTMLMediaElement>("video, audio")) media.pause();

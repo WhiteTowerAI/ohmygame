@@ -109,7 +109,7 @@ it("retains the outgoing picture through stylesheet loading and image decoding",
   const lobby = await surface("lobby");
   expect(menu.isConnected).toBe(true);
   expect(menu.inert).toBe(true);
-  expect(contexts.get("menu")!.lifecycle.signal.aborted).toBe(true);
+  expect(contexts.get("menu")!.lifecycle.signal.aborted).toBe(false);
   expect(lobby.style.opacity).toBe("0");
   expect(lobby.inert).toBe(true);
   const image = lobby.shadowRoot!.querySelector("img")!;
@@ -188,4 +188,93 @@ it("cancels media readiness and cleans both surfaces when disposed", async () =>
   expect(menu.isConnected).toBe(false);
   expect(lobby.isConnected).toBe(false);
   expect(runtime.snapshot().status).toBe("disposed");
+});
+
+it("retains the outgoing picture when abort cleanup clears its DOM", async () => {
+  const menu = await setup(
+    '<div data-media="backdrop"><video src="next.mp4"></video></div>',
+  );
+  contexts
+    .get("menu")!
+    .lifecycle.signal.addEventListener(
+      "abort",
+      () => menu.shadowRoot!.replaceChildren(),
+      { once: true },
+    );
+  const navigation = contexts.get("menu")!.navigation.emit("start");
+  const lobby = await surface("lobby");
+  expect(menu.isConnected).toBe(true);
+  expect(menu.shadowRoot!.textContent).toContain("Menu");
+  expect(lobby.style.opacity).toBe("0");
+  lobby.shadowRoot!.querySelector("link")!.dispatchEvent(new Event("load"));
+  const video = lobby.shadowRoot!.querySelector("video")!;
+  Object.defineProperty(video, "readyState", { value: 2 });
+  video.dispatchEvent(new Event("loadeddata"));
+  await navigation;
+  expect(contexts.get("menu")!.lifecycle.signal.aborted).toBe(true);
+  expect(menu.shadowRoot!.childNodes).toHaveLength(0);
+});
+
+it("keeps incoming controls and media inactive until outgoing async cleanup finishes", async () => {
+  const mediaControls = new Map<
+    string,
+    { pause: () => void; play: () => Promise<void> }
+  >();
+  await setup(
+    '<div data-media="backdrop"><video src="incoming.mp4"></video></div>',
+    (root) => {
+      const video = root.querySelector("video");
+      if (!video) return;
+      let paused = false;
+      Object.defineProperties(video, {
+        readyState: { value: 2 },
+        paused: { get: () => paused },
+      });
+      const pause = vi.spyOn(video, "pause").mockImplementation(() => {
+        paused = true;
+      });
+      const play = vi.spyOn(video, "play").mockImplementation(async () => {
+        paused = false;
+      });
+      mediaControls.set((root.host as HTMLElement).dataset.playableSurface!, {
+        pause: video.pause,
+        play: video.play,
+      });
+    },
+  );
+  const originalMount = host.mountNode.bind(host);
+  let finishCleanup!: () => void;
+  const pendingCleanup = new Promise<void>((resolve) => {
+    finishCleanup = resolve;
+  });
+  vi.spyOn(host, "mountNode").mockImplementation(async (surface, context) => {
+    const mounted = await originalMount(surface, context);
+    if (surface.id === "lobby")
+      return { ...mounted, cleanup: () => pendingCleanup };
+    return mounted;
+  });
+  try {
+    const first = contexts.get("menu")!.navigation.emit("start");
+    const lobby = await surface("lobby");
+    lobby.shadowRoot!.querySelector("link")!.dispatchEvent(new Event("load"));
+    await first;
+    const outgoingUpdates = vi.fn();
+    contexts.get("lobby")!.state.subscribe(outgoingUpdates);
+    const second = contexts.get("lobby")!.navigation.emit("archive");
+    const archive = await surface("archive");
+    archive.shadowRoot!.querySelector("link")!.dispatchEvent(new Event("load"));
+    await vi.waitFor(() => expect(archive.style.opacity).toBe("1"));
+    const { pause, play } = mediaControls.get("archive")!;
+    expect(pause).toHaveBeenCalledOnce();
+    expect(play).not.toHaveBeenCalled();
+    expect(archive.inert).toBe(true);
+    await contexts.get("archive")!.state.set("hasKey", true);
+    expect(outgoingUpdates).not.toHaveBeenCalled();
+    finishCleanup();
+    await second;
+    expect(archive.inert).toBe(false);
+    expect(play).toHaveBeenCalledOnce();
+  } finally {
+    finishCleanup();
+  }
 });

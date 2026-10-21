@@ -107,6 +107,8 @@ export interface PlayableSeenStore {
 export interface PlayableMountedSurface {
   /** Stops interaction and media while retaining the outgoing picture. */
   deactivate?(): void;
+  /** Enables a prepared surface after the outgoing cleanup has settled. */
+  activate?(): void;
   cleanup?: PlayableCleanup;
   destroy(): void | Promise<void>;
 }
@@ -399,6 +401,7 @@ export class NodeRuntime {
       this.#activeNode = await this.#mountNode(this.#navigation.currentNodeId);
       this.#assertNotDisposed();
       this.#activeNode.token.navigationReady = true;
+      this.#activeNode.mounted.activate?.();
       this.#see("nodes", this.#navigation.currentNodeId);
     } catch (cause) {
       if (!this.#disposed) this.#failed = true;
@@ -613,7 +616,9 @@ export class NodeRuntime {
         // though its context and input have already been disabled.
         await this.#disposeActiveSurface(previous);
       }
+      this.#assertNotDisposed();
       this.#activeNode.token.navigationReady = true;
+      this.#activeNode.mounted.activate?.();
       this.#see("nodes", next.currentNodeId);
     } catch (cause) {
       this.#recordError(cause, next.currentNodeId);
@@ -895,8 +900,11 @@ export class NodeRuntime {
       subscribe: this.#guard(token, (listener: (state: Readonly<JsonObject>) => void) => {
         this.#assertSurfaceActive(token);
         this.#recordStateAccess(token, "read", ["*"]);
-        this.#stateListeners.add(listener);
-        const unsubscribe = () => this.#stateListeners.delete(listener);
+        const activeListener = (state: Readonly<JsonObject>) => {
+          if (token.active) listener(state);
+        };
+        this.#stateListeners.add(activeListener);
+        const unsubscribe = () => this.#stateListeners.delete(activeListener);
         lifecycle.addEventListener("abort", unsubscribe, { once: true });
         return unsubscribe;
       }),
@@ -1210,6 +1218,7 @@ export class NodeRuntime {
   ): Promise<void> {
     if (!surface) return;
     this.#deactivateSurface(surface);
+    surface.abortController.abort();
     try {
       await surface.mounted.cleanup?.();
     } catch (cause) {
@@ -1225,7 +1234,6 @@ export class NodeRuntime {
   #deactivateSurface(surface: ActiveSurface | undefined): void {
     if (!surface || !surface.token.active) return;
     surface.token.active = false;
-    surface.abortController.abort();
     try {
       surface.mounted.deactivate?.();
     } catch (cause) {
