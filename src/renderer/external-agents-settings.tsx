@@ -16,7 +16,10 @@ import {
 import { AgentMark, CommandText } from "./coding-agents-settings.js";
 import { t } from "./i18n.js";
 
-const CLIENTS: Record<ExternalAgentClientId, { name: string; runtime: AgentRuntimeId }> = {
+const CLIENTS: Record<
+  ExternalAgentClientId,
+  { name: string; runtime: AgentRuntimeId }
+> = {
   "claude-code": { name: "Claude Code", runtime: "claude-code-cli" },
   codex: { name: "Codex", runtime: "codex-cli" },
 };
@@ -39,7 +42,10 @@ export function ExternalAgentsSettings() {
       active = false;
     };
   }, []);
-  async function change(key: string, work: () => Promise<ExternalAgentSettings>): Promise<void> {
+  async function change(
+    key: string,
+    work: () => Promise<ExternalAgentSettings>,
+  ): Promise<void> {
     setPending(key);
     setError(undefined);
     try {
@@ -73,12 +79,16 @@ export function ExternalAgentsSettings() {
                   <span>{t("externalAgents.enable")}</span>
                 </strong>
                 <span className="settings-provider-details">
-                  <span className="settings-provider-description">{t("externalAgents.description")}</span>
+                  <span className="settings-provider-description">
+                    {t("externalAgents.description")}
+                  </span>
                 </span>
               </span>
               <label
                 className="settings-toggle settings-provider-toggle"
-                title={settings.enabled ? t("common.enabled") : t("common.disabled")}
+                title={
+                  settings.enabled ? t("common.enabled") : t("common.disabled")
+                }
               >
                 <input
                   type="checkbox"
@@ -88,7 +98,9 @@ export function ExternalAgentsSettings() {
                   disabled={pending !== undefined}
                   onChange={(event) => {
                     const enabled = event.target.checked;
-                    void change("enabled", () => updateExternalAgentSettings({ enabled }));
+                    void change("enabled", () =>
+                      updateExternalAgentSettings({ enabled }),
+                    );
                   }}
                 />
                 <span aria-hidden="true" />
@@ -97,10 +109,15 @@ export function ExternalAgentsSettings() {
           </section>
         ) : null}
         {settings?.enabled && !settings.launcher ? (
-          <p className="settings-provider-description">{t("externalAgents.desktopOnly")}</p>
+          <p className="settings-provider-description">
+            {t("externalAgents.desktopOnly")}
+          </p>
         ) : null}
         {settings?.enabled && settings.launcher ? (
-          <section className="settings-provider-group external-agents-clients" aria-label={t("externalAgents.clients")}>
+          <section
+            className="settings-provider-group external-agents-clients"
+            aria-label={t("externalAgents.clients")}
+          >
             <h4>{t("externalAgents.clients")}</h4>
             {settings.clients.map((client) => {
               const { name, runtime } = CLIENTS[client.id];
@@ -129,12 +146,22 @@ export function ExternalAgentsSettings() {
                       disabled={pending !== undefined}
                       onClick={() =>
                         void change(client.id, () =>
-                          client.connected ? disconnectExternalAgent(client.id) : connectExternalAgent(client.id),
+                          client.connected
+                            ? disconnectExternalAgent(client.id)
+                            : connectExternalAgent(client.id),
                         )
                       }
                     >
-                      {busy ? <LoaderCircle className="spin" size={14} aria-hidden="true" /> : null}
-                      {client.connected ? t("externalAgents.disconnect") : t("externalAgents.connect")}
+                      {busy ? (
+                        <LoaderCircle
+                          className="spin"
+                          size={14}
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                      {client.connected
+                        ? t("externalAgents.disconnect")
+                        : t("externalAgents.connect")}
                     </button>
                   ) : null}
                 </div>
@@ -155,14 +182,20 @@ export function ExternalAgentsSettings() {
 
 /** For DeepSeek Harness and other clients OhMyGame cannot configure itself. */
 function ManualSetup({ launcher }: { launcher: ExternalMcpLauncher }) {
-  const environment = Object.entries(launcher.env).map(([name, value]) => `${name}=${value}`);
+  const environment = Object.entries(launcher.env).map(
+    ([name, value]) => `${name}=${value}`,
+  );
   return (
     <details className="external-agents-manual">
       <summary>{t("externalAgents.otherClients")}</summary>
       <p className="settings-provider-description">
-        {t("externalAgents.otherClientsHint", { name: EXTERNAL_MCP_SERVER_NAME })}
+        {t("externalAgents.otherClientsHint", {
+          name: EXTERNAL_MCP_SERVER_NAME,
+        })}
       </p>
-      <CommandText command={[launcher.command, ...launcher.args].map(quote).join(" ")} />
+      <CommandText
+        command={[launcher.command, ...launcher.args].map(quote).join(" ")}
+      />
       {environment.length ? (
         <p className="settings-provider-description">
           {t("externalAgents.environment", { value: environment.join(" ") })}

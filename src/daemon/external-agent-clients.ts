@@ -1,4 +1,12 @@
-import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  lstat,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AgentRuntimeId } from "../shared/agent-runtimes.js";
@@ -39,7 +47,9 @@ export interface ExternalAgentClientsOptions {
   /** The folder holding the `ohmygame-studio` Skill. */
   skillDirectory: string;
   /** The CLI's executable and the environment to run it in, or undefined when it is not installed. */
-  resolve: (runtime: AgentRuntimeId) => Promise<{ path: string; env: Record<string, string> } | undefined>;
+  resolve: (
+    runtime: AgentRuntimeId,
+  ) => Promise<{ path: string; env: Record<string, string> } | undefined>;
   run: RunCli;
   environment?: NodeJS.ProcessEnv;
   home?: string;
@@ -58,7 +68,11 @@ export class ExternalAgentClients {
 
   constructor(options: ExternalAgentClientsOptions) {
     this.#options = options;
-    this.#file = path.join(options.dataDirectory, "external-mcp", "clients.json");
+    this.#file = path.join(
+      options.dataDirectory,
+      "external-mcp",
+      "clients.json",
+    );
   }
 
   get launcher(): ExternalMcpLauncher | undefined {
@@ -67,8 +81,14 @@ export class ExternalAgentClients {
 
   async load(): Promise<void> {
     try {
-      const value = JSON.parse(await readFile(this.#file, "utf8")) as Partial<StoredClients>;
-      if (value.version === 1 && value.connected && typeof value.connected === "object")
+      const value = JSON.parse(
+        await readFile(this.#file, "utf8"),
+      ) as Partial<StoredClients>;
+      if (
+        value.version === 1 &&
+        value.connected &&
+        typeof value.connected === "object"
+      )
         this.#stored = { version: 1, connected: value.connected };
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
@@ -85,7 +105,11 @@ export class ExternalAgentClients {
       const used = this.#stored.connected[id];
       if (!used) continue;
       try {
-        if (this.#options.launcher && !sameLauncher(used, this.#options.launcher)) await this.connect(id);
+        if (
+          this.#options.launcher &&
+          !sameLauncher(used, this.#options.launcher)
+        )
+          await this.connect(id);
         else await this.#installSkill(id);
       } catch {
         // A CLI that is gone or fails now is left as it was; the person can connect it again.
@@ -106,11 +130,24 @@ export class ExternalAgentClients {
   connect(id: ExternalAgentClientId): Promise<void> {
     return this.#serial(async () => {
       const launcher = this.#options.launcher;
-      if (!launcher) throw new Error("Connecting agents needs the OhMyGame desktop app");
+      if (!launcher)
+        throw new Error("Connecting agents needs the OhMyGame desktop app");
       const cli = await this.#cli(id);
       // Replacing an earlier entry keeps connecting idempotent.
-      await this.#options.run(cli.path, removeArguments(id), cli.env, undefined, CLI_TIMEOUT_MS);
-      const added = await this.#options.run(cli.path, addArguments(id, launcher), cli.env, undefined, CLI_TIMEOUT_MS);
+      await this.#options.run(
+        cli.path,
+        removeArguments(id),
+        cli.env,
+        undefined,
+        CLI_TIMEOUT_MS,
+      );
+      const added = await this.#options.run(
+        cli.path,
+        addArguments(id, launcher),
+        cli.env,
+        undefined,
+        CLI_TIMEOUT_MS,
+      );
       if (added.code !== 0) throw new Error(failure(id, "add", added));
       await this.#installSkill(id);
       this.#stored.connected[id] = launcher;
@@ -122,9 +159,20 @@ export class ExternalAgentClients {
     return this.#serial(async () => {
       const cli = await this.#options.resolve(CLIENT_RUNTIMES[id]);
       if (cli) {
-        const removed = await this.#options.run(cli.path, removeArguments(id), cli.env, undefined, CLI_TIMEOUT_MS);
+        const removed = await this.#options.run(
+          cli.path,
+          removeArguments(id),
+          cli.env,
+          undefined,
+          CLI_TIMEOUT_MS,
+        );
         // An entry the person already removed is not an error.
-        if (removed.code !== 0 && !/not found|no .*server|does not exist/i.test(`${removed.stderr}\n${removed.stdout}`))
+        if (
+          removed.code !== 0 &&
+          !/not found|no .*server|does not exist/i.test(
+            `${removed.stderr}\n${removed.stdout}`,
+          )
+        )
           throw new Error(failure(id, "remove", removed));
       }
       delete this.#stored.connected[id];
@@ -141,7 +189,8 @@ export class ExternalAgentClients {
 
   async #cli(id: ExternalAgentClientId) {
     const cli = await this.#options.resolve(CLIENT_RUNTIMES[id]);
-    if (!cli) throw new Error(`${clientName(id)} was not found on this computer`);
+    if (!cli)
+      throw new Error(`${clientName(id)} was not found on this computer`);
     return cli;
   }
 
@@ -151,7 +200,10 @@ export class ExternalAgentClients {
     const environment = this.#options.environment ?? process.env;
     const root =
       id === "claude-code"
-        ? path.join(environment.CLAUDE_CONFIG_DIR || path.join(home, ".claude"), "skills")
+        ? path.join(
+            environment.CLAUDE_CONFIG_DIR || path.join(home, ".claude"),
+            "skills",
+          )
         : path.join(home, ".agents", "skills");
     return path.join(root, EXTERNAL_MCP_SERVER_NAME);
   }
@@ -171,25 +223,50 @@ export class ExternalAgentClients {
     const target = this.#skillFolder(id);
     // Another connected client may read the same folder.
     const shared = EXTERNAL_AGENT_CLIENT_IDS.some(
-      (other) => other !== id && this.#stored.connected[other] && this.#skillFolder(other) === target,
+      (other) =>
+        other !== id &&
+        this.#stored.connected[other] &&
+        this.#skillFolder(other) === target,
     );
-    if (!shared && (await ownsSkill(target, false))) await rm(target, { recursive: true, force: true });
+    if (!shared && (await ownsSkill(target, false)))
+      await rm(target, { recursive: true, force: true });
   }
 
   async #save(): Promise<void> {
     await mkdir(path.dirname(this.#file), { recursive: true, mode: 0o700 });
     const temporary = `${this.#file}.${process.pid}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(this.#stored, null, 2)}\n`, { mode: 0o600 });
+    await writeFile(temporary, `${JSON.stringify(this.#stored, null, 2)}\n`, {
+      mode: 0o600,
+    });
     await rename(temporary, this.#file);
   }
 }
 
-export function addArguments(id: ExternalAgentClientId, launcher: ExternalMcpLauncher): string[] {
-  const env = Object.entries(launcher.env).map(([name, value]) => `${name}=${value}`);
+export function addArguments(
+  id: ExternalAgentClientId,
+  launcher: ExternalMcpLauncher,
+): string[] {
+  const env = Object.entries(launcher.env).map(
+    ([name, value]) => `${name}=${value}`,
+  );
   const command = ["--", launcher.command, ...launcher.args];
   return id === "claude-code"
-    ? ["mcp", "add", "--scope", "user", EXTERNAL_MCP_SERVER_NAME, ...env.flatMap((item) => ["-e", item]), ...command]
-    : ["mcp", "add", EXTERNAL_MCP_SERVER_NAME, ...env.flatMap((item) => ["--env", item]), ...command];
+    ? [
+        "mcp",
+        "add",
+        "--scope",
+        "user",
+        EXTERNAL_MCP_SERVER_NAME,
+        ...env.flatMap((item) => ["-e", item]),
+        ...command,
+      ]
+    : [
+        "mcp",
+        "add",
+        EXTERNAL_MCP_SERVER_NAME,
+        ...env.flatMap((item) => ["--env", item]),
+        ...command,
+      ];
 }
 
 export function removeArguments(id: ExternalAgentClientId): string[] {
@@ -199,12 +276,24 @@ export function removeArguments(id: ExternalAgentClientId): string[] {
 }
 
 /** A Skill folder OhMyGame may replace or remove: missing, or one it wrote. */
-async function ownsSkill(folder: string, missingIsOwned: boolean): Promise<boolean> {
+async function ownsSkill(
+  folder: string,
+  missingIsOwned: boolean,
+): Promise<boolean> {
+  const entry = await lstat(folder).catch((cause: NodeJS.ErrnoException) => {
+    if (cause.code === "ENOENT") return undefined;
+    throw cause;
+  });
+  if (!entry) return missingIsOwned;
+  // Existing folders without our Skill, and links managed by the person, are never replaced.
+  if (!entry.isDirectory()) return false;
   try {
     const text = await readFile(path.join(folder, "SKILL.md"), "utf8");
-    return new RegExp(`^name:\\s*${EXTERNAL_MCP_SERVER_NAME}\\s*$`, "m").test(text);
+    return new RegExp(`^name:\\s*${EXTERNAL_MCP_SERVER_NAME}\\s*$`, "m").test(
+      text,
+    );
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return missingIsOwned;
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw cause;
   }
 }
@@ -222,6 +311,10 @@ function failure(
   action: "add" | "remove",
   result: { stdout: string; stderr: string; code: number | null },
 ): string {
-  const detail = (result.stderr || result.stdout).trim().split("\n").slice(-3).join(" ");
+  const detail = (result.stderr || result.stdout)
+    .trim()
+    .split("\n")
+    .slice(-3)
+    .join(" ");
   return `${clientName(id)} could not ${action} OhMyGame${detail ? `: ${detail}` : ""}`;
 }

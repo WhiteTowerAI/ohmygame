@@ -1,5 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -47,7 +54,8 @@ const JOB_TOOLS = new Set<string>([
 
 /** Why a public tool can be missing from a project's tools. */
 const UNAVAILABLE_HINTS: Record<string, string> = {
-  game_use: "It needs the OhMyGame desktop app and a project with a game preview.",
+  game_use:
+    "It needs the OhMyGame desktop app and a project with a game preview.",
   playable_add_node: "It needs an Interactive Story project.",
   playable_check: "It needs an Interactive Story project.",
 };
@@ -67,16 +75,27 @@ const INSTRUCTIONS = [
 const OWN_TOOLS: BridgeTool[] = [
   {
     name: "list_projects",
-    description: "List OhMyGame projects with their ID, name, type and workspace folder, and which one this session uses.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    description:
+      "List OhMyGame projects with their ID, name, type and workspace folder, and which one this session uses.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
   },
   {
     name: "open_project",
-    description: "Use an OhMyGame project for the rest of this session, chosen by its ID or by a folder inside its workspace.",
+    description:
+      "Use an OhMyGame project for the rest of this session, chosen by its ID or by a folder inside its workspace.",
     inputSchema: {
       type: "object",
       properties: {
-        project: { type: "string", minLength: 1, maxLength: 4_096, description: "Project ID or absolute workspace path" },
+        project: {
+          type: "string",
+          minLength: 1,
+          maxLength: 4_096,
+          description: "Project ID or absolute workspace path",
+        },
       },
       required: ["project"],
       additionalProperties: false,
@@ -84,24 +103,37 @@ const OWN_TOOLS: BridgeTool[] = [
   },
   {
     name: "get_project",
-    description: "Describe the project this session uses: ID, name, type and workspace folder.",
-    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    description:
+      "Describe the project this session uses: ID, name, type and workspace folder.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
   },
   {
     name: "get_job",
-    description: "Report a generation job's status, with its result once finished, without waiting.",
+    description:
+      "Report a generation job's status, with its result once finished, without waiting.",
     inputSchema: jobSchema(),
   },
   {
     name: "wait_job",
-    description: "Wait for a generation job to finish and return its result. Returns the status again if it is still running after the wait.",
+    description:
+      "Wait for a generation job to finish and return its result. Returns the status again if it is still running after the wait.",
     inputSchema: jobSchema({
-      timeoutSeconds: { type: "integer", minimum: 1, maximum: 45, description: "How long to wait; defaults to 45" },
+      timeoutSeconds: {
+        type: "integer",
+        minimum: 1,
+        maximum: 45,
+        description: "How long to wait; defaults to 45",
+      },
     }),
   },
   {
     name: "cancel_job",
-    description: "Cancel a running generation job. A provider may still charge for work it already started.",
+    description:
+      "Cancel a running generation job. A provider may still charge for work it already started.",
     inputSchema: jobSchema(),
   },
 ];
@@ -181,7 +213,9 @@ export class ExternalMcpService {
 
   async load(): Promise<void> {
     try {
-      const value = JSON.parse(await readFile(this.#settingsPath, "utf8")) as Partial<StoredSettings>;
+      const value = JSON.parse(
+        await readFile(this.#settingsPath, "utf8"),
+      ) as Partial<StoredSettings>;
       this.#enabled = value.version === 1 && value.enabled === true;
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
@@ -195,7 +229,10 @@ export class ExternalMcpService {
   async setEnabled(enabled: boolean): Promise<void> {
     if (enabled === this.#enabled) return;
     this.#enabled = enabled;
-    await this.#write(this.#settingsPath, { version: 1, enabled } satisfies StoredSettings);
+    await this.#write(this.#settingsPath, {
+      version: 1,
+      enabled,
+    } satisfies StoredSettings);
     await this.#publish();
   }
 
@@ -213,18 +250,33 @@ export class ExternalMcpService {
 
   async handle(request: ExternalMcpRequest): Promise<ExternalMcpAnswer> {
     if (!this.#token || !matchesBearerToken(request.authorization, this.#token))
-      return { status: 401, body: { error: "Unknown or revoked OhMyGame token" } };
+      return {
+        status: 401,
+        body: { error: "Unknown or revoked OhMyGame token" },
+      };
     this.#prune();
-    const messages = Array.isArray(request.body) ? request.body : [request.body];
-    const initializing = messages.some((message) => method(message) === "initialize");
+    const messages = Array.isArray(request.body)
+      ? request.body
+      : [request.body];
+    const initializing = messages.some(
+      (message) => method(message) === "initialize",
+    );
     let session: Session | undefined;
     if (initializing) {
       session = { id: randomUUID(), explicit: false, usedAt: this.#now() };
       this.#sessions.set(session.id, session);
     } else {
-      if (!request.sessionId) return { status: 400, body: { error: "Mcp-Session-Id header is required" } };
+      if (!request.sessionId)
+        return {
+          status: 400,
+          body: { error: "Mcp-Session-Id header is required" },
+        };
       session = this.#sessions.get(request.sessionId);
-      if (!session) return { status: 404, body: { error: "Session not found; initialize again" } };
+      if (!session)
+        return {
+          status: 404,
+          body: { error: "Session not found; initialize again" },
+        };
     }
     session.usedAt = this.#now();
     await this.#bindRoots(session, request.roots);
@@ -235,12 +287,20 @@ export class ExternalMcpService {
     }
     const headers = { "mcp-session-id": session.id };
     if (!answers.length) return { status: 202, headers };
-    return { status: 200, headers, body: Array.isArray(request.body) ? answers : answers[0] };
+    return {
+      status: 200,
+      headers,
+      body: Array.isArray(request.body) ? answers : answers[0],
+    };
   }
 
   /** Ends a session the client closed with DELETE. */
-  async end(authorization: string | undefined, sessionId: string | undefined): Promise<number> {
-    if (!this.#token || !matchesBearerToken(authorization, this.#token)) return 401;
+  async end(
+    authorization: string | undefined,
+    sessionId: string | undefined,
+  ): Promise<number> {
+    if (!this.#token || !matchesBearerToken(authorization, this.#token))
+      return 401;
     const session = sessionId ? this.#sessions.get(sessionId) : undefined;
     if (!session) return 404;
     await this.#endSession(session);
@@ -294,14 +354,18 @@ export class ExternalMcpService {
   async #revoke(): Promise<void> {
     this.#token = undefined;
     await rm(this.#endpointPath, { force: true });
-    await Promise.allSettled([...this.#sessions.values()].map((session) => this.#endSession(session)));
+    await Promise.allSettled(
+      [...this.#sessions.values()].map((session) => this.#endSession(session)),
+    );
   }
 
   async #write(file: string, value: unknown): Promise<void> {
     await mkdir(this.#directory, { recursive: true, mode: 0o700 });
     const temporary = `${file}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+      await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, {
+        mode: 0o600,
+      });
       await rename(temporary, file);
     } finally {
       await rm(temporary, { force: true }).catch(() => {});
@@ -310,24 +374,34 @@ export class ExternalMcpService {
 
   async #endSession(session: Session): Promise<void> {
     this.#sessions.delete(session.id);
-    if (session.projectId) await this.#options.release?.(session.projectId, session.id);
+    if (session.projectId)
+      await this.#options.release?.(session.projectId, session.id);
   }
 
   #prune(): void {
     const now = this.#now();
     for (const session of this.#sessions.values())
-      if (now - session.usedAt > SESSION_IDLE_MS) void this.#endSession(session);
+      if (now - session.usedAt > SESSION_IDLE_MS)
+        void this.#endSession(session);
     for (const job of this.#jobs.values())
-      if (job.finishedAt !== undefined && now - job.finishedAt > FINISHED_JOB_RETENTION_MS) this.#jobs.delete(job.id);
+      if (
+        job.finishedAt !== undefined &&
+        now - job.finishedAt > FINISHED_JOB_RETENTION_MS
+      )
+        this.#jobs.delete(job.id);
   }
 
   async #bind(session: Session, projectId: string | undefined): Promise<void> {
     if (session.projectId === projectId) return;
-    if (session.projectId) await this.#options.release?.(session.projectId, session.id);
+    if (session.projectId)
+      await this.#options.release?.(session.projectId, session.id);
     session.projectId = projectId;
   }
 
-  async #bindRoots(session: Session, header: string | undefined): Promise<void> {
+  async #bindRoots(
+    session: Session,
+    header: string | undefined,
+  ): Promise<void> {
     if (session.explicit || !header) return;
     let roots: unknown;
     try {
@@ -337,7 +411,8 @@ export class ExternalMcpService {
     }
     if (!Array.isArray(roots)) return;
     for (const root of roots) {
-      const project = typeof root === "string" ? await this.#projectAt(root) : undefined;
+      const project =
+        typeof root === "string" ? await this.#projectAt(root) : undefined;
       if (project) return this.#bind(session, project.id);
     }
   }
@@ -346,37 +421,62 @@ export class ExternalMcpService {
   async #projectAt(location: string): Promise<ProjectState | undefined> {
     let target: string;
     try {
-      target = await realpath(location.startsWith("file:") ? fileURLToPath(location) : location);
+      target = await realpath(
+        location.startsWith("file:") ? fileURLToPath(location) : location,
+      );
     } catch {
       return undefined;
     }
     for (const project of this.#options.projects()) {
-      const workspace = await realpath(project.workspacePath).catch(() => undefined);
+      const workspace = await realpath(project.workspacePath).catch(
+        () => undefined,
+      );
       if (!workspace) continue;
       const relative = path.relative(workspace, target);
-      if (!relative.startsWith("..") && !path.isAbsolute(relative)) return project;
+      if (!relative.startsWith("..") && !path.isAbsolute(relative))
+        return project;
     }
     return undefined;
   }
 
   #project(session: Session): ProjectState | undefined {
-    return session.projectId ? this.#options.projects().find((project) => project.id === session.projectId) : undefined;
+    return session.projectId
+      ? this.#options
+          .projects()
+          .find((project) => project.id === session.projectId)
+      : undefined;
   }
 
-  async #answer(session: Session, message: unknown, signal?: AbortSignal): Promise<Record<string, unknown> | undefined> {
-    const request = message && typeof message === "object" ? (message as { id?: unknown; method?: unknown; params?: unknown }) : {};
+  async #answer(
+    session: Session,
+    message: unknown,
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown> | undefined> {
+    const request =
+      message && typeof message === "object"
+        ? (message as { id?: unknown; method?: unknown; params?: unknown })
+        : {};
     if (request.id === undefined || request.id === null) return undefined;
     const id = request.id;
-    const params = request.params && typeof request.params === "object" ? (request.params as Record<string, unknown>) : {};
+    const params =
+      request.params && typeof request.params === "object"
+        ? (request.params as Record<string, unknown>)
+        : {};
     switch (request.method) {
       case "initialize":
         return {
           jsonrpc: "2.0",
           id,
           result: {
-            protocolVersion: typeof params.protocolVersion === "string" ? params.protocolVersion : MCP_PROTOCOL_VERSION,
+            protocolVersion:
+              typeof params.protocolVersion === "string"
+                ? params.protocolVersion
+                : MCP_PROTOCOL_VERSION,
             capabilities: { tools: { listChanged: false } },
-            serverInfo: { name: EXTERNAL_MCP_SERVER_NAME, version: String(EXTERNAL_MCP_CONTRACT_VERSION) },
+            serverInfo: {
+              name: EXTERNAL_MCP_SERVER_NAME,
+              version: String(EXTERNAL_MCP_CONTRACT_VERSION),
+            },
             instructions: INSTRUCTIONS,
           },
         };
@@ -386,11 +486,20 @@ export class ExternalMcpService {
         return { jsonrpc: "2.0", id, result: { tools: this.tools() } };
       case "tools/call": {
         const name = typeof params.name === "string" ? params.name : "";
-        const outcome = await this.#call(session, name, params.arguments, `${session.id}:${String(id)}`, signal);
+        const outcome = await this.#call(
+          session,
+          name,
+          params.arguments,
+          `${session.id}:${String(id)}`,
+          signal,
+        );
         return {
           jsonrpc: "2.0",
           id,
-          result: { content: outcome.result.content, ...(outcome.isError ? { isError: true } : {}) },
+          result: {
+            content: outcome.result.content,
+            ...(outcome.isError ? { isError: true } : {}),
+          },
         };
       }
       case "resources/list":
@@ -398,13 +507,22 @@ export class ExternalMcpService {
       case "prompts/list":
         return { jsonrpc: "2.0", id, result: { prompts: [] } };
       default:
-        return { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${String(request.method)}` } };
+        return {
+          jsonrpc: "2.0",
+          id,
+          error: {
+            code: -32601,
+            message: `Method not found: ${String(request.method)}`,
+          },
+        };
     }
   }
 
   /** The public tool list: the same for every session, whichever project it uses. */
   tools(): BridgeTool[] {
-    const catalog = new ToolBridge(publicTools(this.#options.catalog())).list("all");
+    const catalog = new ToolBridge(publicTools(this.#options.catalog())).list(
+      "all",
+    );
     return [...OWN_TOOLS, ...catalog.map(({ _meta: _, ...tool }) => tool)];
   }
 
@@ -415,7 +533,10 @@ export class ExternalMcpService {
     callId: string,
     signal?: AbortSignal,
   ): Promise<{ result: NativeToolResult; isError: boolean }> {
-    const input = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
+    const input =
+      args && typeof args === "object" && !Array.isArray(args)
+        ? (args as Record<string, unknown>)
+        : {};
     switch (name) {
       case "list_projects":
         return json({
@@ -427,9 +548,16 @@ export class ExternalMcpService {
       case "open_project": {
         const value = typeof input.project === "string" ? input.project : "";
         const project =
-          this.#options.projects().find((candidate) => candidate.id === value) ??
-          (path.isAbsolute(value) || value.startsWith("file:") ? await this.#projectAt(value) : undefined);
-        if (!project) return failure(`No OhMyGame project has the ID or contains the folder ${value}. Call list_projects to see them.`);
+          this.#options
+            .projects()
+            .find((candidate) => candidate.id === value) ??
+          (path.isAbsolute(value) || value.startsWith("file:")
+            ? await this.#projectAt(value)
+            : undefined);
+        if (!project)
+          return failure(
+            `No OhMyGame project has the ID or contains the folder ${value}. Call list_projects to see them.`,
+          );
         session.explicit = true;
         await this.#bind(session, project.id);
         return json(describe(project));
@@ -443,12 +571,15 @@ export class ExternalMcpService {
       case "cancel_job":
         return this.#jobCall(name, input);
     }
-    if (!(EXTERNAL_PROJECT_TOOLS as readonly string[]).includes(name)) return failure(`Tool ${name} is not available`);
+    if (!(EXTERNAL_PROJECT_TOOLS as readonly string[]).includes(name))
+      return failure(`Tool ${name} is not available`);
     const project = this.#project(session);
     if (!project) return failure(noProject());
     const tools = publicTools(this.#options.tools(project, session.id));
     if (!tools.some((tool) => tool.name === name))
-      return failure(`Tool ${name} is not available for project ${project.name} (${project.type}). ${UNAVAILABLE_HINTS[name] ?? ""}`.trim());
+      return failure(
+        `Tool ${name} is not available for project ${project.name} (${project.type}). ${UNAVAILABLE_HINTS[name] ?? ""}`.trim(),
+      );
     const bridge = new ToolBridge(tools);
     if (!JOB_TOOLS.has(name)) return bridge.call(name, input, callId, signal);
     // A job keeps running when the request ends: a provider may already be charging for it.
@@ -461,32 +592,56 @@ export class ExternalMcpService {
       controller,
       done: Promise.resolve(),
     };
-    job.done = bridge.call(name, input, callId, controller.signal).then((outcome) => {
-      job.outcome = outcome;
-      if (job.status === "running") job.status = outcome.isError ? "failed" : "succeeded";
-      job.finishedAt = this.#now();
-    });
+    job.done = bridge
+      .call(name, input, callId, controller.signal)
+      .then((outcome) => {
+        job.outcome = outcome;
+        if (job.status === "running")
+          job.status = outcome.isError ? "failed" : "succeeded";
+        job.finishedAt = this.#now();
+      });
     this.#jobs.set(job.id, job);
     return this.#settle(job, this.#options.waitMs ?? DEFAULT_WAIT_MS);
   }
 
-  async #jobCall(name: "get_job" | "wait_job" | "cancel_job", input: Record<string, unknown>) {
-    const job = typeof input.jobId === "string" ? this.#jobs.get(input.jobId) : undefined;
-    if (!job) return failure("Generation job not found. Jobs end when OhMyGame closes.");
+  async #jobCall(
+    name: "get_job" | "wait_job" | "cancel_job",
+    input: Record<string, unknown>,
+  ) {
+    const job =
+      typeof input.jobId === "string" ? this.#jobs.get(input.jobId) : undefined;
+    if (!job)
+      return failure(
+        "Generation job not found. Jobs end when OhMyGame closes.",
+      );
     if (name === "cancel_job" && job.status === "running") {
       job.status = "cancelled";
       job.finishedAt = this.#now();
       job.controller.abort();
     }
     if (name !== "wait_job") return this.#settle(job, 0);
-    const seconds = typeof input.timeoutSeconds === "number" ? Math.min(Math.max(input.timeoutSeconds, 1), 45) : undefined;
-    return this.#settle(job, seconds !== undefined ? seconds * 1_000 : (this.#options.waitMs ?? DEFAULT_WAIT_MS));
+    const seconds =
+      typeof input.timeoutSeconds === "number"
+        ? Math.min(Math.max(input.timeoutSeconds, 1), 45)
+        : undefined;
+    return this.#settle(
+      job,
+      seconds !== undefined
+        ? seconds * 1_000
+        : (this.#options.waitMs ?? DEFAULT_WAIT_MS),
+    );
   }
 
-  async #settle(job: Job, waitMs: number): Promise<{ result: NativeToolResult; isError: boolean }> {
+  async #settle(
+    job: Job,
+    waitMs: number,
+  ): Promise<{ result: NativeToolResult; isError: boolean }> {
     if (job.status === "running" && waitMs > 0) {
       let timer: NodeJS.Timeout | undefined;
-      await Promise.race([job.done, new Promise<void>((resolve) => (timer = setTimeout(resolve, waitMs)))]);
+      await Promise.race([
+        job.done,
+        new Promise<void>((resolve) => (timer = setTimeout(resolve, waitMs))),
+      ]);
       clearTimeout(timer);
     }
     if (job.status === "running")
@@ -501,27 +656,46 @@ export class ExternalMcpService {
         },
         isError: false,
       };
-    if (job.status === "cancelled") return failure(`Job ${job.id} was cancelled`);
+    if (job.status === "cancelled")
+      return failure(`Job ${job.id} was cancelled`);
     return job.outcome ?? failure(`Job ${job.id} ended without a result`);
   }
 }
 
 function publicTools(tools: readonly ToolDefinition[]): ToolDefinition[] {
-  return tools.filter((tool) => (EXTERNAL_PROJECT_TOOLS as readonly string[]).includes(tool.name));
+  return tools.filter((tool) =>
+    (EXTERNAL_PROJECT_TOOLS as readonly string[]).includes(tool.name),
+  );
 }
 
 function describe(project: ProjectState) {
-  return { id: project.id, name: project.name, type: project.type, workspacePath: project.workspacePath };
+  return {
+    id: project.id,
+    name: project.name,
+    type: project.type,
+    workspacePath: project.workspacePath,
+  };
 }
 
 function method(message: unknown): unknown {
-  return message && typeof message === "object" ? (message as { method?: unknown }).method : undefined;
+  return message && typeof message === "object"
+    ? (message as { method?: unknown }).method
+    : undefined;
 }
 
-function jobSchema(extra: Record<string, unknown> = {}): Record<string, unknown> {
+function jobSchema(
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     type: "object",
-    properties: { jobId: { type: "string", minLength: 1, description: "The jobId a generation tool returned" }, ...extra },
+    properties: {
+      jobId: {
+        type: "string",
+        minLength: 1,
+        description: "The jobId a generation tool returned",
+      },
+      ...extra,
+    },
     required: ["jobId"],
     additionalProperties: false,
   };
@@ -532,7 +706,12 @@ function noProject(): string {
 }
 
 function json(value: unknown): { result: NativeToolResult; isError: boolean } {
-  return { result: { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] }, isError: false };
+  return {
+    result: {
+      content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+    },
+    isError: false,
+  };
 }
 
 function failure(text: string): { result: NativeToolResult; isError: boolean } {

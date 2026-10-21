@@ -143,8 +143,16 @@ Files in `<dataDirectory>/external-mcp/`:
   where to turn it on.
 - It sends the client's MCP roots in `X-OhMyGame-Roots`, or, for clients
   without roots, `CLAUDE_PROJECT_DIR` and its working directory. A restarted
-  daemon or an expired session is reconnected once, transparently. Closing
-  stdin ends the daemon session.
+  daemon or an expired session is reconnected once. An explicit `open_project`
+  selection is remembered by its returned project ID and restored before any
+  project tool runs in a replacement session. If that project is gone, the
+  tool fails until the client selects another project; it never falls back
+  to the working folder silently. Closing stdin ends the daemon session.
+- A 401 or 404 rejects a call before execution, so it can be retried after
+  reconnecting. After a lost or unreadable response, only read-only tools are
+  retried. Generation, edits, playtesting and other mutating calls report that
+  execution status is unknown; check the project before starting them again.
+  This prevents a lost response from creating a second paid generation.
 
 ### Inside OhMyGame
 
@@ -241,7 +249,7 @@ is 60 seconds.
 
 OhMyGame copies the Skill only into a missing folder or one it wrote, and
 removes it on disconnect unless another connected client reads the same
-folder.
+folder. Existing folders without `SKILL.md` and symlinked folders are left alone.
 
 For `dsh`, add a `@deepseek-ai/dsh-mcp-client` entry to the profile's
 `cordis.patch.yml`, where `<launcher>` is the command shown in Settings:

@@ -60,5 +60,9 @@ export interface ExternalMcpCatalog {
   version: 1;
   contractVersion: number;
   instructions: string;
-  tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+  tools: Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }>;
 }

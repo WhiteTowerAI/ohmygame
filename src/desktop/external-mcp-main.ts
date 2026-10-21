@@ -14,12 +14,16 @@ function argument(name: string): string | undefined {
 
 async function main(): Promise<void> {
   if (process.env[EXTERNAL_MCP_DISABLED_ENV] === "1") {
-    process.stderr.write("OhMyGame runs this agent itself and already gives it OhMyGame's tools.\n");
+    process.stderr.write(
+      "OhMyGame runs this agent itself and already gives it OhMyGame's tools.\n",
+    );
     process.exit(1);
   }
   const dataDirectory = argument("--data-dir");
   if (!dataDirectory) {
-    process.stderr.write("Usage: ohmygame-mcp --data-dir <OhMyGame data folder>\n");
+    process.stderr.write(
+      "Usage: ohmygame-mcp --data-dir <OhMyGame data folder>\n",
+    );
     process.exit(2);
   }
   const appPath = argument("--app");
@@ -30,7 +34,11 @@ async function main(): Promise<void> {
       const environment = { ...process.env };
       delete environment.ELECTRON_RUN_AS_NODE;
       // The app's executable is the one running this script as Node.
-      spawn(process.execPath, appPath ? [appPath] : [], { detached: true, stdio: "ignore", env: environment }).unref();
+      spawn(process.execPath, appPath ? [appPath] : [], {
+        detached: true,
+        stdio: "ignore",
+        env: environment,
+      }).unref();
     },
   });
   const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -40,7 +48,9 @@ async function main(): Promise<void> {
     try {
       message = JSON.parse(line) as Message;
     } catch {
-      process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } })}\n`);
+      process.stdout.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } })}\n`,
+      );
       return;
     }
     void launcher.receive(message);

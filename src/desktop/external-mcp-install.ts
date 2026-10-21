@@ -1,4 +1,11 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import type { ExternalMcpLauncher } from "../shared/external-mcp.js";
 
@@ -22,10 +29,21 @@ export interface LauncherInstallOptions {
  * start the executable directly: Node no longer runs `.cmd` files without a
  * shell, and the installer keeps the executable's path across updates.
  */
-export async function installExternalMcpLauncher(options: LauncherInstallOptions): Promise<ExternalMcpLauncher> {
-  const args = [options.entry, "--data-dir", options.dataDirectory, ...(options.appPath ? ["--app", options.appPath] : [])];
+export async function installExternalMcpLauncher(
+  options: LauncherInstallOptions,
+): Promise<ExternalMcpLauncher> {
+  const args = [
+    options.entry,
+    "--data-dir",
+    options.dataDirectory,
+    ...(options.appPath ? ["--app", options.appPath] : []),
+  ];
   if ((options.platform ?? process.platform) === "win32")
-    return { command: options.executable, args, env: { ELECTRON_RUN_AS_NODE: "1" } };
+    return {
+      command: options.executable,
+      args,
+      env: { ELECTRON_RUN_AS_NODE: "1" },
+    };
   const file = path.join(options.binDirectory, "ohmygame-mcp");
   const script = [
     "#!/bin/sh",
@@ -46,13 +64,21 @@ export async function installExternalMcpLauncher(options: LauncherInstallOptions
  * the daemon starts or restarts waits for it instead of starting a second app.
  * Returns the cleanup for quitting.
  */
-export async function markExternalMcpApp(dataDirectory: string, pid = process.pid): Promise<() => Promise<void>> {
+export async function markExternalMcpApp(
+  dataDirectory: string,
+  pid = process.pid,
+): Promise<() => Promise<void>> {
   const file = path.join(dataDirectory, "external-mcp", "app.json");
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-  await writeFile(file, `${JSON.stringify({ version: 1, pid })}\n`, { mode: 0o600 });
+  await writeFile(file, `${JSON.stringify({ version: 1, pid })}\n`, {
+    mode: 0o600,
+  });
   return async () => {
     // A later app may have replaced the record.
-    const current = await readFile(file, "utf8").then((text) => (JSON.parse(text) as { pid?: unknown }).pid, () => undefined);
+    const current = await readFile(file, "utf8").then(
+      (text) => (JSON.parse(text) as { pid?: unknown }).pid,
+      () => undefined,
+    );
     if (current === pid) await rm(file, { force: true });
   };
 }
