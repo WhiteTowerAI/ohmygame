@@ -47,5 +47,5 @@ body:
     id: logs
     attributes:
       label: Logs and screenshots
-      description: Error messages, terminal output, or screenshots. Remove keys and tokens first.
+      description: Error messages, terminal output, or screenshots. Remove keys and tokens first. In the desktop app, Settings → About → Export diagnostics saves redacted logs as a ZIP you can drag here.
       render: text
