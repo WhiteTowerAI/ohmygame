@@ -221,9 +221,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     openNode(nodeId);
   }), [projectId]);
 
-  // A Playtest window that cannot play asks for the Story map.
+  // A Playtest window that cannot play asks for the Story map, leaving Design as its tab would.
+  const showTab = useRef<(tab: "canvas" | "design" | "code") => void>(() => {});
   useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((targetProjectId) => {
-    if (targetProjectId === projectId) setWorkspaceView("canvas");
+    if (targetProjectId === projectId) showTab.current("canvas");
   }), [projectId]);
 
   // Whether the open Scene has a background the editor can set, and whether it shows anything yet.
@@ -1100,23 +1101,24 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     ...(onDesignOpenChange ? [{ id: "design" as const, label: t("workspace.tab.design"), icon: FileText }] : []),
     { id: "code", label: t("workspace.tab.code"), icon: Code2 },
   ];
+  showTab.current = (tab) => {
+    const navigate = () => {
+      if (tab !== "design") {
+        if (tab === "code") clearSelection();
+        setWorkspaceView(tab);
+      }
+      onDesignOpenChange?.(tab === "design");
+    };
+    if (designOpen && designLeave.current) designLeave.current(navigate);
+    else navigate();
+  };
   const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
     {chatOnRight && onHome ? (
       <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} />
     ) : null}
     <WorkspaceTabs
       tabs={tabs} active={designOpen ? "design" : workspaceView}
-      onChange={(tab) => {
-        const navigate = () => {
-          if (tab !== "design") {
-            if (tab === "code") clearSelection();
-            setWorkspaceView(tab);
-          }
-          onDesignOpenChange?.(tab === "design");
-        };
-        if (designOpen && designLeave.current) designLeave.current(navigate);
-        else navigate();
-      }}
+      onChange={showTab.current}
     />
   </div>;
 
