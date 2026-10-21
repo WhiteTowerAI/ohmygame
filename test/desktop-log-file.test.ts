@@ -38,6 +38,25 @@ describe("rotating log file", () => {
     );
   });
 
+  it("timestamps each line of a multi-line entry", async () => {
+    const directory = await logDirectory();
+    const log = new RotatingLogFile({ directory, name: "main", now });
+
+    log.line(
+      "[service] error (generation 1): Daemon exited before becoming ready (1)\r\n\nDaemon output:\nCould not read project metadata",
+    );
+    log.close();
+    expect(await readFile(log.path, "utf8")).toBe(
+      [
+        "2026-10-21T08:00:00.000Z [service] error (generation 1): Daemon exited before becoming ready (1)",
+        "2026-10-21T08:00:00.000Z ",
+        "2026-10-21T08:00:00.000Z Daemon output:",
+        "2026-10-21T08:00:00.000Z Could not read project metadata",
+        "",
+      ].join("\n"),
+    );
+  });
+
   it("keeps characters that are split between two chunks", async () => {
     const directory = await logDirectory();
     const log = new RotatingLogFile({ directory, name: "daemon", now });

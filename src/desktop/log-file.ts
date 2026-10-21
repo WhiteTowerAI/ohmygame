@@ -95,11 +95,15 @@ export class RotatingLogFile implements LogWriter, LogStream {
     return new LineBuffer((line) => this.line(line));
   }
 
+  /** Text with line breaks, such as an error with its output, is written one timestamped line at a time. */
   line(text: string): void {
     if (this.#failed) return;
-    const redacted = this.options.redact ? this.options.redact(text) : text;
     const time = (this.options.now?.() ?? new Date()).toISOString();
-    this.#append(Buffer.from(`${time} ${redacted}\n`, "utf8"));
+    const lines = text.split(/\r?\n/).map((line) => {
+      const redacted = this.options.redact ? this.options.redact(line) : line;
+      return `${time} ${redacted}\n`;
+    });
+    this.#append(Buffer.from(lines.join(""), "utf8"));
   }
 
   close(): void {
