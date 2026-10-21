@@ -104,6 +104,49 @@ describe("desktop daemon process", () => {
     );
   });
 
+  it("writes the daemon's output to its log line by line", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-desktop-log-"));
+    const entry = path.join(directory, "daemon.mjs");
+    await writeFile(entry, `
+      process.stdout.write("listening ");
+      process.stderr.write("could not read settings\\n");
+      process.stdout.write("on 127.0.0.1\\n");
+      process.exit(1);
+    `);
+    const lines: string[] = [];
+    const log = {
+      line: (text: string) => lines.push(text),
+      stream: () => {
+        let pending = "";
+        return {
+          write: (chunk: string | Uint8Array) => {
+            pending += String(chunk);
+            const parts = pending.split("\n");
+            pending = parts.pop() ?? "";
+            lines.push(...parts);
+          },
+          flush: () => { if (pending) lines.push(pending); pending = ""; },
+        };
+      },
+    };
+
+    await expect(startDaemon({
+      daemonEntry: entry,
+      dataDirectory: directory,
+      token: "test-token",
+      allowedOrigins: ["null"],
+      executable: process.execPath,
+      environment: {},
+      healthTimeoutMs: 2_000,
+      log,
+    })).rejects.toThrow("Daemon exited before becoming ready");
+    await vi.waitFor(() => expect(lines.at(-1)).toBe("OhMyGame service exited (1)"));
+    expect(lines[0]).toMatch(/^OhMyGame service starting \(pid \d+\)$/);
+    expect(lines).toContain("listening on 127.0.0.1");
+    expect(lines).toContain("could not read settings");
+    await rm(directory, { recursive: true, force: true });
+  });
+
   it.each([false, true])("waits for health and stops the managed child (development=%s)", async (development) => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-desktop-"));
     const pidFile = path.join(directory, "pid");

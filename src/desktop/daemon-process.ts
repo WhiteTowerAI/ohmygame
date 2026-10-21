@@ -5,6 +5,7 @@ import type { PlaytestIpcMessage, PlaytestRequest, PlaytestResult } from "../sha
 import { signalProcessTree } from "../daemon/process-lifecycle.js";
 import type { DaemonRuntime } from "../shared/desktop-runtime.js";
 import type { ExternalMcpLauncher } from "../shared/external-mcp.js";
+import type { LogWriter } from "./log-file.js";
 export type { DaemonRuntime } from "../shared/desktop-runtime.js";
 
 const MAX_STARTUP_OUTPUT_CHARS = 8_000;
@@ -36,6 +37,8 @@ export interface StartDaemonOptions {
   handlePlaytestRequest?: (request: PlaytestRequest, signal: AbortSignal) => Promise<PlaytestResult>;
   resolveSystemProxy?: () => Promise<string>;
   onUnexpectedExit?: (error: Error) => void;
+  /** Keeps the daemon's output after the app closes. */
+  log?: LogWriter;
 }
 
 export async function startDaemon(options: StartDaemonOptions): Promise<ManagedDaemon> {
@@ -71,6 +74,9 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
     },
     stdio: ["pipe", "pipe", "pipe", "ipc"],
   });
+  options.log?.line(`OhMyGame service starting (pid ${child.pid ?? "unknown"})`);
+  const stdoutLog = options.log?.stream();
+  const stderrLog = options.log?.stream();
   const projectProcesses = new Set<number>();
   child.on("message", (value: unknown) => {
     const message = value as { channel?: unknown; action?: unknown; pid?: unknown } | null;
@@ -105,10 +111,12 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
 
   child.stdout?.on("data", (chunk) => {
     captureStartupOutput(chunk);
+    stdoutLog?.write(chunk);
     process.stdout.write(`[daemon] ${String(chunk)}`);
   });
   child.stderr?.on("data", (chunk) => {
     captureStartupOutput(chunk);
+    stderrLog?.write(chunk);
     process.stderr.write(`[daemon] ${String(chunk)}`);
   });
   child.on("error", (error) => {
@@ -123,6 +131,9 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
   };
   const closed = new Promise<void>((resolve) => child.once("close", (code, signal) => {
     const unexpected = ready && !stopped;
+    stdoutLog?.flush();
+    stderrLog?.flush();
+    options.log?.line(`OhMyGame service exited (${signal ?? code ?? "unknown"})`);
     void cleanup().finally(() => {
       resolve();
       if (unexpected) options.onUnexpectedExit?.(startupError(`The background service exited (${signal ?? code ?? "unknown"})`, startupOutput));

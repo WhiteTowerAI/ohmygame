@@ -15,6 +15,8 @@ import { createNetworkDispatcher } from "../daemon/proxy.js";
 import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { ignoreBrokenStdio } from "./stdio.js";
+import { RotatingLogFile } from "./log-file.js";
+import { createLogRedactor } from "./log-redaction.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
@@ -37,6 +39,8 @@ loadEnvironmentFiles(repositoryRoot, app.isPackaged ? "production" : "developmen
 const developmentRendererUrl = process.env.OHMYGAME_RENDERER_URL ?? "http://127.0.0.1:43120";
 const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-renderer");
 let daemon: DaemonSupervisor | undefined;
+const logDirectory = app.getPath("logs");
+const daemonLog = new RotatingLogFile({ directory: logDirectory, name: "daemon", redact: createLogRedactor() });
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 /** A Node that fails to start never reports back; its window gives up after this. */
@@ -83,6 +87,7 @@ async function stopServices(): Promise<void> {
   agentPlaytests.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
   await clearExternalMcpApp?.().catch(() => undefined);
+  daemonLog.close();
 }
 
 function prepareShutdown(forUpdate = false): Promise<void> {
@@ -523,6 +528,7 @@ try {
     },
     development: !useBuiltRenderer,
     healthTimeoutMs: 60_000,
+    log: daemonLog,
     handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
     onState: (state) => {
       if (state.status !== "ready") {
