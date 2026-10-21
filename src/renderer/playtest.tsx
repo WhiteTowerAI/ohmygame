@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, ensureProjectPreview, getNodeRuntime, playableSandboxUrl } from "./api.js";
 import { createMemoryStorage, NodePlayer } from "./playable-player.js";
-import { PlaytestOverlay, PlaytestProblem, playtestSaveKey, playtestSeenKey, requestAskAgent, takePlaytestRequest, usePlaytestRequests, type PlaytestProblemState, type PlaytestRequest, type PlaytestStart } from "./playable-playtest.js";
+import { askToFixPlaytest, askToFixPlaytestStart, PlaytestOverlay, PlaytestProblem, playtestSaveKey, playtestSeenKey, requestAskAgent, takePlaytestRequest, usePlaytestRequests, type PlaytestProblemState, type PlaytestRequest, type PlaytestStart } from "./playable-playtest.js";
 import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
 import { loadPlayableAssets } from "./playable-assets.js";
@@ -111,6 +111,8 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     ? () => void desktop.showPlaytestEditor!(projectId).catch(() => {})
     : undefined;
 
+  const record = playable.status === "ready" && snapshot ? playableDebugRecord(snapshot, playable.definition.graph, history.current.changes) : undefined;
+
   if (problem) {
     return (
       <PlaytestProblem
@@ -121,7 +123,11 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
           setRevision((current) => current + 1);
         }}
         onPlayFromStart={() => restart()}
-        onAskAgent={(text) => {
+        onAskAgent={() => {
+          // A game that stopped while starting tells the AI what the player was doing, as the overlay does.
+          const text = playable.status === "ready"
+            ? askToFixPlaytest(playable.definition.graph, record, [...new Set([...(record?.errors ?? []).map((error) => error.message), ...diagnostics, problem.detail ?? ""].filter(Boolean))])
+            : askToFixPlaytestStart(problem.detail ?? "");
           requestAskAgent(projectId, text);
           openEditor?.();
         }}
@@ -131,7 +137,6 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   }
   if (playable.status === "ready") {
     const graph = playable.definition.graph;
-    const record = snapshot ? playableDebugRecord(snapshot, graph, history.current.changes) : undefined;
     return (
       <>
         <NodePlayer

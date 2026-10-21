@@ -366,6 +366,16 @@ describe("Playtest that cannot start", () => {
     expect(text()).not.toContain("The story can't start");
   });
 
+  it("tells the AI what the game reported before it stopped while starting", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const props = player.mock.calls.at(-1)![0];
+    await act(async () => props.onDiagnostic("Missing image"));
+    await act(async () => props.onError("Scene script failed"));
+    await act(async () => action("Ask AI to fix").click());
+    const ask = JSON.parse(window.localStorage.getItem("ohmygame:playtest:ask:p")!) as { text: string };
+    expect(ask.text).toBe("Something broke while I was playtesting. Find the cause and fix it.\n\nErrors:\n- Missing image\n- Scene script failed");
+  });
+
   it("tries again after a failure that may pass, keeping the chosen Scene", async () => {
     getNodeRuntime.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     requestPlaytest("p", { action: "start", start: { nodeId: "start" } });

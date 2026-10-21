@@ -241,7 +241,8 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
   onOpenEditor?: () => void;
   onRetry: () => void;
   onPlayFromStart: () => void;
-  onAskAgent: (text: string) => void;
+  /** Hands the problem to the AI; the page knows what the player was doing. */
+  onAskAgent: () => void;
   onClose: () => void;
 }) {
   const [sent, setSent] = useState(false);
@@ -265,7 +266,7 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
     invalid: [
       sent
         ? <span key="ask" className="playtest-problem-sent">{t("playtest.addedToChat")}</span>
-        : <button key="ask" type="button" onClick={() => { onAskAgent(askToFixPlaytestStart(problem.detail ?? title)); setSent(true); }}><Sparkles size={13} /><span>{t("playtest.askFix")}</span></button>,
+        : <button key="ask" type="button" onClick={() => { onAskAgent(); setSent(true); }}><Sparkles size={13} /><span>{t("playtest.askFix")}</span></button>,
       retry,
       ...(onOpenEditor ? [editor] : []),
     ],
