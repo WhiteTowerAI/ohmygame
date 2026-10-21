@@ -200,7 +200,8 @@ describe("plugin integration", () => {
       }),
     );
     host.cancel(plugin.id, project.id);
-    await vi.waitFor(() => expect(host.state(plugin.id)?.running).toBe(false));
+    // Windows stops the adapter only after the graceful-termination grace period.
+    await vi.waitFor(() => expect(host.state(plugin.id)?.running).toBe(false), { timeout: 10_000 });
     expect(host.state(plugin.id, project.id)).toBeUndefined();
   });
   it("rejects malformed protocol, excessive messages and unsafe authorization URLs", async () => {
