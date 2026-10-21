@@ -1207,7 +1207,6 @@ const en = {
     manageModels: "Manage models",
     default: "Default",
     rescan: "Rescan",
-    providersPointer: "Claude Code, Codex and OpenCode are set up in Agents.",
     open: "Open Agents",
   },
   externalAgents: {

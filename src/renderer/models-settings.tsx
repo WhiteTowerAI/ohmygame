@@ -64,8 +64,6 @@ const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; la
   { value: "3d", label: t("capability.3d") },
   { value: "audio", label: t("capability.audio") },
 ];
-/** Searches that look for a coding agent, which lives in Agents rather than here. */
-const CODING_AGENT_SEARCH = /claude|codex|opencode|\bcli\b|agent|智能体/;
 const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
   language: t("capability.language"),
   image: t("capability.image"),
@@ -76,11 +74,11 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
 
 export function ModelsSettings({ view, onViewChange, onOpenAgents }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void }) {
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
-  if (view.page === "providers") return <ProviderList onProvider={openProvider} onOpenAgents={onOpenAgents} />;
+  if (view.page === "providers") return <ProviderList onProvider={openProvider} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} onOpenAgents={onOpenAgents} />;
 }
 
-function ProviderList({ onProvider, onOpenAgents }: { onProvider: (provider: ProviderSummary) => void; onOpenAgents: () => void }) {
+function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
   const auth = useAuth();
   const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -180,12 +178,6 @@ function ProviderList({ onProvider, onOpenAgents }: { onProvider: (provider: Pro
           <button className="settings-add-button settings-provider-add" type="button" onClick={() => setAdding("custom")}><Plus size={13} />{t("providers.add")}</button>
         </div>
         {capability !== "language" ? <GlobalMediaModelDefaults capability={capability} /> : null}
-        {capability === "language" || CODING_AGENT_SEARCH.test(normalizedQuery) ? (
-          <p className="settings-agents-pointer">
-            {t("agents.providersPointer")}{" "}
-            <button className="coding-agent-link" type="button" onClick={onOpenAgents}>{t("agents.open")}</button>
-          </p>
-        ) : null}
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />{t("providers.loadingProviders")}</div> : null}
         {!loading && visibleProviders.length === 0 ? <p className="settings-empty">{t("providers.noMatch")}</p> : null}
         {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}

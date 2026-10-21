@@ -1185,7 +1185,6 @@ const zhCN: typeof en = {
     manageModels: "管理模型",
     default: "默认",
     rescan: "重新检测",
-    providersPointer: "Claude Code、Codex 和 OpenCode 在「智能体」中设置。",
     open: "前往智能体",
   },
   externalAgents: {

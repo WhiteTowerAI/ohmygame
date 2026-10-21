@@ -1753,13 +1753,6 @@ body {
   background: var(--danger);
 }
 
-.settings-agents-pointer {
-  margin: 0;
-  padding: 0 4px;
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
 .coding-agent-permission {
   display: flex;
   align-items: center;

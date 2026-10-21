@@ -24,8 +24,7 @@ computer**; **Rescan** checks for them again. Each row shows whether the CLI
 was found and its version; the detail page shows its account, billing, and a
 verified version for reference. The verified version records a real acceptance
 run and is not a minimum version. The agent whose model new conversations start with is
-marked **Default**. Providers & Models points to Agents when it is filtered to
-language models or searched for a coding agent.
+marked **Default**.
 Agents are off by default. Enabling the switch offers their models in the conversation model picker; the
 detail page signs in, checks again, chooses the executable, and decides whether
 the person's own CLI configuration applies.
