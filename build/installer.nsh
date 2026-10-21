@@ -22,6 +22,9 @@
       ${If} $R0 == 17
         Goto app_closed
       ${EndIf}
+      ${If} $R0 != 0
+        DetailPrint `Could not check whether "${PRODUCT_NAME}" is running (code $R0); treating it as still open.`
+      ${EndIf}
     ${EndIf}
 
     ${If} $R1 == 0
