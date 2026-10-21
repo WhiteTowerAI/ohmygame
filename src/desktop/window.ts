@@ -115,9 +115,11 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   if (options.aspectRatio) window.setAspectRatio(options.aspectRatio);
   // The preload asks for the daemon address and token instead of reading them
   // from its command line, which other processes of the same user can read.
-  // Only this window's own page receives them, not a frame embedded in it.
+  // Only the renderer page in this window receives them, not a frame embedded
+  // in it or a page the window was redirected to.
   window.webContents.ipc.on("ohmygame:desktop-runtime", (event) => {
-    event.returnValue = event.senderFrame === window.webContents.mainFrame
+    const frame = event.senderFrame;
+    event.returnValue = frame && frame === window.webContents.mainFrame && isRendererPage(frame.url, rendererTarget)
       ? { url: options.runtime.url, token: options.runtime.token }
       : null;
   });
@@ -144,6 +146,14 @@ function withoutHash(value: string): string {
   const url = new URL(value);
   url.hash = "";
   return url.href;
+}
+
+function isRendererPage(value: string, rendererTarget: string): boolean {
+  try {
+    return withoutHash(value) === rendererTarget;
+  } catch {
+    return false;
+  }
 }
 
 function isHttpUrl(value: string): boolean {

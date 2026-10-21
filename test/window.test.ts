@@ -26,7 +26,7 @@ vi.mock("electron", () => ({
         if (event === "will-navigate") this.onNavigate = handler;
       }),
       setAudioMuted: vi.fn(),
-      mainFrame: {},
+      mainFrame: { url: "http://127.0.0.1:43120/" },
       ipc: {
         on: vi.fn((channel: string, handler: (event: { senderFrame: unknown; returnValue?: unknown }) => void) => {
           this.ipcHandlers.set(channel, handler);
@@ -159,7 +159,7 @@ describe("desktop window", () => {
     });
     const window = electron.windows[0] as {
       options: { webPreferences: Record<string, unknown> };
-      webContents: { mainFrame: unknown };
+      webContents: { mainFrame: { url: string } };
       ipcHandlers: Map<string, (event: { senderFrame: unknown; returnValue?: unknown }) => void>;
     };
 
@@ -172,7 +172,19 @@ describe("desktop window", () => {
     answer(page);
     expect(page.returnValue).toEqual({ url: "http://127.0.0.1:43110", token: "secret-token" });
 
-    for (const senderFrame of [{}, null]) {
+    window.webContents.mainFrame.url = "http://127.0.0.1:43120/#/playtest/project";
+    const route = { senderFrame: window.webContents.mainFrame, returnValue: undefined as unknown };
+    answer(route);
+    expect(route.returnValue).toEqual({ url: "http://127.0.0.1:43110", token: "secret-token" });
+
+    for (const url of ["https://untrusted.example/", ""]) {
+      window.webContents.mainFrame.url = url;
+      const redirected = { senderFrame: window.webContents.mainFrame, returnValue: undefined as unknown };
+      answer(redirected);
+      expect(redirected.returnValue).toBeNull();
+    }
+
+    for (const senderFrame of [{ url: "http://127.0.0.1:43120/" }, null]) {
       const embedded = { senderFrame, returnValue: undefined as unknown };
       answer(embedded);
       expect(embedded.returnValue).toBeNull();
