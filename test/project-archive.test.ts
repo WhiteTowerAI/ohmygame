@@ -358,6 +358,10 @@ describe("project archive import", () => {
         "workspace/canvas/jobs.json": JSON.stringify([job]),
         "workspace/.git/config": "[core]",
         "workspace/art/node_modules/pkg.js": "dependency",
+        "workspace/art/node_modules/.bin/tool": {
+          contents: "../pkg.js",
+          mode: 0o120777,
+        },
         "workspace/.data/agent-attachments/a.txt": "attachment",
         "workspace/.data/assets.json": "{}",
         "notes.txt": "outside the workspace",

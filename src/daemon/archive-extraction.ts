@@ -30,8 +30,9 @@ const COLLISIONS = new Set(["EEXIST", "ENOTDIR", "EISDIR"]);
 
 /**
  * Extracts a ZIP archive into an empty destination. Paths with backslashes,
- * drive letters, absolute roots or `.`/`..` segments and symbolic links reject
- * the archive; files are created exclusively, so no entry can replace another.
+ * drive letters, absolute roots or `.`/`..` segments reject the archive, as do
+ * symbolic links that `include` keeps; files are created exclusively, so no
+ * entry can replace another.
  */
 export async function extractArchive(
   archivePath: string,
@@ -55,7 +56,10 @@ export async function extractArchive(
         throw options.error("too-large");
       }
       const relative = archiveEntryPath(entry, options);
+      // Callers' own path rules come first, so they decide what is skipped.
       if (options.include && !options.include(relative, entry)) continue;
+      const fileType = (entry.externalFileAttributes >>> 16) & 0xf000;
+      if (fileType === 0xa000) throw options.error("symbolic-link");
       try {
         if (relative.endsWith("/")) {
           await mkdir(path.join(destination, relative), { recursive: true });
@@ -101,8 +105,6 @@ function archiveEntryPath(
   ) {
     throw options.error("invalid-path");
   }
-  const fileType = (entry.externalFileAttributes >>> 16) & 0xf000;
-  if (fileType === 0xa000) throw options.error("symbolic-link");
   return `${segments.join("/")}${name.endsWith("/") ? "/" : ""}`;
 }
 
