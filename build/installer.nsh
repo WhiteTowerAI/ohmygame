@@ -15,7 +15,9 @@
       # A false positive is safer than overwriting files still in use.
       # The fallback also uses 17 exclusively for "not found"; tasklist or
       # findstr failures remain conservative and keep the installer stopped.
-      nsExec::Exec `"$CmdPath" /D /C tasklist /FI "IMAGENAME eq ${APP_EXECUTABLE_FILENAME}" /FO CSV /NH > "$PLUGINSDIR\ohmygame-processes.txt" & if errorlevel 1 exit /b 18 & "$SYSDIR\findstr.exe" /B /I /C:"\"${APP_EXECUTABLE_FILENAME}\"" < "$PLUGINSDIR\ohmygame-processes.txt" >NUL & if errorlevel 1 exit /b 17 & exit /b 0`
+      # Each cmd `if` is parenthesized because an unparenthesized `if` treats
+      # the rest of the line, including later `&` commands, as its body.
+      nsExec::Exec `"$CmdPath" /D /C tasklist /FI "IMAGENAME eq ${APP_EXECUTABLE_FILENAME}" /FO CSV /NH > "$PLUGINSDIR\ohmygame-processes.txt" & (if errorlevel 1 exit /b 18) & "$SYSDIR\findstr.exe" /B /I /C:"\"${APP_EXECUTABLE_FILENAME}\"" < "$PLUGINSDIR\ohmygame-processes.txt" >NUL & (if errorlevel 1 exit /b 17) & exit /b 0`
       Pop $R0
       ${If} $R0 == 17
         Goto app_closed
