@@ -248,10 +248,26 @@ export async function exportProject(projectId: string): Promise<Blob> {
   return response.blob();
 }
 
+/**
+ * The name for a project file from earlier versions: its file name without
+ * `.zip` and the "(project)" suffix the story export adds in either language.
+ */
+export function archiveProjectName(fileName: string): string {
+  let name = fileName.replace(/\.zip$/i, "");
+  for (const lng of ["en", "zh-CN"]) {
+    const suffix = ` (${t("storySettings.projectFileSuffix", { lng })})`;
+    if (name.endsWith(suffix)) {
+      name = name.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return name.slice(0, 255);
+}
+
 /** Creates a new project from an archive, streaming the file to the runtime. */
 export async function importProject(file: File): Promise<ProjectState> {
   // Names a project file from earlier versions, which has no manifest.
-  const query = new URLSearchParams({ name: file.name.replace(/\.zip$/i, "").slice(0, 255) });
+  const query = new URLSearchParams({ name: archiveProjectName(file.name) });
   const response = await fetch(apiUrl(`/projects/import?${query}`), {
     method: "POST",
     headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE, ...runtimeHeaders() },

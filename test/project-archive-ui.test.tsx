@@ -21,6 +21,7 @@ vi.doMock(path.resolve("src/renderer/app-sidebar.tsx"), () => ({
   AppSidebar: () => null,
 }));
 const { ProjectCard } = await import("../src/renderer/project-card.js");
+const { archiveProjectName } = await import("../src/renderer/api.js");
 const { ProjectsPage } = await import("../src/renderer/projects.js");
 const { runtimeConnection, updateRuntimeConnection } =
   await import("../src/renderer/runtime-connection.js");
@@ -180,5 +181,14 @@ describe("project import", () => {
     expect(container.querySelector(".projects-notice")?.textContent).toBe(
       "Choose a project archive up to 10 GB",
     );
+  });
+});
+
+describe("archive project names", () => {
+  it("names a story project file after the story, in either language", () => {
+    expect(archiveProjectName("Night Train (project).zip")).toBe("Night Train");
+    expect(archiveProjectName("夜行列车 (项目).zip")).toBe("夜行列车");
+    expect(archiveProjectName("Night Train.ZIP")).toBe("Night Train");
+    expect(archiveProjectName("Notes (draft).zip")).toBe("Notes (draft)");
   });
 });
