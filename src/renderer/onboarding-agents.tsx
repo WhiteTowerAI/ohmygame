@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AgentModel } from "../shared/contracts.js";
-import { isAgentRuntimeId } from "../shared/agent-runtimes.js";
 import type {
   AgentRuntimeId,
   AgentRuntimeStatus,
@@ -8,15 +7,25 @@ import type {
 import {
   listAgentRuntimes,
   loginAgentRuntime,
-  MODELS_CHANGED_EVENT,
   notifyAgentModelsChanged,
   recheckAgentRuntime,
   updateAgentRuntime,
 } from "./api.js";
-import { Check, LoaderCircle, RefreshCw } from "./icons.js";
+import {
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  LoaderCircle,
+  Plug,
+  RefreshCw,
+  LogIn,
+} from "./icons.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { openModelAuthExternal } from "./use-model-provider-auth.js";
 import { t } from "./i18n.js";
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 
 /** CLI discovery stays independent of provider loading, and never enables an agent. */
@@ -24,28 +33,28 @@ export function OnboardingAgents({
   busy,
   models,
   selectedAgent,
+  choosing,
+  onExpand,
   onSelectAgent,
   loadingRuntimes,
   onBusyChange,
-  onConnected,
-  onUseBuiltIn,
   children,
 }: {
   busy: boolean;
   models: readonly AgentModel[];
   selectedAgent: "pi" | AgentRuntimeId;
+  choosing: boolean;
+  onExpand: () => void;
   onSelectAgent: (id: "pi" | AgentRuntimeId) => void;
   loadingRuntimes?: AgentRuntimeId[];
   onBusyChange: (busy: boolean) => void;
-  onConnected: (id: AgentRuntimeId) => Promise<void>;
-  onUseBuiltIn: () => Promise<void>;
   children: ReactNode;
 }) {
+  const generation = useReadyRuntimeGeneration();
   const [agents, setAgents] = useState<AgentRuntimeStatus[]>();
   const [error, setError] = useState<string>();
   const [loadError, setLoadError] = useState<string>();
   const [pending, setPending] = useState<AgentRuntimeId | "scan">();
-  const [more, setMore] = useState(false);
   const [login, setLogin] = useState<{
     id: AgentRuntimeId;
     url?: string;
@@ -54,6 +63,69 @@ export function OnboardingAgents({
   const [copied, setCopied] = useState(false);
   const loginId = useRef<AgentRuntimeId | undefined>(undefined);
   const revision = useRef(0);
+  const options = useRef<HTMLDivElement>(null);
+  const changeAgent = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (choosing)
+      options.current
+        ?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')
+        ?.focus({ preventScroll: true });
+    else changeAgent.current?.focus({ preventScroll: true });
+  }, [choosing]);
+  const [scrollable, setScrollable] = useState({ before: false, after: false });
+  useEffect(() => {
+    const element = options.current;
+    if (!element) return;
+    const update = () =>
+      setScrollable({
+        before: element.scrollLeft > 1,
+        after:
+          element.scrollLeft + element.clientWidth < element.scrollWidth - 1,
+      });
+    const wheel = (event: WheelEvent) => {
+      if (
+        event.ctrlKey ||
+        event.shiftKey ||
+        Math.abs(event.deltaX) >= Math.abs(event.deltaY)
+      )
+        return;
+      const unit =
+        event.deltaMode === 1
+          ? 16
+          : event.deltaMode === 2
+            ? element.clientWidth
+            : 1;
+      const next = Math.max(
+        0,
+        Math.min(
+          element.scrollWidth - element.clientWidth,
+          element.scrollLeft + event.deltaY * unit,
+        ),
+      );
+      if (next === element.scrollLeft) return;
+      event.preventDefault();
+      element.scrollLeft = next;
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    element.addEventListener("scroll", update);
+    element.addEventListener("wheel", wheel, { passive: false });
+    update();
+    return () => {
+      observer.disconnect();
+      element.removeEventListener("scroll", update);
+      element.removeEventListener("wheel", wheel);
+    };
+  }, [agents?.length, choosing]);
+
+  function scrollOptions(direction: number) {
+    options.current?.scrollBy({
+      left: direction * options.current.clientWidth,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "instant"
+        : "smooth",
+    });
+  }
   useEffect(() => {
     let active = true;
     const load = () => {
@@ -84,14 +156,12 @@ export function OnboardingAgents({
     };
     load();
     window.addEventListener("focus", load);
-    window.addEventListener(MODELS_CHANGED_EVENT, load);
     return () => {
       active = false;
       ++revision.current;
       window.removeEventListener("focus", load);
-      window.removeEventListener(MODELS_CHANGED_EVENT, load);
     };
-  }, []);
+  }, [generation]);
 
   useEffect(() => {
     if (!copied) return;
@@ -131,11 +201,8 @@ export function OnboardingAgents({
   }
 
   async function useAgent(agent: AgentRuntimeStatus) {
-    if (!agent.enabled)
+    if (!agent.enabled) {
       remember(await updateAgentRuntime(agent.id, { enabled: true }));
-    try {
-      await onConnected(agent.id);
-    } finally {
       notifyAgentModelsChanged();
     }
   }
@@ -145,255 +212,312 @@ export function OnboardingAgents({
     (diagnostic) => diagnostic.code === "not-installed",
   )?.command;
   const displayedError = error ?? loadError;
+  const selectedIcon =
+    selectedAgent === "pi"
+      ? { src: brandMark, tone: "brand" }
+      : PROVIDER_ICONS[selectedAgent];
+  const selectedName =
+    selectedAgent === "pi" ? "OhMyGame" : (selected?.name ?? selectedAgent);
 
   return (
     <section
       className="onboarding-agents"
       aria-label={t("onboarding.localAgents")}
     >
-      <div className="onboarding-section-heading">
-        <span>{t("onboarding.localAgents")}</span>
-        <div className="onboarding-agent-actions">
-          {agents?.some(
-            (agent) => agent.id === "opencode-cli" && !agent.enabled,
-          ) ? (
+      {choosing ? (
+        <>
+          <div className="onboarding-section-heading">
+            <span>{t("onboarding.localAgents")}</span>
+            <div className="onboarding-agent-actions">
+              {scrollable.before || scrollable.after ? (
+                <>
+                  <button
+                    type="button"
+                    className="onboarding-text-button onboarding-icon-button"
+                    aria-label={t("onboarding.previousAgents")}
+                    title={t("onboarding.previousAgents")}
+                    disabled={!scrollable.before}
+                    onClick={() => scrollOptions(-1)}
+                  >
+                    <ChevronLeft size={14} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="onboarding-text-button onboarding-icon-button"
+                    aria-label={t("onboarding.nextAgents")}
+                    title={t("onboarding.nextAgents")}
+                    disabled={!scrollable.after}
+                    onClick={() => scrollOptions(1)}
+                  >
+                    <ChevronRight size={14} aria-hidden="true" />
+                  </button>
+                </>
+              ) : null}
+              <button
+                type="button"
+                className="onboarding-text-button"
+                aria-label={t("agents.rescan")}
+                disabled={busy || Boolean(pending)}
+                onClick={() =>
+                  void run("scan", async () => {
+                    setAgents(await listAgentRuntimes(true));
+                    setLoadError(undefined);
+                    notifyAgentModelsChanged();
+                  })
+                }
+              >
+                <RefreshCw
+                  size={13}
+                  className={pending === "scan" ? "spin" : undefined}
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+          </div>
+          <div className="onboarding-agent-options" ref={options}>
             <button
               type="button"
-              className="onboarding-text-button"
-              aria-expanded={more}
-              onClick={() => setMore(!more)}
+              className="onboarding-agent-option"
+              aria-label="OhMyGame"
+              aria-pressed={selectedAgent === "pi"}
+              disabled={busy || Boolean(pending)}
+              onClick={() => {
+                setError(undefined);
+                onSelectAgent("pi");
+              }}
             >
-              {more ? t("onboarding.fewerAgents") : t("onboarding.moreAgents")}
+              <span className="onboarding-agent-title">
+                <span
+                  className="settings-provider-mark is-brand"
+                  aria-hidden="true"
+                >
+                  <img src={brandMark} alt="" />
+                </span>
+                <Check
+                  size={13}
+                  className="onboarding-agent-ready"
+                  aria-label={t("common.enabled")}
+                />
+              </span>
+              <span>OhMyGame</span>
+              <small>{t("onboarding.builtInHint")}</small>
             </button>
-          ) : null}
+            {(agents ?? []).map((agent) => {
+              const icon = PROVIDER_ICONS[agent.id];
+              const ready =
+                agent.installed &&
+                agent.enabled &&
+                models.some((model) => model.provider === agent.id);
+              const checking = loadingRuntimes?.includes(agent.id);
+              const problem = agent.diagnostics.some(
+                (diagnostic) =>
+                  diagnostic.code === "runtime-incompatible" ||
+                  diagnostic.code === "probe-failed" ||
+                  diagnostic.code === "models-unavailable",
+              );
+              const signedOut = agent.auth.status === "signed-out";
+              const statusLabel = !agent.installed
+                ? t("codingAgents.notInstalled")
+                : signedOut
+                  ? t("common.signIn")
+                  : problem
+                    ? t("codingAgents.recheck")
+                    : ready
+                      ? t("onboarding.agentReady")
+                      : t("onboarding.agentDetected");
+              const StatusIcon = !agent.installed
+                ? Download
+                : signedOut
+                  ? LogIn
+                  : problem
+                    ? RefreshCw
+                    : ready
+                      ? Check
+                      : Plug;
+              return (
+                <button
+                  type="button"
+                  className="onboarding-agent-option"
+                  key={agent.id}
+                  aria-label={agent.name}
+                  title={statusLabel}
+                  aria-pressed={selectedAgent === agent.id}
+                  disabled={busy || Boolean(pending) || Boolean(checking)}
+                  onClick={() => {
+                    setError(undefined);
+                    onSelectAgent(agent.id);
+                    if (!agent.installed) return;
+                    void run(agent.id, async () => {
+                      if (signedOut) {
+                        const started = await loginAgentRuntime(agent.id);
+                        loginId.current = agent.id;
+                        setCopied(false);
+                        setLogin({ id: agent.id, ...started });
+                        if (started.url)
+                          await openModelAuthExternal(started.url);
+                      } else if (problem) {
+                        await recheck(agent.id);
+                      } else {
+                        await useAgent(agent);
+                      }
+                    });
+                  }}
+                >
+                  <span className="onboarding-agent-title">
+                    {icon ? (
+                      <span
+                        className={`settings-provider-mark is-${icon.tone}`}
+                        aria-hidden="true"
+                      >
+                        <img src={icon.src} alt="" />
+                      </span>
+                    ) : null}
+                    {pending === agent.id || checking ? (
+                      <LoaderCircle
+                        size={13}
+                        className="spin"
+                        aria-label={t("common.loading")}
+                      />
+                    ) : (
+                      <StatusIcon
+                        size={13}
+                        className={ready ? "onboarding-agent-ready" : undefined}
+                        aria-label={statusLabel}
+                      />
+                    )}
+                  </span>
+                  <span>{agent.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <div className="onboarding-selected-agent">
+          <span>
+            {selectedIcon ? (
+              <span
+                className={`settings-provider-mark is-${selectedIcon.tone}`}
+                aria-hidden="true"
+              >
+                <img src={selectedIcon.src} alt="" />
+              </span>
+            ) : null}
+            {selectedName}
+          </span>
           <button
             type="button"
             className="onboarding-text-button"
-            aria-label={t("agents.rescan")}
+            aria-expanded={false}
+            ref={changeAgent}
             disabled={busy || Boolean(pending)}
-            onClick={() =>
-              void run("scan", async () => {
-                setAgents(await listAgentRuntimes(true));
-                setLoadError(undefined);
-                notifyAgentModelsChanged();
-              })
-            }
+            onClick={onExpand}
           >
-            <RefreshCw
-              size={13}
-              className={pending === "scan" ? "spin" : undefined}
-              aria-hidden="true"
-            />
+            {t("onboarding.changeAgent")}
+            <ChevronDown size={14} aria-hidden="true" />
           </button>
         </div>
-      </div>
-      <div className="onboarding-agent-options">
-        <button
-          type="button"
-          className="onboarding-agent-option"
-          aria-label="OhMyGame"
-          aria-pressed={selectedAgent === "pi"}
-          disabled={busy || Boolean(pending)}
-          onClick={() => {
-            setError(undefined);
-            onSelectAgent("pi");
-            if (models.some((model) => !isAgentRuntimeId(model.provider)))
-              void onUseBuiltIn();
-          }}
-        >
-          <span className="onboarding-agent-title">
-            <span
-              className="settings-provider-mark is-brand"
-              aria-hidden="true"
-            >
-              <img src={brandMark} alt="" />
-            </span>
-            <Check
-              size={13}
-              className="onboarding-agent-ready"
-              aria-label={t("common.enabled")}
-            />
-          </span>
-          <span>OhMyGame</span>
-          <small>Pi · {t("onboarding.builtInHint")}</small>
-        </button>
-        {(agents ?? [])
-          .filter(
-            (agent) => agent.id !== "opencode-cli" || more || agent.enabled,
-          )
-          .map((agent) => {
-            const icon = PROVIDER_ICONS[agent.id];
-            const ready =
-              agent.installed &&
-              agent.enabled &&
-              models.some((model) => model.provider === agent.id);
-            const checking = loadingRuntimes?.includes(agent.id);
-            const problem = agent.diagnostics.some(
-              (diagnostic) =>
-                diagnostic.code === "runtime-incompatible" ||
-                diagnostic.code === "probe-failed" ||
-                diagnostic.code === "models-unavailable",
-            );
-            const signedOut = agent.auth.status === "signed-out";
-            return (
-              <button
-                type="button"
-                className="onboarding-agent-option"
-                key={agent.id}
-                aria-label={agent.name}
-                aria-pressed={selectedAgent === agent.id}
-                disabled={busy || Boolean(pending) || Boolean(checking)}
-                onClick={() => {
-                  setError(undefined);
-                  onSelectAgent(agent.id);
-                  if (!agent.installed) return;
-                  void run(agent.id, async () => {
-                    if (signedOut) {
-                      const started = await loginAgentRuntime(agent.id);
-                      loginId.current = agent.id;
-                      setCopied(false);
-                      setLogin({ id: agent.id, ...started });
-                      if (started.url) await openModelAuthExternal(started.url);
-                    } else if (problem) {
-                      await recheck(agent.id);
-                    } else {
-                      await useAgent(agent);
-                    }
-                  });
-                }}
-              >
-                <span className="onboarding-agent-title">
-                  {icon ? (
-                    <span
-                      className={`settings-provider-mark is-${icon.tone}`}
-                      aria-hidden="true"
+      )}
+      {choosing ? (
+        <p className="onboarding-agent-hint onboarding-agents-hint">
+          {t("onboarding.agentsHint")}
+        </p>
+      ) : null}
+      {!choosing ? (
+        <div className="onboarding-agent-config">
+          {selectedAgent !== "pi" ? (
+            <>
+              <p className="onboarding-agent-hint">
+                {selected && !selected.installed
+                  ? t("onboarding.installAgentHint", { name: selected.name })
+                  : t("onboarding.cliHint")}
+              </p>
+              {selected && !selected.installed ? (
+                <div className="onboarding-agent-install-actions">
+                  {installUrl ? (
+                    <button
+                      type="button"
+                      className="onboarding-text-button"
+                      disabled={busy || Boolean(pending)}
+                      onClick={() =>
+                        void run(selected.id, () =>
+                          openModelAuthExternal(installUrl),
+                        )
+                      }
                     >
-                      <img src={icon.src} alt="" />
-                    </span>
+                      {t("codingAgents.installGuide")}
+                    </button>
                   ) : null}
-                  {pending === agent.id || checking ? (
-                    <LoaderCircle
-                      size={13}
-                      className="spin"
-                      aria-label={t("common.loading")}
-                    />
-                  ) : ready ? (
-                    <Check
-                      size={13}
-                      className="onboarding-agent-ready"
-                      aria-label={t("onboarding.agentReady")}
-                    />
-                  ) : null}
-                </span>
-                <span>{agent.name}</span>
-                <small>
-                  {!agent.installed
-                    ? t("codingAgents.notInstalled")
-                    : signedOut
-                      ? t("common.signIn")
-                      : problem
-                        ? t("codingAgents.recheck")
-                        : ready
-                          ? null
-                          : t("onboarding.agentDetected")}
-                </small>
-              </button>
-            );
-          })}
-      </div>
-      <div className="onboarding-agent-config">
-        {selectedAgent !== "pi" ? (
-          <>
-            <p className="onboarding-agent-hint">
-              {selected && !selected.installed
-                ? t("onboarding.installAgentHint", { name: selected.name })
-                : t("onboarding.cliHint")}
-            </p>
-            {selected && !selected.installed ? (
-              <div className="onboarding-agent-install-actions">
-                {installUrl ? (
                   <button
                     type="button"
                     className="onboarding-text-button"
                     disabled={busy || Boolean(pending)}
                     onClick={() =>
-                      void run(selected.id, () =>
-                        openModelAuthExternal(installUrl),
+                      void run(selected.id, () => recheck(selected.id))
+                    }
+                  >
+                    {t("codingAgents.recheck")}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+          {!agents && !displayedError ? (
+            <p className="onboarding-status" role="status">
+              <LoaderCircle className="spin" size={14} />
+              {t("codingAgents.checking")}
+            </p>
+          ) : null}
+          {login && login.id === selectedAgent ? (
+            <div className="onboarding-agent-login" role="status">
+              {login.url ? (
+                <button
+                  type="button"
+                  className="onboarding-text-button"
+                  onClick={() =>
+                    void run(login.id, () => openModelAuthExternal(login.url!))
+                  }
+                >
+                  {t("codingAgents.openAgain")}
+                </button>
+              ) : login.command ? (
+                <>
+                  <p>{t("codingAgents.loginCommand")}</p>
+                  <code>{login.command}</code>
+                  <button
+                    type="button"
+                    className="onboarding-text-button"
+                    onClick={() =>
+                      void navigator.clipboard.writeText(login.command!).then(
+                        () => setCopied(true),
+                        (cause) => setError(errorMessage(cause)),
                       )
                     }
                   >
-                    {t("codingAgents.installGuide")}
+                    {copied
+                      ? t("codingAgents.copied")
+                      : t("codingAgents.copyCommand")}
                   </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="onboarding-text-button"
-                  disabled={busy || Boolean(pending)}
-                  onClick={() =>
-                    void run(selected.id, () => recheck(selected.id))
-                  }
-                >
-                  {t("codingAgents.recheck")}
-                </button>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-        {!agents && !displayedError ? (
-          <p className="onboarding-status" role="status">
-            <LoaderCircle className="spin" size={14} />
-            {t("codingAgents.checking")}
-          </p>
-        ) : null}
-        {login && login.id === selectedAgent ? (
-          <div className="onboarding-agent-login" role="status">
-            {login.url ? (
+                </>
+              ) : null}
               <button
                 type="button"
                 className="onboarding-text-button"
-                onClick={() =>
-                  void run(login.id, () => openModelAuthExternal(login.url!))
-                }
+                disabled={busy || Boolean(pending)}
+                onClick={() => void run(login.id, () => recheck(login.id))}
               >
-                {t("codingAgents.openAgain")}
+                {t("codingAgents.recheck")}
               </button>
-            ) : login.command ? (
-              <>
-                <p>{t("codingAgents.loginCommand")}</p>
-                <code>{login.command}</code>
-                <button
-                  type="button"
-                  className="onboarding-text-button"
-                  onClick={() =>
-                    void navigator.clipboard.writeText(login.command!).then(
-                      () => setCopied(true),
-                      (cause) => setError(errorMessage(cause)),
-                    )
-                  }
-                >
-                  {copied
-                    ? t("codingAgents.copied")
-                    : t("codingAgents.copyCommand")}
-                </button>
-              </>
-            ) : null}
-            <button
-              type="button"
-              className="onboarding-text-button"
-              disabled={busy || Boolean(pending)}
-              onClick={() => void run(login.id, () => recheck(login.id))}
-            >
-              {t("codingAgents.recheck")}
-            </button>
-          </div>
-        ) : null}
-        {displayedError ? (
-          <p className="onboarding-error" role="alert">
-            {displayedError}
-          </p>
-        ) : null}
-        {children}
-      </div>
+            </div>
+          ) : null}
+          {children}
+        </div>
+      ) : null}
+      {displayedError ? (
+        <p className="onboarding-error" role="alert">
+          {displayedError}
+        </p>
+      ) : null}
     </section>
   );
 }

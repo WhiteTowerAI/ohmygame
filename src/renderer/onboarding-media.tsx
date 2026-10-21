@@ -5,12 +5,12 @@ import type {
 } from "../shared/contracts.js";
 import { HYPER3D_CONNECTION_ID } from "../shared/cloud-models.js";
 import { listProviders, MODELS_CHANGED_EVENT } from "./api.js";
-import { LoaderCircle, Plus, Server } from "./icons.js";
-import { GlobalMediaModelDefaults } from "./media-model-defaults.js";
+import { Check, LoaderCircle, Plus, Server, Settings } from "./icons.js";
 import { ProviderAuthView } from "./models-settings.js";
 import { CustomProviderForm } from "./custom-provider-dialog.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { t } from "./i18n.js";
+import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 
 const CAPABILITIES = ["image", "video", "3d", "audio"] as const;
 type MediaCapability = (typeof CAPABILITIES)[number];
@@ -23,6 +23,7 @@ export function OnboardingMedia({
   busy: boolean;
   onSavingChange: (saving: boolean) => void;
 }) {
+  const generation = useReadyRuntimeGeneration();
   const [capability, setCapability] = useState<MediaCapability>("image");
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,8 @@ export function OnboardingMedia({
   const [adding, setAdding] = useState(false);
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
+    if (detail || adding) return;
+    setLoading(true);
     let active = true;
     let revision = 0;
     const load = () => {
@@ -56,11 +59,10 @@ export function OnboardingMedia({
       window.removeEventListener(MODELS_CHANGED_EVENT, load);
       window.removeEventListener("focus", load);
     };
-  }, [refresh]);
+  }, [detail, adding, refresh, generation]);
 
   const back = () => {
     setDetail(undefined);
-    setRefresh((value) => value + 1);
   };
   if (adding)
     return (
@@ -69,10 +71,7 @@ export function OnboardingMedia({
         <CustomProviderForm
           onClose={() => setAdding(false)}
           onSavingChange={onSavingChange}
-          onSaved={() => {
-            setAdding(false);
-            setRefresh((value) => value + 1);
-          }}
+          onSaved={() => setAdding(false)}
         />
       </div>
     );
@@ -120,16 +119,24 @@ export function OnboardingMedia({
         </span>
         <div>
           {connected(provider) ? (
-            <small className="onboarding-media-connected">
-              {t("providers.status.connected")}
-            </small>
+            <span
+              className="onboarding-connected"
+              role="img"
+              aria-label={t("providers.status.connected")}
+              title={t("providers.status.connected")}
+            >
+              <Check size={15} aria-hidden="true" />
+            </span>
           ) : null}
           <button
             type="button"
-            className="onboarding-text-button"
+            className="onboarding-text-button onboarding-icon-button"
+            aria-label={t("onboarding.configure")}
+            title={t("onboarding.configure")}
+            disabled={busy}
             onClick={() => setDetail(provider)}
           >
-            {t("onboarding.configure")}
+            <Settings size={16} aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -176,12 +183,6 @@ export function OnboardingMedia({
         </p>
       ) : (
         <>
-          {available.some(connected) && capability !== "audio" ? (
-            <GlobalMediaModelDefaults
-              key={`${capability}:${refresh}`}
-              capability={capability}
-            />
-          ) : null}
           <div className="onboarding-provider-list">
             {available.map(row)}
             {!available.length && !error ? (

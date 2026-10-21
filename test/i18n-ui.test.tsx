@@ -111,12 +111,18 @@ it("translates all three onboarding steps and preserves provider names", async (
   root = createRoot(host);
   const props = { onStepChange: vi.fn(), onFinish: vi.fn() };
   await act(async () => root!.render(<Onboarding step="welcome" {...props} />));
-  expect(host.querySelector("h1")?.textContent).toBe("你的专属游戏工作室。");
+  expect(host.querySelector("h1")?.textContent).toBe("你的专属游戏工作室");
   expect(host.querySelector("footer")?.textContent).toBe("下一步");
   await act(async () => root!.render(<Onboarding step="connect" {...props} />));
   expect(host.querySelector("h1")?.textContent).toBe("连接你的 AI。");
+  expect(host.querySelector(".onboarding-section-heading")?.textContent).toBe("连接智能体");
+  expect(host.querySelector(".onboarding-agents-hint")?.textContent).toBe("可连接多个智能体，随时切换使用。");
+  expect(host.querySelector(".onboarding-picker")).toBeNull();
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="OhMyGame"]')!.click());
+  expect(host.querySelector(".onboarding-selected-agent button")?.textContent).toBe("切换");
+  expect(host.querySelector(".onboarding-agents-hint")).toBeNull();
   expect(host.querySelector('[aria-label="DeepSeek"]')?.textContent).toBe(
-    "DeepSeek已连接",
+    "DeepSeek",
   );
   expect(host.querySelector("footer")?.textContent).toBe("下一步跳过并开始");
   await act(async () =>
@@ -136,6 +142,11 @@ it("translates all three onboarding steps and preserves provider names", async (
       )!
       .click(),
   );
+  expect(
+    host
+      .querySelector('[aria-label="DeepSeek"] button')
+      ?.getAttribute("aria-label"),
+  ).toBe("已连接");
   await act(async () => root!.render(<Onboarding step="media" {...props} />));
   expect(host.querySelector("h1")?.textContent).toBe("添加创作工具。");
   expect(host.querySelector("footer")?.textContent).toBe("开始创作");
