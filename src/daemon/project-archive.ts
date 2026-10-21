@@ -67,6 +67,7 @@ const EXTRACTION_ERRORS: Record<ArchiveExtractionFailure, string> = {
   "too-large": "The project archive is too large.",
   "invalid-path": "The project archive contains an invalid path.",
   "symbolic-link": "The project archive contains a symbolic link.",
+  "duplicate-path": "The project archive contains the same path twice.",
 };
 
 export interface ProjectArchiveLimits {

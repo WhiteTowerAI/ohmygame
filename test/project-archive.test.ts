@@ -430,6 +430,34 @@ describe("project archive import", () => {
   });
 
   it.each([
+    ["the same file twice", ["workspace/index.html", "workspace/index.html"]],
+    ["a file where a folder is", ["workspace/src", "workspace/src/main.js"]],
+  ])("rejects an archive with %s", async (_case, names) => {
+    const dataDirectory = await temporaryDirectory();
+    const projects = new ProjectManager(dataDirectory);
+    const zip = new ZipFile();
+    zip.addBuffer(
+      Buffer.from(manifest({ name: "Game", type: "web-game" })),
+      "ohmygame-project.json",
+    );
+    for (const name of names) zip.addBuffer(Buffer.from("x"), name);
+    const archive = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      zip.outputStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      zip.outputStream.once("error", reject);
+      zip.outputStream.once("end", () => resolve(Buffer.concat(chunks)));
+      zip.end();
+    });
+    await expect(importProjectArchive(projects, archive)).rejects.toMatchObject(
+      {
+        message: "The project archive contains the same path twice.",
+        statusCode: 400,
+      },
+    );
+    await expectNothingImported(projects, dataDirectory);
+  });
+
+  it.each([
     ["too many entries", { maxBytes: 1024, maxEntries: 2 }],
     ["too many extracted bytes", { maxBytes: 200, maxEntries: 10 }],
     ["too large an upload", { maxBytes: 100, maxEntries: 10 }],

@@ -17,7 +17,16 @@ export interface ArchiveExtractionOptions {
 }
 
 export type ArchiveExtractionFailure =
-  "invalid-zip" | "unreadable" | "too-large" | "invalid-path" | "symbolic-link";
+  | "invalid-zip"
+  | "unreadable"
+  | "too-large"
+  | "invalid-path"
+  | "symbolic-link"
+  | "duplicate-path";
+
+// An entry whose path another entry already took, also by case on
+// case-insensitive file systems, or that names a folder as a file.
+const COLLISIONS = new Set(["EEXIST", "ENOTDIR", "EISDIR"]);
 
 /**
  * Extracts a ZIP archive into an empty destination. Paths with backslashes,
@@ -47,18 +56,25 @@ export async function extractArchive(
       }
       const relative = archiveEntryPath(entry, options);
       if (options.include && !options.include(relative, entry)) continue;
-      if (relative.endsWith("/")) {
-        await mkdir(path.join(destination, relative), { recursive: true });
-        continue;
+      try {
+        if (relative.endsWith("/")) {
+          await mkdir(path.join(destination, relative), { recursive: true });
+          continue;
+        }
+        const target = path.join(destination, relative);
+        await mkdir(path.dirname(target), { recursive: true });
+        await pipeline(
+          await openEntry(zip, entry, options),
+          createWriteStream(target, { flags: "wx" }),
+        );
+        if ((entry.externalFileAttributes >>> 16) & 0o111)
+          await chmod(target, 0o755);
+      } catch (cause) {
+        if (COLLISIONS.has((cause as NodeJS.ErrnoException).code ?? "")) {
+          throw options.error("duplicate-path");
+        }
+        throw cause;
       }
-      const target = path.join(destination, relative);
-      await mkdir(path.dirname(target), { recursive: true });
-      await pipeline(
-        await openEntry(zip, entry, options),
-        createWriteStream(target, { flags: "wx" }),
-      );
-      if ((entry.externalFileAttributes >>> 16) & 0o111)
-        await chmod(target, 0o755);
     }
   } finally {
     zip.close();

@@ -137,6 +137,7 @@ const PLUGIN_ARCHIVE_ERRORS: Record<ArchiveExtractionFailure, string> = {
   "too-large": "Plugin archive is too large",
   "invalid-path": "Plugin archive contains an invalid path",
   "symbolic-link": "Plugin archive contains a symbolic link",
+  "duplicate-path": "Plugin archive contains the same path twice",
 };
 
 export function extractPluginArchive(archivePath: string, destination: string): Promise<void> {
