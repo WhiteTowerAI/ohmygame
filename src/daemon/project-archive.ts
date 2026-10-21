@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { mkdir, readdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -18,6 +18,7 @@ import {
   type ProjectArchiveManifest,
   type ProjectArchiveSettings,
 } from "../shared/project-archive.js";
+import { defaultProjectName } from "../shared/project-names.js";
 import { isProjectType } from "../shared/project-runtime.js";
 import {
   extractArchive,
@@ -244,11 +245,16 @@ async function archiveFiles(root: string, relative = ""): Promise<string[]> {
 export async function importProjectArchive(
   projects: ProjectManager,
   upload: Buffer | AsyncIterable<Buffer | string>,
-  limits: ProjectArchiveLimits = {
+  options: {
+    /** Names a project from an archive without a manifest, usually after its file. */
+    name?: string;
+    limits?: ProjectArchiveLimits;
+  } = {},
+): Promise<ProjectState> {
+  const limits = options.limits ?? {
     maxBytes: PROJECT_ARCHIVE_MAX_BYTES,
     maxEntries: PROJECT_ARCHIVE_MAX_ENTRIES,
-  },
-): Promise<ProjectState> {
+  };
   const staging = await projects.createImportStaging();
   let project: ProjectState;
   let cover: { contents: Buffer; mode: ProjectCoverMode } | undefined;
@@ -263,9 +269,10 @@ export async function importProjectArchive(
         if (relative === PROJECT_ARCHIVE_MANIFEST) return true;
         if (relative === PROJECT_ARCHIVE_COVER) return true;
         const [top, ...rest] = relative.split("/");
-        return (
-          top === PROJECT_ARCHIVE_WORKSPACE && !skippedOnImport(rest.join("/"))
-        );
+        if (top === PROJECT_ARCHIVE_WORKSPACE)
+          return !skippedOnImport(rest.join("/"));
+        // Kept for an archive without a manifest, whose root is the workspace.
+        return !skippedOnImport(relative);
       },
       error: (reason) =>
         new ProjectArchiveError(
@@ -274,13 +281,12 @@ export async function importProjectArchive(
         ),
     });
     await rm(archivePath);
-    const manifest = await readManifest(root);
-    if (!manifest) {
-      throw new ProjectArchiveError(
-        "The file is not an OhMyGame project archive.",
-      );
-    }
-    const workspace = path.join(root, PROJECT_ARCHIVE_WORKSPACE);
+    const manifest =
+      (await readManifest(root)) ??
+      (await legacyStoryManifest(root, options.name));
+    const workspace = manifest.legacy
+      ? root
+      : path.join(root, PROJECT_ARCHIVE_WORKSPACE);
     await mkdir(workspace, { recursive: true });
     if (manifest.cover) {
       const contents = await readFile(
@@ -308,9 +314,35 @@ export async function importProjectArchive(
   }
 }
 
+/**
+ * Earlier versions export only Interactive Stories, as their bare workspace
+ * with graph.json at the root of the archive.
+ */
+async function legacyStoryManifest(
+  root: string,
+  name: string | undefined,
+): Promise<ProjectArchiveManifest & { legacy: true }> {
+  try {
+    if (!(await stat(path.join(root, GRAPH_FILE))).isFile()) throw new Error();
+  } catch {
+    throw new ProjectArchiveError(
+      "The file is not an OhMyGame project archive.",
+    );
+  }
+  return {
+    format: PROJECT_ARCHIVE_FORMAT,
+    version: PROJECT_ARCHIVE_VERSION,
+    project: {
+      name: name?.trim() || defaultProjectName("interactive-story"),
+      type: "interactive-story",
+    },
+    legacy: true,
+  };
+}
+
 async function readManifest(
   root: string,
-): Promise<ProjectArchiveManifest | undefined> {
+): Promise<(ProjectArchiveManifest & { legacy?: false }) | undefined> {
   let text: string;
   try {
     text = await readFile(path.join(root, PROJECT_ARCHIVE_MANIFEST), "utf8");

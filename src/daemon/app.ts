@@ -1817,10 +1817,12 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
-  app.post<{ Body: AsyncIterable<Buffer | string> | undefined }>("/projects/import", async (request, reply) => {
+  app.post<{ Querystring: { name?: string }; Body: AsyncIterable<Buffer | string> | undefined }>("/projects/import", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { name: { type: "string", maxLength: 255 } } } },
+  }, async (request, reply) => {
     if (!request.body) return reply.code(400).send({ error: "Choose a project archive to import." });
     try {
-      return reply.code(201).send(await importProjectArchive(projects, request.body));
+      return reply.code(201).send(await importProjectArchive(projects, request.body, { name: request.query.name }));
     } catch (cause) {
       if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
       if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });

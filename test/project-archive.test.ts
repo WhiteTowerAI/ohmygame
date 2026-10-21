@@ -16,6 +16,7 @@ import { ZipFile } from "yazl";
 import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
+import { exportPlayableProject } from "../src/daemon/playable-project-export.js";
 import {
   exportProjectArchive,
   importProjectArchive,
@@ -431,7 +432,7 @@ describe("project archive import", () => {
       "workspace/main.js": "start()",
     });
     await expect(
-      importProjectArchive(projects, archive, limits),
+      importProjectArchive(projects, archive, { limits }),
     ).rejects.toMatchObject({
       message: "The project archive is too large.",
       statusCode: 413,
@@ -523,6 +524,55 @@ describe("project archive import", () => {
     await writeFile(path.join(staging, "upload.zip"), "partial");
     await new ProjectManager(dataDirectory).load();
     expect(await readdir(path.join(dataDirectory, "projects"))).toEqual([]);
+  });
+
+  it("imports an Interactive Story project file from earlier versions", async () => {
+    const library = new AssetLibrary(await temporaryDirectory());
+    await library.load();
+    const workspace = await temporaryDirectory();
+    await createNodeCodebase(
+      workspace,
+      createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }),
+    );
+    await writeFile(path.join(workspace, "cover.webp"), "story file");
+    const app = createApp({ dataDirectory: await temporaryDirectory() });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/import?name=${encodeURIComponent("Night Train")}`,
+      headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE },
+      payload: await exportPlayableProject(workspace, library),
+    });
+
+    expect(response.statusCode).toBe(201);
+    const project = response.json();
+    expect(project).toMatchObject({
+      name: "Night Train",
+      type: "interactive-story",
+    });
+    expect(
+      await readFile(path.join(project.workspacePath, "graph.json"), "utf8"),
+    ).toBe(await readFile(path.join(workspace, "graph.json"), "utf8"));
+    expect(
+      await readFile(path.join(project.workspacePath, "cover.webp"), "utf8"),
+    ).toBe("story file");
+    expect(await listFiles(project.workspacePath)).toContain("AGENTS.md");
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: `/projects/${project.id}/cover/state`,
+        })
+      ).json(),
+    ).toEqual({ mode: "auto" });
+
+    const unnamed = await importProjectArchive(
+      new ProjectManager(await temporaryDirectory()),
+      await zipArchive({ "graph.json": "{}", ".git/config": "[core]" }),
+    );
+    expect(unnamed.name).toBe("Untitled story");
+    expect(await listFiles(unnamed.workspacePath)).not.toContain(".git/config");
   });
 
   it("answers import errors with their status through the API", async () => {
