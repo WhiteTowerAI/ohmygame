@@ -39,6 +39,7 @@ vi.doMock(path.resolve("src/desktop/daemon-process.ts"), () => ({
 vi.doMock(path.resolve("src/desktop/log-file.ts"), () => ({
   RotatingLogFile: class { line() {} write() {} flush() {} close() {} stream() { return { write() {}, flush() {} }; } },
 }));
+vi.doMock(path.resolve("src/desktop/console-log.ts"), () => ({ recordConsole: vi.fn() }));
 vi.doMock(path.resolve("src/desktop/external-mcp-install.ts"), () => ({ installExternalMcpLauncher: vi.fn(async () => undefined), markExternalMcpApp: vi.fn(async () => async () => {}) }));
 vi.doMock(path.resolve("src/desktop/oauth.ts"), () => ({
   isOAuthAuthorizationUrl: vi.fn(), OAuthCallbackFlow: class { cancel = async () => {}; },

@@ -17,6 +17,7 @@ import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
 import { createLogRedactor } from "./log-redaction.js";
+import { recordConsole } from "./console-log.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
@@ -40,7 +41,11 @@ const developmentRendererUrl = process.env.OHMYGAME_RENDERER_URL ?? "http://127.
 const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-renderer");
 let daemon: DaemonSupervisor | undefined;
 const logDirectory = app.getPath("logs");
-const daemonLog = new RotatingLogFile({ directory: logDirectory, name: "daemon", redact: createLogRedactor() });
+const redactLog = createLogRedactor();
+const mainLog = new RotatingLogFile({ directory: logDirectory, name: "main", redact: redactLog });
+const daemonLog = new RotatingLogFile({ directory: logDirectory, name: "daemon", redact: redactLog });
+recordConsole(mainLog);
+mainLog.line(`OhMyGame ${app.getVersion()} starting on ${process.platform} ${process.arch}`);
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 /** A Node that fails to start never reports back; its window gives up after this. */
@@ -88,6 +93,7 @@ async function stopServices(): Promise<void> {
   await Promise.all([daemon?.stop(), oauth.cancel()]);
   await clearExternalMcpApp?.().catch(() => undefined);
   daemonLog.close();
+  mainLog.close();
 }
 
 function prepareShutdown(forUpdate = false): Promise<void> {
