@@ -805,6 +805,8 @@ const en = {
     editedHours: "Edited {{count}}h ago",
     editedDays: "Edited {{count}}d ago",
     editedOn: "Edited {{date}}",
+    export: "Export project",
+    exporting: "Exporting…",
   },
   conversations: {
     history: "Conversation history",

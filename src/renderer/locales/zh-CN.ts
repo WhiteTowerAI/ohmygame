@@ -787,6 +787,8 @@ const zhCN: typeof en = {
     editedHours: "{{count}} 小时前编辑",
     editedDays: "{{count}} 天前编辑",
     editedOn: "{{date}} 编辑",
+    export: "导出项目",
+    exporting: "正在导出…",
   },
   conversations: {
     history: "对话记录",

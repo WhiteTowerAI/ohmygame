@@ -237,6 +237,16 @@ export async function duplicateProject(projectId: string): Promise<ProjectState>
   return request(`/projects/${projectId}/duplicate`, { method: "POST" });
 }
 
+/** Downloads the project as an archive that imports as a new project. */
+export async function exportProject(projectId: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/export`), {
+    method: "POST",
+    headers: runtimeHeaders(),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
 export async function deleteProject(projectId: string): Promise<void> {
   await request(`/projects/${projectId}`, { method: "DELETE" });
   composerDrafts.deleteProject(projectId);
