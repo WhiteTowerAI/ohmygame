@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import sharp from "sharp";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -27,6 +27,29 @@ afterEach(async () => {
 });
 
 describe("Web output", () => {
+  it("accepts a 99 MiB media ZIP and rejects a ZIP over 100 MiB", async () => {
+    const workspace = await temporary("ohmygame-publish-limit-");
+    await writeFile(path.join(workspace, "index.html"), "Game");
+    const video = path.join(workspace, "clip.webm");
+    await writeFile(video, "");
+    const builder = new ArtifactBuilder();
+    const game = { ...project(workspace), type: "web-game" as const };
+    try {
+      // WebM is stored in the ZIP, so zero-filled fixtures exercise real ZIP
+      // limits without allocating a second large random buffer in the test.
+      await truncate(video, 99 * 1024 * 1024);
+      await builder.create(game).then((archive) => {
+        expect(archive.length).toBeGreaterThan(99 * 1024 * 1024);
+        expect(archive.length).toBeLessThanOrEqual(100 * 1024 * 1024);
+      });
+      await truncate(video, 101 * 1024 * 1024);
+      await expect(builder.create(game)).rejects.toMatchObject({
+        statusCode: 413,
+        message: "Publish artifact exceeds 100 MB",
+      });
+    } finally { await builder.close(); }
+  }, 60_000);
+
   it("accepts an artifact larger than 25 MiB and still enforces explicit archive limits", async () => {
     const workspace = await temporary("ohmygame-large-publish-");
     await writeFile(path.join(workspace, "index.html"), "Game");

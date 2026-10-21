@@ -450,7 +450,7 @@ when an update is published; publication details show that snapshot.
 
 ## Publishing
 
-Published ZIPs may be up to 500 MiB. The matching Cloud API accepts up to
+Published ZIPs may be up to 100 MiB. The matching Cloud API accepts up to
 200 MiB per file, 1 GiB after extraction, and 2,000 entries. Deploy the Cloud
 limit update before releasing the client; older services still reject larger
 uploads. Deployment uploads have a ten-minute timeout per attempt.
@@ -470,7 +470,8 @@ little reduction for already compressed images, audio, or video.
 A workspace is publishable when it has a non-empty `scripts.build` that
 produces a static `index.html` under `dist`, `build`, or `out`, or has a root
 `index.html`. Only that static output is uploaded; hidden files, dependencies,
-and symbolic links are skipped, and binary assets are preserved byte for byte.
+and symbolic links are skipped. Binary assets retain their original bytes except
+for the Interactive Story publish-copy optimizations described above.
 The workspace, Pi sessions, conversations, and credentials are never sent.
 
 Each publish creates an immutable Deployment of the same Game, so the play link
