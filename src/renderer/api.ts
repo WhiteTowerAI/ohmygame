@@ -165,6 +165,10 @@ declare global {
       openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
       /** Called in the main window when a Playtest asks to open a Node. */
       onOpenPlayableNode?: (listener: (projectId: string, nodeId: string) => void) => () => void;
+      /** Called from a Playtest window that cannot play: brings the project's editor forward. */
+      showPlaytestEditor?: (projectId: string) => Promise<void>;
+      /** Called in the main window when a Playtest asks for its project's editor. */
+      onShowPlaytestEditor?: (listener: (projectId: string) => void) => () => void;
       agentPlaytests?: {
         state: () => Promise<PlaytestWatchState>;
         setVisible: (visible: boolean) => Promise<PlaytestWatchState>;

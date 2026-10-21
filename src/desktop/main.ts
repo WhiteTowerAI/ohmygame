@@ -420,6 +420,15 @@ handle("ohmygame:open-playable-node", async (event, projectId: unknown, nodeId: 
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.focus();
 });
+handle("ohmygame:show-playtest-editor", async (event, projectId: unknown) => {
+  if (!validRouteId(projectId)) throw new Error("Invalid Playtest editor target");
+  const playtest = await playtestWindows.get(projectId);
+  if (!playtest || playtest.isDestroyed() || event.sender !== playtest.webContents) throw new Error("Invalid Playtest editor source");
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("ohmygame:show-playtest-editor", projectId);
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+});
 handle("ohmygame:update-state", () => updater?.state() ?? null);
 handle("ohmygame:check-for-update", () => (updateChecks ? updateChecks.manual() : updater?.check()));
 handle("ohmygame:download-update", () => updater?.download());

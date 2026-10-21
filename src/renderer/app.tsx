@@ -44,6 +44,12 @@ export function App() {
     return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
   }, [serviceGeneration]);
 
+  // A Playtest window that cannot play asks for its project's editor.
+  const routeProjectId = route.page === "project" ? route.projectId : undefined;
+  useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((projectId) => {
+    if (projectId !== routeProjectId) openProject(projectId);
+  }), [routeProjectId]);
+
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
       onStepChange={(step) => onboarding.save({ status: "pending", step })}

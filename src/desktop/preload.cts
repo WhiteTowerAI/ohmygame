@@ -102,6 +102,13 @@ if (process.isMainFrame) {
       ipcRenderer.on("ohmygame:open-playable-node", callback);
       return () => ipcRenderer.removeListener("ohmygame:open-playable-node", callback);
     },
+    showPlaytestEditor: (projectId: string) =>
+      ipcRenderer.invoke("ohmygame:show-playtest-editor", projectId) as Promise<void>,
+    onShowPlaytestEditor: (listener: (projectId: string) => void) => {
+      const callback = (_event: Electron.IpcRendererEvent, projectId: string) => listener(projectId);
+      ipcRenderer.on("ohmygame:show-playtest-editor", callback);
+      return () => ipcRenderer.removeListener("ohmygame:show-playtest-editor", callback);
+    },
     agentPlaytests: Object.freeze({
       state: () => ipcRenderer.invoke("ohmygame:agent-playtest-state") as Promise<PlaytestWatchState>,
       setVisible: (visible: boolean) => ipcRenderer.invoke("ohmygame:set-agent-playtest-visible", visible) as Promise<PlaytestWatchState>,

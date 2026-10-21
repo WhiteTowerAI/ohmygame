@@ -221,6 +221,11 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     openNode(nodeId);
   }), [projectId]);
 
+  // A Playtest window that cannot play asks for the Story map.
+  useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((targetProjectId) => {
+    if (targetProjectId === projectId) setWorkspaceView("canvas");
+  }), [projectId]);
+
   // Whether the open Scene has a background the editor can set, and whether it shows anything yet.
   const [backdrop, setBackdrop] = useState<"missing" | "set">();
   const openedHtml = openedNode?.source.html;
