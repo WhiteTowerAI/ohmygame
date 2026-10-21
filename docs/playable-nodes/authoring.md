@@ -393,7 +393,8 @@ the Exits they took, and the errors, ready to send.
 A story with no Scenes has nothing to play: Playtest stays closed and the
 editor says to add a Scene first. When the Playtest window cannot start the
 story, it says why in place of the game and offers the way forward for that
-case: **Open editor**, which brings the editor forward on the Story map;
+case: **Open editor**, which brings the editor forward on the Story map
+(**Close window** in a browser, which returns to the editor's tab);
 **Play from the start** when the Scene chosen with **Play from here** was
 deleted; **Ask AI to fix** when the story's files keep it from starting; and
 **Try again** when loading failed or the game stopped while starting. Clicking
