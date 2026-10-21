@@ -26,7 +26,14 @@ vi.mock("electron", () => ({
         if (event === "will-navigate") this.onNavigate = handler;
       }),
       setAudioMuted: vi.fn(),
+      mainFrame: {},
+      ipc: {
+        on: vi.fn((channel: string, handler: (event: { senderFrame: unknown; returnValue?: unknown }) => void) => {
+          this.ipcHandlers.set(channel, handler);
+        }),
+      },
     };
+    readonly ipcHandlers = new Map<string, (event: { senderFrame: unknown; returnValue?: unknown }) => void>();
     readonly once = vi.fn();
     readonly loadURL = vi.fn(async () => {});
     readonly setAspectRatio = vi.fn();
@@ -138,6 +145,38 @@ describe("desktop window", () => {
     const rejected = { preventDefault: vi.fn() };
     window.onNavigate?.(rejected, "https://untrusted.example/");
     expect(rejected.preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it("gives the daemon address and token to the window's own page, not its command line", async () => {
+    let handlerBeforeLoad = false;
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "secret-token" },
+      preloadPath: "/tmp/preload.cjs",
+      rendererUrl: "http://127.0.0.1:43120",
+      beforeLoad: (created) => {
+        handlerBeforeLoad = (created as unknown as { ipcHandlers: Map<string, unknown> }).ipcHandlers.has("ohmygame:desktop-runtime");
+      },
+    });
+    const window = electron.windows[0] as {
+      options: { webPreferences: Record<string, unknown> };
+      webContents: { mainFrame: unknown };
+      ipcHandlers: Map<string, (event: { senderFrame: unknown; returnValue?: unknown }) => void>;
+    };
+
+    expect(JSON.stringify(window.options)).not.toContain("secret-token");
+    expect(window.options.webPreferences.additionalArguments).toBeUndefined();
+    expect(handlerBeforeLoad).toBe(true);
+    const answer = window.ipcHandlers.get("ohmygame:desktop-runtime")!;
+
+    const page = { senderFrame: window.webContents.mainFrame, returnValue: undefined as unknown };
+    answer(page);
+    expect(page.returnValue).toEqual({ url: "http://127.0.0.1:43110", token: "secret-token" });
+
+    for (const senderFrame of [{}, null]) {
+      const embedded = { senderFrame, returnValue: undefined as unknown };
+      answer(embedded);
+      expect(embedded.returnValue).toBeNull();
+    }
   });
 
   it("mutes a hidden window, such as a thumbnail capture", async () => {
