@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, open, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { clipboardFilePaths, loadClipboardFiles, parseFileUrls, parseWindowsFileDrop } from "../src/desktop/file-clipboard.js";
 import { MAX_ATTACHMENT_BYTES } from "../src/shared/file-transfer.js";
 
@@ -10,7 +11,8 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((directory) 
 
 describe("native file clipboard", () => {
   it("reads file URLs while excluding other URLs and file-manager commands", () => {
-    expect(parseFileUrls("copy\r\nfile:///tmp/game%20rules.md\r\n# comment\nhttps://example.com/file\nfile:///tmp/art.png\0")).toEqual(["/tmp/game rules.md", "/tmp/art.png"]);
+    const rules = path.resolve("/tmp/game rules.md"), art = path.resolve("/tmp/art.png");
+    expect(parseFileUrls(`copy\r\n${pathToFileURL(rules).href}\r\n# comment\nhttps://example.com/file\n${pathToFileURL(art).href}\0`)).toEqual([rules, art]);
   });
 
   it("decodes Windows Unicode DROPFILES and rejects malformed offsets", () => {

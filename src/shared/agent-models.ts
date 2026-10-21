@@ -23,7 +23,7 @@ export function preferredAgentModel<T extends AgentModelRef>(
 const RECOMMENDED_AGENT_MODEL_IDS: Record<string, string> = {
   anthropic: "claude-opus-4-8",
   deepseek: "deepseek-v4-pro",
-  google: "gemini-3.1-pro-preview",
+  google: "gemini-4-argon",
   openai: "gpt-5.5",
   "openai-codex": "gpt-6.1-sol",
   openrouter: "moonshotai/kimi-k2.6",

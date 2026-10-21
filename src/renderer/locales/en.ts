@@ -1,5 +1,14 @@
 // English is the source language. Add every UI string here first.
 const en = {
+  codexImages: {
+    description: "Local Codex CLI · image generation",
+    hint: "Uses your saved Codex login and account usage limits. Works in the canvas and with any chat agent, even when Codex is turned off in Agents. The terminal does not need to stay open.",
+    managedOptions: "Codex manages the image model and output dimensions. Describe the desired framing in your prompt. Multiple reference images are supported.",
+    enable: "Enable Codex CLI image generation",
+    ready: "Codex image generation is connected",
+    unavailable: "Codex image generation needs attention",
+    checkAgain: "Check again",
+  },
   common: {
     openName: "Open {{name}}",
     tryAgain: "Try again",
@@ -108,6 +117,7 @@ const en = {
       webSearch: "Web Search",
       network: "Network",
       plugins: "Plugins",
+      mcpServer: "MCP Server",
       about: "About",
       label: "Settings sections",
       heading: "SETTINGS",
@@ -1201,6 +1211,21 @@ const en = {
     providersPointer: "Claude Code, Codex and OpenCode are set up in Agents.",
     open: "Open Agents",
   },
+  externalAgents: {
+    title: "MCP Server",
+    clients: "Connect agents",
+    loading: "Checking other agents…",
+    enable: "Allow other agents to use OhMyGame",
+    description: "Claude Code, Codex and other agents can generate media, use the canvas and playtest your games.",
+    desktopOnly: "Connect agents from the OhMyGame desktop app.",
+    connected: "Connected",
+    notConnected: "Not connected",
+    connect: "Connect",
+    disconnect: "Disconnect",
+    otherClients: "DeepSeek Harness and other MCP clients",
+    otherClientsHint: "Add a stdio MCP server named {{name}} that runs this command:",
+    environment: "Environment: {{value}}",
+  },
   agentUsage: {
     title: "Usage limits",
     window: "Limit",
@@ -1465,6 +1490,8 @@ const en = {
     attachFilesHint: "Add files to this message",
     design: "Reference game design",
     designHint: "Use the saved design document",
+    publish: "Publish game",
+    publishHint: "Publish your game and get a share link",
     trigger: "Add context or attach files",
     label: "Add context",
     noMatch: "No matching items",

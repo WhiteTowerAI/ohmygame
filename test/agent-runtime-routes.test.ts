@@ -24,6 +24,8 @@ afterEach(async () => {
   }
 });
 
+// Windows starts only .exe programs, so it cannot run these script stand-ins, and
+// discovery ignores them there (see docs/agent-runtimes.md).
 /** A stand-in for the `claude` executable: its version, its sign-in and its model list. */
 const FAKE_CLAUDE = `#!/usr/bin/env node
 const args = process.argv.slice(2);
@@ -83,7 +85,7 @@ async function start(source = FAKE_CLAUDE) {
 }
 
 describe("coding agent routes", () => {
-  it("persists the optional media step and completes setup using only a CLI", async () => {
+  it.skipIf(process.platform === "win32")("persists the optional media step and completes setup using only a CLI", async () => {
     const { call, claude } = await start();
     expect((await call("PUT", "/settings/onboarding", { status: "pending", step: "media" })).status).toBe(200);
     expect((await call<{ step: string }>("GET", "/settings/onboarding")).body.step).toBe("media");
@@ -95,7 +97,7 @@ describe("coding agent routes", () => {
     expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(409);
   });
 
-  it("accepts models returned by Claude initialize without requesting list_models", async () => {
+  it.skipIf(process.platform === "win32")("accepts models returned by Claude initialize without requesting list_models", async () => {
     const { call, claude } = await start(
       FAKE_CLAUDE.replace('=== "list_models"', '=== "initialize"'),
     );
@@ -111,7 +113,7 @@ describe("coding agent routes", () => {
     ).toEqual(["sonnet", "haiku"]);
   });
 
-  it("keeps arbitrary native efforts and defaults out of Pi settings and unrelated models", async () => {
+  it.skipIf(process.platform === "win32")("keeps arbitrary native efforts and defaults out of Pi settings and unrelated models", async () => {
     const { call, claude } = await start(
       FAKE_CLAUDE.replace(
         '["low", "high"]',
@@ -181,7 +183,7 @@ describe("coding agent routes", () => {
     ).not.toBe("claude-code-cli");
   });
 
-  it("preserves stored native effort while model discovery is still loading on reload", async () => {
+  it.skipIf(process.platform === "win32")("preserves stored native effort while model discovery is still loading on reload", async () => {
     const responseLine = FAKE_CLAUDE.split("\n").find((line) =>
       line.includes("process.stdout.write"),
     )!;
@@ -214,7 +216,7 @@ describe("coding agent routes", () => {
     expect(loaded.body.settings.nativeReasoningLevel).toBe("high");
   }, 15_000);
 
-  it("reports each agent's installation, sign-in and billing, and keeps the person's choices", async () => {
+  it.skipIf(process.platform === "win32")("reports each agent's installation, sign-in and billing, and keeps the person's choices", async () => {
     const { call, claude } = await start();
     const updated = await call<AgentRuntimeStatus>(
       "PATCH",
@@ -276,7 +278,7 @@ describe("coding agent routes", () => {
     ).toBe(false);
   });
 
-  it("lists an agent's models only for conversations, and starts conversations with them", async () => {
+  it.skipIf(process.platform === "win32")("lists an agent's models only for conversations, and starts conversations with them", async () => {
     const { call, claude } = await start();
     await call("PATCH", "/agent-runtimes/claude-code-cli", {
       binaryPath: claude,
@@ -385,7 +387,7 @@ describe("coding agent routes", () => {
     ).toBe(409);
   });
 
-  it("lets a coding agent's model be the default for new conversations, without changing Pi's default", async () => {
+  it.skipIf(process.platform === "win32")("lets a coding agent's model be the default for new conversations, without changing Pi's default", async () => {
     const { call, claude } = await start();
     await call("PATCH", "/agent-runtimes/claude-code-cli", {
       binaryPath: claude,

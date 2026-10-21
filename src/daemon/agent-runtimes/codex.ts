@@ -33,6 +33,7 @@ import { sandboxedPath, sessionCaches, toolchainRoots } from "./environment.js";
 import type { AgentContextUsage } from "../../shared/contracts.js";
 import { runtimeStartupError } from "./compatibility.js";
 import { importCodexImage } from "./codex-images.js";
+import { EXTERNAL_MCP_SERVER_NAME } from "../../shared/external-mcp.js";
 
 /** A turn on a shared server must stop on its own: the process outlives the conversation. */
 const INTERRUPT_TIMEOUT_MS = 5_000;
@@ -356,21 +357,28 @@ export class CodexDriver implements NativeDriver {
         GIT_CONFIG_GLOBAL: await privateGitConfig(temporary, this.context.env),
       },
     };
-    if (!this.context.isolateUserConfig) return config;
-    config.notify = [];
+    let servers: Record<string, unknown>;
     try {
       const read = await server.request<{ config?: Record<string, unknown> }>(
         "config/read",
         { cwd: this.context.workspacePath },
       );
-      const servers = record(read.config?.mcp_servers) ?? {};
-      for (const name of Object.keys(servers))
-        config[`mcp_servers.${name}.enabled`] = false;
+      servers = record(read.config?.mcp_servers) ?? {};
     } catch {
+      if (!this.context.isolateUserConfig) return config;
       throw new Error(
         "Codex configuration could not be checked. Retry, or explicitly enable your own CLI configuration in Settings.",
       );
     }
+    if (!this.context.isolateUserConfig) {
+      // The person's own configuration may connect Codex to OhMyGame from outside.
+      if (servers[EXTERNAL_MCP_SERVER_NAME])
+        config[`mcp_servers.${EXTERNAL_MCP_SERVER_NAME}.enabled`] = false;
+      return config;
+    }
+    config.notify = [];
+    for (const name of Object.keys(servers))
+      config[`mcp_servers.${name}.enabled`] = false;
     // Codex has no way to leave out the person's Skills, plugins and AGENTS.md from its own folder.
     return config;
   }

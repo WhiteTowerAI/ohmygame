@@ -43,6 +43,40 @@ function adapter(onConflict = vi.fn(), flushDocuments = vi.fn<() => Promise<void
 }
 
 describe("canvas board storage", () => {
+  it("recovers a draft unchanged from its base after a disk type conversion", async () => {
+    const base = canvas(), local = structuredClone(base), remote = structuredClone(base);
+    const node = local.nodes[0]!;
+    local.nodes[0] = { data: { instruction: "", text: "Rules" }, position: { y: 0, x: 0 }, title: node.title, type: "text", id: node.id };
+    entries.set(recoveryKey, JSON.stringify({ base, local }));
+    remote.nodes[0] = { id: "node", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "generated", mediaType: "image" } };
+    api.getCanvasBoard.mockResolvedValue(detail(remote, "converted"));
+    const onConflict = vi.fn(), storage = adapter(onConflict);
+
+    const recovered = await storage.load();
+    expect(recovered).toEqual(remote);
+    await storage.save(recovered);
+    expect(onConflict).not.toHaveBeenCalled();
+    expect(entries.has(recoveryKey)).toBe(false);
+    expect(api.saveCanvasBoard).not.toHaveBeenCalled();
+  });
+
+  it("syncs a disk type conversion without preserving a false conflict draft", async () => {
+    const base = canvas();
+    api.getCanvasBoard.mockResolvedValueOnce(detail(base, "original"));
+    const onConflict = vi.fn(), storage = adapter(onConflict);
+    const local = structuredClone(await storage.load());
+    const remote = structuredClone(base);
+    remote.nodes[0] = { id: "node", type: "asset", position: { x: 0, y: 0 }, data: { assetId: "generated", mediaType: "image" } };
+    api.getCanvasBoard.mockResolvedValue(detail(remote, "converted"));
+
+    const refreshed = await storage.refresh(local);
+    expect(refreshed).toEqual(remote);
+    await expect(storage.save(refreshed!)).resolves.toEqual(remote);
+    expect(onConflict).not.toHaveBeenCalled();
+    expect(entries.has(recoveryKey)).toBe(false);
+    expect(api.saveCanvasBoard).not.toHaveBeenCalled();
+  });
+
   it("keeps a consumed remix fit request cleared when merging unsaved edits", async () => {
     const base = canvas();
     base.editorLayout.fitView = true;

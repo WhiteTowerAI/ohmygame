@@ -147,6 +147,7 @@ export function OnboardingAgents({
           ) {
             loginId.current = undefined;
             setLogin(undefined);
+            notifyAgentModelsChanged();
           }
         })
         .catch((cause) => {
@@ -196,8 +197,16 @@ export function OnboardingAgents({
   }
 
   async function recheck(id: AgentRuntimeId) {
-    remember(await recheckAgentRuntime(id));
-    notifyAgentModelsChanged();
+    const agent = await recheckAgentRuntime(id);
+    remember(agent);
+    if (agent.installed && !agent.enabled) await useAgent(agent);
+    else notifyAgentModelsChanged();
+    if (
+      agent.installed &&
+      agent.auth.status === "signed-out" &&
+      loginId.current !== id
+    )
+      await signIn(id);
   }
 
   async function useAgent(agent: AgentRuntimeStatus) {
@@ -205,6 +214,14 @@ export function OnboardingAgents({
       remember(await updateAgentRuntime(agent.id, { enabled: true }));
       notifyAgentModelsChanged();
     }
+  }
+
+  async function signIn(id: AgentRuntimeId) {
+    const started = await loginAgentRuntime(id);
+    loginId.current = id;
+    setCopied(false);
+    setLogin({ id, ...started });
+    if (started.url) await openModelAuthExternal(started.url);
   }
 
   const selected = agents?.find((agent) => agent.id === selectedAgent);
@@ -349,12 +366,8 @@ export function OnboardingAgents({
                     if (!agent.installed) return;
                     void run(agent.id, async () => {
                       if (signedOut) {
-                        const started = await loginAgentRuntime(agent.id);
-                        loginId.current = agent.id;
-                        setCopied(false);
-                        setLogin({ id: agent.id, ...started });
-                        if (started.url)
-                          await openModelAuthExternal(started.url);
+                        await useAgent(agent);
+                        await signIn(agent.id);
                       } else if (problem) {
                         await recheck(agent.id);
                       } else {
@@ -432,6 +445,21 @@ export function OnboardingAgents({
                   ? t("onboarding.installAgentHint", { name: selected.name })
                   : t("onboarding.cliHint")}
               </p>
+              {selected?.installed &&
+              selected.auth.status === "signed-out" &&
+              login?.id !== selected.id ? (
+                <button
+                  type="button"
+                  className="onboarding-text-button"
+                  disabled={busy || Boolean(pending)}
+                  onClick={() =>
+                    void run(selected.id, () => signIn(selected.id))
+                  }
+                >
+                  <LogIn size={14} aria-hidden="true" />
+                  {t("common.signIn")}
+                </button>
+              ) : null}
               {selected && !selected.installed ? (
                 <div className="onboarding-agent-install-actions">
                   {installUrl ? (

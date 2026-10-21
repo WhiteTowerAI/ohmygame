@@ -182,16 +182,14 @@ export function OnboardingMedia({
           {t("onboarding.loadingProviders")}
         </p>
       ) : (
-        <>
-          <div className="onboarding-provider-list">
-            {available.map(row)}
-            {!available.length && !error ? (
-              <p className="onboarding-lede">
-                {t("onboarding.noMediaProviders")}
-              </p>
-            ) : null}
-          </div>
-        </>
+        <div className="onboarding-provider-list">
+          {available.map(row)}
+          {!available.length && !error ? (
+            <p className="onboarding-lede">
+              {t("onboarding.noMediaProviders")}
+            </p>
+          ) : null}
+        </div>
       )}
       {error ? (
         <div className="onboarding-feedback">

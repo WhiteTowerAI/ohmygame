@@ -1,6 +1,7 @@
 import type { CompiledPlayableSurface } from "./playable-compiled.js";
 import type { PlayableCleanup, PlayableNodeContext } from "./playable-nodes.js";
 import { installPlayableVideoClips } from "./playable-video-clip.js";
+import { waitForPlayableBackdrop } from "./playable-surface-ready.js";
 import type {
   PlayableMountedSurface,
   PlayableSurfaceHost,
@@ -100,12 +101,17 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
     host.dataset.playableSurface = surface.id;
     host.style.width = "100%";
     host.style.height = "100%";
+    host.style.position = "absolute";
+    host.style.inset = "0";
+    // Opacity also hides descendants that explicitly set visibility: visible.
+    host.style.opacity = "0";
+    host.inert = true;
     const root = host.attachShadow({ mode: "open" });
     const template = this.#document.createElement("template");
     let stylesheet: Promise<unknown> | undefined;
     if (this.#page) {
       // A page loads the Node's own files; its stylesheet's imports resolve from where it is.
-      const response = await fetch(new URL(surface.html, this.#page.base));
+      const response = await fetch(new URL(surface.html, this.#page.base), { signal: context.lifecycle.signal });
       if (!response.ok) throw new Error(`Could not load ${surface.html} (${response.status}).`);
       template.innerHTML = await response.text();
       const link = this.#document.createElement("link");
@@ -144,7 +150,24 @@ export class DocumentPlayableSurfaceHost implements PlayableSurfaceHost {
           `Playable surface "${surface.id}" does not export a mount function.`,
         );
       const cleanup = await module.mount({ ...context, root });
+      try {
+        await waitForPlayableBackdrop(root, context.lifecycle.signal, this.onDiagnostic);
+      } catch (cause) {
+        if (typeof cleanup === "function") await cleanup();
+        throw cause;
+      }
+      host.style.opacity = "1";
+      const playing = [...root.querySelectorAll<HTMLMediaElement>("video, audio")].filter((media) => !media.paused);
+      for (const media of playing) media.pause();
       return {
+        activate: () => {
+          host.inert = false;
+          for (const media of playing) void media.play().catch(() => {});
+        },
+        deactivate: () => {
+          host.inert = true;
+          for (const media of root.querySelectorAll<HTMLMediaElement>("video, audio")) media.pause();
+        },
         cleanup: cleanup as PlayableCleanup | undefined,
         destroy: remove,
       };

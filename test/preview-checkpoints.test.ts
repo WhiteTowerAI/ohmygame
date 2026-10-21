@@ -15,6 +15,12 @@ import type {
 } from "../src/shared/contracts.js";
 
 const cleanups: Array<() => unknown | Promise<unknown>> = [];
+// Windows runs custom commands through cmd.exe, which only understands double quotes.
+const node =
+  process.platform === "win32"
+    ? `"${process.execPath}"`
+    : `'${process.execPath.replaceAll("'", "'\\''")}'`;
+
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   vi.restoreAllMocks();
@@ -148,7 +154,7 @@ it.each(["static", "command"] as const)(
         previewPath: "/",
         previewViewport: "fit",
         previewMode,
-        previewCommand: `'${process.execPath.replaceAll("'", "'\\''")}' server.mjs`,
+        previewCommand: `${node} server.mjs`,
       },
     });
     expect(settings.statusCode, settings.body).toBe(200);
@@ -227,7 +233,7 @@ it("lets a preview finish starting while a text-only turn takes snapshots", asyn
       previewPath: "/",
       previewViewport: "fit",
       previewMode: "command",
-      previewCommand: `'${process.execPath.replaceAll("'", "'\\''")}' server.mjs`,
+      previewCommand: `${node} server.mjs`,
     },
   });
   expect(settings.statusCode, settings.body).toBe(200);

@@ -262,7 +262,7 @@ it("refreshes account limits when the model probe finishes after the first statu
   expect(row("Codex")!.querySelector(".agent-usage-inline")).toBeNull();
   await act(async () => finish());
   expect(row("Codex")!.querySelector(".agent-usage-inline")?.textContent).toBe(
-    "5-hour42%",
+    "5-hour42% used",
   );
 });
 
@@ -280,7 +280,7 @@ it("shows each CLI's usage limits in its row and on its detail page", async () =
   await render();
   expect(
     row("Claude Code")!.querySelector(".agent-usage-inline")?.textContent,
-  ).toBe("5-hour13%Weekly33%");
+  ).toBe("5-hour13% usedWeekly33% used");
   expect(row("Codex")!.querySelector(".agent-usage-inline")).toBeNull();
   const detail = async (id: "claude-code-cli" | "codex-cli" | "opencode-cli") =>
     act(async () =>

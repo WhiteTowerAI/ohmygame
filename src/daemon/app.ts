@@ -1,3 +1,4 @@
+import { CodexImageProvider } from "./agent-runtimes/codex-image-provider.js";
 import { inspectPreviewConfiguration } from "./preview-configuration.js";
 import { CheckpointStore } from "./checkpoints.js";
 import { ProjectWrites } from "./project-writes.js";
@@ -43,6 +44,10 @@ import { isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprova
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
+import { createGameUseTool } from "./playtest-tools.js";
+import { ExternalMcpService } from "./external-mcp.js";
+import { ExternalAgentClients } from "./external-agent-clients.js";
+import { runCli } from "./agent-runtimes/discovery.js";
 import { generateCreativeText, generateDesignDocumentMarkdown, generateDesignTable, generateProjectName } from "./text-generation.js";
 import { ProjectNaming, type ProjectNameGenerator } from "./project-naming.js";
 import { resolveCanvasTextReferences } from "./canvas-text-references.js";
@@ -114,7 +119,8 @@ import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.j
 import { AssetLibrary, AssetLibraryError, isLibraryAssetDerivation } from "./asset-library.js";
 import { exportPlayableProject, PlayableProjectExportError } from "./playable-project-export.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
-import type { GameRuntimeAdapter } from "../shared/playtest.js";
+import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type GameUseOpenTarget } from "../shared/playtest.js";
+import { EXTERNAL_AGENT_CLIENT_IDS, EXTERNAL_MCP_PATH, EXTERNAL_MCP_ROOTS_HEADER, type ExternalAgentClientId, type ExternalAgentSettings, type ExternalMcpLauncher, type UpdateExternalAgentSettings } from "../shared/external-mcp.js";
 import type { UpdateWebSearchSettings } from "../shared/web-search.js";
 import { WebSearchSettingsStore } from "./web-search-settings.js";
 import { WebSearchService } from "./web-search.js";
@@ -171,6 +177,12 @@ export interface AppOptions {
   playtestDriver?: GameRuntimeAdapter;
   webSearchFetch?: typeof fetch;
   networkSettings?: NetworkSettingsService;
+  /** How Claude Code and Codex start the `ohmygame-mcp` launcher; the desktop app provides it. */
+  externalMcpLauncher?: ExternalMcpLauncher;
+  /** The Skill copied to connected clients; defaults to the repository's. */
+  externalAgentSkillDirectory?: string;
+  /** Runs a client CLI's `mcp` commands; tests replace it. */
+  runExternalAgentCli?: typeof runCli;
 }
 
 const createProjectSchema = {
@@ -371,6 +383,23 @@ const reviseLastPromptSchema = {
 } as const;
 
 const AGENT_RUNTIME_BRIDGE_PATH = "/agent-runtime-bridge/mcp";
+
+/** Lists game_use for external agents when the daemon runs without the desktop app. */
+const UNAVAILABLE_GAME_RUNTIME: GameRuntimeAdapter = {
+  available: false,
+  capabilities: { ...WEB_GAME_USE_CAPABILITIES, projectTypes: [] },
+  request: async () => { throw new Error("Game use is not available in this environment"); },
+  close: () => {},
+};
+
+const externalAgentSettingsSchema = {
+  body: {
+    type: "object",
+    additionalProperties: false,
+    required: ["enabled"],
+    properties: { enabled: { type: "boolean" } },
+  },
+} as const;
 
 const answerApprovalSchema = {
   body: {
@@ -703,7 +732,9 @@ export function createApp(options: AppOptions = {}) {
   const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
     ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
     : providerModelSettings.isEnabled(id);
+  const codexImages = new CodexImageProvider(path.join(dataDirectory, "agent-runtimes"), (recheck) => agentRuntimes.codexImageConnection(recheck));
   const providerImages = new ProviderImages(getModelRuntime, options.imageFetch, () => seedanceSettings.key("volcengine-ark"), providerEnabled, {
+    codexImages,
     openAIConnection: () => imageConnection.resolve(),
     customProviders: () => providerModelSettings.customProviderCatalog(),
     migrateLegacyModels: (id, models) => providerModelSettings.migrateLegacyImageModels(id, models, async () => { await (await getModelRuntime()).refresh({ allowNetwork: false, providers: [id] }); }),
@@ -845,20 +876,62 @@ export function createApp(options: AppOptions = {}) {
         invalidatePluginSessions();
         return await plugins.read(installed.id) ?? installed;
       },
-      playtest ? {
-        driver: playtest,
-        resolveOpenTarget: async () => ({
-          runtime: "web",
-          // A web story plays its own page; older stories still use the sandbox.
-          url: project.type === "interactive-story" && !await isWebStory(project.workspacePath)
-            ? await playableDrafts.open(project)
-            : previewPageUrl(await previews.ensureStarted(project, false), "playtest"),
-        }),
-      } : undefined,
+      playtest ? { driver: playtest, resolveOpenTarget: () => playtestTarget(project) } : undefined,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
     );
   };
+  const playtestTarget = async (project: ProjectState): Promise<GameUseOpenTarget> => ({
+    runtime: "web",
+    // A web story plays its own page; older stories still use the sandbox.
+    url: project.type === "interactive-story" && !await isWebStory(project.workspacePath)
+      ? await playableDrafts.open(project)
+      : previewPageUrl(await previews.ensureStarted(project, false), "playtest"),
+  });
+  /** OhMyGame's tools for agents outside the app; playtest windows belong to their MCP session. */
+  const externalMcp = new ExternalMcpService({
+    dataDirectory,
+    projects: () => projects.list(),
+    tools: (project, sessionId) => {
+      const playtestKey = `${project.id}:external:${sessionId}`;
+      let playtest = agentPlaytests.get(playtestKey);
+      if (!playtest && options.playtestDriver) {
+        playtest = new OwnedPlaytestDriver(options.playtestDriver);
+        agentPlaytests.set(playtestKey, playtest);
+      }
+      return createAgentTools(
+        project, tools, projects, undefined, undefined,
+        playtest ? { driver: playtest, resolveOpenTarget: () => playtestTarget(project) } : undefined,
+        undefined, canvasStore,
+      );
+    },
+    catalog: () => {
+      // Only the schemas are read. A story project has every project tool, and the
+      // full game_use input is listed; a story's own game_use accepts a subset.
+      const placeholder: ProjectState = { id: "", name: "", type: "interactive-story", updatedAt: "", workspacePath: "", preview: { status: "stopped" } };
+      return [
+        ...createAgentTools(placeholder, tools, projects, undefined, undefined, undefined, undefined, canvasStore),
+        createGameUseTool(options.playtestDriver ?? UNAVAILABLE_GAME_RUNTIME, () => playtestTarget(placeholder)),
+      ];
+    },
+    release: async (projectId, sessionId) => {
+      const key = `${projectId}:external:${sessionId}`;
+      await agentPlaytests.get(key)?.cleanup();
+      agentPlaytests.delete(key);
+    },
+  });
+  const externalClients = new ExternalAgentClients({
+    dataDirectory,
+    ...(options.externalMcpLauncher ? { launcher: options.externalMcpLauncher } : {}),
+    skillDirectory: options.externalAgentSkillDirectory ?? path.join(repositoryRoot, "integrations", "skills", "ohmygame-studio"),
+    resolve: (runtime) => agentRuntimes.cli(runtime),
+    run: options.runExternalAgentCli ?? runCli,
+  });
+  const externalAgentSettings = async (): Promise<ExternalAgentSettings> => ({
+    enabled: externalMcp.enabled,
+    ...(externalClients.launcher ? { launcher: externalClients.launcher } : {}),
+    clients: await externalClients.states(),
+  });
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
   const createNativeSession = async (project: ProjectState, conversation: StoredConversation, runtime: AgentRuntimeId, modelId: string) => {
     const resolvePlugins = () => resolvePluginSkills([bundledPlugins, localPlugins], pluginSettings, project.type);
@@ -990,9 +1063,11 @@ export function createApp(options: AppOptions = {}) {
     await onboarding.load().catch((err) => app.log.warn({ err }, "Could not load onboarding state"));
     await Promise.all([library.load(), projects.load((projectDirectory, cause) => {
       app.log.warn({ err: cause, projectDirectory }, "Could not load project; skipped during startup");
-    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), volcengineTtsSettings.load(), volcengineSeedAudioSettings.load(), providerModelSettings.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
+    }), tools.load(), pluginSettings.load(), pluginCapabilities.configuration.load(), bundledPlugins.load(), preinstalledPlugins.load(), webSearchSettings.load(), openAIEndpoint.load(), loadOpenAIImages(), meshySettings.load(), tripoSettings.load(), hyper3dSettings.load(), seedanceSettings.load(), minimaxSettings.load(), volcengineTtsSettings.load(), volcengineSeedAudioSettings.load(), providerModelSettings.load(), externalMcp.load(), externalClients.load(), agentRuntimes.load().catch((err) => app.log.warn({ err }, "Could not load coding agent settings"))]);
     await Promise.all(projects.list().map(async (project) => { projectWrites.initialize(project.id, await readWorkspaceVersion(project)); }));
     for (const error of await preinstalledPlugins.seed(localPlugins)) app.log.warn(error);
+    // Updates the Skill and launcher path in connected clients without holding up startup.
+    void externalClients.refresh();
     const examplesWarning = await examples.load();
     if (examplesWarning) app.log.warn(examplesWarning);
     await localPlugins.list();
@@ -1013,6 +1088,8 @@ export function createApp(options: AppOptions = {}) {
     if (!options.accessToken || (request.method === "GET" && PLAYABLE_SANDBOX_FILES.has(request.url))) return;
     // A coding agent's tool calls carry their session's own token, never the app's; the route checks it.
     if (request.url === AGENT_RUNTIME_BRIDGE_PATH) return;
+    // External agents carry the token published in endpoint.json; the route checks it.
+    if (request.url === EXTERNAL_MCP_PATH) return;
     if (!matchesBearerToken(request.headers.authorization, options.accessToken)) {
       return reply.code(401).send({ error: "Unauthorized" });
     }
@@ -1065,6 +1142,24 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.get("/settings/web-search", async () => webSearchSettings.get());
+
+  app.get("/settings/external-agents", externalAgentSettings);
+  app.put<{ Body: UpdateExternalAgentSettings }>("/settings/external-agents", { schema: externalAgentSettingsSchema }, async (request) => {
+    await externalMcp.setEnabled(request.body.enabled);
+    return externalAgentSettings();
+  });
+  app.put<{ Params: { client: string } }>("/settings/external-agents/clients/:client", async (request, reply) => {
+    if (!isExternalAgentClientId(request.params.client)) return reply.code(404).send({ error: "Unknown agent" });
+    try { await externalClients.connect(request.params.client); }
+    catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+    return externalAgentSettings();
+  });
+  app.delete<{ Params: { client: string } }>("/settings/external-agents/clients/:client", async (request, reply) => {
+    if (!isExternalAgentClientId(request.params.client)) return reply.code(404).send({ error: "Unknown agent" });
+    try { await externalClients.disconnect(request.params.client); }
+    catch (cause) { return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+    return externalAgentSettings();
+  });
 
   app.put<{ Body: UpdateWebSearchSettings }>("/settings/web-search", { schema: webSearchSettingsSchema }, async (request, reply) => {
     try {
@@ -2253,9 +2348,11 @@ export function createApp(options: AppOptions = {}) {
     // the background and serve the last known snapshot so opening Settings does
     // not wait on the cloud service.
     void cloudModels.refresh();
-    return [...providers, ...directProviders, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
+    const codex = codexImages.summarySnapshot(providerEnabled("codex-cli"));
+    return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
+  app.post("/settings/models/providers/codex-cli/images/recheck", async () => codexImages.recheck(providerEnabled("codex-cli")));
   registerOpenAIImageRoutes(app, openAIImages, imageConnection, options.modelDiscoveryFetch);
   app.get("/settings/onboarding", async () => {
     if (!onboarding.initialized) {
@@ -2308,7 +2405,7 @@ export function createApp(options: AppOptions = {}) {
     const provider = (await providerSummaries()).find((item) => item.id === request.params.providerId);
     if (!provider) return reply.code(404).send({ error: "Provider not found" });
     const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
-    if (!provider.configured && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
+    if (!provider.configured && provider.id !== "codex-cli" && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
     await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
     return { ...provider, enabled: request.body.enabled };
   });
@@ -3340,6 +3437,25 @@ export function createApp(options: AppOptions = {}) {
   app.get(AGENT_RUNTIME_BRIDGE_PATH, async (_request, reply) => reply.code(405).header("allow", "POST").send());
   app.delete(AGENT_RUNTIME_BRIDGE_PATH, async (_request, reply) => reply.code(405).header("allow", "POST").send());
 
+  app.post(EXTERNAL_MCP_PATH, { bodyLimit: 8 * 1024 * 1024 }, async (request, reply) => {
+    // A client that disconnects stops its quick tools; generation jobs keep running.
+    const abort = new AbortController();
+    reply.raw.once("close", () => { if (!reply.raw.writableFinished) abort.abort(); });
+    const answer = await externalMcp.handle({
+      authorization: request.headers.authorization,
+      sessionId: firstHeader(request.headers["mcp-session-id"]),
+      roots: firstHeader(request.headers[EXTERNAL_MCP_ROOTS_HEADER]),
+      body: request.body,
+      signal: abort.signal,
+    });
+    reply.code(answer.status).headers(answer.headers ?? {});
+    return answer.body === undefined ? reply.send() : reply.type("application/json").send(answer.body);
+  });
+  // Nothing is pushed to external agents, so there is no event stream to open.
+  app.get(EXTERNAL_MCP_PATH, async (_request, reply) => reply.code(405).header("allow", "POST, DELETE").send());
+  app.delete(EXTERNAL_MCP_PATH, async (request, reply) =>
+    reply.code(await externalMcp.end(request.headers.authorization, firstHeader(request.headers["mcp-session-id"]))).send());
+
   app.post<{ Params: { projectId: string; conversationId: string }; Body: ReviseLastPromptRequest }>(
     "/projects/:projectId/conversations/:conversationId/revise-last",
     { schema: reviseLastPromptSchema },
@@ -3550,7 +3666,14 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
+  app.addHook("onListen", async () => {
+    const address = app.server.address();
+    if (address && typeof address === "object") await externalMcp.listening(`http://127.0.0.1:${address.port}${EXTERNAL_MCP_PATH}`);
+  });
+
   app.addHook("onClose", async () => {
+    await externalMcp.close();
+    codexImages.close();
     await projectNaming.close();
     await pluginCapabilities.host.close();
     await cloudModels.setSession(null);
@@ -3569,6 +3692,14 @@ export function createApp(options: AppOptions = {}) {
     await localPublisher?.close();
   });
   return app;
+}
+
+function isExternalAgentClientId(value: string): value is ExternalAgentClientId {
+  return (EXTERNAL_AGENT_CLIENT_IDS as readonly string[]).includes(value);
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function enabledPluginMentions(plugins: readonly PluginSummary[]): ConversationCapabilities["plugins"] {

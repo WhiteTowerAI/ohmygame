@@ -1,6 +1,15 @@
 import type en from "./en.js";
 
 const zhCN: typeof en = {
+  codexImages: {
+    description: "本地 Codex CLI · 图片生成",
+    hint: "使用本机保存的 Codex 登录和账户额度。可在画布和任意聊天智能体中使用，即使已在 Agents 中关闭 Codex。无需保持终端开启。",
+    managedOptions: "图片模型和输出尺寸由 Codex 管理。请在提示词中描述所需构图，支持多张参考图。",
+    enable: "启用 Codex CLI 图片生成",
+    ready: "Codex 图片生成已连接",
+    unavailable: "Codex 图片生成需要处理",
+    checkAgain: "重新检测",
+  },
   common: {
     openName: "打开 {{name}}",
     tryAgain: "重试",
@@ -109,6 +118,7 @@ const zhCN: typeof en = {
       webSearch: "联网搜索",
       network: "网络",
       plugins: "插件",
+      mcpServer: "MCP 服务",
       about: "关于",
       label: "设置分区",
       heading: "设置",
@@ -1179,6 +1189,21 @@ const zhCN: typeof en = {
     providersPointer: "Claude Code、Codex 和 OpenCode 在「智能体」中设置。",
     open: "前往智能体",
   },
+  externalAgents: {
+    title: "MCP 服务",
+    clients: "连接 Agent",
+    loading: "正在检查其他 Agent…",
+    enable: "允许其他 Agent 使用 OhMyGame",
+    description: "Claude Code、Codex 等 Agent 可以生成媒体、使用画布并试玩你的游戏。",
+    desktopOnly: "请在 OhMyGame 桌面版中连接 Agent。",
+    connected: "已连接",
+    notConnected: "未连接",
+    connect: "连接",
+    disconnect: "断开",
+    otherClients: "DeepSeek Harness 和其他 MCP 客户端",
+    otherClientsHint: "添加一个名为 {{name}} 的 stdio MCP 服务器，运行以下命令：",
+    environment: "环境变量：{{value}}",
+  },
   agentUsage: {
     title: "额度",
     window: "额度",
@@ -1432,6 +1457,8 @@ const zhCN: typeof en = {
     attachFilesHint: "为这条消息添加文件",
     design: "引用游戏设计",
     designHint: "使用已保存的设计文档",
+    publish: "发布游戏",
+    publishHint: "发布你的游戏并获取分享链接",
     trigger: "添加上下文或文件",
     label: "添加上下文",
     noMatch: "没有匹配的项目",

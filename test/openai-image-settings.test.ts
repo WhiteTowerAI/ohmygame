@@ -46,6 +46,8 @@ async function fixture(
     path.join(tmpdir(), "ohmygame-openai-images-"),
   );
   directories.push(directory);
+  // OpenAI connection tests must not discover a real Codex image provider.
+  await writeFile(path.join(directory, "agent-runtimes.json"), JSON.stringify({ runtimes: { "codex-cli": { binaryPath: path.join(directory, "missing-codex") } } }));
   if (credential)
     await writeFile(
       path.join(directory, "auth.json"),
@@ -287,9 +289,10 @@ describe("OpenAI image connections", () => {
         imageConfigured: true,
       }),
     );
-    expect(
-      (await stat(path.join(directory, "openai-images.json"))).mode & 0o777,
-    ).toBe(0o600);
+    if (process.platform !== "win32")
+      expect(
+        (await stat(path.join(directory, "openai-images.json"))).mode & 0o777,
+      ).toBe(0o600);
     expect(
       (await app.inject({ method: "GET", url: endpoint })).body,
     ).not.toContain("image-test-key");

@@ -29,6 +29,8 @@ files:
 extraResources:
   - from: plugins
     to: plugins
+  - from: integrations/skills
+    to: integrations/skills
   - from: .runtime/preinstalled-plugins
     to: preinstalled-plugins
   - from: .runtime/examples

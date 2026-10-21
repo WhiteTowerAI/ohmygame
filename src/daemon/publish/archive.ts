@@ -22,6 +22,7 @@ import { isNodeGraph } from "../../shared/playable-graph-validation.js";
 import { getWorkspaceMedia } from "../workspace.js";
 import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
 import { compressArchiveFile } from "../archive-compression.js";
+import { PublishMediaOptimizer } from "./media.js";
 
 interface PackageJson {
   scripts?: { build?: unknown };
@@ -51,24 +52,31 @@ export class ArtifactBuilder {
 
   async #create(project: ProjectState, cover?: Buffer, maxBytes?: number): Promise<Buffer> {
     let temporary: string | undefined;
+    const media = maxBytes !== undefined && project.type === "interactive-story"
+      ? new PublishMediaOptimizer((child) => this.#running.set(project.id, child))
+      : undefined;
+    let optimizeZip = media;
     try {
       let source: string;
       if (project.type === "interactive-story" && await isWebStory(project.workspacePath)) {
         temporary = await prepareWebStory(project);
         source = temporary;
       } else if (project.type === "interactive-story") {
-        temporary = await prepareInteractiveStory(project, this.library, this.playerDirectory);
+        temporary = await prepareInteractiveStory(project, this.library, this.playerDirectory, media);
         source = temporary;
+        // Legacy manifests hash the optimized bytes during preparation.
+        optimizeZip = undefined;
       } else {
         const workspacePath = isWebRuntimeProjectType(project.type)
           ? await publishStartupDirectory(project)
           : project.workspacePath;
         source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
       }
-      return await createZip(source, false, cover, maxBytes);
+      return await createZip(source, false, cover, maxBytes, false, optimizeZip);
     } finally {
       this.#running.delete(project.id);
       if (temporary) await rm(temporary, { recursive: true, force: true });
+      await media?.close();
     }
   }
 
@@ -148,7 +156,7 @@ async function prepareWebStory(project: ProjectState): Promise<string> {
   }
 }
 
-async function prepareInteractiveStory(project: ProjectState, library?: AssetLibrary, playerDirectory?: string): Promise<string> {
+async function prepareInteractiveStory(project: ProjectState, library?: AssetLibrary, playerDirectory?: string, media?: PublishMediaOptimizer): Promise<string> {
   if (!library || !playerDirectory) throw new PublishError("The Published Player is not available.");
   await assertNodePlayerBuilt(playerDirectory);
   let playable: NodePlayerDefinition | undefined;
@@ -158,7 +166,7 @@ async function prepareInteractiveStory(project: ProjectState, library?: AssetLib
     throw new PublishError(cause instanceof Error ? cause.message : String(cause));
   }
   if (!playable) throw new PublishError("This project has no graph.json.");
-  return preparePlayableProject(project, playable, library, playerDirectory);
+  return preparePlayableProject(project, playable, library, playerDirectory, undefined, media);
 }
 
 async function preparePlayableProject(
@@ -167,6 +175,7 @@ async function preparePlayableProject(
   library: AssetLibrary,
   playerDirectory: string,
   scope = `published:${project.id}`,
+  media?: PublishMediaOptimizer,
 ): Promise<string> {
   const output = await mkdtemp(path.join(tmpdir(), "ohmygame-playable-build-"));
   try {
@@ -195,7 +204,7 @@ async function preparePlayableProject(
       if (mediaType !== assetDefinition.type) {
         throw new PublishError(`Asset "${id}" is not a compatible ${assetDefinition.type} asset.`);
       }
-      const bytes = await readFile(absolutePath);
+      const bytes = await readFile(media ? await media.optimize(absolutePath) : absolutePath);
       const digest = sha256Hex(bytes);
       const relative = `assets/media/${digest}${extension}`;
       if (!writtenAssets.has(relative)) {
@@ -326,7 +335,7 @@ async function assertNodePlayerBuilt(playerDirectory: string): Promise<void> {
   }
 }
 
-export async function createPluginArchive(source: string, maxBytes = PUBLISH_ARTIFACT_MAX_BYTES, preserveExecutable = false): Promise<Buffer> {
+export async function createPluginArchive(source: string, maxBytes = 25 * 1024 * 1024, preserveExecutable = false): Promise<Buffer> {
   return createZip(source, true, undefined, maxBytes, preserveExecutable);
 }
 
@@ -351,7 +360,7 @@ async function prepareSource(workspacePath: string, track: (child: ChildProcess)
   throw new PublishError("Project has no build script or static index.html yet");
 }
 
-async function createZip(source: string, plugin = false, cover?: Buffer, maxBytes?: number, preserveExecutable = false): Promise<Buffer> {
+async function createZip(source: string, plugin = false, cover?: Buffer, maxBytes?: number, preserveExecutable = false, media?: PublishMediaOptimizer): Promise<Buffer> {
   const zip = new ZipFile();
   const files = await filesIn(source, "", plugin);
   const zipOptions = {
@@ -365,7 +374,8 @@ async function createZip(source: string, plugin = false, cover?: Buffer, maxByte
     throw new PublishError(`Publish output uses reserved path: ${PUBLISH_GAME_COVER_PATH}`);
   }
   for (const file of files) {
-    const filename = path.join(source, ...file.split("/"));
+    const original = path.join(source, ...file.split("/"));
+    const filename = media ? await media.optimize(original) : original;
     const executable = preserveExecutable && ((await stat(filename)).mode & 0o111) !== 0;
     const options = { ...zipOptions, compress: !plugin && compressArchiveFile(file) };
     zip.addFile(filename, file, executable ? { ...options, mode: 0o100755 } : options);

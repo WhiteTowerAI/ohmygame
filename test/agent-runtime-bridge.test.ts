@@ -207,7 +207,8 @@ else console.log("1.18.33");
   };
 }
 
-it("resolves native read patterns from the Git root rather than a nested app workspace", async () => {
+// These cases execute POSIX script fixtures; Windows cannot start them as native CLIs.
+it.skipIf(process.platform === "win32")("resolves native read patterns from the Git root rather than a nested app workspace", async () => {
   const f = await fixture(true);
   const run = f.session.prompt("read sibling");
   await expect.poll(f.prompts).toBe(1);
@@ -227,7 +228,7 @@ it("resolves native read patterns from the Git root rather than a nested app wor
   await run;
 });
 
-it("mediates child-session approvals without admitting unrelated native sessions", async () => {
+it.skipIf(process.platform === "win32")("mediates child-session approvals without admitting unrelated native sessions", async () => {
   const f = await fixture(true);
   const run = f.session.prompt("task reading reference");
   await expect.poll(f.prompts).toBe(1);
@@ -256,7 +257,7 @@ it("mediates child-session approvals without admitting unrelated native sessions
   await run;
 });
 
-it("rotates bridge capabilities each turn and permanently rejects a previous turn's token", async () => {
+it.skipIf(process.platform === "win32")("rotates bridge capabilities each turn and permanently rejects a previous turn's token", async () => {
   const f = await fixture();
   const first = f.session.prompt("first");
   await expect.poll(f.prompts).toBe(1);
@@ -275,7 +276,7 @@ it("rotates bridge capabilities each turn and permanently rejects a previous tur
   expect((await f.call(f.tokens[1]!)).status).toBe(401);
 });
 
-it("aborts running bridge tools and revokes their capability when a native turn is cancelled", async () => {
+it.skipIf(process.platform === "win32")("aborts running bridge tools and revokes their capability when a native turn is cancelled", async () => {
   const f = await fixture();
   const run = f.session.prompt("wait for tool");
   await expect.poll(f.prompts).toBe(1);
@@ -290,7 +291,7 @@ it("aborts running bridge tools and revokes their capability when a native turn 
   expect(f.running()).toBe(false);
 });
 
-it("settles a turn and stops the native process if its event stream disconnects", async () => {
+it.skipIf(process.platform === "win32")("settles a turn and stops the native process if its event stream disconnects", async () => {
   const f = await fixture();
   const run = f.session.prompt("event stream disconnect");
   await expect.poll(f.prompts).toBe(1);

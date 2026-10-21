@@ -1245,29 +1245,66 @@ describe("three-step setup with coding agents", () => {
     },
   );
 
-  it("shows CLI login instructions, rechecks and waits for explicit agent selection", async () => {
-    const signedOut = {
-      ...codex,
-      auth: { status: "signed-out", billing: "unknown" },
-    };
-    api.listAgentRuntimes.mockResolvedValue([signedOut]);
-    api.loginAgentRuntime.mockResolvedValue({ command: "codex login" });
-    api.recheckAgentRuntime.mockImplementation(async () => {
-      api.listAgentRuntimes.mockResolvedValue([codex]);
-      return codex;
-    });
+  it.each(["Check again", "focus"])(
+    "uses a selected CLI after sign-in via %s without reselecting it",
+    async (completion) => {
+      let runtime = {
+        ...codex,
+        auth: { status: "signed-out", billing: "unknown" },
+      };
+      api.listAgentRuntimes.mockImplementation(async () => [runtime]);
+      api.loginAgentRuntime.mockResolvedValue({ command: "codex login" });
+      api.updateAgentRuntime.mockImplementation(async (_id, change) => {
+        runtime = { ...runtime, ...change };
+        return runtime;
+      });
+      api.recheckAgentRuntime.mockImplementation(async () => {
+        runtime = { ...runtime, auth: codex.auth };
+        api.listModels.mockResolvedValue({ ...catalog, models: [nativeModel] });
+        return runtime;
+      });
+      await showConnection(
+        <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
+      );
+      await chooseAgent("Codex");
+      expect(container.textContent).toContain("codex login");
+      expect(api.updateAgentRuntime).toHaveBeenCalledExactlyOnceWith(
+        "codex-cli",
+        { enabled: true },
+      );
+      await act(async () => {
+        if (completion === "focus") window.dispatchEvent(new Event("focus"));
+        else button("Check again").click();
+      });
+      expect(api.recheckAgentRuntime).toHaveBeenCalledWith("codex-cli");
+      expect(
+        container.querySelector(".onboarding-selected-agent")?.textContent,
+      ).toContain("Codex");
+      expect(container.textContent).not.toContain("codex login");
+      expect(button("Next").disabled).toBe(false);
+      expect(api.updateAgentRuntime).toHaveBeenCalledOnce();
+      expect(api.updateAgentDefaults).not.toHaveBeenCalled();
+    },
+  );
+
+  it("retries a selected CLI's failed sign-in without reopening the agent choices", async () => {
+    const runtime = { ...codex, auth: { status: "signed-out" } };
+    api.listAgentRuntimes.mockResolvedValue([runtime]);
+    api.updateAgentRuntime.mockResolvedValue({ ...runtime, enabled: true });
+    api.loginAgentRuntime
+      .mockRejectedValueOnce(new Error("Could not start sign-in"))
+      .mockResolvedValue({ command: "codex login" });
     await showConnection(
       <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
     );
     await chooseAgent("Codex");
+    expect(container.textContent).toContain("Could not start sign-in");
+    expect(container.querySelector(".onboarding-agent-options")).toBeNull();
+    await act(async () => button("Sign in").click());
     expect(container.textContent).toContain("codex login");
-    expect(api.updateAgentRuntime).not.toHaveBeenCalled();
-    await act(async () => button("Check again").click());
-    expect(api.recheckAgentRuntime).toHaveBeenCalledWith("codex-cli");
-    expect(
-      container.querySelector(".onboarding-selected-agent")?.textContent,
-    ).toContain("Codex");
-    expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("Could not start sign-in");
+    expect(api.loginAgentRuntime).toHaveBeenCalledTimes(2);
+    expect(api.updateAgentRuntime).toHaveBeenCalledOnce();
   });
 
   it("keeps providers under OhMyGame and limits the model picker to the selected agent", async () => {
@@ -1415,6 +1452,12 @@ describe("three-step setup with coding agents", () => {
       api.listAgentRuntimes.mockResolvedValue([codex]);
       return codex;
     });
+    api.updateAgentRuntime.mockImplementation(async () => {
+      const installed = { ...codex, enabled: true };
+      api.listAgentRuntimes.mockResolvedValue([installed]);
+      api.listModels.mockResolvedValue({ ...catalog, models: [nativeModel] });
+      return installed;
+    });
     await showConnection(
       <Onboarding step="connect" onStepChange={vi.fn()} onFinish={vi.fn()} />,
     );
@@ -1436,7 +1479,11 @@ describe("three-step setup with coding agents", () => {
     expect(
       container.querySelector(".onboarding-agent-install-actions"),
     ).toBeNull();
-    expect(api.updateAgentRuntime).not.toHaveBeenCalled();
+    expect(api.updateAgentRuntime).toHaveBeenCalledExactlyOnceWith(
+      "codex-cli",
+      { enabled: true },
+    );
+    expect(button("Next").disabled).toBe(false);
   });
 
   it("polls a slow CLI catalog while retaining a usable provider model", async () => {

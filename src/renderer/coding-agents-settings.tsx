@@ -597,7 +597,7 @@ function Diagnostic({
   );
 }
 
-function CommandText({ command }: { command: string }) {
+export function CommandText({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -631,7 +631,7 @@ function CommandText({ command }: { command: string }) {
   );
 }
 
-function AgentMark({ id }: { id: AgentRuntimeId }) {
+export function AgentMark({ id }: { id: AgentRuntimeId }) {
   const icon = PROVIDER_ICONS[id];
   if (!icon)
     return (

@@ -76,6 +76,13 @@ https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 重新发布会更新同一个链接。发布的游戏会出现在应用内的社区（Community）里，
 你也可以在那里玩到别人做的游戏。
 
+### 🔌 在 Claude Code、Codex 等 Agent 中使用 OhMyGame
+
+已经在用别的编程 Agent？打开 **设置 → MCP 服务 → 允许其他 Agent 使用 OhMyGame**，
+一键连接 Claude Code 或 Codex。它们会获得 OhMyGame 的媒体生成（使用你配置的服务商）、
+画布和试玩能力，以及一个讲解工作流程的 Skill。DeepSeek Harness 和其他 MCP 客户端可以添加
+那里显示的 `ohmygame-studio` 命令。详见 [External agents](docs/external-agents.md)。
+
 ## 你可以做什么
 
 我们团队用 OhMyGame 做的三款游戏：
@@ -199,11 +206,15 @@ OhMyGame 不内置模型。首次启动时，一个小小的游戏世界逐渐�
    | 想做的东西              | 需要连接                                                       |
    | ----------------------- | -------------------------------------------------------------- |
    | 设计文档、代码、试玩    | 任意语言模型服务商                                             |
-   | 图片和精灵图            | OpenAI（API 密钥）、OpenRouter，或火山方舟 / BytePlus ModelArk |
+   | 图片和精灵图            | Codex CLI（本机登录）、OpenAI（API 密钥）、OpenRouter，或火山方舟 / BytePlus ModelArk |
    | 视频                    | OpenRouter，或火山方舟 / BytePlus ModelArk                     |
    | 3D 模型、骨骼绑定、动画 | Meshy、Tripo 或 Hyper3D（各服务商支持的能力不同）               |
 
-   用 ChatGPT 账号登录不包含图片生成。在 OpenAI 服务商的 **图像模型** 区域，
+   **Codex CLI** 图片服务商使用本机 Codex 登录和账户额度。可在画布中选择
+   **Codex Image**，也可设为默认图片来源。它能配合任意聊天智能体使用，
+   即使已在 Agents 中关闭 Codex，也无需保持终端开启。支持多张参考图，沿用应用统一的 16 张上限；输出尺寸由 Codex 管理。
+
+   OpenAI 服务商的 ChatGPT 浏览器登录不包含其图片 API。在 OpenAI 服务商的 **图像模型** 区域，
    可以配置独立的 API 密钥和 Base URL，拉取或手动添加图像模型，启用后保存。
    这可以与浏览器登录同时使用，也支持兼容 GPT Image 的中转服务。
    使用 API 密钥的聊天连接也可以与图片生成共用密钥和端点。

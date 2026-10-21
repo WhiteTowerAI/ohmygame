@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act } from "react";
+import i18next from "i18next";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -58,7 +59,7 @@ it("shows each window's share used, warns near the limit and treats a passed res
   await act(async () =>
     root.render(<AgentUsageInline limits={limits} now={now} />),
   );
-  expect(container.textContent).toBe("5-hour13%Weekly96%5-hour0%");
+  expect(container.textContent).toBe("5-hour13% usedWeekly96% used5-hour0% used");
   const meters = [...container.querySelectorAll('[role="meter"]')];
   expect(meters.map((meter) => meter.className)).toEqual([
     "cloud-quota-meter agent-usage-meter",
@@ -66,9 +67,49 @@ it("shows each window's share used, warns near the limit and treats a passed res
     "cloud-quota-meter agent-usage-meter",
   ]);
   await act(async () =>
+    root.render(<AgentUsageInline limits={limits} now={now} compact />),
+  );
+  expect(container.textContent).toBe("5-hour13%Weekly96%5-hour0%");
+  expect(
+    [...container.querySelectorAll(".agent-usage-inline > span")].map(
+      (window) => window.getAttribute("title"),
+    ),
+  ).toEqual(["5-hour · 13% used", "Weekly · 96% used", "5-hour · 0% used"]);
+  expect(
+    [...container.querySelectorAll('[role="meter"]')].map(
+      (meter) => meter.getAttribute("aria-valuetext"),
+    ),
+  ).toEqual(["13% used", "96% used", "0% used"]);
+  await act(async () =>
     root.render(<AgentUsageDetails limits={limits} now={now} />),
   );
   expect(container.textContent).toContain("13% used");
   expect(container.textContent).toContain("Resets ");
   expect(container.textContent).toContain("Reset since last report");
+});
+
+it("translates the compact quota tooltip and accessible value into Chinese", async () => {
+  const previousLanguage = i18next.language;
+  await i18next.changeLanguage("zh-CN");
+  try {
+    await act(async () =>
+      root.render(
+        <AgentUsageInline
+          limits={[
+            { id: "codex/secondary", usedPercent: 93, windowMinutes: 10080 },
+          ]}
+          compact
+        />,
+      ),
+    );
+    expect(container.textContent).toBe("每周93%");
+    expect(
+      container.querySelector(".agent-usage-inline > span")?.getAttribute("title"),
+    ).toBe("每周 · 已用 93%");
+    expect(
+      container.querySelector('[role="meter"]')?.getAttribute("aria-valuetext"),
+    ).toBe("已用 93%");
+  } finally {
+    await i18next.changeLanguage(previousLanguage);
+  }
 });

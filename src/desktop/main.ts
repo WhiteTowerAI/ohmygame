@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
 import { clipboardFilePaths, loadClipboardFiles } from "./file-clipboard.js";
+import { installExternalMcpLauncher, markExternalMcpApp } from "./external-mcp-install.js";
 import { DaemonSupervisor } from "./daemon-supervisor.js";
 import { isOAuthAuthorizationUrl, OAuthCallbackFlow } from "./oauth.js";
 import { setGlobalDispatcher } from "undici/index.js";
@@ -73,11 +74,15 @@ let updateChecks: DesktopUpdateCheckScheduler | undefined;
 const oauth = new OAuthCallbackFlow(() => mainWindow?.webContents.send("ohmygame:auth-callback"));
 const windowMenuLabels = new Set(["File", "Edit", "View", "Window"]);
 
+/** Removes the record that tells `ohmygame-mcp` the app is already running. */
+let clearExternalMcpApp: (() => Promise<void>) | undefined;
+
 async function stopServices(): Promise<void> {
   updateChecks?.stop();
   webGamePlayers.close();
   agentPlaytests.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
+  await clearExternalMcpApp?.().catch(() => undefined);
 }
 
 function prepareShutdown(forUpdate = false): Promise<void> {
@@ -476,6 +481,15 @@ try {
     void createdSession.setProxy(proxyConfig).catch((error) => console.warn("Could not configure session proxy", error));
   });
   await Promise.all(startupSessions.map((startupSession) => startupSession.setProxy(proxyConfig)));
+  // A missing launcher only leaves external agents unable to connect; the app still starts.
+  const externalMcpLauncher = await installExternalMcpLauncher({
+    binDirectory: path.join(app.getPath("userData"), "bin"),
+    executable: process.execPath,
+    entry: path.join(moduleDirectory, "external-mcp-main.js"),
+    dataDirectory,
+    ...(app.isPackaged ? {} : { appPath: repositoryRoot }),
+  }).catch((error) => { console.warn("Could not install the OhMyGame MCP launcher", error); return undefined; });
+  clearExternalMcpApp = await markExternalMcpApp(dataDirectory).catch(() => undefined);
   daemon = new DaemonSupervisor({
     daemonEntry: path.join(moduleDirectory, "../daemon/server.js"),
     dataDirectory,
@@ -492,6 +506,10 @@ try {
     playerDirectory: app.isPackaged
       ? path.join(process.resourcesPath, "app.asar.unpacked", "dist", "player")
       : undefined,
+    ...(externalMcpLauncher ? { externalMcpLauncher } : {}),
+    externalSkillDirectory: app.isPackaged
+      ? path.join(process.resourcesPath, "integrations", "skills", "ohmygame-studio")
+      : path.join(repositoryRoot, "integrations", "skills", "ohmygame-studio"),
     runtimeBin: app.isPackaged
       ? process.platform === "win32"
         ? path.join(process.resourcesPath, "runtime", "node")

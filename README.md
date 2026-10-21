@@ -86,6 +86,16 @@ Sign in and publish: OhMyGame builds your game and gives it a link anyone can
 play in the browser. Republishing updates the same link. Published games are
 listed in the in-app Community, where you can play what others have made.
 
+### 🔌 Use OhMyGame from Claude Code, Codex, and other agents
+
+Already working in another coding agent? Turn on **Settings → MCP Server →
+Allow other agents to use OhMyGame** and connect Claude Code or Codex with one
+click.
+They get OhMyGame's media generation with your providers, the canvas, and
+playtesting, plus a Skill that explains the workflow. DeepSeek Harness and
+other MCP clients can add the `ohmygame-studio` command shown there. See
+[External agents](docs/external-agents.md).
+
 ## What you can make
 
 Three games our team made with OhMyGame:
@@ -237,12 +247,19 @@ Click **Next** to connect a model before your first prompt:
    | To make                       | Connect                                                             |
    | ----------------------------- | ------------------------------------------------------------------- |
    | Design docs, code, playtests  | Any language model provider                                         |
-   | Images and sprites            | OpenAI (API key), OpenRouter, or Volcengine Ark / BytePlus ModelArk |
+   | Images and sprites            | Codex CLI (local sign-in), OpenAI (API key), OpenRouter, or Volcengine Ark / BytePlus ModelArk |
    | Video                         | OpenRouter, or Volcengine Ark / BytePlus ModelArk                   |
    | 3D models, rigging, animation | Meshy, Tripo, or Hyper3D (capabilities vary by provider)              |
 
-   Signing in with ChatGPT does not cover image generation. In the OpenAI
-   provider's **Image models** section, configure a separate API key and Base URL,
+   The **Codex CLI** image provider uses your local Codex sign-in and account
+   usage limits. Select **Codex Image** in the canvas or set it as your default
+   image source. It works with any conversation agent, even when Codex is off
+   in Agents; the terminal does not need to stay open. Multiple reference images
+   are supported within the app's shared 16-image limit; Codex manages output
+   dimensions.
+
+   The OpenAI provider's ChatGPT browser sign-in does not cover its image API.
+   In the OpenAI provider's **Image models** section, configure a separate API key and Base URL,
    fetch or manually add image models, enable them and save. This works alongside
    browser sign-in and supports compatible GPT Image relays. API-key chat
    connections can also share their key and endpoint with image generation.

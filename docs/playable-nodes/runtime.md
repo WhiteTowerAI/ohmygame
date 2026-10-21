@@ -178,7 +178,16 @@ export function mount(context) {
 ```
 
 `mount` may be async and may return a cleanup function (sync or async). The
-node is revealed after `mount` settles.
+node is revealed after `mount` settles and its background image has decoded or
+its background video has a frame ready at the current playback position.
+Background errors or a five-second readiness timeout allow the node to appear
+anyway. This waits for media inside `[data-media="backdrop"]`, not CSS background
+images or media added after `mount` settles.
+
+During navigation the outgoing node's context is invalidated, its lifecycle
+signal is aborted, and its input and media are stopped. Its picture stays until
+the incoming node is ready; then its cleanup function runs and its surface is
+removed. Cleanup also runs when the incoming node fails to mount.
 
 ```ts
 interface RuntimeContext {
@@ -376,12 +385,17 @@ memory, for Play from here); `ohmygame-new-game=1` and
 On a node transition the Runtime:
 
 1. rejects further navigation from the exiting node;
-2. aborts its lifecycle signal and awaits its cleanup;
-3. removes its ShadowRoot host;
-4. updates the back stack and checkpoints the save;
-5. creates a new ShadowRoot with the target's HTML and stylesheet;
-6. imports the target's module;
-7. calls `mount(context)` and reveals the node when it settles.
+2. disables its context and input and pauses its media, retaining its picture;
+3. loads and mounts the target hidden, waiting for its declared background;
+4. reveals the ready target with input disabled and media paused;
+5. aborts the exiting lifecycle, awaits cleanup, and removes its host;
+6. enables the target context navigation and input and resumes its media;
+7. checkpoints the save.
+
+The exiting lifecycle is aborted only after the target picture is ready, so
+abort handlers may clear the exiting DOM without exposing the page background.
+State subscriptions on the exiting surface stop receiving updates immediately.
+The target remains inert during asynchronous outgoing cleanup.
 
 A startup or mount failure unmounts the node and puts the
 Runtime in an explicit failed state.

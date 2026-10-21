@@ -826,10 +826,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     if (JSON.stringify(current) === JSON.stringify(merged)) return;
     if (canvasHistoryKey(current) !== canvasHistoryKey(merged)) resetHistory();
     if (historyGestureBase.current) historyGestureBase.current = mergeCanvasDocument(submitted, historyGestureBase.current, saved);
-    const selected = new Set(nodesRef.current.filter((node) => node.selected).map((node) => node.id));
+    const previous = new Map(nodesRef.current.map((node) => [node.id, node]));
     latestCanvas.current = merged;
     observeHistoryDocument(merged);
-    setNodes(merged.nodes.map((node) => ({ ...toFlowNode(node, imageModelsRef.current, videoModelsRef.current), selected: selected.has(node.id) })));
+    setNodes(merged.nodes.map((node) => ({ ...toFlowNode(node, imageModelsRef.current, videoModelsRef.current, previous.get(node.id)), selected: previous.get(node.id)?.selected === true })));
     setEdges(merged.edges); setViewport(merged.viewport); setEditorLayout(merged.editorLayout);
     updateHistoryControls();
   }
@@ -1424,7 +1424,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
   const renderedNodes = nodes.map((original) => {
     const size = isResizableCanvasNodeType(original.type) ? RESIZABLE_CANVAS_NODE_SIZES[original.type] : undefined;
-    const node = { ...original, ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: original.height ?? size.height } } : {}), data: { ...original.data,
+    // A render can arrive before React Flow publishes its first dimensions.
+    // An empty measurement keeps it from clearing freshly measured handle bounds.
+    const node = { ...original, measured: original.measured ?? {}, ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: original.height ?? size.height } } : {}), data: { ...original.data,
       ...(size ? { resizeRuntime: {
         start: beginHistoryGesture, end: finishHistoryGesture,
         reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id) return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
@@ -1637,7 +1639,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     validateAssetCanvasDocument(next);
     observeHistoryDocument(next);
     setViewport(next.viewport);
-    setNodes(next.nodes.map((node) => toFlowNode(node, imageModels, videoModels)));
+    const previous = new Map(nodesRef.current.map((node) => [node.id, node]));
+    setNodes(next.nodes.map((node) => toFlowNode(node, imageModels, videoModels, previous.get(node.id))));
     setEdges(next.edges);
     setEditorLayout(next.editorLayout);
   }
@@ -1850,12 +1853,14 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
     .filter((option) => option.resolution === data.resolution)
     .map((option) => option.aspectRatio))];
 
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel);
+
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
     const option = model?.generationOptions.find((candidate) => candidate.resolution === data.resolution && candidate.aspectRatio === data.aspectRatio)
       ?? preferredImageOption(model, data.aspectRatio);
-    if (!model || !option || !runtime) return;
-    runtime.onChange({ ...data, imageRuntime: undefined, model: { provider: model.provider, id: model.id }, resolution: option.resolution, aspectRatio: option.aspectRatio });
+    if (!model || !runtime) return;
+    runtime.onChange({ ...data, imageRuntime: undefined, model: { provider: model.provider, id: model.id }, ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}) });
   }
 
   function selectResolution(resolution: ImageResolution): void {
@@ -1872,6 +1877,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
         kind="image"
         value={data.prompt ?? ""}
         runtime={runtime}
+        onSubmit={canGenerate ? runtime?.onGenerate : undefined}
         onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, prompt })}
       />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
@@ -1887,21 +1893,21 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
           disabled={runtime?.busy}
           onChange={selectModel}
         />
-        <CanvasChipSelect
+        {selectedModel?.supportsAspectRatio !== false ? <CanvasChipSelect
           label={t("assetCanvas.imageAspect")}
           value={data.aspectRatio}
           options={aspectRatios.map((ratio) => ({ value: ratio, label: ratio }))}
           disabled={!selectedModel || runtime?.busy}
           onChange={(aspectRatio) => runtime?.onChange({ ...data, imageRuntime: undefined, aspectRatio })}
-        />
-        <CanvasChipSelect
+        /> : null}
+        {selectedModel?.supportsResolution !== false ? <CanvasChipSelect
           label={t("assetCanvas.imageResolution")}
           value={data.resolution}
           options={resolutions.map((resolution) => ({ value: resolution, label: resolution }))}
           disabled={!selectedModel || runtime?.busy}
           onChange={selectResolution}
-        />
-        <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel} />
+        /> : null}
+        <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
     </MediaNodeShell>
   );
@@ -1924,6 +1930,8 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   catch (cause) { referenceError = errorMessage(cause); }
   const limit = videoReferenceLimit(selectedModel, data.referenceMode);
   if (selectedModel && references.length > limit) referenceError = t("assetCanvas.modeLimit", { limit });
+
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(effectivePrompt(data, runtime).trim() && selectedModel && !referenceError);
 
   useEffect(() => {
     if (!runtime || !selectedModel || !aspectRatios.length || aspectRatios.includes(data.videoAspectRatio as VideoAspectRatio)) return;
@@ -1955,6 +1963,7 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
         value={data.prompt ?? ""}
         disabled={runtime?.busy}
         options={mentionOptions}
+        onSubmit={canGenerate ? runtime?.onGenerate : undefined}
         onChange={(prompt) => runtime?.onChange({ ...data, videoRuntime: undefined, prompt, referenceMentions: aliases })}
       />
       {referenceError ? <p role="alert">{referenceError}</p> : null}
@@ -1998,7 +2007,7 @@ function VideoNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
           disabled={!selectedModel || runtime?.busy}
           onChange={(duration) => runtime?.onChange({ ...data, videoRuntime: undefined, duration: Number(duration) })}
         />
-        <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel || Boolean(referenceError)} />
+        <GenerateMediaButton kind="video" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
     </MediaNodeShell>
   );
@@ -2021,6 +2030,7 @@ function speechSpeedLabel(value: number): string {
 function SpeechNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   const runtime = data.audioRuntime;
   const selectedModel = runtime?.models.find((model) => sameModel(model, data.audioModel));
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(combineAssetCanvasPrompt(runtime?.linkedPrompt, data.text ?? "").trim() && selectedModel);
   const knownVoice = VOLCENGINE_TTS_VOICES.some((voice) => voice.id === data.voiceId);
   const presetVoices = !selectedModel || selectedModel.provider === "volcengine-tts" ? VOLCENGINE_TTS_VOICES : [];
   const voiceOptions = [
@@ -2045,6 +2055,7 @@ function SpeechNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "da
         kind="audio"
         value={data.text ?? ""}
         runtime={runtime}
+        onSubmit={canGenerate ? runtime?.onGenerate : undefined}
         onChange={(text) => runtime?.onChange({ ...data, audioRuntime: undefined, text })}
       />
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
@@ -2078,7 +2089,7 @@ function SpeechNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "da
             runtime?.onChange({ ...data, audioRuntime: undefined, speed: speed || undefined });
           }}
         />
-        <GenerateMediaButton kind="audio" assetId={data.assetId} runtime={runtime} disabled={!combineAssetCanvasPrompt(runtime?.linkedPrompt, data.text ?? "").trim() || !selectedModel} />
+        <GenerateMediaButton kind="audio" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
     </MediaNodeShell>
   );
@@ -2121,6 +2132,7 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
     });
   };
   const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, data.prompt ?? "");
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(prompt.trim() && selectedModel);
   const label = operation === "music" ? t("assetCanvas.node.music") : t("assetCanvas.node.soundEffect");
 
   return (
@@ -2131,6 +2143,7 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
         placeholder={operation === "music" ? t("assetCanvas.musicPromptPlaceholder") : t("assetCanvas.soundEffectPromptPlaceholder")}
         value={data.prompt ?? ""}
         runtime={runtime}
+        onSubmit={canGenerate ? runtime?.onGenerate : undefined}
         onChange={(value) => change({ prompt: value })}
       />
       {operation === "sound-effect" && selectedModel?.capabilities.supportsNegativePrompt ? <CanvasTextarea
@@ -2181,7 +2194,7 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
           disabled={runtime?.busy}
           onChange={(loop) => change({ loop })}
         /> : null}
-        <GenerateMediaButton kind="audio" assetId={data.assetId} runtime={runtime} disabled={!prompt.trim() || !selectedModel} />
+        <GenerateMediaButton kind="audio" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
     </MediaNodeShell>
   );
@@ -2211,6 +2224,7 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
   const processing = operation === "retexture" || operation === "remesh";
   const hasInput = operation === "image" ? Boolean(data.images?.length) : operation === "text" ? Boolean(data.prompt?.trim() || runtime?.linkedPrompt?.trim())
     : Boolean(data.model3DSource) && (operation === "remesh" || (selectedModel?.protocol === "hyper3d" ? Boolean(data.images?.length) : Boolean(data.images?.length || data.prompt?.trim() || runtime?.linkedPrompt?.trim())));
+  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(hasInput && selectedModel && !(cloud && !canAffordCloudModel(cloud, selectedModel.estimatedCredits)));
   const changeOperation = (operation: Exclude<Model3DOperation, "animate">) => runtime?.onChange({ ...data, model3DOperation: operation, images: [], prompt: "", promptSource: undefined, model3DSource: undefined, model3DOptions: undefined });
   const updateConfig = (next: Partial<Model3DGenerationConfig>) => runtime?.onChange({
     ...data,
@@ -2230,7 +2244,7 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
     >
       {processing ? <MediaReferenceStrip runtime={runtime?.sourceRuntime} large /> : null}
       {operation !== "remesh" ? <MediaReferenceStrip runtime={runtime} large /> : null}
-      {operation === "text" || operation === "retexture" ? <MediaPrompt kind="model" value={data.prompt ?? ""} runtime={runtime} onChange={(prompt) => runtime?.onChange({ ...data, prompt })} /> : null}
+      {operation === "text" || operation === "retexture" ? <MediaPrompt kind="model" value={data.prompt ?? ""} runtime={runtime} onSubmit={canGenerate ? runtime?.onGenerate : undefined} onChange={(prompt) => runtime?.onChange({ ...data, prompt })} /> : null}
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls is-3d">
         <CanvasChipSelect label={t("assetCanvas.operation")} value={operation} options={[
@@ -2263,7 +2277,7 @@ function Model3DNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "d
         {(operation === "image" || operation === "text") && (selectedModel?.protocol === "meshy" || selectedModel?.protocol === "hyper3d") ? <CanvasChipSelect label={t("assetCanvas.pose")} value={data.model3DOptions?.pose ?? "default"} options={[{ value: "default", label: t("assetCanvas.defaultPose") }, { value: "t-pose", label: selectedModel.protocol === "hyper3d" ? t("assetCanvas.atPose") : t("assetCanvas.tPose") }, ...(selectedModel.protocol === "meshy" ? [{ value: "a-pose", label: t("assetCanvas.aPose") }] : [])]} onChange={(pose) => runtime?.onChange({ ...data, model3DOptions: { ...data.model3DOptions, pose: pose === "default" ? undefined : pose as Model3DOptions["pose"] } })} disabled={runtime?.busy} /> : null}
         {operation === "retexture" && selectedModel?.protocol !== "hyper3d" ? <CanvasChipSelect label={t("assetCanvas.textureVersion")} value={data.model3DOptions?.textureModel ?? (selectedModel?.protocol === "tripo" ? "v3.5-20260815" : "latest")} options={(selectedModel?.protocol === "tripo" ? ["v3.5-20260815", "v3.0-20250812", "v2.5-20250123"] : ["latest", "meshy-7", "meshy-6", "meshy-6-lite"]).map((version) => ({ value: version, label: version }))} disabled={runtime?.busy} onChange={(textureModel) => runtime?.onChange({ ...data, model3DOptions: { ...data.model3DOptions, textureModel } })} /> : null}
         {operation === "retexture" && selectedModel?.protocol === "tripo" ? <CanvasChipSelect label={t("assetCanvas.textureQuality")} value={data.model3DOptions?.textureQuality ?? "standard"} options={(["fast", "standard", "detailed", "extreme"] as const).map((value) => ({ value, label: t(`assetCanvas.textureQualities.${value}`) }))} disabled={runtime?.busy} onChange={(textureQuality) => runtime?.onChange({ ...data, model3DOptions: { ...data.model3DOptions, textureQuality: textureQuality as Model3DOptions["textureQuality"] } })} /> : null}
-        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={!hasInput || !selectedModel || Boolean(cloud && !canAffordCloudModel(cloud, selectedModel?.estimatedCredits))} />
+        <GenerateMediaButton kind="model" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
       </div>
       {selectedModel?.protocol === "hyper3d" && operation === "retexture" ? <small>{t("assetCanvas.hyper3dRetexture")}</small> : null}
       {cloud ? <CloudQuotaStatus cloud={cloud} estimatedCredits={selectedModel?.estimatedCredits} onSignIn={auth.openSignIn} /> : operation === "image" && selectedModel?.estimatedCredits !== undefined ? <div className="canvas-model-generation-label">{t("assetCanvas.apiKeyCredits", { credits: selectedModel.estimatedCredits })}</div> : null}
@@ -2445,13 +2459,14 @@ function splitCamelCase(value: string): string {
   return value.replace(/([a-z])with([A-Z])/g, "$1With$2").replace(/([a-z])([A-Z])/g, "$1 $2");
 }
 
-function MediaPrompt({ kind, label, placeholder, value, runtime, onChange }: {
+function MediaPrompt({ kind, label, placeholder, value, runtime, onChange, onSubmit }: {
   kind: "image" | "video" | "audio" | "model";
   label?: string;
   placeholder?: string;
   value: string;
   runtime?: MediaNodeRuntime;
   onChange: (prompt: string) => void;
+  onSubmit?: () => void;
 }) {
   return (
     <CanvasTextarea
@@ -2461,6 +2476,7 @@ function MediaPrompt({ kind, label, placeholder, value, runtime, onChange }: {
       disabled={runtime?.busy}
       placeholder={placeholder ?? t(`assetCanvas.media.${kind}.placeholder`)}
       onChange={onChange}
+      onSubmit={onSubmit}
     />
   );
 }
@@ -3136,8 +3152,11 @@ function AssetCanvasContextMenu({
   );
 }
 
-function toFlowNode(node: AssetCanvasNode, imageModels: ImageModel[], videoModels: VideoModel[]): AssetCanvasFlowNode {
-  return { ...flowNodeData(node, imageModels, videoModels), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
+function toFlowNode(node: AssetCanvasNode, imageModels: ImageModel[], videoModels: VideoModel[], previous?: AssetCanvasFlowNode): AssetCanvasFlowNode {
+  // Clearing measured on a mounted node also clears React Flow's handle bounds.
+  // Keep them across document updates; ResizeObserver handles actual size changes.
+  const measured = previous?.id === node.id && previous.type === node.type ? previous.measured : undefined;
+  return { ...flowNodeData(node, imageModels, videoModels), ...(measured ? { measured } : {}), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
 }
 function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoModels: VideoModel[]): AssetCanvasFlowNode {
   if (node.type === "asset") return { ...node, deletable: true };

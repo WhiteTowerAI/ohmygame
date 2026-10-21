@@ -106,7 +106,8 @@ it.each([0, 1, 2, 3])(
   },
 );
 
-it("selects the newest CLI, keeps discovery order for ties, and respects manual selection", async () => {
+// These cases execute POSIX script fixtures; Windows cannot start them as native CLIs.
+it.skipIf(process.platform === "win32")("selects the newest CLI, keeps discovery order for ties, and respects manual selection", async () => {
   const onPath = await install(path.join(root, "bin", "codex"), "2.0.0");
   const app = await install(bundledPath(0), "3.0.0");
   vi.stubEnv("PATH", path.dirname(onPath));
@@ -129,19 +130,21 @@ it("deduplicates symlinks and skips directories and non-executable files", async
   const app = await install(bundledPath(0));
   const bin = path.join(root, "bin");
   await mkdir(bin);
-  const link = path.join(bin, "codex");
+  const link = path.join(bin, process.platform === "win32" ? "codex.exe" : "codex");
   await symlink(app, link);
   vi.stubEnv("PATH", bin);
   expect(await resolveBinary("codex-cli")).toMatchObject({
     path: link,
     source: "path",
   });
-  await chmod(app, 0o600);
-  expect(await resolveBinary("codex-cli")).toBeUndefined();
+  if (process.platform !== "win32") {
+    await chmod(app, 0o600);
+    expect(await resolveBinary("codex-cli")).toBeUndefined();
+  }
   expect(await resolveBinary("codex-cli", bin)).toBeUndefined();
 });
 
-it("finds common install directories and refreshed login shell paths without restarting", async () => {
+it.skipIf(process.platform === "win32")("finds common install directories and refreshed login shell paths without restarting", async () => {
   const common = await install(path.join(root, "common", "codex"));
   vi.mocked(environment.commonBinaryDirectories).mockReturnValue([
     path.dirname(common),
@@ -163,7 +166,7 @@ it("finds common install directories and refreshed login shell paths without res
   });
 });
 
-it("shares concurrent shell refreshes and retries a failed shell read", async () => {
+it.skipIf(process.platform === "win32")("shares concurrent shell refreshes and retries a failed shell read", async () => {
   const spy = vi.spyOn(environment, "loginShellPath");
   const binary = await install(path.join(root, "bin", "codex"));
   await writeFile(shellPathFile, path.dirname(binary));
@@ -225,7 +228,7 @@ it("reports a found CLI that cannot start as a probe failure, not a missing inst
   );
 });
 
-it("does not return an old status after the chosen executable changes during a probe", async () => {
+it.skipIf(process.platform === "win32")("does not return an old status after the chosen executable changes during a probe", async () => {
   const old = await install(path.join(root, "old", "codex"));
   const next = await install(path.join(root, "next", "codex"), "2.0.0");
   const gate = path.join(root, "gate");
