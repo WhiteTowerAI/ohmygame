@@ -397,9 +397,12 @@ case: **Open editor**, which brings the editor forward on the Story map
 (**Close window** in a browser, which returns to the editor's tab);
 **Play from the start** when the Scene chosen with **Play from here** was
 deleted; **Ask AI to fix** when the story's files keep it from starting; and
-**Try again** when loading failed or the game stopped while starting. Clicking
-Playtest in the editor loads the story again in a window that could not play
-it, so fixing the cause and clicking Playtest is enough. A window that plays
+**Try again** when loading failed or the game stopped while starting. A game
+that stops with an error after it has started says so instead of claiming it
+could not start, and offers **Ask AI to fix**, with what the player was doing,
+and **Play again**. Clicking Playtest in the editor loads the story again in a
+window that could not play it, so fixing the cause and clicking Playtest is
+enough. A window that plays
 keeps its game when Playtest brings it forward.
 
 Playtest also remembers which Scenes the author has seen and which Exits
