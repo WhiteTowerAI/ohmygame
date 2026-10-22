@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { createLogRedactor } from "../src/shared/log-redaction.js";
 import { afterEach, describe, expect, it } from "vitest";
 import yauzl from "yauzl";
 import { createApp } from "../src/daemon/app.js";
@@ -193,5 +194,50 @@ describe("diagnostics export", () => {
     });
     expect(files["system.json"]).not.toContain("msy_secret_value");
     expect(files["system.json"]).not.toContain(dataDirectory);
+  });
+
+  it("redacts failed sections, summary errors and filesystem errors without truncating the JSON", async () => {
+    const logs = await directory("ohmygame-diagnostics-redaction-");
+    const notAFolder = path.join(logs, "blocked");
+    await writeFile(notAFolder, "not a folder");
+    const redact = createLogRedactor(logs);
+    const files = await unzip(
+      await diagnosticsArchive({
+        logDirectory: notAFolder,
+        redact,
+        summary: async () => ({
+          ...summary,
+          plugins: await diagnosticSection(() => {
+            throw new Error(
+              'api_key=fixture_key {"password":"fixture_password"}',
+            );
+          }),
+          projects: Object.fromEntries(
+            Array.from({ length: 2_000 }, (_, index) => [
+              `type-${index}`,
+              index,
+            ]),
+          ),
+        }),
+      }),
+    );
+    const system = JSON.parse(files["system.json"]!);
+    expect(system.logs.error).toContain("ENOTDIR");
+    expect(system.logs.error).toContain("~");
+    expect(Object.keys(system.projects)).toHaveLength(2_000);
+    expect(system.plugins.error).toContain("[redacted]");
+    for (const secret of [logs, "fixture_key", "fixture_password"])
+      expect(files["system.json"]).not.toContain(secret);
+
+    const failed = await unzip(
+      await diagnosticsArchive({
+        summary: async () => {
+          throw new Error(`Cannot load ${homedir()}/data? api_key=fixture_key`);
+        },
+      }),
+    );
+    expect(JSON.parse(failed["system.json"]!).summaryError).toContain("~/data");
+    expect(failed["system.json"]).not.toContain(homedir());
+    expect(failed["system.json"]).not.toContain("fixture_key");
   });
 });

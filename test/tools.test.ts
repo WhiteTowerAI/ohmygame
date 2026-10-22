@@ -506,6 +506,65 @@ describe("tool runner", () => {
     });
   });
 
+  it("logs direct agent and prepared canvas generations once with project context", async () => {
+    const generate = vi.fn<ImageGenerator["generate"]>()
+      .mockResolvedValueOnce({ bytes: Buffer.from("image"), mediaType: "image/png" })
+      .mockRejectedValueOnce(new ImageGenerationError("Provider failed", 502))
+      .mockRejectedValueOnce(new DOMException("Cancelled", "AbortError"));
+    const runner = new ToolRunner(await temporaryData(), { generate });
+    const info = vi.fn(), warn = vi.fn();
+    runner.setLogger({ info, warn });
+    await runner.load();
+    try {
+      const request = { prompt: "A private castle", imageModel: { provider: "openai", id: "gpt-image-1" } };
+      await runner.run("generate-image", request, undefined, "agent-project");
+      await expect(runner.runPrepared("generate-image", request, undefined, { projectId: "canvas-project" })).rejects.toThrow("Provider failed");
+      await expect(runner.runPrepared("generate-image", request)).rejects.toThrow("Cancelled");
+      expect(info.mock.calls).toEqual([
+        [expect.objectContaining({ toolId: "generate-image", model: "openai/gpt-image-1", projectId: "agent-project", durationMs: expect.any(Number) }), "Generation succeeded"],
+        [expect.objectContaining({ toolId: "generate-image" }), "Generation cancelled"],
+      ]);
+      expect(warn.mock.calls).toEqual([[expect.objectContaining({ projectId: "canvas-project", error: "Provider failed" }), "Generation failed"]]);
+      expect(JSON.stringify([...info.mock.calls, ...warn.mock.calls])).not.toContain("private castle");
+    } finally { await runner.close(); }
+  });
+
+  it("keeps generation results and persisted jobs when the logger throws", async () => {
+    const dataDirectory = await temporaryData();
+    const failure = new ImageGenerationError("Provider failed", 502);
+    const generate = vi.fn<ImageGenerator["generate"]>()
+      .mockResolvedValueOnce({ bytes: Buffer.from("image"), mediaType: "image/png" })
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const runner = new ToolRunner(dataDirectory, { generate });
+    runner.setLogger({ info: () => { throw new Error("Logger failed"); }, warn: () => { throw new Error("Logger failed"); } });
+    await runner.load();
+    try {
+      const request = { prompt: "fixture" };
+      await expect(runner.run("generate-image", request)).resolves.toMatchObject({ toolId: "generate-image" });
+      await expect(runner.run("generate-image", request)).rejects.toMatchObject({ message: failure.message, statusCode: failure.statusCode });
+      const job = runner.start("generate-image", request);
+      await vi.waitFor(() => expect(runner.jobs().find(({ id }) => id === job.id)?.status).toBe("succeeded"));
+    } finally { await runner.close(); }
+    expect(JSON.parse(await readFile(path.join(dataDirectory, "tools", "jobs.json"), "utf8"))).toMatchObject([{ status: "succeeded" }]);
+  });
+
+  it("records direct and background preparation failures without calling the provider", async () => {
+    const generate = vi.fn<ImageGenerator["generate"]>();
+    const runner = new ToolRunner(await temporaryData(), { generate }, undefined, undefined, undefined, async () => { throw new Error("Provider is disabled"); });
+    const warn = vi.fn();
+    runner.setLogger({ info: vi.fn(), warn });
+    await runner.load();
+    try {
+      await expect(runner.run("generate-image", { prompt: "fixture" }, undefined, "p1")).rejects.toThrow("Provider is disabled");
+      const job = runner.start("generate-image", { prompt: "fixture" });
+      await vi.waitFor(() => expect(runner.jobs().find(({ id }) => id === job.id)?.status).toBe("failed"));
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p1", error: "Provider is disabled" }), "Generation failed");
+      expect(generate).not.toHaveBeenCalled();
+    } finally { await runner.close(); }
+  });
+
 });
 
 function temporaryData(): Promise<string> {

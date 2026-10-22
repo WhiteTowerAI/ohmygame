@@ -2,9 +2,11 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import Fastify from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
 import { RotatingLogFile } from "../src/desktop/log-file.js";
-import { createLogRedactor } from "../src/desktop/log-redaction.js";
+import { createLogRedactor } from "../src/shared/log-redaction.js";
+import { daemonLoggerOptions } from "../src/daemon/request-log.js";
 
 const directories: string[] = [];
 const now = () => new Date("2026-10-21T08:00:00.000Z");
@@ -84,7 +86,7 @@ describe("rotating log file", () => {
     log.write(
       'Request failed {"apiKey":"abc123","path":"/Users/someone/Projects/game"} key sk-abcdefghijklmnop\n',
     );
-    await log.idle();
+    await log.close();
     const text = await readFile(log.path, "utf8");
     expect(text).not.toContain("abc123");
     expect(text).not.toContain("sk-abcdefghijklmnop");
@@ -118,6 +120,41 @@ describe("rotating log file", () => {
     expect(oldest).not.toContain("line 4");
   });
 
+  it("redacts JSON credentials after the daemon serializes an error", async () => {
+    const log = new RotatingLogFile({
+      directory: await logDirectory(),
+      name: "daemon",
+      redact: createLogRedactor(),
+    });
+    const app = Fastify({
+      logger: daemonLoggerOptions({ write: (line) => log.write(line) }),
+    });
+    try {
+      app.log.warn(
+        {
+          error: JSON.stringify({
+            apiKey: "msy_fixture_key",
+            password: 'fixture password with "quotes"',
+            nested: JSON.stringify({ access_token: "fixture_token" }),
+          }),
+        },
+        "Agent tool failed",
+      );
+    } finally {
+      await app.close();
+      await log.close();
+    }
+    const text = await readFile(log.path, "utf8");
+    for (const secret of [
+      "msy_fixture_key",
+      "fixture password",
+      "fixture_token",
+    ])
+      expect(text).not.toContain(secret);
+    expect(text).toContain("Agent tool failed");
+    expect(text).toContain("[redacted]");
+  });
+
   it("writes waiting lines synchronously when the process is about to end", async () => {
     const directory = await logDirectory();
     const log = new RotatingLogFile({ directory, name: "main", now });
@@ -133,6 +170,31 @@ describe("rotating log file", () => {
     );
   });
 
+  it("omits oversized chunked records and partial JSON left by a crashed process", async () => {
+    const log = new RotatingLogFile({
+      directory: await logDirectory(),
+      name: "daemon",
+      redact: createLogRedactor(),
+    });
+    const record = JSON.stringify({
+      error: `${JSON.stringify({ apiKey: "msy_chunked_fixture" })}${"x".repeat(100_000)}`,
+    });
+    log.write(record.slice(0, 70_000));
+    log.write(`${record.slice(70_000)}\nnext line\n`);
+    log.write(
+      JSON.stringify({
+        error: JSON.stringify({ password: "partial_fixture" }),
+      }).slice(0, -2),
+    );
+    await log.close();
+    const text = await readFile(log.path, "utf8");
+    expect(text).toContain("next line");
+    expect(text).toContain("[diagnostic text omitted: too long]");
+    expect(text).toContain("[diagnostic text omitted: incomplete JSON]");
+    expect(text).not.toContain("msy_chunked_fixture");
+    expect(text).not.toContain("partial_fixture");
+  });
+
   it("stops quietly when the log cannot be written", async () => {
     const directory = await logDirectory();
     const blocked = path.join(directory, "blocked");
@@ -145,6 +207,19 @@ describe("rotating log file", () => {
 });
 
 describe("log redaction", () => {
+  it("omits oversized or deeply nested encoded values before cutting their credentials", () => {
+    const redact = createLogRedactor();
+    const oversized = JSON.stringify({
+      error: `api_key=fixture_key ${"x".repeat(70_000)}`,
+    });
+    expect(redact(oversized)).toBe("[diagnostic text omitted: too long]");
+    let nested = "api_key=fixture_key";
+    for (let depth = 0; depth < 10; depth++)
+      nested = JSON.stringify({ error: nested });
+    expect(redact(nested)).not.toContain("fixture_key");
+    expect(redact(nested)).toContain("[redacted");
+  });
+
   it("replaces the home folder only at a path boundary", () => {
     const redact = createLogRedactor("/home/someone", "linux");
 

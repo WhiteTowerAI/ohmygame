@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import yauzl from "yauzl";
 import { desktopDiagnosticsArchive } from "../src/desktop/diagnostics-export.js";
-import { createLogRedactor } from "../src/desktop/log-redaction.js";
+import { createLogRedactor } from "../src/shared/log-redaction.js";
 
 const directories: string[] = [];
 afterEach(async () => {

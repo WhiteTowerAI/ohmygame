@@ -24,6 +24,7 @@ export async function desktopDiagnosticsArchive(
   return diagnosticsArchive({
     logDirectory: options.logDirectory,
     now: options.now,
+    redact: options.redact,
     summary: async () => ({
       exportedBy: "desktop",
       service: await diagnosticSection(() => {
@@ -34,7 +35,7 @@ export async function desktopDiagnosticsArchive(
           status: state.status,
           generation: state.generation,
           recovered: state.recovered,
-          ...(state.error ? { error: options.redact(state.error) } : {}),
+          ...(state.error ? { error: state.error } : {}),
         };
       }),
     }),

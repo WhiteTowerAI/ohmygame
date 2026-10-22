@@ -86,6 +86,8 @@ export class ActivityLog {
             ...scope,
             ...this.#duration(event),
             error: truncate(event.data.error),
+            ...(event.data.code ? { code: event.data.code } : {}),
+            ...(event.data.diagnostics ? { diagnostics: event.data.diagnostics } : {}),
           },
           "Agent turn failed",
         );

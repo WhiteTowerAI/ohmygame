@@ -2,7 +2,10 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { mkdir, open, rename, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
-import { MAX_LOG_LINE_LENGTH } from "./log-redaction.js";
+import {
+  MAX_LOG_INPUT_LENGTH,
+  OMITTED_LOG_TEXT,
+} from "../shared/log-redaction.js";
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAX_FILES = 3;
@@ -33,30 +36,51 @@ export interface RotatingLogFileOptions {
 
 class LineBuffer implements LogStream {
   #pending = "";
+  #discarding = false;
   // A character can be split between two chunks of a process's output.
   readonly #decoder = new StringDecoder("utf8");
 
   constructor(private readonly emit: (line: string) => void) {}
 
   write(chunk: string | Uint8Array): void {
-    this.#pending +=
+    let text =
       typeof chunk === "string"
         ? chunk
         : this.#decoder.write(Buffer.from(chunk));
+    if (this.#discarding) {
+      const end = text.indexOf("\n");
+      if (end === -1) return;
+      this.#discarding = false;
+      text = text.slice(end + 1);
+    }
+    this.#pending += text;
     let end = this.#pending.indexOf("\n");
     while (end !== -1) {
       const line = this.#pending.slice(0, end);
-      this.emit(line.endsWith("\r") ? line.slice(0, -1) : line);
+      this.emit(
+        line.length > MAX_LOG_INPUT_LENGTH
+          ? OMITTED_LOG_TEXT
+          : line.endsWith("\r")
+            ? line.slice(0, -1)
+            : line,
+      );
       this.#pending = this.#pending.slice(end + 1);
       end = this.#pending.indexOf("\n");
     }
-    if (this.#pending.length > MAX_LOG_LINE_LENGTH) this.flush();
+    if (this.#pending.length > MAX_LOG_INPUT_LENGTH) {
+      // Keep discarding until the logical line ends. Logging a partial JSON
+      // record can separate a credential from the field that identifies it.
+      this.#pending = "";
+      this.#discarding = true;
+      this.emit(OMITTED_LOG_TEXT);
+    }
   }
 
   flush(): void {
     this.#pending += this.#decoder.end();
-    if (this.#pending) this.emit(this.#pending);
+    if (this.#pending && !this.#discarding) this.emit(this.#pending);
     this.#pending = "";
+    this.#discarding = false;
   }
 }
 

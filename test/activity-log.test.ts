@@ -302,6 +302,39 @@ describe("activity log", () => {
     ]);
   });
 
+  it("records a failed turn once with duration and model diagnostics", () => {
+    const { lines, events, advance } = setup();
+    events.publish("p1", "agent.started", { prompt: "Private prompt" }, scope);
+    advance(200);
+    const diagnostics = {
+      provider: "deepseek",
+      model: "deepseek-chat",
+      statusCode: 429,
+      retryAttempts: 2,
+    };
+    events.publish(
+      "p1",
+      "agent.error",
+      { error: "Rate limit", code: "rate_limited", diagnostics },
+      scope,
+    );
+    expect(lines.filter(({ level }) => level === "warn")).toEqual([
+      {
+        level: "warn",
+        message: "Agent turn failed",
+        details: {
+          projectId: "p1",
+          ...scope,
+          durationMs: 200,
+          error: "Rate limit",
+          code: "rate_limited",
+          diagnostics,
+        },
+      },
+    ]);
+    expect(JSON.stringify(lines)).not.toContain("Private prompt");
+  });
+
   it("never lets a logging failure reach the code that published the event", () => {
     const failing = new ActivityLog({
       info: () => {

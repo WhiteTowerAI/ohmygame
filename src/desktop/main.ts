@@ -16,7 +16,7 @@ import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./
 import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { ignoreBrokenStdio } from "./stdio.js";
 import { RotatingLogFile } from "./log-file.js";
-import { createLogRedactor } from "./log-redaction.js";
+import { createLogRedactor } from "../shared/log-redaction.js";
 import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
 import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";

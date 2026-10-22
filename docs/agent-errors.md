@@ -71,7 +71,9 @@ network configuration and retry count on reload. Live retries retain the latest
 attempt's cause. Successful retries and user cancellation produce no terminal
 error record. Failures before Pi records the user message get a separate history
 item, so they cannot overwrite a previous turn's error. Terminal failures are
-logged by the daemon with chat and turn IDs.
+logged once by the daemon with chat and turn IDs, duration and diagnostics from
+the `agent.error` event. Its existing error string is retained; code and
+diagnostics are optional event fields.
 
 The terminal entry deliberately keeps a complete normalized error instead of
 depending on mutable Pi messages or SDK persistence order. Normalization on

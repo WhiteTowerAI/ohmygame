@@ -184,14 +184,16 @@ export class ToolRunner {
 
   async #execute(job: ToolJobRecord): Promise<void> {
     try {
-      await this.#saveJobs();
-      if (!job.prepared) {
-        job.input = await this.prepare(job.toolId, job.input!, job.context?.projectId);
-        job.prepared = true;
-      }
-      await this.#saveJobs();
-      job.model = selectedModel(job.toolId, job.input!);
-      job.run = await this.runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId);
+      job.run = await this.#withGenerationLog(job.toolId, () => job.input!, job.controller.signal, job.context?.projectId, async () => {
+        await this.#saveJobs();
+        if (!job.prepared) {
+          job.input = await this.prepare(job.toolId, job.input!, job.context?.projectId);
+          job.prepared = true;
+        }
+        await this.#saveJobs();
+        job.model = selectedModel(job.toolId, job.input!);
+        return this.#runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId);
+      });
       if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
         await this.removeRun(job.run.id);
       }
@@ -206,7 +208,6 @@ export class ToolRunner {
         job.error = cause instanceof Error ? cause.message : String(cause);
       }
     } finally {
-      if (this.#log) logJobOutcome(this.#log, job);
       this.#pruneJobs();
       if (!this.#closed) await this.#saveJobsSafely();
     }
@@ -227,7 +228,11 @@ export class ToolRunner {
   }
 
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, projectId?: string): Promise<ToolRun> {
-    return this.runPrepared(toolId, await this.prepare(toolId, input, projectId), signal);
+    let prepared = input;
+    return this.#withGenerationLog(toolId, () => prepared, signal, projectId, async () => {
+      prepared = await this.prepare(toolId, input, projectId);
+      return this.#runPrepared(toolId, prepared, signal, randomUUID());
+    });
   }
 
   async prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
@@ -236,7 +241,39 @@ export class ToolRunner {
   }
 
   /** Executes an input whose model and generation options have already been resolved. */
-  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, recoveryId: string = randomUUID()): Promise<ToolRun> {
+  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, options: { recoveryId?: string; projectId?: string } = {}): Promise<ToolRun> {
+    const { recoveryId = randomUUID(), projectId } = options;
+    return this.#withGenerationLog(toolId, () => input, signal, projectId, () => this.#runPrepared(toolId, input, signal, recoveryId));
+  }
+
+  async #withGenerationLog(toolId: string, input: () => RunToolRequest, signal: AbortSignal | undefined, projectId: string | undefined, execute: () => Promise<ToolRun>): Promise<ToolRun> {
+    const started = Date.now();
+    let status: "succeeded" | "failed" | "cancelled" = "succeeded";
+    let error: string | undefined;
+    let run: ToolRun | undefined;
+    try {
+      run = await execute();
+      return run;
+    } catch (cause) {
+      status = signal?.aborted || cause instanceof Error && cause.name === "AbortError" ? "cancelled" : "failed";
+      error = cause instanceof Error ? cause.message : String(cause);
+      throw cause;
+    } finally {
+      try {
+        const model = run?.model ?? selectedModel(toolId, input());
+        const outcome = {
+          toolId,
+          ...(model ? { model: `${model.provider}/${model.id}` } : {}),
+          ...(projectId ? { projectId } : {}),
+          durationMs: Date.now() - started,
+        };
+        if (status === "failed") this.#log?.warn({ ...outcome, error }, "Generation failed");
+        else this.#log?.info(outcome, status === "cancelled" ? "Generation cancelled" : "Generation succeeded");
+      } catch { /* Logging must not change the result or prevent job persistence. */ }
+    }
+  }
+
+  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr", "operation", "prompt", "sourceAssetId", "options"]);
       return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId)).catch(model3DToolError);
@@ -744,16 +781,4 @@ function model3DToolError(cause: unknown): never {
 interface GenerationLogger {
   info(details: object, message: string): void;
   warn(details: object, message: string): void;
-}
-
-/** One line per finished generation, for the daemon log. The prompt and inputs stay out. */
-function logJobOutcome(log: GenerationLogger, job: ToolJobRecord): void {
-  const outcome = {
-    toolId: job.toolId,
-    ...(job.model ? { model: `${job.model.provider}/${job.model.id}` } : {}),
-    ...(job.context?.projectId ? { projectId: job.context.projectId } : {}),
-    durationMs: Date.now() - Date.parse(job.createdAt),
-  };
-  if (job.status === "failed") log.warn({ ...outcome, ...(job.error ? { error: job.error } : {}) }, "Generation failed");
-  else log.info(outcome, job.status === "cancelled" ? "Generation cancelled" : "Generation succeeded");
 }

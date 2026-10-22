@@ -6,6 +6,7 @@ import type { Readable } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { ZipFile } from "yazl";
 import { diagnosticsFileName } from "../shared/diagnostics.js";
+import { createLogRedactor } from "../shared/log-redaction.js";
 
 const APP_VERSION: string = createRequire(import.meta.url)(
   "../../package.json",
@@ -62,6 +63,7 @@ export interface DiagnosticsOptions<
   logDirectory?: string;
   /** The daemon describes providers, agents and plugins; the desktop app, when the service is down, its status. */
   summary: () => Promise<Summary>;
+  redact?: (text: string) => string;
   now?: () => Date;
 }
 
@@ -73,6 +75,7 @@ export async function diagnosticsArchive<Summary extends object>(
   options: DiagnosticsOptions<Summary>,
 ): Promise<Buffer> {
   const createdAt = (options.now?.() ?? new Date()).toISOString();
+  const redact = options.redact ?? createLogRedactor();
   const logs = await diagnosticSection(() => logFiles(options.logDirectory));
   const summary = await diagnosticSection(options.summary);
   const zip = new ZipFile();
@@ -107,7 +110,9 @@ export async function diagnosticsArchive<Summary extends object>(
     ...("error" in summary ? { summaryError: summary.error } : summary),
   };
   zip.addBuffer(
-    Buffer.from(`${JSON.stringify(system, null, 2)}\n`),
+    Buffer.from(
+      `${JSON.stringify(system, (_key, value) => (typeof value === "string" ? redact(value) : value), 2)}\n`,
+    ),
     "system.json",
   );
   return zipBuffer(zip);

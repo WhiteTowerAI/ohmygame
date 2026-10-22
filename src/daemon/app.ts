@@ -987,7 +987,6 @@ export function createApp(options: AppOptions = {}) {
       const route = networkSettings.get().active;
       return { network: { source: route.source, ...(route.httpsProxy ? { proxyUrl: route.httpsProxy } : {}) } };
     },
-    onRunFailed: (error, scope) => app.log.warn({ agentError: error, ...scope }, "Agent model request failed"),
     ...(options.createSession ? {} : {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,

@@ -27,7 +27,7 @@ In `daemon.log` (`src/daemon/activity-log.ts`, `src/daemon/request-log.ts`,
 - Agent turns: start (with image, attachment and plugin counts), completion,
   cancellation and failure, with the duration and the error. Model request
   failures add the provider, model, endpoint and status code from the
-  [agent error diagnostics](agent-errors.md).
+  [agent error diagnostics](agent-errors.md) to that same outcome line.
 - Conversation model changes and model request retries.
 - Failed agent tools, with the tool, MCP server and the last 500 characters
   of their output, where the error usually is.
@@ -36,6 +36,8 @@ In `daemon.log` (`src/daemon/activity-log.ts`, `src/daemon/request-log.ts`,
 - Publishing start, completion and failure.
 - Each finished image, video, 3D or audio generation, with the tool, model,
   project, duration and the error of a failed one.
+  Agent tools, Canvas nodes and background jobs share this recording boundary;
+  each execution produces one outcome line.
 - Requests that end with an error status, by route pattern (such as
   `/projects/:id`), and the stack of unexpected server errors. Successful
   requests are not logged; the renderer polls the daemon and they would bury
@@ -51,7 +53,7 @@ In `main.log` (`src/desktop/console-log.ts`):
 ## Redaction and rotation
 
 Each line is timestamped and redacted before it is written
-(`src/desktop/log-redaction.ts`):
+(`src/shared/log-redaction.ts`):
 
 - The diagnostic sanitizer from the Pi patch replaces `sk-` and `pk-` keys,
   bearer and basic tokens, and values after `api_key`, `access_token`,
@@ -59,6 +61,10 @@ Each line is timestamped and redacted before it is written
 - URL credentials, queries and fragments are removed.
 - The home folder is written as `~`, in plain, forward-slash and JSON-escaped
   spellings.
+- JSON strings inside errors and tool output are decoded before redaction,
+  including nested JSON. Oversized input, incomplete JSON records and excessive
+  string nesting are omitted instead of risking a credential being cut away from
+  its field name. An oversized chunked line is discarded through its newline.
 
 The daemon's log lines carry the process ID but not the computer name
 (`src/daemon/request-log.ts`).
@@ -88,14 +94,18 @@ passes the logs folder to the daemon in `OHMYGAME_LOG_DIR`. The ZIP contains:
   plugins, and the number of projects of each type. `logs` is
   `"not recorded"` when the daemon has no logs folder. A part that cannot be
   read is recorded as `{ "error": … }` and the rest is still exported.
+  Every string in `system.json`, including section, summary and filesystem errors,
+  goes through the same redactor before serialization. Large summaries remain
+  valid JSON.
 
 When the background service is not running, the desktop app builds the same
 ZIP itself (`src/desktop/diagnostics-export.ts`), with the service's status
 in place of providers, agents and plugins. The service's address and access
 token stay out, and its error is redacted like a log line.
 
-It never contains keys, account names, file paths, settings files,
-conversations or project files.
+Settings files, conversations and project files are not added to the archive.
+Error text can still quote file names or short excerpts of failed tool or preview
+output; the redactor removes common credentials and the home folder from them.
 
 **Open logs folder**, shown only in the desktop app, opens the folder so people
 can read the logs before sharing them.
