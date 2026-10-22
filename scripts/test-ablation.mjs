@@ -40,6 +40,7 @@ const explicitTestGroups = {
   "electron-updater-patch.test.ts": "desktop",
   "release-notes.test.ts": "desktop",
   "desktop-installer-contract.test.ts": "desktop",
+  "desktop-installer-process.test.ts": "desktop",
   "desktop-update-ranges.test.ts": "desktop",
 };
 // These skip without a local Blender or a platform-specific process feature.
