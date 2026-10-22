@@ -200,20 +200,6 @@ body {
   user-select: none;
 }
 
-.desktop-window-menu-icon {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  flex: 0 0 18px;
-  margin-right: 5px;
-  place-items: center;
-}
-
-.desktop-window-menu-icon img {
-  width: 16px;
-  height: 16px;
-}
-
 .desktop-window-menu-bar button {
   height: 26px;
   padding: 0 8px;
@@ -269,6 +255,10 @@ body {
   --home-sidebar: var(--window-chrome-background);
 }
 
+:root[data-appearance="light"] .desktop-window-frame .home-shell {
+  --home-sidebar: #ffffff;
+}
+
 .home-shell
   > :is(
     .home-content,
@@ -299,6 +289,14 @@ body {
   .home-sidebar:not(.settings-page-sidebar)
   .home-sidebar-header-spacer {
   height: 14px;
+}
+
+.desktop-window-content .settings-page-sidebar {
+  padding-top: 0;
+}
+
+.desktop-window-content .settings-page-sidebar .home-sidebar-header-spacer {
+  display: none;
 }
 
 .home-sidebar nav {
@@ -12209,6 +12207,15 @@ button {
   border: 0;
   border-radius: 8px;
   background: var(--menu-surface);
+}
+
+.composer-command-menu.is-below {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+
+.composer-command-menu.is-inside {
+  bottom: auto;
 }
 
 .composer-command-menu button {

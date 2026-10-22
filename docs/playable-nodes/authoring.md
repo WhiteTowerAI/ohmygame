@@ -101,8 +101,8 @@ Each Scene card shows:
   ([Variables](#variables));
 - a **Start** badge on the Scene the player starts in (**Set as Start**
   moves it);
-- an **Ending** badge on a Scene the [Story map](#story-map) counts as an
-  ending, or **Off map** on one it leaves out;
+- an **Ending** badge on a Scene included in the [Story map](#story-map)
+  that counts as an ending;
 - an issue marker when the Scene fails to build, emits an undeclared Signal,
   or has an Exit that goes nowhere.
 
@@ -434,6 +434,7 @@ menu: **On Story map**, and **Ending**. A Scene with no Exits other than
 Navigation ones is guessed to be an ending. The Agent can set both, and the
 name players see when it should differ from the Scene's title. Asking the
 Agent changes how the map looks, since it is the Scene's own code.
+Map inclusion is shown in the context menu, without a badge on the Scene card.
 
 The Workbench previews a Story map Scene with everything seen, so the author
 sees the whole map while editing; Playtest shows what they have played.

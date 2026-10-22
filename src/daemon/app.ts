@@ -1044,6 +1044,8 @@ export function createApp(options: AppOptions = {}) {
   const app = Fastify({
     logger: options.logger ? daemonLoggerOptions() : false,
     logController: new LogController({ disableRequestLogging: true }),
+    // First-run plugin extraction can exceed Fastify's default 10s on Windows.
+    pluginTimeout: 60_000,
     ajv: { customOptions: { coerceTypes: false } },
   });
   if (options.logger) {

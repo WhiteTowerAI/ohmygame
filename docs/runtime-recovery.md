@@ -5,6 +5,11 @@ It must leave project lists, file access, conversations, and other projects
 available. A missing package-manager executable must likewise fail the preview
 request rather than exit the daemon.
 
+The daemon allows up to 60 seconds for initialization hooks. First-run
+preinstalled plugin extraction and local state loading can exceed Fastify's
+default ten-second timeout on Windows; the longer budget keeps that work from
+aborting an otherwise healthy desktop startup.
+
 ## Preview lifecycle
 
 Package-manager selection follows project settings, `package.json.packageManager`,

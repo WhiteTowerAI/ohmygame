@@ -2757,8 +2757,6 @@ const zhCN: typeof en = {
   sceneCard: {
     startTitle: "玩家从这里开始",
     start: "起始",
-    offMapTitle: "不显示在故事地图上，地图会把它前后的场景直接连起来",
-    offMap: "不在地图上",
     endingTitle: "在故事地图上算作结局",
     staleTitle: "截图之后场景已有改动。",
     stale: "已过期",

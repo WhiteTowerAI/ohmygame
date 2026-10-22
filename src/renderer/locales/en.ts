@@ -2834,9 +2834,6 @@ const en = {
   sceneCard: {
     startTitle: "The player starts here",
     start: "Start",
-    offMapTitle:
-      "Not shown on the Story map, and the Scenes before and after it are joined there",
-    offMap: "Off map",
     endingTitle: "Counted as an ending on the Story map",
     staleTitle: "The Scene changed since this picture was taken.",
     stale: "Stale",
