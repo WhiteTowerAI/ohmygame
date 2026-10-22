@@ -428,6 +428,20 @@ describe("Playtest that cannot start", () => {
     expect(text()).toContain("The story can't start");
   });
 
+  it("counts a Scene change as playing, and a page that starts over as not yet playing", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const props = player.mock.calls.at(-1)![0];
+    await act(async () => props.onSnapshot(snapshot("transitioning")));
+    await act(async () => props.onSnapshot(snapshot("starting")));
+    await act(async () => props.onError("Scene script failed"));
+    expect(text()).toContain("The story can't start");
+    await act(async () => action("Try again").click());
+    const next = player.mock.calls.at(-1)![0];
+    await act(async () => next.onSnapshot(snapshot("transitioning")));
+    await act(async () => next.onError("Scene script failed"));
+    expect(text()).toContain("The story stopped with an error");
+  });
+
   it("tries again after a failure that may pass, keeping the chosen Scene", async () => {
     getNodeRuntime.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     requestPlaytest("p", { action: "start", start: { nodeId: "start" } });

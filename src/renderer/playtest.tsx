@@ -70,8 +70,10 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   const onSnapshot = useCallback((next: NodeRuntimeSnapshot) => {
     history.current.record(next);
     setSnapshot(next);
-    // A web story reports itself before it starts, so only a running game counts as played.
+    // A web story reports itself before it starts, so only a running game
+    // counts as played; a page that reloads itself starts over.
     if (next.status === "running" || next.status === "transitioning") setPlayed(true);
+    else if (next.status === "starting") setPlayed(false);
   }, []);
   const onDiagnostic = useCallback((message: string) => setDiagnostics((current) => [...current.slice(-19), message]), []);
 
