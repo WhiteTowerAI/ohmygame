@@ -225,15 +225,18 @@ export function askToFixPlaytest(graph: NodeGraph, record: PlayableDebugRecord |
   return lines.join("\n");
 }
 
-/** Why Playtest cannot start the story, with the service's message when there is one. */
+/**
+ * Why Playtest cannot play the story, with the service's message when there
+ * is one: `stopped` is a game that had started; every other kind never did.
+ */
 export interface PlaytestProblemState {
-  kind: "no-scenes" | "missing-start" | "not-found" | "invalid" | "unavailable";
+  kind: "no-scenes" | "missing-start" | "not-found" | "invalid" | "unavailable" | "stopped";
   detail?: string;
 }
 
 /**
  * What the Playtest window shows instead of the game when the story cannot
- * start: what is wrong, and the way forward for that case. Without a way to
+ * start or stops: what is wrong, and the way forward for that case. Without a way to
  * reach the editor, closing the window takes its place.
  */
 export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStart, onAskAgent, onClose }: {
@@ -253,6 +256,7 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
     "not-found": { title: t("playtest.notFoundTitle"), body: t("playtest.notFoundBody") },
     invalid: { title: t("playtest.invalidTitle"), body: t("playtest.invalidBody") },
     unavailable: { title: t("playtest.unavailableTitle"), body: t("playtest.unavailableBody") },
+    stopped: { title: t("playtest.stoppedTitle"), body: t("playtest.stoppedBody") },
   }[problem.kind];
 
   const close = <button key="close" type="button" onClick={onClose}><X size={13} /><span>{t("playtest.closeWindow")}</span></button>;
@@ -260,18 +264,16 @@ export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStar
     ? <button key="editor" type="button" onClick={onOpenEditor}><Pencil size={13} /><span>{t("playtest.openEditor")}</span></button>
     : close;
   const retry = <button key="retry" type="button" onClick={onRetry}><RotateCcw size={13} /><span>{t("playtest.tryAgain")}</span></button>;
+  const ask = sent
+    ? <span key="ask" className="playtest-problem-sent">{t("playtest.addedToChat")}</span>
+    : <button key="ask" type="button" onClick={() => { onAskAgent(); setSent(true); }}><Sparkles size={13} /><span>{t("playtest.askFix")}</span></button>;
   const actions = {
     "no-scenes": [editor],
     "missing-start": [<button key="start" type="button" onClick={onPlayFromStart}><Play size={13} /><span>{t("playtest.playFromStart")}</span></button>, editor],
     "not-found": [close],
-    invalid: [
-      sent
-        ? <span key="ask" className="playtest-problem-sent">{t("playtest.addedToChat")}</span>
-        : <button key="ask" type="button" onClick={() => { onAskAgent(); setSent(true); }}><Sparkles size={13} /><span>{t("playtest.askFix")}</span></button>,
-      retry,
-      editor,
-    ],
+    invalid: [ask, retry, editor],
     unavailable: [retry, editor],
+    stopped: [ask, <button key="again" type="button" onClick={onRetry}><RotateCcw size={13} /><span>{t("playtest.playAgain")}</span></button>, editor],
   }[problem.kind];
 
   return <main className="playable-player-page">

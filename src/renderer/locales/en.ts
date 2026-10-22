@@ -2836,6 +2836,9 @@ const en = {
     tryAgain: "Try again",
     playFromStart: "Play from the start",
     closeWindow: "Close window",
+    stoppedTitle: "The story stopped with an error",
+    stoppedBody: "Something went wrong while it was playing. Ask AI to fix it, play again, or open the editor to look.",
+    playAgain: "Play again",
   },
   sceneCard: {
     startTitle: "The player starts here",

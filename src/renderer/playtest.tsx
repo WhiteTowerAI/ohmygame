@@ -21,8 +21,10 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   const history = useRef(new PlayableStateHistory());
   /** Counts how often the story was loaded, so a request can load it again. */
   const [revision, setRevision] = useState(0);
-  /** Why this session's game stopped while starting. */
+  /** Why this session's game stopped. */
   const [failed, setFailed] = useState<string>();
+  /** Whether this session's game got past starting, so a stop is not a failure to start. */
+  const [played, setPlayed] = useState(false);
   const [playable, setPlayable] = useState<
     | { status: "loading" }
     | { status: "ready"; definition: NodePlayerDefinition; assets: Record<string, Blob>; page?: string }
@@ -68,11 +70,13 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
   const onSnapshot = useCallback((next: NodeRuntimeSnapshot) => {
     history.current.record(next);
     setSnapshot(next);
+    // A web story reports itself before it starts, so only a running game counts as played.
+    if (next.status === "running" || next.status === "transitioning") setPlayed(true);
   }, []);
   const onDiagnostic = useCallback((message: string) => setDiagnostics((current) => [...current.slice(-19), message]), []);
 
   const problem: PlaytestProblemState | undefined = playable.status === "error" ? playable.problem
-    : playable.status === "ready" ? startProblem(playable.definition.graph, start) ?? (failed === undefined ? undefined : { kind: "invalid", detail: failed })
+    : playable.status === "ready" ? startProblem(playable.definition.graph, start) ?? (failed === undefined ? undefined : { kind: played ? "stopped" : "invalid", detail: failed })
     : undefined;
 
   usePlaytestRequests(projectId, (request) => {
@@ -100,6 +104,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
     setSnapshot(undefined);
     setDiagnostics([]);
     setFailed(undefined);
+    setPlayed(false);
     setStart(nextStart);
     setStorage(createMemoryStorage());
     setSession((current) => current + 1);
@@ -124,7 +129,7 @@ export function PlaytestPage({ projectId }: { projectId: string }) {
         }}
         onPlayFromStart={() => restart()}
         onAskAgent={() => {
-          // A game that stopped while starting tells the AI what the player was doing, as the overlay does.
+          // A game that stopped tells the AI what the player was doing, as the overlay does.
           const text = playable.status === "ready"
             ? askToFixPlaytest(playable.definition.graph, record, [...new Set([...(record?.errors ?? []).map((error) => error.message), ...diagnostics, problem.detail ?? ""].filter(Boolean))])
             : askToFixPlaytestStart(problem.detail ?? "");

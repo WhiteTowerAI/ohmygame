@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
+import type { NodeRuntimeSnapshot } from "../src/shared/playable-runtime.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 import {
   PlaytestControls,
@@ -382,6 +383,49 @@ describe("Playtest that cannot start", () => {
     await act(async () => action("Ask AI to fix").click());
     const ask = JSON.parse(window.localStorage.getItem("ohmygame:playtest:ask:p")!) as { text: string };
     expect(ask.text).toBe("Something broke while I was playtesting. Find the cause and fix it.\n\nErrors:\n- Missing image\n- Scene script failed");
+  });
+
+  function snapshot(status: NodeRuntimeSnapshot["status"]): NodeRuntimeSnapshot {
+    return {
+      status,
+      policy: "follow",
+      currentNodeId: "start",
+      backStack: [],
+      state: {},
+      recentSignals: [],
+      reports: [],
+      stateAccess: {},
+      errors: [],
+    } as unknown as NodeRuntimeSnapshot;
+  }
+
+  it("still says the story can't start when a web story reported itself before it started", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const props = player.mock.calls.at(-1)![0];
+    await act(async () => props.onSnapshot(snapshot("starting")));
+    await act(async () => props.onError("Scene script failed"));
+    expect(text()).toContain("The story can't start");
+    expect(text()).not.toContain("The story stopped with an error");
+  });
+
+  it("says the story stopped, not that it could not start, when a running game fails", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const props = player.mock.calls.at(-1)![0];
+    await act(async () => props.onSnapshot(snapshot("running")));
+    await act(async () => props.onError("The save could not be read"));
+    expect(text()).toContain("The story stopped with an error");
+    expect(text()).toContain("The save could not be read");
+    expect(text()).not.toContain("The story can't start");
+    await act(async () => action("Ask AI to fix").click());
+    const ask = JSON.parse(window.localStorage.getItem("ohmygame:playtest:ask:p")!) as { text: string };
+    expect(ask.text).toBe("Something broke while I was playtesting. Find the cause and fix it.\nI was in Node 1.\n\nErrors:\n- The save could not be read");
+    const calls = getNodeRuntime.mock.calls.length;
+    await act(async () => action("Play again").click());
+    expect(getNodeRuntime).toHaveBeenCalledTimes(calls + 1);
+    expect(text()).not.toContain("The story stopped with an error");
+    // The new session has not played yet, so failing now is a failure to start.
+    await act(async () => player.mock.calls.at(-1)![0].onError("Scene script failed"));
+    expect(text()).toContain("The story can't start");
   });
 
   it("tries again after a failure that may pass, keeping the chosen Scene", async () => {

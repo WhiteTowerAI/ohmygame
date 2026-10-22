@@ -2759,6 +2759,9 @@ const zhCN: typeof en = {
     tryAgain: "重试",
     playFromStart: "从头开始试玩",
     closeWindow: "关闭窗口",
+    stoppedTitle: "故事在运行中出错",
+    stoppedBody: "游戏进行中出现了错误。可以让 AI 修复、再玩一次，或打开编辑器查看。",
+    playAgain: "再玩一次",
   },
   sceneCard: {
     startTitle: "玩家从这里开始",
