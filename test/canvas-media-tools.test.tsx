@@ -9,7 +9,6 @@ import type { CanvasBoardStorage } from "../src/renderer/canvas-board-storage.js
 import type { CanvasDocuments } from "../src/renderer/canvas-document-node.js";
 import type { ImageModel, ProjectState, ToolJob } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
-import { isCanvasBoard } from "../src/shared/canvas-workspace.js";
 import type { LibraryAsset } from "../src/renderer/library-assets.js";
 
 const captured = {
@@ -18,6 +17,7 @@ const captured = {
 const viewport = { x: 0, y: 100, zoom: 1 };
 const setCenter = vi.fn();
 const runMedia = vi.fn();
+const startTemplate = vi.fn();
 const loadAssets = vi.fn(async (): Promise<LibraryAsset[]> => []);
 const save = vi.fn(async (value) => value);
 const imageModels: ImageModel[] = [];
@@ -129,6 +129,7 @@ beforeEach(async () => {
           add: vi.fn(),
         }}
         assets={[]}
+        onStartTemplate={startTemplate}
       />,
     ),
   );
@@ -285,24 +286,14 @@ it("shows processing and failures inside the dialog, and allows retry", async ()
   expect(captured.props!.nodes).toHaveLength(3);
 });
 
-it("creates a referenced action image node and starts generation", async () => {
-  await select("first");
-  await act(async () => container.querySelector<HTMLButtonElement>('[title="Continuous actions"]')!.click());
-  const description = container.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(description, "walking cycle");
-    description.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await submit();
-  expect(container.querySelector('[role="dialog"]')).toBeNull();
-  const action = captured.props!.nodes.find((node) => node.type === "image");
-  expect(action?.data).toMatchObject({
-    images: [{ type: "node", nodeId: "first" }],
-    model: { provider: "google", id: "image-ref" },
-    aspectRatio: "4:3",
-  });
-  expect(action?.data.prompt).toContain("continuous walking cycle animation");
-  expect(action?.data).not.toHaveProperty("generationMode");
-  expect(generate).toHaveBeenCalledWith(action?.id);
-  expect(isCanvasBoard({ ...save.mock.calls.at(-1)![0], id: "b" })).toBe(true);
+it.each([
+  ["Free sequence", "free-sequence"],
+  ["Character action set", "action-set"],
+])("opens the %s template with the selected image", async (label, template) => {
+  await select("second");
+  await act(async () => container.querySelector<HTMLButtonElement>(`[title="${label}"]`)!.click());
+  expect(startTemplate).toHaveBeenCalledWith(template, "second");
+  expect(captured.props!.nodes).toHaveLength(2);
+  expect(generate).not.toHaveBeenCalled();
+  expect(runMedia).not.toHaveBeenCalled();
 });

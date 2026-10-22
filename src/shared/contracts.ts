@@ -496,6 +496,8 @@ export type AssetCanvasNode = (
   } }
   | { id: string; type: "image"; position: AssetCanvasPosition; data: {
     prompt: string;
+    presetId?: import("./canvas-image-presets.js").CanvasImagePreset;
+    sourceInput?: boolean;
     /** Legacy drafts only; new nodes store the expanded prompt. */
     generationMode?: "character-asset" | "continuous-actions" | "all-actions";
     promptSource?: AssetCanvasTextReference;

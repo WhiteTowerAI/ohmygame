@@ -3326,6 +3326,59 @@ button.home-nav-item-active:hover {
   margin-top: 38px;
 }
 
+.asset-canvas-templates {
+  margin: 38px 0 48px;
+}
+
+.asset-canvas-templates h2 {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.asset-canvas-template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.asset-canvas-template-grid > button {
+  display: flex;
+  min-width: 0;
+  min-height: 86px;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--home-surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.asset-canvas-template-grid > button:not(:disabled):hover,
+.asset-canvas-template-grid > button:not(:disabled):focus-visible {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.asset-canvas-template-grid > button:disabled { cursor: wait; opacity: .65; }
+.asset-canvas-template-grid > button > span:last-child { display: grid; min-width: 0; gap: 4px; }
+.asset-canvas-template-grid strong { font-size: 13px; font-weight: 600; }
+.asset-canvas-template-grid small { color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.asset-canvas-template-icon { display: grid; width: 42px; height: 42px; flex: 0 0 42px; place-items: center; border-radius: 6px; background: var(--surface-raised); color: var(--text-secondary); }
+
+.asset-template-source-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; }
+.asset-template-source-actions button { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); cursor: pointer; font: inherit; font-size: 11px; }
+.asset-template-source-actions button:disabled { opacity: .55; cursor: wait; }
+
+@media (max-width: 780px) {
+  .asset-canvas-template-grid { grid-template-columns: 1fr; }
+}
+
 .asset-canvas-recent .home-section-heading {
   margin-bottom: 12px;
 }
@@ -9410,25 +9463,6 @@ button {
 }
 
 .asset-media-tool-dialog label textarea { padding: 9px; resize: vertical; }
-
-.asset-character-mode {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.asset-character-mode button {
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.asset-character-mode button.is-active { background: var(--surface-hover); color: var(--text); }
 
 .asset-media-tool-grid {
   display: grid;

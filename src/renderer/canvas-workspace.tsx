@@ -10,6 +10,7 @@ import { canvasBoardPath } from "../shared/canvas-workspace.js";
 import { canvasNodeTitle } from "../shared/canvas-assets.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { CanvasBoardEditor } from "./asset-canvas-workspace.js";
+import { createAssetCanvasTemplateBoard } from "./asset-canvas-templates.js";
 import { createCanvasBoardStorage, type CanvasBoardConflict, type CanvasBoardStorage } from "./canvas-board-storage.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
@@ -50,7 +51,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   onProjectUpdated?: (project: ProjectState) => void;
 }) {
   const [writeVersion] = useState(() => workspaceVersion(project.id));
-  const singleBoard = project.type === "asset-canvas";
+  const isAssetCanvas = project.type === "asset-canvas";
   const docs = useCanvasDocuments(project.id), workspace = docs.workspace;
   const tableStorage = useCanvasTables(project.id, workspace);
   const tablesRef = useRef(tableStorage); tablesRef.current = tableStorage;
@@ -58,6 +59,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const assetPaths = useMemo(() => canvasAssetSources(project.id, workspace?.assets ?? [], workspace?.unavailableAssets), [project.id, workspace?.assets, workspace?.unavailableAssets]);
   const docsRef = useRef(docs); docsRef.current = docs;
   const [activeId, setActiveId] = useState<string | undefined>(() => { try { return localStorage.getItem(`canvas-active:${project.id}`) ?? undefined; } catch { return undefined; } });
+  const [templateFocus, setTemplateFocus] = useState<{ boardId: string; nodeId: string }>();
   const [selectedNodes, setSelectedNodes] = useState<AssetCanvasNode[]>([]);
   const [boardConflict, setBoardConflict] = useState<CanvasBoardConflict>();
   const [boardOptions, setBoardOptions] = useState<{ id: string; x: number; y: number }>();
@@ -98,7 +100,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
     // Keep the canvas session and drafts alive; Code stays accessible if saving fails.
     if (view === "code") void flush().then(() => setCodeRevision((value) => value + 1)).catch(() => {});
   }, [flush]);
-  useEffect(() => { if (singleBoard && openFileRequest) changeView("code"); }, [singleBoard, openFileRequest?.id, changeView]);
+  useEffect(() => { if (isAssetCanvas && openFileRequest) changeView("code"); }, [isAssetCanvas, openFileRequest?.id, changeView]);
   useEffect(() => { if (initialNodeId) setWorkspaceView("canvas"); }, [initialNodeId]);
   const run = useCallback(async <T,>(operation: () => Promise<T>) => {
     setBusy(true); setError(undefined);
@@ -113,15 +115,15 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const leave = useCallback((action: () => void) => { void run(async () => { await flush(); action(); }); }, [run, flush]);
   useEffect(() => { onLeaveReady?.(leave); return () => onLeaveReady?.(undefined); }, [leave, onLeaveReady]);
   useEffect(() => { onSaveReady?.(flush); return () => onSaveReady?.(undefined); }, [flush, onSaveReady]);
-  useEffect(() => { if (workspace && (singleBoard || !workspace.boards.some((board) => board.id === activeId))) setActiveId(workspace.boards[0]?.id); }, [workspace, activeId, singleBoard]);
+  useEffect(() => { if (workspace && !workspace.boards.some((board) => board.id === activeId)) setActiveId(workspace.boards[0]?.id); }, [workspace, activeId]);
   useEffect(() => { if (activeId) { try { localStorage.setItem(`canvas-active:${project.id}`, activeId); } catch { /* Board selection remains usable without storage. */ } } }, [project.id, activeId]);
   const boardName = workspace?.boards.find((board) => board.id === activeId)?.name;
   const selectionContext = JSON.stringify({ total: selectedNodes.length, nodes: selectedNodes.slice(0, 25).map((node) => ({ id: node.id, name: canvasNodeTitle(node, workspace?.documents, workspace?.assets, tableContents).slice(0, 80), type: node.type, ...(node.type === "document" ? { source: canvasDocumentPath(node.data.documentId) } : node.type === "table" ? { source: canvasTablePath(node.data.tableId) } : {}) })) });
   useEffect(() => {
-    if (singleBoard && workspaceView === "code") { onContextChange?.(undefined); return; }
+    if (isAssetCanvas && workspaceView === "code") { onContextChange?.(undefined); return; }
     if (!activeId || !boardName) return;
-    onContextChange?.({ kind: "canvas-board", label: `${singleBoard ? project.name : boardName}${selectedNodes.length ? t("canvas.selectedCount", { count: selectedNodes.length }) : ""}`.slice(0, 200), text: `Current canvas board: ${canvasBoardPath(activeId)}\nSelected nodes: ${selectionContext}\nAsset paths and descriptions: canvas/assets.json\nRead these current project files to resolve the user's references. Selected nodes identify what the message refers to; they do not limit the requested work. Read actual image files when evaluating their appearance.` });
-  }, [activeId, boardName, singleBoard, workspaceView, project.name, selectionContext, onContextChange]);
+    onContextChange?.({ kind: "canvas-board", label: `${isAssetCanvas ? project.name : boardName}${selectedNodes.length ? t("canvas.selectedCount", { count: selectedNodes.length }) : ""}`.slice(0, 200), text: `Current canvas board: ${canvasBoardPath(activeId)}\nSelected nodes: ${selectionContext}\nAsset paths and descriptions: canvas/assets.json\nRead these current project files to resolve the user's references. Selected nodes identify what the message refers to; they do not limit the requested work. Read actual image files when evaluating their appearance.` });
+  }, [activeId, boardName, isAssetCanvas, workspaceView, project.name, selectionContext, onContextChange]);
   useEffect(() => { setSelectedNodes([]); }, [activeId]);
   useEffect(() => { setBoardConflict(undefined); }, [project.id, activeId]);
   useEffect(() => () => onContextChange?.(undefined), [onContextChange]);
@@ -142,7 +144,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
     generate: (id, model, reasoningLevel, referenceSource) => {
       void docsRef.current.generate(id, model, reasoningLevel, referenceSource, () => boardSave.current?.() ?? Promise.resolve());
     }, applyGeneration: docs.applyGeneration,
-    setMain: singleBoard ? undefined : (id) => { void run(() => docsRef.current.setMain(id)); },
+    setMain: isAssetCanvas ? undefined : (id) => { void run(() => docsRef.current.setMain(id)); },
     insertImage: (id, assetId) => { void run(() => docsRef.current.insertImage(id, assetId)); },
     pickImage: (id) => {
       setInsertion({ documentId: id });
@@ -175,8 +177,8 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
       onChange={(id) => void run(async () => { await flush(); setActiveId(id); setBoardStatus("loading"); })} />
   </div>;
   const settingsButton = <ProjectMediaModelSettings key={project.id} project={project} onSaved={(updated) => onProjectUpdated?.(updated)} />;
-  return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" data-active-tab={singleBoard ? workspaceView : undefined} aria-label={singleBoard ? t("canvas.assetCanvasWorkspace") : t("canvas.designWorkspace")}>
-    {singleBoard ? <header className="pane-header viewer-header interactive-story-header window-drag-handle">
+  return <CanvasAssetProvider assets={assetPaths}><section className="viewer-pane design-workspace" data-active-tab={isAssetCanvas ? workspaceView : undefined} aria-label={isAssetCanvas ? t("canvas.assetCanvasWorkspace") : t("canvas.designWorkspace")}>
+    {isAssetCanvas ? <header className="pane-header viewer-header interactive-story-header window-drag-handle">
       <span className="workspace-navigation-drag-exclusion" aria-hidden="true" />
       <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
         {chatOnRight && onHome ? <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} /> : null}
@@ -202,8 +204,16 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
       await resolve(version);
       setBoardConflict(undefined);
     })}>{version === "remote" ? t("canvas.useDisk") : t("canvas.keepMine")}</button>)}</CanvasNotice> : null}
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={singleBoard && workspaceView === "code"} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={singleBoard ? undefined : floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : singleBoard && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
-    {singleBoard && workspaceView === "code" ? <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + codeRevision} openFileRequest={openFileRequest} /> : null}
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={isAssetCanvas && workspaceView === "code"} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} onStartTemplate={isAssetCanvas ? (template, assetId) => void run(async () => {
+      await flush();
+      const created = await createAssetCanvasTemplateBoard(project.id, template, assetId);
+      await docsRef.current.refresh();
+      setTemplateFocus(created);
+      setActiveId(created.boardId);
+      setBoardStatus("loading");
+      setWorkspaceView("canvas");
+    }) : undefined} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={templateFocus?.boardId === activeId ? templateFocus.nodeId : initialNodeId} onInitialNodeHandled={templateFocus?.boardId === activeId ? () => setTemplateFocus(undefined) : onInitialNodeHandled} /> : isAssetCanvas && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
+    {isAssetCanvas && workspaceView === "code" ? <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + codeRevision} openFileRequest={openFileRequest} /> : null}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={t("canvas.boardOptions", { name: optionsBoard.name })} onClose={() => setBoardOptions(undefined)}>
       <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>{t("common.rename")}</span></button>
       {([-1, 1] as const).map((direction) => <button type="button" role="menuitem" key={direction} disabled={workspace.boards.findIndex((board) => board.id === optionsBoard.id) === (direction === -1 ? 0 : workspace.boards.length - 1)} onClick={() => { setBoardOptions(undefined); void run(async () => { await flush(); await changeCanvasBoard(project.id, optionsBoard.id, { direction }, writeVersion); await docsRef.current.refresh(); }); }}>{direction === -1 ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}<span>{direction === -1 ? t("canvas.moveUp") : t("canvas.moveDown")}</span></button>)}

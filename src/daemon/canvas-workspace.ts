@@ -9,6 +9,7 @@ import type { AssetCanvasNode, PromptImage, RunToolRequest, ToolJob, ToolId } fr
 import { createCanvasBoard, fitCanvasLayout, isCanvasBoard, isCanvasIndex, CANVAS_INDEX_SCHEMA, CANVAS_BOARD_SCHEMA, CANVAS_LAYOUT_SCHEMA, type CanvasBoard, type CanvasBoardDetail, type CanvasWorkspaceDetail, type CanvasWorkspaceIndex } from "../shared/canvas-workspace.js";
 import { CANVAS_ASSETS_SCHEMA, canvasNodeAssetIds } from "../shared/canvas-assets.js";
 import { combineAssetCanvasPrompt, createAssetCanvasDocument, resolveAssetCanvasAssetId, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
+import { canvasImagePresetPrompt } from "../shared/canvas-image-presets.js";
 import { buildModel3DToolRequest } from "../shared/generation-config.js";
 import { getWorkspaceMedia } from "./workspace.js";
 import { createCanvasDocument, canvasDocumentPath, type CanvasDocumentDetail, type CanvasMarkdownDocument } from "../shared/canvas-document.js";
@@ -393,7 +394,6 @@ export class CanvasStore {
     });
   }
   async changeBoards(id: string, action: { type: "create"; name: string } | { type: "rename" | "delete" | "move"; boardId: string; name?: string; direction?: number }) {
-    if (this.#project(id).type === "asset-canvas") throw new CanvasError("Asset Canvas uses one default board", 409);
     const workspace = this.#project(id).workspacePath;
     return withCanvasLock(workspace, async () => {
       const index = await ensureCanvasIndex(workspace);
@@ -545,7 +545,7 @@ export class CanvasStore {
     const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
     const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
     if (!prompt) throw new CanvasError("Add a prompt before generating");
-    if (node.type === "image") return this.start(id, boardId, nodeId, "generate-image", { prompt, resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), images: await Promise.all(node.data.images.map(image)) }, revision);
+    if (node.type === "image") return this.start(id, boardId, nodeId, "generate-image", { prompt: canvasImagePresetPrompt(node.data.presetId, prompt), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), images: await Promise.all(node.data.images.map(image)) }, revision);
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);
     const references = referenceIds.map((id) => {

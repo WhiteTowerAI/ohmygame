@@ -96,6 +96,7 @@ import {
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
 import { allActionsPrompt, characterAssetPrompt, continuousActionsPrompt, preferredCharacterSheetOption } from "../shared/canvas-character-tools.js";
+import { CANVAS_IMAGE_PRESETS, type CanvasImagePreset } from "../shared/canvas-image-presets.js";
 import { VOLCENGINE_TTS_VOICES, availableAudioOperations, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DAnimations, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset } from "./api.js";
 import { useAuth } from "./auth.js";
@@ -207,6 +208,8 @@ type AssetCanvasFlowData = {
   documentId?: string;
   documentRuntime?: DocumentNodeRuntime;
   prompt?: string;
+  presetId?: CanvasImagePreset;
+  sourceInput?: boolean;
   generationMode?: "character-asset" | "continuous-actions" | "all-actions";
   promptSource?: AssetCanvasTextReference;
   text?: string;
@@ -304,7 +307,8 @@ type ReferenceStripRuntime = Omit<ReferenceMediaNodeRuntime, "generating" | "err
 interface ImageNodeRuntime extends ReferenceMediaNodeRuntime {
   models: ImageModel[];
   providers: MediaProviderStatus[];
-  onGenerateCharacter: () => void;
+  onUploadSourceImage: (file: File) => void;
+  onSetSourceAsset: (asset: LibraryAsset) => void;
 }
 
 interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
@@ -350,7 +354,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
 };
 
-export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onSyncReady, onResolveReady, onStatusChange, onSelectionChange, expandedDocument }: {
+export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onSyncReady, onResolveReady, onStatusChange, onSelectionChange, onStartTemplate, expandedDocument }: {
   project: ProjectState;
   initialNodeId?: string;
   onInitialNodeHandled?: () => void;
@@ -366,6 +370,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   onResolveReady?: (resolve: ((version: "local" | "remote") => Promise<void>) | undefined) => void;
   onStatusChange?: (status: "loading" | "saved" | "saving" | "error" | "sync-error" | "load-error") => void;
   onSelectionChange?: (nodes: AssetCanvasNode[]) => void;
+  onStartTemplate?: (template: "free-sequence" | "action-set", sourceAssetId: string) => void;
   expandedDocument?: { id: string; nodeId?: string; busy?: boolean; onClose(): void };
 }) {
   const projectId = project.id;
@@ -442,8 +447,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const rememberedSettings = useRef<RememberedSettings>({});
   const [viewedAsset, setViewedAsset] = useState<ViewableCanvasAsset>();
   const [mediaToolDialog, setMediaToolDialog] = useState<{ operation: CanvasMediaOperation; assetIds: string[] }>();
-  const [characterToolDialog, setCharacterToolDialog] = useState<{ mode: "continuous-actions" | "all-actions"; sourceNodeId: string }>();
-  const [characterToolError, setCharacterToolError] = useState<string>();
   const [mediaToolBusy, setMediaToolBusy] = useState(false);
   const [mediaToolError, setMediaToolError] = useState<string>();
   const [sentAsset, setSentAsset] = useState<{ assetId: string; name: string }>();
@@ -1266,36 +1269,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setMediaToolDialog({ operation, assetIds: ids });
   }
 
-  function openCharacterTool(mode: "continuous-actions" | "all-actions"): void {
+  function openTemplate(template: "free-sequence" | "action-set"): void {
     const source = selectedMediaType === "image" && selectedMediaNodes.length === 1 ? selectedMediaNodes[0] : undefined;
-    if (!source?.data.assetId) return;
-    setCharacterToolError(undefined);
-    setCharacterToolDialog({ mode, sourceNodeId: source.id });
-  }
-
-  async function generateCharacterAction(mode: "continuous-actions" | "all-actions", sourceNodeId: string, description: string): Promise<void> {
-    const source = nodesRef.current.find((node) => node.id === sourceNodeId);
-    if (!source?.data.assetId) { setCharacterToolError(t("assetCanvas.characterTools.sourceUnavailable")); return; }
-    if (nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) { setCharacterToolError(t("assetCanvas.nodeLimit")); return; }
-    const sourceModel = imageModels.find((model) => sameImageModel(model, source.data.model));
-    const model = [sourceModel, ...imageModels].find((candidate) => candidate?.supportsReferenceImage && candidate.maxReferenceImages !== 0);
-    const option = preferredImageOption(model, mode === "continuous-actions" ? "4:3" : "1:1");
-    if (!model || !option) { setCharacterToolError(t("assetCanvas.characterTools.referenceModelRequired")); return; }
-    const position = snapCanvasPosition({ x: source.position.x + (source.measured?.width ?? 440) + 60, y: source.position.y });
-    const created: AssetCanvasFlowNode = {
-      ...createFlowNode("image", position, imageModels, videoModels),
-      title: t(mode === "continuous-actions" ? "assetCanvas.characterTools.continuousActions" : "assetCanvas.characterTools.allActions"),
-      selected: true,
-      data: {
-        prompt: mode === "continuous-actions" ? continuousActionsPrompt(description) : allActionsPrompt(description),
-        images: [{ type: "node", nodeId: source.id }],
-        model: { provider: model.provider, id: model.id },
-        resolution: option.resolution, aspectRatio: option.aspectRatio,
-      },
-    };
-    flushSync(() => setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), created]));
-    setCharacterToolDialog(undefined);
-    await generateMedia(created);
+    if (source?.data.assetId) onStartTemplate?.(template, source.data.assetId);
   }
 
   async function executeMediaTool(operation: CanvasMediaOperation, assetIds: string[], toolOptions: Record<string, string | number | boolean | undefined>): Promise<void> {
@@ -1425,6 +1401,31 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
   }
 
+  async function uploadSourceImage(node: AssetCanvasFlowNode, file: File): Promise<void> {
+    if (node.type !== "image" || !node.data.sourceInput || uploadingNodeId) return;
+    setUploadingNodeId(node.id);
+    setGenerationError(undefined);
+    try {
+      const image = await readUploadImage(file);
+      const asset = await createLibraryImage({ ...image, purpose: "reference" });
+      setNodes((current) => current.map((candidate) => candidate.id === node.id
+        ? { ...candidate, data: { ...candidate.data, assetId: asset.id } }
+        : candidate));
+      setLibraryAssets(await loadLibraryAssets());
+    } catch (error) {
+      setGenerationError({ nodeId: node.id, message: errorMessage(error) });
+    } finally {
+      setUploadingNodeId(undefined);
+    }
+  }
+
+  function setSourceAsset(node: AssetCanvasFlowNode, asset: LibraryAsset): void {
+    if (node.type !== "image" || !node.data.sourceInput || asset.mediaType !== "image") return;
+    setNodes((current) => current.map((candidate) => candidate.id === node.id
+      ? { ...candidate, data: { ...candidate.data, assetId: asset.id } }
+      : candidate));
+  }
+
   function addLibraryReference(node: AssetCanvasFlowNode, asset: LibraryAsset): void {
     const reference: AssetCanvasReference = { type: "library", assetId: asset.id };
     setGenerationError(undefined);
@@ -1480,14 +1481,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         return next;
       });
     }
-  }
-
-  async function generateCharacterAsset(node: AssetCanvasFlowNode): Promise<void> {
-    const description = node.data.prompt?.trim();
-    if (!description) return;
-    const prepared = { ...node, data: { ...node.data, prompt: characterAssetPrompt(description) } };
-    flushSync(() => setNodes((current) => current.map((candidate) => candidate.id === node.id ? prepared : candidate)));
-    await generateMedia(prepared);
   }
 
   async function cancelCanvasJob(nodeId: string): Promise<void> {
@@ -1739,7 +1732,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     return {
       ...node,
       data: node.type === "image"
-        ? { ...node.data, imageRuntime: { ...referenceRuntime, models: imageModels, providers: imageProviders, onGenerateCharacter: () => void generateCharacterAsset(node) } satisfies ImageNodeRuntime }
+        ? { ...node.data, imageRuntime: { ...referenceRuntime, models: imageModels, providers: imageProviders, onUploadSourceImage: (file) => void uploadSourceImage(node, file), onSetSourceAsset: (asset) => setSourceAsset(node, asset) } satisfies ImageNodeRuntime }
         : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels, providers: videoProviders } satisfies VideoNodeRuntime },
     };
   });
@@ -1854,7 +1847,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 imageCount={selectedMediaType === "image" ? selectedMediaNodes.length : 0}
                 busy={mediaToolBusy}
                 onOpen={openMediaTool}
-                onCharacterTool={selectedMediaType === "image" && selectedMediaNodes.length === 1 ? openCharacterTool : undefined}
+                onStartTemplate={onStartTemplate && selectedMediaType === "image" && selectedMediaNodes.length === 1 ? openTemplate : undefined}
               /> : null}
             </EditorCanvas>
           ) : null}
@@ -1917,13 +1910,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         onClose={() => { if (!mediaToolBusy) setMediaToolDialog(undefined); }}
         onSubmit={(options) => void executeMediaTool(mediaToolDialog.operation, mediaToolDialog.assetIds, options)}
       /> : null}
-      {characterToolDialog ? <CharacterActionDialog
-        key={`${characterToolDialog.sourceNodeId}:${characterToolDialog.mode}`}
-        mode={characterToolDialog.mode}
-        error={characterToolError}
-        onClose={() => setCharacterToolDialog(undefined)}
-        onSubmit={(description) => void generateCharacterAction(characterToolDialog.mode, characterToolDialog.sourceNodeId, description)}
-      /> : null}
       {nodeDetails ? createPortal(<div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) setNodeDetails(undefined); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={t("assetCanvas.nodeDetails")} onKeyDown={(event) => { if (event.key === "Escape") setNodeDetails(undefined); }}>
         <header><h2>{t("assetCanvas.nodeDetails")}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={() => setNodeDetails(undefined)}><X size={16} /></button></header>
         <form onSubmit={(event) => { event.preventDefault(); setNodes((current) => current.map((node) => node.id === nodeDetails.id ? { ...node, title: nodeDetails.title.trim() || undefined, description: nodeDetails.description.trim() || undefined } : node)); setNodeDetails(undefined); }}>
@@ -1942,12 +1928,12 @@ export function canvasHistoryKey(canvas: AssetCanvasDocument): string {
     value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))) : value);
 }
 
-function MediaCanvasToolbar({ mediaType, imageCount, busy, onOpen, onCharacterTool }: {
+function MediaCanvasToolbar({ mediaType, imageCount, busy, onOpen, onStartTemplate }: {
   mediaType: "image" | "video";
   imageCount: number;
   busy: boolean;
   onOpen: (operation: CanvasMediaOperation) => void;
-  onCharacterTool?: (mode: "continuous-actions" | "all-actions") => void;
+  onStartTemplate?: (template: "free-sequence" | "action-set") => void;
 }) {
   const action = (operation: CanvasMediaOperation, label: string, Icon: IconComponent, disabled = false) => (
     <button className="asset-media-toolbar-button" type="button" disabled={busy || disabled} title={label} aria-label={label} onClick={() => onOpen(operation)}>
@@ -1956,13 +1942,16 @@ function MediaCanvasToolbar({ mediaType, imageCount, busy, onOpen, onCharacterTo
   );
   return <div className="asset-media-toolbar" role="toolbar" aria-label={t("assetCanvas.mediaTools.toolbar") } onPointerDown={(event) => event.stopPropagation()}>
     {mediaType === "image" ? <>
+      {(["remove-green-screen", "remove-blue-screen", "remove-white-background"] as const).map((operation) => action(operation, t(`assetCanvas.mediaTools.${operation}`), Scissors))}
+      {(["resize-image", "outline-image", "crop-image", "cutout-image", "brush-retouch-image"] as const).map((operation) => action(operation, t(`assetCanvas.mediaTools.${operation}`), SlidersHorizontal))}
+      {(["extract-gif-frames", "compose-gif", "sort-frames", "stitch-images"] as const).map((operation) => action(operation, t(`assetCanvas.mediaTools.${operation}`), Film, operation !== "extract-gif-frames" && imageCount < 1))}
       {action("edit-image", t("assetCanvas.mediaTools.edit"), SlidersHorizontal)}
       {action("split-image-grid", t("assetCanvas.mediaTools.grid"), Layers3)}
       {action("transform-image", t("assetCanvas.mediaTools.transform"), RotateCcw)}
       {action("compose-video", t("assetCanvas.mediaTools.compose"), Film, imageCount < 1)}
-      {onCharacterTool ? <>
-        <button className="asset-media-toolbar-button" type="button" disabled={busy} title={t("assetCanvas.characterTools.continuousActions")} onClick={() => onCharacterTool("continuous-actions")}><WandSparkles size={16} /><span>{t("assetCanvas.characterTools.continuousActions")}</span></button>
-        <button className="asset-media-toolbar-button" type="button" disabled={busy} title={t("assetCanvas.characterTools.allActions")} onClick={() => onCharacterTool("all-actions")}><Layers3 size={16} /><span>{t("assetCanvas.characterTools.allActions")}</span></button>
+      {onStartTemplate ? <>
+        <button className="asset-media-toolbar-button" type="button" disabled={busy} title={t("assetCanvasTemplates.free-sequence.title")} onClick={() => onStartTemplate("free-sequence")}><WandSparkles size={16} /><span>{t("assetCanvasTemplates.free-sequence.title")}</span></button>
+        <button className="asset-media-toolbar-button" type="button" disabled={busy} title={t("assetCanvasTemplates.action-set.title")} onClick={() => onStartTemplate("action-set")}><Layers3 size={16} /><span>{t("assetCanvasTemplates.action-set.title")}</span></button>
       </> : null}
     </> : <>
       {action("extract-video-frames", t("assetCanvas.mediaTools.extract"), Scissors)}
@@ -1972,37 +1961,19 @@ function MediaCanvasToolbar({ mediaType, imageCount, busy, onOpen, onCharacterTo
   </div>;
 }
 
-function MediaCanvasToolbarOverlay({ node, mediaType, imageCount, busy, onOpen, onCharacterTool }: {
+function MediaCanvasToolbarOverlay({ node, mediaType, imageCount, busy, onOpen, onStartTemplate }: {
   node: AssetCanvasFlowNode;
   mediaType: "image" | "video";
   imageCount: number;
   busy: boolean;
   onOpen: (operation: CanvasMediaOperation) => void;
-  onCharacterTool?: (mode: "continuous-actions" | "all-actions") => void;
+  onStartTemplate?: (template: "free-sequence" | "action-set") => void;
 }) {
   const { y, zoom } = useViewport();
   const below = y + node.position.y * zoom < 64;
   return <NodeToolbar nodeId={node.id} isVisible position={below ? Position.Bottom : Position.Top} offset={10} className="asset-media-toolbar-panel nodrag nopan nowheel">
-    <MediaCanvasToolbar mediaType={mediaType} imageCount={imageCount} busy={busy} onOpen={onOpen} onCharacterTool={onCharacterTool} />
+    <MediaCanvasToolbar mediaType={mediaType} imageCount={imageCount} busy={busy} onOpen={onOpen} onStartTemplate={onStartTemplate} />
   </NodeToolbar>;
-}
-
-function CharacterActionDialog({ mode, error, onClose, onSubmit }: {
-  mode: "continuous-actions" | "all-actions";
-  error?: string;
-  onClose: () => void;
-  onSubmit: (description: string) => void;
-}) {
-  const [description, setDescription] = useState("");
-  const title = t(mode === "continuous-actions" ? "assetCanvas.characterTools.continuousActions" : "assetCanvas.characterTools.allActions");
-  return <div className="asset-media-tool-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <form className="asset-media-tool-dialog" role="dialog" aria-modal="true" aria-label={title} onSubmit={(event) => { event.preventDefault(); if (description.trim()) onSubmit(description); }}>
-      <header><div><small>{t("assetCanvas.mediaTools.title")}</small><h2>{title}</h2></div><button type="button" aria-label={t("common.close")} onClick={onClose}><X size={18} /></button></header>
-      <label><span>{t(mode === "continuous-actions" ? "assetCanvas.characterTools.action" : "assetCanvas.characterTools.actions")}</span><textarea autoFocus rows={3} value={description} placeholder={t(mode === "continuous-actions" ? "assetCanvas.characterTools.actionPlaceholder" : "assetCanvas.characterTools.actionsPlaceholder")} onChange={(event) => setDescription(event.target.value)} /></label>
-      {error ? <p className="asset-media-tool-error" role="alert">{error}</p> : null}
-      <footer><button type="button" className="asset-media-tool-cancel" onClick={onClose}>{t("common.cancel")}</button><button type="submit" className="asset-media-tool-submit" disabled={!description.trim()}><WandSparkles size={15} />{t("assetCanvas.media.image.generate")}</button></footer>
-    </form>
-  </div>;
 }
 
 function MediaToolDialog({ operation, assetCount, sourceAssetId, busy, error, onClose, onSubmit }: {
@@ -2025,8 +1996,15 @@ function MediaToolDialog({ operation, assetCount, sourceAssetId, busy, error, on
   const [startTime, setStartTime] = useState("0");
   const [duration, setDuration] = useState("");
   const [format, setFormat] = useState(operation === "compose-video" ? "mp4" : operation === "transform-image" || operation === "edit-image" ? "png" : "png");
+  const [tolerance, setTolerance] = useState("48");
+  const [thickness, setThickness] = useState("4");
+  const [strength, setStrength] = useState("8");
+  const [left, setLeft] = useState("0");
+  const [top, setTop] = useState("0");
+  const [direction, setDirection] = useState("horizontal");
+  const [points, setPoints] = useState("0,0 100,0 100,100");
   const sourcePreview = useWorkspaceAssetUrl(undefined, "", 0, operation === "split-image-grid" ? sourceAssetId : undefined);
-  const title = operation === "edit-image" ? t("assetCanvas.mediaTools.edit-image")
+  const title = operation.startsWith("remove-") || operation.endsWith("-image") || operation === "extract-gif-frames" || operation === "compose-gif" || operation === "sort-frames" || operation === "stitch-images" ? t(`assetCanvas.mediaTools.${operation}`) : operation === "edit-image" ? t("assetCanvas.mediaTools.edit-image")
     : operation === "split-image-grid" ? t("assetCanvas.mediaTools.split-image-grid")
       : operation === "transform-image" ? t("assetCanvas.mediaTools.transform-image")
         : operation === "extract-video-frames" ? t("assetCanvas.mediaTools.extract-video-frames")
@@ -2044,6 +2022,13 @@ function MediaToolDialog({ operation, assetCount, sourceAssetId, busy, error, on
     if (operation === "transform-image") { value.rotate = Number(rotate); value.flip = flip; value.flop = flop; value.format = format; }
     if (operation === "extract-video-frames" || operation === "video-frame-strip") { value.fps = number(fps); value.startTime = number(startTime); value.duration = number(duration); value.format = format; }
     if (operation === "compose-video") { value.fps = number(fps); value.format = format; }
+    if (operation.startsWith("remove-")) { value.tolerance = number(tolerance); value.format = format; }
+    if (operation === "resize-image") { value.width = number(width); value.height = number(height); value.format = format; }
+    if (operation === "outline-image") { value.thickness = number(thickness); value.color = "#ffffff"; value.format = format; }
+    if (operation === "crop-image" || operation === "brush-retouch-image") { value.left = number(left); value.top = number(top); value.width = number(width); value.height = number(height); value.format = format; if (operation === "brush-retouch-image") value.strength = number(strength); }
+    if (operation === "cutout-image") { value.points = points.trim().split(/\s+/).map((pair) => pair.split(",").map(Number)).filter((pair) => pair.length === 2 && pair.every(Number.isFinite)).map(([x, y]) => ({ x, y })); value.format = format; }
+    if (operation === "compose-gif") value.fps = number(fps);
+    if (operation === "stitch-images") value.direction = direction;
     onSubmit(value);
   }
   return <div className="asset-media-tool-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -2054,6 +2039,13 @@ function MediaToolDialog({ operation, assetCount, sourceAssetId, busy, error, on
         {field(t("assetCanvas.mediaTools.width"), width, setWidth, { min: 1, max: 16384 })}
         {field(t("assetCanvas.mediaTools.height"), height, setHeight, { min: 1, max: 16384 })}
       </div> : null}
+      {operation.startsWith("remove-") ? <div className="asset-media-tool-grid">{field(t("assetCanvas.mediaTools.tolerance"), tolerance, setTolerance, { min: 0, max: 255 })}</div> : null}
+      {operation === "resize-image" ? <div className="asset-media-tool-grid">{field(t("assetCanvas.mediaTools.width"), width, setWidth, { min: 1, max: 16384 })}{field(t("assetCanvas.mediaTools.height"), height, setHeight, { min: 1, max: 16384 })}</div> : null}
+      {operation === "outline-image" ? <div className="asset-media-tool-grid">{field(t("assetCanvas.mediaTools.thickness"), thickness, setThickness, { min: 1, max: 64 })}</div> : null}
+      {operation === "crop-image" || operation === "brush-retouch-image" ? <div className="asset-media-tool-grid">{field(t("assetCanvas.mediaTools.left"), left, setLeft, { min: 0 })}{field(t("assetCanvas.mediaTools.top"), top, setTop, { min: 0 })}{field(t("assetCanvas.mediaTools.width"), width, setWidth, { min: 1 })}{field(t("assetCanvas.mediaTools.height"), height, setHeight, { min: 1 })}{operation === "brush-retouch-image" ? field(t("assetCanvas.mediaTools.strength"), strength, setStrength, { min: 1, max: 100 }) : null}</div> : null}
+      {operation === "cutout-image" ? <label><span>{t("assetCanvas.mediaTools.points")}</span><input value={points} onChange={(event) => setPoints(event.target.value)} /></label> : null}
+      {operation === "compose-gif" ? field(t("assetCanvas.mediaTools.fps"), fps, setFps, { min: 0.1, max: 120, step: 0.1 }) : null}
+      {operation === "stitch-images" ? <label><span>{t("assetCanvas.mediaTools.direction")}</span><select value={direction} onChange={(event) => setDirection(event.target.value)}><option value="horizontal">{t("assetCanvas.mediaTools.horizontal")}</option><option value="vertical">{t("assetCanvas.mediaTools.vertical")}</option></select></label> : null}
       {operation === "split-image-grid" ? <div className="asset-media-tool-grid">
         {field(t("assetCanvas.mediaTools.columns"), columns, setColumns, { min: 1, max: 100 })}
         {field(t("assetCanvas.mediaTools.rows"), rows, setRows, { min: 1, max: 100 })}
@@ -2116,8 +2108,9 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
 }
 
 function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
-  const [characterMode, setCharacterMode] = useState(false);
   const runtime = data.imageRuntime;
+  const sourceInput = useRef<HTMLInputElement>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const selectedModel = runtime?.models.find((model) => sameImageModel(model, data.model));
   const modelOptions = selectedModel?.generationOptions ?? [];
   const resolutions = [...new Set(modelOptions.map((option) => option.resolution))];
@@ -2127,7 +2120,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
 
   function selectModel(key: string): void {
     const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
-    const option = characterMode
+    const option = data.presetId === "character-sheet"
       ? preferredCharacterSheetOption(model, data.resolution)
       : model?.generationOptions.find((candidate) => candidate.resolution === data.resolution && candidate.aspectRatio === data.aspectRatio)
         ?? preferredImageOption(model, data.aspectRatio);
@@ -2135,10 +2128,10 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
     runtime.onChange({ ...data, imageRuntime: undefined, model: { provider: model.provider, id: model.id }, resolution: option.resolution, aspectRatio: option.aspectRatio });
   }
 
-  function selectCharacterMode(): void {
-    setCharacterMode(true);
-    const option = preferredCharacterSheetOption(selectedModel, data.resolution);
-    if (option && runtime) runtime.onChange({ ...data, imageRuntime: undefined, resolution: option.resolution, aspectRatio: option.aspectRatio });
+  function selectPreset(presetId: CanvasImagePreset): void {
+    if (!runtime) return;
+    const option = presetId === "character-sheet" ? preferredCharacterSheetOption(selectedModel, data.resolution) : undefined;
+    runtime.onChange({ ...data, imageRuntime: undefined, presetId, ...(option ? { resolution: option.resolution, aspectRatio: option.aspectRatio } : {}) });
   }
 
   function selectResolution(resolution: ImageResolution): void {
@@ -2148,6 +2141,20 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
     runtime.onChange({ ...data, imageRuntime: undefined, resolution: option.resolution, aspectRatio: option.aspectRatio });
   }
 
+  if (data.sourceInput) return <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={t("assetCanvasTemplates.reference")}>
+    <div className="asset-template-source-actions nodrag">
+      <input ref={sourceInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (file) runtime?.onUploadSourceImage(file);
+      }} />
+      <button type="button" disabled={runtime?.uploading} onClick={() => sourceInput.current?.click()}><Upload size={14} />{t("assetCanvasTemplates.uploadReference")}</button>
+      <button type="button" disabled={runtime?.uploading} onClick={() => setLibraryOpen(true)}><Folder size={14} />{t("assetCanvasTemplates.libraryReference")}</button>
+    </div>
+    {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
+    {libraryOpen ? <LibraryAssetPicker title={t("assetCanvasTemplates.libraryReference")} assets={runtime?.libraryImages ?? []} onClose={() => setLibraryOpen(false)} onSelect={(asset) => { runtime?.onSetSourceAsset(asset); setLibraryOpen(false); }} /> : null}
+  </MediaNodeShell>;
+
   return (
     <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} assetAspectRatio={data.assetAspectRatio} aspectRatio={data.aspectRatio} runtime={runtime} details={data.nodeDetails}>
       <MediaReferenceStrip runtime={runtime} />
@@ -2155,15 +2162,18 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
         kind="image"
         value={data.prompt ?? ""}
         runtime={runtime}
-        placeholder={characterMode ? t("assetCanvas.characterTools.characterPlaceholder") : undefined}
+        placeholder={data.presetId === "character-sheet" ? t("assetCanvas.characterTools.characterPlaceholder") : undefined}
         onChange={(prompt) => runtime?.onChange({ ...data, imageRuntime: undefined, prompt })}
       />
-      <div className="asset-character-mode" role="group" aria-label={t("assetCanvas.characterTools.imageMode")}>
-        <button type="button" className={!characterMode ? "is-active" : undefined} aria-pressed={!characterMode} disabled={runtime?.busy} onClick={() => setCharacterMode(false)}>{t("assetCanvas.characterTools.standard")}</button>
-        <button type="button" className={characterMode ? "is-active" : undefined} aria-pressed={characterMode} disabled={runtime?.busy} onClick={selectCharacterMode}>{t("assetCanvas.characterTools.characterAsset")}</button>
-      </div>
       {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
       <div className="story-media-controls">
+        <CanvasChipSelect
+          label={t("assetCanvas.imagePresets.label")}
+          value={data.presetId ?? "free"}
+          options={CANVAS_IMAGE_PRESETS.map((preset) => ({ value: preset, label: t(`assetCanvas.imagePresets.${preset}`) }))}
+          disabled={runtime?.busy}
+          onChange={selectPreset}
+        />
         <CanvasChipSelect
           label={t("assetCanvas.imageModel")}
           wide
@@ -2189,7 +2199,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
           disabled={!selectedModel || runtime?.busy}
           onChange={selectResolution}
         />
-        <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!(characterMode ? data.prompt?.trim() : effectivePrompt(data, runtime).trim()) || !selectedModel} onGenerate={characterMode ? () => { runtime?.onGenerateCharacter(); setCharacterMode(false); } : undefined} />
+        <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel} />
       </div>
     </MediaNodeShell>
   );
@@ -3739,6 +3749,8 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
       prompt: node.data.generationMode === "character-asset" ? characterAssetPrompt(node.data.prompt ?? "")
         : node.data.generationMode === "continuous-actions" ? continuousActionsPrompt(node.data.prompt ?? "")
           : node.data.generationMode === "all-actions" ? allActionsPrompt(node.data.prompt ?? "") : node.data.prompt ?? "",
+      ...(node.data.presetId ? { presetId: node.data.presetId } : {}),
+      ...(node.data.sourceInput ? { sourceInput: true } : {}),
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.model ? { model: modelRef(node.data.model) } : {}),
       resolution: node.data.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,

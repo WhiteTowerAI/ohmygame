@@ -193,7 +193,7 @@ describe("Markdown design workspace", () => {
     expect(workspace.boards).toHaveLength(1);
     expect((await store.board(project.id, workspace.boards[0]!.id)).board.nodes).toEqual([]);
   });
-  it("shares documents and file edits with Asset Canvas while keeping a single board", async () => {
+  it("shares documents and file edits across Asset Canvas boards", async () => {
     const { store, project, boardId, library } = await runtime(fakeGenerator, "asset-canvas");
     const doc = await store.createDocument(project.id, "Production reference");
     const updated = await store.save(project.id, { ...doc.document, markdown: "# Brief\n\n一只像素风格的角色。" }, doc.revision, doc.document.id);
@@ -210,10 +210,43 @@ describe("Markdown design workspace", () => {
     await writeFile(file, "# Updated production brief");
     expect((await store.read(project.id, doc.document.id))!.document.markdown).toBe("# Updated production brief");
     await expect(store.save(project.id, inserted.document, inserted.revision, doc.document.id)).rejects.toMatchObject({ statusCode: 409 });
-    await expect(store.changeBoards(project.id, { type: "create", name: "Second" })).rejects.toMatchObject({ statusCode: 409 });
+    const second = await store.changeBoards(project.id, { type: "create", name: "Second" });
+    expect(second.boards).toHaveLength(2);
+    await store.changeBoards(project.id, { type: "delete", boardId: second.boards[1]!.id });
     await expect(store.changeBoards(project.id, { type: "delete", boardId })).rejects.toMatchObject({ statusCode: 409 });
     await expect(store.setMainDocument(project.id, doc.document.id)).rejects.toMatchObject({ statusCode: 409 });
     expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
+  });
+  it("expands image presets and resolves character references across boards", async () => {
+    const generate = vi.fn<ImageGenerator["generate"]>().mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const { store, project, boardId, library } = await runtime({ generate }, "asset-canvas");
+    const original = await store.board(project.id, boardId);
+    const freeImage = original.board.nodes[0]!;
+    if (freeImage.type !== "image") throw new Error("Expected image node");
+    freeImage.data.prompt = "forest guardian";
+    freeImage.data.presetId = "monster";
+    await store.saveBoard(project.id, original.board, original.revision);
+    await store.generateNode(project.id, boardId, freeImage.id);
+    await waitForJob(store, project.id);
+    expect(generate.mock.calls[0]?.[0].prompt).toContain("pixel-art game monster sprite");
+    expect(generate.mock.calls[0]?.[0].prompt).toContain("forest guardian");
+
+    const reference = await library.add("character.png", Buffer.from("image"));
+    const next = await store.changeBoards(project.id, { type: "create", name: "Action set" });
+    const actionBoardId = next.boards.at(-1)!.id;
+    const actionBoard = await store.board(project.id, actionBoardId);
+    const source: AssetCanvasNode = { id: "character-source", type: "asset", position: { x: 0, y: 0 }, data: { assetId: reference.id, mediaType: "image" } };
+    const action = createAssetGenerationNode("image", { x: 500, y: 0 });
+    if (action.type !== "image") throw new Error("Expected image node");
+    action.data.prompt = "Walking sprite sheet";
+    action.data.images = [{ type: "node", nodeId: source.id }];
+    actionBoard.board.nodes = [source, action];
+    actionBoard.board.editorLayout.nodes = { [source.id]: source.position, [action.id]: action.position };
+    await store.saveBoard(project.id, actionBoard.board, actionBoard.revision);
+    await store.generateNode(project.id, actionBoardId, action.id);
+    await waitForJob(store, project.id);
+    expect(generate.mock.calls[1]?.[0].images).toEqual([{ mediaType: "image/png", data: Buffer.from("image").toString("base64") }]);
+    expect((await readCanvasAssets(project.workspacePath)).assets[reference.id]).toBeDefined();
   });
   it("opens boards with a legacy size on a content-sized node and reports it", async () => {
     const { store, project, boardId } = await runtime(fakeGenerator, "asset-canvas");

@@ -8,7 +8,8 @@ import { CanvasError, CanvasStore } from "./canvas-workspace.js";
 import type { ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
-import { composeVideo, editImage, extractVideoFrames, extractVideoStrip, splitImageGrid, transformImage } from "./media-tools.js";
+import { brushRetouchImage, composeGif, composeVideo, cropImage, cutoutImage, editImage, extractGifFrames, extractVideoFrames, extractVideoStrip, outlineImage, removeBlueScreen, removeGreenScreen, removeWhiteBackground, resizeImage, sortFrames, splitImageGrid, stitchImages, transformImage } from "./media-tools.js";
+import type { MediaToolOperation } from "../shared/media-tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
 
@@ -103,7 +104,7 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   return store;
 }
 
-type CanvasMediaOperation = "edit-image" | "split-image-grid" | "transform-image" | "extract-video-frames" | "video-frame-strip" | "compose-video";
+type CanvasMediaOperation = MediaToolOperation | "edit-image" | "split-image-grid" | "transform-image" | "extract-video-frames" | "video-frame-strip" | "compose-video";
 interface CanvasMediaRequest {
   operation: CanvasMediaOperation;
   assetIds: string[];
@@ -125,6 +126,14 @@ interface CanvasMediaRequest {
     fps?: number;
     startTime?: number;
     duration?: number;
+    tolerance?: number;
+    thickness?: number;
+    color?: string;
+    left?: number;
+    top?: number;
+    points?: Array<{ x: number; y: number }>;
+    strength?: number;
+    direction?: "horizontal" | "vertical";
     format?: "png" | "jpg" | "jpeg" | "webp" | "mp4" | "gif";
   };
 }
@@ -181,6 +190,27 @@ async function runCanvasMedia(
   } else if (request.operation === "compose-video") {
     if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Video composition requires image frame assets", 400);
     output = await composeVideo({ framePaths: sources.map((source) => source.absolutePath), fps: input.fps, format: input.format === "gif" ? "gif" : "mp4" });
+  } else if (request.operation === "remove-green-screen" || request.operation === "remove-blue-screen" || request.operation === "remove-white-background" || request.operation === "resize-image" || request.operation === "outline-image" || request.operation === "crop-image" || request.operation === "cutout-image" || request.operation === "brush-retouch-image" || request.operation === "extract-gif-frames") {
+    requireMedia(first.contentType, "image");
+    const imageInput = { inputPath: first.absolutePath, format: input.format === "jpg" ? "jpeg" as const : input.format as "png" | "jpeg" | "webp" | undefined };
+    if (request.operation === "remove-green-screen") output = await removeGreenScreen({ ...imageInput, tolerance: input.tolerance });
+    else if (request.operation === "remove-blue-screen") output = await removeBlueScreen({ ...imageInput, tolerance: input.tolerance });
+    else if (request.operation === "remove-white-background") output = await removeWhiteBackground({ ...imageInput, tolerance: input.tolerance });
+    else if (request.operation === "resize-image") output = await resizeImage({ ...imageInput, width: input.width ?? 1, height: input.height });
+    else if (request.operation === "outline-image") output = await outlineImage({ ...imageInput, thickness: input.thickness ?? 1, color: input.color });
+    else if (request.operation === "crop-image") output = await cropImage({ ...imageInput, left: input.left ?? 0, top: input.top ?? 0, width: input.width ?? 1, height: input.height ?? 1 });
+    else if (request.operation === "cutout-image") output = await cutoutImage({ ...imageInput, points: input.points ?? [] });
+    else if (request.operation === "brush-retouch-image") output = await brushRetouchImage({ ...imageInput, left: input.left ?? 0, top: input.top ?? 0, width: input.width ?? 1, height: input.height ?? 1, strength: input.strength });
+    else outputs = await extractGifFrames({ inputPath: first.absolutePath });
+  } else if (request.operation === "compose-gif") {
+    if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("GIF composition requires image frame assets", 400);
+    output = await composeGif(sources.map((source) => source.absolutePath), input.fps);
+  } else if (request.operation === "sort-frames") {
+    if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Frame sorting requires image assets", 400);
+    outputs = await sortFrames(sources.map((source) => source.absolutePath));
+  } else if (request.operation === "stitch-images") {
+    if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Image stitching requires image assets", 400);
+    output = await stitchImages({ inputPaths: sources.map((source) => source.absolutePath), direction: input.direction });
   } else {
     throw new CanvasError("Unsupported media operation", 400);
   }

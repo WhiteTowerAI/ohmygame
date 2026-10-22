@@ -151,9 +151,19 @@ Library references. IDs, Markdown, media and layout are preserved. It leaves
 current projects alone. The application only reads the current format.
 
 Both editors share nodes, documents, metadata, generation, history, clipboard,
-file uploads and external file synchronization. Asset Canvas uses one default
-board and retains automatic covers and sending assets to projects. Game
-projects expose multiple boards and an optional main game design document.
+file uploads and external file synchronization. Asset Canvas starts with one
+board and supports additional boards for separate asset workflows. Its home
+screen offers Free Image, Free Sequence, and Character Action Set templates.
+Each creates a board with a short guide and editable generation nodes. Free
+Image adds a selectable image preset, including a four-panel character reference
+sheet. Free Sequence uses a character reference and a video generation node;
+existing video frame extraction and GIF tools can process the result. Character
+Action Set uses one reference image across six separate sprite-sheet image nodes.
+These outputs are static images and require an image provider that supports
+references. A selected image can start either action workflow on a new board in
+the same project. Asset Canvas retains automatic covers and sending assets to
+projects. Game projects expose multiple boards and an optional main game design
+document.
 
 Hold Option (Alt on Windows and Linux) when starting a node drag to pull out
 copies. Copies keep node content and Library resources, use new IDs, and drop

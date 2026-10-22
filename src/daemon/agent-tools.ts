@@ -21,7 +21,7 @@ import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
-import { composeVideo, editImage, extractVideoFrames, extractVideoStrip, splitImageGrid, transformImage, zipMediaOutputs } from "./media-tools.js";
+import { brushRetouchImage, composeGif, composeVideo, cropImage, cutoutImage, editImage, extractGifFrames, extractVideoFrames, extractVideoStrip, outlineImage, removeBlueScreen, removeGreenScreen, removeWhiteBackground, resizeImage, sortFrames, splitImageGrid, stitchImages, transformImage, zipMediaOutputs } from "./media-tools.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
