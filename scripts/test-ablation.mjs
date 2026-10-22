@@ -49,6 +49,7 @@ const explicitTestGroups = {
 const expectedPendingTestFiles = new Set([
   "test/blender-export.test.ts",
   "test/daemon-process.test.ts",
+  "test/desktop-installer-process.test.ts",
 ]);
 const options = Object.fromEntries(
   process.argv.slice(2).map((argument) => {
