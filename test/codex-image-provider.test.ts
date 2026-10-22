@@ -232,7 +232,10 @@ describe("Codex CLI image provider", () => {
         const thread = cli.calls.find(
           (call) => call.method === "thread/start",
         )!;
-        expect(await readdir(thread.params.cwd)).toEqual([".owner.json"]);
+        // The lease lands beside the work; nothing else is staged there.
+        await vi.waitFor(async () =>
+          expect(await readdir(thread.params.cwd)).toEqual([".owner.json"]),
+        );
       },
     });
     const { provider, root, connect } = await setup();

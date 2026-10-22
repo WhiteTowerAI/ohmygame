@@ -564,9 +564,12 @@ export async function privateFolder(
 ): Promise<{ path: string; remove: () => Promise<void> }> {
   const folder = path.join(root, `${name}-${randomUUID()}`);
   await mkdir(folder, { recursive: true, mode: 0o700 });
-  await leaseAgentDirectory(folder);
+  const lease = leaseAgentDirectory(folder);
   return {
     path: folder,
-    remove: () => rm(folder, { recursive: true, force: true }),
+    remove: async () => {
+      await lease.release();
+      await rm(folder, { recursive: true, force: true });
+    },
   };
 }
