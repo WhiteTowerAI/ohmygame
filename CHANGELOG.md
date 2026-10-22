@@ -37,6 +37,9 @@ Older versions are documented in
 - Preserve recoverable canvas drafts when concurrent changes would merge into
   invalid node references, and offer conflict choices instead of losing edits.
   ([#342](https://github.com/WhiteTowerAI/ohmygame/pull/342) by @jsdhwfmax)
+- Avoid a Windows checkpoint write failure when multiple files have the same
+  contents and are saved at the same time.
+  ([#373](https://github.com/WhiteTowerAI/ohmygame/pull/373) by @xinyang6879)
 - Keep the previous story picture visible while the next node's media loads,
   reducing black flashes between story nodes.
   ([#343](https://github.com/WhiteTowerAI/ohmygame/pull/343) by @82228)

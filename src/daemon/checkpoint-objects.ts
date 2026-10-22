@@ -609,21 +609,35 @@ export async function writeAtomically(
   }
 }
 
+const objectWrites = new Map<string, Promise<void>>();
+
 async function storeObject(
   target: string,
   write: (temporary: string) => Promise<void>,
   valid: () => Promise<boolean>,
 ): Promise<void> {
   await mkdir(path.dirname(target), { recursive: true });
-  // The name git gives its own unfinished objects, which it knows to ignore.
-  const temporary = path.join(path.dirname(target), `tmp_obj_${randomUUID()}`);
+  const previous = objectWrites.get(target);
+  let release!: () => void;
+  const finished = new Promise<void>((resolve) => (release = resolve));
+  objectWrites.set(target, finished);
   try {
-    await write(temporary);
-    await rename(temporary, target);
-  } catch (error) {
-    await rm(temporary, { force: true });
-    // The same content stored at the same moment by another operation is as good.
-    if (error instanceof FileChangedError || !(await valid())) throw error;
+    if (previous) await previous;
+    // The caller's check may predate another write that just completed.
+    if (await valid()) return;
+    // The name git gives its own unfinished objects, which it knows to ignore.
+    const temporary = path.join(path.dirname(target), `tmp_obj_${randomUUID()}`);
+    try {
+      await write(temporary);
+      await rename(temporary, target);
+    } catch (error) {
+      await rm(temporary, { force: true });
+      // Another process may have stored the same content while this one wrote.
+      if (error instanceof FileChangedError || !(await valid())) throw error;
+    }
+  } finally {
+    release();
+    if (objectWrites.get(target) === finished) objectWrites.delete(target);
   }
 }
 

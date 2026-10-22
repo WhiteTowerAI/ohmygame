@@ -127,6 +127,35 @@ async function project(files: Record<string, string>) {
   return { workspacePath, storagePath };
 }
 
+it("writes identical checkpoint objects once when snapshots race", async () => {
+  const game = await project({});
+  const gitdir = checkpointDirectory(game);
+  const content = Buffer.from("two");
+  const oid = createHash("sha1").update("blob 3\0two").digest("hex");
+  const target = path.join(gitdir, "objects", oid.slice(0, 2), oid.slice(2));
+  let reached!: () => void;
+  let release!: () => void;
+  const firstRename = new Promise<void>((resolve) => (reached = resolve));
+  const hold = new Promise<void>((resolve) => (release = resolve));
+  let renames = 0;
+  interception.before = async (operation, destination) => {
+    if (operation !== "rename" || destination !== target) return;
+    renames += 1;
+    if (renames === 1) {
+      reached();
+      await hold;
+    }
+  };
+
+  const first = writeObject(gitdir, "blob", content);
+  await firstRename;
+  const second = writeObject(gitdir, "blob", content);
+  release();
+  expect(await Promise.all([first, second])).toEqual([oid, oid]);
+  expect(renames).toBe(1);
+  expect(await readObject(gitdir, oid, "blob")).toEqual(content);
+});
+
 async function write(
   workspacePath: string,
   files: Record<string, string>,
