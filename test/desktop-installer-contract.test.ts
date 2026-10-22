@@ -28,7 +28,7 @@ describe("Windows desktop installer safety", () => {
     expect(template.match(/!insertmacro customExtractUsing7za/g)).toHaveLength(2);
     expect(template).toContain("!insertmacro customAppFilesCopied");
     const messages = parse(await readFile("build/messages.yml", "utf8"));
-    for (const key of ["omgInstalling", "omgPreparing", "omgExtracting", "omgCopying", "omgFinalizing", "omgComplete"]) {
+    for (const key of ["omgInstalling", "omgPreparing", "omgExtracting", "omgCopying", "omgFinalizing", "omgComplete", "appProcessCheckFailed"]) {
       expect(messages[key].en).toBeTruthy();
       expect(messages[key].zh_CN).toBeTruthy();
     }
@@ -47,9 +47,11 @@ describe("Windows desktop installer safety", () => {
     const include = await readFile("build/installer.nsh", "utf8");
     expect(include).toContain("if ($$running.Count -gt 0) { exit 0 } else { exit 17 }");
     expect(include).toContain("${If} $R0 == 17");
-    expect(include).toContain('tasklist /FI "IMAGENAME eq ${APP_EXECUTABLE_FILENAME}"');
-    expect(include).toContain('if errorlevel 1 exit /b 18');
-    expect(include).toContain('if errorlevel 1 exit /b 17');
+    expect(include).toContain('$WINDIR\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe');
+    expect(include).toContain('File /oname=$PLUGINSDIR\\ohmygame-check-process.cmd');
+    expect(include).toContain('$(appProcessCheckFailed)');
+    expect(include).toContain('Fallback process check failed ($R0): $R2');
+    expect(include).toContain('SetErrorLevel 2');
     expect(include).not.toMatch(/KillProcess|taskkill|Stop-Process/);
   });
 

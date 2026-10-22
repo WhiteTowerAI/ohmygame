@@ -447,6 +447,22 @@ Project lists use the existing two-second activity poll to receive names, even
 after a short turn finishes. `/projects/activity` returns `{ activity, names }`;
 `names` contains only each project's `id`, `name` and optional `nameSource`.
 
+## Project navigation
+
+Project workspaces return to their entry page using the top-left Back arrow.
+The destination survives conversation/view changes and refreshes in the same
+tab; a project link opened without an entry page returns to Projects. The
+Projects URL preserves its type filter, search (`q`), and name sorting
+(`sort=name`) when returning or refreshing. See the
+[workspace return example](assets/project-return-navigation.webp).
+
+In the desktop app, the project card menu's **Open in folder** action opens the
+project's workspace in the system file manager, including projects using an
+existing folder. It is available in recent projects and the Projects list.
+See the [project menu example](assets/project-card-menu.png).
+The desktop file opener resolves `.` through `/projects/:projectId/files/location`
+to open the workspace root; file reads and writes still require a file path.
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user
@@ -537,20 +553,16 @@ Deployment ID, play URL, publish time, and the published title and description.
 
 ![Creator profile with published game covers](assets/community-profile.webp)
 
-Community uses the original mosaic of large, medium, and small square covers.
-Full groups use the existing 28-card layout; additional works continue in the
-same pattern rather than being truncated. Narrow layouts use equal square
-cards, with two columns on small screens. Clicking or tapping the cover opens
-the game detail, including on the owner's profile. Covers are requested
-only when cards approach the visible area. Desktop overlays retain the original
-gradient, hover animation, and centered title and author, with viewer and like counts
-below. Small mosaic cards omit the author to leave room for the title and
-counts. Overlays appear on hover or keyboard focus; hidden links and likes
-do not intercept cover clicks. Narrow layouts and touch devices show the
-overlay directly. Long titles and author names truncate within the card.
-The filter button beside **My profile** and **Refresh** supports title,
-description, and author search, sorting by first listing, viewers, or likes,
-and first-listing periods.
+Community displays games in a responsive grid with 16:10 covers, titles, creator
+links, and view/like counts visible below each cover. Search across title,
+description, and author, sorting by first listing, viewers, or likes, the
+first-listed time filter, and reset stay above the grid. Clicking or tapping the
+cover opens the game detail, including on the owner's profile; creator links and
+likes stay independently clickable. Covers are requested only when cards approach
+the visible area. Creator profiles and related games use the same cards, with
+colors following the app's light or dark theme. See the
+[dark](assets/community-gallery-dark.webp) and
+[light](assets/community-gallery-light.webp) examples (sample games).
 
 Author links open their public profile with listed works. **My profile** requires
 sign-in and includes deployed works. Profile cards open the game detail; they

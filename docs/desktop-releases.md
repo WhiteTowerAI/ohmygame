@@ -40,6 +40,13 @@ Configure these repository secrets:
 | `APPLE_ID`                    | Apple account used for notarization              |
 | `APPLE_APP_SPECIFIC_PASSWORD` | Apple app-specific password                      |
 | `APPLE_TEAM_ID`               | Apple Developer team ID                          |
+| `SENTRY_AUTH_TOKEN`           | Sentry token that uploads renderer source maps   |
+
+When `SENTRY_AUTH_TOKEN` is set, `vite build` generates hidden renderer source
+maps, uploads them to the `ohmygame` Sentry project under the
+`ohmygame@<version>` release, and deletes them. The package also excludes
+renderer `.map` files, so a failed upload cannot ship them. Builds without the
+token, including local builds and fork PRs, generate no source maps.
 
 The R2 credentials belong only in GitHub Secrets. Do not include GitHub, R2,
 or code-signing credentials in the application or the public update bucket.
@@ -131,6 +138,21 @@ provides the SHA-512 digest used by `electron-updater` to validate downloads.
 The Windows setup wizard lets users choose between a current-user or all-users
 installation and select the installation directory. Existing installations keep
 their recorded scope and directory during upgrades.
+
+Before installing or uninstalling, setup checks the installed executable's full
+path and requests a normal window close rather than force-killing it. The x86
+NSIS stub prefers native Windows PowerShell through `Sysnative` on x64 Windows.
+If PowerShell or CIM is unavailable, a name-only `tasklist` check is used;
+another copy with the same executable name can conservatively block setup.
+A failed check is reported separately from an application that is still running,
+with diagnostic output in the installation details. Retry after resolving the
+error, or cancel; silent setup exits without continuing if neither check works.
+
+Windows process-check regressions run in `test/desktop-installer-process.test.ts`.
+For additional installer and uninstaller smoke checks, set
+`OHMYGAME_TEST_MAKENSIS` to a local NSIS `makensis.exe` and run
+`bun run test -- test/desktop-installer-process.test.ts`. These checks compile
+small silent test installers; they do not install or uninstall the application.
 
 For a local package build, export `DESKTOP_UPDATE_URL` before running
 `bun run package:mac` or `bun run package:win`. Development builds do not use

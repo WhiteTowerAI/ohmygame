@@ -1,3 +1,6 @@
+appProcessCheckFailed:
+  en: "Setup could not check whether ${PRODUCT_NAME} is running.\n\nClose ${PRODUCT_NAME}, check that Windows PowerShell or the Windows tasklist tool is available, then click Retry. See the installation details for the detection error. Cancel to stop setup without continuing the installation."
+  zh_CN: "安装程序无法检测 ${PRODUCT_NAME} 是否正在运行。\n\n请关闭 ${PRODUCT_NAME}，检查 Windows PowerShell 或 Windows 的 tasklist 工具是否可用，然后单击“重试”。具体检测错误请查看安装详细信息。单击“取消”可停止安装，不再继续安装过程。"
 omgInstalling:
   en: "Installing..."
   zh_CN: "正在安装..."

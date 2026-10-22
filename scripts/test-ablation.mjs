@@ -24,6 +24,33 @@ const cloudRoot = path.resolve(
     path.join(root, "..", "ohmygame-cloud"),
 );
 const groups = ["shared", "daemon", "renderer", "desktop"];
+// Some contract tests exercise build scripts, packaged dependencies, or a Vite
+// server through a generated fixture rather than importing ../src directly.
+// Keep those tests in the inventory instead of silently dropping them from the
+// ablation experiment. New infrastructure tests must be classified here.
+const explicitTestGroups = {
+  "network-runtime.test.ts": "daemon",
+  "desktop-runtime-packaging.test.ts": "desktop",
+  "playable-vite.test.ts": "renderer",
+  "blender-export.test.ts": "daemon",
+  "taptap-maker-integration.test.ts": "daemon",
+  "desktop-typebox.test.ts": "desktop",
+  "readme-translations.test.ts": "shared",
+  "desktop-release-notes.test.ts": "desktop",
+  "electron-updater-patch.test.ts": "desktop",
+  "release-notes.test.ts": "desktop",
+  "desktop-installer-contract.test.ts": "desktop",
+  "desktop-installer-process.test.ts": "desktop",
+  "desktop-update-ranges.test.ts": "desktop",
+};
+// These skip without a local Blender or a platform-specific process feature.
+// Cloud contract tests are not listed: skipping them means the cloud root is
+// missing, which invalidates the run.
+const expectedPendingTestFiles = new Set([
+  "test/blender-export.test.ts",
+  "test/daemon-process.test.ts",
+  "test/desktop-installer-process.test.ts",
+]);
 const options = Object.fromEntries(
   process.argv.slice(2).map((argument) => {
     const [key, ...value] = argument.replace(/^--/, "").split("=");
@@ -80,7 +107,7 @@ const mutants = [
     id: "D2",
     file: "src/daemon/package-manager.ts",
     feature: "Configured package manager",
-    before: "if (configured) return configured;",
+    before: 'if (configured) return { manager: configured, source: "Project setting" };',
     after: "",
     verify: "daemon",
   },
@@ -181,11 +208,10 @@ async function inventory() {
         ts.forEachChild(node, visit);
       }
       visit(source);
-      // This suite exercises the renderer's Vite sandbox through its config rather than a src import.
-      if (file === "playable-vite.test.ts") layers.add("renderer");
-      const group = ["desktop", "daemon", "renderer", "shared"].find((layer) =>
-        layers.has(layer),
-      );
+      const group = explicitTestGroups[file] ??
+        ["desktop", "daemon", "renderer", "shared"].find((layer) =>
+          layers.has(layer),
+        );
       assert(
         group,
         `No group for ${file}; classify new infrastructure tests explicitly`,
@@ -429,9 +455,22 @@ async function run(label, excluded) {
     ),
     `${label}: collection or suite hook failure`,
   );
+  const pending = report.testResults.flatMap((suite) =>
+    suite.assertionResults
+      .filter((test) => test.status === "pending")
+      .map((test) => ({
+        file: path.relative(sandbox, suite.name).split(path.sep).join("/"),
+        name: test.fullName,
+      })),
+  );
+  assert.equal(
+    report.numTodoTests,
+    0,
+    `${label}: todo tests are not valid ablation results`,
+  );
   assert(
-    report.numPendingTests === 0 && report.numTodoTests === 0,
-    `${label}: incomplete run; ensure OHMYGAME_CLOUD_ROOT points to the installed cloud repository`,
+    pending.every((test) => expectedPendingTestFiles.has(test.file)),
+    `${label}: unexpected pending tests; ensure OHMYGAME_CLOUD_ROOT points to the installed cloud repository`,
   );
   assert.equal(
     child.status,

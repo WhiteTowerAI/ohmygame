@@ -3,6 +3,7 @@ import { request } from "../src/renderer/api.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { approvePlan, cancelPlan, compactConversation, createConversation, createLibraryImage, createProject, deleteWorkspaceEntry, deleteLibraryAsset, deleteProject, duplicateProject, forceDeleteLibraryAsset, getConversation, getConversationCapabilities, getConversationContextUsage, getExploreGameCover, getHomeComposerCapabilities, getLibraryAsset, getOpenAIEndpointSettings, getNodeCodebase, getProjectCover, getWorkspaceAsset, getWorkspaceFile, inspectPluginSource, installPlugin, listLibraryAssetReferences, listLibraryAssets, listModels, listPlugins, listProjects, listWorkspaceFiles, publishProject, readPlugin, readPluginSkill, refinePlan, removePendingPrompt, renameWorkspaceEntry, renameConversation, renameLibraryAsset, renameProject, reviseLastPrompt, sendPrompt, setConversationModel, setConversationReasoning, setProjectCover, steerPendingPrompt, subscribeToProject, uninstallPlugin, updateAgentDefaults, updateOpenAIEndpointSettings, updateNodeCodebase, updatePluginSettings, updateProjectRunSettings, updateProjectStartupDirectory, uploadLibraryAsset, getCheckpointChanges, getCheckpointFile, getUnfinishedChanges, getUnfinishedRestore, restoreCheckpoint, restoreUnfinished, undoCheckpoint, reapplyCheckpoint } from "../src/renderer/api.js";
 import { readPluginIconImage, updatePluginDraftIcon, cancelToolJob, getProjectCoverState, listToolJobs, setProjectCoverMode, retryToolJob, startToolJob } from "../src/renderer/api.js";
+import { exportProject } from "../src/renderer/api.js";
 import type { RuntimeEvent } from "../src/shared/contracts.js";
 
 afterEach(() => {
@@ -10,6 +11,22 @@ afterEach(() => {
 });
 
 describe("renderer event stream", () => {
+  it("exports a restored project's current workspace version", async () => {
+    installWindow();
+    const id = "archive-restored-project";
+    observeWorkspaceVersion(id, "restored-version");
+    const fetchMock = vi.fn(async () => new Response("archive"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await (await exportProject(id)).text()).toBe("archive");
+    expect(fetchMock).toHaveBeenCalledWith(`/api/projects/${id}/export`, {
+      method: "POST",
+      headers: { "x-workspace-version": "restored-version" },
+    });
+    await expect(exportProject(id, "old-editor-version")).rejects.toMatchObject({ code: "workspace_stale" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("saves the configured project startup directory", async () => {
     installWindow();
     const project = { id: "project-1", name: "Game", type: "web-game", updatedAt: new Date(0).toISOString(), workspacePath: "/tmp/project-1", startupDirectory: "apps/game", preview: { status: "stopped" } };

@@ -3,6 +3,9 @@ import { access, copyFile, readFile, rename, rm, writeFile } from "node:fs/promi
 import path from "node:path";
 import type { ProjectCoverMode, ProjectCoverState } from "../shared/contracts.js";
 
+/** The largest cover a project accepts, uploaded or imported. */
+export const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
+
 const CUSTOM_COVER = "cover.webp";
 const AUTOMATIC_COVER = "cover-auto.webp";
 const FROZEN_COVER = "cover-frozen.webp";

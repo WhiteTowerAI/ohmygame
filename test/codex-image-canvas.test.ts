@@ -40,8 +40,7 @@ const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
   const m = JSON.parse(line);
   if (!m.id) return;
-  const result = m.method === 'modelProvider/capabilities/read' ? {imageGeneration:true}
-    : m.method === 'config/read' ? {config:{}}
+  const result = m.method === 'config/read' ? {config:{}}
     : m.method === 'thread/start' ? {thread:{id:'canvas-image'},activePermissionProfile:{id:m.params.permissions}} : {};
   send({id:m.id,result});
   if (m.method === 'turn/start') {

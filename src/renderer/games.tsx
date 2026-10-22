@@ -3,9 +3,9 @@ import { Check, Copy, LoaderCircle, Maximize, RefreshCw, Share2, UserRound, X } 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
-import { GameGrid, GameTile, GameStats, useGameCover } from "./community-game-card.js";
+import { GameGrid, GameStats, useGameCover } from "./community-game-card.js";
 import { CommunityGameActions } from "./community-game-actions.js";
-import { CommunityFilterButton, DEFAULT_COMMUNITY_FILTERS, filterCommunityGames } from "./community-filters.js";
+import { CommunityToolbar, DEFAULT_COMMUNITY_FILTERS, filterCommunityGames } from "./community-filters.js";
 import { useAuth } from "./auth.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import { getExploreGame, listExploreGames, recordCommunityView, waitForRuntime } from "./api.js";
@@ -72,7 +72,6 @@ export function GamesPage({
     <SidebarPageLayout active="community" onNavigate={onNavigate}>
       <SidebarPageHeader title={t("community.title")} actions={(
         <div className="community-header-actions">
-        <CommunityFilterButton value={filters} onChange={setFilters} />
         <button className="projects-icon-button" type="button" title={t("community.myProfile")} aria-label={t("community.myProfile")} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
           if (auth.state.status === "signed-in") window.location.hash = communityProfileHash(auth.state.user.id);
           else {
@@ -87,6 +86,7 @@ export function GamesPage({
       )} />
 
       <section className="explore-content">
+        <CommunityToolbar value={filters} onChange={setFilters} />
         {phase === "loading" && !games.length ? <div className="explore-state"><LoaderCircle className="spin" size={20} />{t("community.loading")}</div> : null}
         {phase === "error" ? <div className="explore-state explore-error"><X size={20} />{error}</div> : null}
         {phase === "ready" && games.length === 0 ? <div className="explore-state">{t("community.none")}</div> : null}
@@ -238,17 +238,11 @@ function GameDetail({ game, accessToken, relatedGames, onOhMyGame, onStatsChange
       {relatedGames.length ? (
         <section className="electron-game-related" aria-label={t("community.moreGames")}>
           <h2>{t("community.moreGames")}</h2>
-          <div className="electron-game-related-grid">
-            {relatedGames.map((relatedGame) => (
-              <GameTile
-                className="electron-game-related-tile"
-                game={relatedGame}
-                key={relatedGame.id}
-                onOpen={() => onOhMyGame(relatedGame.id)}
-                onStatsChange={onStatsChange}
-              />
-            ))}
-          </div>
+          <GameGrid
+            games={relatedGames}
+            onOpen={relatedGame => onOhMyGame(relatedGame.id)}
+            onStatsChange={onStatsChange}
+          />
         </section>
       ) : null}
     </div>

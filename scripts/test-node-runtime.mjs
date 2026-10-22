@@ -34,6 +34,23 @@ try {
   }
   await checkStoryWeb(daemon.runtime);
   const headers = { authorization: `Bearer ${daemon.runtime.token}`, "content-type": "application/json" };
+  const projects = await fetch(`${daemon.runtime.url}/projects`, { headers }).then(response => response.json());
+  const story = projects.find(project => project.type === "interactive-story");
+  assert(story, "The story fixture must exist before checking project archives");
+  const exported = await fetch(`${daemon.runtime.url}/projects/${story.id}/export`, {
+    method: "POST", headers: { authorization: headers.authorization }, signal: AbortSignal.timeout(10_000),
+  });
+  assert.equal(exported.status, 200, "Project export must work on Node");
+  const imported = await fetch(`${daemon.runtime.url}/projects/import`, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/vnd.ohmygame.project-archive" },
+    body: await exported.arrayBuffer(), signal: AbortSignal.timeout(10_000),
+  });
+  assert.equal(imported.status, 201, "Project import must work on Node");
+  const copy = await imported.json();
+  assert.notEqual(copy.id, story.id);
+  assert.equal(copy.type, story.type);
+  assert.equal(copy.name, story.name);
   const installedResponse = await fetch(`${daemon.runtime.url}/plugins/mcp`, {
     method: "POST", headers, body: JSON.stringify({ name: "node-runtime-fixture", servers: { local: {
       command: process.execPath, args: [path.join(root, "test", "fixtures", "plugin-mcp-server.mjs")],
@@ -56,5 +73,5 @@ try {
   await rm(directory, { recursive: true, force: true });
 }
 console.log(
-  `Node.js ${process.versions.node}: daemon startup, authenticated API, story creation, upgrade and preview, native MCP runtime and graceful shutdown passed`,
+  `Node.js ${process.versions.node}: daemon startup, authenticated API, story creation, upgrade and preview, project export/import, native MCP runtime and graceful shutdown passed`,
 );
