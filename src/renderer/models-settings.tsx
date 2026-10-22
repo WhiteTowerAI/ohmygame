@@ -64,8 +64,6 @@ const PROVIDER_CAPABILITY_FILTERS: Array<{ value: "all" | ProviderCapability; la
   { value: "3d", label: t("capability.3d") },
   { value: "audio", label: t("capability.audio") },
 ];
-/** Searches that look for a coding agent, which lives in Agents rather than here. */
-const CODING_AGENT_SEARCH = /claude|codex|opencode|\bcli\b|agent|智能体/;
 const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
   language: t("capability.language"),
   image: t("capability.image"),
@@ -76,11 +74,11 @@ const PROVIDER_CAPABILITY_LABELS: Record<ProviderCapability, string> = {
 
 export function ModelsSettings({ view, onViewChange, onOpenAgents }: { view: ModelsView; onViewChange: (view: ModelsView) => void; onOpenAgents: () => void }) {
   const openProvider = (provider: ProviderSummary): void => onViewChange({ page: "provider", provider });
-  if (view.page === "providers") return <ProviderList onProvider={openProvider} onOpenAgents={onOpenAgents} />;
+  if (view.page === "providers") return <ProviderList onProvider={openProvider} />;
   return <ProviderAuthView provider={view.provider} onBack={() => onViewChange({ page: "providers" })} onCompleted={() => onViewChange({ page: "providers" })} onOpenAgents={onOpenAgents} />;
 }
 
-function ProviderList({ onProvider, onOpenAgents }: { onProvider: (provider: ProviderSummary) => void; onOpenAgents: () => void }) {
+function ProviderList({ onProvider }: { onProvider: (provider: ProviderSummary) => void }) {
   const auth = useAuth();
   const userId = auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
@@ -180,12 +178,6 @@ function ProviderList({ onProvider, onOpenAgents }: { onProvider: (provider: Pro
           <button className="settings-add-button settings-provider-add" type="button" onClick={() => setAdding("custom")}><Plus size={13} />{t("providers.add")}</button>
         </div>
         {capability !== "language" ? <GlobalMediaModelDefaults capability={capability} /> : null}
-        {capability === "language" || CODING_AGENT_SEARCH.test(normalizedQuery) ? (
-          <p className="settings-agents-pointer">
-            {t("agents.providersPointer")}{" "}
-            <button className="coding-agent-link" type="button" onClick={onOpenAgents}>{t("agents.open")}</button>
-          </p>
-        ) : null}
         {loading ? <div className="settings-loading"><LoaderCircle className="spin" size={18} />{t("providers.loadingProviders")}</div> : null}
         {!loading && visibleProviders.length === 0 ? <p className="settings-empty">{t("providers.noMatch")}</p> : null}
         {filtering && filteredProviders.length ? <ProviderGroup {...rowActions} title={t("providers.group.providers")} providers={filteredProviders} onProvider={openProvider} /> : null}
@@ -274,7 +266,13 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
   const [revision, setRevision] = useState(0);
   async function recheck() {
     setBusy(true); setError(undefined);
-    try { setCurrent(await recheckCodexImages()); setRevision((value) => value + 1); notifyAgentModelsChanged(); }
+    try {
+      const checked = await recheckCodexImages();
+      setCurrent(checked);
+      if (checked.authStatus === "signed-in") setCommand(undefined);
+      setRevision((value) => value + 1);
+      notifyAgentModelsChanged();
+    }
     catch (cause) { setError(errorMessage(cause)); }
     finally { setBusy(false); }
   }
@@ -293,19 +291,17 @@ function CodexImageProviderDetail({ provider, onBack, onOpenAgents }: { provider
     </ProviderDetailHeader>
     <section className="settings-detail-section">
       <h4>{current.configured ? t("codexImages.ready") : t("codexImages.unavailable")}</h4>
-      <p className="settings-detail-hint">{t("codexImages.hint")}</p>
       <p className="settings-detail-hint">{t("codexImages.managedOptions")}</p>
       {current.error ? <p className="settings-detail-hint">{current.error}</p> : null}
       <div className="settings-form-actions">
         <button type="button" className="settings-secondary-button" disabled={busy} onClick={() => void recheck()}><RefreshCw size={13} className={busy ? "spin" : undefined} />{t("codexImages.checkAgain")}</button>
-        <button type="button" className="settings-secondary-button" disabled={busy} onClick={() => void login()}>{t("common.signIn")}</button>
+        {current.authStatus === "signed-out" ? <button type="button" className="settings-secondary-button" disabled={busy} onClick={() => void login()}>{t("common.signIn")}</button> : null}
         {onOpenAgents ? <button type="button" className="settings-secondary-button" onClick={onOpenAgents}>{t("agents.open")}</button> : null}
       </div>
       {command ? <p className="settings-detail-hint">{t("codingAgents.loginCommand")} <code>{command}</code></p> : null}
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
     </section>
     <ProviderImageModels key={revision} providerId="codex-cli" />
-    <GlobalMediaModelDefaults key={`defaults-${revision}`} capability="image" />
   </section>;
 }
 
@@ -344,8 +340,8 @@ function Hyper3DProviderDetail({ provider, onBack, onRemoved }: { provider: Prov
   const current = keyProvider ?? { ...provider, id: "hyper3d", name: "Hyper3D" };
   return <section className="settings-panel settings-provider-detail">
     <ProviderDetailHeader provider={current} description={t("providers.hyper3d.description")} onBack={onBack}>
-      <ProviderEnableControl provider={current} disabled={deletion.busy || savingKey} onChanged={() => void refreshRef.current()} />
       {keyProvider?.configured ? <ProviderDeleteButton deletion={deletion} disabled={savingKey} label={t("providers.delete.removeKey")} /> : null}
+      <ProviderEnableControl provider={current} disabled={deletion.busy || savingKey} onChanged={() => void refreshRef.current()} />
     </ProviderDetailHeader>
     <ProviderDeleteConfirmation provider={keyProvider ?? current} deletion={deletion} disabled={savingKey} />
     <FreeCloudAccount provider={account} refreshing={refreshing} onRefresh={() => void refreshRef.current(true)} />
@@ -442,7 +438,7 @@ function SeedanceAuthView({ provider, onBack, onCompleted }: { provider: Provide
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack}>
-        {provider.configured ? <><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /><ProviderDeleteButton deletion={deletion} disabled={saving} /></> : null}
+        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader>
       <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
@@ -492,7 +488,7 @@ function MinimaxAuthView({ provider, onBack, onCompleted }: { provider: Provider
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} onBack={onBack}>
-        {provider.configured ? <><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /><ProviderDeleteButton deletion={deletion} disabled={saving} /></> : null}
+        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader>
       <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} />
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
@@ -586,7 +582,7 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted }: { provider: Pr
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} description={t("providers.audioDescription")} onBack={onBack}>
-        {provider.configured ? <><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /><ProviderDeleteButton deletion={deletion} disabled={savingKey} /></> : null}
+        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={savingKey} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader>
       {provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={savingKey} /> : null}
       <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
@@ -698,7 +694,7 @@ function VolcengineSeedAudioAuthView({ provider, onBack, onCompleted }: { provid
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={provider} description={t("providers.seedAudioDescription")} onBack={onBack}>
-        {provider.configured ? <><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /><ProviderDeleteButton deletion={deletion} disabled={saving} /></> : null}
+        {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader>
       {provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} /> : null}
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
@@ -930,8 +926,8 @@ function CustomProviderDetail({ provider, onBack, onRemoved }: { provider: Provi
   }
   return <section className="settings-panel settings-provider-detail">
     <ProviderDetailHeader provider={{ ...provider, name: settings?.name ?? provider.name }} onBack={onBack}>
-      <ProviderEnableControl provider={provider} disabled={deleting} onChanged={() => setModelsRevision((value) => value + 1)} />
       <ProviderDeleteButton deletion={deletion} disabled={openingEditor || Boolean(editing)} />
+      <ProviderEnableControl provider={provider} disabled={deleting} onChanged={() => setModelsRevision((value) => value + 1)} />
     </ProviderDetailHeader>
     <ProviderDeleteConfirmation provider={{ ...provider, name: settings?.name ?? provider.name }} deletion={deletion} disabled={openingEditor || Boolean(editing)} />
     {settings ? <div className="settings-provider-connection">
@@ -956,7 +952,7 @@ function Native3DProviderAuthView({ provider, onBack, onCompleted }: { provider:
   const [savingKey, setSavingKey] = useState(false);
   return <section className="settings-panel settings-provider-detail">
     <ProviderDetailHeader provider={provider} description={t("providers.apiKey")} onBack={onBack}>
-      {provider.configured ? <><ProviderEnableControl provider={provider} disabled={deletion.busy || savingKey} /><ProviderDeleteButton deletion={deletion} disabled={savingKey} /></> : null}
+      {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={savingKey} /><ProviderEnableControl provider={provider} disabled={deletion.busy || savingKey} /></> : null}
     </ProviderDetailHeader>
     <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={savingKey} />
     <Native3DProviderKeyForm provider={provider} deletion={deletion} onSaved={onCompleted} onSavingChange={setSavingKey} />
@@ -1094,7 +1090,7 @@ function ConnectedProvider({ provider, onBack, onRemoved }: { provider: Provider
   return (
     <section className="settings-panel settings-provider-detail">
       <ProviderDetailHeader provider={displayedProvider} onBack={onBack}>
-        {displayedProvider.configured ? <><ProviderEnableControl provider={displayedProvider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /><ProviderDeleteButton deletion={deletion} disabled={Boolean(editing) || endpoint.saving} /></> : null}
+        {displayedProvider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={Boolean(editing) || endpoint.saving} /><ProviderEnableControl provider={displayedProvider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader>
       {displayedProvider.configured ? <ProviderDeleteConfirmation provider={{ ...displayedProvider, credentialType: chatConnected ? credentialType : undefined }} deletion={deletion} disabled={Boolean(editing) || endpoint.saving} /> : null}
       {!chatConnected ? <div className="settings-detail-section"><h4>{t("openAIImages.chatTitle")}</h4><p className="settings-detail-hint">{t("openAIImages.chatHint")}</p><div className="settings-form-actions">{provider.methods.map((method) => <button type="button" className="settings-secondary-button" key={method.type} disabled={Boolean(editing) || deletion.busy} onClick={() => edit(method.type)}>{authMethodLabel(method)}</button>)}</div>{authEditor}</div> : null}

@@ -264,8 +264,8 @@ describe("desktop window", () => {
   });
 
   it.each([
-    ["win32", false, "#ffffff"],
-    ["win32", true, "#1f1f1f"],
+    ["win32", false, "#00000000"],
+    ["win32", true, "#00000000"],
     ["darwin", false, undefined],
     ["linux", false, undefined],
   ] as const)("configures %s window chrome with dark mode %s", async (platform, dark, color) => {

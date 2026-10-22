@@ -2,7 +2,6 @@
 const en = {
   codexImages: {
     description: "Local Codex CLI · image generation",
-    hint: "Uses your saved Codex login and account usage limits. Works in the canvas and with any chat agent, even when Codex is turned off in Agents. The terminal does not need to stay open.",
     managedOptions: "Codex manages the image model and output dimensions. Describe the desired framing in your prompt. Multiple reference images are supported.",
     enable: "Enable Codex CLI image generation",
     ready: "Codex image generation is connected",
@@ -617,6 +616,8 @@ const en = {
     confirmRemove:
       "Remove “{{name}}” from OhMyGame? Files in “{{path}}” will remain on disk.",
     confirmDelete: "Delete “{{name}}”? This cannot be undone.",
+    import: "Import project",
+    importTooLarge: "Choose a project archive up to 10 GB",
   },
   home: {
     title: "What are we making today?",
@@ -805,6 +806,8 @@ const en = {
     editedHours: "Edited {{count}}h ago",
     editedDays: "Edited {{count}}d ago",
     editedOn: "Edited {{date}}",
+    export: "Export project",
+    exporting: "Exporting…",
   },
   conversations: {
     history: "Conversation history",
@@ -1064,9 +1067,6 @@ const en = {
   community: {
     myProfile: "My profile",
     creator: "Creator",
-    filterGames: "Filter games",
-    filters: "Filters",
-    closeFilters: "Close filters",
     search: "Search",
     searchPlaceholder: "Games or creators",
     sortBy: "Sort by",
@@ -1208,7 +1208,6 @@ const en = {
     manageModels: "Manage models",
     default: "Default",
     rescan: "Rescan",
-    providersPointer: "Claude Code, Codex and OpenCode are set up in Agents.",
     open: "Open Agents",
   },
   externalAgents: {
@@ -2825,9 +2824,6 @@ const en = {
   sceneCard: {
     startTitle: "The player starts here",
     start: "Start",
-    offMapTitle:
-      "Not shown on the Story map, and the Scenes before and after it are joined there",
-    offMap: "Off map",
     endingTitle: "Counted as an ending on the Story map",
     staleTitle: "The Scene changed since this picture was taken.",
     stale: "Stale",

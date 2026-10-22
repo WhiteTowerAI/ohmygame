@@ -1,4 +1,5 @@
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
+import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
@@ -235,6 +236,45 @@ export async function updateProjectRunSettings(projectId: string, input: Project
 
 export async function duplicateProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}/duplicate`, { method: "POST" });
+}
+
+/** Downloads the project as an archive that imports as a new project. */
+export async function exportProject(projectId: string, version?: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/export`), {
+    method: "POST",
+    headers: projectRuntimeHeaders(projectId, version),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+/**
+ * The name for a project file from earlier versions: its file name without
+ * `.zip` and the "(project)" suffix the story export adds in either language.
+ */
+export function archiveProjectName(fileName: string): string {
+  let name = fileName.replace(/\.zip$/i, "");
+  for (const lng of ["en", "zh-CN"]) {
+    const suffix = ` (${t("storySettings.projectFileSuffix", { lng })})`;
+    if (name.endsWith(suffix)) {
+      name = name.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return name.slice(0, 255);
+}
+
+/** Creates a new project from an archive, streaming the file to the runtime. */
+export async function importProject(file: File): Promise<ProjectState> {
+  // Names a project file from earlier versions, which has no manifest.
+  const query = new URLSearchParams({ name: archiveProjectName(file.name) });
+  const response = await fetch(apiUrl(`/projects/import?${query}`), {
+    method: "POST",
+    headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE, ...runtimeHeaders() },
+    body: file,
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<ProjectState>;
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
@@ -657,15 +697,6 @@ export async function retryToolJob(jobId: string): Promise<ToolJob> {
 export async function publishProject(projectId: string, accessToken: string, metadata: Omit<PublishProjectRequest, "accessToken">): Promise<PublishResult> {
   const body: PublishProjectRequest = { accessToken, ...metadata };
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
-}
-
-export async function exportInteractiveStoryProject(projectId: string, version?: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/export-project`), {
-    method: "POST",
-    headers: projectRuntimeHeaders(projectId, version),
-  });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
 }
 
 export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {

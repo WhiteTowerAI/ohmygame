@@ -1,8 +1,9 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { ArrowDownUp, FolderPlus, LoaderCircle, RefreshCw, Search, X } from "./icons.js";
+import { ArrowDownUp, FolderPlus, LoaderCircle, RefreshCw, Search, Upload, X } from "./icons.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectState, ProjectType } from "../shared/contracts.js";
-import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { deleteProject, duplicateProject, importProject, listProjects, renameProject, waitForRuntime } from "./api.js";
+import { PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -31,6 +32,8 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
   const [sortOpen, setSortOpen] = useState(false);
   const [actionError, setActionError] = useState<string>();
   const [createOpen, setCreateOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const importInput = useRef<HTMLInputElement>(null);
   const [renameTarget, setRenameTarget] = useState<ProjectState>();
   const renameTrigger = useRef<HTMLElement | null>(null);
   const sortControl = useRef<HTMLDivElement>(null);
@@ -81,6 +84,19 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
     void runAction(() => duplicateProject(project.id));
   }
 
+  async function importArchive(file: File): Promise<void> {
+    if (file.size > PROJECT_ARCHIVE_MAX_BYTES) {
+      setActionError(t("projects.importTooLarge"));
+      return;
+    }
+    setImporting(true);
+    try {
+      await runAction(() => importProject(file));
+    } finally {
+      setImporting(false);
+    }
+  }
+
   function remove(project: ProjectState): void {
     if (!window.confirm(projectDeletionConfirmation(project))) return;
     void runAction(() => deleteProject(project.id));
@@ -114,6 +130,14 @@ export function ProjectsPage({ projectType = "all", query = "", sort = "updated"
                 </div>
               ) : null}
             </div>
+            <button className="projects-icon-button" type="button" aria-label={t("projects.import")} title={t("projects.import")} disabled={importing} onClick={() => importInput.current?.click()}>
+              {importing ? <LoaderCircle className="spin" size={16} /> : <Upload size={16} />}
+            </button>
+            <input ref={importInput} type="file" accept=".zip,application/zip" hidden onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void importArchive(file);
+            }} />
           </div>
         )}
       />

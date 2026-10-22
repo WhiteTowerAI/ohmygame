@@ -24,8 +24,7 @@ computer**; **Rescan** checks for them again. Each row shows whether the CLI
 was found and its version; the detail page shows its account, billing, and a
 verified version for reference. The verified version records a real acceptance
 run and is not a minimum version. The agent whose model new conversations start with is
-marked **Default**. Providers & Models points to Agents when it is filtered to
-language models or searched for a coding agent.
+marked **Default**.
 Agents are off by default. Enabling the switch offers their models in the conversation model picker; the
 detail page signs in, checks again, chooses the executable, and decides whether
 the person's own CLI configuration applies.
@@ -102,20 +101,26 @@ has no quota of its own.
 using the installed CLI and its saved sign-in. Its image switch is independent
 of the Codex conversation-agent switch in Agents. Any chat agent can use it
 through `generate_image`; canvas image nodes and global/project image defaults
-use the same provider. Closing a terminal does not disconnect the provider.
+use the same provider. Choose the global image default in the Providers & Models
+overview. The Codex CLI detail page shows its image status and model without a
+default-model selector. Closing a terminal does not disconnect the provider.
+
+![Codex image provider connected through the saved CLI sign-in (sample data)](assets/codex-image-provider-settings.png)
 
 ![Codex Image selected in the asset canvas](assets/codex-image-canvas.png)
 
-Discovery asks `modelProvider/capabilities/read` without submitting a model
-turn. Missing CLI, signed-out accounts, unsupported capability probes and
-unavailable image backends keep the provider entry visible with a diagnostic,
-but offer no image model. **Check again** refreshes sign-in and capabilities.
-Capability detection does not guarantee account entitlement; generation failures
-are reported without switching providers or automatically retrying inference.
-The provider list and first-run setup return the last known image status without
-waiting for the CLI. Enabled image providers refresh that status in the background;
-disabled ones do not start a probe. **Check again** explicitly waits for a fresh
-login and capability check, including when image generation is disabled.
+The image connection follows the installed CLI's saved sign-in. A signed-in
+account exposes **Codex Image** without a separate image-capability probe or
+inference request. Missing CLI or sign-in keeps the entry visible with a
+diagnostic. The detail page offers **Sign in** only when the CLI reports a
+signed-out account. **Check again** refreshes the saved sign-in, including when
+image generation is disabled. Image access, compatibility and usage-limit errors
+are reported by the generation request, without switching providers or
+retrying inference automatically.
+
+The provider list and first-run setup return the last known sign-in status
+without waiting for the CLI. Enabled image providers refresh that status in the
+background; disabled ones do not start a check.
 
 Each generation starts its own ephemeral app-server thread, with no OhMyGame
 dynamic tools, external MCP servers, shell tools or subagents. The process is

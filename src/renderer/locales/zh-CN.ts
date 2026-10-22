@@ -3,7 +3,6 @@ import type en from "./en.js";
 const zhCN: typeof en = {
   codexImages: {
     description: "本地 Codex CLI · 图片生成",
-    hint: "使用本机保存的 Codex 登录和账户额度。可在画布和任意聊天智能体中使用，即使已在 Agents 中关闭 Codex。无需保持终端开启。",
     managedOptions: "图片模型和输出尺寸由 Codex 管理。请在提示词中描述所需构图，支持多张参考图。",
     enable: "启用 Codex CLI 图片生成",
     ready: "Codex 图片生成已连接",
@@ -602,6 +601,8 @@ const zhCN: typeof en = {
     confirmRemove:
       "要从 OhMyGame 移除“{{name}}”吗？“{{path}}”中的文件会保留在磁盘上。",
     confirmDelete: "要删除“{{name}}”吗？此操作无法撤销。",
+    import: "导入项目",
+    importTooLarge: "请选择不超过 10 GB 的项目归档",
   },
   home: {
     title: "今天想做点什么？",
@@ -787,6 +788,8 @@ const zhCN: typeof en = {
     editedHours: "{{count}} 小时前编辑",
     editedDays: "{{count}} 天前编辑",
     editedOn: "{{date}} 编辑",
+    export: "导出项目",
+    exporting: "正在导出…",
   },
   conversations: {
     history: "对话记录",
@@ -1044,9 +1047,6 @@ const zhCN: typeof en = {
   community: {
     myProfile: "我的主页",
     creator: "创作者",
-    filterGames: "筛选游戏",
-    filters: "筛选",
-    closeFilters: "关闭筛选",
     search: "搜索",
     searchPlaceholder: "游戏或创作者",
     sortBy: "排序方式",
@@ -1186,7 +1186,6 @@ const zhCN: typeof en = {
     manageModels: "管理模型",
     default: "默认",
     rescan: "重新检测",
-    providersPointer: "Claude Code、Codex 和 OpenCode 在「智能体」中设置。",
     open: "前往智能体",
   },
   externalAgents: {
@@ -2748,8 +2747,6 @@ const zhCN: typeof en = {
   sceneCard: {
     startTitle: "玩家从这里开始",
     start: "起始",
-    offMapTitle: "不显示在故事地图上，地图会把它前后的场景直接连起来",
-    offMap: "不在地图上",
     endingTitle: "在故事地图上算作结局",
     staleTitle: "截图之后场景已有改动。",
     stale: "已过期",

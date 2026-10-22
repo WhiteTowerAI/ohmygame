@@ -46,7 +46,9 @@ Package-manager selection uses the explicit setting, `package.json.packageManage
 lockfile, then npm. Settings display the detected manager and its source, and
 check availability without running project code or installing dependencies.
 Missing Bun/pnpm/Yarn remains an actionable configuration error rather than
-silently changing managers. The packaged app includes Node/npm.
+silently changing managers. The packaged app includes Node/npm; other managers
+must be available to the application. Before installation changes `node_modules`,
+the selected executable is checked against the environment passed to the child.
 
 Dependencies install at the owning workspace/lockfile root. Dependency manifests,
 workspace definitions and lockfiles form a fingerprint; dependency or manager
@@ -126,13 +128,21 @@ separate popup, which reload the game on switching. Static file changes reload
 active pages through a local event
 stream, while development servers retain their own HMR protocol.
 
+HTTP readiness and content diagnostics are separate: a responding server can
+still have compilation or runtime errors. The proxy forwards HTTP and HMR;
+failed module responses and browser exceptions or rejected promises update
+daemon-owned diagnostics through project events without stopping the server.
+
 Desktop Preview and human Play share a client/document identity; the diagnostic
 source follows the view's current window without reloading it. AI tests and external
 pages have their own identities and storage contexts. The editor shows the active
 human game's diagnostic. Errors from other windows remain available in the log
-panel. Navigation, HMR success and close clear only that client's errors; late
-reports from superseded documents are ignored. Diagnostic and document maps are
-bounded, and each active document has at most one refresh stream.
+panel. Reports must match the proxy origin and current document. Successful module
+responses, navigation, HMR success and close clear only that client's errors,
+including when a broken module was removed. Late reports and module responses
+from superseded documents are ignored. Diagnostic and document maps are bounded,
+and each active document has at most one refresh stream. Automatic project-cover
+capture pauses while an error is visible.
 
 The proxy removes internal tracking parameters before forwarding requests.
 Same-origin Origin/Referer and upstream redirects follow the proxy address;
@@ -142,10 +152,13 @@ be copied or inserted into the Agent composer using **Ask Agent to fix**. This
 preserves the draft and does not send a message. Source links open the relevant
 workspace file when its path can be identified.
 
-Browser diagnostics, static refresh and external-page leases depend on bridge
-injection. Compressed/oversized HTML and restrictive CSP can block the bridge;
-editor leases, service logs and recovery controls remain available. This proxy
-is intended for local HTTP development, not a full production reverse proxy.
+Browser diagnostics, static refresh and external-page leases depend on an external
+classic script injected before project scripts into uncompressed HTML up to 2 MiB.
+It preserves CSP, including an existing nonce, and uses its own function scope to
+avoid project-global collisions. Larger or compressed pages retain their original
+representation; restrictive CSP can block the bridge. Editor leases, service logs
+and recovery controls remain available. This proxy is intended for local HTTP
+development, not a full production reverse proxy.
 
 Preview state is delivered through one `preview.updated` event containing the
 complete runtime state. Browser reports use a typed message envelope for activity,

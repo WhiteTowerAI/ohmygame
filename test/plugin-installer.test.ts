@@ -3,12 +3,35 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { installPlugin, validatedGitUrl, type GitRunner } from "../src/daemon/plugin-installer.js";
+import { ZipFile } from "yazl";
+import { extractPluginArchive, installPlugin, validatedGitUrl, type GitRunner } from "../src/daemon/plugin-installer.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
 describe("plugin installer", () => {
+  it.each([
+    ["node_modules/link", "Plugin archive contains an invalid path"],
+    [".env", "Plugin archive contains private files"],
+    ["link", "Plugin archive contains a symbolic link"],
+  ])("reports the plugin's own path rules before a symbolic link: %s", async (name, message) => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-plugin-archive-"));
+    directories.push(directory);
+    const zip = new ZipFile();
+    zip.addBuffer(Buffer.from("target"), name, { mode: 0o120777 });
+    const archive = path.join(directory, "plugin.zip");
+    await new Promise<void>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      zip.outputStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      zip.outputStream.once("error", reject);
+      zip.outputStream.once("end", () => { void writeFile(archive, Buffer.concat(chunks)).then(resolve, reject); });
+      zip.end();
+    });
+    await mkdir(path.join(directory, "out"));
+    await expect(extractPluginArchive(archive, path.join(directory, "out"))).rejects.toThrow(message);
+  });
+
+
   it("installs a Git snapshot with its resolved source and enables it by default", async () => {
     const root = await temporaryDirectory();
     const repository = path.join(root, "repository");
