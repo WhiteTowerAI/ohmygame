@@ -41,8 +41,10 @@ Older versions are documented in
   reducing black flashes between story nodes.
   ([#343](https://github.com/WhiteTowerAI/ohmygame/pull/343) by @82228)
 - Improve Windows title bar and sidebar appearance, keep installer progress
-  moving forward, and allow more time for first-start plugin preparation.
-  ([#352](https://github.com/WhiteTowerAI/ohmygame/pull/352) by @82228)
+  moving forward, allow more time for first-start plugin preparation, and
+  prevent a failed process check from incorrectly blocking installation.
+  ([#352](https://github.com/WhiteTowerAI/ohmygame/pull/352) by @82228,
+  [#369](https://github.com/WhiteTowerAI/ohmygame/pull/369) by @82228)
 - Keep composer attachment and context menus usable near window edges and in
   short viewports, with scrolling when the full menu does not fit.
   ([#352](https://github.com/WhiteTowerAI/ohmygame/pull/352) by @82228,
