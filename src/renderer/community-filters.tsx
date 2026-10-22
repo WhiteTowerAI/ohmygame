@@ -1,7 +1,6 @@
 import { t } from "./i18n.js";
-import { useEffect, useRef, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
-import { Search, SlidersHorizontal, X } from "./icons.js";
+import { Search, X } from "./icons.js";
 
 export interface CommunityFilters {
   search: string;
@@ -50,128 +49,76 @@ export function filterCommunityGames<T extends CommunityGame>(
     });
 }
 
-export function CommunityFilterButton({
+export function CommunityToolbar({
   value,
   onChange,
 }: {
   value: CommunityFilters;
   onChange: (filters: CommunityFilters) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const search = useRef<HTMLInputElement>(null);
-  const active =
-    value.search.trim() || value.sort !== "latest" || value.period !== "all";
-  useEffect(() => {
-    if (!open) return;
-    search.current?.focus();
-    const outside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        trigger.current?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", outside);
-    document.addEventListener("keydown", escape);
-    return () => {
-      document.removeEventListener("pointerdown", outside);
-      document.removeEventListener("keydown", escape);
-    };
-  }, [open]);
+  const sorts = [
+    ["latest", "community.latestListed"],
+    ["viewers", "community.mostViewed"],
+    ["likes", "community.mostLiked"],
+  ] as const;
   return (
-    <div className="community-filter-control" ref={root}>
-      <button
-        ref={trigger}
-        className={`projects-icon-button${active ? " is-active" : ""}`}
-        type="button"
-        title={t("community.filterGames")}
-        aria-label={t("community.filterGames")}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        onClick={() => setOpen((previous) => !previous)}
+    <div className="community-toolbar">
+      <div
+        className="community-sort"
+        role="group"
+        aria-label={t("community.sortBy")}
       >
-        <SlidersHorizontal size={15} />
-        {active ? <span className="community-filter-dot" /> : null}
-      </button>
-      {open ? (
-        <section
-          className="community-filter-popover"
-          role="dialog"
-          aria-label={t("community.filterGames")}
+        {sorts.map(([sort, label]) => (
+          <button
+            key={sort}
+            type="button"
+            aria-pressed={value.sort === sort}
+            onClick={() => onChange({ ...value, sort })}
+          >
+            {t(label)}
+          </button>
+        ))}
+      </div>
+      <div className="community-search-controls">
+        <select
+          className="community-period"
+          aria-label={t("community.firstListed")}
+          value={value.period}
+          onChange={(event) =>
+            onChange({
+              ...value,
+              period: event.target.value as CommunityFilters["period"],
+            })
+          }
         >
-          <header>
-            <strong>{t("community.filters")}</strong>
-            <button
-              type="button"
-              aria-label={t("community.closeFilters")}
-              onClick={() => {
-                setOpen(false);
-                trigger.current?.focus();
-              }}
-            >
-              <X size={14} />
-            </button>
-          </header>
-          <label>
-            <span>{t("community.search")}</span>
-            <div className="community-filter-search">
-              <Search size={14} />
-              <input
-                ref={search}
-                type="search"
-                value={value.search}
-                placeholder={t("community.searchPlaceholder")}
-                onChange={(event) =>
-                  onChange({ ...value, search: event.target.value })
-                }
-              />
-            </div>
-          </label>
-          <label>
-            <span>{t("community.sortBy")}</span>
-            <select
-              value={value.sort}
-              onChange={(event) =>
-                onChange({
-                  ...value,
-                  sort: event.target.value as CommunityFilters["sort"],
-                })
-              }
-            >
-              <option value="latest">{t("community.latestListed")}</option>
-              <option value="viewers">{t("community.mostViewed")}</option>
-              <option value="likes">{t("community.mostLiked")}</option>
-            </select>
-          </label>
-          <label>
-            <span>{t("community.firstListed")}</span>
-            <select
-              value={value.period}
-              onChange={(event) =>
-                onChange({
-                  ...value,
-                  period: event.target.value as CommunityFilters["period"],
-                })
-              }
-            >
-              <option value="all">{t("community.anyTime")}</option>
-              <option value="week">{t("community.pastWeek")}</option>
-              <option value="month">{t("community.pastMonth")}</option>
-            </select>
-          </label>
+          <option value="all">{t("community.anyTime")}</option>
+          <option value="week">{t("community.pastWeek")}</option>
+          <option value="month">{t("community.pastMonth")}</option>
+        </select>
+        <label className="community-search">
+          <Search size={15} aria-hidden="true" />
+          <input
+            type="search"
+            aria-label={t("community.search")}
+            value={value.search}
+            placeholder={t("community.searchPlaceholder")}
+            onChange={(event) =>
+              onChange({ ...value, search: event.target.value })
+            }
+          />
+        </label>
+        {value.search || value.sort !== "latest" || value.period !== "all" ? (
           <button
             className="community-filter-reset"
             type="button"
+            aria-label={t("community.resetFilters")}
+            title={t("community.resetFilters")}
             onClick={() => onChange({ ...DEFAULT_COMMUNITY_FILTERS })}
           >
-            {t("community.resetFilters")}
+            <X size={15} />
           </button>
-        </section>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 }

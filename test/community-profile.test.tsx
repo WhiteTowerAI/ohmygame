@@ -139,12 +139,12 @@ async function click(label: string) {
   await act(async () => button!.click());
 }
 async function sortByLikes() {
-  await click("Filter games");
-  const select = container.querySelector<HTMLSelectElement>("select")!;
-  await act(async () => {
-    select.value = "likes";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  });
+  const button = [
+    ...container.querySelectorAll<HTMLButtonElement>(".community-sort button"),
+  ].find((element) => element.textContent === "Most liked")!;
+  expect(button).toBeDefined();
+  await act(async () => button.click());
+  expect(button.getAttribute("aria-pressed")).toBe("true");
 }
 function displayedGames() {
   return [...container.querySelectorAll(".community-card-title")].map(

@@ -33,3 +33,6 @@ their code, documentation, and tests.
   [UI languages](docs/ui-languages.md).
 - Use the [checks guidance](CONTRIBUTING.md#make-and-check-your-change) for the
   change type. Record skipped checks and manual validation still needed.
+- Extend existing tests and guides before adding new ones. Follow
+  [focused tests and documentation](CONTRIBUTING.md#keep-tests-and-documentation-focused)
+  before merging or removing either.

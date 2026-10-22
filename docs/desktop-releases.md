@@ -40,6 +40,13 @@ Configure these repository secrets:
 | `APPLE_ID`                    | Apple account used for notarization              |
 | `APPLE_APP_SPECIFIC_PASSWORD` | Apple app-specific password                      |
 | `APPLE_TEAM_ID`               | Apple Developer team ID                          |
+| `SENTRY_AUTH_TOKEN`           | Sentry token that uploads renderer source maps   |
+
+When `SENTRY_AUTH_TOKEN` is set, `vite build` generates hidden renderer source
+maps, uploads them to the `ohmygame` Sentry project under the
+`ohmygame@<version>` release, and deletes them. The package also excludes
+renderer `.map` files, so a failed upload cannot ship them. Builds without the
+token, including local builds and fork PRs, generate no source maps.
 
 The R2 credentials belong only in GitHub Secrets. Do not include GitHub, R2,
 or code-signing credentials in the application or the public update bucket.
@@ -58,6 +65,30 @@ and remains available in every state.
 
 Development builds never reach the feed: `DesktopUpdater.check` reports the
 current version as installed unless `app.isPackaged`.
+
+## Windows installer progress
+
+The Windows setup wizard shows "Installing..." with an overall percentage and
+the current phase as supplementary text.
+Preparation occupies 0–10%, extraction uses actual Nsis7z byte progress mapped
+to 10–85%, copying ends at 95%, and final setup reaches 99%. Only successful
+installation shows 100%. Percentages represent weighted phases, not elapsed
+time; the indicator holds during work without byte callbacks and never moves
+backwards, including retries. Silent updates do not show this indicator.
+
+The pinned `app-builder-lib` patch exposes extraction and copy-complete hooks
+without replacing its installation, upgrade, or retry logic. Our visible
+controls are separate from the native per-phase progress controls that NSIS
+and Nsis7z reset. Keep the patch and installer smoke test working when upgrading
+electron-builder.
+
+On Windows, run `bun run test:installer-progress` after the NSIS toolchain has
+been cached by a desktop package build. It compiles and runs isolated native
+wizard fixtures, extracts a real archive, and checks byte progress, 64-bit
+arithmetic, retries, native resets, successful/failed completion, both languages,
+and silent mode without modifying an installed app. `--preview` pauses each
+visible fixture for layout inspection. `MAKENSIS` and `SEVEN_ZIP` can select local
+tool executables.
 
 ## Differential downloads
 

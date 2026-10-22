@@ -1,0 +1,29 @@
+diff --git a/templates/nsis/include/extractAppPackage.nsh b/templates/nsis/include/extractAppPackage.nsh
+--- a/templates/nsis/include/extractAppPackage.nsh
++++ b/templates/nsis/include/extractAppPackage.nsh
+@@ -94,6 +94,10 @@
+   CreateDirectory "$PLUGINSDIR\7z-out"
+   ClearErrors
+   SetOutPath "$PLUGINSDIR\7z-out"
+-  Nsis7z::Extract "${FILE}"
++  !ifmacrodef customExtractUsing7za
++    !insertmacro customExtractUsing7za "${FILE}"
++  !else
++    Nsis7z::Extract "${FILE}"
++  !endif
+   Pop $R0
+   SetOutPath $R0
+@@ -127,2 +131,6 @@
+-    Nsis7z::Extract "${FILE}"
++    !ifmacrodef customExtractUsing7za
++      !insertmacro customExtractUsing7za "${FILE}"
++    !else
++      Nsis7z::Extract "${FILE}"
++    !endif
+     Goto DoneExtract7za
+@@ -137,2 +145,5 @@
+   DoneExtract7za:
++    !ifmacrodef customAppFilesCopied
++      !insertmacro customAppFilesCopied
++    !endif
+ !macroend

@@ -22,6 +22,8 @@ files:
   - dist/story-web/resources.json
   - dist/renderer/**/*
   - dist/player/**/*
+  # Renderer source maps go to Sentry, not into the package, even if their upload failed.
+  - "!dist/renderer/**/*.map"
   - "!node_modules/typebox/build/**/*.mjs"
   - from: .runtime/typebox
     to: node_modules/typebox/build
