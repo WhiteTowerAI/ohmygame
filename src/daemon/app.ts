@@ -1039,6 +1039,8 @@ export function createApp(options: AppOptions = {}) {
   };
   const app = Fastify({
     logger: options.logger ?? false,
+    // First-run plugin extraction can exceed Fastify's default 10s on Windows.
+    pluginTimeout: 60_000,
     ajv: { customOptions: { coerceTypes: false } },
   });
   projectWrites.install(app);

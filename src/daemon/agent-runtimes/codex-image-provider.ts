@@ -4,6 +4,7 @@ import type {
   ImageModelCatalog,
   ProviderSummary,
 } from "../../shared/contracts.js";
+import type { AgentRuntimeAuthStatus } from "../../shared/agent-runtimes.js";
 import {
   ImageGenerationError,
   type GeneratedImage,
@@ -37,19 +38,18 @@ type Connection = NonNullable<
   Awaited<ReturnType<AgentRuntimeService["codexImageConnection"]>>
 >;
 type Connect = (recheck?: boolean) => Promise<Connection | undefined>;
-const PROBE_TIMEOUT = 10_000;
+const REQUEST_TIMEOUT = 10_000;
 const GENERATION_TIMEOUT = 5 * 60_000;
 const STATUS_TTL = 60_000;
 
 interface CodexImageStatus {
-  ready: boolean;
+  authStatus: AgentRuntimeAuthStatus;
   message?: string;
 }
 
 /** Uses the installed CLI and its credential store, independently of conversation settings. */
 export class CodexImageProvider {
-  #capabilities?: { key: string; at: number; result: Promise<boolean> };
-  #statusSnapshot: CodexImageStatus = { ready: false };
+  #statusSnapshot: CodexImageStatus = { authStatus: "unknown" };
   #statusCheckedAt = 0;
   #refresh?: Promise<CodexImageStatus>;
   #closed = false;
@@ -71,20 +71,18 @@ export class CodexImageProvider {
   }
 
   close(): void {
-    // The runtime service stops existing app servers; pending discovery must
-    // not start another one after daemon shutdown has begun.
+    // Ignore login discovery that finishes after daemon shutdown.
     this.#closed = true;
   }
 
   #refreshStatus(recheck = false): Promise<CodexImageStatus> {
     if (this.#closed) return Promise.resolve(this.#statusSnapshot);
     if (this.#refresh) {
-      // An explicit recheck must observe login/config changes after an older probe.
+      // An explicit recheck must observe login changes after an older check.
       return recheck
         ? this.#refresh.then(() => this.#refreshStatus(true))
         : this.#refresh;
     }
-    if (recheck) this.#capabilities = undefined;
     const work = this.#status(recheck)
       .then((status) => {
         this.#statusSnapshot = status;
@@ -98,40 +96,24 @@ export class CodexImageProvider {
     return work;
   }
 
-  async #status(recheck = false) {
+  async #status(recheck = false): Promise<CodexImageStatus> {
     try {
       const connection = await this.connect(recheck);
-      if (this.#closed) return { ready: false };
+      if (this.#closed) return { authStatus: "unknown" };
       if (!connection)
         return {
-          ready: false,
+          authStatus: "unknown",
           message:
             "Codex CLI was not found. Install it or choose its executable in Agents.",
         };
-      const authError = connectionError(connection);
-      if (authError) return { ready: false, message: authError };
-      const key = JSON.stringify([connection.signature, connection.env]);
-      if (
-        !this.#capabilities ||
-        this.#capabilities.key !== key ||
-        Date.now() - this.#capabilities.at > 60_000
-      ) {
-        const result = this.#probe(connection);
-        const cached = { key, at: Date.now(), result };
-        this.#capabilities = cached;
-        void result.catch(() => {
-          if (this.#capabilities === cached) this.#capabilities = undefined;
-        });
-      }
-      const supported = await this.#capabilities.result;
+      const authStatus = connection.auth?.status ?? "unknown";
       return {
-        ready: supported,
-        message: supported
-          ? undefined
-          : "This Codex provider does not offer built-in image generation. Check the account, CLI version and configuration.",
+        authStatus,
+        message:
+          authStatus === "signed-in" ? undefined : connectionError(connection),
       };
     } catch (cause) {
-      return { ready: false, message: errorMessage(cause) };
+      return { authStatus: "unknown", message: errorMessage(cause) };
     }
   }
 
@@ -140,15 +122,17 @@ export class CodexImageProvider {
   }
 
   #summary(enabled: boolean, status: CodexImageStatus): ProviderSummary {
+    const ready = status.authStatus === "signed-in";
     return {
       id: "codex-cli",
       name: "Codex CLI",
       source: "local-cli",
       methods: [],
-      configured: status.ready,
-      imageConfigured: status.ready,
+      configured: ready,
+      imageConfigured: ready,
+      authStatus: status.authStatus,
       enabled,
-      status: status.ready ? "connected" : "not_configured",
+      status: ready ? "connected" : "not_configured",
       capabilities: ["image"],
       ...(status.message ? { error: status.message } : {}),
     };
@@ -158,49 +142,18 @@ export class CodexImageProvider {
     signal?.throwIfAborted();
     const status = await this.#refreshStatus();
     signal?.throwIfAborted();
+    const ready = status.authStatus === "signed-in";
     return {
-      models: status.ready ? [CODEX_IMAGE_MODEL] : [],
+      models: ready ? [CODEX_IMAGE_MODEL] : [],
       providers: [
         {
           provider: "codex-cli",
           providerName: "Codex CLI",
-          state: status.ready ? "ready" : "empty",
+          state: ready ? "ready" : "empty",
           ...(status.message ? { message: status.message } : {}),
         },
       ],
     };
-  }
-
-  async #probe(connection: Connection): Promise<boolean> {
-    const folder = await privateFolder(
-      path.join(this.root, "probes"),
-      "codex-image",
-    );
-    if (this.#closed) {
-      await folder.remove();
-      return false;
-    }
-    const server = new CodexAppServer(
-      connection.path,
-      folder.path,
-      connection.env,
-      { processDirectory: path.join(this.root, "processes") },
-    );
-    try {
-      await server.initialize(PROBE_TIMEOUT);
-      return (
-        (
-          await server.request<{ imageGeneration?: boolean }>(
-            "modelProvider/capabilities/read",
-            {},
-            PROBE_TIMEOUT,
-          )
-        ).imageGeneration === true
-      );
-    } finally {
-      await server.stop();
-      await folder.remove();
-    }
   }
 
   async generate(
@@ -311,22 +264,12 @@ export class CodexImageProvider {
           },
         },
       );
-      await server.initialize(PROBE_TIMEOUT);
+      await server.initialize(REQUEST_TIMEOUT);
       abort.throwIfAborted();
-      const capabilities = await server.request<{ imageGeneration?: boolean }>(
-        "modelProvider/capabilities/read",
-        {},
-        PROBE_TIMEOUT,
-      );
-      if (!capabilities.imageGeneration)
-        throw new ImageGenerationError(
-          "This Codex provider does not support built-in image generation",
-          503,
-        );
       const read = await server.request<{ config?: Record<string, unknown> }>(
         "config/read",
         { cwd: folder.path },
-        PROBE_TIMEOUT,
+        REQUEST_TIMEOUT,
       );
       const profile = "ohmygame-image";
       const config: Record<string, unknown> = {

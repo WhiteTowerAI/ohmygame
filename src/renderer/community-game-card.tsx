@@ -1,15 +1,10 @@
 import { language, t } from "./i18n.js";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
-import {
-  HOME_GAME_MOSAIC_SLOTS,
-  type GameMosaicSlot,
-} from "../shared/game-mosaic.js";
-import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 import { getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
-import { Eye, Heart, LoaderCircle } from "./icons.js";
+import { Eye, Gamepad2, Heart, LoaderCircle } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
 
 export function GameGrid<T extends CommunityGame>({
@@ -24,49 +19,27 @@ export function GameGrid<T extends CommunityGame>({
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
 }) {
   return (
-    <div className="explore-game-mosaics">
-      {Array.from(
-        { length: Math.ceil(games.length / HOME_GAME_MOSAIC_SLOTS.length) },
-        (_, group) => {
-          const start = group * HOME_GAME_MOSAIC_SLOTS.length;
-          const batch = games.slice(
-            start,
-            start + HOME_GAME_MOSAIC_SLOTS.length,
-          );
-          return (
-            <div
-              key={group}
-              className={`explore-game-mosaic${batch.length === HOME_GAME_MOSAIC_SLOTS.length ? " is-complete" : ""}`}
-            >
-              {batch.map((game, index) => (
-                <GameTile
-                  key={game.id}
-                  game={game}
-                  slot={HOME_GAME_MOSAIC_SLOTS[index]}
-                  onOpen={() => onOpen(game)}
-                  accessToken={accessToken}
-                  onStatsChange={onStatsChange}
-                />
-              ))}
-            </div>
-          );
-        },
-      )}
+    <div className="community-game-grid">
+      {games.map((game) => (
+        <GameTile
+          key={game.id}
+          game={game}
+          onOpen={() => onOpen(game)}
+          accessToken={accessToken}
+          onStatsChange={onStatsChange}
+        />
+      ))}
     </div>
   );
 }
 
 export function GameTile({
-  className = "",
   game,
-  slot,
   onOpen,
   accessToken,
   onStatsChange,
 }: {
-  className?: string;
   game: CommunityGame;
-  slot?: GameMosaicSlot;
   onOpen: () => void;
   accessToken?: string;
   onStatsChange?: (gameId: string, stats: CommunityGameStats) => void;
@@ -91,70 +64,62 @@ export function GameTile({
     return () => observer.disconnect();
   }, []);
   const coverUrl = useGameCover(visible ? game : undefined, accessToken);
-  const style: (CSSProperties & Record<string, number>) | undefined = slot
-    ? {
-        "--mosaic-column": slot.column,
-        "--mosaic-row": slot.row,
-        "--mosaic-size": slot.size,
-      }
-    : undefined;
   return (
-    <article
-      ref={tile}
-      className={`explore-game-tile explore-game-tile-size-${slot?.size ?? 1}${className ? ` ${className}` : ""}`}
-      style={style}
-    >
-      {coverUrl ? (
-        <img
-          className="explore-game-cover"
-          src={coverUrl}
-          alt=""
-          loading="lazy"
-        />
-      ) : (
-        <span className="explore-game-cover-placeholder" aria-hidden="true">
-          <img src={brandMark} alt="" />
-        </span>
-      )}
-      <button
-        className="explore-game-open"
-        type="button"
-        aria-label={t("community.play", { title: game.title })}
-        onClick={onOpen}
-      />
-      <div className="explore-game-overlay">
-        <div className="explore-game-overlay-copy">
-          <strong className="community-card-title">{game.title}</strong>
-          <a
-            className="explore-game-creator"
-            href={communityProfileHash(game.author.id)}
-            aria-label={t("community.viewProfile", {
-              name: game.author.displayName,
-            })}
-          >
-            <span className="explore-game-creator-avatar" aria-hidden="true">
-              <i>{game.author.displayName.slice(0, 1).toUpperCase()}</i>
-              {game.author.avatarUrl ? (
-                <img
-                  src={game.author.avatarUrl}
-                  alt=""
-                  onError={(event) => {
-                    event.currentTarget.hidden = true;
-                  }}
-                />
-              ) : null}
-            </span>
-            <small>{game.author.displayName}</small>
-          </a>
-          <GameStats
-            game={game}
-            onChange={
-              onStatsChange
-                ? (stats) => onStatsChange(game.id, stats)
-                : undefined
-            }
+    <article ref={tile} className="explore-game-tile">
+      <div className="community-card-cover">
+        {coverUrl ? (
+          <img
+            className="explore-game-cover"
+            src={coverUrl}
+            alt=""
+            loading="lazy"
           />
-        </div>
+        ) : (
+          <span className="explore-game-cover-placeholder" aria-hidden="true">
+            <Gamepad2 size={28} />
+          </span>
+        )}
+      </div>
+      <h2 className="community-card-title">
+        <button
+          className="explore-game-open"
+          type="button"
+          aria-label={t("community.play", { title: game.title })}
+          title={game.description || game.title}
+          onClick={onOpen}
+        >
+          {game.title}
+        </button>
+      </h2>
+      <div className="community-card-meta">
+        <a
+          className="explore-game-creator"
+          href={communityProfileHash(game.author.id)}
+          aria-label={t("community.viewProfile", {
+            name: game.author.displayName,
+          })}
+        >
+          <span className="explore-game-creator-avatar" aria-hidden="true">
+            <i>{game.author.displayName.slice(0, 1).toUpperCase()}</i>
+            {game.author.avatarUrl ? (
+              <img
+                src={game.author.avatarUrl}
+                alt=""
+                loading="lazy"
+                onError={(event) => {
+                  event.currentTarget.hidden = true;
+                }}
+              />
+            ) : null}
+          </span>
+          <small>{game.author.displayName}</small>
+        </a>
+        <GameStats
+          game={game}
+          onChange={
+            onStatsChange ? (stats) => onStatsChange(game.id, stats) : undefined
+          }
+        />
       </div>
     </article>
   );

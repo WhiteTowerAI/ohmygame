@@ -53,6 +53,10 @@ bun run test:node-runtime
 私有云仓库不可用时，远端发布契约测试会跳过。在 PR 中写明跳过情况，相关
 云端验证由有访问权限的维护者补充。CI 仍会检查文档 PR。
 
+优先扩展已有测试和文档。删除或合并测试前，按
+[测试与文档精简规则](../CONTRIBUTING.md#keep-tests-and-documentation-focused)
+说明由哪个测试继续覆盖。
+
 每个 PR 聚焦一件事。分支前缀使用 `feat/`、`fix/`、`docs/`、`chore/` 或
 `refactor/`；PR 标题使用 Conventional Commits，例如
 `docs(contributing): clarify local setup`。

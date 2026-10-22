@@ -28,7 +28,6 @@ afterEach(async () => {
 type Message = { id: number; method: string; params: Record<string, any> };
 function fakeServer(
   options: {
-    supported?: boolean;
     noImage?: boolean;
     failed?: boolean;
     hold?: string;
@@ -70,8 +69,6 @@ function fakeServer(
       if (message.method === options.hold || message.method === "initialized")
         return;
       let result: unknown = {};
-      if (message.method === "modelProvider/capabilities/read")
-        result = { imageGeneration: options.supported !== false };
       if (message.method === "config/read")
         result = { config: { mcp_servers: { external: {} } } };
       if (message.method === "thread/start")
@@ -143,7 +140,7 @@ async function setup() {
 }
 
 describe("Codex CLI image provider", () => {
-  it("does not launch a late background probe after daemon shutdown", async () => {
+  it("ignores login discovery that finishes after daemon shutdown", async () => {
     const cli = fakeServer();
     const { provider, connect, connection } = await setup();
     let release!: (value: typeof connection) => void;
@@ -163,7 +160,7 @@ describe("Codex CLI image provider", () => {
     expect(cli.calls).toEqual([]);
   });
 
-  it("returns snapshots immediately, skips disabled probes and shares background discovery", async () => {
+  it("returns snapshots immediately, skips disabled login checks and shares background discovery", async () => {
     const cli = fakeServer();
     const { provider, connect, connection } = await setup();
     let release!: (value: typeof connection) => void;
@@ -176,6 +173,7 @@ describe("Codex CLI image provider", () => {
     expect(provider.summarySnapshot(false)).toMatchObject({
       enabled: false,
       configured: false,
+      authStatus: "unknown",
     });
     expect(connect).not.toHaveBeenCalled();
     expect(provider.summarySnapshot(true)).toMatchObject({
@@ -196,23 +194,20 @@ describe("Codex CLI image provider", () => {
       configured: true,
     });
     expect(connect).toHaveBeenCalledOnce();
-    expect(cli.closed).toHaveBeenCalledOnce();
+    expect(cli.calls).toEqual([]);
   });
 
-  it("checks capabilities without inference, caches probes, and remains separate from a conversation agent", async () => {
+  it("offers the image model from saved sign-in without starting an app-server", async () => {
     const cli = fakeServer();
     const { provider } = await setup();
     expect(await provider.summary(true)).toMatchObject({
       id: "codex-cli",
       configured: true,
+      authStatus: "signed-in",
       capabilities: ["image"],
     });
     expect((await provider.catalog()).models).toEqual([CODEX_IMAGE_MODEL]);
-    expect(
-      cli.calls.filter((call) => call.method === "initialize"),
-    ).toHaveLength(1);
-    expect(cli.calls.some((call) => call.method === "turn/start")).toBe(false);
-    expect(cli.closed).toHaveBeenCalledOnce();
+    expect(cli.calls).toEqual([]);
   });
 
   it("passes multiple references in order without staging files, generates once and deduplicates completed events", async () => {
@@ -248,6 +243,11 @@ describe("Codex CLI image provider", () => {
       }),
     ).toEqual({ bytes: png, mediaType: "image/png" });
     expect(connect).toHaveBeenCalledWith(true);
+    expect(
+      cli.calls.some(
+        (call) => call.method === "modelProvider/capabilities/read",
+      ),
+    ).toBe(false);
     const thread = cli.calls.find((call) => call.method === "thread/start")!;
     expect(thread.params).toMatchObject({
       ephemeral: true,
@@ -267,18 +267,14 @@ describe("Codex CLI image provider", () => {
     expect(cli.closed).toHaveBeenCalledOnce();
   });
 
-  it("rechecks login once and refreshes cached capabilities", async () => {
+  it("rechecks saved login without launching an image-capability probe", async () => {
     const cli = fakeServer();
     const { provider, connect } = await setup();
     await provider.summary(true);
     connect.mockClear();
     await provider.recheck(true);
     expect(connect).toHaveBeenCalledExactlyOnceWith(true);
-    expect(
-      cli.calls.filter(
-        (call) => call.method === "modelProvider/capabilities/read",
-      ),
-    ).toHaveLength(2);
+    expect(cli.calls).toEqual([]);
   });
 
   it.each([
@@ -298,8 +294,8 @@ describe("Codex CLI image provider", () => {
     },
   );
 
-  it("does not start inference when signed out or when the CLI lacks image generation", async () => {
-    const cli = fakeServer({ supported: false });
+  it("does not start inference when signed out", async () => {
+    const cli = fakeServer();
     const { root, connection } = await setup();
     const signedOut = new CodexImageProvider(root, async () => ({
       ...connection,
@@ -307,15 +303,33 @@ describe("Codex CLI image provider", () => {
     }));
     expect(await signedOut.summary(true)).toMatchObject({
       configured: false,
+      authStatus: "signed-out",
       error: expect.stringContaining("Sign in"),
     });
-    expect(cli.calls).toEqual([]);
-    const unsupported = new CodexImageProvider(root, async () => connection);
-    expect((await unsupported.catalog()).models).toEqual([]);
-    await expect(unsupported.generate({ prompt: "A cat" })).rejects.toThrow(
-      "does not support",
+    expect((await signedOut.catalog()).models).toEqual([]);
+    await expect(signedOut.generate({ prompt: "A cat" })).rejects.toThrow(
+      "Sign in",
     );
-    expect(cli.calls.some((call) => call.method === "turn/start")).toBe(false);
+    expect(cli.calls).toEqual([]);
+  });
+
+  it("offers a signed-in connection and reports CLI compatibility errors only when generating", async () => {
+    const cli = fakeServer();
+    const { root, connection } = await setup();
+    const incompatible = new CodexImageProvider(root, async () => ({
+      ...connection,
+      error: "This Codex CLI cannot start an image thread",
+    }));
+    expect(await incompatible.summary(true)).toMatchObject({
+      configured: true,
+      authStatus: "signed-in",
+      status: "connected",
+    });
+    expect((await incompatible.catalog()).models).toEqual([CODEX_IMAGE_MODEL]);
+    await expect(incompatible.generate({ prompt: "A cat" })).rejects.toThrow(
+      "This Codex CLI cannot start an image thread",
+    );
+    expect(cli.calls).toEqual([]);
   });
 
   it("cancels during thread startup and removes its private state", async () => {

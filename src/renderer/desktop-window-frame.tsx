@@ -1,5 +1,4 @@
 import { type MouseEvent, type ReactNode } from "react";
-import appIcon from "../../build/icon-windows.svg";
 import { t } from "./i18n.js";
 
 const WINDOW_MENU_LABELS = ["File", "Edit", "View", "Window"] as const;
@@ -23,9 +22,6 @@ function DesktopWindowMenu() {
   }
 
   return <header className="desktop-window-menu-bar" role="menubar" aria-label={t("sidebar.applicationMenu")}>
-    <span className="desktop-window-menu-icon" aria-hidden="true">
-      <img src={appIcon} alt="" draggable={false} />
-    </span>
     {WINDOW_MENU_LABELS.map((label) => <button
       type="button"
       role="menuitem"

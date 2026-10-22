@@ -40,7 +40,7 @@ function PlayableNodeCard({ id, data, selected }: NodeProps<PlayableFlowNode>) {
       <span><InlinePlayableTitle nodeId={id} value={node.title} onRename={canvas?.onRenameNode} /></span>
       <div className="playable-node-badges">
         {entry ? <span className="playable-node-badge is-entry" title={t("sceneCard.startTitle")}><Flag size={11} /><span>{t("sceneCard.start")}</span></span> : null}
-        {node.story?.hidden ? <span className="playable-node-badge" title={t("sceneCard.offMapTitle")}><span>{t("sceneCard.offMap")}</span></span> : ending ? <span className="playable-node-badge" title={t("sceneCard.endingTitle")}><span>{t("storyMenu.ending")}</span></span> : null}
+        {!node.story?.hidden && ending ? <span className="playable-node-badge" title={t("sceneCard.endingTitle")}><span>{t("storyMenu.ending")}</span></span> : null}
       </div>
     </div>
     <div data-alignment-frame className={`story-media-stage playable-node-stage${failed ? " is-failed" : ""}`}>
