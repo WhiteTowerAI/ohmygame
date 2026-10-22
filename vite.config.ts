@@ -27,6 +27,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Colyseus's optional PM2 metrics write to process.send in forked workers.
+    pool: "threads",
     include: ["test/**/*.test.{ts,tsx}"],
     // Real compiler builds and grammar initialization need bounded parallelism on Bun.
     maxWorkers: 4,

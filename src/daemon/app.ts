@@ -31,6 +31,7 @@ import { groupThreadItems } from "../shared/turns.js";
 import { RuntimeEventBus } from "../shared/events.js";
 import { EXAMPLE_ID_PATTERN } from "../shared/examples.js";
 import { PUBLISH_GAME_TITLE_MAX_LENGTH } from "../shared/publish-v1.js";
+import { MULTIPLAYER_MANIFEST_SCHEMA } from "../shared/multiplayer-protocol.js";
 import { clampReasoningLevel, parseReasoningLevel, supportedReasoningLevels } from "../shared/reasoning.js";
 import { matchesBearerToken } from "./access.js";
 import { AgentManager, conversationItems, createPiSession, loadPiSkillCatalog, loadPiSkills, type RuntimeModel, type SessionFactory } from "./agent.js";
@@ -279,6 +280,7 @@ const publishProjectSchema = {
       accessToken: { type: "string", minLength: 1, maxLength: 10_000 },
       title: { type: "string", minLength: 1, maxLength: 200 },
       description: { type: "string", maxLength: 2_000 },
+      multiplayer: MULTIPLAYER_MANIFEST_SCHEMA,
     },
   },
 } as const;
@@ -3435,7 +3437,7 @@ export function createApp(options: AppOptions = {}) {
       try {
         const result = await publisher.publish(
           project,
-          await artifacts.create(project, await projectCover(project.id)),
+          await artifacts.create(project, await projectCover(project.id), request.body.multiplayer),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
         );

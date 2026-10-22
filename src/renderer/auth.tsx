@@ -1,4 +1,6 @@
-import { createClient, type User } from "@supabase/supabase-js";
+import type { User } from "@supabase/supabase-js";
+import { createSupabaseClient } from "./auth-client.js";
+export { createSupabaseClient } from "./auth-client.js";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SignInDialog, type SignInProvider } from "./sign-in-dialog.js";
 import { syncCloudSession } from "./api.js";
@@ -35,7 +37,7 @@ export const localDebug = isLocalDebugEnabled(
 const LOCAL_SESSION_KEY = "ohmygame-local-debug-session";
 
 interface AuthClient {
-  auth: Pick<ReturnType<typeof createClient>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signOut">;
+  auth: Pick<NonNullable<ReturnType<typeof createSupabaseClient>>["auth"], "exchangeCodeForSession" | "getSession" | "onAuthStateChange" | "signInWithOAuth" | "signOut">;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -319,15 +321,6 @@ function authState(user: User | undefined): AuthState {
   return user ? { status: "signed-in", user: authUser(user) } : { status: "signed-out" };
 }
 
-export function createSupabaseClient(
-  configuredUrl = import.meta.env.VITE_SUPABASE_URL,
-  configuredKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-): AuthClient | undefined {
-  const url = configuredUrl?.trim();
-  const key = configuredKey?.trim();
-  if (!url || !key) return undefined;
-  return createClient(url, key, { auth: { flowType: "pkce" } });
-}
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;

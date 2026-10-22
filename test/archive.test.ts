@@ -10,9 +10,43 @@ import {
   createPluginArchive,
 } from "../src/daemon/publish/archive.js";
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("publish archives", () => {
+  it("requires a trusted, matching multiplayer deployment for a Web Game", async () => {
+    const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-multiplayer-publish-"));
+    await writeFile(path.join(workspacePath, "index.html"), "game");
+    const config = {
+      enabled: true as const,
+      mode: "turn-based" as const,
+      gameId: "stones",
+      deploymentId: "first",
+      protocolVersion: 1 as const,
+      serverUrl: "https://games.example.test",
+      authPolicy: "guest-or-account" as const,
+      roomPolicy: "invite-or-public" as const,
+      maxClients: 4,
+      reconnectSeconds: 120,
+    };
+    const project = {
+      id: "multiplayer-test", name: "Stones", type: "web-game" as const,
+      updatedAt: new Date(0).toISOString(), workspacePath, preview: { status: "stopped" as const },
+    };
+    const builder = new ArtifactBuilder();
+    await expect(builder.create(project, undefined, config)).rejects.toThrow(/configured game service URL/);
+    vi.stubEnv("MULTIPLAYER_PUBLISH_SERVER_URL", config.serverUrl);
+    const checked = vi.fn(async () => Response.json({ ...config, deploymentId: "other" }));
+    vi.stubGlobal("fetch", checked);
+    await expect(builder.create(project, undefined, config)).rejects.toThrow(/does not match/);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(config)));
+    const archive = await builder.create(project, undefined, config);
+    expect((await zipEntries(archive)).map((entry) => entry.fileName)).toContain("manifest.json");
+    expect(checked).toHaveBeenCalledWith(
+      new URL("https://games.example.test/v1/games/stones/deployments/first"),
+      expect.objectContaining({ redirect: "error" }),
+    );
+  });
+
   it("builds with project binaries instead of the app's esbuild override", async () => {
     vi.stubEnv("ESBUILD_BINARY_PATH", "/app/esbuild");
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-archive-env-"));

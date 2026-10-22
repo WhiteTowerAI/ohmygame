@@ -18,6 +18,7 @@ import { buildPlayableProject, nodeGraphSignature } from "../playable-project.js
 import { isCompiledNodeGraph } from "../../shared/playable-compiled.js";
 import type { NodePlayerDefinition } from "../../shared/playable-player-protocol.js";
 import { isPublishedNodeManifest, PLAYTEST_SCOPE_PREFIX, type PublishedNodeAsset, type PublishedNodeManifest } from "../../shared/playable-publish.js";
+import { isMultiplayerManifestConfig, isRecord, sameMultiplayerConfig, type MultiplayerManifestConfig } from "../../shared/multiplayer-protocol.js";
 import { isNodeGraph } from "../../shared/playable-graph-validation.js";
 import { getWorkspaceMedia } from "../workspace.js";
 import { isWebStory, publishableWebStoryFiles } from "../story-web-project.js";
@@ -40,8 +41,8 @@ export class ArtifactBuilder {
 
   constructor(private readonly library?: AssetLibrary, private readonly playerDirectory?: string) {}
 
-  async create(project: ProjectState, cover?: Buffer): Promise<Buffer> {
-    return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES);
+  async create(project: ProjectState, cover?: Buffer, multiplayer?: MultiplayerManifestConfig): Promise<Buffer> {
+    return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer);
   }
 
   async buildInteractiveStory(project: ProjectState): Promise<Buffer> {
@@ -49,9 +50,10 @@ export class ArtifactBuilder {
     return this.#create(project);
   }
 
-  async #create(project: ProjectState, cover?: Buffer, maxBytes?: number): Promise<Buffer> {
+  async #create(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig): Promise<Buffer> {
     let temporary: string | undefined;
     try {
+      if (project.type === "interactive-story" && multiplayer) throw new PublishError("Interactive Stories do not have a multiplayer adapter. Use a Web Game with a server adapter.");
       let source: string;
       if (project.type === "interactive-story" && await isWebStory(project.workspacePath)) {
         temporary = await prepareWebStory(project);
@@ -65,7 +67,20 @@ export class ArtifactBuilder {
           : project.workspacePath;
         source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
       }
-      return await createZip(source, false, cover, maxBytes);
+      if (project.type !== "interactive-story") {
+        const configured = await readMultiplayerConfig(source, multiplayer);
+        if (configured) {
+          await checkMultiplayerDeployment(configured);
+          if (multiplayer) {
+            temporary = await mkdtemp(path.join(tmpdir(), "ohmygame-multiplayer-build-"));
+            await cp(source, temporary, { recursive: true });
+            const manifest = await readOptionalManifest(source);
+            await writeFile(path.join(temporary, "manifest.json"), `${JSON.stringify({ ...manifest, multiplayer: configured }, null, 2)}\n`);
+            source = temporary;
+          }
+        }
+      }
+      return await createZip(source, false, cover, maxBytes, false, optimizeZip);
     } finally {
       this.#running.delete(project.id);
       if (temporary) await rm(temporary, { recursive: true, force: true });
@@ -107,6 +122,42 @@ export class ArtifactBuilder {
   async close(): Promise<void> {
     await Promise.all([...this.#running.values()].map(terminate));
     this.#running.clear();
+  }
+}
+
+async function readOptionalManifest(source: string): Promise<Record<string, unknown>> {
+  try {
+    const value: unknown = JSON.parse(await readFile(path.join(source, "manifest.json"), "utf8"));
+    if (!isRecord(value)) throw new Error();
+    return value;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw new PublishError("manifest.json must contain a JSON object.");
+  }
+}
+
+async function readMultiplayerConfig(source: string, requested?: MultiplayerManifestConfig): Promise<MultiplayerManifestConfig | undefined> {
+  const manifest = await readOptionalManifest(source);
+  const value = requested ?? manifest.multiplayer;
+  if (value === undefined) return undefined;
+  if (!isMultiplayerManifestConfig(value)) throw new PublishError("The multiplayer configuration is invalid.");
+  if (manifest.runtime === "playable-nodes") throw new PublishError("Interactive Stories do not have a multiplayer adapter.");
+  return value;
+}
+
+/** A published deployment must already exist on the trusted game service. */
+async function checkMultiplayerDeployment(config: MultiplayerManifestConfig): Promise<void> {
+  const trustedServerUrl = process.env.MULTIPLAYER_PUBLISH_SERVER_URL?.replace(/\/$/, "");
+  if (!trustedServerUrl || config.serverUrl.replace(/\/$/, "") !== trustedServerUrl) {
+    throw new PublishError("Multiplayer publishing requires a configured game service URL.");
+  }
+  try {
+    const url = new URL(`/v1/games/${encodeURIComponent(config.gameId)}/deployments/${encodeURIComponent(config.deploymentId)}`, config.serverUrl);
+    const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(5_000) });
+    const value: unknown = response.ok ? await response.json() : undefined;
+    if (!isMultiplayerManifestConfig(value) || !sameMultiplayerConfig(config, value)) throw new Error("The registered deployment does not match.");
+  } catch (cause) {
+    throw new PublishError(`Multiplayer deployment check failed: ${cause instanceof Error ? cause.message : String(cause)}`);
   }
 }
 

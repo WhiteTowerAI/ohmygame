@@ -1,4 +1,4 @@
-import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StrictMode, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { isCompiledNodeGraph } from "../shared/playable-compiled.js";
 import { isNodeGraph } from "../shared/playable-graph-validation.js";
@@ -6,17 +6,19 @@ import { PlayableStateHistory, playableDebugRecord } from "../shared/playable-de
 import type { NodePlayerDefinition } from "../shared/playable-player-protocol.js";
 import type { NodeRuntimeSnapshot } from "../shared/playable-runtime.js";
 import { isPublishedNodeManifest, PLAYTEST_SCOPE_PREFIX, type PublishedNodeManifest } from "../shared/playable-publish.js";
+import { isPublishedMultiplayerManifest, type PublishedMultiplayerManifest } from "../shared/multiplayer-protocol.js";
 import { NodePlayer } from "./playable-player.js";
+const MultiplayerLobby = lazy(() => import("./multiplayer-lobby.js").then((module) => ({ default: module.MultiplayerLobby })));
 import "./playable-player.css";
 
 function PublishedPlayer() {
-  const [manifest, setManifest] = useState<PublishedNodeManifest>();
+  const [manifest, setManifest] = useState<PublishedNodeManifest | PublishedMultiplayerManifest>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     let disposed = false;
     void fetch("./manifest.json").then(requireJson).then((value) => {
-      if (!isPublishedNodeManifest(value)) {
+      if (!isPublishedNodeManifest(value) && !isPublishedMultiplayerManifest(value)) {
         throw new Error("The Published Player manifest is invalid.");
       }
       if (!disposed) setManifest(value);
@@ -28,6 +30,7 @@ function PublishedPlayer() {
 
   if (error) return <PublishedState error={error} />;
   if (!manifest) return <PublishedState />;
+  if (manifest.runtime === "multiplayer-example") return <Suspense fallback={<PublishedState />}><MultiplayerLobby manifest={manifest.multiplayer} /></Suspense>;
   return <PublishedNodePlayer manifest={manifest} />;
 }
 
@@ -70,13 +73,15 @@ function PublishedNodePlayer({ manifest }: { manifest: PublishedNodeManifest }) 
 
   if (state.loading) return <PublishedState />;
   if ("error" in state) return <PublishedState error={state.error} />;
-  return <NodePlayer
-    key={session}
-    definition={state.definition}
-    assets={state.assets}
-    saveKey={saveKey}
-    onSnapshot={onSnapshot}
-  />;
+  return <div className="published-player-shell">
+    <NodePlayer
+      key={session}
+      definition={state.definition}
+      assets={state.assets}
+      saveKey={saveKey}
+      onSnapshot={onSnapshot}
+    />
+  </div>;
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
+import type { MultiplayerManifestConfig } from "./multiplayer-protocol.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
 import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
@@ -710,6 +711,7 @@ export interface PublishProjectRequest {
   accessToken: string;
   title: string;
   description?: string;
+  multiplayer?: MultiplayerManifestConfig;
 }
 
 export type AgentMessagePhase = "commentary" | "final_answer";
