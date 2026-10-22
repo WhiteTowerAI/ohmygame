@@ -1,5 +1,6 @@
-import { createWriteStream } from "node:fs";
-import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -121,12 +122,20 @@ function matchesPath(
   });
 }
 
-/**
- * Streams a project as an archive that imports as a new project elsewhere.
- * Anything that can fail is checked before the stream is returned, so a
- * caller can still report it; a file that becomes unreadable while streaming
- * destroys the stream.
- */
+interface ArchiveFile {
+  path: string;
+  /** A generated file's contents, or an existing file's absolute path. */
+  source: Buffer | string;
+}
+
+interface PreparedArchiveFile extends ArchiveFile {
+  size: number;
+  mode?: number;
+}
+
+/** Builds an archive on disk before downloading, so both import size limits
+ * are checked before returning a response. The temporary copy is removed
+ * when the download ends or is cancelled. */
 export async function exportProjectArchive(
   project: ProjectState,
   options: {
@@ -144,68 +153,102 @@ export async function exportProjectArchive(
     files,
     options.library,
   );
-  await assertImportable(
-    [
-      ...files.map((file) =>
-        path.join(project.workspacePath, ...file.split("/")),
-      ),
-      ...copies.map((copy) => copy.absolutePath),
-    ],
-    options.cover?.contents.length ?? 0,
-    options.limits ?? DEFAULT_LIMITS,
-  );
-
   const manifest: ProjectArchiveManifest = {
     format: PROJECT_ARCHIVE_FORMAT,
     version: PROJECT_ARCHIVE_VERSION,
     project: projectArchiveSettings(project),
     ...(options.cover ? { cover: { mode: options.cover.mode } } : {}),
   };
-  const zip = new ZipFile();
-  const entry = {
-    mtime: new Date(1980, 0, 2),
-    forceDosTimestamp: true,
-  } as const;
   const workspaceEntry = (file: string) =>
     `${PROJECT_ARCHIVE_WORKSPACE}/${file}`;
-  zip.addBuffer(
-    Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8"),
-    PROJECT_ARCHIVE_MANIFEST,
-    entry,
-  );
+  const entries: ArchiveFile[] = [
+    {
+      path: PROJECT_ARCHIVE_MANIFEST,
+      source: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8"),
+    },
+  ];
   if (options.cover) {
-    zip.addBuffer(options.cover.contents, PROJECT_ARCHIVE_COVER, {
-      ...entry,
-      compress: false,
+    entries.push({
+      path: PROJECT_ARCHIVE_COVER,
+      source: options.cover.contents,
     });
   }
   for (const file of files) {
-    if (graph !== undefined && file === GRAPH_FILE) {
-      zip.addBuffer(Buffer.from(graph, "utf8"), workspaceEntry(file), entry);
-      continue;
-    }
-    zip.addFile(
-      path.join(project.workspacePath, ...file.split("/")),
-      workspaceEntry(file),
-      { ...entry, compress: compressArchiveFile(file) },
-    );
-  }
-  for (const copy of copies) {
-    zip.addFile(copy.absolutePath, workspaceEntry(copy.path), {
-      ...entry,
-      compress: compressArchiveFile(copy.path),
+    entries.push({
+      path: workspaceEntry(file),
+      source:
+        graph !== undefined && file === GRAPH_FILE
+          ? Buffer.from(graph, "utf8")
+          : path.join(project.workspacePath, ...file.split("/")),
     });
   }
-  const output = zip.outputStream as Readable;
-  // yazl reports a file it cannot read on the ZipFile and then never ends the output.
-  zip.on("error", (error: Error) => output.destroy(error));
-  zip.end();
-  return output;
+  for (const copy of copies) {
+    entries.push({
+      path: workspaceEntry(copy.path),
+      source: copy.absolutePath,
+    });
+  }
+  const limits = options.limits ?? DEFAULT_LIMITS;
+  const prepared = await prepareArchiveFiles(entries, limits);
+  const staging = await mkdtemp(
+    path.join(tmpdir(), "ohmygame-project-export-"),
+  );
+  try {
+    const zip = new ZipFile();
+    const output = zip.outputStream as Readable;
+    // yazl reports unreadable files on the ZipFile instead of its output.
+    zip.on("error", (error: Error) => output.destroy(error));
+    const archivePath = path.join(staging, "project.zip");
+    const written = pipeline(
+      output,
+      byteLimit(limits.maxBytes, exportTooLarge),
+      createWriteStream(archivePath, { flags: "wx" }),
+    );
+    // Await the pipeline even if adding an entry fails synchronously.
+    try {
+      for (const file of prepared) {
+        const { source } = file;
+        const entry = {
+          mtime: new Date(1980, 0, 2),
+          forceDosTimestamp: true,
+          compress: compressArchiveFile(file.path),
+          mode: file.mode,
+        };
+        if (Buffer.isBuffer(source)) zip.addBuffer(source, file.path, entry);
+        // Enforce the size inspected above if a file changes during export.
+        else
+          zip.addReadStreamLazy(
+            file.path,
+            { ...entry, size: file.size },
+            (done) => {
+              const input = createReadStream(source);
+              input.once("error", (error: Error) => output.destroy(error));
+              const cancel = () => input.destroy();
+              output.once("close", cancel);
+              input.once("close", () => output.off("close", cancel));
+              done(null, input);
+            },
+          );
+      }
+      zip.end();
+    } catch (cause) {
+      output.destroy(cause as Error);
+    }
+    await written;
+    const download = createReadStream(archivePath);
+    download.once("close", () => {
+      void rm(staging, { recursive: true, force: true }).catch(() => {});
+    });
+    return download;
+  } catch (cause) {
+    await rm(staging, { recursive: true, force: true });
+    throw cause;
+  }
 }
 
 /**
- * Copies an Interactive Story's Library assets into the archive, as the story
- * export does. Returns the rewritten graph.json when an asset was packed.
+ * Copies an Interactive Story's Library assets into the archive.
+ * Returns the rewritten graph.json when an asset was packed.
  */
 async function packStoryGraph(
   project: ProjectState,
@@ -243,31 +286,39 @@ async function packStoryGraph(
 
 /**
  * Refuses an export that no import would accept, before anything is streamed.
- * The manifest and the cover count as entries, as an import counts them.
+ * Count generated contents, including the manifest and rewritten graph,
+ * exactly as the importer counts extracted files.
  */
-async function assertImportable(
-  files: string[],
-  coverBytes: number,
+async function prepareArchiveFiles(
+  files: ArchiveFile[],
   limits: ProjectArchiveLimits,
-): Promise<void> {
-  const tooLarge = () =>
-    new ProjectArchiveError(
-      "This project is too large to export: a project archive holds up to 200,000 files and 10 GB.",
-      409,
-    );
-  if (files.length + 1 + (coverBytes ? 1 : 0) > limits.maxEntries) {
-    throw tooLarge();
-  }
-  let bytes = coverBytes;
+): Promise<PreparedArchiveFile[]> {
+  if (files.length > limits.maxEntries) throw exportTooLarge();
+  const prepared: PreparedArchiveFile[] = [];
+  let bytes = 0;
   for (let index = 0; index < files.length; index += SIZE_CHECK_CONCURRENCY) {
-    const sizes = await Promise.all(
-      files
-        .slice(index, index + SIZE_CHECK_CONCURRENCY)
-        .map(async (file) => (await stat(file)).size),
+    const batch = await Promise.all(
+      files.slice(index, index + SIZE_CHECK_CONCURRENCY).map(async (file) => {
+        if (Buffer.isBuffer(file.source))
+          return { ...file, size: file.source.length };
+        const stats = await stat(file.source);
+        return { ...file, size: stats.size, mode: stats.mode };
+      }),
     );
-    for (const size of sizes) bytes += size;
-    if (bytes > limits.maxBytes) throw tooLarge();
+    for (const file of batch) {
+      bytes += file.size;
+      prepared.push(file);
+    }
+    if (bytes > limits.maxBytes) throw exportTooLarge();
   }
+  return prepared;
+}
+
+function exportTooLarge(): ProjectArchiveError {
+  return new ProjectArchiveError(
+    "This project is too large to export: a project archive holds up to 200,000 files and 10 GB.",
+    409,
+  );
 }
 
 // Children are added to one list: spreading a large folder's files into
@@ -452,27 +503,38 @@ async function writeUpload(
   destination: string,
   maxBytes: number,
 ): Promise<void> {
+  await pipeline(
+    Readable.from(Buffer.isBuffer(upload) ? [upload] : upload),
+    byteLimit(
+      maxBytes,
+      () => new ProjectArchiveError("The project archive is too large.", 413),
+      () => new ProjectArchiveError("Choose a project archive to import."),
+    ),
+    createWriteStream(destination, { flags: "wx" }),
+  );
+}
+
+/** Counts actual bytes without buffering the stream. */
+function byteLimit(
+  maxBytes: number,
+  error: () => Error,
+  emptyError?: () => Error,
+): Transform {
   let size = 0;
-  const limit = new Transform({
+  return new Transform({
     transform(value: Buffer | string, _encoding, callback) {
       const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
       size += chunk.length;
       if (size > maxBytes) {
-        callback(
-          new ProjectArchiveError("The project archive is too large.", 413),
-        );
+        callback(error());
         return;
       }
       callback(null, chunk);
     },
+    flush(callback) {
+      callback(size === 0 ? emptyError?.() : undefined);
+    },
   });
-  await pipeline(
-    Readable.from(Buffer.isBuffer(upload) ? [upload] : upload),
-    limit,
-    createWriteStream(destination, { flags: "wx" }),
-  );
-  if (size === 0)
-    throw new ProjectArchiveError("Choose a project archive to import.");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

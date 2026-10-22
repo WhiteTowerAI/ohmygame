@@ -2,12 +2,14 @@
 
 A project archive is a ZIP file that moves one project to another computer or
 keeps a copy outside OhMyGame's data folder. **Export project** in a project
-card's menu saves one for any project type. **Import project** on the Projects
-page creates a new project from it.
+card's menu saves one for any project type. Story settings → **Export project**
+uses the same archive format and export service, after saving the editor's changes.
+**Import project** on the Projects page creates a new project from it.
 
 Start with `src/daemon/project-archive.ts`, `src/shared/project-archive.ts`
 and `src/renderer/project-card.tsx`. The focused suites are
-`test/project-archive.test.ts` and `test/project-archive-ui.test.tsx`.
+`test/project-archive.test.ts`, `test/project-archive-assets.test.ts` and
+`test/project-archive-ui.test.tsx`.
 
 ## Layout
 
@@ -58,14 +60,19 @@ is kept so asset prompts and previews travel with the assets. `.gitignore`
 files do not change what is exported.
 
 An Interactive Story's graph can point at Library assets outside the
-workspace. As in the story editor's project export, each one is copied to
-`workspace/assets/library/` and `graph.json` points at the copy. Export fails
+workspace. Each one is copied to `workspace/assets/library/` and `graph.json`
+points at the copy. Export fails
 with the asset's name when one is missing from the Library, and while the
 project's agent is working. It also fails, before anything is downloaded, when
 the archive would exceed the import limits described below.
 
-The archive streams to the response as it is written. The desktop app and the
-browser still collect the download before saving it.
+Export counts every file's extracted contents, including the manifest and the
+rewritten story graph. It then writes the ZIP to a temporary file while counting
+its actual bytes, including ZIP headers and compression overhead. Both size
+checks finish before a download starts. The completed file streams to the
+response and is removed after the download finishes or is cancelled. Export
+requires temporary disk space for the ZIP; it does not hold the archive in memory.
+The desktop app and browser still collect the download before saving it.
 
 ## Import
 

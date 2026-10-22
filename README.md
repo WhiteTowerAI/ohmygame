@@ -273,7 +273,8 @@ Reopen the welcome from **Settings → About → View getting started**.
 
 To move a project to another computer, choose **Export project** in its card
 menu. The ZIP file holds the workspace, project settings and cover, without
-dependencies, build output or `.env` files. **Import project** on the Projects
+dependencies, build output or `.env` files. Story settings uses the same project
+export. **Import project** on the Projects
 page opens it as a new project. See [Project archives](docs/project-archives.md).
 
 ### Run from source

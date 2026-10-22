@@ -5,9 +5,12 @@ import {
   readdir,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
+import type { ReadStream } from "node:fs";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
@@ -17,12 +20,12 @@ import { ZipFile } from "yazl";
 import { createApp } from "../src/daemon/app.js";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { createNodeCodebase } from "../src/daemon/playable-codebase.js";
-import { exportPlayableProject } from "../src/daemon/playable-project-export.js";
 import {
   exportProjectArchive,
   importProjectArchive,
 } from "../src/daemon/project-archive.js";
 import { ProjectManager } from "../src/daemon/projects.js";
+import { writeWorkspaceNotice } from "../src/daemon/workspace-notice.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../src/shared/project-archive.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
@@ -170,16 +173,14 @@ describe("project archive export", () => {
 
   // Windows does not apply POSIX permission bits, so the file stays readable there.
   it.skipIf(process.platform === "win32")(
-    "fails the stream instead of hanging when a file cannot be read",
+    "rejects an unreadable file before returning a download",
     async () => {
       const projects = new ProjectManager(await temporaryDirectory());
       const project = await projects.create("Game", "web-game");
       const file = path.join(project.workspacePath, "index.html");
       await writeFile(file, "game");
       await chmod(file, 0o000);
-      await expect(
-        readArchive(await exportProjectArchive(project)),
-      ).rejects.toThrow("EACCES");
+      await expect(exportProjectArchive(project)).rejects.toThrow("EACCES");
     },
   );
 
@@ -251,6 +252,131 @@ describe("project archive export", () => {
         .statusCode,
     ).toBe(404);
   });
+
+  it("counts the manifest even when the workspace is empty", async () => {
+    const projects = new ProjectManager(await temporaryDirectory());
+    const project = await projects.create("Empty project");
+    await expect(
+      exportProjectArchive(project, {
+        limits: { maxBytes: 10, maxEntries: 10 },
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it("exports a restored project without requiring a cached workspace version", async () => {
+    const dataDirectory = await temporaryDirectory();
+    const projects = new ProjectManager(dataDirectory);
+    const project = await projects.create("Restored project");
+    await writeFile(
+      path.join(project.workspacePath, "index.html"),
+      "restored game",
+    );
+    await writeWorkspaceNotice(
+      project,
+      "Restored a checkpoint",
+      "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    );
+    const app = createApp({ dataDirectory });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/projects/${project.id}/export`,
+      headers: { "x-workspace-version": "0" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(
+      (await readArchive(response.rawPayload))[
+        "workspace/index.html"
+      ]?.toString(),
+    ).toBe("restored game");
+  });
+
+  it("checks the actual ZIP overhead before offering a download", async () => {
+    const projects = new ProjectManager(await temporaryDirectory());
+    const project = await projects.create("Game");
+    await writeFile(
+      path.join(project.workspacePath, "image.png"),
+      Buffer.alloc(900),
+    );
+    const files = await readArchive(await exportProjectArchive(project));
+    const extractedBytes = Object.values(files).reduce(
+      (size, contents) => size + contents.length,
+      0,
+    );
+    await expect(
+      exportProjectArchive(project, {
+        limits: { maxBytes: extractedBytes, maxEntries: 10 },
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "preserves executable files through export and import",
+    async () => {
+      const projects = new ProjectManager(await temporaryDirectory());
+      const project = await projects.create("Game");
+      await writeFile(
+        path.join(project.workspacePath, "run.sh"),
+        "#!/bin/sh\nexit 0\n",
+      );
+      await chmod(path.join(project.workspacePath, "run.sh"), 0o755);
+      const archive = await exportProjectArchive(project);
+      const imported = await importProjectArchive(
+        new ProjectManager(await temporaryDirectory()),
+        archive,
+      );
+      expect(
+        (await stat(path.join(imported.workspacePath, "run.sh"))).mode & 0o111,
+      ).toBe(0o111);
+    },
+  );
+
+  it("counts the rewritten story graph instead of its smaller source", async () => {
+    const library = new AssetLibrary(await temporaryDirectory());
+    await library.load();
+    const asset = await library.add("portrait.png", Buffer.from("portrait"));
+    const projects = new ProjectManager(await temporaryDirectory());
+    const project = await projects.create("Story", "interactive-story");
+    const graph = JSON.stringify({
+      assets: { portrait: { source: { kind: "library", assetId: asset.id } } },
+    });
+    await writeFile(path.join(project.workspacePath, "graph.json"), graph);
+    const files = await readArchive(
+      await exportProjectArchive(project, { library }),
+    );
+    const manifestBytes = files["ohmygame-project.json"]!.length;
+    await expect(
+      exportProjectArchive(project, {
+        library,
+        limits: {
+          maxBytes: manifestBytes + Buffer.byteLength(graph) + 8,
+          maxEntries: 10,
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it.each([false, true])(
+    "removes its temporary archive after downloading or cancellation (cancel=%s)",
+    async (cancel) => {
+      const projects = new ProjectManager(await temporaryDirectory());
+      const project = await projects.create("Game");
+      const download = (await exportProjectArchive(project)) as ReadStream;
+      const staging = path.dirname(download.path as string);
+      expect((await stat(staging)).isDirectory()).toBe(true);
+      if (cancel) {
+        const closed = once(download, "close");
+        download.destroy();
+        await closed;
+      } else {
+        await readArchive(download);
+      }
+      await vi.waitFor(async () => {
+        await expect(stat(staging)).rejects.toMatchObject({ code: "ENOENT" });
+      });
+    },
+  );
 });
 
 describe("project archive import", () => {
@@ -642,7 +768,25 @@ describe("project archive import", () => {
       method: "POST",
       url: `/projects/import?name=${encodeURIComponent("Night Train")}`,
       headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE },
-      payload: await exportPlayableProject(workspace, library),
+      payload: await zipArchive(
+        Object.fromEntries(
+          await Promise.all(
+            (await listFiles(workspace))
+              .filter(
+                (file) =>
+                  !file
+                    .split("/")
+                    .some(
+                      (part) => part.startsWith(".") || part === "node_modules",
+                    ),
+              )
+              .map(async (file) => [
+                file,
+                await readFile(path.join(workspace, file), "utf8"),
+              ]),
+          ),
+        ),
+      ),
     });
 
     expect(response.statusCode).toBe(201);

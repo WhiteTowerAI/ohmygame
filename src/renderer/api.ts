@@ -239,10 +239,10 @@ export async function duplicateProject(projectId: string): Promise<ProjectState>
 }
 
 /** Downloads the project as an archive that imports as a new project. */
-export async function exportProject(projectId: string): Promise<Blob> {
+export async function exportProject(projectId: string, version?: string): Promise<Blob> {
   const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/export`), {
     method: "POST",
-    headers: runtimeHeaders(),
+    headers: projectRuntimeHeaders(projectId, version),
   });
   if (!response.ok) throw await responseError(response);
   return response.blob();
@@ -697,15 +697,6 @@ export async function retryToolJob(jobId: string): Promise<ToolJob> {
 export async function publishProject(projectId: string, accessToken: string, metadata: Omit<PublishProjectRequest, "accessToken">): Promise<PublishResult> {
   const body: PublishProjectRequest = { accessToken, ...metadata };
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
-}
-
-export async function exportInteractiveStoryProject(projectId: string, version?: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/export-project`), {
-    method: "POST",
-    headers: projectRuntimeHeaders(projectId, version),
-  });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
 }
 
 export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {

@@ -2415,13 +2415,13 @@ describe("Playable Nodes projects", () => {
       payload: { name: "Story", type: "interactive-story" },
     })).json();
 
-    const exported = await app.inject({ method: "POST", url: `/projects/${story.id}/interactive-story/export-project` });
-    const rejected = await app.inject({ method: "POST", url: `/projects/${webGame.id}/interactive-story/export-project` });
+    const exported = await app.inject({ method: "POST", url: `/projects/${story.id}/export` });
+    const webExport = await app.inject({ method: "POST", url: `/projects/${webGame.id}/export` });
 
     expect(exported.statusCode).toBe(200);
     expect(exported.headers["content-type"]).toBe("application/zip");
     expect(exported.rawPayload.subarray(0, 2).toString()).toBe("PK");
-    expect(rejected.statusCode).toBe(409);
+    expect(webExport.statusCode).toBe(200);
   });
 
   it("protects Library assets declared by a Playable Nodes graph", async () => {

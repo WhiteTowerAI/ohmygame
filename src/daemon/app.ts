@@ -119,7 +119,6 @@ import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, t
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError, isLibraryAssetDerivation } from "./asset-library.js";
-import { exportPlayableProject, PlayableProjectExportError } from "./playable-project-export.js";
 import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
 import { MAX_PROJECT_COVER_BYTES } from "./project-covers.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
@@ -3687,23 +3686,6 @@ export function createApp(options: AppOptions = {}) {
     } catch (cause) {
       const statusCode = cause instanceof PublishError ? cause.statusCode : 500;
       return reply.code(statusCode).send({ error: cause instanceof Error ? cause.message : String(cause) });
-    }
-  });
-
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/export-project", async (request, reply) => {
-    const project = projects.get(request.params.projectId);
-    if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Project export requires an Interactive Story project" });
-    if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before exporting" });
-    try {
-      const archive = await exportPlayableProject(project.workspacePath, library);
-      return reply
-        .header("content-type", "application/zip")
-        .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
-        .send(archive);
-    } catch (cause) {
-      if (cause instanceof PlayableProjectExportError) return reply.code(cause.statusCode).send({ error: cause.message });
-      throw cause;
     }
   });
 

@@ -354,10 +354,9 @@ export class ProjectManager {
         ...Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
         version: 1, id, nameSource: "manual", updatedAt,
       };
-      await writeFile(path.join(staging, "project.json"), `${JSON.stringify(candidate, null, 2)}\n`, "utf8");
       try {
-        // Imported settings pass the same checks as saved ones.
-        ({ metadata } = await readMetadata(staging, id, updatedAt));
+        // Imported settings pass the same checks as saved ones, before writing.
+        ({ metadata } = parseMetadata(candidate, id, updatedAt));
       } catch {
         throw new ProjectWorkspaceError("The project settings are invalid");
       }
@@ -1017,61 +1016,67 @@ function projectRunSettings(project: ProjectState): ProjectRunSettings {
 async function readMetadata(projectDirectory: string, id: string, fallbackUpdatedAt: string): Promise<LoadedMetadata> {
   try {
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
-    if (
-      validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
-      (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
-      (parsed.type === undefined || isProjectType(parsed.type)) &&
-      (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external"))) &&
-      (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
-      (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
-      (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
-      (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&
-      (parsed.previewPath === undefined || normalizePreviewPath(parsed.previewPath) !== undefined) &&
-      (parsed.previewViewport === undefined || isPreviewViewport(parsed.previewViewport)) &&
-      (parsed.workspacePath === undefined || (typeof parsed.workspacePath === "string" && path.isAbsolute(parsed.workspacePath))) &&
-      (parsed.mediaModelDefaults === undefined || validMediaModelDefaults(parsed.mediaModelDefaults)) &&
-      (parsed.publication === undefined || validPublication(parsed.publication))
-    ) {
-      const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
-        ? parsed.updatedAt
-        : fallbackUpdatedAt;
-      const type = parsed.type ?? "web-game";
-      const startupDirectory = normalizeStartupDirectory(parsed.startupDirectory);
-      const startupScript = normalizeStartupScript(parsed.startupScript);
-      const packageManager = parsed.packageManager;
-      const previewPath = normalizePreviewPath(parsed.previewPath);
-      const previewViewport = parsed.previewViewport;
-      const workspacePath = parsed.workspacePath;
-      return {
-        metadata: {
-          ...previewSettings(parsed),
-          version: 1,
-          id,
-          name: parsed.name.trim(),
-          ...(parsed.nameSource ? { nameSource: parsed.nameSource } : {}),
-          type,
-          ...(parsed.integration ? { integration: parsed.integration } : {}),
-          ...(type === "general" ? { webPreviewEnabled: parsed.webPreviewEnabled ?? false } : {}),
-          updatedAt,
-          ...(startupDirectory ? { startupDirectory } : {}),
-          ...(startupScript && startupScript !== "dev" ? { startupScript } : {}),
-          ...(packageManager ? { packageManager } : {}),
-          ...(previewPath && previewPath !== "/" ? { previewPath } : {}),
-          ...(previewViewport && previewViewport !== "fit" ? { previewViewport } : {}),
-          ...(workspacePath ? { workspacePath } : {}),
-          ...(parsed.publication ? { publication: parsed.publication } : {}),
-          ...(parsed.mediaModelDefaults ? { mediaModelDefaults: parsed.mediaModelDefaults } : {}),
-        },
-        missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.startupDirectory !== startupDirectory ||
-          parsed.startupScript !== startupScript || parsed.packageManager !== packageManager ||
-          parsed.previewPath !== previewPath || parsed.previewViewport !== previewViewport || parsed.workspacePath !== workspacePath,
-      };
-    }
-    throw new Error(`Invalid project metadata: ${path.join(projectDirectory, "project.json")}`);
+    return parseMetadata(parsed, id, fallbackUpdatedAt);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return { metadata: { version: 1, id, name: "Untitled project", type: "web-game", updatedAt: fallbackUpdatedAt }, missing: true };
   }
+}
+
+/** Validates and normalizes persisted or imported metadata without disk I/O. */
+function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): LoadedMetadata {
+  const parsed = value as Partial<ProjectMetadata>;
+  if (
+    validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
+    (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
+    (parsed.type === undefined || isProjectType(parsed.type)) &&
+    (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external"))) &&
+    (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
+    (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
+    (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
+    (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&
+    (parsed.previewPath === undefined || normalizePreviewPath(parsed.previewPath) !== undefined) &&
+    (parsed.previewViewport === undefined || isPreviewViewport(parsed.previewViewport)) &&
+    (parsed.workspacePath === undefined || (typeof parsed.workspacePath === "string" && path.isAbsolute(parsed.workspacePath))) &&
+    (parsed.mediaModelDefaults === undefined || validMediaModelDefaults(parsed.mediaModelDefaults)) &&
+    (parsed.publication === undefined || validPublication(parsed.publication))
+  ) {
+    const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
+      ? parsed.updatedAt
+      : fallbackUpdatedAt;
+    const type = parsed.type ?? "web-game";
+    const startupDirectory = normalizeStartupDirectory(parsed.startupDirectory);
+    const startupScript = normalizeStartupScript(parsed.startupScript);
+    const packageManager = parsed.packageManager;
+    const previewPath = normalizePreviewPath(parsed.previewPath);
+    const previewViewport = parsed.previewViewport;
+    const workspacePath = parsed.workspacePath;
+    return {
+      metadata: {
+        ...previewSettings(parsed),
+        version: 1,
+        id,
+        name: parsed.name.trim(),
+        ...(parsed.nameSource ? { nameSource: parsed.nameSource } : {}),
+        type,
+        ...(parsed.integration ? { integration: parsed.integration } : {}),
+        ...(type === "general" ? { webPreviewEnabled: parsed.webPreviewEnabled ?? false } : {}),
+        updatedAt,
+        ...(startupDirectory ? { startupDirectory } : {}),
+        ...(startupScript && startupScript !== "dev" ? { startupScript } : {}),
+        ...(packageManager ? { packageManager } : {}),
+        ...(previewPath && previewPath !== "/" ? { previewPath } : {}),
+        ...(previewViewport && previewViewport !== "fit" ? { previewViewport } : {}),
+        ...(workspacePath ? { workspacePath } : {}),
+        ...(parsed.publication ? { publication: parsed.publication } : {}),
+        ...(parsed.mediaModelDefaults ? { mediaModelDefaults: parsed.mediaModelDefaults } : {}),
+      },
+      missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.startupDirectory !== startupDirectory ||
+        parsed.startupScript !== startupScript || parsed.packageManager !== packageManager ||
+        parsed.previewPath !== previewPath || parsed.previewViewport !== previewViewport || parsed.workspacePath !== workspacePath,
+    };
+  }
+  throw new Error("Invalid project metadata");
 }
 
 function metadataFor(project: ProjectState): ProjectMetadata {
