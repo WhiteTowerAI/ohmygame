@@ -80,7 +80,7 @@ export class ArtifactBuilder {
           }
         }
       }
-      return await createZip(source, false, cover, maxBytes, false, optimizeZip);
+      return await createZip(source, false, cover, maxBytes);
     } finally {
       this.#running.delete(project.id);
       if (temporary) await rm(temporary, { recursive: true, force: true });
