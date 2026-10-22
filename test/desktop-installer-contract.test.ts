@@ -21,6 +21,28 @@ describe("Windows desktop installer safety", () => {
     });
   });
 
+  it("connects the pinned extraction hooks and provides both installer languages", async () => {
+    const pkg = JSON.parse(await readFile("package.json", "utf8"));
+    expect(pkg.patchedDependencies["app-builder-lib@26.15.3"]).toBe("patches/app-builder-lib@26.15.3.patch");
+    const template = await readFile("node_modules/app-builder-lib/templates/nsis/include/extractAppPackage.nsh", "utf8");
+    expect(template.match(/!insertmacro customExtractUsing7za/g)).toHaveLength(2);
+    expect(template).toContain("!insertmacro customAppFilesCopied");
+    const messages = parse(await readFile("build/messages.yml", "utf8"));
+    for (const key of ["omgInstalling", "omgPreparing", "omgExtracting", "omgCopying", "omgFinalizing", "omgComplete"]) {
+      expect(messages[key].en).toBeTruthy();
+      expect(messages[key].zh_CN).toBeTruthy();
+    }
+  });
+
+  it("reserves completion for a successful installation", async () => {
+    const include = await readFile("build/installer.nsh", "utf8");
+    expect(include).toContain("!define MUI_PAGE_CUSTOMFUNCTION_SHOW OhMyGameInstallProgressStart");
+    expect(include).toContain("!define MUI_PAGE_CUSTOMFUNCTION_LEAVE OhMyGameInstallProgressFinish");
+    const finish = include.slice(include.indexOf("Function OhMyGameInstallProgressFinish"), include.indexOf("!macro customCheckAppRunning"));
+    expect(finish.indexOf("IfAbort progress_done")).toBeLessThan(finish.indexOf("StrCpy $omgProgressNext 100"));
+    expect(include).not.toContain("PBM_SETMARQUEE");
+  });
+
   it("falls back safely when PowerShell or CIM process detection fails", async () => {
     const include = await readFile("build/installer.nsh", "utf8");
     expect(include).toContain("if ($$running.Count -gt 0) { exit 0 } else { exit 17 }");
