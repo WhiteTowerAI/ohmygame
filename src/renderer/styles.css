@@ -16604,13 +16604,16 @@ button {
 .playtest-problem-actions button:hover {
   background: #262a31;
 }
-.playtest-problem-actions button:first-child {
+/* Once Ask AI is sent, the next action leads. */
+.playtest-problem-actions button:first-child,
+.playtest-problem-sent + button {
   border-color: transparent;
   background: #e8b563;
   color: #1b1408;
   font-weight: 600;
 }
-.playtest-problem-actions button:first-child:hover {
+.playtest-problem-actions button:first-child:hover,
+.playtest-problem-sent + button:hover {
   background: #f0c47b;
 }
 .playtest-problem-actions button:focus-visible {
