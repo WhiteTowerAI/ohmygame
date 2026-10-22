@@ -4,6 +4,56 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.4.12] - 2026-10-22
+
+### Added
+
+- Connect external Claude Code, Codex, and other MCP clients to OhMyGame's
+  media, canvas, project, and playtesting tools through Settings → MCP Server.
+  ([#325](https://github.com/WhiteTowerAI/ohmygame/pull/325) by @dogxii)
+- Explore optional Beta plugins for Blender, Godot, TapTap Maker, Cocos Creator,
+  Unity, Unreal Engine, Aseprite, Tiled, WeChat Mini Games, and Douyin Mini Games.
+  Enable them from the sidebar's Plugins library; these workflows remain experimental.
+  ([#278](https://github.com/WhiteTowerAI/ohmygame/pull/278) by @dogxii)
+
+### Changed
+
+- Set up a model provider or installed coding agent during first-run onboarding,
+  choose a default model, and optionally connect creative tools before starting.
+  ([#331](https://github.com/WhiteTowerAI/ohmygame/pull/331) by @dogxii)
+- Browse Community in a responsive cover grid with visible titles, creators,
+  engagement counts, search, sorting, and matching cards on creator profiles.
+  ([#357](https://github.com/WhiteTowerAI/ohmygame/pull/357) by @dogxii)
+- Publish Interactive Stories up to 100 MiB, with a longer upload timeout and
+  media optimization in a temporary copy that preserves the original assets.
+  ([#333](https://github.com/WhiteTowerAI/ohmygame/pull/333) by @82228)
+- Connect Codex Image using its saved sign-in without an extra capability check,
+  and simplify provider detail controls. Availability and quota errors are reported
+  when generating an image.
+  ([#356](https://github.com/WhiteTowerAI/ohmygame/pull/356) by @dogxii)
+
+### Fixed
+
+- Preserve recoverable canvas drafts when concurrent changes would merge into
+  invalid node references, and offer conflict choices instead of losing edits.
+  ([#342](https://github.com/WhiteTowerAI/ohmygame/pull/342) by @jsdhwfmax)
+- Keep the previous story picture visible while the next node's media loads,
+  reducing black flashes between story nodes.
+  ([#343](https://github.com/WhiteTowerAI/ohmygame/pull/343) by @82228)
+- Improve Windows title bar and sidebar appearance, keep installer progress
+  moving forward, and allow more time for first-start plugin preparation.
+  ([#352](https://github.com/WhiteTowerAI/ohmygame/pull/352) by @82228)
+- Keep composer attachment and context menus usable near window edges and in
+  short viewports, with scrolling when the full menu does not fit.
+  ([#352](https://github.com/WhiteTowerAI/ohmygame/pull/352) by @82228,
+  [#361](https://github.com/WhiteTowerAI/ohmygame/pull/361) by @xinyang6879)
+- Make plugin Skills available to installed coding agents and prevent Codex
+  startup failures caused by reserved tool names.
+  ([#278](https://github.com/WhiteTowerAI/ohmygame/pull/278) by @dogxii)
+- Remove the confusing Off map badge from scene cards while keeping visibility
+  controls available.
+  ([#346](https://github.com/WhiteTowerAI/ohmygame/pull/346) by @82228)
+
 ## [0.0.0-beta.4.11] - 2026-10-20
 
 ### Added
