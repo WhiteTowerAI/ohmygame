@@ -3,7 +3,7 @@ import type {
   AssetCanvasNode,
   ImageModel,
 } from "../shared/contracts.js";
-import { CANVAS_IMAGE_PRESETS, canvasImagePresetPrompt, type CanvasImagePreset } from "../shared/canvas-image-presets.js";
+import { CANVAS_IMAGE_PRESETS, QUICK_RESKIN_DEFAULT_PROMPT, canvasImagePresetPrompt, type CanvasImagePreset } from "../shared/canvas-image-presets.js";
 import { preferredCharacterSheetOption } from "../shared/canvas-character-tools.js";
 import {
   createAssetCanvasDocument,
@@ -199,7 +199,7 @@ export function createAssetCanvasTemplateDocument(
   if (template === "quick-reskin") {
     const image = createTemplatePresetNode(template, "quick-reskin", imageModels, { x: 1100, y: 80 }, source.id);
     image.data.quickReskinMode = "person-clothing";
-    image.data.prompt = prompt || t("assetCanvasTemplates.quickReskinDefaultPrompt");
+    image.data.prompt = prompt || QUICK_RESKIN_DEFAULT_PROMPT;
     const clothingSource = imageNode(560, 700);
     clothingSource.title = t("assetCanvasTemplates.quickReskinClothing");
     clothingSource.data.sourceInput = true;

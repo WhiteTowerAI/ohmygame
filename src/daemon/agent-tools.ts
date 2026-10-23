@@ -21,7 +21,7 @@ import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
-import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
+import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, withMediaTask, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
@@ -127,16 +127,19 @@ export function createAgentTools(
   };
   const saveMedia = async (name: string, process: () => Promise<MediaOutput | MediaOutput[]>, signal?: AbortSignal) => {
     signal?.throwIfAborted();
-    const result = await process();
-    signal?.throwIfAborted();
-    const outputs = Array.isArray(result) ? result : [result];
-    const batchId = randomUUID();
-    const artifacts = [];
-    for (const output of outputs) {
-      const relativePath = await projects.addGeneratedAsset(project.id, `${name}-${batchId}-${output.name}`, output.bytes);
-      artifacts.push({ type: "image" as const, path: relativePath, mediaType: output.mediaType });
-    }
-    return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
+    return withMediaTask(async () => {
+      signal?.throwIfAborted();
+      const result = await process();
+      signal?.throwIfAborted();
+      const outputs = Array.isArray(result) ? result : [result];
+      const batchId = randomUUID();
+      const artifacts = [];
+      for (const output of outputs) {
+        const relativePath = await projects.addGeneratedAsset(project.id, `${name}-${batchId}-${output.name}`, output.bytes);
+        artifacts.push({ type: "image" as const, path: relativePath, mediaType: output.mediaType });
+      }
+      return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
+    });
   };
   return [defineTool({
     name: "questionnaire",
@@ -580,10 +583,13 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
       if (!source.contentType.startsWith("image/")) throw new Error("image_grid_split requires an image file");
-      const frames = await splitImageGrid({ ...input, inputPath: source.absolutePath });
-      const archive = await zipMediaOutputs(frames);
-      const relativePath = await projects.addGeneratedAsset(project.id, `sprite-sheet-${randomUUID()}.zip`, archive, { registerInLibrary: false });
-      return { content: [{ type: "text", text: `Split ${input.columns * input.rows} cells into ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount: input.columns * input.rows } } };
+      return withMediaTask(async () => {
+        signal?.throwIfAborted();
+        const frames = await splitImageGrid({ ...input, inputPath: source.absolutePath });
+        const archive = await zipMediaOutputs(frames);
+        const relativePath = await projects.addGeneratedAsset(project.id, `sprite-sheet-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+        return { content: [{ type: "text", text: `Split ${input.columns * input.rows} cells into ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount: input.columns * input.rows } } };
+      });
     },
   }), defineTool({
     name: "video_frame_strip",
@@ -601,11 +607,14 @@ export function createAgentTools(
       signal?.throwIfAborted();
       const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
       if (!source.contentType.startsWith("video/")) throw new Error("video_frame_strip requires a video file");
-      const frames = await extractVideoStrip({ ...input, inputPath: source.absolutePath, signal });
-      const archive = await zipMediaOutputs(frames);
-      const relativePath = await projects.addGeneratedAsset(project.id, `video-strip-${randomUUID()}.zip`, archive, { registerInLibrary: false });
-      const frameCount = frames.filter((frame) => frame.mediaType.startsWith("image/")).length;
-      return { content: [{ type: "text", text: `Created a ${frameCount}-frame strip at ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount } } };
+      return withMediaTask(async () => {
+        signal?.throwIfAborted();
+        const frames = await extractVideoStrip({ ...input, inputPath: source.absolutePath, signal });
+        const archive = await zipMediaOutputs(frames);
+        const relativePath = await projects.addGeneratedAsset(project.id, `video-strip-${randomUUID()}.zip`, archive, { registerInLibrary: false });
+        const frameCount = frames.filter((frame) => frame.mediaType.startsWith("image/")).length;
+        return { content: [{ type: "text", text: `Created a ${frameCount}-frame strip at ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount } } };
+      });
     },
   }), defineTool({
     name: "video_compose_frames",
@@ -623,10 +632,13 @@ export function createAgentTools(
         if (!source.contentType.startsWith("image/")) throw new Error(`Frame is not an image: ${framePath}`);
         return source.absolutePath;
       }));
-      const output = await composeVideo({ ...input, framePaths, signal });
-      const relativePath = await projects.addGeneratedAsset(project.id, `composed-${randomUUID()}.${output.name.split(".").pop()}`, output.bytes);
-      const artifact = output.mediaType === "video/mp4" ? { type: "video" as const, path: relativePath, mediaType: "video/mp4" as const } : undefined;
-      return { content: [{ type: "text", text: `Composed ${input.format ?? "mp4"} saved to ${relativePath}` }], details: { ...(artifact ? { artifact } : {}), media: { path: relativePath, mediaType: output.mediaType } } };
+      return withMediaTask(async () => {
+        signal?.throwIfAborted();
+        const output = await composeVideo({ ...input, framePaths, signal });
+        const relativePath = await projects.addGeneratedAsset(project.id, `composed-${randomUUID()}.${output.name.split(".").pop()}`, output.bytes);
+        const artifact = output.mediaType === "video/mp4" ? { type: "video" as const, path: relativePath, mediaType: "video/mp4" as const } : undefined;
+        return { content: [{ type: "text", text: `Composed ${input.format ?? "mp4"} saved to ${relativePath}` }], details: { ...(artifact ? { artifact } : {}), media: { path: relativePath, mediaType: output.mediaType } } };
+      });
     },
 
   }), ...(project.type === "interactive-story" ? [defineTool({

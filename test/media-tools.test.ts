@@ -11,6 +11,7 @@ import {
   splitImageGrid,
   composeVideo,
   extractVideoStrip,
+  withMediaTask,
 } from "../src/daemon/media-tools.js";
 import { MAX_MEDIA_FRAMES } from "../src/shared/media-tools.js";
 
@@ -24,6 +25,24 @@ function sumBefore(values: number[], index: number): number {
 }
 
 describe("media tools", () => {
+  it("runs at most two media tasks together and starts the next after one finishes", async () => {
+    const release: Array<() => void> = [];
+    const started: number[] = [];
+    let markThirdStarted!: () => void;
+    const thirdStarted = new Promise<void>((resolve) => { markThirdStarted = resolve; });
+    const tasks = [1, 2, 3].map((number) => withMediaTask(async () => {
+      started.push(number);
+      if (number === 3) markThirdStarted();
+      await new Promise<void>((resolve) => release.push(resolve));
+    }));
+    expect(started).toEqual([1, 2]);
+    release.shift()!();
+    await thirdStarted;
+    expect(started).toEqual([1, 2, 3]);
+    for (const done of release) done();
+    await Promise.all(tasks);
+  });
+
   it("composites ordered image layers with alpha, offsets, and clipping", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-layers-"));
     try {
@@ -76,6 +95,11 @@ describe("media tools", () => {
     await sharp({ create: { width: 11, height: 10, channels: 4, background: "red" } }).png().toFile(inputPath);
     await expect(splitImageGrid({ inputPath, columns: 11, rows: 10 })).rejects.toThrow(`maximum ${MAX_MEDIA_FRAMES}`);
     await expect(composeVideo({ framePaths: Array(MAX_MEDIA_FRAMES + 1).fill(inputPath) })).rejects.toThrow(`1-${MAX_MEDIA_FRAMES}`);
+  });
+  it("rejects an oversized image before decoding it", async () => {
+    const inputPath = await fixturePath("pixel-limit.png");
+    await sharp({ create: { width: 8_001, height: 8_001, channels: 4, background: "red" } }).png().toFile(inputPath);
+    await expect(cropImage({ inputPath, left: 0, top: 0, width: 1, height: 1 })).rejects.toThrow("64 megapixel");
   });
   it("crops by source pixels", async () => {
     const inputPath = await fixturePath("crop.png");

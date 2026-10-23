@@ -259,6 +259,7 @@ it("runs a grid preset immediately without a confirmation dialog", async () => {
   await chooseTool("Grid split", "4 cells (2 × 2)");
   expect(container.querySelector('[role="dialog"]')).toBeNull();
   expect(runMedia).toHaveBeenCalledWith("p", {
+    boardId: "b",
     operation: "split-image-grid", assetIds: ["first"],
     options: { columns: 2, rows: 2, format: "png" },
   });
@@ -287,6 +288,7 @@ it("selects video frames while previewing the source video", async () => {
   runMedia.mockRejectedValue(new Error("Keep dialog open"));
   await submit();
   expect(runMedia).toHaveBeenCalledWith("p", {
+    boardId: "b",
     operation: "video-frame-strip", assetIds: ["video"],
     options: { fps: 8, startTime: 0, duration: undefined, format: "png", selectedFrames: [0, 2, 3, 4, 5, 6, 7] },
   });
@@ -305,6 +307,7 @@ it("extracts the full range when the browser cannot preview a video", async () =
   runMedia.mockRejectedValue(new Error("Keep dialog open"));
   await submit();
   expect(runMedia).toHaveBeenCalledWith("p", {
+    boardId: "b",
     operation: "video-frame-strip", assetIds: ["video"],
     options: { fps: 8, startTime: 0, duration: undefined, format: "png" },
   });
@@ -349,7 +352,7 @@ it.each([
   expect([...container.querySelectorAll(".asset-media-frame-index")].map((item) => item.textContent)).toEqual(["01", "02"]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Move later"]:not(:disabled)')!.click());
   await submit();
-  expect(runMedia).toHaveBeenCalledWith("p", { operation, assetIds: ["second", "first"], options });
+  expect(runMedia).toHaveBeenCalledWith("p", { boardId: "b", operation, assetIds: ["second", "first"], options });
 });
 
 it("runs GIF extraction immediately for a single GIF node", async () => {
@@ -358,7 +361,7 @@ it("runs GIF extraction immediately for a single GIF node", async () => {
   runMedia.mockRejectedValue(new Error("GIF extraction failed"));
   await chooseTool("Frame Animation", "Extract GIF frames");
   expect(container.querySelector('[role="dialog"]')).toBeNull();
-  expect(runMedia).toHaveBeenCalledWith("p", { operation: "extract-gif-frames", assetIds: ["gif"], options: {} });
+  expect(runMedia).toHaveBeenCalledWith("p", { boardId: "b", operation: "extract-gif-frames", assetIds: ["gif"], options: {} });
   expect(container.textContent).toContain("GIF extraction failed");
 });
 
@@ -367,7 +370,7 @@ it.each([2, 3, 4, 5])("runs the %i by %i grid preset on selection", async (side)
   await select("first");
   await chooseTool("Grid split", `${side * side} cells (${side} × ${side})`);
   expect(container.querySelector('[role="dialog"]')).toBeNull();
-  expect(runMedia).toHaveBeenCalledWith("p", { operation: "split-image-grid", assetIds: ["first"], options: { columns: side, rows: side, format: "png" } });
+  expect(runMedia).toHaveBeenCalledWith("p", { boardId: "b", operation: "split-image-grid", assetIds: ["first"], options: { columns: side, rows: side, format: "png" } });
 });
 
 it("opens a side picker on hover and runs a custom grid immediately", async () => {
@@ -383,7 +386,7 @@ it("opens a side picker on hover and runs a custom grid immediately", async () =
   expect(container.querySelectorAll(".asset-grid-picker .is-active")).toHaveLength(6);
   await act(async () => cell.click());
   expect(container.querySelector('[role="dialog"]')).toBeNull();
-  expect(runMedia).toHaveBeenCalledWith("p", { operation: "split-image-grid", assetIds: ["first"], options: { columns: 3, rows: 2, format: "png" } });
+  expect(runMedia).toHaveBeenCalledWith("p", { boardId: "b", operation: "split-image-grid", assetIds: ["first"], options: { columns: 3, rows: 2, format: "png" } });
 });
 
 async function cropEditor(width = 250, height = 500) {
@@ -417,7 +420,7 @@ it("crops the original tall image in source pixels at a scaled viewport", async 
   });
   runMedia.mockRejectedValue(new Error("Retry crop"));
   await act(async () => container.querySelector<HTMLButtonElement>(".asset-crop-confirm")!.click());
-  expect(runMedia).toHaveBeenCalledWith("p", { operation: "crop-image", assetIds: ["first"], options: { left: 100, top: 200, width: 800, height: 1600, format: "png" } });
+  expect(runMedia).toHaveBeenCalledWith("p", { boardId: "b", operation: "crop-image", assetIds: ["first"], options: { left: 100, top: 200, width: 800, height: 1600, format: "png" } });
   expect(container.querySelector('[role="alert"]')?.textContent).toBe("Retry crop");
 });
 
@@ -454,7 +457,7 @@ it("starts a new portrait crop anywhere inside the initial full-image selection"
   });
   runMedia.mockRejectedValue(new Error("Retry crop"));
   await act(async () => container.querySelector<HTMLButtonElement>(".asset-crop-confirm")!.click());
-  expect(runMedia).toHaveBeenCalledWith("p", { operation: "crop-image", assetIds: ["first"], options: { left: 100, top: 200, width: 800, height: 1600, format: "png" } });
+  expect(runMedia).toHaveBeenCalledWith("p", { boardId: "b", operation: "crop-image", assetIds: ["first"], options: { left: 100, top: 200, width: 800, height: 1600, format: "png" } });
 });
 
 it("constrains crop proportions, resizes a corner, and cancels with Escape", async () => {

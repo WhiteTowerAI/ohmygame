@@ -47,10 +47,12 @@ asset. Layer composition is not offered in the image-node toolbar.
 Video tools use the platform FFmpeg binary installed with the project. Set
 `OHMYGAME_FFMPEG_PATH` to use a different binary; if the platform package is
 unavailable, the daemon falls back to `ffmpeg` on `PATH`. Batch operations are
-limited to 100 frames and 128 MiB of encoded output; extracted videos are limited
-to 300 seconds. The canvas checks
-available node capacity before starting a media
-operation. Grid splitting preserves every source pixel even
+limited to 100 frames, a 64 million pixel processing budget for image inputs
+and extracted frames, and 128 MiB of encoded output. FFmpeg temporary files are checked during processing against a 128 MiB
+budget; extracted videos are limited to 300 seconds.
+At most two media tasks run concurrently, with up to eight waiting. The canvas
+checks available node capacity before starting and again before registering
+results. Grid splitting preserves every source pixel even
 when dimensions are not evenly divisible; edge cells can differ by one pixel.
 Video composition uses the first frame's displayed dimensions and fits every
 other frame inside that canvas with transparent padding, so mixed-size frames

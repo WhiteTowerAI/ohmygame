@@ -1417,7 +1417,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setMediaToolError(undefined);
     setGenerationError(undefined);
     try {
-      const result = await runCanvasMedia(projectId, { operation, assetIds, options: toolOptions });
+      await flush();
+      const result = await runCanvasMedia(projectId, { boardId: storage.boardId, operation, assetIds, options: toolOptions });
       if (result.kind === "download") {
         const blob = await getWorkspaceAsset(projectId, result.path);
         downloadAssetBlob(blob, result.name);

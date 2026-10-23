@@ -4,11 +4,12 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { CanvasMarkdownDocument } from "../shared/canvas-document.js";
 import { isCanvasDocument } from "../shared/canvas-document-schema.js";
 import { isCanvasBoard, type CanvasBoard } from "../shared/canvas-workspace.js";
+import { MAX_ASSET_CANVAS_NODES } from "../shared/asset-canvas-schema.js";
 import { CanvasError, CanvasStore } from "./canvas-workspace.js";
 import { ProjectAssetError, type ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
-import { composeGif, composeImageLayers, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, type ImageLayer } from "./media-tools.js";
+import { composeGif, composeImageLayers, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, MediaLimitError, withMediaTask, type ImageLayer } from "./media-tools.js";
 import { MAX_MEDIA_FRAMES, type CanvasMediaOperation } from "../shared/media-tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
@@ -17,7 +18,7 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   projects: ProjectManager; library: AssetLibrary; tools: ToolRunner;
 }): CanvasStore {
   const store = new CanvasStore(options.projects, options.library, options.tools);
-  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
+  const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError || cause instanceof MediaLimitError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
   const documentId = (query: unknown): string | undefined => {
     const value = (query as { documentId?: unknown })?.documentId;
@@ -108,7 +109,7 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   app.post<{ Params: { projectId: string }; Body: CanvasMediaRequest }>(`${base}/media`, {
     bodyLimit: 64 * 1024,
   }, async (request, reply) => {
-    try { return reply.code(200).send(await runCanvasMedia(options, request.params.projectId, request.body)); } catch (cause) { return failure(cause, reply); }
+    try { return reply.code(200).send(await withMediaTask(() => runCanvasMedia({ ...options, store }, request.params.projectId, request.body))); } catch (cause) { return failure(cause, reply); }
   });
   app.get<{ Params: { projectId: string } }>(`${base}/jobs`, async (request, reply) => {
     try { return await store.jobs(request.params.projectId); } catch (cause) { return failure(cause, reply); }
@@ -120,6 +121,7 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
 }
 
 interface CanvasMediaRequest {
+  boardId?: string;
   operation: CanvasMediaOperation;
   assetIds: string[];
   options?: {
@@ -144,12 +146,15 @@ type CanvasMediaResult =
   | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number };
 
 async function runCanvasMedia(
-  options: { projects: ProjectManager; library: AssetLibrary; tools: ToolRunner },
+  options: { projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; store: CanvasStore },
   projectId: string,
   request: CanvasMediaRequest,
 ): Promise<CanvasMediaResult> {
   const project = options.projects.get(projectId);
   if (!project) throw new CanvasError("Project not found", 404);
+  const boardId = request.boardId ?? (await options.store.workspace(projectId)).boards[0]?.id;
+  if (!boardId) throw new CanvasError("Canvas board not found", 404);
+  const availableNodes = async () => MAX_ASSET_CANVAS_NODES - (await options.store.board(projectId, boardId)).board.nodes.length;
   if (!Array.isArray(request.assetIds) || request.assetIds.length < 1 || request.assetIds.length > MAX_MEDIA_FRAMES || request.assetIds.some((id) => typeof id !== "string" || !id)) {
     throw new CanvasError("Choose at least one canvas asset", 400);
   }
@@ -169,6 +174,13 @@ async function runCanvasMedia(
     return getWorkspaceMedia(project.workspacePath, asset.path);
   }));
   const input = request.options ?? {};
+  if (project.type === "asset-canvas") {
+    const expectedNodes = request.operation === "split-image-grid"
+      ? input.selectedFrames?.length ?? (input.columns ?? 2) * (input.rows ?? 2)
+      : request.operation === "video-frame-strip" && input.selectedFrames
+        ? input.selectedFrames.length : 1;
+    if (expectedNodes > await availableNodes()) throw new CanvasError("Canvas is full", 409);
+  }
   const first = sources[0]!;
   let output: { name: string; bytes: Buffer; mediaType: string } | undefined;
   let outputs: Awaited<ReturnType<typeof splitImageGrid>> | undefined;
@@ -210,10 +222,12 @@ async function runCanvasMedia(
   if (outputs) {
     const frameOutputs = outputs.filter((item) => item.mediaType.startsWith("image/") || item.mediaType.startsWith("video/"));
     if (!frameOutputs.length) throw new CanvasError("Media operation produced no frame assets", 500);
-    const assets = await Promise.all(frameOutputs.map((frame) => options.library.add(frame.name, frame.bytes, {
+    if (project.type === "asset-canvas" && frameOutputs.length > await availableNodes()) throw new CanvasError("Canvas is full", 409);
+    const assets = [];
+    for (const frame of frameOutputs) assets.push(await options.library.add(frame.name, frame.bytes, {
       origin: "generated",
       sourceKey: `canvas-media:${projectId}:${randomUUID()}`,
-    })));
+    }));
     await ensureCanvasAssets(project, options.projects, options.library, assets.map((asset) => asset.id));
     return {
       kind: "assets",
@@ -225,6 +239,7 @@ async function runCanvasMedia(
     };
   }
   if (!output) throw new CanvasError("Media operation produced no output", 500);
+  if (project.type === "asset-canvas" && await availableNodes() < 1) throw new CanvasError("Canvas is full", 409);
   const asset = await options.library.add(output.name, output.bytes, { origin: "generated", sourceKey: `canvas-media:${projectId}:${randomUUID()}` });
   await ensureCanvasAssets(project, options.projects, options.library, [asset.id]);
   return { kind: "asset", assetId: asset.id, name: asset.name, mediaType: asset.mediaType };

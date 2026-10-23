@@ -831,7 +831,6 @@ const zhCN: typeof en = {
     quickReskinSource: "人物参考图",
     quickReskinPerson: "人物图",
     quickReskinClothing: "衣物图",
-    quickReskinDefaultPrompt: "将衣物参考图中的服装穿到人物图中的角色身上，保持人物姿势与构图。",
     quickReskinPlaceholder: "可补充服装细节或修改要求",
     "pixel-art": {
       title: "像素风游戏素材",

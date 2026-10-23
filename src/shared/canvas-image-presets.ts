@@ -26,6 +26,8 @@ export type CanvasImagePreset = (typeof CANVAS_IMAGE_PRESETS)[number];
 export const CANVAS_MATERIAL_STYLES = ["pixel", "general"] as const;
 export type CanvasMaterialStyle = (typeof CANVAS_MATERIAL_STYLES)[number];
 
+export const QUICK_RESKIN_DEFAULT_PROMPT = "Put the clothing from the clothing reference image on the person in the person image. Keep the person's pose and composition.";
+
 /** Preserve the pixel prompts used by saved material nodes without a style. */
 export function canvasMaterialStyle(preset?: CanvasImagePreset, style?: CanvasMaterialStyle): CanvasMaterialStyle {
   return style ?? (preset && !["free", "character-sheet", "quick-reskin", "continuous-sequence", "consistent-sequence"].includes(preset) ? "pixel" : "general");

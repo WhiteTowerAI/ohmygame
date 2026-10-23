@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import i18next from "i18next";
 import type { ImageModel } from "../src/shared/contracts.js";
 import { isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { canvasImagePresetPrompt } from "../src/shared/canvas-image-presets.js";
@@ -77,6 +78,18 @@ describe("asset canvas templates", () => {
     const noCompatibleModel = createAssetCanvasTemplateDocument("quick-reskin", [textOnly]).document.nodes.find((node) => node.type === "image" && !node.data.sourceInput);
     expect(noCompatibleModel).toMatchObject({ type: "image", data: { quickReskinMode: "person-clothing" } });
     if (noCompatibleModel?.type === "image") expect(noCompatibleModel.data.model).toBeUndefined();
+  });
+
+  it("keeps the default generation prompt in English under the Chinese UI", async () => {
+    const previousLanguage = i18next.language;
+    try {
+      await i18next.changeLanguage("zh-CN");
+      const { document, outputNodeIds } = createAssetCanvasTemplateDocument("quick-reskin", [reference]);
+      const output = document.nodes.find((node) => node.id === outputNodeIds[0]);
+      expect(output?.type === "image" && output.data.prompt).toBe("Put the clothing from the clothing reference image on the person in the person image. Keep the person's pose and composition.");
+    } finally {
+      await i18next.changeLanguage(previousLanguage);
+    }
   });
 
   it("pixel assets share one reference input and use a reference-capable model", () => {

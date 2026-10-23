@@ -1,6 +1,7 @@
 /** Categories shown in the image node toolbar. Grid splitting has its own picker. */
 export const MAX_MEDIA_FRAMES = 100;
 export const MAX_MEDIA_OUTPUT_BYTES = 128 * 1024 * 1024;
+export const MAX_MEDIA_TOTAL_PIXELS = 64_000_000;
 
 export const MEDIA_TOOL_GROUPS = [
   { id: "image-processing", operations: ["ai-image-cutout", "crop-image"] },

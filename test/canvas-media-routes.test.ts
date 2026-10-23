@@ -8,6 +8,7 @@ import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "../src/daemon/canvas-assets.js";
+import { MAX_ASSET_CANVAS_NODES } from "../src/shared/asset-canvas-schema.js";
 import {
   allActionsPrompt,
   characterAssetPrompt,
@@ -348,4 +349,17 @@ it("extracts a GIF asset into image nodes", async () => {
   const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "extract-gif-frames", assetIds: [gifId] } });
   expect(response.statusCode, response.body).toBe(200);
   expect(response.json()).toMatchObject({ kind: "assets", assets: [{ mediaType: "image" }] });
+});
+
+it("does not register extracted frames when their actual count exceeds board capacity", async () => {
+  const gif = await sharp(Buffer.from([255, 0, 0, 255, 0, 0, 255, 255]), { raw: { width: 1, height: 2, channels: 4, pageHeight: 1 } }).gif({ delay: [100, 100] }).toBuffer();
+  const gifId = (await library.add("animation.gif", gif)).id;
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  vi.spyOn(store, "board").mockResolvedValue({ ...current, board: { ...current.board, nodes: Array(MAX_ASSET_CANVAS_NODES - 1).fill(current.board.nodes[0]) } });
+  const before = library.list().length;
+  const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { boardId, operation: "extract-gif-frames", assetIds: [gifId] } });
+  expect(response.statusCode).toBe(409);
+  expect(response.json().error).toBe("Canvas is full");
+  expect(library.list()).toHaveLength(before);
 });

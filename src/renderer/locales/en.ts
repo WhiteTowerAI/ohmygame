@@ -849,7 +849,6 @@ const en = {
     quickReskinSource: "Person reference image",
     quickReskinPerson: "Person image",
     quickReskinClothing: "Clothing image",
-    quickReskinDefaultPrompt: "Put the clothing from the clothing reference image on the person in the person image. Keep the person's pose and composition.",
     quickReskinPlaceholder: "Add clothing details or other changes (optional)",
     "pixel-art": {
       title: "Pixel game assets",

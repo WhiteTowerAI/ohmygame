@@ -28,6 +28,7 @@ export const generateCanvasText = (id: string, instruction: string, model: Agent
 export const generateCanvasDocument = (id: string, documentId: string, input: CanvasDocumentGenerationRequest, version?: string): Promise<CanvasDocumentGenerationResponse> => request(`${base(id)}/documents/${encodeURIComponent(documentId)}/generate`, { method: "POST", body: JSON.stringify(input), workspaceVersion: version });
 export type { CanvasMediaOperation } from "../shared/media-tools.js";
 export interface CanvasMediaRequest {
+  boardId?: string;
   operation: CanvasMediaOperation;
   assetIds: string[];
   options?: Record<string, unknown>;
