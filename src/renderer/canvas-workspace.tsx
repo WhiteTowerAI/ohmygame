@@ -10,7 +10,6 @@ import { canvasBoardPath } from "../shared/canvas-workspace.js";
 import { canvasNodeTitle } from "../shared/canvas-assets.js";
 import { canvasDocumentPath } from "../shared/canvas-document.js";
 import { CanvasBoardEditor } from "./asset-canvas-workspace.js";
-import { createAssetCanvasTemplateBoard } from "./asset-canvas-templates.js";
 import { createCanvasBoardStorage, type CanvasBoardConflict, type CanvasBoardStorage } from "./canvas-board-storage.js";
 import { LibraryAssetPicker } from "./node-workbench.js";
 import { changeCanvasBoard, createCanvasBoard, deleteCanvasBoard } from "./canvas-api.js";
@@ -59,7 +58,6 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
   const assetPaths = useMemo(() => canvasAssetSources(project.id, workspace?.assets ?? [], workspace?.unavailableAssets), [project.id, workspace?.assets, workspace?.unavailableAssets]);
   const docsRef = useRef(docs); docsRef.current = docs;
   const [activeId, setActiveId] = useState<string | undefined>(() => { try { return localStorage.getItem(`canvas-active:${project.id}`) ?? undefined; } catch { return undefined; } });
-  const [templateFocus, setTemplateFocus] = useState<{ boardId: string; nodeId: string }>();
   const [selectedNodes, setSelectedNodes] = useState<AssetCanvasNode[]>([]);
   const [boardConflict, setBoardConflict] = useState<CanvasBoardConflict>();
   const [boardOptions, setBoardOptions] = useState<{ id: string; x: number; y: number }>();
@@ -204,15 +202,7 @@ export function CanvasWorkspace({ project, headerActionsTarget = null, onLeaveRe
       await resolve(version);
       setBoardConflict(undefined);
     })}>{version === "remote" ? t("canvas.useDisk") : t("canvas.keepMine")}</button>)}</CanvasNotice> : null}
-    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={isAssetCanvas && workspaceView === "code"} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} onStartTemplate={isAssetCanvas ? (template, assetId) => void run(async () => {
-      await flush();
-      const created = await createAssetCanvasTemplateBoard(project.id, template, assetId);
-      await docsRef.current.refresh();
-      setTemplateFocus(created);
-      setActiveId(created.boardId);
-      setBoardStatus("loading");
-      setWorkspaceView("canvas");
-    }) : undefined} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={templateFocus?.boardId === activeId ? templateFocus.nodeId : initialNodeId} onInitialNodeHandled={templateFocus?.boardId === activeId ? () => setTemplateFocus(undefined) : onInitialNodeHandled} /> : isAssetCanvas && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
+    {workspace && adapter ? <CanvasBoardEditor key={adapter.key} project={project} hidden={isAssetCanvas && workspaceView === "code"} storage={adapter} documents={design} tables={tables} assets={workspace.assets} conflicted={!!boardConflict} overlay={floating} onSaveReady={registerSave} onSyncReady={registerSync} onResolveReady={registerResolve} onStatusChange={setBoardStatus} onSelectionChange={setSelectedNodes} expandedDocument={documentView ? { ...documentView, busy, onClose: () => void run(async () => { await docsRef.current.flush(); setDocumentView(undefined); }) } : undefined} initialNodeId={initialNodeId} onInitialNodeHandled={onInitialNodeHandled} /> : isAssetCanvas && workspaceView === "code" ? null : <div className="design-loading">{docs.loadError ? <span>{t("canvas.restoreWorkspace")}</span> : <LoaderCircle size={22} className="spin" />}</div>}
     {isAssetCanvas && workspaceView === "code" ? <WorkspaceCodeView projectId={project.id} revision={workspaceRevision + codeRevision} openFileRequest={openFileRequest} /> : null}
     {boardOptions && workspace && optionsBoard ? <CanvasContextMenu screenPosition={boardOptions} label={t("canvas.boardOptions", { name: optionsBoard.name })} onClose={() => setBoardOptions(undefined)}>
       <button type="button" role="menuitem" onClick={() => { setBoardOptions(undefined); setName(optionsBoard.name); setDialog({ type: "rename", id: optionsBoard.id }); }}><Pencil size={14} /><span>{t("common.rename")}</span></button>

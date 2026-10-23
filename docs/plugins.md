@@ -56,6 +56,11 @@ requests in the desktop app. Missing or failed image requests show the default
 package glyph. Packages without an icon retain the existing built-in/default
 appearance.
 
+An existing installed-plugin index from another host version may contain a
+relative SVG icon path. The index reader ignores that icon and uses the default
+glyph, while still validating the rest of the record and the path constraints.
+Reading the index does not rewrite it; SVG assets are never served as icons.
+
 Missing, oversized or undecodable icon images in an imported or installed
 package do not prevent the plugin from installing or loading; their icon
 metadata is omitted so the default glyph appears. Builder preparation and icon

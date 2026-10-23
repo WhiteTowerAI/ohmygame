@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { extractFile } from "@electron/asar";
@@ -26,6 +26,8 @@ export default async function checkPackagedDesktop(context) {
     console.log("Packaged Pi patch verified; daemon startup requires the target platform.");
     return;
   }
+  const ffmpeg = path.join(resources, "app.asar.unpacked", "node_modules", "@ffmpeg-installer", `${process.platform}-${process.arch}`, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
+  assert((await stat(ffmpeg)).isFile(), "Packaged FFmpeg executable is missing");
   const name = packager.appInfo.productFilename;
   const executable = electronPlatformName === "darwin"
     ? path.join(resources, "..", "MacOS", name)

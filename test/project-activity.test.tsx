@@ -41,7 +41,7 @@ function Activity({ enabled = true }: { enabled?: boolean }) {
 }
 const noop = () => undefined;
 const pages = [
-  { name: "Home", type: "web-game", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} /> },
+  { name: "Home", type: "web-game", view: <Home onNavigate={noop} onCreate={noop} onOpen={noop} onOpenAssetCanvas={noop} /> },
   { name: "Projects", type: "web-game", view: <ProjectsPage onNavigate={noop} onOpenProject={noop} onFiltersChange={noop} /> },
   { name: "Game Studio", type: "web-game", view: <GameStudioHome projectType="web-game" onNavigate={noop} onCreate={noop} onOpenProject={noop} /> },
   { name: "Asset Canvas", type: "asset-canvas", view: <AssetCanvasHome onNavigate={noop} onOpenProject={noop} /> },
@@ -69,6 +69,16 @@ afterEach(async () => {
 const tick = () => act(async () => vi.advanceTimersByTimeAsync(2_000));
 
 describe("project activity on project lists", () => {
+  it("shows the template demo below Recent Projects on the main home", async () => {
+    await act(async () => root.render(pages[0].view));
+    const recent = container.querySelector(".home-recent");
+    const launcher = container.querySelector(".asset-template-launcher");
+    expect(recent).not.toBeNull();
+    expect(launcher).not.toBeNull();
+    expect(recent!.compareDocumentPosition(launcher!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(launcher!.querySelectorAll('[role="tab"]')).toHaveLength(3);
+  });
+
   it.each(pages)("refreshes a generated name on $name without changing the cover", async ({ type, view }) => {
     const initial = { ...project("active", type), nameSource: "default" as const };
     listProjects.mockResolvedValue([initial]);

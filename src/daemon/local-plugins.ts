@@ -8,6 +8,7 @@ import {
   PLUGIN_ARCHIVE_MAX_ENTRIES,
   PLUGIN_MANIFEST_PATH,
   isPluginManifest,
+  isPluginIcon,
   isPluginVersion,
   type McpServerDefinition,
   type PluginComponentSummary,
@@ -309,7 +310,8 @@ export class LocalPluginStore {
 
   async #readIndex(): Promise<LocalPluginRecord[]> {
     try {
-      const value = JSON.parse(await readFile(this.#indexPath, "utf8")) as unknown;
+      const parsed = JSON.parse(await readFile(this.#indexPath, "utf8")) as unknown;
+      const value = Array.isArray(parsed) ? parsed.map(compatiblePluginRecord) : parsed;
       if (!Array.isArray(value) || !value.every(isLocalPluginRecord)) {
         throw new LocalPluginError("Installed plugin index is invalid");
       }
@@ -497,6 +499,19 @@ async function component(
   } catch (cause) {
     throw new LocalPluginError(`Could not read Skill metadata: ${errorMessage(cause)}`);
   }
+}
+
+// Other host versions store SVG icons. Keep the plugin usable with the default
+// icon without admitting SVG to the raster-only icon reader or changing its package.
+function compatiblePluginRecord(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Partial<LocalPluginRecord>;
+  const icon = record.manifest?.interface?.icon;
+  if (icon?.type !== "asset" || typeof icon.path !== "string" || !icon.path.endsWith(".svg") ||
+    !isPluginIcon({ ...icon, path: `${icon.path.slice(0, -4)}.png` })) return value;
+  const { icon: _icon, ...pluginInterface } = record.manifest!.interface!;
+  const compatible = { ...record, manifest: { ...record.manifest, interface: pluginInterface } };
+  return isLocalPluginRecord(compatible) ? compatible : value;
 }
 
 function isLocalPluginRecord(value: unknown): value is LocalPluginRecord {

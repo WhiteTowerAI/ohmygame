@@ -21,7 +21,7 @@ import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
-import { brushRetouchImage, composeGif, composeVideo, cropImage, cutoutImage, editImage, extractGifFrames, extractVideoFrames, extractVideoStrip, outlineImage, removeBlueScreen, removeGreenScreen, removeWhiteBackground, resizeImage, sortFrames, splitImageGrid, stitchImages, transformImage, zipMediaOutputs } from "./media-tools.js";
+import { brushRetouchImage, composeGif, composeVideo, cropImage, cutoutImage, extractGifFrames, extractVideoFrames, extractVideoStrip, outlineImage, removeBlueScreen, removeGreenScreen, removeWhiteBackground, resizeImage, sortFrames, splitImageGrid, stitchImages, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -76,6 +76,25 @@ const mediaModelParameter = () => Type.Object({
   id: Type.String({ description: "Provider model ID" }),
 }, { description: "Override the project or global default generation model" });
 
+const imageSourceParameter = Type.String({ minLength: 1 });
+const transparentImageParameters = {
+  sourcePath: imageSourceParameter,
+  format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("webp")])),
+};
+const imageParameters = {
+  sourcePath: imageSourceParameter,
+  format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
+};
+const backgroundRemovalParameters = Type.Object({
+  ...transparentImageParameters,
+  tolerance: Type.Optional(Type.Integer({ minimum: 0, maximum: 255 })),
+});
+const imagePointParameter = Type.Object({
+  x: Type.Integer({ minimum: 0 }),
+  y: Type.Integer({ minimum: 0 }),
+});
+const framePathsParameter = Type.Array(imageSourceParameter, { minItems: 1, maxItems: 1000 });
+
 export function createAgentTools(
   project: ProjectState,
   tools: ToolRunner,
@@ -105,11 +124,30 @@ export function createAgentTools(
         prompt,
         ...(file.assetId ? { libraryAssetId: file.assetId } : {}),
       });
+
       return {
         content: [{ type: "text" as const, text: `Generated audio saved to ${relativePath}` }],
         details: { artifact: { type: "audio", path: relativePath, mediaType: output.mediaType } },
       };
     } finally { await tools.removeRun(run.id); }
+  };
+  const imageSource = async (sourcePath: string) => {
+    const source = await getWorkspaceMedia(project.workspacePath, sourcePath);
+    if (!source.contentType.startsWith("image/")) throw new Error("This tool requires an image file");
+    return source.absolutePath;
+  };
+  const saveMedia = async (name: string, process: () => Promise<MediaOutput | MediaOutput[]>, signal?: AbortSignal) => {
+    signal?.throwIfAborted();
+    const result = await process();
+    signal?.throwIfAborted();
+    const outputs = Array.isArray(result) ? result : [result];
+    const batchId = randomUUID();
+    const artifacts = [];
+    for (const output of outputs) {
+      const relativePath = await projects.addGeneratedAsset(project.id, `${name}-${batchId}-${output.name}`, output.bytes);
+      artifacts.push({ type: "image" as const, path: relativePath, mediaType: output.mediaType });
+    }
+    return { content: [{ type: "text" as const, text: artifacts.map((artifact) => `Saved ${artifact.path}`).join("\n") }], details: { artifact: artifacts[0], artifacts } };
   };
   return [defineTool({
     name: "questionnaire",
@@ -483,37 +521,228 @@ export function createAgentTools(
       durationSeconds: input.durationSeconds, loop: input.loop, output: { format: input.format },
     }, input.prompt, "music", signal),
   }), defineTool({
-    name: "image_edit",
-    label: "Edit Image",
-    description: "Apply pixel-safe image adjustments to a project image: crop, resize, rotate, color modulation, blur, sharpen, grayscale, and pixelation. Saves the result into assets/generated.",
+    name: "remove_green_screen",
+    label: "Remove Green Background",
+    description: "Remove the selected background color; preserve transparency.",
+    parameters: backgroundRemovalParameters,
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "remove_green_screen",
+        async () =>
+          removeGreenScreen({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "remove_blue_screen",
+    label: "Remove Blue Background",
+    description: "Remove the selected background color; preserve transparency.",
+    parameters: backgroundRemovalParameters,
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "remove_blue_screen",
+        async () =>
+          removeBlueScreen({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "remove_white_background",
+    label: "Remove White Background",
+    description: "Remove the selected background color; preserve transparency.",
+    parameters: backgroundRemovalParameters,
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "remove_white_background",
+        async () =>
+          removeWhiteBackground({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "resize_image",
+    label: "Resize Image",
+    description:
+      "Resize to exact dimensions with transparent padding; one dimension preserves aspect ratio.",
     parameters: Type.Object({
-      sourcePath: Type.String({ minLength: 1, description: "PNG, JPEG, WebP, or GIF path in the current project workspace" }),
-      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
-      crop: Type.Optional(Type.Object({
-        left: Type.Integer({ minimum: 0 }),
-        top: Type.Integer({ minimum: 0 }),
-        width: Type.Integer({ minimum: 1 }),
-        height: Type.Integer({ minimum: 1 }),
-      }, { description: "Crop rectangle in source pixels" })),
-      width: Type.Optional(Type.Integer({ minimum: 1, maximum: 16_384 })),
-      height: Type.Optional(Type.Integer({ minimum: 1, maximum: 16_384 })),
-      fit: Type.Optional(Type.Union([Type.Literal("cover"), Type.Literal("contain"), Type.Literal("fill"), Type.Literal("inside"), Type.Literal("outside")])),
-      rotate: Type.Optional(Type.Number({ description: "Arbitrary clockwise rotation in degrees" })),
-      brightness: Type.Optional(Type.Number({ minimum: 0.1, maximum: 10 })),
-      saturation: Type.Optional(Type.Number({ minimum: 0, maximum: 10 })),
-      grayscale: Type.Optional(Type.Boolean()),
-      blur: Type.Optional(Type.Number({ minimum: 0.3, maximum: 100 })),
-      sharpen: Type.Optional(Type.Number({ minimum: 0, maximum: 100 })),
-      pixelate: Type.Optional(Type.Integer({ minimum: 2, maximum: 128, description: "Pixel block size" })),
+      ...imageParameters,
+      width: Type.Integer({ minimum: 1, maximum: 16384 }),
+      height: Type.Optional(Type.Integer({ minimum: 1, maximum: 16384 })),
     }),
-    execute: async (_toolCallId, input, signal) => {
-      signal?.throwIfAborted();
-      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
-      if (!source.contentType.startsWith("image/")) throw new Error("image_edit requires an image file");
-      const output = await editImage({ ...input, inputPath: source.absolutePath });
-      const relativePath = await projects.addGeneratedAsset(project.id, `image-edit-${randomUUID()}.${path.extname(output.name).slice(1)}`, output.bytes);
-      return { content: [{ type: "text", text: `Edited image saved to ${relativePath}` }], details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } } };
-    },
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "resize_image",
+        async () =>
+          resizeImage({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "outline_image",
+    label: "Outline Image",
+    description: "Add a colored outline around opaque pixels.",
+    parameters: Type.Object({
+      ...transparentImageParameters,
+      thickness: Type.Integer({ minimum: 1, maximum: 64 }),
+      color: Type.Optional(Type.String({ pattern: "^#[0-9a-fA-F]{6}$" })),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "outline_image",
+        async () =>
+          outlineImage({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "crop_image",
+    label: "Crop Image",
+    description: "Extract a rectangle in source pixels.",
+    parameters: Type.Object({
+      ...imageParameters,
+      left: Type.Integer({ minimum: 0 }),
+      top: Type.Integer({ minimum: 0 }),
+      width: Type.Integer({ minimum: 1 }),
+      height: Type.Integer({ minimum: 1 }),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "crop_image",
+        async () =>
+          cropImage({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "cutout_image",
+    label: "Polygon Cutout",
+    description:
+      "Keep pixels inside the polygon and clear the surrounding background.",
+    parameters: Type.Object({
+      ...transparentImageParameters,
+      points: Type.Array(imagePointParameter, { minItems: 3, maxItems: 1000 }),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "cutout_image",
+        async () =>
+          cutoutImage({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "brush_retouch_image",
+    label: "Brush Retouch",
+    description: "Blur only pixels under the supplied brush strokes.",
+    parameters: Type.Object({
+      ...imageParameters,
+      strokes: Type.Array(
+        Type.Array(imagePointParameter, { minItems: 1, maxItems: 10000 }),
+        { minItems: 1, maxItems: 1000 },
+      ),
+      radius: Type.Integer({ minimum: 1, maximum: 256 }),
+      strength: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "brush_retouch_image",
+        async () =>
+          brushRetouchImage({
+            ...input,
+            inputPath: await imageSource(input.sourcePath),
+          }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "extract_gif_frames",
+    label: "Extract GIF Frames",
+    description: "Extract all GIF frames as numbered PNG images.",
+    parameters: Type.Object({ sourcePath: imageSourceParameter }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "extract_gif_frames",
+        async () =>
+          extractGifFrames({ inputPath: await imageSource(input.sourcePath) }),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "compose_gif",
+    label: "Compose GIF",
+    description:
+      "Compose ordered frames into a looping GIF; normalize dimensions without cropping.",
+    parameters: Type.Object({
+      framePaths: framePathsParameter,
+      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120 })),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "compose_gif",
+        async () =>
+          composeGif(
+            await Promise.all(input.framePaths.map(imageSource)),
+            input.fps,
+            signal,
+          ),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "sort_frames",
+    label: "Sort Frames",
+    description:
+      "Save numbered PNG frames in the explicit order of framePaths.",
+    parameters: Type.Object({ framePaths: framePathsParameter }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "sort_frames",
+        async () =>
+          sortFrames(await Promise.all(input.framePaths.map(imageSource))),
+        signal,
+      ),
+  }),
+  defineTool({
+    name: "stitch_images",
+    label: "Stitch Images",
+    description: "Stitch ordered images with transparent padding.",
+    parameters: Type.Object({
+      framePaths: framePathsParameter,
+      direction: Type.Optional(
+        Type.Union([Type.Literal("horizontal"), Type.Literal("vertical")]),
+      ),
+    }),
+    execute: async (_toolCallId, input, signal) =>
+      saveMedia(
+        "stitch_images",
+        async () =>
+          stitchImages({
+            inputPaths: await Promise.all(input.framePaths.map(imageSource)),
+            direction: input.direction,
+          }),
+        signal,
+      ),
   }), defineTool({
     name: "image_grid_split",
     label: "Split Image Grid",
@@ -533,25 +762,6 @@ export function createAgentTools(
       const archive = await zipMediaOutputs(frames);
       const relativePath = await projects.addGeneratedAsset(project.id, `sprite-sheet-${randomUUID()}.zip`, archive, { registerInLibrary: false });
       return { content: [{ type: "text", text: `Split ${input.columns * input.rows} cells into ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount: input.columns * input.rows } } };
-    },
-  }), defineTool({
-    name: "image_transform",
-    label: "Rotate or Mirror Image",
-    description: "Rotate an image by 90, 180, or 270 degrees and/or mirror it horizontally or vertically.",
-    parameters: Type.Object({
-      sourcePath: Type.String({ minLength: 1 }),
-      rotate: Type.Optional(Type.Union([Type.Literal(0), Type.Literal(90), Type.Literal(180), Type.Literal(270)])),
-      flip: Type.Optional(Type.Boolean({ description: "Mirror vertically" })),
-      flop: Type.Optional(Type.Boolean({ description: "Mirror horizontally" })),
-      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
-    }),
-    execute: async (_toolCallId, input, signal) => {
-      signal?.throwIfAborted();
-      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
-      if (!source.contentType.startsWith("image/")) throw new Error("image_transform requires an image file");
-      const output = await transformImage({ ...input, inputPath: source.absolutePath });
-      const relativePath = await projects.addGeneratedAsset(project.id, `image-transform-${randomUUID()}.${path.extname(output.name).slice(1)}`, output.bytes);
-      return { content: [{ type: "text", text: `Transformed image saved to ${relativePath}` }], details: { artifact: { type: "image", path: relativePath, mediaType: output.mediaType } } };
     },
   }), defineTool({
     name: "video_extract_frames",

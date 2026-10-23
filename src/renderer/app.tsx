@@ -50,7 +50,7 @@ export function App() {
     return <SettingsPage section={route.section} pluginId={route.pluginId} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} onOpenOnboarding={onboarding.open} />;
   }
   if (route.page === "home") {
-    return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} />;
+    return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} onOpenAssetCanvas={openAssetCanvasProject} />;
   }
   if (route.page === "community") {
     return <GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;

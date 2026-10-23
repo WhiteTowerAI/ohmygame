@@ -1,30 +1,35 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
 import sharp from "sharp";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
 import { ProjectManager } from "../src/daemon/projects.js";
 import { ToolRunner } from "../src/daemon/tools.js";
-import { registerCanvasRoutes } from "../src/daemon/canvas-routes.js";
-import { readCanvasAssets } from "../src/daemon/canvas-assets.js";
+import { ensureCanvasAssets, readCanvasAssets } from "../src/daemon/canvas-assets.js";
 import {
   allActionsPrompt,
   characterAssetPrompt,
   continuousActionsPrompt,
 } from "../src/shared/canvas-character-tools.js";
 
+const aiCutout = vi.fn();
+vi.doMock(path.resolve("src/daemon/ai-cutout.ts"), () => ({ createAiCutout: () => aiCutout }));
+const { registerCanvasRoutes } = await import("../src/daemon/canvas-routes.js");
+
 let directory: string;
 let app: ReturnType<typeof Fastify>;
 let store: ReturnType<typeof registerCanvasRoutes>;
 let library: AssetLibrary;
+let projects: ProjectManager;
 let project: Awaited<ReturnType<ProjectManager["create"]>>;
 let assetId: string;
 beforeEach(async () => {
+  aiCutout.mockReset();
   directory = await mkdtemp(path.join(tmpdir(), "ohmygame-canvas-media-"));
   library = new AssetLibrary(directory);
-  const projects = new ProjectManager(directory, library);
+  projects = new ProjectManager(directory, library);
   await Promise.all([library.load(), projects.load()]);
   project = await projects.create("Media tools", "asset-canvas");
   const tools = new ToolRunner(
@@ -39,7 +44,7 @@ beforeEach(async () => {
     library,
   );
   app = Fastify();
-  store = registerCanvasRoutes(app, { projects, library, tools });
+  store = registerCanvasRoutes(app, { projects, library, tools, mediaModelDirectory: path.join(directory, "media-models") });
   await store.workspace(project.id);
   const bytes = await sharp({
     create: { width: 8, height: 4, channels: 4, background: "red" },
@@ -49,9 +54,56 @@ beforeEach(async () => {
   assetId = (await library.add("source.png", bytes)).id;
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   await app.close();
   await store.close();
   await rm(directory, { recursive: true, force: true });
+});
+
+it.each(["pixel", "general"] as const)("saves the %s category and passes its style to generation", async (materialStyle) => {
+  const workspace = await store.workspace(project.id);
+  const boardId = workspace.boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const node = { id: "building", type: "image", position: { x: 0, y: 0 }, data: { prompt: "Castle", presetId: "building", materialStyle, resolution: "1K", aspectRatio: "1:1", images: [] } };
+  const response = await app.inject({
+    method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`,
+    payload: { board: { ...current.board, nodes: [node], editorLayout: { ...current.board.editorLayout, nodes: { building: node.position } } }, revision: current.revision },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  expect((await store.board(project.id, boardId)).board.nodes[0]?.data).toMatchObject({ materialStyle });
+  const start = vi.spyOn(store, "start").mockResolvedValue({ id: "style-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Castle" });
+  await store.generateNode(project.id, boardId, "building");
+  const input = start.mock.calls[0]![4];
+  if (!("prompt" in input)) throw new Error("Expected an image generation prompt");
+  expect(input.prompt).toContain("Castle");
+  if (materialStyle === "pixel") expect(input.prompt).toContain("Render in pixel art");
+  else {
+    expect(input.prompt).not.toMatch(/pixel/i);
+    expect(input.prompt).toContain("Follow the art style requested");
+  }
+});
+
+it("requires one source image for quick reskin and sends it with the appearance prompt", async () => {
+  const boardId = (await store.workspace(project.id)).boards[0]!.id;
+  const current = await store.board(project.id, boardId);
+  const node = { id: "reskin", type: "image", position: { x: 0, y: 0 }, data: { prompt: "Red armor", presetId: "quick-reskin", resolution: "1K", aspectRatio: "1:1", images: [] as Array<{ type: "library"; assetId: string }> } };
+  const board = { ...current.board, nodes: [node], editorLayout: { ...current.board.editorLayout, nodes: { reskin: node.position } } };
+  const saved = await app.inject({ method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`, payload: { board, revision: current.revision } });
+  expect(saved.statusCode, saved.body).toBe(200);
+  await expect(store.generateNode(project.id, boardId, "reskin")).rejects.toThrow("Quick reskin requires one source image");
+
+  await ensureCanvasAssets(project, projects, library, [assetId]);
+  const next = await store.board(project.id, boardId);
+  node.data.images = [{ type: "library", assetId }];
+  const referenced = await app.inject({ method: "PUT", url: `/projects/${project.id}/canvas/boards/${boardId}`, payload: { board, revision: next.revision } });
+  expect(referenced.statusCode, referenced.body).toBe(200);
+  const start = vi.spyOn(store, "start").mockResolvedValue({ id: "reskin-job", toolId: "generate-image", createdAt: new Date().toISOString(), status: "running", title: "Red armor" });
+  await store.generateNode(project.id, boardId, "reskin");
+  const input = start.mock.calls[0]![4];
+  if (!("prompt" in input) || !("images" in input)) throw new Error("Expected image generation input");
+  expect(input.prompt).toContain("same subject, silhouette, pose");
+  expect(input.prompt).toContain("Requested appearance changes: Red armor");
+  expect(input.images).toHaveLength(1);
 });
 
 it.each([
@@ -104,8 +156,8 @@ it.each([
 );
 
 it.each([
-  ["edit-image", { width: 4 }, 4, 2],
-  ["transform-image", { rotate: 90 }, 4, 8],
+  ["resize-image", { width: 4 }, 4, 2],
+  ["crop-image", { left: 0, top: 0, width: 4, height: 3 }, 4, 3],
 ] as const)(
   "processes %s before the input node has been saved and registers a usable output",
   async (operation, options, width, height) => {
@@ -126,6 +178,21 @@ it.each([
     expect(metadata).toMatchObject({ width, height });
   },
 );
+
+it("returns a visible outer border for an opaque source", async () => {
+  const response = await app.inject({
+    method: "POST",
+    url: `/projects/${project.id}/canvas/media`,
+    payload: { operation: "outline-image", assetIds: [assetId], options: { thickness: 2, color: "#00ff00" } },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const manifest = await readCanvasAssets(project.workspacePath);
+  const resultPath = path.join(project.workspacePath, manifest.assets[response.json().assetId]!.path);
+  const { data, info } = await sharp(resultPath).raw().toBuffer({ resolveWithObject: true });
+  expect(info).toMatchObject({ width: 12, height: 8 });
+  expect([...data.subarray((2 * info.width) * 4, (2 * info.width) * 4 + 4)]).toEqual([0, 255, 0, 255]);
+  expect([...data.subarray((2 * info.width + 2) * 4, (2 * info.width + 2) * 4 + 4)]).toEqual([255, 0, 0, 255]);
+});
 
 it("returns every split frame as a registered canvas asset in frame order", async () => {
   const response = await app.inject({
@@ -155,6 +222,85 @@ it("returns every split frame as a registered canvas asset in frame order", asyn
   }
 });
 
+it("creates only the selected cells as canvas nodes", async () => {
+  const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: {
+    operation: "split-image-grid", assetIds: [assetId], options: { columns: 2, rows: 2, selectedFrames: [1, 3] },
+  } });
+  expect(response.statusCode, response.body).toBe(200);
+  expect(response.json().assets.map((asset: { name: string }) => asset.name)).toEqual(["frame-0001.png", "frame-0003.png"]);
+  const invalid = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: {
+    operation: "split-image-grid", assetIds: [assetId], options: { columns: 2, rows: 2, selectedFrames: [] },
+  } });
+  expect(invalid.statusCode).toBe(400);
+});
+
+it("composes selected image assets into one layered PNG", async () => {
+  const blue = await sharp({ create: { width: 2, height: 2, channels: 4, background: "blue" } }).png().toBuffer();
+  const blueId = (await library.add("blue.png", blue)).id;
+  const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: {
+    operation: "compose-image-layers", assetIds: [assetId, blueId], options: { width: 8, height: 4, layers: [
+      { x: 0, y: 0, scale: 1, opacity: 1, visible: true },
+      { x: 1, y: 1, scale: 1, opacity: 1, visible: true },
+    ] },
+  } });
+  expect(response.statusCode, response.body).toBe(200);
+  const result = response.json();
+  expect(result).toMatchObject({ kind: "asset", mediaType: "image" });
+  const manifest = await readCanvasAssets(project.workspacePath);
+  const { data, info } = await sharp(path.join(project.workspacePath, manifest.assets[result.assetId]!.path)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  expect(info).toMatchObject({ width: 8, height: 4 });
+  expect([...data.subarray((1 * 8 + 1) * 4, (1 * 8 + 1) * 4 + 4)]).toEqual([0, 0, 255, 255]);
+});
+
+it("registers sorted frames in the requested source order", async () => {
+  const blue = await sharp({ create: { width: 3, height: 2, channels: 4, background: "blue" } }).png().toBuffer();
+  const secondId = (await library.add("second.png", blue)).id;
+  const response = await app.inject({
+    method: "POST",
+    url: `/projects/${project.id}/canvas/media`,
+    payload: { operation: "sort-frames", assetIds: [secondId, assetId] },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const result = response.json();
+  expect(result.kind).toBe("assets");
+  expect(result.assets.map((asset: { name: string }) => asset.name)).toEqual(["frame-0000.png", "frame-0001.png"]);
+  const manifest = await readCanvasAssets(project.workspacePath);
+  const firstPath = path.join(project.workspacePath, manifest.assets[result.assets[0].assetId]!.path);
+  const secondPath = path.join(project.workspacePath, manifest.assets[result.assets[1].assetId]!.path);
+  expect(await sharp(firstPath).metadata()).toMatchObject({ width: 3, height: 2 });
+  expect(await sharp(secondPath).metadata()).toMatchObject({ width: 8, height: 4 });
+});
+
+it.each([
+  ["compose-video", "video"],
+  ["compose-gif", "image"],
+] as const)("encodes %s through the canvas route", async (operation, mediaType) => {
+  const second = await sharp({ create: { width: 6, height: 6, channels: 4, background: "blue" } }).png().toBuffer();
+  const secondId = (await library.add("second.png", second)).id;
+  const response = await app.inject({
+    method: "POST",
+    url: `/projects/${project.id}/canvas/media`,
+    payload: { operation, assetIds: [assetId, secondId], options: { fps: 8 } },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const result = response.json();
+  expect(result).toMatchObject({ kind: "asset", mediaType });
+  const manifest = await readCanvasAssets(project.workspacePath);
+  const saved = path.join(project.workspacePath, manifest.assets[result.assetId]!.path);
+  if (operation === "compose-gif") expect((await sharp(saved, { animated: true }).metadata()).pages).toBe(2);
+  else expect((await readFile(saved)).toString("ascii", 4, 8)).toBe("ftyp");
+});
+
+it.each(["resize-image", "crop-image"])("rejects %s without dimensions", async (operation) => {
+  const response = await app.inject({
+    method: "POST",
+    url: `/projects/${project.id}/canvas/media`,
+    payload: { operation, assetIds: [assetId] },
+  });
+  expect(response.statusCode).toBe(400);
+  expect(response.json().error).toContain("required");
+});
+
 it("reports an incompatible source rather than generating an empty result", async () => {
   const response = await app.inject({
     method: "POST",
@@ -163,4 +309,32 @@ it("reports an incompatible source rather than generating an empty result", asyn
   });
   expect(response.statusCode).toBe(400);
   expect(response.json().error).toContain("requires a video");
+});
+
+it("rejects GIF extraction from a regular image", async () => {
+  const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "extract-gif-frames", assetIds: [assetId] } });
+  expect(response.statusCode).toBe(400);
+  expect(response.json().error).toBe("GIF extraction requires a GIF asset");
+});
+
+it("extracts a GIF asset into image nodes", async () => {
+  const gif = await sharp({ create: { width: 8, height: 4, channels: 4, background: "blue" } }).gif().toBuffer();
+  const gifId = (await library.add("animation.gif", gif)).id;
+  const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "extract-gif-frames", assetIds: [gifId] } });
+  expect(response.statusCode, response.body).toBe(200);
+  expect(response.json()).toMatchObject({ kind: "assets", assets: [{ mediaType: "image" }] });
+});
+
+it("saves AI cutout output as a new transparent asset", async () => {
+  const bytes = await sharp({ create: { width: 8, height: 4, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0.5 } } }).png().toBuffer();
+  aiCutout.mockResolvedValueOnce({ name: "ai-cutout.png", bytes, mediaType: "image/png" });
+  const response = await app.inject({ method: "POST", url: `/projects/${project.id}/canvas/media`, payload: { operation: "ai-cutout", assetIds: [assetId] } });
+  expect(response.statusCode, response.body).toBe(200);
+  const result = response.json();
+  expect(result).toMatchObject({ kind: "asset", name: "ai-cutout.png", mediaType: "image" });
+  expect(result.assetId).not.toBe(assetId);
+  const manifest = await readCanvasAssets(project.workspacePath);
+  expect(aiCutout).toHaveBeenCalledWith(await realpath(path.join(project.workspacePath, manifest.assets[assetId]!.path)));
+  const metadata = await sharp(path.join(project.workspacePath, manifest.assets[result.assetId]!.path)).metadata();
+  expect(metadata).toMatchObject({ width: 8, height: 4, hasAlpha: true });
 });

@@ -169,7 +169,7 @@ describe("renderer service recovery", () => {
         : url.includes("capabilities") ? { plugins: [], skills: [] } : []);
     }));
     await initializeRuntimeConnection();
-    await act(async () => root.render(<AuthProvider><Home onNavigate={() => {}} onCreate={() => {}} onOpen={() => {}} /></AuthProvider>));
+    await act(async () => root.render(<AuthProvider><Home onNavigate={() => {}} onCreate={() => {}} onOpen={() => {}} onOpenAssetCanvas={() => {}} /></AuthProvider>));
     expect(requests.filter((route) => route === "/projects")).toHaveLength(1);
   });
 

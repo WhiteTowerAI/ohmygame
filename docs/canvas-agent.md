@@ -5,6 +5,27 @@ The canvas renders those files and autosaves user edits into the same sources.
 The agent can initialize a canvas when design or asset work needs it, without
 requiring the user to open Design first.
 
+Creation templates appear beside Explore as five example cards: Pixel game assets,
+Character reference sheet, Quick reskin, Character sequences, and Character action
+set. Each opens an Asset Canvas board with a visible introduction text node, an
+editable image generator, and a separate image upload node where a reference is
+required. Opening a template does not start generation. The user describes or
+uploads input on the canvas and generates there. Image input panels remain
+visible on template boards, including when the node is not selected.
+
+Introduction nodes carry an `asset-canvas-template:<id>` instruction marker and
+show example art, output guidance, and selectable options. Adding an option
+reuses an untouched starter or creates another independent generator below the
+earlier work. Pixel game assets has ten pixel styles; character sheets and quick
+reskin are separate templates. Quick reskin and the two character sequence modes
+share one image reference per board. Character sequences produce a static 4×3
+action sheet or 3×3 scene grid. Action set has six prepared prompts, each producing
+one static action sheet from the same reference. Model, resolution, aspect ratio,
+and prompt controls stay in the shared image generator. The example art illustrates
+formats rather than guaranteed model output. Existing boards retain their earlier
+`asset-canvas-template:free-image:<style>` markers and can still be read without
+rewriting saved nodes.
+
 ```text
 canvas/
   AGENTS.md
@@ -152,12 +173,18 @@ current projects alone. The application only reads the current format.
 
 Both editors share nodes, documents, metadata, generation, history, clipboard,
 file uploads and external file synchronization. Asset Canvas starts with one
-board and supports additional boards for separate asset workflows. Its home
-screen offers Free Image, Free Sequence, and Character Action Set templates.
-Each creates a board with a short guide and editable generation nodes. Free
-Image adds a selectable image preset, including a four-panel character reference
-sheet. Free Sequence uses a character reference and a video generation node;
-existing video frame extraction and GIF tools can process the result. Character
+board and supports additional boards for separate asset workflows. The main
+home page, below Recent Projects, and the Asset Canvas home show examples for
+Game Assets, Character Sequences, and Character Action Set. Opening one creates a board
+without starting image generation. Each board has a guide and editable
+generation nodes. The Game Assets and Character Sequences guides have scrollable,
+illustrative option cards. Choosing a card configures the blank starter node or
+adds a new generator, preserving earlier prompts and results on the canvas.
+The type is fixed on each template generator; model and size settings remain in
+its form. Game Assets initially selects the general-style four-panel character reference sheet.
+Character Sequences shares a character reference across its continuous-frame and
+consistent-scene generators. The result is
+a static image grid that can be split into frames and composed as a GIF. Character
 Action Set uses one reference image across six separate sprite-sheet image nodes.
 These outputs are static images and require an image provider that supports
 references. A selected image can start either action workflow on a new board in

@@ -1,3 +1,4 @@
+import { createAiCutout } from "./ai-cutout.js";
 import { isCanvasTable, type CanvasTableDetail } from "../shared/canvas-table.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -8,14 +9,15 @@ import { CanvasError, CanvasStore } from "./canvas-workspace.js";
 import type { ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
-import { brushRetouchImage, composeGif, composeVideo, cropImage, cutoutImage, editImage, extractGifFrames, extractVideoFrames, extractVideoStrip, outlineImage, removeBlueScreen, removeGreenScreen, removeWhiteBackground, resizeImage, sortFrames, splitImageGrid, stitchImages, transformImage } from "./media-tools.js";
-import type { MediaToolOperation } from "../shared/media-tools.js";
+import { brushRetouchImage, composeGif, composeImageLayers, composeVideo, cropImage, cutoutImage, extractGifFrames, extractVideoFrames, extractVideoStrip, outlineImage, removeBlueScreen, removeGreenScreen, removeWhiteBackground, resizeImage, sortFrames, splitImageGrid, stitchImages, type ImageLayer } from "./media-tools.js";
+import type { CanvasMediaOperation } from "../shared/media-tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
 
 export function registerCanvasRoutes(app: FastifyInstance, options: {
-  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner;
+  projects: ProjectManager; library: AssetLibrary; tools: ToolRunner; mediaModelDirectory: string;
 }): CanvasStore {
+  const aiCutout = createAiCutout(options.mediaModelDirectory);
   const store = new CanvasStore(options.projects, options.library, options.tools);
   const failure = (cause: unknown, reply: FastifyReply) => reply.code(cause instanceof CanvasError || cause instanceof ToolRunError ? cause.statusCode : 500).send({ error: cause instanceof Error ? cause.message : String(cause) });
   const base = "/projects/:projectId/canvas";
@@ -93,7 +95,7 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   app.post<{ Params: { projectId: string }; Body: CanvasMediaRequest }>(`${base}/media`, {
     bodyLimit: 64 * 1024,
   }, async (request, reply) => {
-    try { return reply.code(200).send(await runCanvasMedia(options, request.params.projectId, request.body)); } catch (cause) { return failure(cause, reply); }
+    try { return reply.code(200).send(await runCanvasMedia({ ...options, aiCutout }, request.params.projectId, request.body)); } catch (cause) { return failure(cause, reply); }
   });
   app.get<{ Params: { projectId: string } }>(`${base}/jobs`, async (request, reply) => {
     try { return await store.jobs(request.params.projectId); } catch (cause) { return failure(cause, reply); }
@@ -104,25 +106,16 @@ export function registerCanvasRoutes(app: FastifyInstance, options: {
   return store;
 }
 
-type CanvasMediaOperation = MediaToolOperation | "edit-image" | "split-image-grid" | "transform-image" | "extract-video-frames" | "video-frame-strip" | "compose-video";
 interface CanvasMediaRequest {
   operation: CanvasMediaOperation;
   assetIds: string[];
   options?: {
     width?: number;
     height?: number;
-    fit?: "cover" | "contain" | "fill" | "inside" | "outside";
-    brightness?: number;
-    saturation?: number;
-    grayscale?: boolean;
-    blur?: number;
-    sharpen?: number;
-    pixelate?: number;
     columns?: number;
     rows?: number;
-    rotate?: 0 | 90 | 180 | 270;
-    flip?: boolean;
-    flop?: boolean;
+    selectedFrames?: number[];
+    layers?: ImageLayer[];
     fps?: number;
     startTime?: number;
     duration?: number;
@@ -133,6 +126,8 @@ interface CanvasMediaRequest {
     top?: number;
     points?: Array<{ x: number; y: number }>;
     strength?: number;
+    strokes?: Array<Array<{ x: number; y: number }>>;
+    radius?: number;
     direction?: "horizontal" | "vertical";
     format?: "png" | "jpg" | "jpeg" | "webp" | "mp4" | "gif";
   };
@@ -144,7 +139,7 @@ type CanvasMediaResult =
   | { kind: "download"; path: string; name: string; mediaType: string; frameCount?: number };
 
 async function runCanvasMedia(
-  options: { projects: ProjectManager; library: AssetLibrary },
+  options: { projects: ProjectManager; library: AssetLibrary; aiCutout: ReturnType<typeof createAiCutout> },
   projectId: string,
   request: CanvasMediaRequest,
 ): Promise<CanvasMediaResult> {
@@ -172,21 +167,28 @@ async function runCanvasMedia(
   const first = sources[0]!;
   let output: { name: string; bytes: Buffer; mediaType: string } | undefined;
   let outputs: Awaited<ReturnType<typeof splitImageGrid>> | undefined;
-  if (request.operation === "edit-image") {
+  if (request.operation === "ai-cutout") {
     requireMedia(first.contentType, "image");
-    output = await editImage({ inputPath: first.absolutePath, ...input, format: input.format === "jpg" ? "jpeg" : input.format as "png" | "jpeg" | "webp" | undefined });
-  } else if (request.operation === "transform-image") {
-    requireMedia(first.contentType, "image");
-    output = await transformImage({ inputPath: first.absolutePath, rotate: input.rotate, flip: input.flip, flop: input.flop, format: input.format === "jpg" ? "jpeg" : input.format as "png" | "jpeg" | "webp" | undefined });
+    output = await options.aiCutout(first.absolutePath);
   } else if (request.operation === "split-image-grid") {
     requireMedia(first.contentType, "image");
-    outputs = await splitImageGrid({ inputPath: first.absolutePath, columns: input.columns ?? 2, rows: input.rows ?? 2, format: input.format === "jpeg" ? "jpeg" : input.format === "webp" ? "webp" : "png" });
+    const columns = input.columns ?? 2;
+    const rows = input.rows ?? 2;
+    const cellCount = columns * rows;
+    if (!validInteger(columns, 1, 100) || !validInteger(rows, 1, 100) || cellCount > 1_000) throw new CanvasError("Invalid grid size", 400);
+    if (input.selectedFrames !== undefined && (!Array.isArray(input.selectedFrames) || !input.selectedFrames.length || input.selectedFrames.some((index, position) => !validInteger(index, 0, cellCount - 1) || (position > 0 && index <= input.selectedFrames![position - 1]!)))) throw new CanvasError("Invalid selected frames", 400);
+    outputs = await splitImageGrid({ inputPath: first.absolutePath, columns: input.columns ?? 2, rows: input.rows ?? 2, selectedFrames: input.selectedFrames, format: input.format === "jpeg" ? "jpeg" : input.format === "webp" ? "webp" : "png" });
+  } else if (request.operation === "compose-image-layers") {
+    if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Layer composition requires image assets", 400);
+    if (!Array.isArray(input.layers) || input.layers.length !== sources.length || input.layers.length > 100 || input.layers.some((layer) => !layer || !validInteger(layer.x, -16_384, 16_384) || !validInteger(layer.y, -16_384, 16_384) || !validRange(layer.scale, 0.05, 8) || !validRange(layer.opacity, 0, 1) || typeof layer.visible !== "boolean") || !validInteger(input.width, 1, 16_384) || !validInteger(input.height, 1, 16_384) || input.width * input.height > 100_000_000) throw new CanvasError("Invalid layer settings or canvas dimensions", 400);
+    output = await composeImageLayers({ inputPaths: sources.map((source) => source.absolutePath), layers: input.layers, width: input.width, height: input.height });
   } else if (request.operation === "extract-video-frames") {
     requireMedia(first.contentType, "video");
     outputs = await extractVideoFrames({ inputPath: first.absolutePath, fps: input.fps, startTime: input.startTime, duration: input.duration, format: input.format === "jpg" ? "jpg" : "png" });
   } else if (request.operation === "video-frame-strip") {
     requireMedia(first.contentType, "video");
-    outputs = await extractVideoStrip({ inputPath: first.absolutePath, fps: input.fps, startTime: input.startTime, duration: input.duration, format: input.format === "jpg" ? "jpg" : "png" });
+    if (input.selectedFrames !== undefined && (!Array.isArray(input.selectedFrames) || !input.selectedFrames.length || input.selectedFrames.some((index, position) => !validInteger(index, 0, 999) || (position > 0 && index <= input.selectedFrames![position - 1]!)))) throw new CanvasError("Invalid selected video frames", 400);
+    outputs = await extractVideoStrip({ inputPath: first.absolutePath, fps: input.fps, startTime: input.startTime, duration: input.duration, selectedFrames: input.selectedFrames, format: input.format === "jpg" ? "jpg" : "png" });
   } else if (request.operation === "compose-video") {
     if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Video composition requires image frame assets", 400);
     output = await composeVideo({ framePaths: sources.map((source) => source.absolutePath), fps: input.fps, format: input.format === "gif" ? "gif" : "mp4" });
@@ -196,12 +198,21 @@ async function runCanvasMedia(
     if (request.operation === "remove-green-screen") output = await removeGreenScreen({ ...imageInput, tolerance: input.tolerance });
     else if (request.operation === "remove-blue-screen") output = await removeBlueScreen({ ...imageInput, tolerance: input.tolerance });
     else if (request.operation === "remove-white-background") output = await removeWhiteBackground({ ...imageInput, tolerance: input.tolerance });
-    else if (request.operation === "resize-image") output = await resizeImage({ ...imageInput, width: input.width ?? 1, height: input.height });
+    else if (request.operation === "resize-image") {
+      if (input.width === undefined) throw new CanvasError("Resize width is required", 400);
+      output = await resizeImage({ ...imageInput, width: input.width, height: input.height });
+    }
     else if (request.operation === "outline-image") output = await outlineImage({ ...imageInput, thickness: input.thickness ?? 1, color: input.color });
-    else if (request.operation === "crop-image") output = await cropImage({ ...imageInput, left: input.left ?? 0, top: input.top ?? 0, width: input.width ?? 1, height: input.height ?? 1 });
+    else if (request.operation === "crop-image") {
+      if (input.width === undefined || input.height === undefined) throw new CanvasError("Crop width and height are required", 400);
+      output = await cropImage({ ...imageInput, left: input.left ?? 0, top: input.top ?? 0, width: input.width, height: input.height });
+    }
     else if (request.operation === "cutout-image") output = await cutoutImage({ ...imageInput, points: input.points ?? [] });
-    else if (request.operation === "brush-retouch-image") output = await brushRetouchImage({ ...imageInput, left: input.left ?? 0, top: input.top ?? 0, width: input.width ?? 1, height: input.height ?? 1, strength: input.strength });
-    else outputs = await extractGifFrames({ inputPath: first.absolutePath });
+    else if (request.operation === "brush-retouch-image") output = await brushRetouchImage({ ...imageInput, strokes: input.strokes ?? [], radius: input.radius ?? 48, strength: input.strength });
+    else {
+      if (first.contentType !== "image/gif") throw new CanvasError("GIF extraction requires a GIF asset", 400);
+      outputs = await extractGifFrames({ inputPath: first.absolutePath });
+    }
   } else if (request.operation === "compose-gif") {
     if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("GIF composition requires image frame assets", 400);
     output = await composeGif(sources.map((source) => source.absolutePath), input.fps);
@@ -239,4 +250,12 @@ async function runCanvasMedia(
 
 function requireMedia(contentType: string, expected: "image" | "video"): void {
   if (!contentType.startsWith(`${expected}/`)) throw new CanvasError(`This operation requires a ${expected}`, 400);
+}
+
+function validInteger(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
+}
+
+function validRange(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= minimum && value <= maximum;
 }

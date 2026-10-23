@@ -77,7 +77,9 @@ automatic policy, idle collection, logs, and browser storage.
 The home route reads the daemon's `/settings/onboarding` preference before
 opening the studio. The daemon stores version 1 state in `onboarding.json`
 under its data directory: `status` is `pending`, `completed`, or `skipped`,
-and `step` is `welcome` or `connect`. Atomic, serialized writes retain the
+and `step` is `welcome` or `connect`. When reading state from a host version
+with a separate `media` step, it resumes at `connect` and preserves the saved
+status without rewriting the file. Atomic, serialized writes retain the
 current step across restarts. Completing setup requires a language model in
 the same enabled, visible catalog used by the home composer. This checks
 configuration and catalog availability, without sending an inference request.

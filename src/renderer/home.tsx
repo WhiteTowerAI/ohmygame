@@ -5,6 +5,7 @@ import type { PluginMention, ProjectState, ProjectType, PromptAttachment, Prompt
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { ExampleShelf, useExamples } from "./examples.js";
 import { AppSidebar } from "./app-sidebar.js";
+import { AssetCanvasTemplateLauncher } from "./asset-canvas-template-launcher.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -22,9 +23,10 @@ interface HomeProps {
   onNavigate: (page: AppNavigationTarget) => void;
   onCreate: (project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]) => void;
   onOpen: (projectId: string, view?: "design") => void;
+  onOpenAssetCanvas: (projectId: string, nodeId?: string) => void;
 }
 
-export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
+export function Home({ onNavigate, onCreate, onOpen, onOpenAssetCanvas }: HomeProps) {
   const serviceGeneration = useReadyRuntimeGeneration();
   const [projects, setProjects] = useState<ProjectState[]>([]);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -138,6 +140,7 @@ export function Home({ onNavigate, onCreate, onOpen }: HomeProps) {
           ) : null}
           {projectActionError ? <p className="home-notice" role="alert">{projectActionError}</p> : null}
         </section>
+        <AssetCanvasTemplateLauncher onOpenProject={onOpenAssetCanvas} />
         {visibleExamples.length > 0 ? <section className="home-discover home-explore studio-examples" aria-labelledby="home-examples-heading">
           <div className="studio-section-heading"><h2 id="home-examples-heading">{t("home.explore")}</h2></div>
           <ExampleShelf examples={visibleExamples} covers={exampleCovers} showType onOpenProject={onOpen} />

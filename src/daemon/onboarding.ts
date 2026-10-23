@@ -24,13 +24,16 @@ export class OnboardingStore {
   async load(): Promise<void> {
     try {
       const value = JSON.parse(await readFile(this.#filePath, "utf8"));
+      // Versions with a separate media-provider step share this data directory.
+      // The current connect screen covers provider setup, so resume there.
+      const step = value?.step === "media" ? "connect" : value?.step;
       if (
         value?.version !== 1 ||
         !["pending", "completed", "skipped"].includes(value.status) ||
-        !["welcome", "connect"].includes(value.step)
+        !["welcome", "connect"].includes(step)
       )
         throw new Error("Invalid onboarding state");
-      this.#state = { version: 1, status: value.status, step: value.step };
+      this.#state = { version: 1, status: value.status, step };
       this.#initialized = true;
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;

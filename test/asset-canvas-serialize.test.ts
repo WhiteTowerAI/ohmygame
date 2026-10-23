@@ -8,6 +8,14 @@ import { buildModel3DToolRequest } from "../src/shared/generation-config.js";
 import { MODEL3D_CONNECTION_ID } from "../src/shared/model3d-operations.js";
 
 describe("Asset Canvas node serialization", () => {
+  it("omits inferred material styles for older daemons but preserves nondefault styles", () => {
+    for (const [presetId, materialStyle] of [["building", "pixel"], ["character-sheet", "general"], ["building", "general"]] as const) {
+      const node = toAssetCanvasNode({ id: materialStyle, type: "image", position: { x: 0, y: 0 }, data: { presetId, materialStyle, prompt: "Castle", resolution: "1K", aspectRatio: "1:1", images: [] } });
+      if (node.type !== "image") throw new Error("Expected an image node");
+      expect(node.data.presetId).toBe(presetId);
+      expect(node.data.materialStyle).toBe(presetId === "building" && materialStyle === "general" ? "general" : undefined);
+    }
+  });
   it("keeps resize history and serialization while rejecting invalid node dimensions", () => {
     const canvas = createAssetCanvasDocument();
     const node = toAssetCanvasNode({ id: "notes", type: "text", position: { x: 0, y: 0 }, width: 600, height: 400, data: { text: "Notes" } });

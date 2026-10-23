@@ -545,7 +545,10 @@ export class CanvasStore {
     const text = linked?.type === "text" ? linked.data.text : linked?.type === "document" ? (await this.read(id, linked.data.documentId))?.document.markdown : undefined;
     const prompt = combineAssetCanvasPrompt(text, node.data.prompt);
     if (!prompt) throw new CanvasError("Add a prompt before generating");
-    if (node.type === "image") return this.start(id, boardId, nodeId, "generate-image", { prompt: canvasImagePresetPrompt(node.data.presetId, prompt), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), images: await Promise.all(node.data.images.map(image)) }, revision);
+    if (node.type === "image") {
+      if (node.data.presetId === "quick-reskin" && node.data.images.length !== 1) throw new CanvasError("Quick reskin requires one source image");
+      return this.start(id, boardId, nodeId, "generate-image", { prompt: canvasImagePresetPrompt(node.data.presetId, prompt, node.data.materialStyle), resolution: node.data.resolution, aspectRatio: node.data.aspectRatio, ...(node.data.model ? { imageModel: node.data.model } : {}), images: await Promise.all(node.data.images.map(image)) }, revision);
+    }
     const referenceIds = node.data.references.map(assetId);
     const catalog = await canvasAssetCatalog(project.workspacePath, manifest, referenceIds);
     const references = referenceIds.map((id) => {

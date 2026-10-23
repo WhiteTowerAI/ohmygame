@@ -9,7 +9,7 @@ import {
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "./audio.js";
 import { EDITOR_LAYOUT_SCHEMA } from "./editor-layout-schema.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT, MODEL_3D_MAX_REFERENCE_IMAGES } from "./generation-config.js";
-import { CANVAS_IMAGE_PRESETS } from "./canvas-image-presets.js";
+import { CANVAS_IMAGE_PRESETS, CANVAS_MATERIAL_STYLES } from "./canvas-image-presets.js";
 
 export const MAX_ASSET_CANVAS_NODES = 2_000;
 export const MAX_TEXT_NODE_REFERENCES = 14;
@@ -74,6 +74,7 @@ const nodes = [
     properties: {
       prompt: { type: "string" },
       presetId: { enum: CANVAS_IMAGE_PRESETS },
+      materialStyle: { enum: CANVAS_MATERIAL_STYLES },
       sourceInput: { type: "boolean" },
       generationMode: { enum: ["character-asset", "continuous-actions", "all-actions"] },
       promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },

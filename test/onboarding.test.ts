@@ -63,6 +63,21 @@ async function fixture() {
 }
 
 describe("onboarding persistence", () => {
+  it.each(["pending", "completed", "skipped"])("reads the media step from another host version and preserves %s status", async (status) => {
+    const { directory } = await fixture();
+    await writeFile(path.join(directory, "onboarding.json"), JSON.stringify({ version: 1, status, step: "media" }));
+    const store = new OnboardingStore(directory);
+    await store.load();
+    expect(store.initialized).toBe(true);
+    expect(store.get()).toEqual({ version: 1, status, step: "connect" });
+  });
+
+  it("still rejects unknown onboarding steps", async () => {
+    const { directory } = await fixture();
+    await writeFile(path.join(directory, "onboarding.json"), JSON.stringify({ version: 1, status: "completed", step: "unknown" }));
+    await expect(new OnboardingStore(directory).load()).rejects.toThrow("Invalid onboarding state");
+  });
+
   it("resumes the current step and serializes writes without migration overwriting user choices", async () => {
     const { directory } = await fixture();
     const store = new OnboardingStore(directory);

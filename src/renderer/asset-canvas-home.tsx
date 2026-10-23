@@ -1,12 +1,12 @@
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Box, Film, Image, Layers3, LoaderCircle, Plus, RefreshCw, type IconComponent } from "./icons.js";
+import { Box, Film, Image, LoaderCircle, Plus, RefreshCw, type IconComponent } from "./icons.js";
 import { useEffect, useRef, useState } from "react";
 import type { ProjectState } from "../shared/contracts.js";
 import type { AssetCanvasStarter } from "../shared/asset-canvas.js";
 import { deleteProject, duplicateProject, listProjects, renameProject, waitForRuntime } from "./api.js";
 import { AppSidebar } from "./app-sidebar.js";
 import { ASSET_CANVAS_QUICK_STARTS, createAssetCanvasQuickStart, loadQuickStartModels, QuickStartModelUnavailableError, type AssetCanvasQuickStart } from "./asset-canvas-quick-start.js";
-import { ASSET_CANVAS_TEMPLATES, createAssetCanvasTemplateProject, type AssetCanvasTemplate } from "./asset-canvas-templates.js";
+import { AssetCanvasTemplateLauncher } from "./asset-canvas-template-launcher.js";
 import { ProjectCard } from "./project-card.js";
 import { ProjectCreateDialog } from "./project-create-dialog.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
@@ -21,12 +21,6 @@ const QUICK_START_ICONS: Record<AssetCanvasStarter, IconComponent> = {
   video: Film,
   "model-3d": Box,
 };
-const TEMPLATE_ICONS: Record<AssetCanvasTemplate, IconComponent> = {
-  "free-image": Image,
-  "free-sequence": Film,
-  "action-set": Layers3,
-};
-
 export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   onNavigate: (page: AppNavigationTarget) => void;
   onOpenProject: (projectId: string, initialNodeId?: string) => void;
@@ -42,7 +36,6 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
   const renameTrigger = useRef<HTMLElement | null>(null);
   const [creatingStarter, setCreatingStarter] = useState<string>();
   const [quickStartError, setQuickStartError] = useState<{ message: string; manageProviders: boolean }>();
-  const [templateError, setTemplateError] = useState<string>();
 
   async function load() {
     setPhase("loading");
@@ -88,25 +81,12 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
     }
   }
 
-  async function startTemplate(template: AssetCanvasTemplate): Promise<void> {
-    if (creatingStarter) return;
-    setCreatingStarter(template);
-    setTemplateError(undefined);
-    try {
-      const { projectId, nodeId } = await createAssetCanvasTemplateProject(template);
-      onOpenProject(projectId, nodeId);
-    } catch (cause) {
-      setTemplateError(errorMessage(cause));
-    } finally {
-      setCreatingStarter(undefined);
-    }
-  }
-
   return <main className="home-shell">
     <AppSidebar active="asset-canvas" onNavigate={onNavigate} />
     <section className="home-content asset-canvas-home">
       <WindowDragRegion />
       <div className="asset-canvas-home-inner">
+        <AssetCanvasTemplateLauncher onOpenProject={onOpenProject} />
         <button className="asset-canvas-primary-create" type="button" disabled={creatingStarter !== undefined} onClick={() => setCreateOpen(true)}>
           <span className="asset-canvas-primary-icon"><Plus size={24} /></span>
           <span><strong>{t("assetCanvasHome.new")}</strong><small>{t("assetCanvasHome.newHint")}</small></span>
@@ -157,19 +137,6 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
             />)}
           </div> : null}
           {actionError ? <p className="home-notice" role="alert">{actionError}</p> : null}
-        </section>
-        <section className="asset-canvas-templates" aria-labelledby="asset-canvas-templates-heading">
-          <h2 id="asset-canvas-templates-heading">{t("assetCanvasTemplates.heading")}</h2>
-          <div className="asset-canvas-template-grid">
-            {ASSET_CANVAS_TEMPLATES.map((template) => {
-              const Icon = TEMPLATE_ICONS[template];
-              return <button key={template} type="button" disabled={creatingStarter !== undefined} aria-busy={creatingStarter === template} onClick={() => void startTemplate(template)}>
-                <span className="asset-canvas-template-icon">{creatingStarter === template ? <LoaderCircle className="spin" size={20} /> : <Icon size={20} />}</span>
-                <span><strong>{t(`assetCanvasTemplates.${template}.title`)}</strong><small>{t(`assetCanvasTemplates.${template}.summary`)}</small></span>
-              </button>;
-            })}
-          </div>
-          {templateError ? <p className="home-notice" role="alert">{templateError}</p> : null}
         </section>
       </div>
     </section>

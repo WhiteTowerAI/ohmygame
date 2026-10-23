@@ -8,6 +8,32 @@ const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
 describe("local plugins", () => {
+  it("reads an installed SVG icon from another host version using the default icon", async () => {
+    const root = await temporaryDirectory();
+    const dataDirectory = path.join(root, "data");
+    const source = path.join(root, "compatible-plugin");
+    await writePlugin(source, { name: "compatible-plugin", version: "1.0.0", description: "Compatible plugin", skills: "./skills/", interface: { displayName: "Compatible plugin" } });
+    const store = new LocalPluginStore(dataDirectory);
+    const installed = await store.install(source);
+    const indexPath = path.join(dataDirectory, "plugins", "installed-plugins.json");
+    const records = JSON.parse(await readFile(indexPath, "utf8"));
+    records[0].manifest.interface.icon = { type: "asset", path: "./assets/icon.svg" };
+    const original = JSON.stringify(records);
+    await writeFile(indexPath, original);
+    const restored = new LocalPluginStore(dataDirectory);
+    expect(await restored.list()).toMatchObject({ plugins: [{ id: installed.id, displayName: "Compatible plugin" }], errors: [] });
+    await expect(restored.readIcon(installed.id)).resolves.toBeUndefined();
+    expect(await readFile(indexPath, "utf8")).toBe(original);
+    records[0].manifest.interface.icon.path = "./../outside.svg";
+    await writeFile(indexPath, JSON.stringify(records));
+    await expect(restored.list()).rejects.toThrow("Installed plugin index is invalid");
+    records[0].manifest.interface.icon.path = "./assets/icon.svg";
+    records[0].manifest.skills = "./missing/";
+    records[0].provenance = { type: "unknown" };
+    await writeFile(indexPath, JSON.stringify(records));
+    await expect(restored.list()).rejects.toThrow("Installed plugin index is invalid");
+  });
+
   it("installs a validated copy, updates it from the same source, and removes it", async () => {
     const root = await temporaryDirectory();
     const dataDirectory = path.join(root, "data");
