@@ -602,6 +602,9 @@ const zhCN: typeof en = {
       "要从 OhMyGame 移除“{{name}}”吗？“{{path}}”中的文件会保留在磁盘上。",
     confirmDelete: "要删除“{{name}}”吗？此操作无法撤销。",
     import: "导入项目",
+    importHint: "点击选择 ZIP 项目文件，或将其拖入此页面",
+    importDropHint: "将项目 ZIP 拖到此处导入",
+    importChooseZip: "请选择一个 ZIP 项目归档",
     importTooLarge: "请选择不超过 10 GB 的项目归档",
   },
   home: {
