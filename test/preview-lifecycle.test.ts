@@ -351,9 +351,7 @@ describe("preview policy and lifecycle", () => {
       path.join(directory, "index.html"),
       "<head></head><p>Created by agent</p>",
     );
-    await vi.waitFor(() => expect(project.preview.status).toBe("ready"), {
-      timeout: 2_000,
-    });
+    await vi.waitFor(() => expect(project.preview.status).toBe("ready"));
     expect(await (await fetch(project.preview.url!)).text()).toContain(
       "Created by agent",
     );
@@ -414,7 +412,7 @@ describe("preview policy and lifecycle", () => {
     );
     await preview.stop(project);
     // The shell's close event can precede the OS reaping its descendants.
-    await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 2_000 });
+    await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow());
     project.previewCommand = `${executable} -e "setInterval(()=>{},1000)"`;
     const pending = preview.start(project);
     const rejection = expect(pending).rejects.toThrow("superseded");
