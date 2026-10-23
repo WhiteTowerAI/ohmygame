@@ -20,8 +20,6 @@ const root = document.getElementById("root");
 if (!root) throw new Error("Renderer root was not found");
 const route = parseAppRoute(window.location.hash);
 if (window.ohMyGameDesktop) initSentry();
-// The hidden thumbnail window is not a visit.
-if (route.page !== "thumbnail") initializeAnalytics();
 applyAppearance(readAppearance());
 await initializeRuntimeConnection();
 if (window.ohMyGameDesktop?.platform === "darwin") {
@@ -61,3 +59,5 @@ createRoot(root).render(
     <DesktopCloseGuard>{content}</DesktopCloseGuard>
   ),
 );
+// The hidden thumbnail window is not a visit. Analytics waits until the first frame is up.
+if (route.page !== "thumbnail") requestIdleCallback(initializeAnalytics, { timeout: 2_000 });
