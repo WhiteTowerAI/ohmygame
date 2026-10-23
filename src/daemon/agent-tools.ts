@@ -335,11 +335,11 @@ export function createAgentTools(
   }), defineTool({
     name: PI_TOOL_NAMES["animate-3d"],
     label: "Animate 3D Asset",
-    description: "Rig a project GLB and bake preset animation clips using Meshy or Tripo (including explicitly enabled compatible connections). Meshy needs a textured humanoid up to 300k triangles, facing +Z. Tripo checks riggability and supports humanoid v1 or creature v2.5 rigs. Actions belong to the selected provider and rig version.",
+    description: "Rig a project GLB and bake preset animation clips using Meshy or Tripo (including explicitly enabled compatible connections). Meshy needs a textured humanoid up to 300k triangles, facing +Z. Tripo checks riggability and supports humanoid v1, creature v2.5, or v3 rigs (recommended for humanoids). Actions belong to the selected provider and rig version.",
     parameters: Type.Object({
       modelPath: Type.String({ description: "Path to a GLB model in the current project workspace" }),
       model: Type.Optional(mediaModelParameter()),
-      rigModel: Type.Optional(Type.Union([Type.Literal("v1.0-20240301"), Type.Literal("v2.5-20260210")])),
+      rigModel: Type.Optional(Type.Union([Type.Literal("v1.0-20240301"), Type.Literal("v2.5-20260210"), Type.Literal("v3.0-20260909")])),
       rigType: Type.Optional(Type.Union([Type.Literal("biped"), Type.Literal("quadruped"), Type.Literal("hexapod"), Type.Literal("octopod"), Type.Literal("serpentine"), Type.Literal("aquatic")])),
       animateInPlace: Type.Optional(Type.Boolean()),
       actions: Type.Optional(Type.Array(Type.String({ minLength: 1 }), {

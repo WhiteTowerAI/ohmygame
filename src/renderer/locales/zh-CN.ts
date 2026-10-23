@@ -2416,6 +2416,7 @@ const zhCN: typeof en = {
     rigVersion: "骨骼版本",
     humanoid: "人形 v1",
     creature: "生物 v2.5",
+    rigV3: "骨骼 v3",
     rigType: "骨骼类型",
     inPlace: "原地",
     characterHeight: "角色身高",

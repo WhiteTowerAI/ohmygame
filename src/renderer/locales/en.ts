@@ -2488,6 +2488,7 @@ const en = {
     rigVersion: "Rig version",
     humanoid: "Humanoid v1",
     creature: "Creature v2.5",
+    rigV3: "Rig v3",
     rigType: "Rig type",
     inPlace: "In place",
     characterHeight: "Character height",

@@ -133,7 +133,7 @@ export interface Model3DOptions {
   pose?: "a-pose" | "t-pose";
   textureModel?: string;
   textureQuality?: "fast" | "standard" | "detailed" | "extreme";
-  rigModel?: "v1.0-20240301" | "v2.5-20260210";
+  rigModel?: "v1.0-20240301" | "v2.5-20260210" | "v3.0-20260909";
   rigType?: "biped" | "quadruped" | "hexapod" | "octopod" | "serpentine" | "aquatic";
   animateInPlace?: boolean;
 }
