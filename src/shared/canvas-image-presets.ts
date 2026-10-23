@@ -64,11 +64,17 @@ export function canvasImagePresetPrompt(
   preset: CanvasImagePreset | undefined,
   description: string,
   style?: CanvasMaterialStyle,
+  referenceCount = 1,
 ): string {
   const subject = description.trim();
   if (!preset || preset === "free") return subject;
   if (preset === "continuous-sequence") return continuousActionsPrompt(subject);
-  if (preset === "quick-reskin") return `Use the supplied reference image as the source for one reskinned game asset. Keep the same subject, silhouette, pose, proportions, camera angle, framing, composition, and visual style. Change only the requested appearance, such as costume, colors, surface materials, or small accessories. Preserve all other details and the original background or transparency. Output one finished image, not a comparison, sprite sheet, animation, or labeled diagram.\n\nRequested appearance changes: ${subject}`;
+  if (preset === "quick-reskin") {
+    const sourceInstructions = referenceCount >= 2
+      ? "Use the first reference image as the person and the second reference image as the clothing design. Transfer the clothing from the second image onto the person in the first image."
+      : "Use the supplied reference image as the source for one reskinned game asset.";
+    return `${sourceInstructions} Keep the same subject, silhouette, pose, proportions, camera angle, framing, composition, and visual style. Change only the requested appearance, such as costume, colors, surface materials, or small accessories. Preserve all other details and the original background or transparency. Output one finished image, not a comparison, sprite sheet, animation, or labeled diagram.\n\nRequested appearance changes: ${subject}`;
+  }
   const prompt = preset === "character-sheet" ? characterAssetPrompt(subject)
     : `${instructions[preset]}\n\nSubject and details: ${subject}`;
   if (preset === "consistent-sequence") return prompt;

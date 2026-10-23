@@ -74,8 +74,11 @@ const nodes = [
     properties: {
       prompt: { type: "string" },
       presetId: { enum: CANVAS_IMAGE_PRESETS },
+      promptExpanded: { type: "boolean" },
       materialStyle: { enum: CANVAS_MATERIAL_STYLES },
       sourceInput: { type: "boolean" },
+      sourceInputLabel: { type: "string", maxLength: 100 },
+      quickReskinMode: { enum: ["person-clothing"] },
       generationMode: { enum: ["character-asset", "continuous-actions", "all-actions"] },
       promptSource: { type: "object", additionalProperties: false, required: ["type", "nodeId"], properties: { type: { const: "node" }, nodeId: id } },
       model,

@@ -31,7 +31,7 @@ describe("canvas generation API", () => {
     vi.stubGlobal("fetch", fetchMock);
     await getCanvasBoard("project", "board");
     await generateCanvasText("project", "Write", { provider: "openai", id: "test" });
-    await runCanvasMedia("project", { operation: "extract-video-frames", assetIds: ["video"] });
+    await runCanvasMedia("project", { operation: "video-frame-strip", assetIds: ["video"] });
     expect(fetchMock.mock.calls[0]![1]).toHaveProperty("signal");
     expect(fetchMock.mock.calls[1]![1]).not.toHaveProperty("signal");
     expect(fetchMock.mock.calls[2]![1]).not.toHaveProperty("signal");

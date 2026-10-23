@@ -958,7 +958,7 @@ export function createApp(options: AppOptions = {}) {
     ajv: { customOptions: { coerceTypes: false } },
   });
   projectWrites.install(app);
-  const canvasStore = registerCanvasRoutes(app, { projects, library, tools, mediaModelDirectory: path.join(dataDirectory, "media-models") });
+  const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
   registerPluginCapabilityRoutes(app, { capabilities: pluginCapabilities, plugins, invalidate: invalidatePluginSessions });
   const pluginSetup = new PluginSetupManager(dataDirectory, piAgentDirectory, pluginCapabilities, plugins, localPlugins, invalidatePluginSessions, async ref => {
     const runtime = await getModelRuntime();

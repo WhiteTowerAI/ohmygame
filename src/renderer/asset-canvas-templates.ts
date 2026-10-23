@@ -3,14 +3,15 @@ import type {
   AssetCanvasNode,
   ImageModel,
 } from "../shared/contracts.js";
-import { CANVAS_IMAGE_PRESETS, type CanvasImagePreset } from "../shared/canvas-image-presets.js";
+import { CANVAS_IMAGE_PRESETS, canvasImagePresetPrompt, type CanvasImagePreset } from "../shared/canvas-image-presets.js";
 import { preferredCharacterSheetOption } from "../shared/canvas-character-tools.js";
 import {
   createAssetCanvasDocument,
   createAssetGenerationNode,
   preferredImageOption,
 } from "../shared/asset-canvas.js";
-import { createProject, deleteProject, listImageModels } from "./api.js";
+import { createProject, deleteLibraryAsset, deleteProject, listImageModels, uploadLibraryAsset } from "./api.js";
+import { TEMPLATE_SAMPLE_IMAGES, type TemplateSample } from "./asset-canvas-template-samples.js";
 import {
   changeCanvasBoard,
   createCanvasBoard,
@@ -38,7 +39,7 @@ export function templateGuideInfo(instruction?: string): { template: AssetCanvas
   return template ? { template } : undefined;
 }
 
-const SEQUENCE_PRESETS: readonly CanvasImagePreset[] = ["continuous-sequence", "consistent-sequence"];
+const SEQUENCE_PRESETS = ["continuous-sequence", "consistent-sequence"] as const;
 const PIXEL_IMAGE_PRESETS = CANVAS_IMAGE_PRESETS.filter((preset) => !["free", "continuous-sequence", "consistent-sequence", "character-sheet", "quick-reskin"].includes(preset));
 
 export function templateImagePresets(template?: AssetCanvasTemplate): readonly CanvasImagePreset[] {
@@ -57,8 +58,8 @@ export function createTemplatePresetNode(
   position: { x: number; y: number },
   sourceNodeId?: string,
 ): Extract<AssetCanvasNode, { type: "image" }> {
-  const model = template === "free-sequence" || template === "quick-reskin"
-    ? imageModels.find((candidate) => candidate.supportsReferenceImage && candidate.maxReferenceImages !== 0)
+  const model = template === "pixel-art" || template === "free-sequence" || template === "quick-reskin"
+    ? imageModels.find((candidate) => candidate.supportsReferenceImage && (candidate.maxReferenceImages ?? 16) >= (template === "quick-reskin" ? 2 : 1))
     : imageModels[0];
   const option = preset === "character-sheet"
     ? preferredCharacterSheetOption(model)
@@ -73,21 +74,16 @@ export function createTemplatePresetNode(
   return node;
 }
 
-export function nextTemplatePresetPosition(
-  template: Exclude<AssetCanvasTemplate, "action-set">,
-  nodes: readonly AssetCanvasNode[],
-): { x: number; y: number } {
-  const outputs = nodes.filter((node) => node.type === "image" && !node.data.sourceInput);
-  const firstX = template === "pixel-art" || template === "character-sheet" ? 560 : 1100;
-  if (!outputs.length) return { x: firstX, y: 80 };
-  const bottom = Math.max(...outputs.map((node) => node.position.y + (node.height ?? 560)));
-  return { x: firstX, y: Math.ceil((bottom + 64) / 20) * 20 };
-}
-
 export interface AssetCanvasTemplateInput {
   prompt?: string;
-  presetId?: CanvasImagePreset;
   sourceAssetId?: string;
+}
+
+async function uploadTemplateSample(sample: TemplateSample): Promise<string> {
+  const response = await fetch(TEMPLATE_SAMPLE_IMAGES[sample]);
+  if (!response.ok) throw new Error(`Could not load the template example: ${sample}`);
+  const file = new File([await response.blob()], `${sample}.webp`, { type: "image/webp" });
+  return (await uploadLibraryAsset(file, "image/webp", undefined, "reference")).id;
 }
 
 const ACTIONS = [
@@ -103,16 +99,16 @@ export function createAssetCanvasTemplateDocument(
   template: AssetCanvasTemplate,
   imageModels: readonly ImageModel[],
   input: AssetCanvasTemplateInput = {},
-): { document: AssetCanvasDocument; focusNodeId: string; outputNodeIds: string[] } {
+): { document: AssetCanvasDocument; focusNodeId: string; outputNodeIds: string[]; sampleImages: Map<string, TemplateSample> } {
   const document = createAssetCanvasDocument();
+  const sampleImages = new Map<string, TemplateSample>();
   document.editorLayout.viewport = { x: 24, y: 100, zoom: 0.75 };
   const guide: AssetCanvasNode = {
     id: crypto.randomUUID(),
     type: "text",
     title: t(`assetCanvasTemplates.${template}.title`),
     position: { x: 40, y: 80 },
-    width: template === "pixel-art" || template === "free-sequence" ? 480 : 400,
-    height: template === "pixel-art" ? 620 : template === "free-sequence" ? 500 : 340,
+    width: template === "action-set" ? 400 : 480,
     data: {
       text: t(`assetCanvasTemplates.${template}.guide`),
       instruction: `asset-canvas-template:${template}`,
@@ -122,7 +118,7 @@ export function createAssetCanvasTemplateDocument(
   const outputNodeIds: string[] = [];
   const prompt = input.prompt?.trim() ?? "";
   const imageModel =
-    ((template === "pixel-art" || template === "character-sheet") && !input.sourceAssetId
+    (template === "character-sheet" && !input.sourceAssetId
       ? imageModels[0]
       : imageModels.find(
           (model) =>
@@ -159,46 +155,73 @@ export function createAssetCanvasTemplateDocument(
       node.id,
       { ...node.position, ...(node.width ? { width: node.width } : {}), ...(node.height ? { height: node.height } : {}) },
     ]));
-    return { document, focusNodeId, outputNodeIds };
+    return { document, focusNodeId, outputNodeIds, sampleImages };
+  }
+
+  function referenceNode(): AssetCanvasNode {
+    const title = t(template === "quick-reskin" ? "assetCanvasTemplates.quickReskinSource" : "assetCanvasTemplates.reference");
+    if (input.sourceAssetId) return {
+      id: crypto.randomUUID(),
+      type: "asset",
+      title,
+      position: { x: 560, y: 80 },
+      data: { assetId: input.sourceAssetId, mediaType: "image" },
+    };
+    const node = imageNode(560, 80);
+    node.title = title;
+    node.data.sourceInput = true;
+    if (template === "quick-reskin") node.data.sourceInputLabel = t("assetCanvasTemplates.quickReskinPerson");
+    sampleImages.set(node.id, "character-sheet");
+    return node;
   }
 
   if (template === "pixel-art" || template === "character-sheet") {
-    const preset = template === "pixel-art" && input.presetId && PIXEL_IMAGE_PRESETS.some((item) => item === input.presetId) ? input.presetId : template === "pixel-art" ? "side-view-character" : "character-sheet";
-    const image = createTemplatePresetNode(template, preset, input.sourceAssetId ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels, { x: 560, y: 80 });
-    image.data.prompt = prompt;
-    if (input.sourceAssetId) image.data.images = [{ type: "library", assetId: input.sourceAssetId }];
-    nodes.push(image);
-    outputNodeIds.push(image.id);
-    return finish(image.id);
+    const presets = template === "pixel-art" ? PIXEL_IMAGE_PRESETS : ["character-sheet"] as const;
+    const source = template === "pixel-art" ? referenceNode() : undefined;
+    if (source) nodes.push(source);
+    for (const [index, preset] of presets.entries()) {
+      const image = createTemplatePresetNode(template, preset, imageModels, {
+        x: (source ? 1100 : 560) + (index % 2) * 520,
+        y: 80 + Math.floor(index / 2) * 640,
+      }, source?.id);
+      image.data.prompt = canvasImagePresetPrompt(preset, prompt, template === "pixel-art" ? "pixel" : undefined, source ? 1 : 0);
+      image.data.promptExpanded = true;
+      if (preset !== "free") sampleImages.set(image.id, preset);
+      nodes.push(image);
+      outputNodeIds.push(image.id);
+    }
+    return finish(outputNodeIds[0]!);
   }
 
-  const source: AssetCanvasNode = input.sourceAssetId
-    ? {
-        id: crypto.randomUUID(),
-        type: "asset",
-        title: t(template === "quick-reskin" ? "assetCanvasTemplates.quickReskinSource" : "assetCanvasTemplates.reference"),
-        position: { x: 560, y: 80 },
-        data: { assetId: input.sourceAssetId, mediaType: "image" },
-      }
-    : createSourceInput();
-  function createSourceInput(): Extract<AssetCanvasNode, { type: "image" }> {
-    const node = imageNode(560, 80);
-    node.title = t(template === "quick-reskin" ? "assetCanvasTemplates.quickReskinSource" : "assetCanvasTemplates.reference");
-    node.data.sourceInput = true;
-    return node;
-  }
+  const source = referenceNode();
   nodes.push(source);
 
   if (template === "quick-reskin") {
     const image = createTemplatePresetNode(template, "quick-reskin", imageModels, { x: 1100, y: 80 }, source.id);
-    image.data.prompt = prompt;
+    image.data.quickReskinMode = "person-clothing";
+    image.data.prompt = prompt || t("assetCanvasTemplates.quickReskinDefaultPrompt");
+    const clothingSource = imageNode(560, 700);
+    clothingSource.title = t("assetCanvasTemplates.quickReskinClothing");
+    clothingSource.data.sourceInput = true;
+    clothingSource.data.sourceInputLabel = t("assetCanvasTemplates.quickReskinClothing");
+    sampleImages.set(clothingSource.id, "clothing");
+    sampleImages.set(image.id, "quick-reskin");
+    nodes.push(clothingSource);
+    image.data.images = [
+      { type: "node", nodeId: source.id },
+      { type: "node", nodeId: clothingSource.id },
+    ];
     nodes.push(image);
     outputNodeIds.push(image.id);
   } else if (template === "free-sequence") {
-    const sequence = createTemplatePresetNode("free-sequence", input.presetId === "consistent-sequence" ? "consistent-sequence" : "continuous-sequence", imageModels, { x: 1100, y: 80 }, source.id);
-    sequence.data.prompt = prompt;
-    nodes.push(sequence);
-    outputNodeIds.push(sequence.id);
+    for (const [index, preset] of SEQUENCE_PRESETS.entries()) {
+      const sequence = createTemplatePresetNode("free-sequence", preset, imageModels, { x: 1100 + (index % 2) * 520, y: 80 + Math.floor(index / 2) * 640 }, source.id);
+      sequence.data.prompt = canvasImagePresetPrompt(preset, prompt, undefined, 1);
+      sequence.data.promptExpanded = true;
+      sampleImages.set(sequence.id, preset);
+      nodes.push(sequence);
+      outputNodeIds.push(sequence.id);
+    }
   } else {
     for (const [index, action] of ACTIONS.entries()) {
       const image = imageNode(
@@ -206,6 +229,7 @@ export function createAssetCanvasTemplateDocument(
         80 + Math.floor(index / 2) * 640,
       );
       image.title = t(`assetCanvasTemplates.actions.${action.key}`);
+      sampleImages.set(image.id, action.key);
       image.data.images = [{ type: "node", nodeId: source.id }];
       image.data.prompt = `Use the supplied image as the exact character reference. Create one sprite sheet showing 12 successive frames of the character ${action.label}, arranged in a 3-row by 4-column grid, read left to right. Keep the same face, outfit, colors, proportions, scale, and camera angle in every frame. Use equal-sized cells, consistent baselines, a plain background, and no labels or extra characters. ${action.loop ? "Make the last frame transition smoothly to the first." : "Show a complete action progression from start to finish; do not loop the last frame to the first."}${prompt ? ` Additional direction: ${prompt}` : ""}`;
       nodes.push(image);
@@ -221,18 +245,31 @@ export async function createAssetCanvasTemplateProject(
   input: AssetCanvasTemplateInput = {},
 ): Promise<{ projectId: string; boardId: string; nodeId: string; outputNodeIds: string[] }> {
   const imageModels = await listImageModels().catch(() => []);
-  const { document, focusNodeId, outputNodeIds } = createAssetCanvasTemplateDocument(
-    template,
-    imageModels,
-    input,
-  );
   const project = await createProject({
     type: "asset-canvas",
     name: t(`assetCanvasTemplates.${template}.title`),
   });
+  const sampleAssetIds = new Map<TemplateSample, string>();
   try {
+    const { document, focusNodeId, outputNodeIds, sampleImages } = createAssetCanvasTemplateDocument(
+      template,
+      imageModels,
+      input,
+    );
     const workspace = await getCanvasWorkspace(project.id);
     const current = await getCanvasBoard(project.id, workspace.boards[0]!.id);
+    if (!input.sourceAssetId && !input.prompt?.trim()) {
+      for (const node of document.nodes) {
+        const sample = sampleImages.get(node.id);
+        if (node.type !== "image" || !sample) continue;
+        let assetId = sampleAssetIds.get(sample);
+        if (!assetId) {
+          assetId = await uploadTemplateSample(sample);
+          sampleAssetIds.set(sample, assetId);
+        }
+        node.data.assetId = assetId;
+      }
+    }
     await saveCanvasBoard(project.id, {
       board: { ...document, id: current.board.id },
       revision: current.revision,
@@ -241,6 +278,7 @@ export async function createAssetCanvasTemplateProject(
     return { projectId: project.id, boardId: current.board.id, nodeId: focusNodeId, outputNodeIds };
   } catch (cause) {
     await deleteProject(project.id).catch(() => undefined);
+    for (const assetId of sampleAssetIds.values()) await deleteLibraryAsset(assetId).catch(() => undefined);
     throw cause;
   }
 }

@@ -28,132 +28,12 @@ export interface SingleImageOptions {
   format?: ImageOutputFormat;
 }
 
-export interface BackgroundRemovalOptions extends SingleImageOptions {
-  tolerance?: number;
-}
-
 function imageOutput(
   name: string,
   bytes: Buffer,
   format: ImageOutputFormat,
 ): MediaOutput {
   return { name, bytes, mediaType: mediaTypeFor(format) };
-}
-
-/** Removes pixels matching the selected chroma-key color. */
-async function removeColorBackground(
-  options: BackgroundRemovalOptions & { color: "green" | "blue" | "white" },
-): Promise<MediaOutput> {
-  const format = options.format ?? "png";
-  assertTransparentFormat(format);
-  const { data, info } = await sharp(options.inputPath, {
-    limitInputPixels: MAX_PIXELS,
-  })
-    .autoOrient()
-    .toColourspace("srgb")
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const tolerance = options.tolerance ?? 48;
-  assertInteger(tolerance, 0, 255, "tolerance");
-  for (let index = 0; index < data.length; index += 4) {
-    const [r, g, b] = [data[index]!, data[index + 1]!, data[index + 2]!];
-    const match =
-      options.color === "green"
-        ? g > r * 1.18 && g > b * 1.12 && g - Math.max(r, b) >= tolerance
-        : options.color === "blue"
-          ? b > r * 1.15 && b > g * 1.08 && b - Math.max(r, g) >= tolerance
-          : Math.min(r, g, b) >= 255 - tolerance;
-    if (match) data[index + 3] = 0;
-  }
-  const bytes = await sharp(data, {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  })
-    .toFormat(format)
-    .toBuffer();
-  return imageOutput(
-    `background-removed.${extensionFor(format)}`,
-    bytes,
-    format,
-  );
-}
-
-export const removeGreenScreen = (options: BackgroundRemovalOptions) =>
-  removeColorBackground({ ...options, color: "green" });
-export const removeBlueScreen = (options: BackgroundRemovalOptions) =>
-  removeColorBackground({ ...options, color: "blue" });
-export const removeWhiteBackground = (options: BackgroundRemovalOptions) =>
-  removeColorBackground({ ...options, color: "white" });
-
-export async function resizeImage(
-  options: SingleImageOptions & { width: number; height?: number },
-): Promise<MediaOutput> {
-  const format = options.format ?? "png";
-  assertImageFormat(format);
-  assertInteger(options.width, 1, 16384, "width");
-  assertDimension(options.height, "height");
-  const bytes = await sharp(options.inputPath, { limitInputPixels: MAX_PIXELS })
-    .autoOrient()
-    .resize(options.width, options.height, {
-      fit: options.height === undefined ? "inside" : "contain",
-      background: { r: 0, g: 0, b: 0, alpha: 0 },
-    })
-    .toFormat(format)
-    .toBuffer();
-  return imageOutput(`resized.${extensionFor(format)}`, bytes, format);
-}
-
-export async function outlineImage(
-  options: SingleImageOptions & { thickness: number; color?: string },
-): Promise<MediaOutput> {
-  const format = options.format ?? "png";
-  assertTransparentFormat(format);
-  assertInteger(options.thickness, 1, 64, "thickness");
-  const source = sharp(options.inputPath, { limitInputPixels: MAX_PIXELS })
-    .autoOrient()
-    .toColourspace("srgb")
-    .ensureAlpha();
-  const { data, info } = await source
-    .clone()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const radius = options.thickness;
-  const width = info.width + radius * 2;
-  const height = info.height + radius * 2;
-  // libvips dilates dark pixels, so invert alpha before expanding the subject.
-  const mask = Buffer.alloc(width * height, 255);
-  for (let y = 0; y < info.height; y += 1)
-    for (let x = 0; x < info.width; x += 1)
-      mask[(y + radius) * width + x + radius] = 255 - data[(y * info.width + x) * 4 + 3]!;
-  const expanded = await sharp(mask, {
-    raw: { width, height, channels: 1 },
-  })
-    .dilate(radius)
-    .greyscale()
-    .raw()
-    .toBuffer();
-  const color = options.color ?? "#e5484d";
-  if (!/^#[0-9a-fA-F]{6}$/.test(color))
-    throw new Error("color must be a six-digit hex color");
-  const rgba = Buffer.alloc(width * height * 4);
-  for (let index = 0; index < mask.length; index++) {
-    for (let channel = 0; channel < 3; channel++)
-      rgba[index * 4 + channel] = parseInt(
-        color.slice(1 + channel * 2, 3 + channel * 2),
-        16,
-      );
-    rgba[index * 4 + 3] = 255 - expanded[index]!;
-  }
-  const outline = await sharp(rgba, {
-    raw: { width, height, channels: 4 },
-  })
-    .png()
-    .toBuffer();
-  const bytes = await sharp(outline)
-    .composite([{ input: await source.png().toBuffer(), left: radius, top: radius }])
-    .toFormat(format)
-    .toBuffer();
-  return imageOutput(`outlined.${extensionFor(format)}`, bytes, format);
 }
 
 export async function cropImage(
@@ -177,121 +57,6 @@ export async function cropImage(
     .toFormat(format)
     .toBuffer();
   return imageOutput(`cropped.${extensionFor(format)}`, bytes, format);
-}
-
-export interface CutoutPoint {
-  x: number;
-  y: number;
-}
-export async function cutoutImage(
-  options: SingleImageOptions & { points: CutoutPoint[] },
-): Promise<MediaOutput> {
-  if (options.points.length < 3 || options.points.length > 1000)
-    throw new Error("Cutout requires 3 to 1000 polygon points");
-  const format = options.format ?? "png";
-  assertTransparentFormat(format);
-  const { data, info } = await sharp(options.inputPath, {
-    limitInputPixels: MAX_PIXELS,
-  })
-    .autoOrient()
-    .toColourspace("srgb")
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  for (const point of options.points) {
-    assertInteger(point.x, 0, info.width - 1, "point.x");
-    assertInteger(point.y, 0, info.height - 1, "point.y");
-  }
-  for (let y = 0; y < info.height; y++)
-    for (let x = 0; x < info.width; x++) {
-      let inside = false;
-      for (
-        let i = 0, j = options.points.length - 1;
-        i < options.points.length;
-        j = i++
-      ) {
-        const a = options.points[i]!,
-          b = options.points[j]!;
-        if (
-          a.y > y !== b.y > y &&
-          x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x
-        )
-          inside = !inside;
-      }
-      if (!inside) data[(y * info.width + x) * 4 + 3] = 0;
-    }
-  const bytes = await sharp(data, {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  })
-    .toFormat(format)
-    .toBuffer();
-  return imageOutput(`cutout.${extensionFor(format)}`, bytes, format);
-}
-
-export async function brushRetouchImage(
-  options: SingleImageOptions & {
-    strokes: CutoutPoint[][];
-    radius: number;
-    strength?: number;
-  },
-): Promise<MediaOutput> {
-  const format = options.format ?? "png";
-  assertImageFormat(format);
-  const strength = options.strength ?? 40;
-  assertInteger(strength, 1, 100, "strength");
-  assertInteger(options.radius, 1, 256, "radius");
-  const { data, info } = await sharp(options.inputPath, {
-    limitInputPixels: MAX_PIXELS,
-  })
-    .autoOrient()
-    .toColourspace("srgb")
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  if (!options.strokes.length || options.strokes.length > 1000)
-    throw new Error("Draw between 1 and 1000 brush strokes");
-  let count = 0;
-  const paths = options.strokes.map((points) => {
-    if (!points.length) throw new Error("Brush strokes must not be empty");
-    count += points.length;
-    if (count > 10000) throw new Error("Brush strokes exceed 10000 points");
-    for (const point of points) {
-      assertInteger(point.x, 0, info.width - 1, "point.x");
-      assertInteger(point.y, 0, info.height - 1, "point.y");
-    }
-    const first = points[0]!;
-    return points.length === 1
-      ? `<circle cx="${first.x}" cy="${first.y}" r="${options.radius}" fill="white"/>`
-      : `<polyline points="${points.map((point) => `${point.x},${point.y}`).join(" ")}" fill="none" stroke="white" stroke-width="${options.radius * 2}" stroke-linecap="round" stroke-linejoin="round"/>`;
-  });
-  const mask = await sharp(
-    Buffer.from(
-      `<svg width="${info.width}" height="${info.height}" xmlns="http://www.w3.org/2000/svg">${paths.join("")}</svg>`,
-    ),
-  )
-    .ensureAlpha()
-    .raw()
-    .toBuffer();
-  const blurred = await sharp(data, {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  })
-    .blur(Math.max(0.3, strength / 5))
-    .raw()
-    .toBuffer();
-  for (let index = 0; index < data.length; index += 4) {
-    const alpha = mask[index + 3]! / 255;
-    for (let channel = 0; channel < 3; channel++)
-      data[index + channel] = Math.round(
-        data[index + channel]! * (1 - alpha) +
-          blurred[index + channel]! * alpha,
-      );
-  }
-  const bytes = await sharp(data, {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  })
-    .toFormat(format)
-    .toBuffer();
-  return imageOutput(`retouched.${extensionFor(format)}`, bytes, format);
 }
 
 export async function extractGifFrames(
@@ -328,83 +93,6 @@ export const composeGif = (
   fps = 12,
   signal?: AbortSignal,
 ) => composeVideo({ framePaths, fps, format: "gif", signal });
-
-export async function sortFrames(framePaths: string[]): Promise<MediaOutput[]> {
-  if (!framePaths.length || framePaths.length > MAX_FRAMES)
-    throw new Error("Choose between 1 and 1000 frames");
-  return Promise.all(
-    framePaths.map(async (inputPath, index) => {
-      const bytes = await sharp(inputPath, { limitInputPixels: MAX_PIXELS })
-        .autoOrient()
-        .png()
-        .toBuffer();
-      return imageOutput(
-        `frame-${String(index).padStart(4, "0")}.png`,
-        bytes,
-        "png",
-      );
-    }),
-  );
-}
-
-export async function stitchImages(options: {
-  inputPaths: string[];
-  direction?: "horizontal" | "vertical";
-}): Promise<MediaOutput> {
-  if (!options.inputPaths.length || options.inputPaths.length > MAX_FRAMES)
-    throw new Error("Choose between 1 and 1000 images");
-  const direction = options.direction ?? "horizontal";
-  if (direction !== "horizontal" && direction !== "vertical")
-    throw new Error("Invalid stitch direction");
-  const images = await Promise.all(
-    options.inputPaths.map(async (input) => {
-      const image = sharp(input, { limitInputPixels: MAX_PIXELS })
-        .autoOrient()
-        .ensureAlpha();
-      const metadata = await image.metadata();
-      const { width, height } = metadata.autoOrient ?? metadata;
-      if (!width || !height) throw new Error("Could not read image dimensions");
-      return { input: await image.png().toBuffer(), width, height };
-    }),
-  );
-  const width =
-    direction === "horizontal"
-      ? images.reduce((sum, image) => sum + image.width, 0)
-      : Math.max(...images.map((image) => image.width));
-  const height =
-    direction === "vertical"
-      ? images.reduce((sum, image) => sum + image.height, 0)
-      : Math.max(...images.map((image) => image.height));
-  if (width * height > MAX_PIXELS)
-    throw new Error(
-      `Stitched image exceeds the ${MAX_PIXELS.toLocaleString()} pixel limit`,
-    );
-  let offset = 0;
-  const layers = images.map((image) => {
-    const layer = {
-      input: image.input,
-      left: direction === "horizontal" ? offset : 0,
-      top: direction === "vertical" ? offset : 0,
-    };
-    offset += direction === "horizontal" ? image.width : image.height;
-    return layer;
-  });
-  return imageOutput(
-    "stitched.png",
-    await sharp({
-      create: {
-        width,
-        height,
-        channels: 4,
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-      },
-    })
-      .composite(layers)
-      .png()
-      .toBuffer(),
-    "png",
-  );
-}
 
 export interface ImageLayer {
   x: number;
@@ -573,7 +261,7 @@ export interface ExtractFramesOptions {
 }
 
 /** Extracts bounded video frames with FFmpeg. The returned files are ordered by frame number. */
-export async function extractVideoFrames(
+export async function extractVideoStrip(
   options: ExtractFramesOptions,
 ): Promise<MediaOutput[]> {
   assertRange(options.fps, 0.1, 120, "fps");
@@ -656,13 +344,6 @@ export async function extractVideoFrames(
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
-}
-
-/** Alias for the frame-strip operation exposed to agents as a separate tool. */
-export async function extractVideoStrip(
-  options: ExtractFramesOptions,
-): Promise<MediaOutput[]> {
-  return extractVideoFrames(options);
 }
 
 export interface ComposeVideoOptions {
@@ -780,10 +461,6 @@ function gridEdges(size: number, cells: number): number[] {
   return Array.from({ length: cells + 1 }, (_, index) =>
     Math.round((index * size) / cells),
   );
-}
-
-function assertTransparentFormat(format: string): void {
-  if (format !== "png" && format !== "webp") throw new Error("This operation requires PNG or WebP to preserve transparency");
 }
 
 function assertImageFormat(

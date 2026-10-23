@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { AssetCanvasNode, ImageModel } from "../src/shared/contracts.js";
+import type { ImageModel } from "../src/shared/contracts.js";
 import { isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { canvasImagePresetPrompt } from "../src/shared/canvas-image-presets.js";
-import { ASSET_CANVAS_TEMPLATES, createAssetCanvasTemplateDocument, createTemplatePresetNode, nextTemplatePresetPosition, templateGuideInfo, templateImagePresets } from "../src/renderer/asset-canvas-templates.js";
+import { ASSET_CANVAS_TEMPLATES, createAssetCanvasTemplateDocument, templateGuideInfo, templateImagePresets } from "../src/renderer/asset-canvas-templates.js";
 
 const textOnly: ImageModel = {
   provider: "example", id: "text", name: "Text", providerName: "Example", sizes: ["1024x1024"],
@@ -43,44 +43,115 @@ describe("asset canvas templates", () => {
   it("starts a wide character reference sheet with an editable prompt", () => {
     const { document, outputNodeIds } = createAssetCanvasTemplateDocument("character-sheet", [reference], { prompt: "Forest ranger" });
     expect(document.nodes.find((node) => node.id === outputNodeIds[0])).toMatchObject({
-      type: "image", data: { presetId: "character-sheet", prompt: "Forest ranger", aspectRatio: "16:9" },
+      type: "image", data: {
+        presetId: "character-sheet",
+        promptExpanded: true,
+        prompt: expect.stringContaining("Forest ranger"),
+        aspectRatio: "16:9",
+      },
     });
-    expect(canvasImagePresetPrompt("character-sheet", "Forest ranger")).toContain("four clearly separated panels");
+    const output = document.nodes.find((node) => node.id === outputNodeIds[0]);
+    expect(output?.type === "image" && output.data.prompt).toContain("four clearly separated panels");
+    expect(output?.type === "image" && output.data.prompt).toContain("Create a production-ready 2D game character reference sheet");
   });
 
   it("quick reskin uses a separate source and a reference-capable model", () => {
     const { document, focusNodeId, outputNodeIds } = createAssetCanvasTemplateDocument("quick-reskin", [textOnly, reference]);
     expect(document.nodes.find((node) => node.id === focusNodeId)).toMatchObject({ type: "image", data: { sourceInput: true } });
-    expect(document.nodes.find((node) => node.id === outputNodeIds[0])).toMatchObject({
-      type: "image", data: { presetId: "quick-reskin", model: { provider: "example", id: "reference" }, images: [{ type: "node", nodeId: focusNodeId }] },
+    const output = document.nodes.find((node) => node.id === outputNodeIds[0]);
+    expect(output).toMatchObject({
+      type: "image",
+      data: {
+        presetId: "quick-reskin",
+        quickReskinMode: "person-clothing",
+        model: { provider: "example", id: "reference" },
+        prompt: "Put the clothing from the clothing reference image on the person in the person image. Keep the person's pose and composition.",
+      },
     });
+    const sourceInputs = document.nodes.filter((node) => node.type === "image" && node.data.sourceInput);
+    expect(sourceInputs).toHaveLength(2);
+    expect(sourceInputs.map((node) => node.title)).toEqual(["Person reference image", "Clothing image"]);
+    expect(output).toMatchObject({ type: "image", data: { images: sourceInputs.map((node) => ({ type: "node", nodeId: node.id })) } });
+    expect(canvasImagePresetPrompt("quick-reskin", "Transfer this outfit", undefined, 2)).toContain("second reference image as the clothing design");
     expect(canvasImagePresetPrompt("quick-reskin", "Red armor")).toContain("same subject, silhouette, pose");
+    const noCompatibleModel = createAssetCanvasTemplateDocument("quick-reskin", [textOnly]).document.nodes.find((node) => node.type === "image" && !node.data.sourceInput);
+    expect(noCompatibleModel).toMatchObject({ type: "image", data: { quickReskinMode: "person-clothing" } });
+    if (noCompatibleModel?.type === "image") expect(noCompatibleModel.data.model).toBeUndefined();
+  });
+
+  it("pixel assets share one reference input and use a reference-capable model", () => {
+    const { document, outputNodeIds } = createAssetCanvasTemplateDocument("pixel-art", [textOnly, reference]);
+    const source = document.nodes.find((node) => node.type === "image" && node.data.sourceInput);
+    expect(source).toBeDefined();
+    expect(outputNodeIds).toHaveLength(10);
+    for (const id of outputNodeIds) {
+      expect(document.nodes.find((node) => node.id === id)).toMatchObject({
+        type: "image",
+        data: {
+          model: { provider: "example", id: "reference" },
+          promptExpanded: true,
+          prompt: expect.stringContaining("Render in pixel art"),
+          images: [{ type: "node", nodeId: source?.id }],
+        },
+      });
+    }
+    const fromLibrary = createAssetCanvasTemplateDocument("pixel-art", [reference], { sourceAssetId: "pixel-reference" });
+    const librarySource = fromLibrary.document.nodes.find((node) => node.type === "asset");
+    expect(librarySource?.data.assetId).toBe("pixel-reference");
+    expect(fromLibrary.outputNodeIds.every((id) => fromLibrary.document.nodes.find((node) => node.id === id)?.type === "image")).toBe(true);
+    for (const id of fromLibrary.outputNodeIds) {
+      expect(fromLibrary.document.nodes.find((node) => node.id === id)).toMatchObject({
+        type: "image", data: { images: [{ type: "node", nodeId: librarySource?.id }] },
+      });
+    }
+  });
+
+  it.each(["pixel-art", "quick-reskin", "free-sequence", "action-set"] as const)("%s links its outputs to a replaceable sample reference", (template) => {
+    const { document, outputNodeIds, sampleImages } = createAssetCanvasTemplateDocument(template, [reference]);
+    expect(isAssetCanvasDocument(document)).toBe(true);
+    const source = document.nodes.find((node) => node.type === "image" && node.data.sourceInput);
+    expect(source).toBeDefined();
+    expect(sampleImages.get(source!.id)).toBe("character-sheet");
+    for (const id of outputNodeIds) {
+      const output = document.nodes.find((node) => node.id === id);
+      expect(output).toMatchObject({ type: "image", data: { images: expect.arrayContaining([{ type: "node", nodeId: source?.id }]) } });
+    }
   });
 
   it.each(["quick-reskin", "free-sequence", "action-set"] as const)("%s shares one source across outputs", (template) => {
     const { document, outputNodeIds } = createAssetCanvasTemplateDocument(template, [reference], { sourceAssetId: "character-1" });
     const source = document.nodes.find((node) => node.type === "asset");
     expect(source?.data.assetId).toBe("character-1");
-    expect(outputNodeIds).toHaveLength(template === "action-set" ? 6 : 1);
+    expect(outputNodeIds).toHaveLength(template === "action-set" ? 6 : template === "free-sequence" ? 2 : 1);
     for (const id of outputNodeIds) {
-      expect(document.nodes.find((node) => node.id === id)).toMatchObject({ type: "image", data: { images: [{ type: "node", nodeId: source?.id }] } });
+      const output = document.nodes.find((node) => node.id === id);
+      expect(output).toMatchObject({ type: "image", data: { images: expect.arrayContaining([{ type: "node", nodeId: source?.id }]) } });
+      if (template === "quick-reskin" && output?.type === "image") {
+        expect(output.data.images).toHaveLength(2);
+        expect(output.data.images.every((reference) => reference.type === "node" && document.nodes.some((node) => node.id === reference.nodeId))).toBe(true);
+      }
     }
   });
 
-  it("adds independent results below existing pixel and sequence outputs", () => {
-    for (const [template, preset] of [["pixel-art", "scene"], ["free-sequence", "consistent-sequence"]] as const) {
-      const { document, outputNodeIds } = createAssetCanvasTemplateDocument(template, [reference]);
-      const previous = document.nodes.find((node) => node.id === outputNodeIds[0]) as Extract<AssetCanvasNode, { type: "image" }>;
-      previous.data.assetId = "generated-first";
-      const sourceId = previous.data.images[0]?.type === "node" ? previous.data.images[0].nodeId : undefined;
-      const next = createTemplatePresetNode(template, preset, [reference], nextTemplatePresetPosition(template, document.nodes), sourceId);
-      document.nodes.push(next);
-      document.editorLayout.nodes[next.id] = next.position;
-      expect(isAssetCanvasDocument(document)).toBe(true);
-      expect(previous.data.assetId).toBe("generated-first");
-      expect(next.data.assetId).toBeUndefined();
-      expect(next.position.y).toBeGreaterThan(previous.position.y);
-      if (sourceId) expect(next.data.images).toEqual([{ type: "node", nodeId: sourceId }]);
+  it("lays out every pixel asset and sequence mode when the board opens", () => {
+    const pixel = createAssetCanvasTemplateDocument("pixel-art", [reference]);
+    const sequences = createAssetCanvasTemplateDocument("free-sequence", [reference]);
+    expect(pixel.outputNodeIds).toHaveLength(10);
+    expect(pixel.document.nodes.filter((node) => node.type === "image" && !node.data.sourceInput)).toHaveLength(10);
+    expect(sequences.outputNodeIds).toHaveLength(2);
+    expect(sequences.document.nodes.filter((node) => node.type === "image" && !node.data.sourceInput)).toHaveLength(2);
+    expect(isAssetCanvasDocument(pixel.document)).toBe(true);
+    expect(isAssetCanvasDocument(sequences.document)).toBe(true);
+    for (const template of [pixel, sequences]) {
+      const positions = template.document.nodes.filter((node) => node.type === "image" && !node.data.sourceInput).map((node) => node.position);
+      expect(new Set(positions.map(({ x, y }) => `${x},${y}`)).size).toBe(positions.length);
+    }
+    for (const id of sequences.outputNodeIds) {
+      const node = sequences.document.nodes.find((candidate) => candidate.id === id);
+      expect(node).toMatchObject({ type: "image", data: { promptExpanded: true } });
+      if (node?.type === "image") {
+        expect(node.data.prompt).toContain(node.data.presetId === "continuous-sequence" ? "Use the supplied image as the exact character reference" : "Create one 3-row by 3-column image grid");
+      }
     }
   });
 });

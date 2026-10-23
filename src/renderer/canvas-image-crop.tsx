@@ -46,15 +46,20 @@ export function CanvasImageCrop({
     const measureBounds = () => {
       const image = element.querySelector("img");
       if (!image?.naturalWidth || !image.naturalHeight) return;
+      const imageRect = image.getBoundingClientRect();
+      const stageRect = element.getBoundingClientRect();
+      const zoom = stageRect.width / element.offsetWidth || 1;
+      const boxWidth = imageRect.width / zoom || element.clientWidth;
+      const boxHeight = imageRect.height / zoom || element.clientHeight;
       const scale = Math.min(
-        element.clientWidth / image.naturalWidth,
-        element.clientHeight / image.naturalHeight,
+        boxWidth / image.naturalWidth,
+        boxHeight / image.naturalHeight,
       );
       const width = image.naturalWidth * scale;
       const height = image.naturalHeight * scale;
       setImageBounds({
-        left: (element.clientWidth - width) / 2,
-        top: (element.clientHeight - height) / 2,
+        left: (imageRect.left - stageRect.left) / zoom - element.clientLeft + (boxWidth - width) / 2,
+        top: (imageRect.top - stageRect.top) / zoom - element.clientTop + (boxHeight - height) / 2,
         width,
         height,
       });
@@ -187,13 +192,10 @@ export function CanvasImageCrop({
     });
   }
   const integerCrop = {
-    left: Math.floor(crop.left),
-    top: Math.floor(crop.top),
-    width: Math.min(size.width - Math.floor(crop.left), Math.round(crop.width)),
-    height: Math.min(
-      size.height - Math.floor(crop.top),
-      Math.round(crop.height),
-    ),
+    left: Math.round(crop.left),
+    top: Math.round(crop.top),
+    width: Math.min(size.width, Math.round(crop.left + crop.width)) - Math.round(crop.left),
+    height: Math.min(size.height, Math.round(crop.top + crop.height)) - Math.round(crop.top),
   };
   return (
     <>
@@ -224,14 +226,17 @@ export function CanvasImageCrop({
                 drag.current = undefined;
               }}
             >
+              <rect width={size.width} height={size.height} fill="transparent" />
               <path
                 className="asset-inline-crop-shade"
+                pointerEvents="none"
                 fillRule="evenodd"
                 d={`M0 0H${size.width}V${size.height}H0Z M${crop.left} ${crop.top}v${crop.height}h${crop.width}v-${crop.height}Z`}
               />
               <rect
                 className="asset-inline-crop-selection"
                 data-handle="move"
+                pointerEvents="visibleStroke"
                 x={crop.left}
                 y={crop.top}
                 width={crop.width}
@@ -254,7 +259,7 @@ export function CanvasImageCrop({
                 </g>
               ))}
               {handles.map((handle) => (
-                <svg
+                <rect
                   key={handle}
                   x={
                     crop.left +
@@ -263,7 +268,7 @@ export function CanvasImageCrop({
                         ? 0
                         : handle.includes("e")
                           ? 1
-                          : 0.5)
+                          : 0.5) - size.width / 80
                   }
                   y={
                     crop.top +
@@ -272,19 +277,13 @@ export function CanvasImageCrop({
                         ? 0
                         : handle.includes("s")
                           ? 1
-                          : 0.5)
+                          : 0.5) - size.height / 80
                   }
-                  overflow="visible"
-                >
-                  <rect
-                    className={`asset-inline-crop-handle is-${handle}`}
-                    data-handle={handle}
-                    x={-size.width / 80}
-                    y={-size.height / 80}
-                    width={size.width / 40}
-                    height={size.height / 40}
-                  />
-                </svg>
+                  className={`asset-inline-crop-handle is-${handle}`}
+                  data-handle={handle}
+                  width={size.width / 40}
+                  height={size.height / 40}
+                />
               ))}
             </svg>,
             stage,

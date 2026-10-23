@@ -21,7 +21,7 @@ import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
-import { brushRetouchImage, composeGif, composeVideo, cropImage, cutoutImage, extractGifFrames, extractVideoFrames, extractVideoStrip, outlineImage, removeBlueScreen, removeGreenScreen, removeWhiteBackground, resizeImage, sortFrames, splitImageGrid, stitchImages, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
+import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -77,22 +77,10 @@ const mediaModelParameter = () => Type.Object({
 }, { description: "Override the project or global default generation model" });
 
 const imageSourceParameter = Type.String({ minLength: 1 });
-const transparentImageParameters = {
-  sourcePath: imageSourceParameter,
-  format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("webp")])),
-};
 const imageParameters = {
   sourcePath: imageSourceParameter,
   format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
 };
-const backgroundRemovalParameters = Type.Object({
-  ...transparentImageParameters,
-  tolerance: Type.Optional(Type.Integer({ minimum: 0, maximum: 255 })),
-});
-const imagePointParameter = Type.Object({
-  x: Type.Integer({ minimum: 0 }),
-  y: Type.Integer({ minimum: 0 }),
-});
 const framePathsParameter = Type.Array(imageSourceParameter, { minItems: 1, maxItems: 1000 });
 
 export function createAgentTools(
@@ -521,95 +509,6 @@ export function createAgentTools(
       durationSeconds: input.durationSeconds, loop: input.loop, output: { format: input.format },
     }, input.prompt, "music", signal),
   }), defineTool({
-    name: "remove_green_screen",
-    label: "Remove Green Background",
-    description: "Remove the selected background color; preserve transparency.",
-    parameters: backgroundRemovalParameters,
-    execute: async (_toolCallId, input, signal) =>
-      saveMedia(
-        "remove_green_screen",
-        async () =>
-          removeGreenScreen({
-            ...input,
-            inputPath: await imageSource(input.sourcePath),
-          }),
-        signal,
-      ),
-  }),
-  defineTool({
-    name: "remove_blue_screen",
-    label: "Remove Blue Background",
-    description: "Remove the selected background color; preserve transparency.",
-    parameters: backgroundRemovalParameters,
-    execute: async (_toolCallId, input, signal) =>
-      saveMedia(
-        "remove_blue_screen",
-        async () =>
-          removeBlueScreen({
-            ...input,
-            inputPath: await imageSource(input.sourcePath),
-          }),
-        signal,
-      ),
-  }),
-  defineTool({
-    name: "remove_white_background",
-    label: "Remove White Background",
-    description: "Remove the selected background color; preserve transparency.",
-    parameters: backgroundRemovalParameters,
-    execute: async (_toolCallId, input, signal) =>
-      saveMedia(
-        "remove_white_background",
-        async () =>
-          removeWhiteBackground({
-            ...input,
-            inputPath: await imageSource(input.sourcePath),
-          }),
-        signal,
-      ),
-  }),
-  defineTool({
-    name: "resize_image",
-    label: "Resize Image",
-    description:
-      "Resize to exact dimensions with transparent padding; one dimension preserves aspect ratio.",
-    parameters: Type.Object({
-      ...imageParameters,
-      width: Type.Integer({ minimum: 1, maximum: 16384 }),
-      height: Type.Optional(Type.Integer({ minimum: 1, maximum: 16384 })),
-    }),
-    execute: async (_toolCallId, input, signal) =>
-      saveMedia(
-        "resize_image",
-        async () =>
-          resizeImage({
-            ...input,
-            inputPath: await imageSource(input.sourcePath),
-          }),
-        signal,
-      ),
-  }),
-  defineTool({
-    name: "outline_image",
-    label: "Outline Image",
-    description: "Add a colored outline around opaque pixels.",
-    parameters: Type.Object({
-      ...transparentImageParameters,
-      thickness: Type.Integer({ minimum: 1, maximum: 64 }),
-      color: Type.Optional(Type.String({ pattern: "^#[0-9a-fA-F]{6}$" })),
-    }),
-    execute: async (_toolCallId, input, signal) =>
-      saveMedia(
-        "outline_image",
-        async () =>
-          outlineImage({
-            ...input,
-            inputPath: await imageSource(input.sourcePath),
-          }),
-        signal,
-      ),
-  }),
-  defineTool({
     name: "crop_image",
     label: "Crop Image",
     description: "Extract a rectangle in source pixels.",
@@ -625,50 +524,6 @@ export function createAgentTools(
         "crop_image",
         async () =>
           cropImage({
-            ...input,
-            inputPath: await imageSource(input.sourcePath),
-          }),
-        signal,
-      ),
-  }),
-  defineTool({
-    name: "cutout_image",
-    label: "Polygon Cutout",
-    description:
-      "Keep pixels inside the polygon and clear the surrounding background.",
-    parameters: Type.Object({
-      ...transparentImageParameters,
-      points: Type.Array(imagePointParameter, { minItems: 3, maxItems: 1000 }),
-    }),
-    execute: async (_toolCallId, input, signal) =>
-      saveMedia(
-        "cutout_image",
-        async () =>
-          cutoutImage({
-            ...input,
-            inputPath: await imageSource(input.sourcePath),
-          }),
-        signal,
-      ),
-  }),
-  defineTool({
-    name: "brush_retouch_image",
-    label: "Brush Retouch",
-    description: "Blur only pixels under the supplied brush strokes.",
-    parameters: Type.Object({
-      ...imageParameters,
-      strokes: Type.Array(
-        Type.Array(imagePointParameter, { minItems: 1, maxItems: 10000 }),
-        { minItems: 1, maxItems: 1000 },
-      ),
-      radius: Type.Integer({ minimum: 1, maximum: 256 }),
-      strength: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
-    }),
-    execute: async (_toolCallId, input, signal) =>
-      saveMedia(
-        "brush_retouch_image",
-        async () =>
-          brushRetouchImage({
             ...input,
             inputPath: await imageSource(input.sourcePath),
           }),
@@ -710,40 +565,6 @@ export function createAgentTools(
       ),
   }),
   defineTool({
-    name: "sort_frames",
-    label: "Sort Frames",
-    description:
-      "Save numbered PNG frames in the explicit order of framePaths.",
-    parameters: Type.Object({ framePaths: framePathsParameter }),
-    execute: async (_toolCallId, input, signal) =>
-      saveMedia(
-        "sort_frames",
-        async () =>
-          sortFrames(await Promise.all(input.framePaths.map(imageSource))),
-        signal,
-      ),
-  }),
-  defineTool({
-    name: "stitch_images",
-    label: "Stitch Images",
-    description: "Stitch ordered images with transparent padding.",
-    parameters: Type.Object({
-      framePaths: framePathsParameter,
-      direction: Type.Optional(
-        Type.Union([Type.Literal("horizontal"), Type.Literal("vertical")]),
-      ),
-    }),
-    execute: async (_toolCallId, input, signal) =>
-      saveMedia(
-        "stitch_images",
-        async () =>
-          stitchImages({
-            inputPaths: await Promise.all(input.framePaths.map(imageSource)),
-            direction: input.direction,
-          }),
-        signal,
-      ),
-  }), defineTool({
     name: "image_grid_split",
     label: "Split Image Grid",
     description: "Split a sprite sheet into row-major grid cells. The result is a ZIP containing numbered frame images and a manifest.",
@@ -762,28 +583,6 @@ export function createAgentTools(
       const archive = await zipMediaOutputs(frames);
       const relativePath = await projects.addGeneratedAsset(project.id, `sprite-sheet-${randomUUID()}.zip`, archive, { registerInLibrary: false });
       return { content: [{ type: "text", text: `Split ${input.columns * input.rows} cells into ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount: input.columns * input.rows } } };
-    },
-  }), defineTool({
-    name: "video_extract_frames",
-    label: "Extract Video Frames",
-    description: "Extract a bounded video range into an ordered ZIP of PNG or JPEG frames using FFmpeg.",
-    parameters: Type.Object({
-      sourcePath: Type.String({ minLength: 1 }),
-      fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120 })),
-      startTime: Type.Optional(Type.Number({ minimum: 0, maximum: 86_400 })),
-      duration: Type.Optional(Type.Number({ minimum: 0.01, maximum: 300 })),
-      format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpg")])),
-      includeManifest: Type.Optional(Type.Boolean({ description: "Include a JSON frame index in the ZIP; defaults to true" })),
-    }),
-    execute: async (_toolCallId, input, signal) => {
-      signal?.throwIfAborted();
-      const source = await getWorkspaceMedia(project.workspacePath, input.sourcePath);
-      if (!source.contentType.startsWith("video/")) throw new Error("video_extract_frames requires a video file");
-      const frames = await extractVideoFrames({ ...input, inputPath: source.absolutePath, signal });
-      const archive = await zipMediaOutputs(frames);
-      const relativePath = await projects.addGeneratedAsset(project.id, `video-frames-${randomUUID()}.zip`, archive, { registerInLibrary: false });
-      const frameCount = frames.filter((frame) => frame.mediaType.startsWith("image/")).length;
-      return { content: [{ type: "text", text: `Extracted ${frameCount} frames to ${relativePath}` }], details: { media: { path: relativePath, mediaType: "application/zip", frameCount } } };
     },
   }), defineTool({
     name: "video_frame_strip",

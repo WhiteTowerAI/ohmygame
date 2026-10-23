@@ -156,7 +156,7 @@ async function select(id: string) {
 }
 async function openTool() {
   await select("first");
-  await chooseTool("Image tools", "AI cutout");
+  await chooseTool("Image tools", "AI image cutout");
 }
 async function chooseTool(category: string, label: string) {
   await act(async () => container.querySelector<HTMLButtonElement>(`.asset-media-toolbar > .asset-media-toolbar-group > [aria-label="${category}"]`)!.click());
@@ -169,19 +169,6 @@ async function submit() {
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
   );
 }
-function outputAsset(id: string): LibraryAsset {
-  return {
-    id,
-    assetId: id,
-    name: `${id}.png`,
-    path: `${id}.png`,
-    mediaType: "image",
-    contentType: "image/png",
-    size: 100,
-    createdAt: new Date().toISOString(),
-  } as LibraryAsset;
-}
-
 it("anchors to the newly selected node with a constant screen offset across zoom and pan", async () => {
   Object.assign(viewport, { y: 300 });
   await select("first");
@@ -225,7 +212,7 @@ it("shows only categories until opened, including GIF and frame actions on gener
     "Extract GIF frames", "Compose GIF", "Compose video", "Compose layers",
   ]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Image tools"]')!.click());
-  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI cutout", "Crop image"]);
+  expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image"]);
   await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="GIF & merging"]')!.click());
@@ -266,17 +253,16 @@ it("shows only the frame-strip button for a selected video", async () => {
   expect(container.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("Pull frame strip");
 });
 
-it("previews image grid boundaries without frame-selection controls", async () => {
+it("runs a grid preset immediately without a confirmation dialog", async () => {
+  runMedia.mockRejectedValue(new Error("Split failed"));
   await select("first");
   await chooseTool("Grid split", "4 cells (2 × 2)");
-  expect(container.querySelectorAll(".asset-media-grid-line")).toHaveLength(2);
-  expect(container.querySelector(".asset-video-frame-editor")).toBeNull();
-  runMedia.mockRejectedValue(new Error("Keep dialog open"));
-  await submit();
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
   expect(runMedia).toHaveBeenCalledWith("p", {
     operation: "split-image-grid", assetIds: ["first"],
     options: { columns: 2, rows: 2, format: "png" },
   });
+  expect(container.textContent).toContain("Split failed");
 });
 
 it("selects video frames while previewing the source video", async () => {
@@ -286,10 +272,15 @@ it("selects video frames while previewing the source video", async () => {
   }]));
   await select("video");
   await act(async () => container.querySelector<HTMLButtonElement>(".asset-media-toolbar-button")!.click());
+  expect(container.querySelector(".asset-media-tool-input-count")).toBeNull();
+  await act(async () => container.querySelector<HTMLInputElement>('input[name="video-range"][value="custom"]')!.click());
+  expect(container.querySelectorAll(".asset-media-tool-range-row .asset-media-tool-range-fields input")).toHaveLength(2);
+  await act(async () => container.querySelector<HTMLInputElement>('input[name="video-range"][value="all"]')!.click());
   const video = container.querySelector<HTMLVideoElement>(".asset-video-frame-editor video")!;
   expect(video).not.toBeNull();
   Object.defineProperty(video, "duration", { value: 1 });
   await act(async () => video.dispatchEvent(new Event("loadedmetadata")));
+  await act(async () => container.querySelector<HTMLInputElement>('input[name="frame-mode"][value="selected"]')!.click());
   expect(container.querySelectorAll(".asset-video-frame-strip button")).toHaveLength(8);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame 2"]')!.click());
   expect(container.querySelector('[aria-label="Frame 2"]')?.getAttribute("aria-pressed")).toBe("false");
@@ -346,112 +337,71 @@ it("composes selected images using the edited layer order", async () => {
   });
 });
 
-it.each([1, 4])(
-  "creates, selects, reveals, and saves all %i returned result nodes",
-  async (count) => {
-    const assets = Array.from({ length: count }, (_, index) =>
-      outputAsset(`result-${index}`),
-    );
-    loadAssets.mockResolvedValue(assets);
-    const results = assets.map((asset) => ({
-      assetId: asset.id,
-      name: asset.name,
-      mediaType: asset.mediaType,
-    }));
-    runMedia.mockResolvedValue(
-      count === 1
-        ? { kind: "asset", ...results[0] }
-        : { kind: "assets", assets: results },
-    );
-    await openTool();
-    await submit();
-    expect(runMedia).toHaveBeenCalledWith("p", {
-      operation: "ai-cutout",
-      assetIds: ["first"],
-      options: {},
-    });
-    expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(captured.props!.nodes).toHaveLength(2 + count);
-    expect(
-      captured
-        .props!.nodes.filter((node) => node.selected)
-        .map((node) => node.data.assetId),
-    ).toEqual(assets.map((asset) => asset.id));
-    expect(setCenter).toHaveBeenCalledOnce();
-    await act(async () => vi.advanceTimersByTime(400));
-    expect(save.mock.calls.at(-1)![0].nodes).toHaveLength(2 + count);
-  },
-);
+it("creates and submits an image generation node for AI cutout", async () => {
+  await openTool();
+  const node = captured.props!.nodes.find((candidate) => candidate.type === "image" && (candidate.data as { images?: Array<{ nodeId?: string }> }).images?.[0]?.nodeId === "first");
+  expect(node).toMatchObject({
+    type: "image",
+    selected: true,
+    data: {
+      prompt: expect.stringContaining("Remove the background"),
+      images: [{ type: "node", nodeId: "first" }],
+    },
+  });
+  expect(runMedia).not.toHaveBeenCalled();
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(generate).toHaveBeenCalledWith(node!.id);
+  expect(setCenter).toHaveBeenCalledOnce();
+});
 
-it("passes the reordered selection to GIF composition", async () => {
+it.each([
+  ["Compose GIF", "compose-gif", { fps: 8 }],
+  ["Compose video", "compose-video", { fps: 12, format: "mp4" }],
+] as const)("passes the reordered selection to %s", async (label, operation, options) => {
   await act(async () => captured.props!.onNodesChange!(captured.props!.nodes.map((node) => ({ type: "select", id: node.id, selected: true }))));
   runMedia.mockRejectedValue(new Error("Keep order for retry"));
-  await chooseTool("GIF & merging", "Compose GIF");
+  await chooseTool("GIF & merging", label);
+  expect(container.querySelector(".asset-media-frame-heading")?.textContent).toContain("Frame order");
+  expect([...container.querySelectorAll(".asset-media-frame-index")].map((item) => item.textContent)).toEqual(["01", "02"]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Move later"]:not(:disabled)')!.click());
   await submit();
-  expect(runMedia).toHaveBeenCalledWith("p", { operation: "compose-gif", assetIds: ["second", "first"], options: { fps: 8 } });
+  expect(runMedia).toHaveBeenCalledWith("p", { operation, assetIds: ["second", "first"], options });
 });
 
-it("shows processing and failures inside the dialog, and allows retry", async () => {
-  let reject!: (error: Error) => void;
-  runMedia.mockImplementationOnce(
-    () =>
-      new Promise((_resolve, no) => {
-        reject = no;
-      }),
-  );
-  await openTool();
-  await submit();
-  expect(
-    container.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled,
-  ).toBe(true);
-  expect(container.querySelector('[type="submit"]')!.textContent).toContain(
-    "Processing",
-  );
-  await act(async () => reject(new Error("Could not process image")));
-  expect(
-    container.querySelector('[role="dialog"] [role="alert"]')?.textContent,
-  ).toBe("Could not process image");
-  expect(
-    container.querySelector<HTMLButtonElement>('[type="submit"]')!.disabled,
-  ).toBe(false);
-  expect(captured.props!.nodes).toHaveLength(2);
-  const result = outputAsset("retry-result");
-  loadAssets.mockResolvedValue([result]);
-  runMedia.mockResolvedValue({ kind: "asset", assetId: result.id });
-  await submit();
-  expect(container.querySelector('[role="dialog"]')).toBeNull();
-  expect(captured.props!.nodes).toHaveLength(3);
-});
-
-it("enables GIF extraction only for a single GIF node", async () => {
+it("runs GIF extraction immediately for a single GIF node", async () => {
   await act(async () => captured.props!.onNodesChange!([{ type: "add", item: { id: "gif", type: "asset", position: { x: 0, y: 600 }, data: { assetId: "gif", mediaType: "image", contentType: "image/gif" } } }]));
   await select("gif");
+  runMedia.mockRejectedValue(new Error("GIF extraction failed"));
   await chooseTool("GIF & merging", "Extract GIF frames");
-  expect(container.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("Extract GIF frames");
-  runMedia.mockRejectedValue(new Error("Keep dialog open"));
-  await submit();
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
   expect(runMedia).toHaveBeenCalledWith("p", { operation: "extract-gif-frames", assetIds: ["gif"], options: {} });
+  expect(container.textContent).toContain("GIF extraction failed");
 });
 
-it.each([3, 4, 5])("previews and submits the %i by %i grid preset", async (side) => {
+it.each([2, 3, 4, 5])("runs the %i by %i grid preset on selection", async (side) => {
+  runMedia.mockRejectedValue(new Error("Keep selection"));
   await select("first");
   await chooseTool("Grid split", `${side * side} cells (${side} × ${side})`);
-  expect(container.querySelectorAll(".asset-media-grid-line")).toHaveLength((side - 1) * 2);
-  runMedia.mockRejectedValue(new Error("Keep dialog open"));
-  await submit();
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
   expect(runMedia).toHaveBeenCalledWith("p", { operation: "split-image-grid", assetIds: ["first"], options: { columns: side, rows: side, format: "png" } });
 });
 
-it("chooses a custom grid with a highlighted cell picker", async () => {
+it("opens a side picker on hover and runs a custom grid immediately", async () => {
+  runMedia.mockRejectedValue(new Error("Keep selection"));
   await select("first");
-  await chooseTool("Grid split", "Other…");
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Grid split"]')!.click());
+  const other = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Other…")!;
+  other.parentElement!.getBoundingClientRect = () => ({ left: window.innerWidth - 100, right: window.innerWidth, width: 100 }) as DOMRect;
+  await act(async () => other.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+  expect(container.querySelector<HTMLElement>('.asset-grid-submenu[role="menu"]')?.style.left).toBe("-190px");
   const cell = container.querySelector<HTMLButtonElement>('.asset-grid-picker [aria-label="3 × 2"]')!;
   await act(async () => cell.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
   expect(container.querySelectorAll(".asset-grid-picker .is-active")).toHaveLength(6);
   await act(async () => cell.click());
-  const fields = container.querySelectorAll<HTMLInputElement>(".asset-media-tool-grid input");
-  expect([fields[0]?.value, fields[1]?.value]).toEqual(["3", "2"]);
+  expect(container.querySelector('[role="dialog"]')).toBeNull();
+  expect(runMedia).toHaveBeenCalledWith("p", { operation: "split-image-grid", assetIds: ["first"], options: { columns: 3, rows: 2, format: "png" } });
 });
 
 async function cropEditor(width = 250, height = 500) {
@@ -495,6 +445,34 @@ it("places the crop overlay over the image content inside a letterboxed stage", 
   expect(editor.style.top).toBe("0px");
   expect(editor.style.width).toBe("250px");
   expect(editor.style.height).toBe("500px");
+});
+
+it("maps a portrait crop to the image's measured content instead of the stage", async () => {
+  const editor = await cropEditor(400, 500);
+  const stage = editor.parentElement!;
+  Object.defineProperty(stage, "offsetWidth", { value: 400 });
+  stage.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 500 }) as DOMRect;
+  const image = stage.querySelector("img")!;
+  image.getBoundingClientRect = () => ({ left: 100, top: 50, width: 200, height: 400 }) as DOMRect;
+  await act(async () => image.dispatchEvent(new Event("load")));
+  expect(editor.style.left).toBe("100px");
+  expect(editor.style.top).toBe("50px");
+  expect(editor.style.width).toBe("200px");
+  expect(editor.style.height).toBe("400px");
+});
+
+it("starts a new portrait crop anywhere inside the initial full-image selection", async () => {
+  const editor = await cropEditor();
+  const background = editor.querySelector('rect[fill="transparent"]')!;
+  expect(editor.querySelector(".asset-inline-crop-selection")?.getAttribute("pointer-events")).toBe("visibleStroke");
+  await act(async () => {
+    pointer(background, "pointerdown", 35, 70);
+    pointer(editor, "pointermove", 235, 470);
+    pointer(editor, "pointerup", 235, 470);
+  });
+  runMedia.mockRejectedValue(new Error("Retry crop"));
+  await act(async () => container.querySelector<HTMLButtonElement>(".asset-crop-confirm")!.click());
+  expect(runMedia).toHaveBeenCalledWith("p", { operation: "crop-image", assetIds: ["first"], options: { left: 100, top: 200, width: 800, height: 1600, format: "png" } });
 });
 
 it("constrains crop proportions, resizes a corner, and cancels with Escape", async () => {

@@ -10,19 +10,38 @@ Character reference sheet, Quick reskin, Character sequences, and Character acti
 set. Each opens an Asset Canvas board with a visible introduction text node, an
 editable image generator, and a separate image upload node where a reference is
 required. Opening a template does not start generation. The user describes or
-uploads input on the canvas and generates there. Image input panels remain
-visible on template boards, including when the node is not selected.
+uploads input on the canvas and generates there. Image input panels follow the
+same selection behavior as other image nodes.
 
-Introduction nodes carry an `asset-canvas-template:<id>` instruction marker and
-show example art, output guidance, and selectable options. Adding an option
-reuses an untouched starter or creates another independent generator below the
-earlier work. Pixel game assets has ten pixel styles; character sheets and quick
-reskin are separate templates. Quick reskin and the two character sequence modes
-share one image reference per board. Character sequences produce a static 4×3
-action sheet or 3×3 scene grid. Action set has six prepared prompts, each producing
-one static action sheet from the same reference. Model, resolution, aspect ratio,
-and prompt controls stay in the shared image generator. The example art illustrates
-formats rather than guaranteed model output. Existing boards retain their earlier
+Introduction nodes reuse the existing `text` node type, carry an
+`asset-canvas-template:<id>` instruction marker, and show example art and output
+guidance. Character reference sheet, Quick reskin, and Character action set use
+full-width examples. Introduction panels size to their content, including on saved
+boards with an older fixed introduction height, so all guidance is visible without
+extra space below it.
+Pixel game assets opens with one shared
+image reference node and ten separate image nodes, one for each pixel style.
+Each output uses the shared image as its reference. Character sequences opens with separate
+continuous-action and consistent-scene image nodes. Both templates lay out all
+their nodes when the board is created; the examples in the introduction do not
+add nodes. Character sheets and quick reskin are separate templates. Quick reskin
+has separate person and clothing image inputs and a prefilled editable prompt;
+its image model must accept two references. Older quick reskin nodes keep their
+single-image behavior. Pixel art, character sheets, and character sequence
+generators show their complete editable prompt in the node; generation sends
+that prompt as written. Their image references remain linked to the shared
+reference input. The two character sequence modes share one image reference per
+board. Character sequences produce a static 4×3 action sheet or 3×3 scene grid. Action set has six
+prepared prompts, each producing one static action sheet from the same reference.
+New template projects show bundled example images on every image node. Pixel game
+assets, quick reskin, character sequences, and action set use a bundled character
+sheet in their replaceable reference node; quick reskin also includes a clothing
+example. Each output node displays the image matching its preset or action.
+Character sheets have no reference node. Generation only runs when requested and
+an image model is available.
+Model, resolution, aspect ratio, and prompt controls stay in the shared image
+generator. The example art illustrates formats rather than guaranteed model output.
+Existing boards retain their earlier
 `asset-canvas-template:free-image:<style>` markers and can still be read without
 rewriting saved nodes.
 
@@ -177,13 +196,12 @@ board and supports additional boards for separate asset workflows. The main
 home page, below Recent Projects, and the Asset Canvas home show examples for
 Game Assets, Character Sequences, and Character Action Set. Opening one creates a board
 without starting image generation. Each board has a guide and editable
-generation nodes. The Game Assets and Character Sequences guides have scrollable,
-illustrative option cards. Choosing a card configures the blank starter node or
-adds a new generator, preserving earlier prompts and results on the canvas.
-The type is fixed on each template generator; model and size settings remain in
-its form. Game Assets initially selects the general-style four-panel character reference sheet.
-Character Sequences shares a character reference across its continuous-frame and
-consistent-scene generators. The result is
+generation nodes. The Game Assets board lays out ten pixel-style generators,
+and Character Sequences lays out its continuous-frame and consistent-scene
+generators beside a shared character reference. Every node is present when the
+board opens; the guide examples only explain the output formats. Model, size,
+and prompt settings remain in each generator and its form follows normal node
+selection. The result is
 a static image grid that can be split into frames and composed as a GIF. Character
 Action Set uses one reference image across six separate sprite-sheet image nodes.
 These outputs are static images and require an image provider that supports

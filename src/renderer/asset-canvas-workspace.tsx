@@ -1,9 +1,11 @@
 import { CanvasImageCrop } from "./canvas-image-crop.js";
-import { MEDIA_TOOL_GROUPS, isMultiImageOperation } from "../shared/media-tools.js";
-import { CanvasGridPreview, CanvasLayerEditor, CanvasVideoFrameEditor, type CanvasLayerSetting } from "./canvas-media-editors.js";
+import { MEDIA_TOOL_GROUPS, isMultiImageOperation, type CanvasMediaToolbarAction } from "../shared/media-tools.js";
+import { CanvasLayerEditor, CanvasVideoFrameEditor, type CanvasLayerSetting } from "./canvas-media-editors.js";
 import { workspaceVersion } from "./workspace-version.js";
 import { CanvasTableNode, type CanvasTables, type TableNodeRuntime } from "./canvas-table-node.js";
 import {
+  ArrowLeft,
+  ArrowRight,
   ArrowUp,
   Box,
   Check,
@@ -31,10 +33,10 @@ import {
   Upload,
   Undo2,
   WandSparkles,
+  Widget,
   Redo2,
   RotateCcw,
   Scissors,
-  SlidersHorizontal,
   Volume2,
   VolumeX,
   X,
@@ -64,8 +66,7 @@ import { CanvasNodeResizer, CanvasNodeSizeActions, type CanvasNodeResizeRuntime 
 import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
 import { createCanvasClipboard, duplicateAssetCanvasNode, duplicateCanvasSelection, lastCanvasClipboard, parseCanvasClipboard, rememberCanvasClipboard, type CanvasClipboard } from "./asset-canvas-clipboard.js";
 import { AssetCanvasTemplateGuide } from "./asset-canvas-template-guide.js";
-import { createTemplatePresetNode, nextTemplatePresetPosition, templateGuideInfo, templateImagePresets, type AssetCanvasTemplate } from "./asset-canvas-templates.js";
-import type { TemplateGuideRuntime } from "./asset-canvas-template-guide.js";
+import { templateGuideInfo, templateImagePresets, type AssetCanvasTemplate } from "./asset-canvas-templates.js";
 import { clipboardFiles, hasTransferredFiles, pasteNativeFiles, transferredFiles, type TransferredFile } from "./file-transfer.js";
 import { CanvasContextMenu, EditorCanvas, isTextEntry, undoShortcut, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import {
@@ -216,6 +217,7 @@ type AssetCanvasFlowData = {
   documentRuntime?: DocumentNodeRuntime;
   prompt?: string;
   presetId?: CanvasImagePreset;
+  promptExpanded?: boolean;
   materialStyle?: CanvasMaterialStyle;
   sourceInput?: boolean;
   generationMode?: "character-asset" | "continuous-actions" | "all-actions";
@@ -240,6 +242,8 @@ type AssetCanvasFlowData = {
   videoAspectRatio?: VideoAspectRatio;
   duration?: number;
   images?: AssetCanvasReference[];
+  quickReskinMode?: "person-clothing";
+  sourceInputLabel?: string;
   references?: AssetCanvasReference[];
   referenceMode?: "frame" | "reference";
   referenceMentions?: Record<string, AssetCanvasReference>;
@@ -267,7 +271,6 @@ type AssetCanvasFlowData = {
   model3DRuntime?: Model3DNodeRuntime;
   animateRuntime?: Animate3DNodeRuntime;
   textRuntime?: TextNodeRuntime;
-  guideRuntime?: TemplateGuideRuntime;
 };
 type AssetCanvasFlowNode = Node<AssetCanvasFlowData, AssetCanvasNodeType> & { title?: string; description?: string };
 
@@ -456,7 +459,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const rememberedSettings = useRef<RememberedSettings>({});
   const [viewedAsset, setViewedAsset] = useState<ViewableCanvasAsset>();
   const [cropNodeId, setCropNodeId] = useState<string>();
-  const [mediaToolDialog, setMediaToolDialog] = useState<{ operation: CanvasMediaOperation; assetIds: string[]; grid?: MediaGridSize }>();
+  const [mediaToolDialog, setMediaToolDialog] = useState<{ operation: DialogMediaOperation; assetIds: string[] }>();
   const [mediaToolBusy, setMediaToolBusy] = useState(false);
   const [mediaToolError, setMediaToolError] = useState<string>();
   const [sentAsset, setSentAsset] = useState<{ assetId: string; name: string }>();
@@ -1276,13 +1279,61 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     void assetBlob(assetId).then((blob) => downloadAssetBlob(blob, name)).catch((cause) => setNotice({ kind: "action", message: t("assetCanvas.downloadFailed", { error: errorMessage(cause) }) }));
   }
 
-  function openMediaTool(operation: CanvasMediaOperation, grid?: MediaGridSize): void {
+  function openMediaTool(operation: CanvasMediaToolbarAction, grid?: MediaGridSize): void {
     const ids = selectedMediaNodes.map((node) => node.data.assetId!).filter(Boolean);
     if (!ids.length || mediaToolBusy || (isMultiImageOperation(operation) && ids.length < 2) || (operation === "extract-gif-frames" && !selectedImageIsGif)) return;
     setMediaToolError(undefined);
+    if (operation === "ai-image-cutout") {
+      startAiImageCutout();
+      return;
+    }
     if (operation === "crop-image") { setCropNodeId(selectedMediaNodes[0]!.id); return; }
     setCropNodeId(undefined);
-    setMediaToolDialog({ operation, assetIds: isMultiImageOperation(operation) ? ids : ids.slice(0, 1), grid });
+    if (operation === "split-image-grid" || operation === "extract-gif-frames") {
+      void executeMediaTool(operation, ids.slice(0, 1), operation === "split-image-grid" ? { ...grid, format: "png" } : {});
+      return;
+    }
+    setMediaToolDialog({ operation, assetIds: isMultiImageOperation(operation) ? ids : ids.slice(0, 1) });
+  }
+
+  function startAiImageCutout(): void {
+    const source = selectedMediaNodes[0];
+    if (!source?.data.assetId || nodesRef.current.length >= MAX_ASSET_CANVAS_NODES) {
+      setNotice({ kind: "action", message: t("assetCanvas.canvasFull") });
+      return;
+    }
+    const position = snapCanvasPosition({
+      x: source.position.x + (source.measured?.width ?? 440) + 60,
+      y: source.position.y,
+    });
+    const created = createFlowNode("image", position, imageModels, videoModels, defaultTextModel);
+    const configured = applyRememberedSettings(created, rememberedSettings.current.image, {
+      imageModels,
+      defaultImageModel,
+      videoModels,
+      defaultVideoModel,
+      audioModels,
+      model3DModels,
+      defaultModel3D,
+      textModels: textModelCatalog.models,
+    });
+    const node: AssetCanvasFlowNode = {
+      ...configured,
+      selected: true,
+      data: {
+        ...configured.data,
+        prompt: "Remove the background from the referenced image and isolate the main subject. Preserve the subject's appearance, shape, details, colors, proportions, and pose. Generate a clean image with the subject centered on a transparent background.",
+        images: [{ type: "node", nodeId: source.id }],
+      },
+    };
+    flushSync(() => setNodes((current) => [
+      ...current.map((candidate) => ({ ...candidate, selected: false })),
+      node,
+    ]));
+    setSelectedAssetEdgeId(undefined);
+    const flow = flowInstance.current;
+    void flow?.setCenter(node.position.x + 220, node.position.y + 220, { zoom: Math.min(flow.getViewport().zoom, 1), duration: 300 });
+    void generateMedia(node);
   }
 
   async function executeMediaTool(operation: CanvasMediaOperation, assetIds: string[], toolOptions: Record<string, unknown>): Promise<void> {
@@ -1323,7 +1374,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       }
     } catch (error) {
       const message = errorMessage(error);
-      setMediaToolError(message === "Unsupported media operation" ? t("assetCanvas.mediaTools.restartService") : message);
+      const detail = message === "Unsupported media operation" ? t("assetCanvas.mediaTools.restartService") : message;
+      setMediaToolError(detail);
+      if (operation === "split-image-grid" || operation === "extract-gif-frames") setNotice({ kind: "action", message: detail });
     } finally {
       setMediaToolBusy(false);
     }
@@ -1384,7 +1437,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   async function uploadReferenceImages(node: AssetCanvasFlowNode, files: File[]): Promise<void> {
     if ((node.type !== "image" && node.type !== "model-3d") || files.length === 0 || uploadingNodeId) return;
-    const available = (node.type === "image" ? node.data.presetId === "quick-reskin" ? 1 : imageReferenceLimit(node, imageModels) : (nodeModel3D(node, model3DModels)?.maxReferenceImages ?? MODEL_3D_MAX_REFERENCE_IMAGES)) - (node.data.images?.length ?? 0);
+    const available = (node.type === "image" ? node.data.quickReskinMode === "person-clothing" ? 2 : node.data.presetId === "quick-reskin" ? 1 : imageReferenceLimit(node, imageModels) : (nodeModel3D(node, model3DModels)?.maxReferenceImages ?? MODEL_3D_MAX_REFERENCE_IMAGES)) - (node.data.images?.length ?? 0);
     if (available <= 0) {
       setGenerationError({ nodeId: node.id, message: t("assetCanvas.noMoreReferences") });
       return;
@@ -1540,46 +1593,15 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
   const templateBoard = nodes.flatMap((node) => node.type === "text" ? [templateGuideInfo(node.data.instruction)?.template] : []).find((value) => value !== undefined);
-  function selectTemplatePreset(template: Exclude<AssetCanvasTemplate, "action-set">, preset: CanvasImagePreset): void {
-    if (!templateImagePresets(template).includes(preset)) return;
-    const current = nodesRef.current;
-    const outputs = current.filter((node) => node.type === "image" && !node.data.sourceInput);
-    const starter = outputs.length === 1 ? outputs[0] : undefined;
-    const canUseStarter = starter && !starter.data.assetId && !starter.data.prompt?.trim() && !canvasJobs[starter.id];
-    const modelCatalog = template === "free-sequence" || template === "quick-reskin"
-      ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0)
-      : imageModels;
-    const sourceNodeId = template === "free-sequence" || template === "quick-reskin"
-      ? outputs.flatMap((node) => node.data.images ?? []).find((image) => image.type === "node")?.nodeId
-        ?? current.find((node) => node.type === "image" && node.data.sourceInput)?.id
-        ?? current.find((node) => node.type === "asset")?.id
-      : undefined;
-    if (!canUseStarter && current.length >= MAX_ASSET_CANVAS_NODES) {
-      setTransferError(t("assetCanvas.nodeLimit"));
-      return;
-    }
-    const position = canUseStarter ? starter.position : nextTemplatePresetPosition(template, current.map((node) => toAssetCanvasNode(node, model3DModels)));
-    const created = createTemplatePresetNode(template, preset, modelCatalog, position, sourceNodeId);
-    if (canUseStarter) {
-      const replacement = toFlowNode(created, modelCatalog, videoModels);
-      flushSync(() => setNodes((existing) => existing.map((node) => node.id === starter.id
-        ? { ...node, title: replacement.title, selected: true, data: { ...node.data, presetId: preset, model: replacement.data.model, resolution: replacement.data.resolution, aspectRatio: replacement.data.aspectRatio } }
-        : { ...node, selected: false })));
-      void flowInstance.current?.setCenter(position.x + 220, position.y + 260, { zoom: Math.min(flowInstance.current.getViewport().zoom, 1), duration: 300 });
-      return;
-    }
-    const added = { ...toFlowNode(created, modelCatalog, videoModels), selected: true };
-    flushSync(() => setNodes((existing) => [...existing.map((node) => ({ ...node, selected: false })), added]));
-    void flowInstance.current?.setCenter(position.x + 220, position.y + 260, { zoom: Math.min(flowInstance.current.getViewport().zoom, 1), duration: 300 });
-  }
   const renderedNodes = nodes.map((original) => {
     const size = isResizableCanvasNodeType(original.type) ? RESIZABLE_CANVAS_NODE_SIZES[original.type] : undefined;
-    const node = { ...original, ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: original.height ?? size.height } } : {}), data: { ...original.data,
+    const isTemplateGuide = original.type === "text" && Boolean(templateGuideInfo(original.data.instruction));
+    const node = { ...original, ...(isTemplateGuide ? { height: undefined } : {}), ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: isTemplateGuide ? "auto" : original.height ?? size.height } } : {}), data: { ...original.data,
       ...(size ? { resizeRuntime: {
         start: beginHistoryGesture, end: finishHistoryGesture,
         reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id) return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
         ...(original.type === "text" ? { open: () => setExpandedTextId(original.id) } : {}),
-    } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: (templateBoard && original.type === "image") || (original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id)), nodeDetails: {
+    } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
       title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original, model3DModels), documents.documents, libraryAssets, tableContents), description: original.description,
       edit: () => setNodeDetails({ id: original.id, title: original.title ?? "", description: original.description ?? "" }),
     } } };
@@ -1609,10 +1631,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       ...node,
       data: {
           ...node.data,
-        ...(templateGuideInfo(node.data.instruction) ? { guideRuntime: { onAdd: (preset: CanvasImagePreset) => {
-          const template = templateGuideInfo(node.data.instruction)!.template;
-          if (template !== "action-set") selectTemplatePreset(template, preset);
-        } } } : {}),
         textRuntime: {
           ...nodeReferencesRuntime(node),
           models: textModelCatalog.models,
@@ -1764,7 +1782,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const referenceRuntime: ReferenceMediaNodeRuntime = {
       ...runtime,
       references: node.type === "image" ? imageReferenceViews(node, nodes, libraryAssets) : videoReferenceViews(node, nodes, libraryAssets),
-      maxReferences: node.type === "image" ? node.data.presetId === "quick-reskin" ? 1 : imageReferenceLimit(node, imageModels) : videoReferenceLimit(selectedVideoModel(node, videoModels), node.data.referenceMode),
+      maxReferences: node.type === "image" ? node.data.quickReskinMode === "person-clothing" ? Math.min(2, imageReferenceLimit(node, imageModels)) : node.data.presetId === "quick-reskin" ? 1 : imageReferenceLimit(node, imageModels) : videoReferenceLimit(selectedVideoModel(node, videoModels), node.data.referenceMode),
       uploading: uploadingNodeId === node.id,
       accept: "image/png,image/jpeg,image/webp",
       addLabel: node.type === "image" && node.data.presetId === "quick-reskin" ? t("assetCanvasTemplates.quickReskinSource") : t("assetCanvas.addReferences"),
@@ -1785,7 +1803,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       data: node.type === "image"
         ? { ...node.data, imageRuntime: { ...referenceRuntime,
           template: templateBoard,
-          models: node.data.presetId === "quick-reskin" || (templateBoard && (node.data.sourceInput || templateBoard === "action-set" || node.data.presetId === "continuous-sequence" || node.data.presetId === "consistent-sequence")) ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels,
+          models: node.data.quickReskinMode === "person-clothing"
+            ? imageModels.filter((model) => model.supportsReferenceImage && (model.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) >= 2)
+            : node.data.presetId === "quick-reskin" || (templateBoard && (node.data.sourceInput || templateBoard === "pixel-art" || templateBoard === "action-set" || node.data.presetId === "continuous-sequence" || node.data.presetId === "consistent-sequence")) ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels,
+          ...(node.data.quickReskinMode === "person-clothing" ? { slotLabels: [t("assetCanvasTemplates.quickReskinPerson"), t("assetCanvasTemplates.quickReskinClothing")] } : {}),
           providers: imageProviders, onUploadSourceImage: (file) => void uploadSourceImage(node, file), onSetSourceAsset: (asset) => setSourceAsset(node, asset) } satisfies ImageNodeRuntime }
         : { ...node.data, videoRuntime: { ...referenceRuntime, models: videoModels, providers: videoProviders } satisfies VideoNodeRuntime },
     };
@@ -1961,7 +1982,6 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       /> : null}
       {sentAsset ? <SendToProjectDialog assetId={sentAsset.assetId} name={sentAsset.name} onClose={() => setSentAsset(undefined)} /> : null}
       {mediaToolDialog ? <MediaToolDialog
-        grid={mediaToolDialog.grid}
         operation={mediaToolDialog.operation}
         key={mediaToolDialog.operation}
         assetIds={mediaToolDialog.assetIds}
@@ -1989,6 +2009,7 @@ export function canvasHistoryKey(canvas: AssetCanvasDocument): string {
 }
 
 type MediaGridSize = { columns: number; rows: number };
+type DialogMediaOperation = Exclude<CanvasMediaOperation, "crop-image" | "split-image-grid" | "extract-gif-frames">;
 
 function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onOpen }: {
   mediaType: "image" | "video";
@@ -1996,10 +2017,11 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
   isGif: boolean;
   busy: boolean;
   menuBelow: boolean;
-  onOpen: (operation: CanvasMediaOperation, grid?: MediaGridSize) => void;
+  onOpen: (operation: CanvasMediaToolbarAction, grid?: MediaGridSize) => void;
 }) {
   const [openGroup, setOpenGroup] = useState<string>();
   const [customGrid, setCustomGrid] = useState(false);
+  const [gridOffset, setGridOffset] = useState(0);
   const toolbar = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!openGroup) return;
@@ -2016,23 +2038,31 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
       document.removeEventListener("keydown", escape);
     };
   }, [openGroup]);
-  const group = (id: string, label: string, Icon: IconComponent, items: { id: string; label: string; onClick: () => void; disabled?: boolean; keepOpen?: boolean; onHover?: () => void }[], extra?: ReactNode) => <div className={`asset-media-toolbar-group${menuBelow ? " is-below" : ""}`} key={id} onMouseEnter={() => { if (!busy) setOpenGroup(id); }} onMouseLeave={() => setOpenGroup(undefined)}>
+  function revealCustomGrid(element: HTMLElement): void {
+    const rect = element.getBoundingClientRect();
+    const preferred = rect.right + 190 <= window.innerWidth ? rect.width : -190;
+    setGridOffset(Math.max(-rect.left, Math.min(window.innerWidth - 190 - rect.left, preferred)));
+    setCustomGrid(true);
+  }
+  const group = (id: string, label: string, Icon: IconComponent, items: { id: string; label: string; onClick: () => void; disabled?: boolean; title?: string }[], extra?: ReactNode) => <div className={`asset-media-toolbar-group${menuBelow ? " is-below" : ""}`} key={id} onMouseEnter={() => { if (!busy) setOpenGroup(id); }} onMouseLeave={() => { setOpenGroup(undefined); setCustomGrid(false); }}>
     <button className="asset-media-toolbar-button" type="button" disabled={busy} aria-haspopup="menu" aria-expanded={openGroup === id} aria-label={label} onClick={() => setOpenGroup(id)}>
       <Icon size={16} /><span>{label}</span><ChevronDown size={14} />
     </button>
-    {openGroup === id ? <div className={`asset-media-toolbar-menu${menuBelow ? " is-below" : ""}`} role="menu" aria-label={label}>
-      {items.map((item) => <button key={item.id} type="button" role="menuitem" disabled={busy || item.disabled} onMouseEnter={item.onHover} onClick={() => { if (!item.keepOpen) setOpenGroup(undefined); item.onClick(); }}>{item.label}</button>)}
+    {openGroup === id ? <div className={`asset-media-toolbar-menu${menuBelow ? " is-below" : ""}${id === "grid" ? " has-submenu" : ""}`} role="menu" aria-label={label}>
+      {items.map((item) => <button key={item.id} type="button" role="menuitem" title={item.title} disabled={busy || item.disabled} onMouseEnter={() => setCustomGrid(false)} onClick={() => { setOpenGroup(undefined); item.onClick(); }}>{item.label}</button>)}
       {extra}
     </div> : null}
   </div>;
-  const operation = (id: CanvasMediaOperation) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
+  const operation = (id: CanvasMediaToolbarAction) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), title: id === "ai-image-cutout" ? t("assetCanvas.mediaTools.aiImageCutoutHint") : undefined, onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
   return <div ref={toolbar} className="asset-media-toolbar" role="toolbar" aria-label={t("assetCanvas.mediaTools.toolbar") } onPointerDown={(event) => event.stopPropagation()}>
     {mediaType === "image" ? <>
       {MEDIA_TOOL_GROUPS.map((entry) => <Fragment key={entry.id}>
-        {entry.id === "gif-frames" ? group("grid", t("assetCanvas.mediaTools.grid"), Square, [
+        {entry.id === "gif-frames" ? group("grid", t("assetCanvas.mediaTools.grid"), Widget, [
           ...[2, 3, 4, 5].map((side) => ({ id: String(side), label: t("assetCanvas.mediaTools.gridPreset", { count: side * side, columns: side, rows: side }), onClick: () => onOpen("split-image-grid", { columns: side, rows: side }) })),
-          { id: "custom", label: t("assetCanvas.mediaTools.gridCustom"), keepOpen: true, onHover: () => setCustomGrid(true), onClick: () => setCustomGrid(true) },
-        ], customGrid ? <MediaGridPicker onPick={(grid) => { setOpenGroup(undefined); onOpen("split-image-grid", grid); }} /> : undefined) : null}
+        ], <div className="asset-grid-submenu-trigger" onMouseEnter={(event) => revealCustomGrid(event.currentTarget)} onMouseLeave={() => setCustomGrid(false)} onFocus={(event) => revealCustomGrid(event.currentTarget)} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setCustomGrid(false); }}>
+          <button type="button" role="menuitem" aria-haspopup="menu" aria-expanded={customGrid} onClick={(event) => revealCustomGrid(event.currentTarget.parentElement!)}>{t("assetCanvas.mediaTools.gridCustom")}<ChevronRight size={14} /></button>
+          {customGrid ? <div className="asset-grid-submenu" style={{ left: gridOffset }} role="menu" aria-label={t("assetCanvas.mediaTools.gridCustom")}><MediaGridPicker onPick={(grid) => { setOpenGroup(undefined); setCustomGrid(false); onOpen("split-image-grid", grid); }} /></div> : null}
+        </div>) : null}
         {group(entry.id, t(`assetCanvas.mediaTools.${entry.id}`), entry.id === "image-processing" ? Scissors : Film, entry.operations.map(operation))}
       </Fragment>)}
     </> : <>
@@ -2064,7 +2094,7 @@ function MediaCanvasToolbarOverlay({ node, mediaType, imageCount, isGif, busy, o
   imageCount: number;
   isGif: boolean;
   busy: boolean;
-  onOpen: (operation: CanvasMediaOperation, grid?: MediaGridSize) => void;
+  onOpen: (operation: CanvasMediaToolbarAction, grid?: MediaGridSize) => void;
 }) {
   const { y, zoom } = useViewport();
   const toolbar = useRef<HTMLDivElement>(null);
@@ -2087,10 +2117,9 @@ function MediaCanvasToolbarOverlay({ node, mediaType, imageCount, isGif, busy, o
   </NodeToolbar>;
 }
 
-function MediaToolDialog({ operation, assetIds, grid, busy, error, onClose, onSubmit }: {
-  operation: CanvasMediaOperation;
+function MediaToolDialog({ operation, assetIds, busy, error, onClose, onSubmit }: {
+  operation: DialogMediaOperation;
   assetIds: string[];
-  grid?: MediaGridSize;
   busy: boolean;
   error?: string;
   onClose: () => void;
@@ -2098,8 +2127,6 @@ function MediaToolDialog({ operation, assetIds, grid, busy, error, onClose, onSu
 }) {
   const [width, setWidth] = useState("");
   const [height, setHeight] = useState("");
-  const [columns, setColumns] = useState(String(grid?.columns ?? 2));
-  const [rows, setRows] = useState(String(grid?.rows ?? 2));
   const [fps, setFps] = useState(operation === "compose-video" ? "12" : "8");
   const [startTime, setStartTime] = useState("0");
   const [duration, setDuration] = useState("");
@@ -2108,11 +2135,11 @@ function MediaToolDialog({ operation, assetIds, grid, busy, error, onClose, onSu
   const [layers, setLayers] = useState<CanvasLayerSetting[]>(() => assetIds.map((assetId) => ({ assetId, x: 0, y: 0, scale: 1, opacity: 1, visible: true })));
   const [selectedFrames, setSelectedFrames] = useState<number[]>([]);
   const [videoPreviewUnavailable, setVideoPreviewUnavailable] = useState(false);
-  const needsPreview = operation === "split-image-grid" || operation === "compose-image-layers" || operation === "video-frame-strip";
+  const [showVideoRange, setShowVideoRange] = useState(false);
+  const [showFrameSelection, setShowFrameSelection] = useState(false);
+  const needsPreview = operation === "compose-image-layers" || operation === "video-frame-strip";
   const sourcePreview = useWorkspaceAssetUrl(undefined, "", 0, needsPreview ? assetIds[0] : undefined);
   const title = t(`assetCanvas.mediaTools.${operation}`);
-  const videoExtraction = operation === "extract-video-frames" || operation === "video-frame-strip";
-  const hasFormat = operation !== "compose-gif" && operation !== "compose-image-layers" && operation !== "extract-gif-frames" && operation !== "ai-cutout";
   const field = (label: string, value: string, setValue: (value: string) => void, props: { min?: number; max?: number; step?: number; required?: boolean } = {}) => (
     <label><span>{label}</span><input type="number" required={props.required} value={value} min={props.min} max={props.max} step={props.step ?? 1} onChange={(event) => setValue(event.target.value)} /></label>
   );
@@ -2120,51 +2147,127 @@ function MediaToolDialog({ operation, assetIds, grid, busy, error, onClose, onSu
     event.preventDefault();
     const value: Record<string, unknown> = {};
     const number = (raw: string): number | undefined => raw.trim() ? Number(raw) : undefined;
-    if (operation === "split-image-grid") { value.columns = Number(columns); value.rows = Number(rows); value.format = format; }
     if (operation === "compose-image-layers") { value.width = Number(width); value.height = Number(height); value.layers = layers.map(({ x, y, scale, opacity, visible }) => ({ x, y, scale, opacity, visible })); }
-    if (operation === "extract-video-frames" || operation === "video-frame-strip") { value.fps = number(fps); value.startTime = number(startTime); value.duration = number(duration); value.format = format; if (operation === "video-frame-strip" && !videoPreviewUnavailable) value.selectedFrames = selectedFrames; }
+    if (operation === "video-frame-strip") {
+      value.fps = number(fps);
+      value.startTime = showVideoRange ? number(startTime) : 0;
+      value.duration = showVideoRange ? number(duration) : undefined;
+      value.format = format;
+      if (showFrameSelection && !videoPreviewUnavailable) value.selectedFrames = selectedFrames;
+    }
     if (operation === "compose-video") { value.fps = number(fps); value.format = format; }
     if (operation === "compose-gif") value.fps = number(fps);
     onSubmit(value, operation === "compose-image-layers" ? layers.map((layer) => layer.assetId) : orderedIds);
   }
   return <div className="asset-media-tool-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <form className={`asset-media-tool-dialog${operation === "compose-image-layers" || operation === "split-image-grid" || operation === "video-frame-strip" ? " is-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title} onSubmit={submit}>
+    <form className={`asset-media-tool-dialog${operation === "compose-image-layers" || operation === "video-frame-strip" ? " is-wide" : ""}`} role="dialog" aria-modal="true" aria-label={title} onSubmit={submit}>
       <header><div><small>{t("assetCanvas.mediaTools.title")}</small><h2>{title}</h2></div><button type="button" aria-label={t("common.close")} onClick={onClose} disabled={busy}><X size={18} /></button></header>
       <div className="asset-media-tool-body">
-      <p className="asset-media-tool-input-count">{t("assetCanvas.mediaTools.inputCount", { count: assetIds.length })}</p>
-      {operation === "ai-cutout" ? <p className="asset-media-tool-hint">{t("assetCanvas.mediaTools.aiCutoutHint")}</p> : null}
-      {isMultiImageOperation(operation) && operation !== "compose-image-layers" ? <ol className="asset-media-frame-order">{orderedIds.map((id, index) => <MediaToolFrame key={`${id}-${index}`} assetId={id} index={index} count={orderedIds.length} busy={busy} onMove={(delta) => setOrderedIds((current) => { const next = [...current]; const target = index + delta; [next[index], next[target]] = [next[target]!, next[index]!]; return next; })} />)}</ol> : null}
+      {operation === "compose-image-layers" ? <p className="asset-media-tool-input-count">{t("assetCanvas.mediaTools.inputCount", { count: assetIds.length })}</p> : null}
+      {operation === "compose-gif" || operation === "compose-video" ? <>
+        <div className="asset-media-frame-heading"><strong>{t("assetCanvas.mediaTools.frameOrder")}</strong><span>{t("assetCanvas.mediaTools.inputCount", { count: assetIds.length })}</span></div>
+        <ol className="asset-media-frame-order">{orderedIds.map((id, index) => <MediaToolFrame key={`${id}-${index}`} assetId={id} index={index} count={orderedIds.length} busy={busy} onMove={(delta) => setOrderedIds((current) => { const next = [...current]; const target = index + delta; [next[index], next[target]] = [next[target]!, next[index]!]; return next; })} />)}</ol>
+      </> : null}
       {operation === "compose-image-layers" ? <>
         <div className="asset-media-tool-grid">{field(t("assetCanvas.mediaTools.width"), width, setWidth, { min: 1, max: 16384, required: true })}{field(t("assetCanvas.mediaTools.height"), height, setHeight, { min: 1, max: 16384, required: true })}</div>
         <CanvasAssetRecovery preview={sourcePreview} />
         <CanvasLayerEditor layers={layers} onChange={setLayers} width={Number(width)} height={Number(height)} disabled={busy} onFirstSize={(imageWidth, imageHeight) => { setWidth((current) => current || String(imageWidth)); setHeight((current) => current || String(imageHeight)); }} />
       </> : null}
       {operation === "compose-gif" ? field(t("assetCanvas.mediaTools.fps"), fps, setFps, { min: 0.1, max: 120, step: 0.1 }) : null}
-      {operation === "split-image-grid" ? <div className="asset-media-tool-grid">
-        {field(t("assetCanvas.mediaTools.columns"), columns, setColumns, { min: 1, max: 100 })}
-        {field(t("assetCanvas.mediaTools.rows"), rows, setRows, { min: 1, max: 100 })}
-      </div> : null}
-      {operation === "split-image-grid" ? <><CanvasAssetRecovery preview={sourcePreview} /><CanvasGridPreview url={sourcePreview.url} columns={Number(columns)} rows={Number(rows)} /></> : null}
-      {operation === "extract-video-frames" || operation === "video-frame-strip" || operation === "compose-video" ? <div className="asset-media-tool-grid">
+      {operation === "video-frame-strip" ? <>
+        <CanvasAssetRecovery preview={sourcePreview} />
+        <CanvasVideoFrameEditor
+          url={sourcePreview.url}
+          fps={Number(fps)}
+          startTime={showVideoRange ? Number(startTime) : 0}
+          duration={showVideoRange && duration ? Number(duration) : undefined}
+          selected={selectedFrames}
+          showSelection={showFrameSelection}
+          toolbar={
+            <div className="asset-video-frame-controls">
+              <div className="asset-media-tool-compact-settings">
+                <label className="asset-media-tool-compact-field">
+                  <span>{t("assetCanvas.mediaTools.fps")}</span>
+                  <input type="number" required value={fps} min={0.1} max={120} step={0.1} onChange={(event) => setFps(event.target.value)} />
+                </label>
+                <label className="asset-media-tool-compact-field asset-media-tool-format-field">
+                  <span>{t("assetCanvas.mediaTools.format")}</span>
+                  <select value={format} onChange={(event) => setFormat(event.target.value)}>
+                    <option value="png">PNG</option>
+                    <option value="jpg">JPEG</option>
+                  </select>
+                </label>
+              </div>
+              <div className="asset-media-tool-setting">
+                <div className="asset-media-tool-setting-heading">
+                  <strong>{t("assetCanvas.mediaTools.range")}</strong>
+                  <span>{t(showVideoRange ? "assetCanvas.mediaTools.rangeCustomHint" : "assetCanvas.mediaTools.rangeAllHint")}</span>
+                </div>
+                <div className="asset-media-tool-range-row">
+                  <div className="asset-media-tool-segmented" role="radiogroup" aria-label={t("assetCanvas.mediaTools.range")}>
+                    <label className={!showVideoRange ? "is-active" : undefined}>
+                      <input type="radio" name="video-range" value="all" checked={!showVideoRange} onChange={() => setShowVideoRange(false)} disabled={busy} />
+                      <span>{t("assetCanvas.mediaTools.rangeAll")}</span>
+                    </label>
+                    <label className={showVideoRange ? "is-active" : undefined}>
+                      <input type="radio" name="video-range" value="custom" checked={showVideoRange} onChange={() => setShowVideoRange(true)} disabled={busy} />
+                      <span>{t("assetCanvas.mediaTools.rangeCustom")}</span>
+                    </label>
+                  </div>
+                  {showVideoRange ? <div className="asset-media-tool-grid asset-media-tool-range-fields">
+                    {field(t("assetCanvas.mediaTools.start"), startTime, setStartTime, { min: 0, step: 0.1 })}
+                    {field(t("assetCanvas.mediaTools.duration"), duration, setDuration, { min: 0.01, max: 300, step: 0.1, required: true })}
+                  </div> : null}
+                </div>
+              </div>
+            </div>
+          }
+          selectionToolbar={
+            <div className="asset-media-tool-setting asset-media-tool-frame-mode">
+              <div className="asset-media-tool-setting-heading">
+                <strong>{t("assetCanvas.mediaTools.frameSelection")}</strong>
+                <span>{t(showFrameSelection ? "assetCanvas.mediaTools.frameModeSelectedHint" : "assetCanvas.mediaTools.frameModeAllHint")}</span>
+              </div>
+              <div className="asset-media-tool-segmented" role="radiogroup" aria-label={t("assetCanvas.mediaTools.frameSelection")}>
+                <label className={!showFrameSelection ? "is-active" : undefined}>
+                  <input type="radio" name="frame-mode" value="all" checked={!showFrameSelection} onChange={() => setShowFrameSelection(false)} disabled={busy} />
+                  <span>{t("assetCanvas.mediaTools.frameModeAll")}</span>
+                </label>
+                <label className={showFrameSelection ? "is-active" : undefined}>
+                  <input type="radio" name="frame-mode" value="selected" checked={showFrameSelection} onChange={() => setShowFrameSelection(true)} disabled={busy} />
+                  <span>{t("assetCanvas.mediaTools.frameModeSelected")}</span>
+                </label>
+              </div>
+            </div>
+          }
+          onSelected={setSelectedFrames}
+          onPreviewUnavailable={setVideoPreviewUnavailable}
+          disabled={busy}
+        />
+        {videoPreviewUnavailable ? <p className="asset-media-tool-hint">{t("assetCanvas.mediaTools.videoPreviewUnavailable")}</p> : null}
+      </> : null}
+      {operation === "compose-video" ? <div className="asset-media-tool-grid">
         {field(t("assetCanvas.mediaTools.fps"), fps, setFps, { min: 0.1, max: 120, step: 0.1 })}
-        {operation !== "compose-video" ? field(t("assetCanvas.mediaTools.start"), startTime, setStartTime, { min: 0, step: 0.1 }) : null}
-        {operation !== "compose-video" ? field(t("assetCanvas.mediaTools.duration"), duration, setDuration, { min: 0.01, max: 300, step: 0.1 }) : null}
       </div> : null}
-      {operation === "video-frame-strip" ? <><CanvasAssetRecovery preview={sourcePreview} /><CanvasVideoFrameEditor url={sourcePreview.url} fps={Number(fps)} startTime={Number(startTime)} duration={duration ? Number(duration) : undefined} selected={selectedFrames} onSelected={setSelectedFrames} onPreviewUnavailable={setVideoPreviewUnavailable} disabled={busy} />{videoPreviewUnavailable ? <p className="asset-media-tool-hint">{t("assetCanvas.mediaTools.videoPreviewUnavailable")}</p> : null}</> : null}
-      {hasFormat ? <label><span>{t("assetCanvas.mediaTools.format")}</span><select value={format} onChange={(event) => setFormat(event.target.value)}>{operation === "compose-video" ? <option value="mp4">MP4</option> : <><option value="png">PNG</option><option value={videoExtraction ? "jpg" : "jpeg"}>JPEG</option>{!videoExtraction ? <option value="webp">WebP</option> : null}</>}</select></label> : null}
+      {operation === "compose-video" ? <label><span>{t("assetCanvas.mediaTools.format")}</span><select value={format} onChange={(event) => setFormat(event.target.value)}><option value="mp4">MP4</option></select></label> : null}
       {error ? <p className="asset-media-tool-error" role="alert">{error}</p> : null}
       </div>
-      <footer><button type="button" className="asset-media-tool-cancel" onClick={onClose} disabled={busy}>{t("common.cancel")}</button><button type="submit" className="asset-media-tool-submit" disabled={busy || (operation === "video-frame-strip" && !videoPreviewUnavailable && !selectedFrames.length) || (operation === "compose-image-layers" && (!width || !height || layers.every((layer) => !layer.visible)))}>{busy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{t(busy ? "assetCanvas.mediaTools.running" : "assetCanvas.mediaTools.run")}</button></footer>
+      <footer><button type="button" className="asset-media-tool-cancel" onClick={onClose} disabled={busy}>{t("common.cancel")}</button><button type="submit" className="asset-media-tool-submit" disabled={busy || (operation === "video-frame-strip" && showFrameSelection && !videoPreviewUnavailable && !selectedFrames.length) || (operation === "compose-image-layers" && (!width || !height || layers.every((layer) => !layer.visible)))}>{busy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}{t(busy ? "assetCanvas.mediaTools.running" : "assetCanvas.mediaTools.run")}</button></footer>
     </form>
   </div>;
 }
 
 function MediaToolFrame({ assetId, index, count, busy, onMove }: { assetId: string; index: number; count: number; busy: boolean; onMove: (delta: number) => void }) {
   const source = useWorkspaceAssetUrl(undefined, "", 0, assetId);
-  return <li>
-    {source.url ? <img src={source.url} alt="" /> : null}<span>{index + 1}</span>
-    <button type="button" disabled={busy || index === 0} aria-label={t("assetCanvas.mediaTools.moveEarlier")} onClick={() => onMove(-1)}>↑</button>
-    <button type="button" disabled={busy || index === count - 1} aria-label={t("assetCanvas.mediaTools.moveLater")} onClick={() => onMove(1)}>↓</button>
+  return <li className="asset-media-frame-item">
+    <div className="asset-media-frame-thumb">
+      {source.url ? <img src={source.url} alt="" /> : <ImageIcon size={20} aria-hidden="true" />}
+      <span className="asset-media-frame-index">{String(index + 1).padStart(2, "0")}</span>
+    </div>
+    <div className="asset-media-frame-actions">
+      <button type="button" disabled={busy || index === 0} title={t("assetCanvas.mediaTools.moveEarlier")} aria-label={t("assetCanvas.mediaTools.moveEarlier")} onClick={() => onMove(-1)}><ArrowLeft size={14} /></button>
+      <button type="button" disabled={busy || index === count - 1} title={t("assetCanvas.mediaTools.moveLater")} aria-label={t("assetCanvas.mediaTools.moveLater")} onClick={() => onMove(1)}><ArrowRight size={14} /></button>
+    </div>
   </li>;
 }
 
@@ -2174,7 +2277,7 @@ function TextNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data
   if (guide) return <div className="story-node story-text-node asset-template-guide-node">
     <div data-alignment-frame className="story-text-output">
       <CanvasNodeLabel icon={FileText} label={t(`assetCanvasTemplates.${guide.template}.title`)} details={data.nodeDetails} />
-      <AssetCanvasTemplateGuide template={guide.template} runtime={data.guideRuntime} />
+      <AssetCanvasTemplateGuide template={guide.template} />
     </div>
   </div>;
   return (
@@ -2221,6 +2324,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
   const selectedModel = runtime?.models.find((model) => sameImageModel(model, data.model));
   const referenceUnavailable = Boolean(data.images?.length && (
     !selectedModel?.supportsReferenceImage || selectedModel.maxReferenceImages === 0 ||
+    (data.quickReskinMode === "person-clothing" && (selectedModel.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) < 2) ||
     runtime?.references.some((reference) => !reference.assetId)
   ));
   const modelOptions = selectedModel?.generationOptions ?? [];
@@ -2252,7 +2356,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
     runtime.onChange({ ...data, imageRuntime: undefined, resolution: option.resolution, aspectRatio: option.aspectRatio });
   }
 
-  if (data.sourceInput) return <MediaNodeShell kind="image" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={t("assetCanvasTemplates.reference")}>
+  if (data.sourceInput) return <MediaNodeShell kind="image" label={data.sourceInputLabel} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails} emptyHint={data.sourceInputLabel ?? t("assetCanvasTemplates.reference")}>
     <div className="asset-template-source-actions nodrag">
       <input ref={sourceInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => {
         const file = event.target.files?.[0];
@@ -2311,7 +2415,7 @@ function ImageNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
           disabled={!selectedModel || runtime?.busy}
           onChange={selectResolution}
         />
-        <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel || referenceUnavailable || (data.presetId === "quick-reskin" && data.images?.length !== 1)} />
+        <GenerateMediaButton kind="image" assetId={data.assetId} runtime={runtime} disabled={!effectivePrompt(data, runtime).trim() || !selectedModel || referenceUnavailable || (data.quickReskinMode === "person-clothing" ? data.images?.length !== 2 : data.presetId === "quick-reskin" && data.images?.length !== 1)} />
       </div>
     </MediaNodeShell>
   );
@@ -3862,8 +3966,11 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
         : node.data.generationMode === "continuous-actions" ? continuousActionsPrompt(node.data.prompt ?? "")
           : node.data.generationMode === "all-actions" ? allActionsPrompt(node.data.prompt ?? "") : node.data.prompt ?? "",
       ...(node.data.presetId ? { presetId: node.data.presetId } : {}),
+      ...(node.data.promptExpanded ? { promptExpanded: true } : {}),
+      ...(node.data.quickReskinMode ? { quickReskinMode: node.data.quickReskinMode } : {}),
       ...(node.data.materialStyle && node.data.materialStyle !== canvasMaterialStyle(node.data.presetId) ? { materialStyle: node.data.materialStyle } : {}),
       ...(node.data.sourceInput ? { sourceInput: true } : {}),
+      ...(node.data.sourceInputLabel ? { sourceInputLabel: node.data.sourceInputLabel } : {}),
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.model ? { model: modelRef(node.data.model) } : {}),
       resolution: node.data.resolution ?? DEFAULT_IMAGE_NODE_CONFIG.resolution,

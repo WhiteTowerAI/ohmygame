@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ImgHTMLAttributes } from "react";
+import { useEffect, useRef, useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "./icons.js";
 import { t } from "./i18n.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
@@ -236,51 +236,15 @@ export function CanvasLayerEditor({
   );
 }
 
-export function CanvasGridPreview({
-  url,
-  columns,
-  rows,
-}: {
-  url?: string;
-  columns: number;
-  rows: number;
-}) {
-  if (
-    !url ||
-    !Number.isInteger(columns) ||
-    !Number.isInteger(rows) ||
-    columns < 1 ||
-    rows < 1 ||
-    columns * rows > 1000
-  )
-    return null;
-  return (
-    <div className="asset-media-source-preview">
-      <img src={url} alt="" />
-      {Array.from({ length: columns - 1 }, (_, index) => (
-        <span
-          key={`c${index}`}
-          className="asset-media-grid-line is-column"
-          style={{ left: `${((index + 1) * 100) / columns}%` }}
-        />
-      ))}
-      {Array.from({ length: rows - 1 }, (_, index) => (
-        <span
-          key={`r${index}`}
-          className="asset-media-grid-line is-row"
-          style={{ top: `${((index + 1) * 100) / rows}%` }}
-        />
-      ))}
-    </div>
-  );
-}
-
 export function CanvasVideoFrameEditor({
   url,
   fps,
   startTime,
   duration,
   selected,
+  showSelection,
+  toolbar,
+  selectionToolbar,
   onSelected,
   onPreviewUnavailable,
   disabled,
@@ -290,6 +254,9 @@ export function CanvasVideoFrameEditor({
   startTime: number;
   duration?: number;
   selected: number[];
+  showSelection: boolean;
+  toolbar?: ReactNode;
+  selectionToolbar?: ReactNode;
   onSelected: (selected: number[]) => void;
   onPreviewUnavailable: (unavailable: boolean) => void;
   disabled: boolean;
@@ -348,7 +315,9 @@ export function CanvasVideoFrameEditor({
           }
         />
       ) : null}
-      {count ? (
+      {toolbar}
+      {selectionToolbar}
+      {count && showSelection ? (
         <>
           <div className="asset-video-frame-actions">
             <span>

@@ -85,11 +85,13 @@ import {
   VolumeLoudIcon,
   WiFiIcon,
   WiFiOffIcon,
+  WidgetIcon,
 } from "@solar-icons/react/linear";
 import type { Icon as SolarIcon, IconProps } from "@solar-icons/react/lib/types";
 import { createElement, forwardRef } from "react";
 
 export type IconComponent = SolarIcon;
+export const Widget = WidgetIcon;
 
 export const Check = forwardRef<SVGSVGElement, IconProps>(function Check({ size = 24, ...props }, ref) {
   return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M5 12.5L9.2 16.5L19 7", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));

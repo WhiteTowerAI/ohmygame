@@ -351,30 +351,11 @@ describe("agent tools", () => {
     await runner.load();
     const tools = createAgentTools(project, runner, projects);
     expect(tools.map(({ name }) => name)).toEqual(expect.arrayContaining([
-      "remove_green_screen", "remove_blue_screen", "remove_white_background", "resize_image", "outline_image", "crop_image", "cutout_image", "brush_retouch_image", "extract_gif_frames", "compose_gif", "sort_frames", "stitch_images", "image_grid_split", "video_extract_frames", "video_frame_strip", "video_compose_frames",
+      "crop_image", "extract_gif_frames", "compose_gif", "image_grid_split", "video_frame_strip", "video_compose_frames",
     ]));
 
     const source = await sharp({ create: { width: 4, height: 4, channels: 4, background: "red" } }).png().toBuffer();
     await projects.addGeneratedAsset(project.id, "source.png", source);
-    const edit = tools.find(({ name }) => name === "resize_image");
-    if (!edit) throw new Error("Expected resize_image");
-    const result = await edit.execute("media-edit", { sourcePath: "assets/generated/source.png", width: 8, height: 8 }, undefined, undefined, {} as never);
-    const text = result.content[0]?.type === "text" ? result.content[0].text : "";
-    const relativePath = text.replace("Saved ", "");
-    expect(await readFile(path.join(project.workspacePath, relativePath))).not.toHaveLength(0);
-    expect(result.details).toMatchObject({ artifact: { type: "image", mediaType: "image/png" } });
-
-    const sort = tools.find(({ name }) => name === "sort_frames");
-    if (!sort) throw new Error("Expected sort_frames");
-    const sorted = await sort.execute("media-sort", { framePaths: [relativePath, "assets/generated/source.png"] }, undefined, undefined, {} as never);
-    const sortedText = sorted.content[0]?.type === "text" ? sorted.content[0].text : "";
-    const sortedPaths = sortedText.split("\n").map((line) => line.replace("Saved ", ""));
-    expect(sortedPaths).toEqual([...sortedPaths].sort());
-    expect(sortedPaths[0]).toMatch(/-frame-0000\.png$/);
-    expect(sortedPaths[1]).toMatch(/-frame-0001\.png$/);
-    const sizes = await Promise.all(sortedPaths.map((file) => sharp(path.join(project.workspacePath, file)).metadata()));
-    expect(sizes.map(({ width, height }) => [width, height])).toEqual([[8, 8], [4, 4]]);
-
     const split = tools.find(({ name }) => name === "image_grid_split");
     if (!split) throw new Error("Expected image_grid_split");
     const splitResult = await split.execute("media-split", { sourcePath: "assets/generated/source.png", columns: 1, rows: 1 }, undefined, undefined, {} as never);
