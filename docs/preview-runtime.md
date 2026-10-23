@@ -32,6 +32,9 @@ Static directory index pages redirect to a trailing-slash URL while preserving
 the query string, so relative scripts and other assets resolve from that directory.
 Directories without an index return 404; missing extensionless application routes
 can still fall back to the root `index.html` when the request accepts HTML.
+Static file media types are matched without regard to extension case, so module
+scripts, stylesheets and WebAssembly also load with names such as `main.JS`,
+`style.CsS` and `game.WASM`. This does not change filesystem path matching.
 Static files support byte ranges on GET for media seeking. HEAD ignores Range
 and returns the complete file's headers without a response body.
 
