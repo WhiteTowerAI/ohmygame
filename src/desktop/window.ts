@@ -143,15 +143,11 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
   return window;
 }
 
-function withoutHash(value: string): string {
-  const url = new URL(value);
-  url.hash = "";
-  return url.href;
-}
-
 function isRendererPage(value: string, rendererTarget: string): boolean {
   try {
-    return withoutHash(value) === rendererTarget;
+    const url = new URL(value);
+    url.hash = "";
+    return url.href === rendererTarget;
   } catch {
     return false;
   }
