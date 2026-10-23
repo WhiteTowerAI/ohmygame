@@ -272,9 +272,9 @@ it("loads moves only when a picker opens and retries errors using legacy native 
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
 
-it("shows Tripo's real preset names without placeholder preview cards and preserves selection order", async () => {
+it.each(["v2.5-20260210", "v3.0-20260909"] as const)("shows Tripo %s preset names and preserves selection order", async (rigModel) => {
   const tripo = MODEL_3D_MODELS.find((model) => model.provider === "tripo")!;
-  const options = { rigModel: "v2.5-20260210" as const, rigType: "biped" as const };
+  const options = { rigModel, rigType: "biped" as const };
   api.model3DOperations.mockResolvedValue([{ ...tripo, id: MODEL3D_CONNECTION_ID, name: "Tripo", operations: ["animate"] }]);
   api.animationActions.mockResolvedValue(tripoActions(options.rigModel, options.rigType));
   boardDisk.board.nodes = [{ id: "tripo", type: "animate-3d", title: "Original", position: { x: 0, y: 0 },
@@ -293,6 +293,15 @@ it("shows Tripo's real preset names without placeholder preview cards and preser
   expect([...dialog.querySelectorAll(".story-animation-picker-selected button")].map((button) => button.textContent)).toEqual(["Walk", "Idle"]);
   expect(captured.props!.nodes[0]!.data.actionIds).toEqual(["preset:walk", "preset:idle"]);
   expect(api.balance).not.toHaveBeenCalled();
+  if (rigModel === "v2.5-20260210") {
+    await act(async () => (dialog.querySelector('[aria-label="Close move picker"]') as HTMLButtonElement).click());
+    await act(async () => (container.querySelector('[aria-label="Rig version: Creature v2.5"]') as HTMLButtonElement).click());
+    const v3 = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((button) => button.textContent === "Rig v3")!;
+    expect(v3).toBeDefined();
+    await act(async () => v3.click());
+    expect(captured.props!.nodes[0]!.data).toMatchObject({ actionIds: [], model3DOptions: { rigModel: "v3.0-20260909", rigType: "biped" } });
+    expect(container.querySelector('[aria-label="Rig version: Rig v3"]')).not.toBeNull();
+  }
 });
 
 it("keeps Meshy's supplied visual previews in the move picker", async () => {

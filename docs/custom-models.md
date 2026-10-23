@@ -239,11 +239,12 @@ Changing defaults affects newly created nodes and requests without an explicit m
 
 ## Native 3D catalog updates
 
-Official presets were checked against public documentation on 2026-10-10. Meshy
-includes T2, 7.1, 7 (deprecated), 6, 6 Lite, and the `latest` alias. Tripo includes
+Official presets were checked against public documentation on 2026-10-23. Meshy
+includes T2, T2.5, 7.1, 7 (deprecated), 6, 6 Lite, and the `latest` alias. Tripo includes
 `P1-20260311`, `P2-20260801` (preview), `v3.1-20260211`, `v3.0-20250812`, and
 `v2.5-20250123`. Hyper3D includes ten Rodin tiers. Preview/deprecated entries
 remain labeled, and listing a version does not verify the key's entitlement.
+See [3D workflows](3d-providers.md) for generation limits and operation versions.
 
 None of these providers documents a generation-model listing API. **Reload**
 reloads the app's bundled presets and, for the unified Hyper3D page, refreshes the
