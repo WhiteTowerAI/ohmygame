@@ -4158,6 +4158,38 @@ button.home-nav-item-active:hover {
   color: var(--text);
   cursor: pointer;
 }
+.projects-import-region {
+  position: relative;
+  min-height: calc(100dvh - 80px);
+}
+.projects-drop-overlay {
+  position: absolute;
+  inset: 8px 0 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  border: 1px dashed var(--theme-accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--text);
+  font-size: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+.projects-drop-message {
+  position: sticky;
+  top: 50dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transform: translateY(-50%);
+}
+.projects-drop-overlay svg {
+  color: var(--theme-accent);
+}
 .projects-notice {
   margin: 12px 0 0;
   color: var(--danger);
@@ -12749,11 +12781,11 @@ button {
   opacity: 0.42;
 }
 
-.icon-button[data-tooltip] {
+[data-tooltip] {
   position: relative;
 }
 
-.icon-button[data-tooltip]::after {
+[data-tooltip]::after {
   position: absolute;
   z-index: 100;
   top: calc(100% + 8px);
@@ -12775,7 +12807,7 @@ button {
   content: attr(data-tooltip);
 }
 
-.icon-button[data-tooltip]:is(:hover, :focus-visible)::after {
+[data-tooltip]:is(:hover, :focus-visible)::after {
   visibility: visible;
   opacity: 1;
 }
