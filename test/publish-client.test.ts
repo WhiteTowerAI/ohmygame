@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { getGlobalDispatcher, type Dispatcher } from "undici/index.js";
@@ -65,6 +68,99 @@ describe("Publish v1 client contract", () => {
     await publisher.publish({ ...project(), publication: { gameId: "game-1", deploymentId: "deployment-old", playUrl: "https://play.example", publishedAt: new Date(0).toISOString() } }, Buffer.from("zip"), "token", { title: "Updated" });
     expect(requests.some(request => request.url.endsWith("/listing"))).toBe(false);
     expect(requests.map(request => request.method)).toEqual(["GET", "PUT", "POST"]);
+  });
+
+  it("persists one anonymous credential across restarts and renews it after account merge", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-community-visitor-"));
+    try {
+      const visitorTokenFile = path.join(directory, "visitor.json");
+      let sessions = 0;
+      let retired = false;
+      const requests: Request[] = [];
+      const fetcher: typeof fetch = async (input, init) => {
+        const request = new Request(input, init);
+        requests.push(request);
+        if (request.url.endsWith("/v1/community/visitor")) return Response.json({ visitorToken: `visitor-${++sessions}` });
+        if (request.url.endsWith("/v1/community/visitor/merge")) { retired = true; return new Response(null, { status: 204 }); }
+        const visitor = request.headers.get("x-community-visitor");
+        if (retired && visitor === "visitor-1") return Response.json({ error: { code: "visitor_invalid", message: "Expired" } }, { status: 401 });
+        if (request.method === "PUT") return Response.json({ viewCount: 3, likeCount: 1, liked: true });
+        return Response.json([]);
+      };
+      const options = { apiUrl: "https://cloud.example", fetch: fetcher, visitorTokenFile };
+      const publisher = new RemotePublisher(options);
+      await Promise.all([publisher.community(true), publisher.community(true)]);
+      expect(sessions).toBe(0);
+      await Promise.all([publisher.setLike("game-1", undefined, true), publisher.setLike("game-1", undefined, true)]);
+      expect(sessions).toBe(1);
+      expect(JSON.parse(await readFile(visitorTokenFile, "utf8"))).toEqual({ apiUrl: options.apiUrl, visitorToken: "visitor-1" });
+      if (process.platform !== "win32") expect((await stat(visitorTokenFile)).mode & 0o777).toBe(0o600);
+      const restarted = new RemotePublisher(options);
+      await restarted.setLike("game-1", undefined, true);
+      expect(sessions).toBe(1);
+      expect(requests.at(-1)?.headers.get("authorization")).toBeNull();
+      await restarted.community(true, "account-token");
+      expect(requests.at(-1)?.headers.get("authorization")).toBe("Bearer account-token");
+      expect(requests.at(-1)?.headers.get("x-community-visitor")).toBeNull();
+      expect(requests.find(request => request.url.endsWith("/merge"))?.headers.get("x-community-visitor")).toBe("visitor-1");
+      await expect(readFile(visitorTokenFile)).rejects.toMatchObject({ code: "ENOENT" });
+      await restarted.community(true);
+      expect(sessions).toBe(1);
+      await restarted.setLike("game-1", undefined, true);
+      expect(sessions).toBe(2);
+      expect(requests.at(-1)?.headers.get("x-community-visitor")).toBe("visitor-2");
+      await new RemotePublisher({ ...options, apiUrl: "https://another-cloud.example" }).setLike("game-1", undefined, true);
+      expect(sessions).toBe(3);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  it.each([429, 502, 503])("reads the public catalog without issuing a visitor when issuance would return %s", async (status) => {
+    const requests: string[] = [];
+    const publisher = new RemotePublisher({ apiUrl: "https://cloud.example", fetch: async (input) => {
+      requests.push(String(input));
+      return String(input).endsWith("/visitor") ? Response.json({ error: { code: "unavailable", message: "Unavailable" } }, { status }) : Response.json([]);
+    } });
+    await expect(publisher.community(true)).resolves.toEqual([]);
+    expect(requests).toEqual(["https://cloud.example/v1/community/games?metrics=true"]);
+  });
+
+  it("drops an expired visitor for public reads and renews it only for a mutation", async () => {
+    let sessions = 0;
+    const publisher = new RemotePublisher({ apiUrl: "https://cloud.example", fetch: async (input, init) => {
+      if (String(input).endsWith("/visitor")) return Response.json({ visitorToken: `visitor-${++sessions}` });
+      if (init?.method !== "PUT" && new Headers(init?.headers).has("x-community-visitor")) return Response.json({ error: { code: "visitor_invalid", message: "Expired" } }, { status: 401 });
+      return Response.json(init?.method === "PUT" ? { viewCount: 0, likeCount: 1, liked: true } : []);
+    } });
+    await publisher.setLike("game", undefined, true);
+    await expect(publisher.community(true)).resolves.toEqual([]);
+    expect(sessions).toBe(1);
+    await publisher.setLike("game", undefined, true);
+    expect(sessions).toBe(2);
+  });
+
+  it("preserves pending likes on a failed merge, keeps reads available, and acknowledges one concurrent merge", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-merge-retry-"));
+    try {
+      const visitorTokenFile = path.join(directory, "visitor.json");
+      let limited = true;
+      let merges = 0;
+      const publisher = new RemotePublisher({ apiUrl: "https://cloud.example", visitorTokenFile, fetch: async (input, init) => {
+        if (String(input).endsWith("/visitor")) return Response.json({ visitorToken: "visitor-1" });
+        if (String(input).endsWith("/merge")) {
+          merges++;
+          return limited ? Response.json({ error: { code: "rate_limited", message: "Limited" } }, { status: 429 }) : new Response(null, { status: 204 });
+        }
+        return Response.json(init?.method === "PUT" ? { viewCount: 0, likeCount: 1, liked: true } : []);
+      } });
+      await publisher.setLike("game", undefined, true);
+      await expect(publisher.community(true, "account")).resolves.toEqual([]);
+      await expect(publisher.myGames("account")).resolves.toEqual([]);
+      expect(JSON.parse(await readFile(visitorTokenFile, "utf8")).visitorToken).toBe("visitor-1");
+      limited = false;
+      await Promise.all([publisher.community(true, "account"), publisher.community(true, "account")]);
+      expect(merges).toBe(3); // Two failed reads, one shared successful attempt.
+      await expect(readFile(visitorTokenFile)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
   it("keeps API errors typed at the desktop boundary", async () => {

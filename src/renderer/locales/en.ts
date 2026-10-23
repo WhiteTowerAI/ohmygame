@@ -1095,6 +1095,8 @@ const en = {
     views_other: "{{count, number}} views",
     viewCountUnavailable: "View count unavailable",
     likeGame: "Like {{title}}",
+    likeRateLimited: "You’re liking games too quickly. Please try again in a minute.",
+    likeUnavailable: "Likes are temporarily unavailable. Please try again later.",
     unlikeGame: "Unlike {{title}}",
     likes_one: "{{count, number}} like",
     likes_other: "{{count, number}} likes",

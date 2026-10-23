@@ -24,6 +24,8 @@ const createPublishApp = existsSync(publishServerModule) && existsSync(publishSe
       createPublishApp: (options: {
         dataDirectory: string;
         playOrigin?: string;
+        communityVisitors?: { visitorSecret: string };
+        playMetrics?: { secret: string };
         verifyPublisherToken: (token: string) => Promise<string | undefined>;
       }) => FastifyInstance;
     }).createPublishApp
@@ -381,6 +383,31 @@ describePublishContract("remote publish", () => {
     );
   });
 
+  it("likes anonymously through the daemon, restores its credential after restart, and merges at sign-in", async () => {
+    const dataDirectory = await temporary("ohmygame-anonymous-daemon-");
+    const runtime = await testRuntime(dataDirectory);
+    const project = await createProject(runtime.daemon, "Anonymous likes");
+    await writeFile(path.join(project.workspacePath, "index.html"), "Game");
+    const published = (await publishProject(runtime.daemon, project.id)).json();
+    const gameId = published.game.id;
+    const like = (app: FastifyInstance, liked: boolean, accessToken?: string) => app.inject({ method: "PUT", url: `/community/games/${gameId}/like`, payload: { liked, ...(accessToken ? { accessToken } : {}) } });
+    expect((await like(runtime.daemon, true)).json()).toMatchObject({ likeCount: 1, liked: true });
+    expect((await like(runtime.daemon, true)).json()).toMatchObject({ likeCount: 1 });
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games?metrics=true" })).json()[0].stats.liked).toBe(true);
+    await runtime.daemon.close();
+    const restarted = createApp({ dataDirectory, publishApiUrl: runtime.apiUrl });
+    apps.push(restarted);
+    expect((await restarted.inject({ method: "GET", url: "/community/games?metrics=true" })).json()[0].stats.liked).toBe(true);
+    expect((await like(restarted, false)).json()).toMatchObject({ likeCount: 0, liked: false });
+    await like(restarted, true);
+    const headers = { "x-publish-access-token": token };
+    expect((await restarted.inject({ method: "GET", url: "/community/games?metrics=true", headers })).json()[0].stats).toMatchObject({ likeCount: 1, liked: true });
+    expect((await restarted.inject({ method: "GET", url: "/community/games?metrics=true" })).json()[0].stats).toMatchObject({ likeCount: 1 });
+    expect((await restarted.inject({ method: "GET", url: "/community/games?metrics=true" })).json()[0].stats.liked).not.toBe(true);
+    expect((await like(restarted, false)).json()).toMatchObject({ likeCount: 1, liked: false });
+    expect((await like(restarted, false, token)).json()).toMatchObject({ likeCount: 0, liked: false });
+  });
+
   it("unpublishes remote works without deleting local files and can publish the same artifact again", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Managed game");
@@ -395,8 +422,8 @@ describePublishContract("remote publish", () => {
     expect((await open()).statusCode).toBe(200);
     expect((await runtime.daemon.inject({ method: "POST", url: `/community/games/${first.game.id}/view`, payload: {} })).statusCode).toBe(404);
     const like = await runtime.daemon.inject({ method: "PUT", url: `/community/games/${first.game.id}/like`, payload: { accessToken: token, liked: true } });
-    expect(like.json()).toMatchObject({ viewCount: 2, likeCount: 1, liked: true });
-    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games?metrics=true", headers })).json()[0].stats).toMatchObject({ viewCount: 2, likeCount: 1, liked: true });
+    expect(like.json()).toMatchObject({ viewCount: 1, likeCount: 1, liked: true });
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games?metrics=true", headers })).json()[0].stats).toMatchObject({ viewCount: 1, likeCount: 1, liked: true });
 
     expect((await runtime.daemon.inject({ method: "PUT", url: `/community/games/${first.game.id}`, payload: { accessToken: token, title: "Edited title", description: "Edited description" } })).statusCode).toBe(200);
     expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication).toMatchObject({ title: "Edited title", description: "Edited description" });
@@ -543,6 +570,8 @@ async function writePublishableGraph(workspacePath: string, clipAssetId?: string
 async function testRuntime(dataDirectory = undefined as string | undefined, publishFetch?: typeof fetch, imageGenerator?: ImageGenerator) {
   const publishData = await temporary("ohmygame-publish-server-");
   const publishServer = createPublishApp!({
+    playMetrics: { secret: "test-only-play-metrics-secret-at-least-32" },
+    communityVisitors: { visitorSecret: "test-only-community-secret-at-least-32-characters" },
     dataDirectory: publishData,
     playOrigin: "http://localhost:43130",
     verifyPublisherToken: async (value) => value === token ? "publisher" : undefined,

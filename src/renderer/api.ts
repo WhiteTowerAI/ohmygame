@@ -634,7 +634,7 @@ export function getMyCommunityGames(accessToken: string): Promise<CommunityProfi
   return request("/community/me/games", { headers: communityHeaders(accessToken) });
 }
 
-export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
+export function setCommunityLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
 }
 

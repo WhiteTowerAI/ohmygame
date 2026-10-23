@@ -1075,6 +1075,8 @@ const zhCN: typeof en = {
     views_other: "{{count, number}} 次浏览",
     viewCountUnavailable: "浏览量暂不可用",
     likeGame: "点赞 {{title}}",
+    likeRateLimited: "点赞操作太频繁，请稍等一分钟再试。",
+    likeUnavailable: "点赞暂时不可用，请稍后重试。",
     unlikeGame: "取消点赞 {{title}}",
     likes_one: "{{count, number}} 次点赞",
     likes_other: "{{count, number}} 次点赞",
