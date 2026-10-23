@@ -3,6 +3,9 @@ import type {
   RuntimeEvent,
   ThreadItem,
 } from "../shared/contracts.js";
+import { createLogRedactor } from "../shared/log-redaction.js";
+
+const redact = createLogRedactor();
 
 const MAX_DETAIL_LENGTH = 1_000;
 /** The end of a failed preview's output, where the error usually is. */
@@ -159,7 +162,10 @@ export class ActivityLog {
         ...(item.type === "mcpToolCall" && item.server
           ? { server: item.server }
           : {}),
-        error: (item.output ?? "").slice(-MAX_TOOL_ERROR),
+        error: redact(item.output ?? "", {
+          maxLength: MAX_TOOL_ERROR,
+          tail: true,
+        }),
       },
       "Agent tool failed",
     );
@@ -185,7 +191,12 @@ export class ActivityLog {
         ...(preview.phase ? { phase: preview.phase } : {}),
         error: truncate(preview.error ?? ""),
         ...(preview.logs
-          ? { output: preview.logs.slice(-MAX_PREVIEW_OUTPUT) }
+          ? {
+              output: redact(preview.logs, {
+                maxLength: MAX_PREVIEW_OUTPUT,
+                tail: true,
+              }),
+            }
           : {}),
       },
       "Preview failed",
@@ -198,7 +209,8 @@ function turnKey(event: RuntimeEvent): string {
 }
 
 function truncate(text: string): string {
-  return text.length > MAX_DETAIL_LENGTH
-    ? `${text.slice(0, MAX_DETAIL_LENGTH)}…`
-    : text;
+  const redacted = redact(text, { maxLength: MAX_DETAIL_LENGTH + 1 });
+  return redacted.length > MAX_DETAIL_LENGTH
+    ? `${redacted.slice(0, MAX_DETAIL_LENGTH)}…`
+    : redacted;
 }

@@ -44,6 +44,20 @@ async function waitForJob(store: CanvasStore, projectId: string) {
   return (await store.jobs(projectId))[0]!;
 }
 describe("Markdown design workspace", () => {
+  it("logs Canvas preparation failures once and preserves the error when logging fails", async () => {
+    const failure = new ImageGenerationError("Provider is disabled", 400);
+    const resolve = vi.fn().mockRejectedValueOnce(failure).mockImplementation(async (_tool, input) => input);
+    const { store, tools, project, boardId, node } = await runtime(fakeGenerator, "asset-canvas", resolve);
+    const info = vi.fn(), warn = vi.fn(() => { throw new Error("Logger failed"); });
+    tools.setLogger({ info, warn });
+    await expect(store.generateNode(project.id, boardId, node.id)).rejects.toBe(failure);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: project.id, toolId: "generate-image", error: failure.message }), "Generation failed");
+    expect(info).not.toHaveBeenCalled();
+    await store.generateNode(project.id, boardId, node.id);
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    expect(info).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: project.id, toolId: "generate-image" }), "Generation succeeded");
+    expect(warn).toHaveBeenCalledOnce();
+  });
   it("persists node sizes in layout files and merges resizing with content edits", async () => {
     const { store, project, boardId } = await runtime();
     const detail = await store.board(project.id, boardId);

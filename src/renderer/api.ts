@@ -710,8 +710,10 @@ export async function publishProject(projectId: string, accessToken: string, met
  * with the logs and the service's status.
  */
 export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: string }> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
   try {
-    const response = await fetch(apiUrl("/diagnostics/export"), { method: "POST", headers: runtimeHeaders() });
+    const response = await fetch(apiUrl("/diagnostics/export"), { method: "POST", headers: runtimeHeaders(), signal: controller.signal });
     if (!response.ok) throw await responseError(response);
     const fileName = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1];
     return { blob: await response.blob(), fileName: fileName ?? diagnosticsFileName(new Date()) };
@@ -720,6 +722,8 @@ export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: strin
     if (!desktopExport) throw cause;
     const bytes = await desktopExport();
     return { blob: new Blob([bytes], { type: "application/zip" }), fileName: diagnosticsFileName(new Date()) };
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 

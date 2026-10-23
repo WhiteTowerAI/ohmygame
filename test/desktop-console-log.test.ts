@@ -24,8 +24,7 @@ it("copies each console line to the log and still writes to the console", () => 
 
   expect(lines).toEqual([
     "[warn] Could not configure session proxy { code: 'EPERM' }",
-    "[error] first",
-    "[error] second",
+    "[error] first\n[error] second",
   ]);
   expect(warn).toHaveBeenCalledWith("Could not configure session proxy", {
     code: "EPERM",
@@ -71,8 +70,7 @@ it("records uncaught errors with their stack", () => {
   listeners.get("uncaughtExceptionMonitor")!(error, "uncaughtException");
 
   expect(lines).toEqual([
-    "[fatal] uncaughtException: Error: Cannot read properties of undefined",
-    "[fatal]     at openMainWindow (main.js:1:1)",
+    "[fatal] uncaughtException: Error: Cannot read properties of undefined\n[fatal]     at openMainWindow (main.js:1:1)",
   ]);
 });
 

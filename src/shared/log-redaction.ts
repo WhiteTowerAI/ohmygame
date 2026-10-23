@@ -9,6 +9,11 @@ export const OMITTED_LOG_TEXT = "[diagnostic text omitted: too long]";
 const SENSITIVE_FIELD =
   /^(?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|authorization|password|secret|cookie)$/i;
 
+interface LogTextOptions {
+  maxLength?: number;
+  tail?: boolean;
+}
+
 /**
  * Removes keys, tokens and URL credentials and queries from a log line, and
  * shows the home folder as `~` so a shared log does not carry the account name.
@@ -16,7 +21,7 @@ const SENSITIVE_FIELD =
 export function createLogRedactor(
   home = os.homedir(),
   platform: NodeJS.Platform = process.platform,
-): (line: string) => string {
+): (line: string, options?: LogTextOptions) => string {
   const homePattern = homeFolderPattern(home, platform);
   const redact = (line: string, depth = 0): string => {
     // Do not cut a serialized string before decoding it: a cut can hide its
@@ -52,10 +57,27 @@ export function createLogRedactor(
         return literal;
       }
     });
-    const text = sanitizeDiagnosticText(decoded, MAX_LOG_LINE_LENGTH) ?? "";
+    // Node's console formatter uses single quotes (or backticks) for object
+    // values. Keep spaces, separators and escaped quotes inside the value.
+    const quoted = decoded.replace(
+      /(\b(?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|authorization|password|secret|cookie)["']?\s*[:=]\s*)(["'`])(?:\\[\s\S]?|(?!\2)[^\\])*(?:\2|$)/gi,
+      (_entry, field: string, quote: string) =>
+        `${field}${quote}[redacted]${quote}`,
+    );
+    // An unquoted Cookie header may contain multiple credentials separated
+    // by semicolons. None of that header's remainder is safe to keep.
+    const cookies = quoted.replace(
+      /(\bcookie["']?\s*[:=]\s*)(?!\s*["'`])[^\r\n]+/gi,
+      "$1[redacted]",
+    );
+    const text = sanitizeDiagnosticText(cookies, MAX_LOG_INPUT_LENGTH) ?? "";
     return homePattern ? text.replace(homePattern, "~") : text;
   };
-  return (line) => redact(line);
+  return (line, { maxLength = MAX_LOG_LINE_LENGTH, tail = false } = {}) => {
+    // Truncating first can remove a credential's field name or closing quote.
+    const text = redact(line);
+    return tail ? text.slice(-maxLength) : text.slice(0, maxLength);
+  };
 }
 
 function homeFolderPattern(

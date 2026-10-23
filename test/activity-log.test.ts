@@ -40,6 +40,36 @@ function setup() {
 const scope = { conversationId: "c1", turnId: "t1" };
 
 describe("activity log", () => {
+  it("redacts credentials before selecting tool and preview output tails", () => {
+    const { lines, events } = setup();
+    events.publish(
+      "p1",
+      "item.completed",
+      {
+        item: {
+          id: "tool",
+          turnId: "t1",
+          type: "dynamicToolCall",
+          toolCallId: "call",
+          tool: "bash",
+          status: "failed",
+          arguments: {},
+          output: `api_key=msy_fixture_tail_secret\n${"x".repeat(476)}`,
+        },
+      },
+      scope,
+    );
+    events.publish("p1", "preview.updated", {
+      preview: {
+        status: "error",
+        error: "The dev server exited (1)",
+        logs: `api_key=msy_fixture_preview_secret\n${"x".repeat(1_973)}`,
+      },
+    });
+    expect(JSON.stringify(lines)).not.toContain("fixture");
+    expect(lines[0]!.details.error).toContain("api_key=[redacted]");
+    expect(lines[1]!.details.output).toContain("[redacted]");
+  });
   it("records agent turns with their duration and never the prompt", () => {
     const { lines, events, advance } = setup();
 

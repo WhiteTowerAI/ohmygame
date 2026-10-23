@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { RotatingLogFile } from "../src/desktop/log-file.js";
 import { createLogRedactor } from "../src/shared/log-redaction.js";
 import { daemonLoggerOptions } from "../src/daemon/request-log.js";
+import { recordConsole } from "../src/desktop/console-log.js";
 
 const directories: string[] = [];
 const now = () => new Date("2026-10-21T08:00:00.000Z");
@@ -26,6 +27,33 @@ afterEach(async () => {
 });
 
 describe("rotating log file", () => {
+  it("redacts console object values and multiline credentials before splitting lines", async () => {
+    const log = new RotatingLogFile({
+      directory: await logDirectory(),
+      name: "main",
+      redact: createLogRedactor(),
+    });
+    const noop = (..._values: unknown[]) => {};
+    const target = {
+      debug: noop,
+      log: noop,
+      info: noop,
+      warn: noop,
+      error: noop,
+    };
+    recordConsole(log, target);
+    target.error("Proxy failed", {
+      password: "fixture password with spaces",
+      cookie: "session=fixture_cookie; refresh=fixture_refresh",
+    });
+    log.line("password: 'multiline_first\nmultiline_second'");
+    await log.close();
+    const text = await readFile(log.path, "utf8");
+    for (const secret of ["fixture", "multiline_first", "multiline_second"])
+      expect(text).not.toContain(secret);
+    expect(text).toContain("Proxy failed");
+    expect(text).toContain("[redacted]");
+  });
   it("writes whole lines with a timestamp and keeps partial lines until they end", async () => {
     const directory = await logDirectory();
     const log = new RotatingLogFile({ directory, name: "daemon", now });
@@ -207,6 +235,33 @@ describe("rotating log file", () => {
 });
 
 describe("log redaction", () => {
+  it.each([
+    "password='fixture with spaces and \\'quotes\\''",
+    "password='fixture without a closing quote",
+    "secret=`fixture with \"double\" and 'single' quotes`",
+    "Cookie: session=fixture_cookie; refresh=fixture_refresh",
+    "{ cookie: 'session=fixture_cookie; refresh=fixture_refresh', code: 'EPERM' }",
+    JSON.stringify({ error: "{ password: 'fixture with spaces' }" }),
+  ])("redacts quoted credentials and whole Cookie headers: %s", (text) => {
+    const redacted = createLogRedactor()(text);
+    expect(redacted).not.toContain("fixture");
+    expect(redacted).toContain("[redacted]");
+  });
+
+  it("redacts complete records before selecting either end", () => {
+    const redact = createLogRedactor();
+    const text = `api_key=msy_fixture_tail_secret\n${"x".repeat(476)}`;
+    expect(redact(text, { maxLength: 500, tail: true })).not.toContain(
+      "msy_fixture_tail_secret",
+    );
+    const long = `${"x".repeat(20_000)}\nlast error api_key=fixture_key`;
+    expect(redact(long, { maxLength: 500, tail: true })).toContain(
+      "last error api_key=[redacted]",
+    );
+    expect(
+      redact('password="fixture with spaces"', { maxLength: 20 }),
+    ).not.toContain("fixture");
+  });
   it("omits oversized or deeply nested encoded values before cutting their credentials", () => {
     const redact = createLogRedactor();
     const oversized = JSON.stringify({

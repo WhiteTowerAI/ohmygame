@@ -65,6 +65,9 @@ Each line is timestamped and redacted before it is written
   including nested JSON. Oversized input, incomplete JSON records and excessive
   string nesting are omitted instead of risking a credential being cut away from
   its field name. An oversized chunked line is discarded through its newline.
+- Quoted console object values and complete Cookie headers are redacted too.
+  Error snippets are selected only after redaction, so taking the end of a tool
+  or preview error cannot separate a credential from its field name.
 
 The daemon's log lines carry the process ID but not the computer name
 (`src/daemon/request-log.ts`).
@@ -102,6 +105,8 @@ When the background service is not running, the desktop app builds the same
 ZIP itself (`src/desktop/diagnostics-export.ts`), with the service's status
 in place of providers, agents and plugins. The service's address and access
 token stay out, and its error is redacted like a log line.
+The service request, including reading the ZIP response, has a 15-second timeout;
+an unresponsive service also falls back to the desktop export.
 
 Settings files, conversations and project files are not added to the archive.
 Error text can still quote file names or short excerpts of failed tool or preview

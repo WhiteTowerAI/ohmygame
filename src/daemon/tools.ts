@@ -187,7 +187,7 @@ export class ToolRunner {
       job.run = await this.#withGenerationLog(job.toolId, () => job.input!, job.controller.signal, job.context?.projectId, async () => {
         await this.#saveJobs();
         if (!job.prepared) {
-          job.input = await this.prepare(job.toolId, job.input!, job.context?.projectId);
+          job.input = await this.#prepare(job.toolId, job.input!, job.context?.projectId);
           job.prepared = true;
         }
         await this.#saveJobs();
@@ -230,12 +230,22 @@ export class ToolRunner {
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, projectId?: string): Promise<ToolRun> {
     let prepared = input;
     return this.#withGenerationLog(toolId, () => prepared, signal, projectId, async () => {
-      prepared = await this.prepare(toolId, input, projectId);
+      prepared = await this.#prepare(toolId, input, projectId);
       return this.#runPrepared(toolId, prepared, signal, randomUUID());
     });
   }
 
   async prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
+    const started = Date.now();
+    try {
+      return await this.#prepare(toolId, input, projectId);
+    } catch (cause) {
+      this.#recordGeneration(toolId, () => input, projectId, started, "failed", cause instanceof Error ? cause.message : String(cause));
+      throw cause;
+    }
+  }
+
+  async #prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
     return this.resolveInput ? this.resolveInput(toolId, input, projectId) : input;
   }
@@ -259,18 +269,22 @@ export class ToolRunner {
       error = cause instanceof Error ? cause.message : String(cause);
       throw cause;
     } finally {
-      try {
-        const model = run?.model ?? selectedModel(toolId, input());
-        const outcome = {
-          toolId,
-          ...(model ? { model: `${model.provider}/${model.id}` } : {}),
-          ...(projectId ? { projectId } : {}),
-          durationMs: Date.now() - started,
-        };
-        if (status === "failed") this.#log?.warn({ ...outcome, error }, "Generation failed");
-        else this.#log?.info(outcome, status === "cancelled" ? "Generation cancelled" : "Generation succeeded");
-      } catch { /* Logging must not change the result or prevent job persistence. */ }
+      this.#recordGeneration(toolId, input, projectId, started, status, error, run?.model);
     }
+  }
+
+  #recordGeneration(toolId: string, input: () => RunToolRequest, projectId: string | undefined, started: number, status: "succeeded" | "failed" | "cancelled", error?: string, runModel?: ModelRef): void {
+    try {
+      const model = runModel ?? selectedModel(toolId, input());
+      const outcome = {
+        toolId,
+        ...(model ? { model: `${model.provider}/${model.id}` } : {}),
+        ...(projectId ? { projectId } : {}),
+        durationMs: Date.now() - started,
+      };
+      if (status === "failed") this.#log?.warn({ ...outcome, error }, "Generation failed");
+      else this.#log?.info(outcome, status === "cancelled" ? "Generation cancelled" : "Generation succeeded");
+    } catch { /* Logging must not change the result or prevent job persistence. */ }
   }
 
   async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string): Promise<ToolRun> {

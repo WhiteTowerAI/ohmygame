@@ -119,10 +119,8 @@ export class RotatingLogFile implements LogWriter, LogStream {
   line(text: string): void {
     if (this.#failed) return;
     const time = (this.options.now?.() ?? new Date()).toISOString();
-    const lines = text.split(/\r?\n/).map((line) => {
-      const redacted = this.options.redact ? this.options.redact(line) : line;
-      return `${time} ${redacted}\n`;
-    });
+    const redacted = this.options.redact ? this.options.redact(text) : text;
+    const lines = redacted.split(/\r?\n/).map((line) => `${time} ${line}\n`);
     this.#pending.push(Buffer.from(lines.join(""), "utf8"));
     // Start on a later tick, so flushSync can still take lines logged just before it.
     this.#draining ??= Promise.resolve().then(() => this.#drain());

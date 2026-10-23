@@ -2,8 +2,10 @@ import { format } from "node:util";
 import type { DesktopRuntimeState } from "../shared/desktop-runtime.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { LogWriter } from "./log-file.js";
+import { createLogRedactor } from "../shared/log-redaction.js";
 
 const LEVELS = ["debug", "log", "info", "warn", "error"] as const;
+const redact = createLogRedactor();
 
 /** Copies console output to a log, as a packaged app has no console to show it. */
 export function recordConsole(
@@ -13,9 +15,12 @@ export function recordConsole(
   for (const level of LEVELS) {
     const write = target[level].bind(target);
     target[level] = (...values: unknown[]) => {
-      for (const line of format(...values).split("\n")) {
-        log.line(`[${level}] ${line}`);
-      }
+      log.line(
+        format(...values)
+          .split("\n")
+          .map((line) => `[${level}] ${line}`)
+          .join("\n"),
+      );
       write(...values);
     };
   }
@@ -37,7 +42,9 @@ export function rendererConsoleLines(
   if (details.level !== "warning" && details.level !== "error") return [];
   const file = details.sourceId?.split(/[?#]/, 1)[0]?.split("/").pop();
   const source = file ? ` (${file}:${details.lineNumber ?? 0})` : "";
-  const message = details.message.slice(0, MAX_RENDERER_MESSAGE_LENGTH);
+  const message = redact(details.message, {
+    maxLength: MAX_RENDERER_MESSAGE_LENGTH,
+  });
   return `${message}${source}`
     .split("\n")
     .map((line) => `[renderer ${details.level}] ${line}`);
@@ -51,8 +58,12 @@ export function recordUncaughtErrors(
   target.on("uncaughtExceptionMonitor", (error, origin) => {
     const text =
       error instanceof Error ? (error.stack ?? error.message) : String(error);
-    for (const line of `${origin}: ${text}`.split("\n"))
-      log.line(`[fatal] ${line}`);
+    log.line(
+      `${origin}: ${text}`
+        .split("\n")
+        .map((line) => `[fatal] ${line}`)
+        .join("\n"),
+    );
     // The process may end before a background write runs.
     log.flushSync?.();
   });
