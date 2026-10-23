@@ -644,6 +644,7 @@ export function createApp(options: AppOptions = {}) {
   const publisher = localPublisher ?? new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
+    visitorTokenFile: path.join(dataDirectory, "community-visitor.json"),
   });
   const previews = new PreviewManager(events);
   const checkpoints = new CheckpointStore();
