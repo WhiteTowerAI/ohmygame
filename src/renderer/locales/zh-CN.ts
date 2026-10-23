@@ -2312,7 +2312,7 @@ const zhCN: typeof en = {
       "aiImageCutoutHint": "创建图片生成节点，引用当前图片并自动生成去除背景的结果。",
       "ai-image-cutout": "AI 生图抠图",
       "image-processing": "图像处理",
-      "gif-frames": "GIF、合并",
+      "gif-frames": "帧动画",
       "moveEarlier": "向前移动",
       "moveLater": "向后移动",
       frameOrder: "帧顺序",

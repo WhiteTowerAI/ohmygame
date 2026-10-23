@@ -3094,20 +3094,22 @@ button.home-nav-item-active:hover {
 
 .asset-canvas-primary-create {
   position: relative;
-  display: flex;
+  display: grid;
   width: 100%;
-  min-height: 78px;
-  align-items: center;
-  gap: 14px;
+  min-height: 168px;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
   overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   background-color: var(--home-surface);
+  background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1px);
+  background-size: 22px 22px;
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  padding: 12px 18px;
-  text-align: left;
+  text-align: center;
   transition: border-color 120ms ease, background-color 120ms ease;
 }
 
@@ -3143,7 +3145,7 @@ button.home-nav-item-active:hover {
 
 .asset-canvas-primary-icon {
   display: grid;
-  width: 44px;
+  width: 52px;
   height: 44px;
   place-items: center;
   border: 1px solid var(--border-strong);

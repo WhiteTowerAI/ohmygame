@@ -86,7 +86,6 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
     <section className="home-content asset-canvas-home">
       <WindowDragRegion />
       <div className="asset-canvas-home-inner">
-        <AssetCanvasTemplateLauncher onOpenProject={onOpenProject} />
         <button className="asset-canvas-primary-create" type="button" disabled={creatingStarter !== undefined} onClick={() => setCreateOpen(true)}>
           <span className="asset-canvas-primary-icon"><Plus size={24} /></span>
           <span><strong>{t("assetCanvasHome.new")}</strong><small>{t("assetCanvasHome.newHint")}</small></span>
@@ -110,6 +109,9 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
           </p> : null}
         </section>
 
+        <section className="home-discover asset-canvas-recent" aria-labelledby="asset-canvas-template-launcher-heading">
+          <AssetCanvasTemplateLauncher onOpenProject={onOpenProject} />
+        </section>
         <section className="home-discover asset-canvas-recent" aria-labelledby="recent-asset-canvases-heading">
           <div className="home-section-heading">
             <h2 id="recent-asset-canvases-heading">{t("assetCanvasHome.recent")}</h2>

@@ -207,25 +207,25 @@ it("shows only categories until opened, including GIF and frame actions on gener
   expect(container.querySelectorAll(".asset-media-toolbar > .asset-media-toolbar-group")).toHaveLength(3);
   expect(container.querySelector('[aria-label="Character actions"]')).toBeNull();
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="GIF & merging"]')!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!.click());
   expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual([
-    "Extract GIF frames", "Compose GIF", "Compose video", "Compose layers",
+    "Extract GIF frames", "Compose GIF", "Compose video",
   ]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Image tools"]')!.click());
   expect([...container.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(["AI image cutout", "Crop image"]);
   await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="GIF & merging"]')!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!.click());
   await select("first");
   expect(container.querySelector('[role="menuitem"]')).toBeNull();
 });
 
 it("opens categories on hover and disables every multi-image tool for one image", async () => {
   await select("first");
-  const gifCategory = container.querySelector<HTMLButtonElement>('[aria-label="GIF & merging"]')!;
+  const gifCategory = container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!;
   await act(async () => gifCategory.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
   expect(gifCategory.getAttribute("aria-expanded")).toBe("true");
-  for (const label of ["Compose GIF", "Compose video", "Compose layers", "Extract GIF frames"]) {
+  for (const label of ["Compose GIF", "Compose video", "Extract GIF frames"]) {
     const item = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === label)!;
     expect(item.disabled).toBe(true);
     await act(async () => item.click());
@@ -235,7 +235,7 @@ it("opens categories on hover and disables every multi-image tool for one image"
   await act(async () => processingCategory.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
   expect(gifCategory.getAttribute("aria-expanded")).toBe("false");
   await act(async () => captured.props!.onNodesChange!(captured.props!.nodes.map((node) => ({ type: "select", id: node.id, selected: true }))));
-  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="GIF & merging"]')!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!.click());
   expect([...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Compose GIF")?.disabled).toBe(false);
 });
 
@@ -310,31 +310,13 @@ it("extracts the full range when the browser cannot preview a video", async () =
   });
 });
 
-it("composes selected images using the edited layer order", async () => {
+it("omits layer composition when multiple images are selected", async () => {
   await act(async () => captured.props!.onNodesChange!(captured.props!.nodes.map((node) => ({ type: "select", id: node.id, selected: true }))));
-  await chooseTool("GIF & merging", "Compose layers");
-  const firstImage = container.querySelector<HTMLImageElement>(".asset-layer-stage-image")!;
-  Object.defineProperties(firstImage, { naturalWidth: { value: 64 }, naturalHeight: { value: 32 } });
-  await act(async () => firstImage.dispatchEvent(new Event("load")));
-  const fields = container.querySelectorAll<HTMLInputElement>(".asset-media-tool-grid input");
-  expect([fields[0]?.value, fields[1]?.value]).toEqual(["64", "32"]);
-  container.querySelector<HTMLElement>(".asset-layer-stage")!.getBoundingClientRect = () => ({ width: 320, height: 160 }) as DOMRect;
-  firstImage.setPointerCapture = vi.fn();
-  await act(async () => {
-    firstImage.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX: 10, clientY: 10 }));
-    firstImage.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: 26, clientY: 26 }));
-    firstImage.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
-  });
-  await act(async () => container.querySelectorAll<HTMLButtonElement>('.asset-layer-heading [aria-label="Move earlier"]')[1]!.click());
-  runMedia.mockRejectedValue(new Error("Keep dialog open"));
-  await submit();
-  expect(runMedia).toHaveBeenCalledWith("p", {
-    operation: "compose-image-layers", assetIds: ["second", "first"],
-    options: { width: 64, height: 32, layers: [
-      { x: 0, y: 0, scale: 1, opacity: 1, visible: true },
-      { x: 3, y: 3, scale: 1, opacity: 1, visible: true },
-    ] },
-  });
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Frame Animation"]')!.click());
+  const items = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+  expect(items.map((item) => item.textContent)).toEqual(["Extract GIF frames", "Compose GIF", "Compose video"]);
+  expect(items.find((item) => item.textContent === "Compose GIF")?.disabled).toBe(false);
+  expect(items.find((item) => item.textContent === "Compose video")?.disabled).toBe(false);
 });
 
 it("creates and submits an image generation node for AI cutout", async () => {
@@ -362,7 +344,7 @@ it.each([
 ] as const)("passes the reordered selection to %s", async (label, operation, options) => {
   await act(async () => captured.props!.onNodesChange!(captured.props!.nodes.map((node) => ({ type: "select", id: node.id, selected: true }))));
   runMedia.mockRejectedValue(new Error("Keep order for retry"));
-  await chooseTool("GIF & merging", label);
+  await chooseTool("Frame Animation", label);
   expect(container.querySelector(".asset-media-frame-heading")?.textContent).toContain("Frame order");
   expect([...container.querySelectorAll(".asset-media-frame-index")].map((item) => item.textContent)).toEqual(["01", "02"]);
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Move later"]:not(:disabled)')!.click());
@@ -374,7 +356,7 @@ it("runs GIF extraction immediately for a single GIF node", async () => {
   await act(async () => captured.props!.onNodesChange!([{ type: "add", item: { id: "gif", type: "asset", position: { x: 0, y: 600 }, data: { assetId: "gif", mediaType: "image", contentType: "image/gif" } } }]));
   await select("gif");
   runMedia.mockRejectedValue(new Error("GIF extraction failed"));
-  await chooseTool("GIF & merging", "Extract GIF frames");
+  await chooseTool("Frame Animation", "Extract GIF frames");
   expect(container.querySelector('[role="dialog"]')).toBeNull();
   expect(runMedia).toHaveBeenCalledWith("p", { operation: "extract-gif-frames", assetIds: ["gif"], options: {} });
   expect(container.textContent).toContain("GIF extraction failed");

@@ -2381,7 +2381,7 @@ const en = {
       "aiImageCutoutHint": "Create an image generation node that uses the selected image as a reference and generates a background-free result.",
       "ai-image-cutout": "AI image cutout",
       "image-processing": "Image tools",
-      "gif-frames": "GIF & merging",
+      "gif-frames": "Frame Animation",
       "moveEarlier": "Move earlier",
       "moveLater": "Move later",
       frameOrder: "Frame order",

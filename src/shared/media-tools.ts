@@ -7,7 +7,6 @@ export const MEDIA_TOOL_GROUPS = [
       "extract-gif-frames",
       "compose-gif",
       "compose-video",
-      "compose-image-layers",
     ],
   },
 ] as const;

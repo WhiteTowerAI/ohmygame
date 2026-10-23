@@ -1,8 +1,8 @@
 # Media processing tools
 
 The image-node toolbar shows three menus: **Image tools** (AI image cutout and crop),
-**Grid split**, and **GIF & merging** (GIF extraction, GIF/video composition, and
-layer composition). The shared catalog is `src/shared/media-tools.ts`.
+**Grid split**, and **Frame Animation** (GIF extraction and GIF/video composition).
+The shared catalog is `src/shared/media-tools.ts`.
 
 AI image cutout creates a new image generation node, uses the selected image as
 its reference, fills a background-removal prompt, and starts the configured
@@ -39,11 +39,10 @@ and video work invokes `ffmpeg` with argument arrays (without a shell). Input
 paths are resolved through the current project workspace, so paths outside the
 workspace and symlinks are rejected.
 
-Asset Canvas also provides deterministic layer composition. Select at least
-two image nodes, then set the output canvas size and each layer's position,
-scale, opacity, visibility, and stacking order. The preview supports dragging
-layers; the daemon clips them to the output bounds and writes a transparent PNG
-as a new canvas asset. No image-generation model is called.
+The Canvas API supports deterministic layer composition with output dimensions
+and per-layer position, scale, opacity, visibility, and stacking order. The daemon
+clips layers to the output bounds and writes a transparent PNG as a new canvas
+asset. Layer composition is not offered in the image-node toolbar.
 
 Video tools use the platform FFmpeg binary installed with the project. Set
 `OHMYGAME_FFMPEG_PATH` to use a different binary; if the platform package is
