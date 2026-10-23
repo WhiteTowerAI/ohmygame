@@ -54,6 +54,8 @@ export interface AgentModelCatalog {
   hiddenModels?: AgentModel[];
   /** Coding agents whose models were still loading; asking again a little later lists them. */
   loadingRuntimes?: AgentRuntimeId[];
+  /** Pi catalogs refreshing in the background; existing models remain available. */
+  loadingProviders?: string[];
   defaultModel?: AgentModelRef;
   defaultReasoningLevel: AgentReasoningLevel;
   defaultNativeReasoningLevel?: string;
@@ -258,6 +260,8 @@ export interface CustomProviderModel {
 }
 
 export interface ProviderModelSettings {
+  canRefreshCatalog?: boolean;
+  refreshingCatalog?: boolean;
   catalogDocsUrl?: string;
   models: Array<AgentModel & { visible: boolean; custom: boolean; capabilities?: ProviderCapability[];
     source?: "preset" | "custom" | "cloud"; model3d?: Model3DDefinition; description?: string }>;

@@ -43,7 +43,7 @@ export class ModelAuthManager {
       /** Stable installation ID; Sign in with ChatGPT sends it to OpenAI as the agent host ID. */
       getDeviceId?: () => string;
       /** Runs after a sign-in or sign-out changes a provider's stored credential. */
-      onCredentialsChanged?: (runtime: ModelRuntime) => Promise<void>;
+      onCredentialsChanged?: (runtime: ModelRuntime, providerId: string) => Promise<void>;
     } = {},
   ) {}
 
@@ -101,7 +101,7 @@ export class ModelAuthManager {
     const { getDeviceId, onCredentialsChanged } = this.options;
     void runtime.login(providerId, method, interaction, getDeviceId ? { getDeviceId } : undefined).then(
       async () => {
-        await onCredentialsChanged?.(runtime);
+        await onCredentialsChanged?.(runtime, providerId);
         this.#finish(operation, { type: "completed" });
       },
       (error) => this.#finish(operation, operation.controller.signal.aborted
@@ -145,7 +145,7 @@ export class ModelAuthManager {
     const runtime = await this.getRuntime();
     if (!runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
     await runtime.logout(providerId);
-    await this.options.onCredentialsChanged?.(runtime);
+    await this.options.onCredentialsChanged?.(runtime, providerId);
   }
 
   close(): void {

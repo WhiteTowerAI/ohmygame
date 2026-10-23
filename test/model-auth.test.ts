@@ -55,7 +55,7 @@ describe("model provider authentication", () => {
 
     const options = (login.mock.calls[0] as unknown[] | undefined)?.[3] as { getDeviceId?: () => string } | undefined;
     expect(options?.getDeviceId?.()).toBe("9b2f5c1e-4d7a-4f8e-9c3b-2a1d6e5f4c3b");
-    expect(onCredentialsChanged).toHaveBeenCalledOnce();
+    expect(onCredentialsChanged).toHaveBeenCalledExactlyOnceWith(expect.anything(), "test-provider");
     manager.close();
   });
 

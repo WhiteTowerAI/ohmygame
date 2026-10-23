@@ -384,6 +384,8 @@ const zhCN: typeof en = {
     title: "模型",
     default: "默认",
     hiddenCount: "已隐藏的模型（{{count}}）",
+    refresh: "刷新模型",
+    refreshFailed: "模型刷新失败，仍可使用现有模型。",
     reloadTitle: "重新加载内置的官方预设和账户模型目录",
     reloadLabel: "重新加载模型目录",
     add: "添加模型",

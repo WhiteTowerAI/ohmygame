@@ -390,6 +390,8 @@ const en = {
     title: "Models",
     default: "Default",
     hiddenCount: "Hidden models ({{count}})",
+    refresh: "Refresh models",
+    refreshFailed: "Could not refresh models. Your existing models are still available.",
     reloadTitle: "Reload the bundled official presets and account catalog",
     reloadLabel: "Reload model catalog",
     add: "Add model",
