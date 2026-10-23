@@ -94,7 +94,7 @@ import { VOLCENGINE_TTS_VOICES, availableAudioOperations, type AudioModel, type 
 import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DAnimations, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
-import { downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
+import { canvasAssetDownloadName, downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
 import { SendToProjectDialog } from "./send-to-project-dialog.js";
 import { useAgentModels, type AgentModelCatalogStatus } from "./model-selector.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
@@ -1295,8 +1295,14 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     setViewedAsset(undefined);
   }
 
-  function downloadAsset(assetId: string, fallbackName: string): void {
-    const name = libraryAssets.find((candidate) => candidate.id === assetId)?.name ?? fallbackName;
+  // An open viewer can still refer to an earlier output after the node regenerates.
+  function assetDownloadName(assetId: string, nodeId: string): string {
+    const node = nodes.find((candidate) => candidate.id === nodeId);
+    const asset = libraryAssets.find((candidate) => candidate.id === assetId);
+    return canvasAssetDownloadName(node?.title, asset?.name || node?.data.name || titleCase(node?.type ?? "asset"), asset?.contentType);
+  }
+
+  function downloadAsset(assetId: string, name: string): void {
     void assetBlob(assetId).then((blob) => downloadAssetBlob(blob, name)).catch((cause) => setNotice({ kind: "action", message: t("assetCanvas.downloadFailed", { error: errorMessage(cause) }) }));
   }
 
@@ -1829,7 +1835,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             onAdd={(item) => addCanvasNode(item, canvasContextMenu.flowPosition)}
             onUpload={(files) => void importAssetFiles(files, canvasContextMenu.flowPosition)}
             onView={() => { if (contextMenuNode) openViewer(contextMenuNode); }}
-            onDownload={() => { if (contextMenuNode?.data.assetId) downloadAsset(contextMenuNode.data.assetId, contextMenuNode.data.name || titleCase(contextMenuNode.type ?? "asset")); }}
+            onDownload={() => { if (contextMenuNode?.data.assetId) downloadAsset(contextMenuNode.data.assetId, assetDownloadName(contextMenuNode.data.assetId, contextMenuNode.id)); }}
             onSendToProject={() => { if (contextMenuNode?.data.assetId) sendAssetToProject(contextMenuNode.data.assetId, contextMenuNode.data.name || titleCase(contextMenuNode.type ?? "asset")); }}
             onCopy={() => { if (canvasContextMenu.nodeId) copyCanvasNode(canvasContextMenu.nodeId); }}
             onDuplicate={() => { if (canvasContextMenu.nodeId) duplicateCanvasNode(canvasContextMenu.nodeId); }}
@@ -1847,7 +1853,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       </div> : null}
       {viewedAsset ? <CanvasAssetViewer
         asset={viewedAsset}
-        name={libraryAssets.find((candidate) => candidate.id === viewedAsset.assetId)?.name ?? titleCase(viewedAsset.mediaType)}
+        name={assetDownloadName(viewedAsset.assetId, viewedAsset.nodeId)}
         onDownload={(name) => downloadAsset(viewedAsset.assetId, name)}
         onSendToProject={(name) => sendAssetToProject(viewedAsset.assetId, name)}
         onClose={() => setViewedAsset(undefined)}
