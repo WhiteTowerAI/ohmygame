@@ -431,6 +431,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [globalDefaultVideoModel, setDefaultVideoModel] = useState<ModelRef>();
   const [model3DModels, setModel3DModels] = useState<Model3DModel[]>([]);
   const [model3DProviders, setModel3DProviders] = useState<MediaProviderStatus[]>([]);
+  const pollCloud3D = useRef(false);
+  pollCloud3D.current = model3DProviders.some((provider) => provider.cloud && provider.cloud.availability !== "sign_in_required");
   const [globalDefaultModel3D, setDefaultModel3D] = useState<ModelRef>();
   const defaultImageModel = project.mediaModelDefaults?.image ?? globalDefaultImageModel;
   const defaultVideoModel = project.mediaModelDefaults?.video ?? globalDefaultVideoModel;
@@ -535,13 +537,14 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     let active = true;
     let revision = 0;
     let model3DRevision = 0;
+    let model3DPending = false;
     const refresh3D = () => {
       const current = ++model3DRevision;
-      void Promise.all([listModel3DCatalog(), listModel3DOperations()]).then(([catalog, operationModels]) => {
+      model3DPending = true;
+      void listModel3DCatalog().then((catalog) => {
         if (!active || current !== model3DRevision) return;
-        setOperationModels3D(operationModels);
         setModel3DModels(catalog.models); setModel3DProviders(catalog.providers); setDefaultModel3D(catalog.defaultModel);
-      }).catch(() => undefined);
+      }).catch(() => undefined).finally(() => { if (current === model3DRevision) model3DPending = false; });
     };
     const refresh = () => {
       const current = ++revision;
@@ -559,11 +562,19 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         if (!active || current !== revision) return;
         setAudioModels(catalog.models); setAudioProviders(catalog.providers);
       }).catch(() => undefined);
+      void listModel3DOperations().then((models) => {
+        if (active && current === revision) setOperationModels3D(models);
+      }).catch(() => undefined);
       refresh3D();
     };
+    // Only cloud availability and allowance change without a local settings event.
+    const refreshCloud3D = () => {
+      if (pollCloud3D.current && window.document.visibilityState !== "hidden" && !model3DPending) refresh3D();
+    };
     window.addEventListener(MODELS_CHANGED_EVENT, refresh);
-    const timer = setInterval(refresh3D, 30_000);
-    return () => { active = false; clearInterval(timer); window.removeEventListener(MODELS_CHANGED_EVENT, refresh); };
+    window.document.addEventListener("visibilitychange", refreshCloud3D);
+    const timer = setInterval(refreshCloud3D, 30_000);
+    return () => { active = false; clearInterval(timer); window.removeEventListener(MODELS_CHANGED_EVENT, refresh); window.document.removeEventListener("visibilitychange", refreshCloud3D); };
   }, [projectId, closing]);
 
   useEffect(() => {
@@ -2473,19 +2484,23 @@ function AnimationActionPicker({ model, options, selectedIds, onChange, onClose 
 }) {
   const [state, setState] = useState<{ key: string; actions: Model3DAnimationAction[]; status: "loading" | "ready" | "error" }>({ key: "", actions: [], status: "loading" });
   const [reload, setReload] = useState(0);
-  const key = JSON.stringify([model?.provider, model?.id, options?.rigModel, options?.rigType]);
+  const provider = model?.provider, id = model?.id;
+  const rigModel = options?.rigModel, rigType = options?.rigType;
+  const key = JSON.stringify([provider, id, rigModel, rigType]);
   const actions = state.key === key ? state.actions : [];
   const status = state.key === key ? state.status : "loading";
   const hasPreviews = actions.some((action) => action.previewUrl);
   useEffect(() => {
     let active = true;
-    if (!model) return;
+    if (!provider || !id) return;
     setState({ key, actions: [], status: "loading" });
-    void listModel3DAnimations(modelRef(model), options)
+    void listModel3DAnimations({ provider, id }, rigModel || rigType ? {
+      ...(rigModel ? { rigModel } : {}), ...(rigType ? { rigType } : {}),
+    } : undefined)
       .then((actions) => { if (active) setState({ key, actions, status: "ready" }); })
       .catch(() => { if (active) setState({ key, actions: [], status: "error" }); });
     return () => { active = false; };
-  }, [key, reload, model]);
+  }, [key, reload, provider, id, rigModel, rigType]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>();
   const dialog = useRef<HTMLElement>(null);
