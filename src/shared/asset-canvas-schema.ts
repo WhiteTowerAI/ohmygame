@@ -59,6 +59,7 @@ const model3DOptions = { type: "object", additionalProperties: false, properties
 } } as const;
 const nodes = [
   node("table", { type: "object", additionalProperties: false, required: ["tableId"], properties: { tableId: { type: "string", pattern: "^[a-zA-Z0-9_-]{1,100}$" } } }),
+  node("file", { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", minLength: 1, maxLength: 1000, pattern: "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.{0,2}(?:/|$))(?!.*\\\\).+", description: "Project-relative path of a file that is not a document, table or media asset." }, directory: { const: true, description: "The path is a folder." } } }),
   node("document", { type: "object", additionalProperties: false, required: ["documentId"], properties: { documentId: id, references: nodeReferences } }),
   node("text", {
     type: "object",

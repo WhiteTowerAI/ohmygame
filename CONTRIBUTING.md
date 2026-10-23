@@ -158,6 +158,20 @@ public-only checkouts; mention the skips in your PR. A passing public suite
 does not verify the hosted service. See [cloud integration](#cloud-integration)
 and the [maintainer guide](docs/maintaining.md#review-and-merge).
 
+### Keep tests and documentation focused
+
+- Extend an existing test or guide before adding one. Merge tests only when
+  they share setup and inputs at the same boundary, and keep every assertion.
+- Before removing a test, name the remaining test that guards its behavior or
+  state that the behavior is no longer supported. A passing suite or unchanged
+  line coverage is not proof; `bun run test:ablation` injects known faults and
+  reports which test groups catch them. Diagnose or quarantine slow and flaky
+  tests rather than deleting them or adding retries.
+- Keep each rule in one guide and link to it from indexes and summaries. Put
+  run-specific counts and logs in the PR. Translations and shipped agent
+  instructions have their own readers, even when the wording is similar.
+- AI can propose duplicates and merges; the evidence above and review decide.
+
 ## Formatting
 
 Match the surrounding style when editing an existing file and keep formatting

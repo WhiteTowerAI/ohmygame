@@ -3,8 +3,9 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
+import { PreinstalledPluginManager } from "../src/daemon/preinstalled-plugins.js";
 import { createPluginArchive } from "../src/daemon/publish/archive.js";
 import { isPreparedPluginIndex, type PreparedPluginIndex } from "../src/shared/preinstalled-plugins.js";
 
@@ -12,6 +13,32 @@ const apps: FastifyInstance[] = [];
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe("preinstalled plugins", () => {
+  it("waits for first-run plugin installation beyond the default ten-second hook timeout", async () => {
+    const dataDirectory = await temporary("ohmygame-preinstalled-slow-");
+    const bundledPluginsDirectory = await temporary("ohmygame-preinstalled-bundled-");
+    let started!: () => void;
+    const installing = new Promise<void>((resolve) => { started = resolve; });
+    const seed = vi.spyOn(PreinstalledPluginManager.prototype, "seed").mockImplementation(async () => {
+      started();
+      await new Promise((resolve) => setTimeout(resolve, 10_001));
+      return [];
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const app = createApp({ dataDirectory, bundledPluginsDirectory });
+      apps.push(app);
+      const ready = Promise.resolve(app.ready());
+      void ready.catch(() => {});
+      await installing;
+      await vi.advanceTimersByTimeAsync(10_001);
+      await ready;
+      expect((await app.inject({ method: "GET", url: "/health" })).statusCode).toBe(200);
+    } finally {
+      vi.useRealTimers();
+      seed.mockRestore();
+    }
+  });
+
   it("rejects archive paths outside the prepared directory", () => {
     expect(isPreparedPluginIndex({
       version: 1,

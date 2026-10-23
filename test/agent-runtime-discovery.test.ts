@@ -109,7 +109,6 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
     "codex-cli",
     { PATH: process.env.PATH ?? "" },
     root,
-    true,
   );
   expect(result.models.map((model) => model.id)).toEqual(["first", "second"]);
 });

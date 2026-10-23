@@ -55,7 +55,7 @@ import {
   addPlayableNode,
   ApiError,
   buildInteractiveStory,
-  exportInteractiveStoryProject,
+  exportProject,
   getNodeCodebase,
   getPlayableValidation,
   getStoryUpgrade,
@@ -1030,7 +1030,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       await save(codebase);
       const artifact = kind === "game"
         ? await buildInteractiveStory(projectId, writeVersion)
-        : await exportInteractiveStoryProject(projectId, writeVersion);
+        : await exportProject(projectId, writeVersion);
       const url = URL.createObjectURL(artifact);
       const link = window.document.createElement("a");
       link.href = url;

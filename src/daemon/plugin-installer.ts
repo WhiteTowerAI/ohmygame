@@ -1,11 +1,9 @@
 import { spawn } from "node:child_process";
-import { createWriteStream } from "node:fs";
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
-import yauzl, { type Entry, type ZipFile } from "yauzl";
 import { PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES, PLUGIN_ARCHIVE_MAX_BYTES, PLUGIN_ARCHIVE_MAX_ENTRIES, type InstallPluginRequest, type PluginDetail, type PluginManifest } from "../shared/plugins.js";
+import { extractArchive, type ArchiveExtractionFailure } from "./archive-extraction.js";
 import { LocalPluginError, validatePluginBundle, type LocalPluginStore } from "./local-plugins.js";
 import { discoverPlugins, type DiscoveredPlugin } from "./plugin-discovery.js";
 
@@ -133,71 +131,29 @@ function runGit(args: string[]): Promise<string> {
   });
 }
 
-export async function extractPluginArchive(archivePath: string, destination: string): Promise<void> {
-  const zip = await openZip(archivePath);
-  let entries = 0;
-  let bytes = 0;
-  try {
-    while (true) {
-      const entry = await nextEntry(zip);
-      if (!entry) break;
-      entries += 1;
-      bytes += entry.uncompressedSize;
-      if (entries > PLUGIN_ARCHIVE_MAX_ENTRIES || bytes > PLUGIN_ARCHIVE_MAX_BYTES || entry.uncompressedSize > PLUGIN_ARCHIVE_MAX_BYTES) {
-        throw new LocalPluginError("Plugin archive is too large");
+const PLUGIN_ARCHIVE_ERRORS: Record<ArchiveExtractionFailure, string> = {
+  "invalid-zip": "Plugin is not a valid ZIP archive",
+  unreadable: "Plugin archive could not be read",
+  "too-large": "Plugin archive is too large",
+  "invalid-path": "Plugin archive contains an invalid path",
+  "symbolic-link": "Plugin archive contains a symbolic link",
+  "duplicate-path": "Plugin archive contains the same path twice",
+};
+
+export function extractPluginArchive(archivePath: string, destination: string): Promise<void> {
+  return extractArchive(archivePath, destination, {
+    maxEntries: PLUGIN_ARCHIVE_MAX_ENTRIES,
+    maxBytes: PLUGIN_ARCHIVE_MAX_BYTES,
+    include: (relative) => {
+      const segments = relative.split("/").filter(Boolean);
+      if (segments.includes("node_modules")) throw new LocalPluginError(PLUGIN_ARCHIVE_ERRORS["invalid-path"]);
+      if (segments.some((part, index) => part.startsWith(".") && (
+        index !== 0 || !PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES.includes(part)
+      ))) {
+        throw new LocalPluginError("Plugin archive contains private files");
       }
-      const relative = pluginArchivePath(entry);
-      if (relative.endsWith("/")) {
-        await mkdir(path.join(destination, relative), { recursive: true });
-        continue;
-      }
-      const target = path.join(destination, relative);
-      await mkdir(path.dirname(target), { recursive: true });
-      await pipeline(await openEntry(zip, entry), createWriteStream(target, { flags: "wx" }));
-      if ((entry.externalFileAttributes >>> 16) & 0o111) await chmod(target, 0o755);
-    }
-  } finally {
-    zip.close();
-  }
-}
-
-function pluginArchivePath(entry: Entry): string {
-  const name = entry.fileName;
-  if (!name || name.includes("\\") || name.startsWith("/") || /^[A-Za-z]:/.test(name)) {
-    throw new LocalPluginError("Plugin archive contains an invalid path");
-  }
-  const segments = name.split("/").filter(Boolean);
-  if (!segments.length || segments.some((part) => part === "." || part === ".." || part === "node_modules")) {
-    throw new LocalPluginError("Plugin archive contains an invalid path");
-  }
-  if (segments.some((part, index) => part.startsWith(".") && (
-    index !== 0 || !PLUGIN_ARCHIVE_ALLOWED_HIDDEN_DIRECTORIES.includes(part)
-  ))) {
-    throw new LocalPluginError("Plugin archive contains private files");
-  }
-  const fileType = (entry.externalFileAttributes >>> 16) & 0xf000;
-  if (fileType === 0xa000) throw new LocalPluginError("Plugin archive contains a symbolic link");
-  return `${segments.join("/")}${name.endsWith("/") ? "/" : ""}`;
-}
-
-function openZip(file: string): Promise<ZipFile> {
-  return new Promise((resolve, reject) => yauzl.open(file, {
-    lazyEntries: true, decodeStrings: true, validateEntrySizes: true,
-  }, (error, zip) => error || !zip ? reject(new LocalPluginError("Plugin is not a valid ZIP archive")) : resolve(zip)));
-}
-
-function nextEntry(zip: ZipFile): Promise<Entry | undefined> {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => { zip.off("entry", onEntry); zip.off("end", onEnd); zip.off("error", onError); };
-    const onEntry = (entry: Entry) => { cleanup(); resolve(entry); };
-    const onEnd = () => { cleanup(); resolve(undefined); };
-    const onError = () => { cleanup(); reject(new LocalPluginError("Plugin is not a valid ZIP archive")); };
-    zip.once("entry", onEntry); zip.once("end", onEnd); zip.once("error", onError); zip.readEntry();
+      return true;
+    },
+    error: (reason) => new LocalPluginError(PLUGIN_ARCHIVE_ERRORS[reason]),
   });
-}
-
-function openEntry(zip: ZipFile, entry: Entry): Promise<NodeJS.ReadableStream> {
-  return new Promise((resolve, reject) => zip.openReadStream(entry, (error, stream) => (
-    error || !stream ? reject(new LocalPluginError("Plugin archive could not be read")) : resolve(stream)
-  )));
 }

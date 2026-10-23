@@ -2,7 +2,7 @@
 import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProviderSummary } from "../src/shared/contracts.js";
 import { CODEX_IMAGE_MODEL } from "../src/daemon/agent-runtimes/codex-image-provider.js";
 
@@ -10,6 +10,7 @@ const provider: ProviderSummary = {
   id: "codex-cli",
   name: "Codex CLI",
   configured: true,
+  authStatus: "signed-in",
   enabled: true,
   status: "connected",
   capabilities: ["image"],
@@ -20,12 +21,11 @@ const api = {
     models: [CODEX_IMAGE_MODEL],
     providers: [],
   })),
-  listVideoModelCatalog: vi.fn(async () => ({ models: [], providers: [] })),
-  listModel3DCatalog: vi.fn(async () => ({ models: [], providers: [] })),
-  recheckCodexImages: vi.fn(async () => ({
+  recheckCodexImages: vi.fn(async (): Promise<ProviderSummary> => ({
     ...provider,
     configured: false,
-    status: "not_configured" as const,
+    authStatus: "signed-out",
+    status: "not_configured",
     error: "Sign in to Codex CLI",
   })),
   setProviderEnabled: vi.fn(async (_id: string, enabled: boolean) => ({
@@ -33,6 +33,7 @@ const api = {
     enabled,
   })),
   notifyAgentModelsChanged: vi.fn(),
+  loginAgentRuntime: vi.fn(async () => ({ command: "codex login" })),
 };
 vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
   ...(await vi.importActual(path.resolve("src/renderer/api.ts"))),
@@ -41,6 +42,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async () => ({
 const { ModelsSettings } = await import("../src/renderer/models-settings.js");
 let root: ReturnType<typeof createRoot> | undefined;
 let host: HTMLDivElement | undefined;
+beforeEach(() => vi.clearAllMocks());
 afterEach(async () => {
   await act(async () => root?.unmount());
   host?.remove();
@@ -63,6 +65,13 @@ it("offers an independent image switch and recheck without an API key form", asy
     ),
   );
   expect(host.textContent).toContain("Codex Image");
+  expect(host.textContent).not.toContain("Uses your saved Codex login");
+  expect(host.querySelector(".settings-generation-defaults")).toBeNull();
+  expect(
+    [...host.querySelectorAll("button")].some(
+      (button) => button.textContent === "Sign in",
+    ),
+  ).toBe(false);
   expect(host.querySelector('input[type="password"]')).toBeNull();
   const toggle = host.querySelector<HTMLInputElement>('input[role="switch"]')!;
   await act(async () => toggle.click());
@@ -79,6 +88,57 @@ it("offers an independent image switch and recheck without an API key form", asy
   expect(openAgents).not.toHaveBeenCalled();
 });
 
+it.each([
+  { authStatus: "signed-in" as const, offersSignIn: false },
+  { authStatus: "unknown" as const, offersSignIn: false },
+  { authStatus: "signed-out" as const, offersSignIn: true },
+])(
+  "offers sign-in only for a signed-out CLI ($authStatus)",
+  async ({ authStatus, offersSignIn }) => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ModelsSettings
+          view={{
+            page: "provider",
+            provider: {
+              ...provider,
+              configured: authStatus === "signed-in",
+              status:
+                authStatus === "signed-in" ? "connected" : "not_configured",
+              authStatus,
+            },
+          }}
+          onViewChange={() => {}}
+          onOpenAgents={() => {}}
+        />,
+      ),
+    );
+    const signIn = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent === "Sign in",
+    );
+    expect(Boolean(signIn)).toBe(offersSignIn);
+    if (!signIn) return;
+    await act(async () => signIn.click());
+    expect(api.loginAgentRuntime).toHaveBeenCalledExactlyOnceWith("codex-cli");
+    expect(host.textContent).toContain("codex login");
+    api.recheckCodexImages.mockResolvedValueOnce(provider);
+    const refresh = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent === "Check again",
+    )!;
+    await act(async () => refresh.click());
+    expect(
+      [...host.querySelectorAll("button")].some(
+        (button) => button.textContent === "Sign in",
+      ),
+    ).toBe(false);
+    expect(host.textContent).not.toContain("codex login");
+  },
+);
+
 it("keeps the image switch available before a disabled provider has been checked", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   host = document.createElement("div");
@@ -92,6 +152,7 @@ it("keeps the image switch available before a disabled provider has been checked
           provider: {
             ...provider,
             configured: false,
+            authStatus: "unknown",
             enabled: false,
             status: "not_configured",
           },

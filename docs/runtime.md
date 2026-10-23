@@ -28,7 +28,10 @@ requests to the daemon.
 `bun run dev:desktop` starts Vite and Electron. Electron starts the compiled
 daemon itself on an available loopback port, waits for `/health`, and passes
 the daemon address plus a random process-scoped token through the isolated
-preload bridge. The renderer has no Node.js access.
+preload bridge. The preload asks the main process for them when the page
+loads, and the main process answers only the renderer page in the window's
+main frame, not an embedded frame or another page. The renderer has no
+Node.js access.
 
 The main desktop window starts at 1200 × 780 logical pixels, centered on the
 display containing the pointer. It fits within 90% of that display's available
@@ -271,7 +274,9 @@ without an OhMyGame approval prompt. Provider credentials stay in the daemon
 and are never written to workspaces or returned to the renderer.
 
 The desktop app writes the daemon's access token to the daemon's stdin, not
-to its environment, which other processes of the same user can read. A daemon
+to its environment, which other processes of the same user can read. For the
+same reason the desktop app never puts the token on a command line: the
+renderer receives it over IPC rather than as a process argument. A daemon
 started on its own may be given the token in `OHMYGAME_DAEMON_TOKEN`; it
 removes the variable at startup, though the original environment may still
 be visible in process listings. Either way no process the daemon starts
@@ -447,6 +452,22 @@ Project lists use the existing two-second activity poll to receive names, even
 after a short turn finishes. `/projects/activity` returns `{ activity, names }`;
 `names` contains only each project's `id`, `name` and optional `nameSource`.
 
+## Project navigation
+
+Project workspaces return to their entry page using the top-left Back arrow.
+The destination survives conversation/view changes and refreshes in the same
+tab; a project link opened without an entry page returns to Projects. The
+Projects URL preserves its type filter, search (`q`), and name sorting
+(`sort=name`) when returning or refreshing. See the
+[workspace return example](assets/project-return-navigation.webp).
+
+In the desktop app, the project card menu's **Open in folder** action opens the
+project's workspace in the system file manager, including projects using an
+existing folder. It is available in recent projects and the Projects list.
+See the [project menu example](assets/project-card-menu.png).
+The desktop file opener resolves `.` through `/projects/:projectId/files/location`
+to open the workspace root; file reads and writes still require a file path.
+
 ## Checkpoints
 
 All project types record private workspace snapshots before each consumed user
@@ -537,20 +558,16 @@ Deployment ID, play URL, publish time, and the published title and description.
 
 ![Creator profile with published game covers](assets/community-profile.webp)
 
-Community uses the original mosaic of large, medium, and small square covers.
-Full groups use the existing 28-card layout; additional works continue in the
-same pattern rather than being truncated. Narrow layouts use equal square
-cards, with two columns on small screens. Clicking or tapping the cover opens
-the game detail, including on the owner's profile. Covers are requested
-only when cards approach the visible area. Desktop overlays retain the original
-gradient, hover animation, and centered title and author, with viewer and like counts
-below. Small mosaic cards omit the author to leave room for the title and
-counts. Overlays appear on hover or keyboard focus; hidden links and likes
-do not intercept cover clicks. Narrow layouts and touch devices show the
-overlay directly. Long titles and author names truncate within the card.
-The filter button beside **My profile** and **Refresh** supports title,
-description, and author search, sorting by first listing, viewers, or likes,
-and first-listing periods.
+Community displays games in a responsive grid with 16:10 covers, titles, creator
+links, and view/like counts visible below each cover. Search across title,
+description, and author, sorting by first listing, views, or likes, the
+first-listed time filter, and reset stay above the grid. Clicking or tapping the
+cover opens the game detail, including on the owner's profile; creator links and
+likes stay independently clickable. Covers are requested only when cards approach
+the visible area. Creator profiles and related games use the same cards, with
+colors following the app's light or dark theme. See the
+[dark](assets/community-gallery-dark.webp) and
+[light](assets/community-gallery-light.webp) examples (sample games).
 
 Author links open their public profile with listed works. **My profile** requires
 sign-in and includes deployed works. Profile cards open the game detail; they
@@ -586,15 +603,23 @@ Legacy hidden works remain accessible to their signed-in author through the
 same detail page, with read-only engagement counts. Other visitors cannot read
 their Community details or covers.
 
-Viewer counts are cumulative unique viewers per work, recorded when the app
-successfully opens the Community game detail. Refreshes and repeat visits do
-not add viewers. Signed-in visits use the account identity; anonymous visits
-use a random browser identifier. Logging in merges that browser's anonymous
-visit with the account, and signed-out returns from it reuse the same identity.
-Authenticated creator visits do not increment their own count. Shared play HTML
-does not include an injected tracking script, so direct shared-link visits are
-not included in this count. Clearing browser storage or visiting from another
-browser can count an anonymous viewer again.
+View counts measure successful game entry requests, including repeat visits,
+refreshes, and creator visits. The Cloud play server counts GET requests for
+`/` and `/index.html`, covering desktop iframes, direct shared links, and future
+web Community players with the same `playUrl`. Lists, covers, assets, other HTML
+pages, HEAD requests, missing files, and explicit preloads do not add views.
+The client reads the latest metrics after the game iframe loads; it does not
+send a view mutation or create a visitor identity.
+
+Entry HTML is served with `Cache-Control: no-store`; versioned assets retain
+immutable caching. Counts are best effort: a failed counter does not block play,
+and they do not establish that the game finished loading or a human played it.
+Browser history restoration without a new request and offline play are not
+counted. Counts start at zero with the play-count migration, survive publishing
+updates, and reset when a work is unpublished and published as a new game.
+Local debug publishing follows the same entry-counting rule for current snapshots.
+
+![Game details display cumulative opens from embedded and shared play](assets/community-view-count.png)
 
 Likes require sign-in, support undo, and are unique per account and work. A
 completed like updates the card, sort order, and profile total together, even
@@ -604,8 +629,9 @@ without metrics show unavailable counts. Cloud access tokens are forwarded
 transiently and never stored in project files. Local development provides the
 same flows through temporary debug snapshots.
 
-Hosted use requires the Community engagement migration and matching Cloud API
-before releasing the updated client. See the Cloud contract for rollout order.
+Hosted use requires the Cloud play-count migration and matching API/client rollout.
+The old unique-viewer endpoint and schema are removed. See the Cloud contract
+for deployment and cache-purge instructions.
 
 The Publish v1 contract is in the
 [`ohmygame-cloud` repository](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md).

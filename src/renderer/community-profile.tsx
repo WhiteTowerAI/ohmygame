@@ -11,7 +11,7 @@ import {
 } from "./api.js";
 import { useAuth } from "./auth.js";
 import {
-  CommunityFilterButton,
+  CommunityToolbar,
   DEFAULT_COMMUNITY_FILTERS,
   filterCommunityGames,
 } from "./community-filters.js";
@@ -139,19 +139,16 @@ export function CommunityProfilePage({
         }
         breadcrumb={{ label: t("community.title"), onClick: onBack }}
         actions={
-          <div className="community-header-actions">
-            <CommunityFilterButton value={filters} onChange={setFilters} />
-            <button
-              className="projects-icon-button"
-              type="button"
-              onClick={() => void load()}
-              disabled={loading}
-              aria-label={t("common.refresh")}
-              title={t("common.refresh")}
-            >
-              <RefreshCw size={15} className={loading ? "spin" : undefined} />
-            </button>
-          </div>
+          <button
+            className="projects-icon-button"
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            aria-label={t("common.refresh")}
+            title={t("common.refresh")}
+          >
+            <RefreshCw size={15} className={loading ? "spin" : undefined} />
+          </button>
         }
       />
       <section className="explore-content">
@@ -171,6 +168,7 @@ export function CommunityProfilePage({
             </div>
           </div>
         ) : null}
+        <CommunityToolbar value={filters} onChange={setFilters} />
         {error ? (
           <div className="community-page-error" role="alert">
             <span>{error}</span>

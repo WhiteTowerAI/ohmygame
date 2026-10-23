@@ -17,21 +17,19 @@ export interface AgentRuntimeDefault {
 
 export interface AgentRuntimeSettings {
   enabled: boolean;
-  isolateUserConfig: boolean;
   permissionMode: AgentPermissionMode;
   binaryPath?: string;
 }
 
 const DEFAULTS: AgentRuntimeSettings = {
   enabled: false,
-  isolateUserConfig: true,
   permissionMode: "standard",
 };
 
 /**
  * The person's choices for each coding agent, in `agent-runtimes.json`. A
  * missing or damaged file means the defaults: every runtime is off until
- * enabled, and runs without the person's own CLI configuration.
+ * enabled. Each runtime loads its own CLI configuration.
  */
 export class AgentRuntimeSettingsStore {
   readonly #filePath: string;
@@ -74,10 +72,6 @@ export class AgentRuntimeSettingsStore {
           typeof stored.enabled === "boolean"
             ? stored.enabled
             : DEFAULTS.enabled,
-        isolateUserConfig:
-          typeof stored.isolateUserConfig === "boolean"
-            ? stored.isolateUserConfig
-            : DEFAULTS.isolateUserConfig,
         permissionMode: AGENT_PERMISSION_MODES.includes(
           stored.permissionMode as AgentPermissionMode,
         )

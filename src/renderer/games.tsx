@@ -3,12 +3,12 @@ import { Check, Copy, LoaderCircle, Maximize, RefreshCw, Share2, UserRound, X } 
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
-import { GameGrid, GameTile, GameStats, useGameCover } from "./community-game-card.js";
+import { GameGrid, GameStats, useGameCover } from "./community-game-card.js";
 import { CommunityGameActions } from "./community-game-actions.js";
-import { CommunityFilterButton, DEFAULT_COMMUNITY_FILTERS, filterCommunityGames } from "./community-filters.js";
+import { CommunityToolbar, DEFAULT_COMMUNITY_FILTERS, filterCommunityGames } from "./community-filters.js";
 import { useAuth } from "./auth.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
-import { getExploreGame, listExploreGames, recordCommunityView, waitForRuntime } from "./api.js";
+import { getExploreGame, listExploreGames, waitForRuntime } from "./api.js";
 import { communityProfileHash, type AppNavigationTarget } from "./routes.js";
 import { SidebarPageHeader, SidebarPageLayout } from "./sidebar-page.js";
 import { language, t, tNodes } from "./i18n.js";
@@ -72,7 +72,6 @@ export function GamesPage({
     <SidebarPageLayout active="community" onNavigate={onNavigate}>
       <SidebarPageHeader title={t("community.title")} actions={(
         <div className="community-header-actions">
-        <CommunityFilterButton value={filters} onChange={setFilters} />
         <button className="projects-icon-button" type="button" title={t("community.myProfile")} aria-label={t("community.myProfile")} disabled={openingProfile || auth.state.status === "loading"} onClick={() => {
           if (auth.state.status === "signed-in") window.location.hash = communityProfileHash(auth.state.user.id);
           else {
@@ -87,6 +86,7 @@ export function GamesPage({
       )} />
 
       <section className="explore-content">
+        <CommunityToolbar value={filters} onChange={setFilters} />
         {phase === "loading" && !games.length ? <div className="explore-state"><LoaderCircle className="spin" size={20} />{t("community.loading")}</div> : null}
         {phase === "error" ? <div className="explore-state explore-error"><X size={20} />{error}</div> : null}
         {phase === "ready" && games.length === 0 ? <div className="explore-state">{t("community.none")}</div> : null}
@@ -114,6 +114,7 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
   const [error, setError] = useState<string>();
   const loadVersion = useRef(0);
   const pendingChanges = useRef<Map<string, Partial<CommunityGame>> | undefined>(undefined);
+  const pendingStats = useRef<{ gameId: string; stats?: CommunityGameStats } | undefined>(undefined);
 
   async function load() {
     const version = ++loadVersion.current;
@@ -128,14 +129,8 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
       if (version !== loadVersion.current) return;
       setAccessToken(token);
       setGame({ ...currentGame, ...changes.get(gameId) });
-      await Promise.all([
-        related.then(games => {
-          if (version === loadVersion.current) setRelatedGames(games.map(game => ({ ...game, ...changes.get(game.id) })));
-        }),
-        (currentGame.listingStatus === "unlisted" ? Promise.resolve(undefined) : recordCommunityView(gameId, communityVisitorId(), token).catch(() => undefined)).then(stats => {
-          if (stats && version === loadVersion.current) setGame(previous => previous?.id === gameId ? { ...previous, stats: { ...stats, ...changes.get(gameId)?.stats, viewerCount: stats.viewerCount } } : previous);
-        }),
-      ]);
+      const games = await related;
+      if (version === loadVersion.current) setRelatedGames(games.map(game => ({ ...game, ...changes.get(game.id) })));
     } catch (cause) {
       if (version !== loadVersion.current) return;
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -157,9 +152,25 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
     return () => { loadVersion.current += 1; };
   }, [gameId, serviceGeneration, auth.state.status, auth.state.status === "signed-in" ? auth.state.user.id : undefined]);
 
+  async function refreshStats(deploymentId: string) {
+    const version = loadVersion.current;
+    const refresh: { gameId: string; stats?: CommunityGameStats } = { gameId };
+    pendingStats.current = refresh;
+    try {
+      // The play server counts the entry; this read only refreshes its result.
+      const current = await getExploreGame(gameId, accessToken);
+      if (version !== loadVersion.current || pendingStats.current !== refresh || current.deploymentId !== deploymentId) return;
+      const stats = current.stats;
+      if (stats) setGame(previous => previous?.id === gameId && previous.deploymentId === deploymentId
+        ? { ...previous, stats: { ...stats, ...refresh.stats, viewCount: Math.max(stats.viewCount, previous.stats?.viewCount ?? 0) } } : previous);
+    } catch { /* Metrics must not interrupt the player. */ }
+    finally { if (pendingStats.current === refresh) pendingStats.current = undefined; }
+  }
+
   function updateGame(id: string, change: Partial<CommunityGame>) {
     const pending = pendingChanges.current;
     pending?.set(id, { ...pending.get(id), ...change });
+    if (change.stats && pendingStats.current?.gameId === id) pendingStats.current.stats = change.stats;
     setGame(previous => previous?.id === id ? { ...previous, ...change } : previous);
     setRelatedGames(previous => previous.map(item => item.id === id ? { ...item, ...change } : item));
   }
@@ -183,17 +194,18 @@ export function GamePlayer({ gameId, onBack, onNavigate, onOhMyGame }: {
             <button className="quiet-button" type="button" onClick={() => void load()}>{t("common.retry")}</button>
           </div>
         ) : null}
-        {game ? <GameDetail key={`${game.id}:${game.deploymentId}`} game={game} accessToken={owner ? accessToken : undefined} relatedGames={relatedGames} onOhMyGame={onOhMyGame} onStatsChange={(id, stats) => updateGame(id, { stats })} /> : null}
+        {game ? <GameDetail key={`${game.id}:${game.deploymentId}`} game={game} accessToken={owner ? accessToken : undefined} relatedGames={relatedGames} onOhMyGame={onOhMyGame} onPlayerLoad={() => void refreshStats(game.deploymentId)} onStatsChange={(id, stats) => updateGame(id, { stats })} /> : null}
       </section>
     </SidebarPageLayout>
   );
 }
 
-function GameDetail({ game, accessToken, relatedGames, onOhMyGame, onStatsChange }: {
+function GameDetail({ game, accessToken, relatedGames, onOhMyGame, onPlayerLoad, onStatsChange }: {
   game: CommunityGame;
   accessToken?: string;
   relatedGames: CommunityGame[];
   onOhMyGame: (gameId: string) => void;
+  onPlayerLoad: () => void;
   onStatsChange: (gameId: string, stats: CommunityGameStats) => void;
 }) {
   const playerRef = useRef<HTMLDivElement>(null);
@@ -211,6 +223,7 @@ function GameDetail({ game, accessToken, relatedGames, onOhMyGame, onStatsChange
         <div className="electron-game-stage">
           <iframe
             src={game.playUrl}
+            onLoad={onPlayerLoad}
             title={game.title}
             sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
             allow="autoplay; fullscreen"
@@ -238,17 +251,11 @@ function GameDetail({ game, accessToken, relatedGames, onOhMyGame, onStatsChange
       {relatedGames.length ? (
         <section className="electron-game-related" aria-label={t("community.moreGames")}>
           <h2>{t("community.moreGames")}</h2>
-          <div className="electron-game-related-grid">
-            {relatedGames.map((relatedGame) => (
-              <GameTile
-                className="electron-game-related-tile"
-                game={relatedGame}
-                key={relatedGame.id}
-                onOpen={() => onOhMyGame(relatedGame.id)}
-                onStatsChange={onStatsChange}
-              />
-            ))}
-          </div>
+          <GameGrid
+            games={relatedGames}
+            onOpen={relatedGame => onOhMyGame(relatedGame.id)}
+            onStatsChange={onStatsChange}
+          />
         </section>
       ) : null}
     </div>
@@ -347,15 +354,4 @@ function GameShareDialog({ game, onClose }: { game: CommunityGame; onClose: () =
 
 function publishedDate(value: string): string {
   return new Intl.DateTimeFormat(language, { dateStyle: "medium" }).format(new Date(value));
-}
-
-let fallbackVisitorId: string | undefined;
-function communityVisitorId(): string {
-  try {
-    const saved = localStorage.getItem("ohmygame-community-visitor");
-    if (saved && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(saved)) return saved;
-    const id = crypto.randomUUID();
-    localStorage.setItem("ohmygame-community-visitor", id);
-    return id;
-  } catch { return fallbackVisitorId ??= crypto.randomUUID(); }
 }

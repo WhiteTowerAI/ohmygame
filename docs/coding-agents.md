@@ -1,7 +1,8 @@
 # Coding agents
 
 A conversation can run on a coding agent CLI that is already installed on the
-computer: Claude Code, Codex, or OpenCode. The CLI runs the agent loop with its
+computer: Claude Code, Codex, or OpenCode 2.1.0 or newer in the 2.x series.
+OpenCode v1 is no longer supported. The CLI runs the agent loop with its
 own sign-in and model. OhMyGame keeps the conversation, checkpoints and Undo,
 its canvas, media, game and plugin tools, and the approval decisions.
 
@@ -24,11 +25,10 @@ computer**; **Rescan** checks for them again. Each row shows whether the CLI
 was found and its version; the detail page shows its account, billing, and a
 verified version for reference. The verified version records a real acceptance
 run and is not a minimum version. The agent whose model new conversations start with is
-marked **Default**. Providers & Models points to Agents when it is filtered to
-language models or searched for a coding agent.
+marked **Default**.
 Agents are off by default. Enabling the switch offers their models in the conversation model picker; the
-detail page signs in, checks again, chooses the executable, and decides whether
-the person's own CLI configuration applies.
+detail page signs in, checks again, chooses the executable and permissions, and
+explains that the CLI loads the person's existing configuration.
 
 On macOS, discovery includes the CLIs bundled with Codex and ChatGPT in
 `/Applications` and `~/Applications`, as well as PATH, the login shell's PATH
@@ -102,20 +102,26 @@ has no quota of its own.
 using the installed CLI and its saved sign-in. Its image switch is independent
 of the Codex conversation-agent switch in Agents. Any chat agent can use it
 through `generate_image`; canvas image nodes and global/project image defaults
-use the same provider. Closing a terminal does not disconnect the provider.
+use the same provider. Choose the global image default in the Providers & Models
+overview. The Codex CLI detail page shows its image status and model without a
+default-model selector. Closing a terminal does not disconnect the provider.
+
+![Codex image provider connected through the saved CLI sign-in (sample data)](assets/codex-image-provider-settings.png)
 
 ![Codex Image selected in the asset canvas](assets/codex-image-canvas.png)
 
-Discovery asks `modelProvider/capabilities/read` without submitting a model
-turn. Missing CLI, signed-out accounts, unsupported capability probes and
-unavailable image backends keep the provider entry visible with a diagnostic,
-but offer no image model. **Check again** refreshes sign-in and capabilities.
-Capability detection does not guarantee account entitlement; generation failures
-are reported without switching providers or automatically retrying inference.
-The provider list and first-run setup return the last known image status without
-waiting for the CLI. Enabled image providers refresh that status in the background;
-disabled ones do not start a probe. **Check again** explicitly waits for a fresh
-login and capability check, including when image generation is disabled.
+The image connection follows the installed CLI's saved sign-in. A signed-in
+account exposes **Codex Image** without a separate image-capability probe or
+inference request. Missing CLI or sign-in keeps the entry visible with a
+diagnostic. The detail page offers **Sign in** only when the CLI reports a
+signed-out account. **Check again** refreshes the saved sign-in, including when
+image generation is disabled. Image access, compatibility and usage-limit errors
+are reported by the generation request, without switching providers or
+retrying inference automatically.
+
+The provider list and first-run setup return the last known sign-in status
+without waiting for the CLI. Enabled image providers refresh that status in the
+background; disabled ones do not start a check.
 
 Each generation starts its own ephemeral app-server thread, with no OhMyGame
 dynamic tools, external MCP servers, shell tools or subagents. The process is
@@ -202,7 +208,7 @@ an `ohmygame_` prefix to avoid reserved names such as `mcp`; dispatch and the
 conversation timeline retain the original tool names. Skills (plugin Skills and
 OhMyGame's own) are copied into a private folder for the session and handed to
 the CLI: a session plugin for Claude Code, `skills/extraRoots/set` for Codex,
-`skills.paths` for OpenCode. Staging copies regular files and omits symbolic
+the `skills` array for OpenCode v2. Staging copies regular files and omits symbolic
 links, so it cannot copy an external credential through a Skill's link. The
 policy permits reading only this session's staged Skill roots, while their
 writes and adjacent app data remain protected. Running a staged script still
@@ -228,7 +234,7 @@ Each agent's detail page has a **Permissions** setting:
   Requests that name a protected root, such as a CLI sign-in folder, are
   still refused, and planning stays read-only.
 
-Changing it, **Use my own CLI configuration**, or the executable path lets go
+Changing permissions or the executable path lets go
 of the agent's idle open conversations. A running turn keeps its setting and
 is released when its run closes. The next run restarts the CLI with the new
 settings and resumes its session, including when settings change during startup.
@@ -352,24 +358,35 @@ discovery chooses the newest SemVer, including prerelease ordering, and retries
 failed version probes. Recheck also invalidates successful probes. Catalog
 refreshes honor their TTL and discard results from a superseded configuration.
 
-By default each agent runs without the person's own configuration:
+All three runtimes load the person's existing CLI configuration, including
+settings, hooks, MCP servers, Skills and instructions supported by that CLI.
+There is no configuration-isolation switch. Stored `isolateUserConfig` values
+from earlier versions are ignored and dropped when settings are next saved.
+OhMyGame adds its tools, project instructions and staged Skills, and the selected
+permission mode still applies. A configured external `ohmygame-studio` MCP
+connection is disabled inside Claude Code and Codex to avoid reconnecting to the
+same app recursively. Other user MCP servers and notification hooks remain enabled.
 
-- Claude Code: `--setting-sources ""` and `--strict-mcp-config`.
-- Codex: the workspace is its own project root (`project_root_markers = []`),
-  so only the workspace's `AGENTS.md` is read, as for OhMyGame's own agent; a
-  parent folder's file describes whatever contains the game and is outside the
-  permission profile. The person's MCP servers and notification hook are turned
-  off for the thread; a failure to inspect their configuration stops startup. Codex still loads Skills, plugins and AGENTS.md from its own folder;
-  the settings page says so.
-- OpenCode: a private configuration folder, `--pure` (external plugins off),
-  external Skills disabled, and no project configuration.
+Codex keeps the workspace as its project root (`project_root_markers = []`):
+parent-folder instructions may live in app data denied by the permission profile
+and otherwise prevent thread startup. Its own configuration-folder instructions,
+Skills and plugins still load. Configuration inheritance does not remove the
+permission profile, shell environment controls or read-only planning.
 
-**Use my own CLI configuration** lifts this for an agent.
+OpenCode v2 adds callback permission rules, staged Skills and an instruction file
+in its private session directory. Its MCP bridge disables code mode so native
+calls retain their tool names and structured app results. It waits for the MCP
+connection and catalog before sending a prompt. No configuration file is written
+to the workspace. Custom `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG` paths are
+retained and protected from native file/shell access, alongside XDG roots.
+
+Discovery probes may suppress external MCP servers and hooks while inspecting
+protocol compatibility and model catalogs; they do not send inference prompts.
 
 ## Settings and API
 
 `agent-runtimes.json` in the data directory stores, per agent, `enabled`
-(default off), `isolateUserConfig` (default on), `permissionMode` (`standard`
+(default off), `permissionMode` (`standard`
 or `full`, default `standard`), an optional absolute
 `binaryPath`, and an optional native model/effort `defaultModel`. A damaged file falls
 back to the defaults. Credentials remain in the CLI's own store.
@@ -377,7 +394,7 @@ back to the defaults. Credentials remain in the CLI's own store.
 | Route                                                     | Purpose                                                                |
 | --------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `GET /agent-runtimes`                                     | Status of every agent; `?recheck=1` probes again                       |
-| `PATCH /agent-runtimes/:id`                               | `enabled`, `isolateUserConfig`, `permissionMode`, `binaryPath`         |
+| `PATCH /agent-runtimes/:id`                               | `enabled`, `permissionMode`, `binaryPath`         |
 | `POST /agent-runtimes/:id/recheck`                        | Probe one agent again                                                  |
 | `POST /agent-runtimes/:id/login`                          | Start the CLI's sign-in; returns a browser URL or a command            |
 | `PUT /projects/:p/conversations/:c/reasoning`             | Select a native effort/variant string                                  |
@@ -406,7 +423,10 @@ The Provider, media, canvas, checkpoint and plugin code does not change.
 
 Compatibility follows the capabilities the adapter needs, rather than a CLI
 being older than the version used for acceptance. Settings records Claude Code
-2.1.302, Codex 0.163.0 and OpenCode 1.18.33 as verified versions, not minimums.
+2.1.302 and Codex 0.163.0 as reference acceptance versions. OpenCode uses the
+v2 server contract, records 2.1.0 as its real acceptance version, and requires
+2.1.0 or newer in the 2.x series; the version
+check selects that supported API generation, and runtime checks still apply.
 Enabling or rechecking an agent uses the same discovery checks as its model
 catalog; incompatible agents do not offer models. Results are cached by the
 executable signature and invalidated when settings change or **Check again** is
@@ -426,14 +446,21 @@ failure cache expires; they are not classified as unsupported capabilities.
   This documented feature requirement does not apply to Full access or platforms
   using the strict command approval policy without an OS sandbox. An unknown
   version cannot establish that sandbox requirement and remains a probe failure.
-- OpenCode discovery checks `serve --help` for `--hostname` and `--port`, and for
-  `--pure` when CLI configuration isolation is enabled, then lists its models.
-  Discovery also starts a private server, establishes its event stream, checks
-  `/path.worktree`, and reads `/config` to verify the file/shell permissions use
-  callbacks. The real driver repeats these startup checks before sending a
-  prompt. No session or inference is created by this probe. Configuration
-  readback is not a full sandbox acceptance run; real acceptance still exercises
-  approvals and tools.
+- OpenCode discovery starts `serve --stdio --hostname 127.0.0.1 --port 0` with
+  a private password and reads its JSON address announcement. It establishes
+  `/api/event`, checks `/api/info` and `/api/location`, waits for the agents'
+  permission transformations, and lists `/api/model`. This creates no session
+  and sends no inference. Real sessions create or reapply a wildcard `ask`
+  permission rule and read it back before sending a prompt. Child-session
+  requests must have verified ancestry and the same workspace location; file resources resolve relative to
+  that session's location rather than the Git root. Saved CLI grants for the
+  project can override callback rules, so discovery/startup and each prompt
+  refuse them with a diagnostic; OhMyGame never deletes those grants. Remove
+  them in OpenCode before retrying. User plugins remain trusted CLI code.
+
+OpenCode v2 native session IDs carry an `opencode-v2:` marker in OhMyGame's
+session record. A v1 marker or missing v2 session triggers the existing fresh
+session and conversation-history handoff; v1 context is never resumed as v2.
 
 Missing optional quota or reasoning metadata stays unavailable. Local CLI
 compatibility failures have their own chat error presentation and CLI details.
@@ -484,8 +511,17 @@ planning turn that records its plan with `update_plan` and changes no file.
 Claude Code refuses a standalone `sleep`, so its cancellation step runs an
 equivalent `node` command.
 
-Claude Code 2.1.302 with `sonnet`, Codex 0.163.0 with `gpt-6-luna` and
-OpenCode 1.18.33 with `opencode/mimo-v2.6-flash-free` passed this on macOS. In Claude's `-p` mode
+Earlier acceptance passed on macOS with Claude Code 2.1.302 / `sonnet` and
+Codex 0.163.0 / `gpt-6-luna`. OpenCode 2.1.0 with
+`opencode/deepseek-v4.1-flash-free` passed the full live
+acceptance on macOS: file edits, direct app tools, native continuation and daemon
+restart, compaction, message revision, Undo, denied external reads, an approved
+Node/npm/Git toolchain command, cancellation, staged Skills without an approval,
+and structured read-only planning. Image request parameters and native effort
+selection are covered by protocol fixtures; this run did not send an image.
+
+Historical v1 acceptance used OpenCode 1.18.33 with
+`opencode/mimo-v2.6-flash-free` on macOS; that run does not establish v2 acceptance. In Claude's `-p` mode
 it has no `TodoWrite`, `Glob`, `Grep` or `LS` and searches with `Bash`, so
 planning turns accept the read commands the policy allows without asking. Keep a runtime opt-in until real acceptance
 passes on the target platform; fixture success alone is insufficient.

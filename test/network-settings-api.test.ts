@@ -50,7 +50,7 @@ describe("network settings API", () => {
         await networkSettings.store.update({ ...DEFAULT_NETWORK_SETTINGS, mode: "auto" });
       }
       const app = createApp({
-        dataDirectory, networkSettings,
+        dataDirectory, networkSettings, logger: true,
         createSession: async () => {
           throw new Error("Connection error.", { cause: Object.assign(new Error("DNS failure"), { code: "ENOTFOUND" }) });
         },
@@ -65,7 +65,7 @@ describe("network settings API", () => {
       });
       expect(pending.statusCode).toBe(200);
       expect(pending.json()).toMatchObject({ active: { source }, requiresRestart: true });
-      const warn = vi.spyOn(app.log, "warn");
+      const warn = vi.spyOn(app.log, "warn").mockImplementation(() => {});
       const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
       const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
       const turn = await app.inject({
@@ -74,12 +74,11 @@ describe("network settings API", () => {
       });
       expect(turn.statusCode).toBe(202);
       await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(expect.objectContaining({
-        agentError: expect.objectContaining({
-          code: "dns_error", diagnostics: expect.objectContaining({
-            network: { source, ...(source === "direct" ? {} : { proxyUrl: "http://127.0.0.1:7890/" }) },
-          }),
+        code: "dns_error", diagnostics: expect.objectContaining({
+          network: { source, ...(source === "direct" ? {} : { proxyUrl: "http://127.0.0.1:7890/" }) },
         }),
-      }), "Agent model request failed"));
+      }), "Agent turn failed"));
+      expect(warn.mock.calls.filter(([, message]) => message === "Agent turn failed")).toHaveLength(1);
       expect(JSON.stringify(warn.mock.calls)).not.toContain("secret");
     },
   );

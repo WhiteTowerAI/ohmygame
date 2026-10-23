@@ -267,6 +267,38 @@ describe("desktop release publication", () => {
     expect(jobs.macos.needs).toBe("release-notes");
   });
 
+  it("only publishes from a pushed tag", () => {
+    expect(workflow.on).toHaveProperty("workflow_dispatch");
+    expect(workflow.jobs.release.if).toBe("github.event_name == 'push'");
+  });
+
+  it.each([
+    ["the pushed tag", `v${version}`, 0],
+    ["package.json for a manual build", "", 0],
+    ["a mismatched tag", "v0.0.0-beta.4.8", 1],
+  ])("validates the changelog for %s", (_label, tag, status) => {
+    const directory = fixture();
+    mkdirSync(path.join(directory, "scripts"));
+    writeFileSync(
+      path.join(directory, "scripts", "release-notes.mjs"),
+      readFileSync(script),
+    );
+    mkdirSync(path.join(directory, "src", "shared"), { recursive: true });
+    writeFileSync(
+      path.join(directory, "src", "shared", "changelog.ts"),
+      readFileSync("src/shared/changelog.ts"),
+    );
+    const validate = workflow.jobs["release-notes"].steps.find(
+      (step: any) => step.name === "Validate version and changelog",
+    );
+    const result = spawnSync("bash", ["-e", "-c", validate.run], {
+      cwd: directory,
+      encoding: "utf8",
+      env: { ...process.env, RELEASE_TAG: tag },
+    });
+    expect(result.status, result.stderr).toBe(status);
+  });
+
   it.each([`v${version}`, "v0.0.0-beta.4.8"])(
     "prepares notes locally for tag %s",
     (tag) => {

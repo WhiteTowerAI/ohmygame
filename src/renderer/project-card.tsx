@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { menuPlacement } from "./popover-placement.js";
 import type { ProjectAgentActivity, ProjectState } from "../shared/contracts.js";
-import { getProjectCover } from "./api.js";
+import { exportProject, getProjectCover } from "./api.js";
 import { ProjectTypeIcon, projectTypeLabel } from "./project-types.js";
 import { language, t } from "./i18n.js";
 import { ProjectPlaceholder } from "./project-placeholder.js";
@@ -26,7 +26,8 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number }>();
   const [openingFolder, setOpeningFolder] = useState(false);
-  const [folderError, setFolderError] = useState<string>();
+  const [exporting, setExporting] = useState(false);
+  const [menuError, setMenuError] = useState<string>();
   const openProjectFile = typeof window !== "undefined" ? window.ohMyGameDesktop?.openProjectFile : undefined;
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -34,14 +35,36 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
   async function openFolder(): Promise<void> {
     if (!openProjectFile || openingFolder) return;
     setOpeningFolder(true);
-    setFolderError(undefined);
+    setMenuError(undefined);
     try {
       await openProjectFile(project.id, ".", "default");
       setMenuOpen(false);
     } catch (cause) {
-      setFolderError(cause instanceof Error ? cause.message : String(cause));
+      setMenuError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setOpeningFolder(false);
+    }
+  }
+
+  async function exportArchive(): Promise<void> {
+    if (exporting) return;
+    setExporting(true);
+    setMenuError(undefined);
+    try {
+      const archive = await exportProject(project.id);
+      const url = URL.createObjectURL(archive);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${project.name}.zip`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setMenuOpen(false);
+    } catch (cause) {
+      setMenuError(cause instanceof Error ? cause.message : String(cause));
+      // A large project can take a while; show the failure even if the menu was closed meanwhile.
+      setMenuOpen(true);
+    } finally {
+      setExporting(false);
     }
   }
 
@@ -77,7 +100,7 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
     const popup = menu.current?.getBoundingClientRect();
     if (!anchor || !popup) return;
     setMenuPosition(menuPlacement(anchor, popup, { width: window.innerWidth, height: window.innerHeight }));
-  }, [menuOpen, folderError]);
+  }, [menuOpen, menuError]);
 
   return (
     <article className="project-card">
@@ -107,7 +130,7 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
             aria-label={t("projectCard.actions", { name: project.name })}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            onClick={() => { setFolderError(undefined); setMenuOpen((current) => !current); }}
+            onClick={() => { setMenuError(undefined); setMenuOpen((current) => !current); }}
           >
             <MoreHorizontal size={16} />
           </button>
@@ -122,10 +145,11 @@ export function ProjectCard({ project, onOpen, actions, agentStatus }: ProjectCa
               {openProjectFile ? <button type="button" role="menuitem" disabled={openingFolder} onClick={() => void openFolder()}>{t("projectCard.openFolder")}</button> : null}
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onRename(); }}>{t("common.rename")}</button>
               <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDuplicate(); }}>{t("common.duplicate")}</button>
+              <button type="button" role="menuitem" disabled={exporting} onClick={() => void exportArchive()}>{exporting ? t("projectCard.exporting") : t("projectCard.export")}</button>
               <button className="project-card-actions-delete" type="button" role="menuitem" onClick={() => { setMenuOpen(false); actions.onDelete(); }}>
                 {project.workspaceLocation === "external" ? t("projectCard.remove") : t("common.delete")}
               </button>
-              {folderError ? <p className="project-card-folder-error" role="alert">{folderError}</p> : null}
+              {menuError ? <p className="project-card-folder-error" role="alert">{menuError}</p> : null}
             </div>,
             document.body,
           ) : null}

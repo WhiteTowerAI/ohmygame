@@ -604,13 +604,14 @@ describe("coding agent sessions", () => {
       },
     ]);
     const run = manager.prompt(project, conversation, "one");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect.poll(() => drivers[0]?.inputs.length).toBe(1);
     const queued = manager.prompt(project, conversation, "two");
     expect(queued.queued).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Admission reads project context asynchronously; finish it while the
+    // first turn is still held so this actually exercises the same-run queue.
+    await queued.result;
     release();
     await run.result;
-    await queued.result;
     expect(drivers[0]!.inputs.map((input) => input.text)).toEqual([
       "one",
       "two",
@@ -659,7 +660,7 @@ describe("coding agent sessions", () => {
     await expect(run.result).rejects.toThrow("not signed in");
     expect(
       received.find((event) => event.type === "agent.error")?.data,
-    ).toEqual({ error: "Claude Code exited with code 1: not signed in" });
+    ).toEqual({ error: "Claude Code exited with code 1: not signed in", diagnostics: { provider: "claude-code-cli", model: "sonnet" } });
   });
 
   it("asks the person and remembers an answer for the conversation", async () => {

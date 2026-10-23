@@ -253,10 +253,8 @@ export class ClaudeCodeDriver implements NativeDriver {
       context.instructions,
     ];
     if (context.reasoningLevel) args.push("--effort", context.reasoningLevel);
-    if (context.isolateUserConfig)
-      args.push("--setting-sources", "", "--strict-mcp-config");
-    // The person's own configuration may connect Claude Code to OhMyGame from outside.
-    else args.push("--disallowedTools", `mcp__${EXTERNAL_MCP_SERVER_NAME}`);
+    // Avoid recursively reconnecting to OhMyGame through the person's own MCP config.
+    args.push("--disallowedTools", `mcp__${EXTERNAL_MCP_SERVER_NAME}`);
     // Flag settings apply whichever sources load, so the sandbox holds with
     // the person's own configuration too. Full access runs without it.
     if (!context.policy.fullAccess) {
