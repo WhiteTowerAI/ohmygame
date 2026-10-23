@@ -139,7 +139,9 @@ it("protects custom CLI credential roots", () => {
     const before = process.env[name];
     process.env[name] = "/tmp/custom-cli-auth";
     try {
-      expect(neverTouchPaths("/tmp/app")).toContain("/tmp/custom-cli-auth");
+      expect(neverTouchPaths("/tmp/app", "/tmp/pi-agent")).toContain(
+        "/tmp/custom-cli-auth",
+      );
     } finally {
       if (before === undefined) delete process.env[name];
       else process.env[name] = before;
