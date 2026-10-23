@@ -94,6 +94,8 @@ interface ProjectShellProps {
   initialDraft?: ComposerDraft;
   initialCanvasNodeId?: string;
   onInitialCanvasNodeHandled?: () => void;
+  showStoryMap?: boolean;
+  onStoryMapShown?: () => void;
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
@@ -116,6 +118,8 @@ export function ProjectShell({
   initialDraft,
   initialCanvasNodeId,
   onInitialCanvasNodeHandled,
+  showStoryMap,
+  onStoryMapShown,
   onInitialPromptHandled,
   onInitialDraftHandled,
   onOpenConversation,
@@ -986,6 +990,8 @@ export function ProjectShell({
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
       /></Suspense> : <PlayableEditorWorkspace
         project={project}
+        showStoryMap={showStoryMap}
+        onStoryMapShown={onStoryMapShown}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         designOpen={designOpen}
         onDesignOpenChange={changeWorkspaceView}

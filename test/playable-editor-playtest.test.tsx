@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ProjectState } from "../src/shared/contracts.js";
@@ -22,9 +22,16 @@ let move!: (
 ) => void;
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
   ...(await original<typeof import("../src/renderer/editor-canvas.js")>()),
-  EditorCanvas: (props: { onMoveEnd: typeof move }) => {
+  EditorCanvas: (props: {
+    onMoveEnd: typeof move;
+    onNodeDoubleClick: (event: unknown, node: { id: string }) => void;
+  }) => {
     move = props.onMoveEnd;
-    return <div />;
+    return (
+      <button onClick={() => props.onNodeDoubleClick(null, { id: "start" })}>
+        Open Scene
+      </button>
+    );
   },
 }));
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
@@ -36,7 +43,11 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listPlayablePresets: async () => ({ presets: [] }),
   listPlayableThumbnails: async () => ({}),
   getPlayableValidation: async () => ({ issues: [] }),
+  getStoryUpgrade: async () => ({ web: false }),
   updateNodeCodebase: update,
+}));
+vi.doMock(path.resolve("src/renderer/playable-node-workbench.tsx"), () => ({
+  PlayableNodeWorkbench: () => <div aria-label="Scene workbench" />,
 }));
 const { PlayableEditorWorkspace } =
   await import("../src/renderer/playable-editor-workspace.js");
@@ -52,11 +63,18 @@ beforeEach(async () => {
 });
 
 async function renderEditor(
-  props: { onDesignOpenChange?: (open: boolean) => void } = {},
+  props: Partial<ComponentProps<typeof PlayableEditorWorkspace>> = {},
 ): Promise<void> {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  await renderWorkspace(props);
+  await act(async () => move(null, { x: 32, y: 64, zoom: 1.2 }));
+}
+
+async function renderWorkspace(
+  props: Partial<ComponentProps<typeof PlayableEditorWorkspace>> = {},
+): Promise<void> {
   await act(async () =>
     root.render(
       <PlayableEditorWorkspace
@@ -70,7 +88,6 @@ async function renderEditor(
       />,
     ),
   );
-  await act(async () => move(null, { x: 32, y: 64, zoom: 1.2 }));
 }
 
 afterEach(async () => {
@@ -174,28 +191,67 @@ it("says to add a Scene instead of opening Playtest for a story with no Scenes",
   expect(takePlaytestRequest("p")).toBeUndefined();
 });
 
-it("shows the Story map when a Playtest window asks for its editor", async () => {
+it("leaves Design and closes the Scene workbench when Playtest asks for the Story map", async () => {
+  // Open the Scene through the canvas, as a double-click would.
+  const openScene = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Open Scene",
+  )!;
+  await act(async () => openScene.click());
+  expect(
+    container.querySelector('[aria-label="Scene workbench"]'),
+  ).not.toBeNull();
+  const onDesignOpenChange = vi.fn();
+  const onStoryMapShown = vi.fn();
+  await renderWorkspace({
+    designOpen: true,
+    showStoryMap: true,
+    onDesignOpenChange,
+    onStoryMapShown,
+  });
+  expect(container.querySelector('[aria-label="Scene workbench"]')).toBeNull();
+  expect(onDesignOpenChange).toHaveBeenCalledExactlyOnceWith(false);
+  expect(onStoryMapShown).toHaveBeenCalledOnce();
+});
+
+it("applies a pending Story map request after loading the saved Code tab, then consumes it", async () => {
   await act(async () => root.unmount());
   container.remove();
-  const show: ((projectId: string) => void)[] = [];
-  vi.stubGlobal("ohMyGameDesktop", {
-    onShowPlaytestEditor: (listener: (projectId: string) => void) => {
-      show.push(listener);
-      return () => show.splice(show.indexOf(listener), 1);
-    },
-  });
-  const onDesignOpenChange = vi.fn();
-  await renderEditor({ onDesignOpenChange });
-  const workspace = container.querySelector<HTMLElement>("[data-active-tab]")!;
+  disk = {
+    ...structuredClone(codebase),
+    editorLayout: { ...codebase.editorLayout, view: "code" },
+  };
+  const onStoryMapShown = vi.fn();
+  await renderEditor({ showStoryMap: true, onStoryMapShown });
+  expect(
+    container.querySelector<HTMLElement>("[data-active-tab]")!.dataset
+      .activeTab,
+  ).toBe("canvas");
+  expect(onStoryMapShown).toHaveBeenCalledOnce();
+
+  await renderWorkspace({ showStoryMap: false, onStoryMapShown });
   const code = Array.from(container.querySelectorAll("button")).find(
     (button) => button.textContent === "Code",
   )!;
   await act(async () => code.click());
-  expect(workspace.dataset.activeTab).toBe("code");
-  onDesignOpenChange.mockClear();
-  await act(async () => show.forEach((listener) => listener("other")));
-  expect(workspace.dataset.activeTab).toBe("code");
-  await act(async () => show.forEach((listener) => listener("p")));
-  expect(workspace.dataset.activeTab).toBe("canvas");
-  expect(onDesignOpenChange).toHaveBeenCalledExactlyOnceWith(false);
+  await renderWorkspace({
+    workspaceRevision: 1,
+    showStoryMap: false,
+    onStoryMapShown,
+  });
+  expect(
+    container.querySelector<HTMLElement>("[data-active-tab]")!.dataset
+      .activeTab,
+  ).toBe("code");
+  expect(onStoryMapShown).toHaveBeenCalledOnce();
+
+  await renderWorkspace({
+    workspaceRevision: 1,
+    showStoryMap: true,
+    onStoryMapShown,
+  });
+  expect(
+    container.querySelector<HTMLElement>("[data-active-tab]")!.dataset
+      .activeTab,
+  ).toBe("canvas");
+  expect(onStoryMapShown).toHaveBeenCalledTimes(2);
 });

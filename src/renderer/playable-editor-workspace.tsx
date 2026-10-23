@@ -113,13 +113,16 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision?: number;
   openFileRequest?: { path: string; id: number };
+  /** A Playtest navigation request, kept until the saved editor layout has loaded. */
+  showStoryMap?: boolean;
+  onStoryMapShown?: () => void;
   onPublish: (details: PublishDetails) => Promise<boolean>;
   publishDialog?: "open" | "success";
   onOpenPublish: () => void;
@@ -221,11 +224,14 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     openNode(nodeId);
   }), [projectId]);
 
-  // A Playtest window that cannot play asks for the Story map, leaving Design as its tab would.
+  // Apply Playtest navigation after loading, so the saved Code tab cannot override it.
   const showTab = useRef<(tab: "canvas" | "design" | "code") => void>(() => {});
-  useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((targetProjectId) => {
-    if (targetProjectId === projectId) showTab.current("canvas");
-  }), [projectId]);
+  useEffect(() => {
+    if (!showStoryMap || phase === "loading") return;
+    setOpenedNodeId(undefined);
+    showTab.current("canvas");
+    onStoryMapShown?.();
+  }, [showStoryMap, phase]);
 
   // Whether the open Scene has a background the editor can set, and whether it shows anything yet.
   const [backdrop, setBackdrop] = useState<"missing" | "set">();
