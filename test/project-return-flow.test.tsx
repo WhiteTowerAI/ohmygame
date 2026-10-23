@@ -89,6 +89,8 @@ vi.doMock(path.resolve("src/renderer/project-shell.tsx"), () => ({
 }));
 
 const { App } = await import("../src/renderer/app.js");
+// App lazy-loads routes; preload the unmocked page so it resolves inside act().
+await import("../src/renderer/projects.js");
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
 

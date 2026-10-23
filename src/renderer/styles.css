@@ -9266,11 +9266,12 @@ button {
   }
 }
 
-.story-canvas-pointer .react-flow__pane {
+/* Outrank React Flow's .react-flow__pane.draggable/.selection, which load after ours. */
+.story-canvas.story-canvas-pointer .react-flow__pane {
   cursor: default;
 }
 
-.story-canvas-pan .react-flow__pane {
+.story-canvas.story-canvas-pan .react-flow__pane {
   cursor: grab;
 }
 
@@ -14994,6 +14995,11 @@ button {
 
 .error-state > svg {
   color: var(--danger);
+}
+
+.route-loading {
+  height: 100dvh;
+  background: var(--canvas);
 }
 
 .fatal-state {
