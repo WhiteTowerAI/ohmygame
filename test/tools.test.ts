@@ -466,6 +466,30 @@ describe("tool runner", () => {
     expect(generate.mock.calls.at(-1)?.[0].imageModel).toEqual({ provider: "project-1", id: "second" });
   });
 
+  it("logs each finished generation without its prompt", async () => {
+    const lines: { level: string; message: string; details: Record<string, unknown> }[] = [];
+    const generate = vi.fn<ImageGenerator["generate"]>()
+      .mockRejectedValueOnce(new ImageGenerationError("The provider rejected the request", 400))
+      .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const runner = new ToolRunner(await temporaryData(), { generate });
+    runner.setLogger({
+      info: (details, message) => lines.push({ level: "info", message, details: details as Record<string, unknown> }),
+      warn: (details, message) => lines.push({ level: "warn", message, details: details as Record<string, unknown> }),
+    });
+    await runner.load();
+
+    runner.start("generate-image", { prompt: "A secret castle", imageModel: { provider: "openai", id: "gpt-image-1" } }, { context: { projectId: "p1", nodeId: "n1" } });
+    await vi.waitFor(() => expect(lines).toHaveLength(1));
+    runner.start("generate-image", { prompt: "A secret castle", imageModel: { provider: "openai", id: "gpt-image-1" } });
+    await vi.waitFor(() => expect(lines).toHaveLength(2));
+
+    expect(lines).toEqual([
+      { level: "warn", message: "Generation failed", details: { toolId: "generate-image", model: "openai/gpt-image-1", projectId: "p1", durationMs: expect.any(Number), error: "The provider rejected the request" } },
+      { level: "info", message: "Generation succeeded", details: { toolId: "generate-image", model: "openai/gpt-image-1", durationMs: expect.any(Number) } },
+    ]);
+    expect(JSON.stringify(lines)).not.toContain("secret castle");
+  });
+
   it("keeps only recent completed background jobs", async () => {
     const app = createApp({ dataDirectory: await temporaryData(), imageGenerator: fakeGenerator() });
     apps.push(app);
@@ -480,6 +504,65 @@ describe("tool runner", () => {
       expect(jobs).toHaveLength(20);
       expect(jobs.every((job: { status: string }) => job.status === "succeeded")).toBe(true);
     });
+  });
+
+  it("logs direct agent and prepared canvas generations once with project context", async () => {
+    const generate = vi.fn<ImageGenerator["generate"]>()
+      .mockResolvedValueOnce({ bytes: Buffer.from("image"), mediaType: "image/png" })
+      .mockRejectedValueOnce(new ImageGenerationError("Provider failed", 502))
+      .mockRejectedValueOnce(new DOMException("Cancelled", "AbortError"));
+    const runner = new ToolRunner(await temporaryData(), { generate });
+    const info = vi.fn(), warn = vi.fn();
+    runner.setLogger({ info, warn });
+    await runner.load();
+    try {
+      const request = { prompt: "A private castle", imageModel: { provider: "openai", id: "gpt-image-1" } };
+      await runner.run("generate-image", request, undefined, "agent-project");
+      await expect(runner.runPrepared("generate-image", request, undefined, { projectId: "canvas-project" })).rejects.toThrow("Provider failed");
+      await expect(runner.runPrepared("generate-image", request)).rejects.toThrow("Cancelled");
+      expect(info.mock.calls).toEqual([
+        [expect.objectContaining({ toolId: "generate-image", model: "openai/gpt-image-1", projectId: "agent-project", durationMs: expect.any(Number) }), "Generation succeeded"],
+        [expect.objectContaining({ toolId: "generate-image" }), "Generation cancelled"],
+      ]);
+      expect(warn.mock.calls).toEqual([[expect.objectContaining({ projectId: "canvas-project", error: "Provider failed" }), "Generation failed"]]);
+      expect(JSON.stringify([...info.mock.calls, ...warn.mock.calls])).not.toContain("private castle");
+    } finally { await runner.close(); }
+  });
+
+  it("keeps generation results and persisted jobs when the logger throws", async () => {
+    const dataDirectory = await temporaryData();
+    const failure = new ImageGenerationError("Provider failed", 502);
+    const generate = vi.fn<ImageGenerator["generate"]>()
+      .mockResolvedValueOnce({ bytes: Buffer.from("image"), mediaType: "image/png" })
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue({ bytes: Buffer.from("image"), mediaType: "image/png" });
+    const runner = new ToolRunner(dataDirectory, { generate });
+    runner.setLogger({ info: () => { throw new Error("Logger failed"); }, warn: () => { throw new Error("Logger failed"); } });
+    await runner.load();
+    try {
+      const request = { prompt: "fixture" };
+      await expect(runner.run("generate-image", request)).resolves.toMatchObject({ toolId: "generate-image" });
+      await expect(runner.run("generate-image", request)).rejects.toMatchObject({ message: failure.message, statusCode: failure.statusCode });
+      const job = runner.start("generate-image", request);
+      await vi.waitFor(() => expect(runner.jobs().find(({ id }) => id === job.id)?.status).toBe("succeeded"));
+    } finally { await runner.close(); }
+    expect(JSON.parse(await readFile(path.join(dataDirectory, "tools", "jobs.json"), "utf8"))).toMatchObject([{ status: "succeeded" }]);
+  });
+
+  it("records direct and background preparation failures without calling the provider", async () => {
+    const generate = vi.fn<ImageGenerator["generate"]>();
+    const runner = new ToolRunner(await temporaryData(), { generate }, undefined, undefined, undefined, async () => { throw new Error("Provider is disabled"); });
+    const warn = vi.fn();
+    runner.setLogger({ info: vi.fn(), warn });
+    await runner.load();
+    try {
+      await expect(runner.run("generate-image", { prompt: "fixture" }, undefined, "p1")).rejects.toThrow("Provider is disabled");
+      const job = runner.start("generate-image", { prompt: "fixture" });
+      await vi.waitFor(() => expect(runner.jobs().find(({ id }) => id === job.id)?.status).toBe("failed"));
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p1", error: "Provider is disabled" }), "Generation failed");
+      expect(generate).not.toHaveBeenCalled();
+    } finally { await runner.close(); }
   });
 
 });

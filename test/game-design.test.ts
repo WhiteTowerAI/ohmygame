@@ -44,6 +44,20 @@ async function waitForJob(store: CanvasStore, projectId: string) {
   return (await store.jobs(projectId))[0]!;
 }
 describe("Markdown design workspace", () => {
+  it("logs Canvas preparation failures once and preserves the error when logging fails", async () => {
+    const failure = new ImageGenerationError("Provider is disabled", 400);
+    const resolve = vi.fn().mockRejectedValueOnce(failure).mockImplementation(async (_tool, input) => input);
+    const { store, tools, project, boardId, node } = await runtime(fakeGenerator, "asset-canvas", resolve);
+    const info = vi.fn(), warn = vi.fn(() => { throw new Error("Logger failed"); });
+    tools.setLogger({ info, warn });
+    await expect(store.generateNode(project.id, boardId, node.id)).rejects.toBe(failure);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: project.id, toolId: "generate-image", error: failure.message }), "Generation failed");
+    expect(info).not.toHaveBeenCalled();
+    await store.generateNode(project.id, boardId, node.id);
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    expect(info).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: project.id, toolId: "generate-image" }), "Generation succeeded");
+    expect(warn).toHaveBeenCalledOnce();
+  });
   it("persists node sizes in layout files and merges resizing with content edits", async () => {
     const { store, project, boardId } = await runtime();
     const detail = await store.board(project.id, boardId);
@@ -107,6 +121,35 @@ describe("Markdown design workspace", () => {
     board.board.nodes.push({ id: "missing", type: "table", position: { x: 0, y: 0 }, data: { tableId: "unknown" } }); board.board.editorLayout.nodes.missing = { x: 0, y: 0 };
     expect((await app.inject({ method: "PUT", url: `${base}/boards/${board.board.id}`, payload: board })).statusCode).toBe(404);
   });
+  it("keeps imported files under assets/files and reports file nodes whose file is gone", async () => {
+    const app = createApp({ dataDirectory: await temp() }); apps.push(app);
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json(), base = `/projects/${project.id}/canvas`;
+    const workspace = (await app.inject(`${base}/workspace`)).json();
+    const upload = (name: string, payload: Buffer) => app.inject({ method: "POST", url: `${base}/files?name=${encodeURIComponent(name)}`, headers: { "content-type": "application/octet-stream" }, payload });
+    const first = await upload("Hero.psd", Buffer.from("8BPS"));
+    expect(first.statusCode, first.body).toBe(201);
+    expect(first.json()).toEqual({ path: "assets/files/Hero.psd" });
+    expect((await upload("Hero.psd", Buffer.from("8BPS v2"))).json()).toEqual({ path: "assets/files/Hero-2.psd" });
+    expect((await upload("empty.json", Buffer.alloc(0))).json()).toEqual({ path: "assets/files/empty.json" });
+    expect(await readFile(path.join(project.workspacePath, "assets/files/Hero-2.psd"), "utf8")).toBe("8BPS v2");
+    expect((await upload("..", Buffer.from("x"))).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: "/projects/missing/canvas/files?name=a.txt", headers: { "content-type": "application/octet-stream" }, payload: Buffer.from("x") })).statusCode).toBe(404);
+
+    const board = (await app.inject(`${base}/boards/${workspace.boards[0].id}`)).json();
+    board.board.nodes.push({ id: "hero", type: "file", position: { x: 0, y: 0 }, data: { path: "assets/files/Hero.psd" } }); board.board.editorLayout.nodes.hero = { x: 0, y: 0 };
+    expect((await app.inject({ method: "PUT", url: `${base}/boards/${board.board.id}`, payload: board })).statusCode).toBe(200);
+    expect((await checkCanvasWorkspace(project.workspacePath)).ok).toBe(true);
+    const folder = (name: string) => app.inject({ method: "POST", url: `${base}/folders`, payload: { name } });
+    expect((await folder("pack")).json()).toEqual({ path: "assets/files/pack" });
+    expect((await folder("pack")).json()).toEqual({ path: "assets/files/pack-2" });
+    const nested = (directory: string) => app.inject({ method: "POST", url: `${base}/files?name=skin.png&directory=${encodeURIComponent(directory)}`, headers: { "content-type": "application/octet-stream" }, payload: Buffer.from("png") });
+    expect((await nested("assets/files/pack/textures/hero")).json()).toEqual({ path: "assets/files/pack/textures/hero/skin.png" });
+    for (const directory of ["assets/imported", "src", "assets/files/../../src", "assets/files/pack/", "assets/files/./pack"]) expect((await nested(directory)).statusCode, directory).toBe(400);
+    expect((await folder("..")).statusCode).toBe(400);
+    await rm(path.join(project.workspacePath, "assets/files/Hero.psd"));
+    expect((await checkCanvasWorkspace(project.workspacePath)).issues).toContainEqual({ file: `canvas/boards/${board.board.id}.json`, message: "Node hero: file assets/files/Hero.psd: File not found" });
+  });
+
   it("records contextual defaults in canvas history and preserves them through retries and reloads", async () => {
     let defaultId = "project-image";
     const generate = vi.fn<ImageGenerator["generate"]>()
@@ -652,7 +695,7 @@ describe("Markdown design workspace", () => {
     const run = vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "animation-run", toolId: "animate-3d", createdAt: "now", files: [{ name: output.name, mediaType: "model/gltf-binary", assetId: output.id }] });
     await store.generateNode(project.id, boardId, animation.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
-    expect(run).toHaveBeenCalledWith("animate-3d", expect.objectContaining({ assetId: source.id, actionIds: [0], heightMeters: 1.7 }), expect.any(AbortSignal), expect.any(String));
+    expect(run).toHaveBeenCalledWith("animate-3d", expect.objectContaining({ assetId: source.id, actionIds: [0], heightMeters: 1.7 }), expect.any(AbortSignal), { recoveryId: expect.any(String), projectId: project.id });
     const manifest = await readCanvasAssets(project.workspacePath);
     await writeFile(path.join(project.workspacePath, "assets/wrong.png"), "image");
     manifest.assets[source.id]!.path = "assets/wrong.png";

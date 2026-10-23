@@ -10,7 +10,8 @@ const repositoryRoot = path.resolve(moduleDirectory, "../..");
 
 export function windowsTitleBarOverlay(isDark: boolean) {
   return {
-    color: isDark ? "#1f1f1f" : "#ffffff",
+    // Let the renderer's title bar (including modal backdrops) show through.
+    color: "#00000000",
     symbolColor: isDark ? "#ffffff" : "#202020",
     height: 32,
   };

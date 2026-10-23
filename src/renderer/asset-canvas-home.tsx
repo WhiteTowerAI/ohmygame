@@ -117,7 +117,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
           {phase === "loading" ? <AssetCanvasRecentSkeleton /> : null}
           {phase === "error" ? <p className="home-project-state" role="alert">{error}</p> : null}
           {phase === "ready" && !projects.length ? <div className="asset-canvas-empty"><Image size={18} /><span>{t("assetCanvasHome.none")}</span></div> : null}
-          {phase === "ready" && projects.length ? <div className="home-project-grid">
+          {phase === "ready" && projects.length ? <div className="home-project-grid home-recent-projects-grid">
             {projects.map((project) => <ProjectCard
               key={project.id}
               project={project}
@@ -150,7 +150,7 @@ export function AssetCanvasHome({ onNavigate, onOpenProject }: {
 }
 
 function AssetCanvasRecentSkeleton() {
-  return <div className="home-project-grid" aria-label={t("assetCanvasHome.loading")}>
+  return <div className="home-project-grid home-recent-projects-grid" aria-label={t("assetCanvasHome.loading")}>
     {Array.from({ length: 4 }, (_, index) => <div className="project-card home-project-skeleton" key={index} />)}
   </div>;
 }

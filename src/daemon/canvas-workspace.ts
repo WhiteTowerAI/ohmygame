@@ -44,13 +44,14 @@ Canvas files are the source of truth in both Design and Asset Canvas. Use normal
 - promptSource references a text or document node. Text and document nodes accept references to text, document, image, or image asset nodes as AI source material. images, references, and source declare dependencies; their canvas lines are derived. Do not duplicate these relationships in edges.
 - Speech, sound-effect, and music nodes use the shared audio model contract. Keep provider-specific credentials out of canvas files; select models by provider/id and only use options advertised by that model's capabilities.
 - To add local media, register its workspace-relative path in assets.json and reference its ID from an asset node or an existing generation node.
+- A file node points at any other project file by its project-relative path (data.path), such as a source file, font, archive or editor project; with directory: true it points at a folder whose structure matters, such as an asset pack. Files and folders imported on the canvas live under assets/files/. Read or use the files themselves; update the path if you move them.
 - Do not trigger generation merely by editing a prompt or adding a reference. A game-creation request includes its needed media unless the user narrows the scope. Use generate_canvas_media with the saved boardId and nodeId for generation; it uses the node settings and shared generation history.
 - Removing a node or board keeps its documents, tables, and assets. Remove references to a deleted node from the same board.
 - An editor-context block identifies the current board and selected nodes. Read the referenced files before editing, and preserve other user changes.
 `;
 const CANVAS_README = `# Canvas workspace
 
-The canvas edits ordinary project files. Documents are Markdown and media files are available directly under assets/ in the project.
+The canvas edits ordinary project files. Documents are Markdown and media files are available directly under assets/ in the project. Other files imported on the canvas are kept under assets/files/ and shown as file nodes.
 
 | File | Content |
 | --- | --- |
@@ -560,7 +561,7 @@ export class CanvasStore {
   }
   async #execute(id: string, job: StoredJob, prepared: RunToolRequest, controller: AbortController) {
     try {
-      const run = await this.tools.runPrepared(job.toolId, prepared, controller.signal, job.recoveryId ?? job.id); controller.signal.throwIfAborted();
+      const run = await this.tools.runPrepared(job.toolId, prepared, controller.signal, { recoveryId: job.recoveryId ?? job.id, projectId: id }); controller.signal.throwIfAborted();
       const output = run.files[0];
       if (!output?.assetId) throw new CanvasError("Generation returned no Library asset", 502);
       await withCanvasLock(this.#project(id).workspacePath, async () => {

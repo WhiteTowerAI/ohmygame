@@ -27,6 +27,9 @@ describe("canvas tables", () => {
     expect(
       parseDelimitedTable(serializeDelimitedTable(table, ","), ","),
     ).toEqual(parseDelimitedTable(serializeDelimitedTable(table, "\t"), "\t"));
+    const tsv = importCanvasCsv(createCanvasTable(), "名称\t价格\r\n剑\t10,5", "\t");
+    expect(tsv.columns.map((column) => column.title)).toEqual(["名称", "价格"]);
+    expect(Object.values(tsv.rows[0]!.cells)).toEqual(["剑", "10,5"]);
   });
   it("rejects malformed and oversized imports before replacing any data", () => {
     expect(() => parseDelimitedTable('"unterminated', ",")).toThrow(

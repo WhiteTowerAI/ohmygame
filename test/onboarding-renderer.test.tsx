@@ -1113,7 +1113,6 @@ describe("three-step setup with coding agents", () => {
     enabled: false,
     installed: true,
     auth: { status: "signed-in", billing: "subscription" },
-    isolateUserConfig: true,
     commandSandbox: "os",
     permissionMode: "standard",
     diagnostics: [],

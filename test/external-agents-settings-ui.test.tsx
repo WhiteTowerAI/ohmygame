@@ -82,9 +82,11 @@ it("lets other agents use OhMyGame and connects a CLI found on this computer", a
   ).toEqual(["Not connected", "CLI not detected on this computer"]);
   // Codex is not installed, so it has nothing to connect.
   expect(rows[1]!.querySelector("button")).toBeNull();
-  await act(async () =>
-    rows[0]!.querySelector<HTMLButtonElement>("button")!.click(),
-  );
+  const connect = rows[0]!.querySelector<HTMLButtonElement>(
+    'button[aria-label="Connect"]',
+  )!;
+  expect(connect.textContent).toBe("");
+  await act(async () => connect.click());
   expect(api.connectExternalAgent).toHaveBeenCalledWith("claude-code");
   expect(
     clients().querySelector(".settings-provider-row")!.textContent,

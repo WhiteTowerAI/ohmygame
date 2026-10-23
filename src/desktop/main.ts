@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -15,6 +15,10 @@ import { createNetworkDispatcher } from "../daemon/proxy.js";
 import { electronProxyConfig, prepareDesktopNetwork, proxyCredentials } from "./network.js";
 import { loadEnvironmentFiles } from "../daemon/environment.js";
 import { ignoreBrokenStdio } from "./stdio.js";
+import { RotatingLogFile } from "./log-file.js";
+import { createLogRedactor } from "../shared/log-redaction.js";
+import { desktopDiagnosticsArchive } from "./diagnostics-export.js";
+import { recordConsole, recordUncaughtErrors, rendererConsoleLines, runtimeStateLine, updateFailureLine } from "./console-log.js";
 import { createDesktopWindow, fitPlaytestContentSize, isValidPlaytestViewport, waitForRenderer, windowsTitleBarOverlay } from "./window.js";
 import { DesktopUpdatePreparationError, DesktopUpdater } from "./updater.js";
 import { DesktopUpdateCheckScheduler } from "./update-check-scheduler.js";
@@ -37,6 +41,13 @@ loadEnvironmentFiles(repositoryRoot, app.isPackaged ? "production" : "developmen
 const developmentRendererUrl = process.env.OHMYGAME_RENDERER_URL ?? "http://127.0.0.1:43120";
 const useBuiltRenderer = app.isPackaged || process.argv.includes("--built-renderer");
 let daemon: DaemonSupervisor | undefined;
+const logDirectory = app.getPath("logs");
+const redactLog = createLogRedactor();
+const mainLog = new RotatingLogFile({ directory: logDirectory, name: "main", redact: redactLog });
+const daemonLog = new RotatingLogFile({ directory: logDirectory, name: "daemon", redact: redactLog });
+recordConsole(mainLog);
+recordUncaughtErrors(mainLog);
+mainLog.line(`OhMyGame ${app.getVersion()} starting on ${process.platform} ${process.arch}`);
 let mainWindow: BrowserWindow | undefined;
 const playtestWindows = new Map<string, BrowserWindow | Promise<BrowserWindow>>();
 /** A Node that fails to start never reports back; its window gives up after this. */
@@ -83,6 +94,7 @@ async function stopServices(): Promise<void> {
   agentPlaytests.close();
   await Promise.all([daemon?.stop(), oauth.cancel()]);
   await clearExternalMcpApp?.().catch(() => undefined);
+  await Promise.all([daemonLog.close(), mainLog.close()]);
 }
 
 function prepareShutdown(forUpdate = false): Promise<void> {
@@ -223,6 +235,16 @@ handle("ohmygame:reveal-plugin-skill", async (event, pluginId: unknown, skillId:
   const result = await response.json() as { path?: unknown };
   if (typeof result.path !== "string" || !path.isAbsolute(result.path)) throw new Error("Invalid Plugin Skill path");
   shell.showItemInFolder(result.path);
+});
+handle("ohmygame:open-logs-directory", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid logs folder source");
+  mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
+  const error = await shell.openPath(logDirectory);
+  if (error) throw new Error(error);
+});
+handle("ohmygame:export-diagnostics", async (event) => {
+  if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid diagnostics source");
+  return desktopDiagnosticsArchive({ logDirectory, logs: [mainLog, daemonLog], service: () => daemon?.state(), redact: redactLog });
 });
 handle("ohmygame:select-plugin-directory", async (event) => {
   if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error("Invalid directory selection source");
@@ -523,8 +545,11 @@ try {
     },
     development: !useBuiltRenderer,
     healthTimeoutMs: 60_000,
+    log: daemonLog,
+    logDirectory,
     handlePlaytestRequest: (request, signal) => agentPlaytests.request(request, signal),
     onState: (state) => {
+      mainLog.line(runtimeStateLine(state));
       if (state.status !== "ready") {
         webGamePlayers.close();
         agentPlaytests.close();
@@ -539,6 +564,13 @@ try {
 
   if (!useBuiltRenderer) await waitForRenderer(developmentRendererUrl);
   updater.subscribe((state) => mainWindow?.webContents.send("ohmygame:update-state", state));
+  // The same failure is published again with every other change to the update state.
+  let updateFailure: string | undefined;
+  updater.subscribe((state) => {
+    const failure = updateFailureLine(state);
+    if (failure && failure !== updateFailure) mainLog.line(failure);
+    updateFailure = failure;
+  });
   await openMainWindow();
   if (app.isPackaged) {
     updateChecks = new DesktopUpdateCheckScheduler(updater);
@@ -564,6 +596,9 @@ async function openMainWindow(): Promise<void> {
     integratedMenuBar: true,
     beforeLoad: (window) => {
       mainWindow = window;
+      window.webContents.on("console-message", (details) => {
+        for (const line of rendererConsoleLines(details)) mainLog.line(line);
+      });
       window.on("show", () => {
         webGamePlayers.synchronize();
         updateChecks?.onFocus();

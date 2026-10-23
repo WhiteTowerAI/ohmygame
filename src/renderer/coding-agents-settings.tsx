@@ -455,29 +455,9 @@ export function CodingAgentDetail({
               {t("codingAgents.permissionFullHint", { name: agent.name })}
             </p>
           ) : null}
-          <label className="coding-agent-option">
-            <span className="settings-toggle">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={!agent.isolateUserConfig}
-                disabled={busy !== undefined}
-                onChange={(event) =>
-                  void update({ isolateUserConfig: !event.target.checked })
-                }
-              />
-              <span aria-hidden="true" />
-            </span>
-            <span>
-              <strong>{t("codingAgents.useOwnConfig")}</strong>
-              <small>{t("codingAgents.useOwnConfigHint")}</small>
-              {agent.partialIsolation ? (
-                <small>
-                  {t("codingAgents.partialIsolation", { name: agent.name })}
-                </small>
-              ) : null}
-            </span>
-          </label>
+          <p className="settings-detail-hint">
+            {t("codingAgents.cliConfigHint", { name: agent.name })}
+          </p>
         </section>
       ) : null}
       <section className="settings-detail-section">
@@ -704,6 +684,12 @@ function diagnosticText(
     case "invalid-executable":
       return t("codingAgents.diagnostic.invalidExecutable");
     case "runtime-incompatible":
+      if (
+        agent.id === "opencode-cli" &&
+        diagnostic.capability ===
+          "no saved OpenCode permissions for this project"
+      )
+        return t("codingAgents.diagnostic.openCodeSavedPermissions");
       return t(
         diagnostic.capability
           ? "codingAgents.diagnostic.capabilityMissing"

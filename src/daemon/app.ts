@@ -25,7 +25,10 @@ import path from "node:path";
 import { isWebStory } from "./story-web-project.js";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "fastify";
+import { daemonLoggerOptions, logFailedRequests } from "./request-log.js";
+import { ActivityLog } from "./activity-log.js";
+import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, pluginProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
@@ -85,6 +88,7 @@ import { CloudModelsClient } from "./cloud-models.js";
 import { MAX_ANIMATION_ACTIONS, MODEL_3D_MAX_POLYCOUNT } from "../shared/generation-config.js";
 import { isNative3DProvider, model3DPreset, normalizeNativeModel3D, MODEL_3D_CATALOG_DOCS, MODEL_3D_CATALOG_REVIEWED } from "../shared/model3d-presets.js";
 import type { ProviderModelSettings } from "../shared/contracts.js";
+import { MEDIA_CONTENT_TYPES } from "../shared/media-files.js";
 import { MeshyProvider } from "./meshy-provider.js";
 import { MediaProviderKeyStore } from "./media-provider-settings.js";
 import { TripoProvider } from "./tripo-provider.js";
@@ -119,7 +123,9 @@ import { hasPluginMentionToken, pluginMentionToken, type InstallPluginRequest, t
 import { getWorkspaceMedia, listWorkspaceFiles, locateWorkspaceEntry, readWorkspaceFile, validateWorkspaceFile, workspaceMediaInfo, WorkspaceError } from "./workspace.js";
 import { listWorkspaceGitChanges, readWorkspaceGitFile } from "./workspace-git.js";
 import { AssetLibrary, AssetLibraryError, isLibraryAssetDerivation } from "./asset-library.js";
-import { exportPlayableProject, PlayableProjectExportError } from "./playable-project-export.js";
+import { exportProjectArchive, importProjectArchive, ProjectArchiveError } from "./project-archive.js";
+import { MAX_PROJECT_COVER_BYTES } from "./project-covers.js";
+import { PROJECT_ARCHIVE_CONTENT_TYPE, PROJECT_ARCHIVE_MAX_BYTES } from "../shared/project-archive.js";
 import { AgentAttachmentError, AgentAttachmentStore, MAX_AGENT_ATTACHMENT_BYTES, MAX_AGENT_ATTACHMENTS_PER_TURN } from "./agent-attachments.js";
 import { WEB_GAME_USE_CAPABILITIES, type GameRuntimeAdapter, type GameUseOpenTarget } from "../shared/playtest.js";
 import { EXTERNAL_AGENT_CLIENT_IDS, EXTERNAL_MCP_PATH, EXTERNAL_MCP_ROOTS_HEADER, type ExternalAgentClientId, type ExternalAgentSettings, type ExternalMcpLauncher, type UpdateExternalAgentSettings } from "../shared/external-mcp.js";
@@ -153,6 +159,8 @@ export interface AppOptions {
   dataDirectory?: string;
   piAgentDirectory?: string;
   logger?: boolean;
+  /** Where the desktop app writes the logs a diagnostics export includes. */
+  logDirectory?: string;
   accessToken?: string;
   allowedOrigins?: string[];
   publishApiUrl?: string;
@@ -420,7 +428,6 @@ const updateAgentRuntimeSchema = {
     minProperties: 1,
     properties: {
       enabled: { type: "boolean" },
-      isolateUserConfig: { type: "boolean" },
       permissionMode: { enum: ["standard", "full"] },
       binaryPath: { type: "string", maxLength: 4_096 },
     },
@@ -480,16 +487,10 @@ const setConversationReasoningSchema = {
     properties: { level: { type: "string", minLength: 1, maxLength: 100 } },
   },
 } as const;
-const MAX_PROJECT_COVER_BYTES = 5 * 1024 * 1024;
 const MAX_LIBRARY_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_LIBRARY_UPLOAD_BYTES = 200 * 1024 * 1024;
 /** A prompt rechecks a plugin connection, such as an account login, at most this often. */
 const PLUGIN_CONNECTION_MAX_AGE_MS = 10 * 60_000;
-const LIBRARY_UPLOAD_MEDIA_TYPES = new Set<LibraryUploadMediaType>([
-  "image/png", "image/jpeg", "image/svg+xml", "image/webp",
-  "video/mp4", "video/quicktime", "video/webm",
-  "audio/mpeg", "audio/wav",
-]);
 
 const toolRunSchema = {
   body: {
@@ -981,7 +982,6 @@ export function createApp(options: AppOptions = {}) {
       const route = networkSettings.get().active;
       return { network: { source: route.source, ...(route.httpsProxy ? { proxyUrl: route.httpsProxy } : {}) } };
     },
-    onRunFailed: (error, scope) => app.log.warn({ agentError: error, ...scope }, "Agent model request failed"),
     ...(options.createSession ? {} : {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
@@ -1037,9 +1037,18 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
   };
   const app = Fastify({
-    logger: options.logger ?? false,
+    logger: options.logger ? daemonLoggerOptions() : false,
+    logController: new LogController({ disableRequestLogging: true }),
+    // First-run plugin extraction can exceed Fastify's default 10s on Windows.
+    pluginTimeout: 60_000,
     ajv: { customOptions: { coerceTypes: false } },
   });
+  if (options.logger) {
+    logFailedRequests(app);
+    const activity = new ActivityLog(app.log);
+    tools.setLogger(app.log);
+    events.subscribeAll((event) => activity.event(event));
+  }
   projectWrites.install(app);
   const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
   // Selecting or clearing an integration changes the project's preview, tools and prompt.
@@ -1081,6 +1090,10 @@ export function createApp(options: AppOptions = {}) {
     done(null, body);
   });
   app.addContentTypeParser("application/vnd.ohmygame.attachment", { bodyLimit: MAX_AGENT_ATTACHMENT_BYTES }, (_request, payload, done) => {
+    done(null, payload);
+  });
+  // Project archives stream to disk; importProjectArchive also counts the bytes of uploads without a length.
+  app.addContentTypeParser(PROJECT_ARCHIVE_CONTENT_TYPE, { bodyLimit: PROJECT_ARCHIVE_MAX_BYTES }, (_request, payload, done) => {
     done(null, payload);
   });
 
@@ -1811,6 +1824,24 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.post<{ Querystring: { name?: string }; Body: unknown }>("/projects/import", {
+    schema: { querystring: { type: "object", additionalProperties: false, properties: { name: { type: "string", maxLength: 255 } } } },
+  }, async (request, reply) => {
+    // Other content types arrive parsed, for example as JSON objects, which are not archives.
+    const body = request.body;
+    const upload = Buffer.isBuffer(body) ? body
+      : body && typeof (body as AsyncIterable<unknown>)[Symbol.asyncIterator] === "function" ? body as AsyncIterable<Buffer | string>
+        : undefined;
+    if (!upload) return reply.code(400).send({ error: "Choose a project archive to import." });
+    try {
+      return reply.code(201).send(await importProjectArchive(projects, upload, { name: request.query.name }));
+    } catch (cause) {
+      if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof ProjectWorkspaceError) return reply.code(400).send({ error: cause.message });
+      throw cause;
+    }
+  });
+
   app.post<{ Params: { projectId: string } }>("/projects/:projectId/duplicate", async (request, reply) => {
     try {
       return reply.code(201).send(await projects.duplicate(request.params.projectId));
@@ -1916,7 +1947,7 @@ export function createApp(options: AppOptions = {}) {
         required: ["name", "mediaType"],
         properties: {
           name: { type: "string", minLength: 1, maxLength: 200 },
-          mediaType: { type: "string", enum: [...LIBRARY_UPLOAD_MEDIA_TYPES] },
+          mediaType: { type: "string", enum: [...MEDIA_CONTENT_TYPES] },
           duration: { type: "string", pattern: "^(?:0|[1-9]\\d*)(?:\\.\\d+)?$" },
           purpose: { enum: ["asset", "reference"] },
           trimSource: { type: "string", minLength: 1, maxLength: 200 },
@@ -2403,6 +2434,25 @@ export function createApp(options: AppOptions = {}) {
     return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
+  registerDiagnosticsRoutes(app, {
+    logDirectory: options.logDirectory,
+    summary: async () => {
+      const [providers, agents, installed, projectTypes] = await Promise.all([
+        diagnosticSection(async () => (await providerSummaries()).filter((provider) => provider.configured)
+          .map(({ id, enabled, custom, capabilities }) => ({ id, enabled: enabled !== false, custom: custom === true, capabilities }))),
+        diagnosticSection(async () => (await agentRuntimes.statuses())
+          .map(({ id, enabled, installed, version, auth }) => ({ id, enabled, installed, ...(version ? { version } : {}), auth: auth.status }))),
+        diagnosticSection(async () => (await plugins.list()).plugins.filter((plugin) => plugin.installed)
+          .map(({ id, version, enabled, beta }) => ({ id, ...(version ? { version } : {}), enabled, ...(beta ? { beta } : {}) }))),
+        diagnosticSection(() => {
+          const counts: Record<string, number> = {};
+          for (const project of projects.list()) counts[project.type] = (counts[project.type] ?? 0) + 1;
+          return counts;
+        }),
+      ]);
+      return { providers, agents, plugins: installed, projects: projectTypes };
+    },
+  });
   app.post("/settings/models/providers/codex-cli/images/recheck", async () => codexImages.recheck(providerEnabled("codex-cli")));
   registerOpenAIImageRoutes(app, openAIImages, imageConnection, options.modelDiscoveryFetch);
   app.get("/settings/onboarding", async () => {
@@ -3482,7 +3532,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       const status = await agentRuntimes.update(request.params.runtimeId, request.body);
       // Open conversations pick up how the agent runs with their next message.
-      if (request.body.permissionMode !== undefined || request.body.isolateUserConfig !== undefined || request.body.binaryPath !== undefined) agents.releaseRuntimeSessions(request.params.runtimeId);
+      if (request.body.permissionMode !== undefined || request.body.binaryPath !== undefined) agents.releaseRuntimeSessions(request.params.runtimeId);
       return status;
     } catch (cause) {
       return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
@@ -3666,19 +3716,19 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/export-project", async (request, reply) => {
+  app.post<{ Params: { projectId: string } }>("/projects/:projectId/export", async (request, reply) => {
     const project = projects.get(request.params.projectId);
     if (!project) return reply.code(404).send({ error: "Project not found" });
-    if (project.type !== "interactive-story") return reply.code(409).send({ error: "Project export requires an Interactive Story project" });
     if (agents.isProjectBusy(project.id)) return reply.code(409).send({ error: "Wait for the agent to finish before exporting" });
     try {
-      const archive = await exportPlayableProject(project.workspacePath, library);
+      const [cover, coverState] = await Promise.all([projects.cover(project.id), projects.coverState(project.id)]);
+      const archive = await exportProjectArchive(project, { library, ...(cover ? { cover: { contents: cover, mode: coverState.mode } } : {}) });
       return reply
         .header("content-type", "application/zip")
         .header("content-disposition", `attachment; filename="${encodeURIComponent(project.name)}.zip"`)
         .send(archive);
     } catch (cause) {
-      if (cause instanceof PlayableProjectExportError) return reply.code(cause.statusCode).send({ error: cause.message });
+      if (cause instanceof ProjectArchiveError) return reply.code(cause.statusCode).send({ error: cause.message });
       throw cause;
     }
   });
@@ -3819,7 +3869,16 @@ function isLibraryMediaOfType(value: Buffer, mediaType: LibraryUploadMediaType):
   if (mediaType === "video/webm") {
     return value.length >= 4 && value[0] === 0x1a && value[1] === 0x45 && value[2] === 0xdf && value[3] === 0xa3;
   }
-  return value.length >= 8 && value.subarray(4, 8).toString("ascii") === "ftyp";
+  if (mediaType === "image/gif") return /^GIF8[79]a$/.test(value.subarray(0, 6).toString("ascii"));
+  if (mediaType === "audio/ogg") return value.subarray(0, 4).toString("ascii") === "OggS";
+  if (mediaType === "model/gltf-binary") return value.length >= 12 && value.subarray(0, 4).toString("ascii") === "glTF" && value.readUInt32LE(4) === 2;
+  if (value.length < 8 || value.subarray(4, 8).toString("ascii") !== "ftyp") return false;
+  // The ftyp box holds a major brand, a version, then compatible brands; AVIF images carry avif or avis.
+  const boxEnd = Math.min(value.readUInt32BE(0), value.length);
+  const brands = new Set([value.subarray(8, 12).toString("ascii")]);
+  for (let offset = 16; offset + 4 <= boxEnd; offset += 4) brands.add(value.subarray(offset, offset + 4).toString("ascii"));
+  const avif = brands.has("avif") || brands.has("avis");
+  return mediaType === "image/avif" ? avif : !avif;
 }
 
 function validBase64(value: string): boolean {

@@ -72,6 +72,7 @@ try {
       .map((origin) => origin.trim())
       .filter(Boolean),
     logger: true,
+    logDirectory: process.env.OHMYGAME_LOG_DIR,
     publishApiUrl: process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL,
     localDebug: isLocalDebugEnabled(
       development && isLoopbackHostname(host),

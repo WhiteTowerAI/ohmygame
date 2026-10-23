@@ -287,7 +287,7 @@ export class CodexDriver implements NativeDriver {
     return id;
   }
 
-  /** Overrides that keep the person's own Codex MCP servers and notification hook out of OhMyGame's runs. */
+  /** Permission overrides and prevention of a recursive OhMyGame MCP connection. */
   async #config(server: CodexAppServer): Promise<Record<string, unknown>> {
     // An explicit root deny prevents even scoped grants. Unlisted paths are
     // restricted by default; only protected roots get an explicit deny.
@@ -334,9 +334,7 @@ export class CodexDriver implements NativeDriver {
       // startup files the profile denies; the PATH given here already holds
       // the login shell's folders.
       allow_login_shell: false,
-      // Only the workspace's own AGENTS.md counts, as for OhMyGame's own agent:
-      // a parent folder's instructions describe whatever happens to contain
-      // the game, and its files are outside the permission profile.
+      // Parent instructions can live in app data denied by the permission profile.
       project_root_markers: [],
       permissions: {
         [this.#profile]: profile(false),
@@ -367,21 +365,11 @@ export class CodexDriver implements NativeDriver {
       );
       servers = record(read.config?.mcp_servers) ?? {};
     } catch {
-      if (!this.context.isolateUserConfig) return config;
-      throw new Error(
-        "Codex configuration could not be checked. Retry, or explicitly enable your own CLI configuration in Settings.",
-      );
-    }
-    if (!this.context.isolateUserConfig) {
-      // The person's own configuration may connect Codex to OhMyGame from outside.
-      if (servers[EXTERNAL_MCP_SERVER_NAME])
-        config[`mcp_servers.${EXTERNAL_MCP_SERVER_NAME}.enabled`] = false;
       return config;
     }
-    config.notify = [];
-    for (const name of Object.keys(servers))
-      config[`mcp_servers.${name}.enabled`] = false;
-    // Codex has no way to leave out the person's Skills, plugins and AGENTS.md from its own folder.
+    // Avoid recursively reconnecting to OhMyGame through the person's own MCP config.
+    if (servers[EXTERNAL_MCP_SERVER_NAME])
+      config[`mcp_servers.${EXTERNAL_MCP_SERVER_NAME}.enabled`] = false;
     return config;
   }
 

@@ -16,6 +16,7 @@ import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js
 import { SegmentedControl } from "./segmented-control.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
+import { exportDiagnostics } from "./api.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
 
 const BILLING_DASHBOARD_URL = "https://account.ohmygame.ai/account/billing";
@@ -331,8 +332,55 @@ function AboutSettings({ onOpenNetwork, onOpenOnboarding }: { onOpenNetwork: () 
         </nav>
         {onOpenOnboarding ? <div><button className="settings-secondary-button" type="button" onClick={onOpenOnboarding}>{t("onboarding.reopen")}</button></div> : null}
       </section>
+      <DiagnosticsSettings />
       <ChangelogPanel currentVersion={update?.currentVersion ?? __APP_VERSION__} availableRelease={update?.availableRelease} />
     </>
+  );
+}
+
+function DiagnosticsSettings() {
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState<string>();
+  const openLogsDirectory = window.ohMyGameDesktop?.openLogsDirectory;
+  const openLogs = async () => {
+    setError(undefined);
+    try {
+      await openLogsDirectory?.();
+    } catch (cause) {
+      setError(t("settings.diagnostics.openLogsFailed", { message: errorMessage(cause) }));
+    }
+  };
+  const download = async () => {
+    setExporting(true);
+    setError(undefined);
+    try {
+      const { blob, fileName } = await exportDiagnostics();
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (cause) {
+      setError(t("settings.diagnostics.exportFailed", { message: errorMessage(cause) }));
+    } finally {
+      setExporting(false);
+    }
+  };
+  return (
+    <section className="settings-panel settings-overview-panel settings-diagnostics-panel">
+      <header className="settings-panel-header"><h3>{t("settings.diagnostics.title")}</h3></header>
+      <p>{t("settings.diagnostics.description")}</p>
+      <div className="settings-diagnostics-actions">
+        <button className="settings-secondary-button" type="button" disabled={exporting} onClick={() => void download()}>
+          {exporting ? t("settings.diagnostics.exporting") : t("settings.diagnostics.export")}
+        </button>
+        {openLogsDirectory ? (
+          <button className="settings-secondary-button" type="button" onClick={() => void openLogs()}>{t("settings.diagnostics.openLogs")}</button>
+        ) : null}
+      </div>
+      {error ? <p className="settings-error" role="alert">{error}</p> : null}
+    </section>
   );
 }
 

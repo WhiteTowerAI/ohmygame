@@ -104,7 +104,10 @@ export function registerCheckpointRoutes(
       // this set empty, while publish/build need that snapshot to finish.
       if (/\/(?:publish|interactive-story\/build)(?:\?|$)/.test(request.url))
         await agents.turnsClosed(id);
-      const read = request.method === "GET" || request.method === "HEAD";
+      // Export reads the current workspace, including from a project list
+      // that has not observed its version. Still drain it before a restore.
+      const read = request.method === "GET" || request.method === "HEAD" ||
+        (request.method === "POST" && request.routeOptions.url === "/projects/:projectId/export");
       writes.track(
         request,
         await writes.enter(

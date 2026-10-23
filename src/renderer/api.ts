@@ -1,4 +1,6 @@
+import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
+import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
 import { runtimeConnection, subscribeRuntimeConnection } from "./runtime-connection.js";
 import { assertWorkspaceVersion, observeWorkspaceVersion, workspaceVersion, type WorkspaceRequestInit } from "./workspace-version.js";
@@ -144,6 +146,10 @@ declare global {
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
+      /** Older desktop builds do not write log files. */
+      openLogsDirectory?: () => Promise<void>;
+      /** Builds the diagnostics ZIP without the background service, for when it is not running. */
+      exportDiagnostics?: () => Promise<Uint8Array<ArrayBuffer>>;
       clipboard: {
         files: () => Promise<DesktopClipboardFile[]>;
         paste: () => Promise<void>;
@@ -235,6 +241,45 @@ export async function updateProjectRunSettings(projectId: string, input: Project
 
 export async function duplicateProject(projectId: string): Promise<ProjectState> {
   return request(`/projects/${projectId}/duplicate`, { method: "POST" });
+}
+
+/** Downloads the project as an archive that imports as a new project. */
+export async function exportProject(projectId: string, version?: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/export`), {
+    method: "POST",
+    headers: projectRuntimeHeaders(projectId, version),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.blob();
+}
+
+/**
+ * The name for a project file from earlier versions: its file name without
+ * `.zip` and the "(project)" suffix the story export adds in either language.
+ */
+export function archiveProjectName(fileName: string): string {
+  let name = fileName.replace(/\.zip$/i, "");
+  for (const lng of ["en", "zh-CN"]) {
+    const suffix = ` (${t("storySettings.projectFileSuffix", { lng })})`;
+    if (name.endsWith(suffix)) {
+      name = name.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return name.slice(0, 255);
+}
+
+/** Creates a new project from an archive, streaming the file to the runtime. */
+export async function importProject(file: File): Promise<ProjectState> {
+  // Names a project file from earlier versions, which has no manifest.
+  const query = new URLSearchParams({ name: archiveProjectName(file.name) });
+  const response = await fetch(apiUrl(`/projects/import?${query}`), {
+    method: "POST",
+    headers: { "content-type": PROJECT_ARCHIVE_CONTENT_TYPE, ...runtimeHeaders() },
+    body: file,
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json() as Promise<ProjectState>;
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
@@ -585,10 +630,6 @@ export function getMyCommunityGames(accessToken: string): Promise<CommunityProfi
   return request("/community/me/games", { headers: communityHeaders(accessToken) });
 }
 
-export function recordCommunityView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
-  return request(`/community/games/${encodeURIComponent(gameId)}/view`, { method: "POST", body: JSON.stringify({ visitorId, ...(accessToken ? { accessToken } : {}) }) });
-}
-
 export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
 }
@@ -659,13 +700,27 @@ export async function publishProject(projectId: string, accessToken: string, met
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
 }
 
-export async function exportInteractiveStoryProject(projectId: string, version?: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/projects/${projectId}/interactive-story/export-project`), {
-    method: "POST",
-    headers: projectRuntimeHeaders(projectId, version),
-  });
-  if (!response.ok) throw await responseError(response);
-  return response.blob();
+/**
+ * A ZIP of the redacted desktop logs and system information, for bug reports.
+ * When the background service cannot build it, the desktop app builds one
+ * with the logs and the service's status.
+ */
+export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: string }> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(apiUrl("/diagnostics/export"), { method: "POST", headers: runtimeHeaders(), signal: controller.signal });
+    if (!response.ok) throw await responseError(response);
+    const fileName = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1];
+    return { blob: await response.blob(), fileName: fileName ?? diagnosticsFileName(new Date()) };
+  } catch (cause) {
+    const desktopExport = window.ohMyGameDesktop?.exportDiagnostics;
+    if (!desktopExport) throw cause;
+    const bytes = await desktopExport();
+    return { blob: new Blob([bytes], { type: "application/zip" }), fileName: diagnosticsFileName(new Date()) };
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {
@@ -865,6 +920,20 @@ export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMed
     headers: { "content-type": "application/octet-stream" },
     body: file,
   });
+}
+
+/** Copies a file that is not a document, table or media asset into the project's `assets/files/` folder. */
+export async function importCanvasFile(projectId: string, file: File, directory?: string): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/canvas/files?${new URLSearchParams({ name: file.name, ...(directory ? { directory } : {}) })}`, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: file,
+  });
+}
+
+/** Creates an `assets/files/` folder for a folder imported on the canvas; a repeated name gets a suffix. */
+export async function createCanvasImportFolder(projectId: string, name: string): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/canvas/folders`, { method: "POST", body: JSON.stringify({ name }) });
 }
 
 export async function getLibraryAsset(assetId: string): Promise<Blob> {

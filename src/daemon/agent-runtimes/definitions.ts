@@ -76,9 +76,9 @@ export const AGENT_RUNTIME_DEFINITIONS: Record<
     name: "OpenCode",
     binaries: ["opencode"],
     versionArgs: ["--version"],
-    testedVersion: "1.18.33",
+    testedVersion: "2.1.0",
     loginCommand: "opencode auth login",
-    installUrl: "https://opencode.ai/docs/",
+    installUrl: "https://opencode.ai/v2/docs/",
   },
 };
 

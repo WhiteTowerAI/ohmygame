@@ -18,16 +18,14 @@ afterEach(async () => {
   setAgentProcessSpawner(undefined);
 });
 
-async function fixture(nestedWorkspace = false) {
+async function fixture(nestedWorkspace = false, holdConnection = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-bridge-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const executable = path.join(root, "opencode");
   await writeFile(
     executable,
     `#!${process.execPath}
-if (process.argv[2] === "serve") console.log("opencode serve --hostname --port --pure");
-else if (process.argv[2] === "models") console.log('test/model\\n{"name":"Test","capabilities":{"toolcall":true}}');
-else console.log("1.18.33");
+console.log("opencode v2.1.0");
 `,
     { mode: 0o700 },
   );
@@ -37,9 +35,10 @@ else console.log("1.18.33");
   const replies: unknown[] = [];
   let prompts = 0;
   let running = false;
+  let pendingConnection: ServerResponse | undefined;
   const emit = (type: string, properties: Record<string, unknown> = {}) =>
     events?.write(
-      `data: ${JSON.stringify({ type, properties: { sessionID: "session-1", ...properties } })}\n\n`,
+      `data: ${JSON.stringify({ type, data: { sessionID: "session-1", ...properties } })}\n\n`,
     );
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
@@ -47,59 +46,109 @@ else console.log("1.18.33");
     const body = chunks.length
       ? JSON.parse(Buffer.concat(chunks).toString())
       : undefined;
-    if (request.url === "/event") {
+    const route = new URL(request.url!, "http://localhost").pathname;
+    if (route === "/api/event") {
       events = response;
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.write(": connected\n\n");
       return;
     }
     response.setHeader("content-type", "application/json");
-    if (request.url === "/path")
-      return response.end(JSON.stringify({ worktree: root }));
-    if (request.url === "/config")
+    if (route === "/api/info")
+      return response.end(JSON.stringify({ version: "2.1.0" }));
+    if (route === "/api/location")
       return response.end(
         JSON.stringify({
-          permission: Object.fromEntries(
-            [
-              "edit",
-              "read",
-              "glob",
-              "grep",
-              "list",
-              "bash",
-              "external_directory",
-            ].map((name) => [name, "ask"]),
-          ),
+          directory: root,
+          project: { id: "project", directory: root },
         }),
       );
-    if (request.url === "/session/child-1")
+    if (route === "/api/agent")
       return response.end(
-        JSON.stringify({ id: "child-1", parentID: "session-1" }),
+        JSON.stringify({
+          data: ["build", "plan"].map((id) => ({
+            id,
+            permissions: [{ action: "*", resource: "*", effect: "ask" }],
+          })),
+        }),
       );
-    if (request.url === "/session/unrelated")
+    if (route === "/api/permission/saved")
+      return response.end(JSON.stringify({ data: [] }));
+    if (route === "/api/model")
+      return response.end(
+        JSON.stringify({
+          data: [
+            {
+              providerID: "test",
+              id: "model",
+              enabled: true,
+              capabilities: { tools: true },
+            },
+          ],
+        }),
+      );
+    if (route === "/api/session/child-1")
+      return response.end(
+        JSON.stringify({
+          id: "child-1",
+          parentID: "session-1",
+          location: { directory: workspace },
+        }),
+      );
+    if (route === "/api/session/moved-child")
+      return response.end(
+        JSON.stringify({
+          id: "moved-child",
+          parentID: "session-1",
+          location: { directory: path.join(root, "another-workspace") },
+        }),
+      );
+    if (route === "/api/session/unrelated")
       return response.end(JSON.stringify({ id: "unrelated" }));
-    if (request.url?.startsWith("/permission/")) {
+    if (route.includes("/permission/")) {
       replies.push(body);
       response.end("{}");
       return;
     }
-    if (request.url === "/mcp") {
+    if (route === "/api/experimental/mcp/ohmygame") {
+      expect(body.config.codemode).toBe(false);
       tokens.push(body.config.headers.Authorization);
       response.end(JSON.stringify({ ohmygame: { status: "connected" } }));
       return;
     }
-    if (request.url?.endsWith("/prompt_async")) {
+    if (route === "/api/experimental/mcp/ohmygame/connect") {
+      if (holdConnection) {
+        pendingConnection = response;
+        return;
+      }
+      return response.writeHead(204).end();
+    }
+    if (route === "/api/mcp")
+      return response.end(
+        JSON.stringify({
+          data: [{ name: "ohmygame", status: { status: "connected" } }],
+        }),
+      );
+    if (route?.endsWith("/prompt")) {
       prompts++;
       response.end("{}");
-      emit("session.status", { status: { type: "busy" } });
+      emit("session.execution.started");
       return;
     }
-    if (request.url?.endsWith("/abort")) {
+    if (route?.endsWith("/interrupt")) {
       response.end("{}");
-      emit("session.idle");
+      emit("session.execution.succeeded");
       return;
     }
-    response.end(JSON.stringify({ id: "session-1" }));
+    response.end(
+      JSON.stringify({
+        data: {
+          id: "session-1",
+          location: { directory: workspace },
+          permissions: [{ action: "*", resource: "*", effect: "ask" }],
+        },
+      }),
+    );
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(() => {
@@ -130,7 +179,7 @@ else console.log("1.18.33");
       child.emit("close", 0, null);
     });
     queueMicrotask(() =>
-      stdout.write(`opencode server listening on http://127.0.0.1:${port}\n`),
+      stdout.write(`${JSON.stringify({ url: `http://127.0.0.1:${port}` })}\n`),
     );
     return child;
   }) as never);
@@ -204,106 +253,198 @@ else console.log("1.18.33");
     signal: () => toolSignal,
     closeEvents: () => events?.end(),
     running: () => running,
+    connect: () => pendingConnection?.writeHead(204).end(),
   };
 }
 
 // These cases execute POSIX script fixtures; Windows cannot start them as native CLIs.
-it.skipIf(process.platform === "win32")("resolves native read patterns from the Git root rather than a nested app workspace", async () => {
-  const f = await fixture(true);
-  const run = f.session.prompt("read sibling");
-  await expect.poll(f.prompts).toBe(1);
-  f.emit("permission.asked", {
-    id: "read-1",
-    permission: "read",
-    patterns: ["outside.txt"],
-    metadata: {},
-    always: ["*"],
-  });
-  await expect.poll(() => f.replies.length).toBe(1);
-  expect(f.asked).toEqual([
-    expect.objectContaining({ path: path.join(f.root, "outside.txt") }),
-  ]);
-  expect(f.replies).toEqual([{ reply: "reject" }]);
-  f.emit("session.idle");
-  await run;
-});
+it.skipIf(process.platform === "win32")(
+  "resolves native read patterns relative to the v2 session location inside a Git worktree",
+  async () => {
+    const f = await fixture(true);
+    const run = f.session.prompt("read sibling");
+    await expect.poll(f.prompts).toBe(1);
+    f.emit("permission.asked", {
+      id: "read-1",
+      action: "read",
+      resources: ["../outside.txt"],
+      metadata: {},
+      save: ["*"],
+    });
+    await expect.poll(() => f.replies.length).toBe(1);
+    expect(f.asked).toEqual([
+      expect.objectContaining({ path: path.join(f.root, "outside.txt") }),
+    ]);
+    expect(f.replies).toEqual([
+      {
+        decision: "reject",
+        message: expect.stringContaining("OhMyGame denied"),
+      },
+    ]);
+    f.emit("session.execution.succeeded");
+    await run;
+  },
+);
 
-it.skipIf(process.platform === "win32")("mediates child-session approvals without admitting unrelated native sessions", async () => {
-  const f = await fixture(true);
-  const run = f.session.prompt("task reading reference");
-  await expect.poll(f.prompts).toBe(1);
-  f.emit("permission.asked", {
-    sessionID: "child-1",
-    id: "child-read",
-    permission: "read",
-    patterns: ["reference.txt"],
-    metadata: {},
-  });
-  await expect.poll(() => f.replies.length).toBe(1);
-  expect(f.asked).toEqual([
-    expect.objectContaining({ path: path.join(f.root, "reference.txt") }),
-  ]);
-  f.emit("permission.asked", {
-    sessionID: "unrelated",
-    id: "foreign-read",
-    permission: "read",
-    patterns: ["reference.txt"],
-    metadata: {},
-  });
-  await expect.poll(() => f.replies.length).toBe(2);
-  expect(f.asked).toHaveLength(1);
-  expect(f.replies).toEqual([{ reply: "reject" }, { reply: "reject" }]);
-  f.emit("session.idle");
-  await run;
-});
+it.skipIf(process.platform === "win32")(
+  "mediates child-session approvals without admitting unrelated native sessions",
+  async () => {
+    const f = await fixture(true);
+    const run = f.session.prompt("task reading reference");
+    await expect.poll(f.prompts).toBe(1);
+    f.emit("permission.asked", {
+      sessionID: "child-1",
+      id: "child-read",
+      action: "read",
+      resources: ["../reference.txt"],
+      metadata: {},
+    });
+    await expect.poll(() => f.replies.length).toBe(1);
+    expect(f.asked).toEqual([
+      expect.objectContaining({ path: path.join(f.root, "reference.txt") }),
+    ]);
+    f.emit("permission.asked", {
+      sessionID: "unrelated",
+      id: "foreign-read",
+      action: "read",
+      resources: ["../reference.txt"],
+      metadata: {},
+    });
+    await expect.poll(() => f.replies.length).toBe(2);
+    f.emit("permission.asked", {
+      sessionID: "moved-child",
+      id: "moved-read",
+      action: "read",
+      resources: ["reference.txt"],
+    });
+    await expect.poll(() => f.replies.length).toBe(3);
+    expect(f.asked).toHaveLength(1);
+    expect(f.replies).toEqual([
+      {
+        decision: "reject",
+        message: expect.stringContaining("OhMyGame denied"),
+      },
+      { decision: "reject" },
+      { decision: "reject" },
+    ]);
+    f.emit("session.execution.succeeded");
+    await run;
+  },
+);
 
-it.skipIf(process.platform === "win32")("rotates bridge capabilities each turn and permanently rejects a previous turn's token", async () => {
-  const f = await fixture();
-  const first = f.session.prompt("first");
-  await expect.poll(f.prompts).toBe(1);
-  const oldToken = f.tokens[0]!;
-  expect((await f.call(oldToken)).status).toBe(200);
-  f.emit("session.idle");
-  await first;
-  expect((await f.call(oldToken)).status).toBe(401);
-  const second = f.session.prompt("second");
-  await expect.poll(f.prompts).toBe(2);
-  expect(f.tokens[1]).not.toBe(oldToken);
-  expect((await f.call(oldToken)).status).toBe(401);
-  expect((await f.call(f.tokens[1]!)).status).toBe(200);
-  f.emit("session.idle");
-  await second;
-  expect((await f.call(f.tokens[1]!)).status).toBe(401);
-});
+it.skipIf(process.platform === "win32")(
+  "rotates bridge capabilities each turn and permanently rejects a previous turn's token",
+  async () => {
+    const f = await fixture();
+    const first = f.session.prompt("first");
+    await expect.poll(f.prompts).toBe(1);
+    const oldToken = f.tokens[0]!;
+    expect((await f.call(oldToken)).status).toBe(200);
+    f.emit("session.execution.succeeded");
+    await first;
+    expect((await f.call(oldToken)).status).toBe(401);
+    const second = f.session.prompt("second");
+    await expect.poll(f.prompts).toBe(2);
+    expect(f.tokens[1]).not.toBe(oldToken);
+    expect((await f.call(oldToken)).status).toBe(401);
+    expect((await f.call(f.tokens[1]!)).status).toBe(200);
+    f.emit("session.execution.succeeded");
+    await second;
+    expect((await f.call(f.tokens[1]!)).status).toBe(401);
+  },
+);
 
-it.skipIf(process.platform === "win32")("aborts running bridge tools and revokes their capability when a native turn is cancelled", async () => {
-  const f = await fixture();
-  const run = f.session.prompt("wait for tool");
-  await expect.poll(f.prompts).toBe(1);
-  const token = f.tokens[0]!;
-  const tool = f.call(token, true);
-  await expect.poll(f.signal).toBeDefined();
-  await f.session.abort();
-  await run;
-  expect(f.signal()!.aborted).toBe(true);
-  expect((await tool).body).toMatchObject({ result: { isError: true } });
-  expect((await f.call(token)).status).toBe(401);
-  expect(f.running()).toBe(false);
-});
+it.skipIf(process.platform === "win32")(
+  "aborts running bridge tools and revokes their capability when a native turn is cancelled",
+  async () => {
+    const f = await fixture();
+    const run = f.session.prompt("wait for tool");
+    await expect.poll(f.prompts).toBe(1);
+    const token = f.tokens[0]!;
+    const tool = f.call(token, true);
+    await expect.poll(f.signal).toBeDefined();
+    await f.session.abort();
+    await run;
+    expect(f.signal()!.aborted).toBe(true);
+    expect((await tool).body).toMatchObject({ result: { isError: true } });
+    expect((await f.call(token)).status).toBe(401);
+    expect(f.running()).toBe(false);
+  },
+);
 
-it.skipIf(process.platform === "win32")("settles a turn and stops the native process if its event stream disconnects", async () => {
-  const f = await fixture();
-  const run = f.session.prompt("event stream disconnect");
-  await expect.poll(f.prompts).toBe(1);
-  f.closeEvents();
-  await run;
-  expect(f.running()).toBe(false);
-  expect(f.session.messages).toContainEqual(
-    expect.objectContaining({
-      role: "assistant",
-      stopReason: "error",
-      errorMessage: "OpenCode event stream disconnected",
-    }),
-  );
-  expect((await f.call(f.tokens[0]!)).status).toBe(401);
-});
+it.skipIf(process.platform === "win32")(
+  "settles a turn and stops the native process if its event stream disconnects",
+  async () => {
+    const f = await fixture();
+    const run = f.session.prompt("event stream disconnect");
+    await expect.poll(f.prompts).toBe(1);
+    f.closeEvents();
+    await run;
+    expect(f.running()).toBe(false);
+    expect(f.session.messages).toContainEqual(
+      expect.objectContaining({
+        role: "assistant",
+        stopReason: "error",
+        errorMessage: "OpenCode event stream disconnected",
+      }),
+    );
+    expect((await f.call(f.tokens[0]!)).status).toBe(401);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "waits for the native MCP connection before the model receives its tool catalog",
+  async () => {
+    const f = await fixture(false, true);
+    const run = f.session.prompt("tools");
+    await expect.poll(() => f.tokens.length).toBe(1);
+    expect(f.prompts()).toBe(0);
+    await expect.poll(() => Boolean(f.connect())).toBe(true);
+    await expect.poll(f.prompts).toBe(1);
+    f.emit("session.execution.succeeded");
+    await run;
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "preserves app tool names and structured results without asking for a second approval",
+  async () => {
+    const f = await fixture();
+    const run = f.session.prompt("tool result");
+    await expect.poll(f.prompts).toBe(1);
+    f.emit("session.tool.input.started", {
+      id: "native-tool",
+      name: "ohmygame_echo_tool",
+      assistantMessageID: "assistant",
+    });
+    f.emit("session.tool.called", {
+      id: "native-tool",
+      input: { wait: false },
+      executed: true,
+    });
+    f.emit("permission.asked", {
+      id: "tool-permission",
+      action: "ohmygame_echo_tool",
+      resources: ["*"],
+      source: { type: "tool", id: "native-tool", messageID: "assistant" },
+    });
+    await expect.poll(() => f.replies.length).toBe(1);
+    expect(f.replies).toEqual([{ decision: "once" }]);
+    expect(f.asked).toEqual([]);
+    await f.call(f.tokens[0]!);
+    f.emit("session.tool.success", {
+      id: "native-tool",
+      content: [{ type: "text", text: "native text" }],
+      executed: true,
+    });
+    f.emit("session.execution.succeeded");
+    await run;
+    expect(f.session.messages).toContainEqual(
+      expect.objectContaining({
+        role: "toolResult",
+        toolName: "echo_tool",
+        details: { path: "artifact.png" },
+      }),
+    );
+  },
+);

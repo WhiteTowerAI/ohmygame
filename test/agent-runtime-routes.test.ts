@@ -234,7 +234,6 @@ describe("coding agent routes", () => {
         account: "player@example.com",
       },
       enabled: true,
-      isolateUserConfig: true,
       diagnostics: [],
     });
     const statuses = await call<AgentRuntimeStatus[]>("GET", "/agent-runtimes");
@@ -267,15 +266,8 @@ describe("coding agent routes", () => {
       (await call("PATCH", "/agent-runtimes/unknown-cli", { enabled: false }))
         .status,
     ).toBe(404);
-    expect(
-      (
-        await call<AgentRuntimeStatus>(
-          "PATCH",
-          "/agent-runtimes/claude-code-cli",
-          { isolateUserConfig: false },
-        )
-      ).body.isolateUserConfig,
-    ).toBe(false);
+    expect(updated.body).not.toHaveProperty("isolateUserConfig");
+    expect(updated.body).not.toHaveProperty("partialIsolation");
   });
 
   it.skipIf(process.platform === "win32")("lists an agent's models only for conversations, and starts conversations with them", async () => {

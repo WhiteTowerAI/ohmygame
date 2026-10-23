@@ -54,6 +54,8 @@ export function neverTouchPaths(
     ...[
       process.env.CODEX_HOME,
       process.env.CLAUDE_CONFIG_DIR,
+      process.env.OPENCODE_CONFIG_DIR,
+      process.env.OPENCODE_CONFIG,
       process.env.XDG_CONFIG_HOME
         ? path.join(process.env.XDG_CONFIG_HOME, "opencode")
         : undefined,

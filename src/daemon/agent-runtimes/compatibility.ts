@@ -52,6 +52,20 @@ export function checkRuntimeVersionRequirement(
   permissionMode: AgentPermissionMode,
   sandbox = commandSandbox(id),
 ): void {
+  if (id === "opencode-cli") {
+    // V2 deliberately replaced the server contract; V1 is no longer supported.
+    // https://opencode.ai/v2/docs/migrate-v1/
+    if (!version)
+      throw new AgentRuntimeProbeError(
+        "OpenCode did not report its v2 API version. Check the CLI and retry.",
+      );
+    if (!versionAtLeast(version, "2.1.0") || versionAtLeast(version, "3.0.0-0"))
+      throw new AgentRuntimeCompatibilityError(
+        `OpenCode ${version} is unsupported. Install OpenCode 2.1.0 or a newer 2.x version and check again.`,
+        "OpenCode HTTP API v2 (>=2.1.0 <3)",
+      );
+    return;
+  }
   if (
     id !== "claude-code-cli" ||
     permissionMode !== "standard" ||

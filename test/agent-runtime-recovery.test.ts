@@ -135,13 +135,15 @@ it("resolves workspace symlinks, including missing descendants, before protectin
   }
 });
 it("protects custom CLI credential roots", () => {
-  const before = process.env.CODEX_HOME;
-  process.env.CODEX_HOME = "/tmp/custom-codex-auth";
-  try {
-    expect(neverTouchPaths("/tmp/app")).toContain("/tmp/custom-codex-auth");
-  } finally {
-    if (before === undefined) delete process.env.CODEX_HOME;
-    else process.env.CODEX_HOME = before;
+  for (const name of ["CODEX_HOME", "OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG"]) {
+    const before = process.env[name];
+    process.env[name] = "/tmp/custom-cli-auth";
+    try {
+      expect(neverTouchPaths("/tmp/app")).toContain("/tmp/custom-cli-auth");
+    } finally {
+      if (before === undefined) delete process.env[name];
+      else process.env[name] = before;
+    }
   }
 });
 it("asks before reading shared temporary files outside the workspace", async () => {
@@ -164,8 +166,22 @@ it("asks before reading shared temporary files outside the workspace", async () 
 });
 it("keeps runtimes opt-in and persists native defaults independently of Pi", async () => {
   const root = await folder();
+  await writeFile(
+    path.join(root, "agent-runtimes.json"),
+    JSON.stringify({
+      version: 1,
+      runtimes: Object.fromEntries(
+        ["claude-code-cli", "codex-cli", "opencode-cli"].map((id) => [
+          id,
+          { isolateUserConfig: true },
+        ]),
+      ),
+    }),
+  );
   const store = new AgentRuntimeSettingsStore(root);
   await store.load();
+  for (const id of ["claude-code-cli", "codex-cli", "opencode-cli"] as const)
+    expect(store.get(id)).not.toHaveProperty("isolateUserConfig");
   expect(store.get("codex-cli").enabled).toBe(false);
   expect(store.get("codex-cli").permissionMode).toBe("standard");
   await store.update("codex-cli", { enabled: true, permissionMode: "full" });
@@ -179,6 +195,9 @@ it("keeps runtimes opt-in and persists native defaults independently of Pi", asy
   expect(restarted.get("codex-cli").enabled).toBe(true);
   expect(restarted.get("codex-cli").permissionMode).toBe("full");
   expect(restarted.get("opencode-cli").enabled).toBe(false);
+  expect(
+    await readFile(path.join(root, "agent-runtimes.json"), "utf8"),
+  ).not.toContain("isolateUserConfig");
 });
 it("reclaims a verified orphan, preserving a live daemon and unrelated PID identities", async () => {
   const root = await folder();
