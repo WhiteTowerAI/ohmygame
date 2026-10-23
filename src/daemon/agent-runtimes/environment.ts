@@ -60,7 +60,7 @@ const SHARED = new Set([
 const RUNTIME_KEEP: Record<AgentRuntimeId, readonly string[]> = {
   "claude-code-cli": ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"],
   "codex-cli": ["CODEX_HOME"],
-  "opencode-cli": [],
+  "opencode-cli": ["OPENCODE_CONFIG_DIR", "OPENCODE_CONFIG"],
 };
 
 export function agentEnvironment(

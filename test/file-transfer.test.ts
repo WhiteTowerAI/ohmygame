@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KeyboardEvent } from "react";
 import { clipboardFiles, pasteNativeFiles, transferredFiles } from "../src/renderer/file-transfer.js";
+import { canvasImportKind, droppedFolders, isIgnoredImportPath } from "../src/renderer/canvas-file-import.js";
 import { appendAttachments, attachmentFiles, uploadAttachments } from "../src/renderer/composer-attachments.js";
 import * as api from "../src/renderer/api.js";
 import { MAX_ATTACHMENT_BATCH_BYTES, MAX_ATTACHMENT_BYTES } from "../src/shared/file-transfer.js";
@@ -22,6 +23,24 @@ describe("renderer file transfers", () => {
     const transfer = { files: [], items: [{ kind: "file", webkitGetAsEntry: () => folder, getAsFile: () => null }] } as unknown as DataTransfer;
     expect(await transferredFiles(transfer)).toEqual([{ file, relativePath: "game/rules.md" }]);
     expect(batch).toBe(2);
+  });
+
+  it("sorts canvas imports into documents, tables, Library media and project files, and leaves system files behind", () => {
+    expect(canvasImportKind("Notes.MD")).toEqual({ kind: "document" });
+    expect(canvasImportKind("items.csv")).toEqual({ kind: "table", delimiter: "," });
+    expect(canvasImportKind("items.tsv")).toEqual({ kind: "table", delimiter: "\t" });
+    expect(canvasImportKind("hero.glb")).toEqual({ kind: "media", mediaType: "model/gltf-binary" });
+    expect(canvasImportKind("theme.ogg")).toEqual({ kind: "media", mediaType: "audio/ogg" });
+    expect(canvasImportKind("walk.GIF")).toEqual({ kind: "media", mediaType: "image/gif" });
+    expect(canvasImportKind("scene.psd")).toEqual({ kind: "file" });
+    expect(canvasImportKind(".png")).toEqual({ kind: "file" });
+    for (const path of [".DS_Store", "pack/Thumbs.db", "pack/._hero.png", "__MACOSX/pack/hero.png", "pack/.cache/hero.png"]) expect(isIgnoredImportPath(path), path).toBe(true);
+    for (const path of [".env", ".pack/hero.png", "pack/hero.png"]) expect(isIgnoredImportPath(path), path).toBe(false);
+    const loose = new File(["x"], "loose.txt"), hero = new File(["hero"], "hero.gltf"), texture = new File(["png"], "skin.png");
+    expect(droppedFolders([{ file: loose }, { file: hero, relativePath: "pack/hero.gltf" }, { file: texture, relativePath: "pack/textures/skin.png" }, { file: loose, relativePath: "loose.txt" }])).toEqual({
+      folders: [{ name: "pack", bytes: 7, files: [{ file: hero, directory: "" }, { file: texture, directory: "textures" }] }],
+      files: [{ file: loose }, { file: loose, relativePath: "loose.txt" }],
+    });
   });
 
   it("preserves nested attachment paths and numbers repeated names", () => {

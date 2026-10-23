@@ -29,7 +29,6 @@ export interface DriverContext {
   /** A folder of the daemon's for this session's generated files, outside the workspace and removed with the session. */
   privateDirectory: string;
   processDirectory?: string;
-  isolateUserConfig: boolean;
   /** OhMyGame's instructions for the project, added to the agent's own. */
   instructions: string;
   bridge: ToolBridge;

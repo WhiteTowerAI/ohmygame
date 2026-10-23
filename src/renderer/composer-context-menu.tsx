@@ -227,18 +227,36 @@ function ComposerContextMenu({ id, menuRef, items, selected, onSelect, onHover, 
     const element = menuRef.current;
     const anchor = element?.closest(".prompt-box");
     if (!element || !anchor) return;
+    const pane = anchor.closest(".agent-body, .home-content");
+    const content = anchor.closest(".desktop-window-content");
     const updateHeight = () => {
-      const boundary = Math.max(0,
-        anchor.closest(".agent-body")?.getBoundingClientRect().top ?? 0,
-        anchor.closest(".desktop-window-content")?.getBoundingClientRect().top ?? 0,
+      const anchorRect = anchor.getBoundingClientRect();
+      const paneRect = pane?.getBoundingClientRect();
+      const contentRect = content?.getBoundingClientRect();
+      const top = Math.max(0, paneRect?.top ?? 0, contentRect?.top ?? 0);
+      const bottom = Math.min(
+        window.innerHeight,
+        paneRect?.bottom ?? window.innerHeight,
+        contentRect?.bottom ?? window.innerHeight,
       );
-      element.style.maxHeight = `${Math.min(400, Math.max(0, anchor.getBoundingClientRect().top - boundary - 12))}px`;
+      const above = Math.max(0, anchorRect.top - top - 12);
+      const below = Math.max(0, bottom - anchorRect.bottom - 12);
+      // Include the section heading, first option, and menu padding.
+      const minimumMenuHeight = 84;
+      const openBelow = above < minimumMenuHeight && below >= minimumMenuHeight;
+      const openInside = above < minimumMenuHeight && below < minimumMenuHeight;
+      element.classList.toggle("is-below", openBelow);
+      element.classList.toggle("is-inside", openInside);
+      element.style.top = openInside ? `${Math.max(0, top - anchorRect.top + 6)}px` : "";
+      element.style.maxHeight = `${Math.min(400, openInside
+        ? Math.max(0, bottom - Math.max(top, anchorRect.top) - 12)
+        : openBelow ? below : above)}px`;
     };
     updateHeight();
     const observer = new ResizeObserver(updateHeight);
     observer.observe(anchor);
-    const boundary = anchor.closest(".agent-body");
-    if (boundary) observer.observe(boundary);
+    if (pane) observer.observe(pane);
+    if (content) observer.observe(content);
     window.addEventListener("resize", updateHeight);
     window.addEventListener("scroll", updateHeight, true);
     return () => {

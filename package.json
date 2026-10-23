@@ -1,6 +1,6 @@
 {
   "name": "ohmygame",
-  "version": "0.0.0-beta.4.11",
+  "version": "0.0.0-beta.4.12",
   "description": "An open-source local-first agent for creating and publishing games.",
   "author": "WhiteTowerAI",
   "license": "Apache-2.0",
@@ -72,6 +72,7 @@
   "devDependencies": {
     "@google/model-viewer": "^4.1.0",
     "@lobehub/icons-static-svg": "1.94.0",
+    "@sentry/vite-plugin": "^11.8.0",
     "@solar-icons/react": "^2.1.0",
     "@types/node": "^24.3.0",
     "@types/react": "19.2.18",

@@ -17,7 +17,6 @@ const agent = (
   installed: true,
   version: "1.0.0",
   auth: { status: "signed-in", billing: "subscription" },
-  isolateUserConfig: true,
   commandSandbox: "os",
   permissionMode: "standard",
   diagnostics: [],
@@ -293,12 +292,18 @@ it("shows each CLI's usage limits in its row and on its detail page", async () =
       ),
     );
   await detail("claude-code-cli");
+  expect(host.textContent).toContain("Claude Code uses your CLI configuration");
+  expect(host.textContent).not.toContain("Use my own CLI configuration");
   expect(host.textContent).toContain("Usage limits");
   expect(host.textContent).toContain("33% used");
   await detail("codex-cli");
+  expect(host.textContent).toContain("Codex uses your CLI configuration");
+  expect(host.textContent).not.toContain("Use my own CLI configuration");
   expect(host.textContent).toContain("Shown after a conversation with Codex.");
   await detail("opencode-cli");
   expect(host.textContent).not.toContain("Usage limits");
+  expect(host.textContent).toContain("uses your CLI configuration");
+  expect(host.textContent).not.toContain("Use my own CLI configuration");
 });
 
 it("shows the resolved CLI source separately from an empty automatic path override", async () => {

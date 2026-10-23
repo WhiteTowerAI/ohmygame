@@ -1,27 +1,11 @@
 import { open, readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
+import { mediaFileInfo as workspaceMediaInfo } from "../shared/media-files.js";
 import { readAssetMetadata } from "./asset-metadata.js";
 
 const IGNORED_DIRECTORIES = new Set([".data", ".git", ".ohmygame", "build", "dist", "node_modules", "out"]);
 const MAX_FILE_BYTES = 256 * 1024;
-const MEDIA_TYPES: Record<string, { mediaType: NonNullable<WorkspaceFile["mediaType"]>; contentType: string }> = {
-  ".avif": { mediaType: "image", contentType: "image/avif" },
-  ".gif": { mediaType: "image", contentType: "image/gif" },
-  ".jpeg": { mediaType: "image", contentType: "image/jpeg" },
-  ".jpg": { mediaType: "image", contentType: "image/jpeg" },
-  ".png": { mediaType: "image", contentType: "image/png" },
-  ".svg": { mediaType: "image", contentType: "image/svg+xml" },
-  ".webp": { mediaType: "image", contentType: "image/webp" },
-  ".m4a": { mediaType: "audio", contentType: "audio/mp4" },
-  ".mp3": { mediaType: "audio", contentType: "audio/mpeg" },
-  ".ogg": { mediaType: "audio", contentType: "audio/ogg" },
-  ".wav": { mediaType: "audio", contentType: "audio/wav" },
-  ".mp4": { mediaType: "video", contentType: "video/mp4" },
-  ".mov": { mediaType: "video", contentType: "video/quicktime" },
-  ".webm": { mediaType: "video", contentType: "video/webm" },
-  ".glb": { mediaType: "model", contentType: "model/gltf-binary" },
-};
 
 export class WorkspaceError extends Error {
   constructor(message: string, readonly code?: string) { super(message); }
@@ -129,9 +113,7 @@ async function visit(root: string, relativeDirectory: string, files: WorkspaceFi
   return containsEntries;
 }
 
-export function workspaceMediaInfo(filePath: string): (typeof MEDIA_TYPES)[string] | undefined {
-  return MEDIA_TYPES[path.extname(filePath).toLowerCase()];
-}
+export { workspaceMediaInfo };
 
 export async function resolveWorkspaceEntry(workspacePath: string, requestedPath: string): Promise<{ absolutePath: string; relativePath: string }> {
   const normalized = requestedPath.replaceAll("\\", "/");

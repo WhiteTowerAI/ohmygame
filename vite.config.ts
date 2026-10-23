@@ -1,12 +1,18 @@
 /// <reference types="vitest/config" />
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { build as buildWithEsbuild } from "esbuild";
 import { defineConfig, type Plugin } from "vite";
 import { parseChangelog } from "./src/shared/changelog.js";
 
-const packageJson = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
+const packageJson = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as {
+  name: string;
+  version: string;
+};
+// Release builds upload hidden source maps to Sentry and delete them, so packages never ship them.
+const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN?.trim();
 
 export default defineConfig({
   base: "./",
@@ -14,10 +20,25 @@ export default defineConfig({
     __APP_VERSION__: JSON.stringify(packageJson.version),
     __APP_CHANGELOG__: JSON.stringify(parseChangelog(readFileSync(new URL("./CHANGELOG.md", import.meta.url), "utf8"))),
   },
-  plugins: [playableSandboxDevPlugin(), react()],
+  plugins: [
+    playableSandboxDevPlugin(),
+    react(),
+    sentryAuthToken
+      ? sentryVitePlugin({
+          org: "whitetower-hk-limited",
+          project: "ohmygame",
+          authToken: sentryAuthToken,
+          telemetry: false,
+          // Matches the release @sentry/electron reports by default.
+          release: { name: `${packageJson.name}@${packageJson.version}`, inject: false },
+          sourcemaps: { filesToDeleteAfterUpload: ["dist/renderer/**/*.map"] },
+        })
+      : undefined,
+  ],
   build: {
     outDir: "dist/renderer",
     emptyOutDir: true,
+    sourcemap: sentryAuthToken ? "hidden" : false,
     rollupOptions: {
       input: {
         main: path.resolve(import.meta.dirname, "index.html"),

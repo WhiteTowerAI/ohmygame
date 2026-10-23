@@ -95,7 +95,10 @@ remaining work and an actionable next step before closing it.
    [changelog format and checks](desktop-releases.md#release-notes).
 2. Verify the release candidate's public checks and relevant platform, model,
    OAuth, and cloud integration behavior. Record environment-dependent checks
-   that remain outstanding.
+   that remain outstanding. When a change affects packaging or the installer,
+   build the packages with a
+   [manual release workflow run](desktop-releases.md#publishing) and install
+   them before tagging.
 3. Push a temporary branch at `dev`'s current commit, for example
    `git push origin origin/dev:refs/heads/chore/release-v0.0.0-beta.4.7`, and
    open the release PR from that branch into `main`, with a title such as

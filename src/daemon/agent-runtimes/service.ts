@@ -206,16 +206,12 @@ export class AgentRuntimeService {
       name: definition.name,
       testedVersion: definition.testedVersion,
       enabled: settings.enabled,
-      isolateUserConfig: settings.isolateUserConfig,
       commandSandbox: commandSandbox(id),
       permissionMode: settings.permissionMode,
       ...(settings.binaryPath
         ? { configuredBinaryPath: settings.binaryPath }
         : {}),
       ...(limits?.length ? { limits } : {}),
-      ...(id === "codex-cli" && settings.isolateUserConfig
-        ? { partialIsolation: true }
-        : {}),
     };
     if (!binary) {
       return {
@@ -283,9 +279,6 @@ export class AgentRuntimeService {
       );
     await this.settings.update(id, {
       ...(request.enabled !== undefined ? { enabled: request.enabled } : {}),
-      ...(request.isolateUserConfig !== undefined
-        ? { isolateUserConfig: request.isolateUserConfig }
-        : {}),
       ...(request.permissionMode !== undefined
         ? { permissionMode: request.permissionMode }
         : {}),
@@ -468,7 +461,6 @@ export class AgentRuntimeService {
       env,
       privateDirectory: folder.path,
       processDirectory: path.join(this.#root, "processes"),
-      isolateUserConfig: settings.isolateUserConfig,
       instructions: `${request.instructions}\n\n${NATIVE_INSTRUCTIONS}`,
       bridge,
       saveGeneratedImage: request.saveGeneratedImage,
@@ -793,7 +785,6 @@ export class AgentRuntimeService {
           id,
           env,
           folder.path,
-          settings.isolateUserConfig,
         );
         if (this.#revisions.get(id) !== revision) return [];
         this.#models.set(id, {

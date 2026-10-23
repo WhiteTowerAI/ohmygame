@@ -1,7 +1,7 @@
 import { PREVIEW_SETTING_KEYS, previewSettings, validPreviewSettings, validatePreviewSettings, type ProjectPreviewSettings } from "../shared/preview-settings.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { access, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
@@ -17,8 +17,11 @@ import { canvasLibraryAssetUsage, canvasReferencesAsset, removeCanvasAssetRefere
 import { readCanvasAssets } from "./canvas-assets.js";
 import { readCanvasFile, writeCanvasJson } from "./canvas-files.js";
 import { ProjectCovers } from "./project-covers.js";
+import { PROJECT_ARCHIVE_SETTING_KEYS, type ProjectArchiveSettings } from "../shared/project-archive.js";
 
 const PROJECT_LOAD_CONCURRENCY = 8;
+// Imports assemble a project here, next to the projects, and then move it into place.
+const IMPORT_STAGING_PREFIX = ".import-";
 
 interface ProjectMetadata extends ProjectPreviewSettings {
   version: 1;
@@ -95,6 +98,12 @@ export class ProjectManager {
   async load(onError?: (projectDirectory: string, cause: unknown) => void): Promise<void> {
     await mkdir(this.#projectsDirectory, { recursive: true });
     const entries = await readdir(this.#projectsDirectory, { withFileTypes: true });
+    // An import interrupted by a crash leaves its staging folder behind. It can
+    // hold gigabytes, so remove it without delaying startup; new imports use
+    // other folder names.
+    for (const entry of entries.filter((item) => item.name.startsWith(IMPORT_STAGING_PREFIX))) {
+      void rm(path.join(this.#projectsDirectory, entry.name), { recursive: true, force: true }).catch(() => {});
+    }
     const projects = await mapConcurrent(
       entries.filter((entry) => entry.isDirectory() && isProjectId(entry.name)),
       PROJECT_LOAD_CONCURRENCY,
@@ -322,6 +331,49 @@ export class ProjectManager {
     return project;
   }
 
+  /** A folder in which an import stages its files, on the same volume as the projects. */
+  async createImportStaging(): Promise<string> {
+    await mkdir(this.#projectsDirectory, { recursive: true });
+    return mkdtemp(path.join(this.#projectsDirectory, IMPORT_STAGING_PREFIX));
+  }
+
+  /**
+   * Creates a managed project around a workspace staged in a folder from
+   * createImportStaging, moving the workspace into it. Like a duplicate, the
+   * project gets a new id and no publication, and copied Canvas generation
+   * history is bound to it.
+   */
+  async import(workspacePath: string, settings: ProjectArchiveSettings): Promise<ProjectState> {
+    if (!isProjectType(settings.type)) throw new ProjectWorkspaceError("The project type is not supported");
+    const id = randomUUID();
+    const updatedAt = new Date().toISOString();
+    const staging = await this.createImportStaging();
+    let metadata: ProjectMetadata;
+    try {
+      const candidate = {
+        ...Object.fromEntries(PROJECT_ARCHIVE_SETTING_KEYS.filter((key) => settings[key] !== undefined).map((key) => [key, settings[key]])),
+        version: 1, id, nameSource: "manual", updatedAt,
+      };
+      try {
+        // Imported settings pass the same checks as saved ones, before writing.
+        ({ metadata } = parseMetadata(candidate, id, updatedAt));
+      } catch {
+        throw new ProjectWorkspaceError("The project settings are invalid");
+      }
+      await writeMetadata(staging, metadata);
+      await rename(workspacePath, path.join(staging, "workspace"));
+      await bindCanvasHistory(path.join(staging, "workspace"), id);
+      await rename(staging, this.#projectDirectory(id));
+    } catch (error) {
+      await rm(staging, { recursive: true, force: true });
+      throw error;
+    }
+    const workspace = path.join(this.#projectDirectory(id), "workspace");
+    const project = projectState(workspace, metadata, await isRunnableStartupWorkspace({ ...metadata, workspacePath: workspace }), this.#projectDirectory(id), true);
+    this.#projects.set(project.id, project);
+    return project;
+  }
+
   async delete(id: string): Promise<ProjectState> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
@@ -465,15 +517,43 @@ export class ProjectManager {
     });
   }
 
-  async #storeImportedAsset(id: string, fileName: string, writeTemporary: (temporary: string) => Promise<unknown>): Promise<string> {
+  /**
+   * Stores a file the canvas imported that is not a document, table or media asset, under `assets/files/`.
+   * A file from an imported folder names that folder's `assets/files/...` directory.
+   */
+  async importWorkspaceFile(id: string, fileName: string, contents: Uint8Array, directory = "assets/files"): Promise<string> {
+    if (!this.#projects.has(id)) throw new ProjectAssetError("Project not found", 404);
+    const [assets, files, ...folder] = directory.split("/");
+    if (assets !== "assets" || files !== "files") throw new ProjectAssetError("Imported files belong under assets/files", 400);
+    return this.#mutateWorkspace(id, () => this.#storeImportedAsset(id, fileName, (temporary) => writeFile(temporary, contents, { flag: "wx" }), ["files", ...folder]));
+  }
+
+  /** Creates the `assets/files/` folder a folder imported on the canvas fills; a repeated name gets a suffix. */
+  async createImportFolder(id: string, name: string): Promise<string> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectAssetError("Project not found", 404);
+    if (!validAssetName(name)) throw new ProjectAssetError("Invalid folder name", 400);
+    return this.#mutateWorkspace(id, async () => {
+      const parent = await importDirectory(project.workspacePath, ["files"]);
+      for (let suffix = 1; ; suffix += 1) {
+        const candidate = suffix === 1 ? name : `${name}-${suffix}`;
+        try {
+          await mkdir(path.join(parent, candidate));
+        } catch (cause) {
+          if ((cause as NodeJS.ErrnoException).code === "EEXIST") continue;
+          throw cause;
+        }
+        await this.touch(id);
+        return path.posix.join("assets", "files", candidate);
+      }
+    });
+  }
+
+  async #storeImportedAsset(id: string, fileName: string, writeTemporary: (temporary: string) => Promise<unknown>, folder: readonly string[] = ["imported"]): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!validAssetName(fileName)) throw new ProjectAssetError("Invalid asset name", 400);
-    const assetsDirectory = path.join(project.workspacePath, "assets");
-    const importedDirectory = path.join(assetsDirectory, "imported");
-    await ensureDirectory(project.workspacePath);
-    await ensureDirectory(assetsDirectory, true);
-    await ensureDirectory(importedDirectory, true);
+    const importedDirectory = await importDirectory(project.workspacePath, folder);
     const parsed = path.parse(fileName);
     let candidate = fileName;
     for (let suffix = 2; await exists(path.join(importedDirectory, candidate)); suffix += 1) {
@@ -488,7 +568,7 @@ export class ProjectManager {
       await rm(temporary, { force: true });
     }
     await this.touch(id);
-    return path.posix.join("assets", "imported", candidate);
+    return path.posix.join("assets", ...folder, candidate);
   }
 
   async renameAsset(id: string, assetPath: string, name: string): Promise<string> {
@@ -964,61 +1044,67 @@ function projectRunSettings(project: ProjectState): ProjectRunSettings {
 async function readMetadata(projectDirectory: string, id: string, fallbackUpdatedAt: string): Promise<LoadedMetadata> {
   try {
     const parsed = JSON.parse(await readFile(path.join(projectDirectory, "project.json"), "utf8")) as Partial<ProjectMetadata>;
-    if (
-      validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
-      (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
-      (parsed.type === undefined || isProjectType(parsed.type)) &&
-      (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external"))) &&
-      (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
-      (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
-      (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
-      (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&
-      (parsed.previewPath === undefined || normalizePreviewPath(parsed.previewPath) !== undefined) &&
-      (parsed.previewViewport === undefined || isPreviewViewport(parsed.previewViewport)) &&
-      (parsed.workspacePath === undefined || (typeof parsed.workspacePath === "string" && path.isAbsolute(parsed.workspacePath))) &&
-      (parsed.mediaModelDefaults === undefined || validMediaModelDefaults(parsed.mediaModelDefaults)) &&
-      (parsed.publication === undefined || validPublication(parsed.publication))
-    ) {
-      const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
-        ? parsed.updatedAt
-        : fallbackUpdatedAt;
-      const type = parsed.type ?? "web-game";
-      const startupDirectory = normalizeStartupDirectory(parsed.startupDirectory);
-      const startupScript = normalizeStartupScript(parsed.startupScript);
-      const packageManager = parsed.packageManager;
-      const previewPath = normalizePreviewPath(parsed.previewPath);
-      const previewViewport = parsed.previewViewport;
-      const workspacePath = parsed.workspacePath;
-      return {
-        metadata: {
-          ...previewSettings(parsed),
-          version: 1,
-          id,
-          name: parsed.name.trim(),
-          ...(parsed.nameSource ? { nameSource: parsed.nameSource } : {}),
-          type,
-          ...(parsed.integration ? { integration: parsed.integration } : {}),
-          ...(type === "general" ? { webPreviewEnabled: parsed.webPreviewEnabled ?? false } : {}),
-          updatedAt,
-          ...(startupDirectory ? { startupDirectory } : {}),
-          ...(startupScript && startupScript !== "dev" ? { startupScript } : {}),
-          ...(packageManager ? { packageManager } : {}),
-          ...(previewPath && previewPath !== "/" ? { previewPath } : {}),
-          ...(previewViewport && previewViewport !== "fit" ? { previewViewport } : {}),
-          ...(workspacePath ? { workspacePath } : {}),
-          ...(parsed.publication ? { publication: parsed.publication } : {}),
-          ...(parsed.mediaModelDefaults ? { mediaModelDefaults: parsed.mediaModelDefaults } : {}),
-        },
-        missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.startupDirectory !== startupDirectory ||
-          parsed.startupScript !== startupScript || parsed.packageManager !== packageManager ||
-          parsed.previewPath !== previewPath || parsed.previewViewport !== previewViewport || parsed.workspacePath !== workspacePath,
-      };
-    }
-    throw new Error(`Invalid project metadata: ${path.join(projectDirectory, "project.json")}`);
+    return parseMetadata(parsed, id, fallbackUpdatedAt);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return { metadata: { version: 1, id, name: "Untitled project", type: "web-game", updatedAt: fallbackUpdatedAt }, missing: true };
   }
+}
+
+/** Validates and normalizes persisted or imported metadata without disk I/O. */
+function parseMetadata(value: unknown, id: string, fallbackUpdatedAt: string): LoadedMetadata {
+  const parsed = value as Partial<ProjectMetadata>;
+  if (
+    validPreviewSettings(parsed) && parsed.version === 1 && parsed.id === id && typeof parsed.name === "string" && parsed.name.trim() &&
+    (parsed.nameSource === undefined || ["default", "ai", "manual"].includes(parsed.nameSource)) &&
+    (parsed.type === undefined || isProjectType(parsed.type)) &&
+    (parsed.integration === undefined || (typeof parsed.integration?.pluginId === "string" && !!parsed.integration.pluginId && (parsed.integration.preview === undefined || parsed.integration.preview === "external"))) &&
+    (parsed.webPreviewEnabled === undefined || typeof parsed.webPreviewEnabled === "boolean") &&
+    (parsed.startupDirectory === undefined || isValidStartupDirectory(parsed.startupDirectory)) &&
+    (parsed.startupScript === undefined || normalizeStartupScript(parsed.startupScript) !== undefined) &&
+    (parsed.packageManager === undefined || isProjectPackageManager(parsed.packageManager)) &&
+    (parsed.previewPath === undefined || normalizePreviewPath(parsed.previewPath) !== undefined) &&
+    (parsed.previewViewport === undefined || isPreviewViewport(parsed.previewViewport)) &&
+    (parsed.workspacePath === undefined || (typeof parsed.workspacePath === "string" && path.isAbsolute(parsed.workspacePath))) &&
+    (parsed.mediaModelDefaults === undefined || validMediaModelDefaults(parsed.mediaModelDefaults)) &&
+    (parsed.publication === undefined || validPublication(parsed.publication))
+  ) {
+    const updatedAt = typeof parsed.updatedAt === "string" && Number.isFinite(Date.parse(parsed.updatedAt))
+      ? parsed.updatedAt
+      : fallbackUpdatedAt;
+    const type = parsed.type ?? "web-game";
+    const startupDirectory = normalizeStartupDirectory(parsed.startupDirectory);
+    const startupScript = normalizeStartupScript(parsed.startupScript);
+    const packageManager = parsed.packageManager;
+    const previewPath = normalizePreviewPath(parsed.previewPath);
+    const previewViewport = parsed.previewViewport;
+    const workspacePath = parsed.workspacePath;
+    return {
+      metadata: {
+        ...previewSettings(parsed),
+        version: 1,
+        id,
+        name: parsed.name.trim(),
+        ...(parsed.nameSource ? { nameSource: parsed.nameSource } : {}),
+        type,
+        ...(parsed.integration ? { integration: parsed.integration } : {}),
+        ...(type === "general" ? { webPreviewEnabled: parsed.webPreviewEnabled ?? false } : {}),
+        updatedAt,
+        ...(startupDirectory ? { startupDirectory } : {}),
+        ...(startupScript && startupScript !== "dev" ? { startupScript } : {}),
+        ...(packageManager ? { packageManager } : {}),
+        ...(previewPath && previewPath !== "/" ? { previewPath } : {}),
+        ...(previewViewport && previewViewport !== "fit" ? { previewViewport } : {}),
+        ...(workspacePath ? { workspacePath } : {}),
+        ...(parsed.publication ? { publication: parsed.publication } : {}),
+        ...(parsed.mediaModelDefaults ? { mediaModelDefaults: parsed.mediaModelDefaults } : {}),
+      },
+      missing: parsed.updatedAt !== updatedAt || parsed.type !== type || parsed.startupDirectory !== startupDirectory ||
+        parsed.startupScript !== startupScript || parsed.packageManager !== packageManager ||
+        parsed.previewPath !== previewPath || parsed.previewViewport !== previewViewport || parsed.workspacePath !== workspacePath,
+    };
+  }
+  throw new Error("Invalid project metadata");
 }
 
 function metadataFor(project: ProjectState): ProjectMetadata {
@@ -1117,6 +1203,19 @@ function pathsOverlap(left: string, right: string): boolean {
 function pathContains(parent: string, child: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+/** Creates `assets/<folder...>` one level at a time, refusing a symbolic link at any level. */
+async function importDirectory(workspacePath: string, folder: readonly string[]): Promise<string> {
+  if (!folder.every(validAssetName)) throw new ProjectAssetError("Invalid folder name", 400);
+  let directory = path.join(workspacePath, "assets");
+  await ensureDirectory(workspacePath);
+  await ensureDirectory(directory, true);
+  for (const part of folder) {
+    directory = path.join(directory, part);
+    await ensureDirectory(directory, true);
+  }
+  return directory;
 }
 
 async function ensureDirectory(target: string, create = false): Promise<void> {

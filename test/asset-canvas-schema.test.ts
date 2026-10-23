@@ -45,6 +45,20 @@ describe("Asset Canvas schema diagnostics", () => {
     },
   );
 
+  it.each([
+    ["assets/files/Hero.psd", true],
+    ["src/.env", true],
+    ["../outside.txt", false],
+    ["/absolute.txt", false],
+    ["C:/drive.txt", false],
+    ["assets//double.txt", false],
+    ["assets/./file.txt", false],
+    ["assets\\file.txt", false],
+  ] as const)("checks file node path %s", (path, accepted) => {
+    expect(Check(ASSET_CANVAS_SCHEMA, canvas({ id: "file", type: "file", data: { path } }))).toBe(accepted);
+    expect(Check(ASSET_CANVAS_SCHEMA, canvas({ id: "folder", type: "file", data: { path, directory: true } }))).toBe(accepted);
+  });
+
   it.each([{}, { type: "unknown" }, { type: "image", data: {} }, null])(
     "rejects an invalid node shape: %j",
     (node) => {

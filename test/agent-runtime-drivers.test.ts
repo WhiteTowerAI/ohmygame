@@ -164,7 +164,6 @@ async function context(
     workspacePath: "/tmp/workspace",
     env: {},
     privateDirectory,
-    isolateUserConfig: true,
     instructions: "Project instructions",
     bridge: new ToolBridge([echo] as never),
     policy: { workspacePath: "/tmp/workspace", neverTouch: ["/tmp/secrets"] },
@@ -845,13 +844,14 @@ describe("Claude Code adapter", () => {
         "sonnet",
         "--effort",
         "high",
-        "--setting-sources",
-        "",
-        "--strict-mcp-config",
+        "--disallowedTools",
+        "mcp__ohmygame-studio",
         "--append-system-prompt",
         "Project instructions",
       ]),
     );
+    expect(args).not.toContain("--setting-sources");
+    expect(args).not.toContain("--strict-mcp-config");
     expect(args).toContain("--session-id");
     // Commands run in Claude's OS sandbox: protected roots unreadable, no opting out.
     const settings = JSON.parse(args[args.indexOf("--settings") + 1]!);
@@ -917,7 +917,7 @@ describe("Claude Code adapter", () => {
       if (message.type === "user") setTimeout(() => cli.exit(1), 5);
     });
     const driver = new ClaudeCodeDriver(
-      await context({ resume: "earlier-session", isolateUserConfig: false }),
+      await context({ resume: "earlier-session" }),
     );
     cleanup.push(() => driver.dispose());
     const outcome = await driver.runTurn(
@@ -1207,7 +1207,7 @@ describe("Codex adapter", () => {
           }),
         );
     });
-    const driver = new CodexDriver(await context({ isolateUserConfig: false }));
+    const driver = new CodexDriver(await context());
     cleanup.push(() => driver.dispose());
     await driver.runTurn(
       { text: "hi", images: [], readOnly: false },
@@ -1765,13 +1765,13 @@ describe("Codex adapter", () => {
       developerInstructions: "Project instructions",
       // Only the workspace's own AGENTS.md counts, as for OhMyGame's own agent.
       config: {
-        "mcp_servers.personal.enabled": false,
-        notify: [],
         project_root_markers: [],
         // Commands keep the given PATH rather than a login shell's.
         allow_login_shell: false,
       },
     });
+    expect(thread.config).not.toHaveProperty("mcp_servers.personal.enabled");
+    expect(thread.config).not.toHaveProperty("notify");
     expect(thread.dynamicTools).toEqual([
       expect.objectContaining({ type: "function", name: `ohmygame_${toolName}` }),
     ]);
@@ -1850,168 +1850,122 @@ describe("OpenCode adapter", () => {
     expect(clis[0]!.exited).toBe(true);
   });
 
-  it("drives a session on its own server and answers its permission requests", async () => {
-    const replies: Array<{ id: string; body: unknown }> = [];
-    const prompts: unknown[] = [];
+  async function openCodeFixture(overrides: Partial<DriverContext> = {}) {
+    const ctx = await context({
+      model: "anthropic/claude-sonnet-5",
+      reasoningLevel: "high",
+      ...overrides,
+    });
+    const sent: Array<{ method: string; route: string; body: unknown }> = [];
     let events: ServerResponse | undefined;
-    const emit = (type: string, properties: Record<string, unknown>) =>
-      events?.write(`data: ${JSON.stringify({ type, properties })}\n\n`);
+    let sessionPermissions: unknown = [
+      { action: "*", resource: "*", effect: "ask" },
+    ];
+    let saved: unknown[] = [];
+    let sessionMissing = false;
+    let sessionMoved = false;
+    let pendingConfiguration = 0;
+    const emit = (type: string, data: Record<string, unknown> = {}) =>
+      events?.write(
+        `data: ${JSON.stringify({ type, data: { sessionID: "ses_1", ...data } })}\n\n`,
+      );
+    let prompt: () => void = () => {};
+    let modelChanged: () => void = () => {};
+    let sessionChecked: () => void = () => {};
     const server = createServer(async (request, response) => {
+      const url = new URL(request.url!, "http://localhost");
+      const route = url.pathname;
       const chunks: Buffer[] = [];
       for await (const chunk of request) chunks.push(chunk as Buffer);
       const body = chunks.length
         ? JSON.parse(Buffer.concat(chunks).toString())
         : undefined;
+      sent.push({ method: request.method!, route, body });
       expect(request.headers.authorization).toMatch(/^Basic /);
-      if (request.url === "/path")
-        return response.end(JSON.stringify({ worktree: "/tmp/workspace" }));
-      if (request.url === "/config")
-        return response.end(clis[0]!.env.OPENCODE_CONFIG_CONTENT);
-      if (request.url === "/event") {
+      if (route === "/api/event") {
         response.writeHead(200, { "content-type": "text/event-stream" });
-        response.write(": connected\n\n");
         events = response;
+        emit("server.connected", {});
         return;
       }
-      if (request.method === "POST" && request.url === "/session")
-        return response.end(JSON.stringify({ id: "ses_1" }));
-      const permission = request.url?.match(/^\/permission\/(.+)\/reply$/);
-      if (permission) {
-        replies.push({ id: permission[1]!, body });
-        response.end("true");
-        if (replies.length < 2) return;
-        emit("message.part.updated", {
-          sessionID: "ses_1",
-          part: {
-            id: "prt_tool",
-            messageID: "msg_a",
-            sessionID: "ses_1",
-            type: "tool",
-            tool: "bash",
-            callID: "call_1",
-            state: {
-              status: "error",
-              input: { command: "sudo ls" },
-              error: "rejected",
+      response.setHeader("content-type", "application/json");
+      const reply = (value: unknown) => response.end(JSON.stringify(value));
+      if (route === "/api/info") return reply({ version: "2.1.0" });
+      if (route === "/api/location") {
+        expect(url.searchParams.get("location[directory]")).toBe(
+          ctx.workspacePath,
+        );
+        return reply({
+          directory: ctx.workspacePath,
+          project: { id: "project", directory: ctx.workspacePath },
+        });
+      }
+      if (route === "/api/permission/saved") return reply({ data: saved });
+      if (route === "/api/agent" && pendingConfiguration-- > 0)
+        return reply({
+          data: [
+            {
+              id: "build",
+              permissions: [{ action: "*", resource: "*", effect: "allow" }],
             },
+          ],
+        });
+      if (route === "/api/agent")
+        return reply({
+          data: ["build", "plan"].map((id) => ({
+            id,
+            permissions: [
+              { action: "*", resource: "*", effect: "ask" },
+              { action: "browser", resource: "*", effect: "deny" },
+            ],
+          })),
+        });
+      if (route === "/api/session" && request.method === "POST")
+        return reply({ data: { id: "ses_1" } });
+      if (route === "/api/session/ses_1") {
+        if (sessionMissing) return response.writeHead(404).end("{}");
+        if (request.method === "PATCH") {
+          sessionPermissions = body.permissions;
+          return response.writeHead(204).end();
+        }
+        sessionChecked();
+        return reply({
+          data: {
+            id: "ses_1",
+            location: {
+              directory: sessionMoved
+                ? "/another-workspace"
+                : ctx.workspacePath,
+            },
+            permissions: sessionPermissions,
           },
         });
-        emit("message.part.updated", {
-          sessionID: "ses_1",
-          part: {
-            id: "prt_text",
-            messageID: "msg_a",
-            sessionID: "ses_1",
-            type: "text",
-            text: "Could not",
-            time: { start: 1, end: 2 },
-          },
-        });
-        emit("message.updated", {
-          sessionID: "ses_1",
-          info: {
-            id: "msg_a",
-            role: "assistant",
-            tokens: { input: 30, output: 4, cache: { read: 10, write: 0 } },
-          },
-        });
-        emit("session.idle", { sessionID: "ses_1" });
+      }
+      if (route.endsWith("/prompt")) {
+        response.end("{}");
+        emit("session.execution.started");
+        prompt();
         return;
       }
-      if (request.url === "/session/ses_1/prompt_async") {
-        prompts.push(body);
+      if (route.endsWith("/interrupt")) {
+        response.end("{}");
+        emit("session.execution.interrupted");
+        return;
+      }
+      if (route.endsWith("/compact")) {
+        response.end("{}");
+        emit("session.compaction.started", { reason: "manual" });
+        emit("session.compaction.ended", { reason: "manual", text: "summary" });
+        emit("session.execution.succeeded");
+        return;
+      }
+      if (route.includes("/permission/")) {
         response.writeHead(204).end();
-        emit("session.status", {
-          sessionID: "ses_1",
-          status: { type: "busy" },
-        });
-        emit("message.updated", {
-          sessionID: "ses_1",
-          info: { id: "msg_u", role: "user" },
-        });
-        emit("message.part.updated", {
-          sessionID: "ses_1",
-          part: {
-            id: "prt_u",
-            messageID: "msg_u",
-            sessionID: "ses_1",
-            type: "text",
-            text: "go",
-          },
-        });
-        emit("message.part.updated", {
-          sessionID: "ses_1",
-          part: {
-            id: "prt_r",
-            messageID: "msg_a",
-            sessionID: "ses_1",
-            type: "reasoning",
-            text: "",
-            time: { start: 1 },
-          },
-        });
-        emit("message.part.delta", {
-          sessionID: "ses_1",
-          messageID: "msg_a",
-          partID: "prt_r",
-          field: "text",
-          delta: "Thinking",
-        });
-        emit("message.part.updated", {
-          sessionID: "ses_1",
-          part: {
-            id: "prt_r",
-            messageID: "msg_a",
-            sessionID: "ses_1",
-            type: "reasoning",
-            text: "Thinking",
-            time: { start: 1, end: 2 },
-          },
-        });
-        emit("message.part.updated", {
-          sessionID: "ses_1",
-          part: {
-            id: "prt_tool",
-            messageID: "msg_a",
-            sessionID: "ses_1",
-            type: "tool",
-            tool: "bash",
-            callID: "call_1",
-            state: { status: "pending", input: {} },
-          },
-        });
-        emit("message.part.updated", {
-          sessionID: "ses_1",
-          part: {
-            id: "prt_tool",
-            messageID: "msg_a",
-            sessionID: "ses_1",
-            type: "tool",
-            tool: "bash",
-            callID: "call_1",
-            state: { status: "running", input: { command: "sudo ls" } },
-          },
-        });
-        emit("permission.asked", {
-          id: "per_1",
-          sessionID: "ses_1",
-          permission: "bash",
-          patterns: ["sudo ls"],
-          metadata: { command: "sudo ls" },
-          always: ["sudo *"],
-          tool: { messageID: "msg_a", callID: "call_1" },
-        });
-        // A subagent may explore while planning; its own requests are judged like the parent's.
-        emit("permission.asked", {
-          id: "per_2",
-          sessionID: "ses_1",
-          permission: "task",
-          patterns: ["explore"],
-          metadata: { description: "Find the speed" },
-          always: ["*"],
-        });
         return;
       }
+      if (route.endsWith("/model")) modelChanged();
+      if (route.endsWith("/agent") || route.endsWith("/model"))
+        return response.writeHead(204).end();
       response.writeHead(404).end();
     });
     await new Promise<void>((resolve) =>
@@ -2019,89 +1973,313 @@ describe("OpenCode adapter", () => {
     );
     cleanup.push(
       () =>
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           events?.end();
-          server.close(() => resolve(undefined));
+          server.close(() => resolve());
           server.closeAllConnections();
         }),
     );
     const port = (server.address() as { port: number }).port;
     const clis = fakeCli((message, cli) => {
       if (message.type === "spawned")
-        setTimeout(
-          () =>
-            cli.line(`opencode server listening on http://127.0.0.1:${port}`),
-          5,
-        );
+        queueMicrotask(() => cli.send({ url: `http://127.0.0.1:${port}` }));
     });
-    const driver = new OpenCodeDriver(
-      await context({
-        model: "anthropic/claude-sonnet-5",
-        reasoningLevel: "high",
-      }),
-    );
+    const driver = new OpenCodeDriver(ctx);
     cleanup.push(() => driver.dispose());
+    return {
+      driver,
+      ctx,
+      clis,
+      sent,
+      emit,
+      onPrompt: (callback: () => void) => {
+        prompt = callback;
+      },
+      saveGrant: () => {
+        saved = [{ id: "grant", projectID: "project" }];
+      },
+      missing: () => {
+        sessionMissing = true;
+      },
+      move: () => {
+        sessionMoved = true;
+      },
+      deferConfiguration: () => {
+        pendingConfiguration = 2;
+      },
+      onModelChange: (callback: () => void) => {
+        modelChanged = callback;
+      },
+      onSessionCheck: (callback: () => void) => {
+        sessionChecked = callback;
+      },
+    };
+  }
+
+  it("waits for v2 configuration transforms before offering a turn", async () => {
+    const f = await openCodeFixture();
+    f.deferConfiguration();
+    f.onPrompt(() => f.emit("session.execution.succeeded"));
+    expect(
+      await f.driver.runTurn(
+        { text: "go", images: [], readOnly: false },
+        recordingSink().sink,
+        new AbortController().signal,
+      ),
+    ).toEqual({ status: "completed" });
+    expect(f.sent.filter((r) => r.route === "/api/agent")).toHaveLength(3);
+    expect(f.sent.findIndex((r) => r.route === "/api/session")).toBeGreaterThan(
+      f.sent.findLastIndex((r) => r.route === "/api/agent"),
+    );
+  });
+
+  it("does not send a late prompt when cancellation arrives while selecting the model", async () => {
+    const f = await openCodeFixture();
+    const controller = new AbortController();
+    f.onModelChange(() => controller.abort());
+    expect(
+      await f.driver.runTurn(
+        { text: "cancel", images: [], readOnly: false },
+        recordingSink().sink,
+        controller.signal,
+      ),
+    ).toEqual({ status: "aborted" });
+    expect(f.sent.some((r) => r.route.endsWith("/prompt"))).toBe(false);
+  });
+
+  it("does not start compaction after cancellation, including during session setup", async () => {
+    for (const phase of ["before-start", "session-setup"]) {
+      const f = await openCodeFixture();
+      const recorded = recordingSink();
+      const controller = new AbortController();
+      if (phase === "before-start") controller.abort();
+      else f.onSessionCheck(() => controller.abort());
+      await f.driver.compact(recorded.sink, controller.signal);
+      expect(f.sent.some((r) => r.route.endsWith("/compact"))).toBe(false);
+      expect(recorded.calls.filter((c) => c.startsWith("compaction:"))).toEqual([]);
+      if (phase === "before-start") expect(f.clis).toEqual([]);
+    }
+  });
+
+  it("drives v2 messages, images, thinking, tools, usage and planning permissions", async () => {
+    const f = await openCodeFixture();
     const recorded = recordingSink();
-    const outcome = await driver.runTurn(
-      { text: "go", images: [], readOnly: true },
+    f.onPrompt(() => {
+      f.emit("session.reasoning.started", {
+        assistantMessageID: "msg_a",
+        ordinal: 0,
+      });
+      f.emit("session.reasoning.delta", {
+        assistantMessageID: "msg_a",
+        ordinal: 0,
+        delta: "Thinking",
+      });
+      f.emit("session.reasoning.ended", {
+        assistantMessageID: "msg_a",
+        ordinal: 0,
+        text: "Thinking",
+      });
+      f.emit("session.tool.input.started", {
+        assistantMessageID: "msg_a",
+        id: "call_1",
+        name: "shell",
+      });
+      f.emit("session.tool.input.delta", {
+        assistantMessageID: "msg_a",
+        id: "call_1",
+        delta: '{"command":',
+      });
+      f.emit("session.tool.called", {
+        assistantMessageID: "msg_a",
+        id: "call_1",
+        input: { command: "sudo ls" },
+        executed: true,
+      });
+      f.emit("permission.asked", {
+        id: "per_1",
+        action: "shell",
+        resources: ["sudo ls"],
+        metadata: { command: "sudo ls" },
+        source: { type: "tool", id: "call_1", messageID: "msg_a" },
+      });
+      f.emit("permission.asked", {
+        id: "per_2",
+        action: "subagent",
+        resources: ["explore"],
+        metadata: {},
+        save: ["*"],
+      });
+    });
+    const run = f.driver.runTurn(
+      {
+        text: "go",
+        images: [{ type: "image", mimeType: "image/png", data: "aGVsbG8=" }],
+        readOnly: true,
+      },
       recorded.sink,
       new AbortController().signal,
     );
-    expect(outcome).toEqual({ status: "completed" });
-    expect(prompts).toEqual([
-      expect.objectContaining({
-        model: { providerID: "anthropic", modelID: "claude-sonnet-5" },
-        variant: "high",
-        agent: "plan",
-        system: "Project instructions",
-        parts: [{ type: "text", text: "go" }],
-      }),
-    ]);
-    expect(replies).toHaveLength(2);
-    expect(replies).toEqual(
-      expect.arrayContaining([
-        {
-          id: "per_1",
-          body: {
-            reply: "reject",
-            message: expect.stringContaining("planning turn"),
-          },
+    await expect
+      .poll(
+        () =>
+          f.sent.filter(
+            (r) => r.route.includes("/permission/") && r.method === "POST",
+          ).length,
+      )
+      .toBe(2);
+    f.emit("session.tool.failed", {
+      id: "call_1",
+      error: { type: "declined", message: "rejected" },
+      executed: true,
+    });
+    f.emit("session.text.ended", {
+      assistantMessageID: "msg_a",
+      ordinal: 1,
+      text: "Could not",
+    });
+    f.emit("session.step.ended", {
+      assistantMessageID: "msg_a",
+      tokens: { input: 30, output: 4, cache: { read: 10, write: 0 } },
+    });
+    f.emit("session.execution.succeeded");
+    expect(await run).toEqual({ status: "completed" });
+    expect(f.sent).toContainEqual({
+      method: "POST",
+      route: "/api/session/ses_1/model",
+      body: {
+        model: {
+          providerID: "anthropic",
+          id: "claude-sonnet-5",
+          variant: "high",
         },
-        { id: "per_2", body: { reply: "once" } },
-      ]),
-    );
-    // Planning turns deny shell execution without offering an override.
+      },
+    });
+    expect(f.sent).toContainEqual({
+      method: "POST",
+      route: "/api/session/ses_1/agent",
+      body: { agent: "plan" },
+    });
+    expect(f.sent).toContainEqual({
+      method: "POST",
+      route: "/api/session/ses_1/prompt",
+      body: {
+        text: "go",
+        files: [{ name: "image-1", uri: "data:image/png;base64,aGVsbG8=" }],
+      },
+    });
+    expect(f.sent).toContainEqual({
+      method: "POST",
+      route: "/api/session/ses_1/permission/per_1/reply",
+      body: {
+        decision: "reject",
+        message: expect.stringContaining("planning turn"),
+      },
+    });
+    expect(f.sent).toContainEqual({
+      method: "POST",
+      route: "/api/session/ses_1/permission/per_2/reply",
+      body: { decision: "once" },
+    });
     expect(recorded.asked).toEqual([]);
-    expect(recorded.sessionId()).toBe("ses_1");
+    expect(recorded.sessionId()).toBe("opencode-v2:ses_1");
     expect(recorded.calls).toEqual([
-      "thinking:prt_r:Thinking",
-      "thinkingDone:prt_r",
+      "thinking:msg_a:reasoning:0:Thinking",
+      "thinkingDone:msg_a:reasoning:0",
       'toolCall:call_1:bash:{"command":"sudo ls"}',
       "toolStarted:call_1",
       "toolResult:call_1:true",
-      "text:prt_text:Could not",
-      "textDone:prt_text:Could not",
+      "text:msg_a:text:1:Could not",
+      "textDone:msg_a:text:1:Could not",
       "usage:30:4::40",
     ]);
-    const config = JSON.parse(clis[0]!.env.OPENCODE_CONFIG_CONTENT!) as {
-      permission: { external_directory: string };
-      share: string;
-    };
-    expect(config).toMatchObject({
-      share: "disabled",
-      permission: { external_directory: "ask" },
-    });
-    expect(clis[0]!.env).toMatchObject({
-      OPENCODE_DISABLE_PROJECT_CONFIG: "1",
-      OPENCODE_SERVER_PASSWORD: expect.any(String),
-    });
-    expect(clis[0]!.args).toEqual([
+    expect(f.clis[0]!.args).toEqual([
       "serve",
-      "--pure",
+      "--stdio",
       "--hostname",
       "127.0.0.1",
       "--port",
       "0",
     ]);
+    expect(JSON.parse(f.clis[0]!.env.OPENCODE_CONFIG_CONTENT!)).toMatchObject({
+      snapshots: false,
+      share: "disabled",
+      permissions: [{ action: "*", resource: "*", effect: "ask" }],
+    });
+    const config = JSON.parse(f.clis[0]!.env.OPENCODE_CONFIG_CONTENT!);
+    expect(await readFile(config.instructions[0], "utf8")).toBe(
+      "Project instructions",
+    );
+    expect(f.clis[0]!.env.OPENCODE_DISABLE_PROJECT_CONFIG).toBeUndefined();
   });
+
+  it("resumes a v2 session, reapplies permissions, compacts it and reports terminal failures", async () => {
+    const f = await openCodeFixture({ resume: "opencode-v2:ses_1" });
+    const recorded = recordingSink();
+    f.onPrompt(() =>
+      f.emit("session.execution.failed", {
+        error: { type: "provider", message: "No model access" },
+      }),
+    );
+    expect(
+      await f.driver.runTurn(
+        { text: "go", images: [], readOnly: false },
+        recorded.sink,
+        new AbortController().signal,
+      ),
+    ).toEqual({ status: "failed", error: "No model access" });
+    expect(
+      f.sent.some((r) => r.route === "/api/session" && r.method === "POST"),
+    ).toBe(false);
+    expect(f.sent).toContainEqual({
+      method: "PATCH",
+      route: "/api/session/ses_1",
+      body: { permissions: [{ action: "*", resource: "*", effect: "ask" }] },
+    });
+    await f.driver.compact(recorded.sink, new AbortController().signal);
+    expect(recorded.calls.filter((c) => c.startsWith("compaction:"))).toEqual([
+      "compaction:start",
+      "compaction:end",
+    ]);
+    f.saveGrant();
+    expect(
+      await f.driver.runTurn(
+        { text: "again", images: [], readOnly: false },
+        recorded.sink,
+        new AbortController().signal,
+      ),
+    ).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("saved permissions"),
+    });
+    expect(f.sent.filter((r) => r.route.endsWith("/prompt"))).toHaveLength(1);
+  });
+
+  it("rebuilds a native session moved out of the app workspace", async () => {
+    const f = await openCodeFixture({ resume: "opencode-v2:ses_1" });
+    f.move();
+    await expect(
+      f.driver.runTurn(
+        { text: "resume", images: [], readOnly: false },
+        recordingSink().sink,
+        new AbortController().signal,
+      ),
+    ).rejects.toBeInstanceOf(NativeSessionExpiredError);
+    expect(f.sent.some((r) => r.route.endsWith("/prompt"))).toBe(false);
+  });
+
+  it.each(["ses_legacy", "opencode-v2:ses_1"])(
+    "rebuilds expired or v1 context %s through the shared handoff",
+    async (resume) => {
+      const f = await openCodeFixture({ resume });
+      f.missing();
+      await expect(
+        f.driver.runTurn(
+          { text: "resume", images: [], readOnly: false },
+          recordingSink().sink,
+          new AbortController().signal,
+        ),
+      ).rejects.toBeInstanceOf(NativeSessionExpiredError);
+      expect(f.sent.some((r) => r.route.endsWith("/prompt"))).toBe(false);
+    },
+  );
 });

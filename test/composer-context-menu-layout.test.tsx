@@ -7,6 +7,7 @@ import { useComposerContextMenu } from "../src/renderer/composer-context-menu.js
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 let promptTop = 240;
+let paneBottom = 600;
 
 function Composer({
   prompt,
@@ -46,6 +47,7 @@ function Composer({
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   promptTop = 240;
+  paneBottom = 600;
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement) {
       const top = this.classList.contains("prompt-box")
@@ -55,13 +57,17 @@ beforeEach(() => {
           : this.classList.contains("agent-body")
             ? 80
             : 0;
+      const bottom = this.classList.contains("prompt-box") ? top + 100
+        : ["desktop-window-content", "agent-body", "home-content"].some((name) => this.classList.contains(name))
+          ? paneBottom
+          : top + 100;
       return {
         top,
-        bottom: top + 100,
+        bottom,
         left: 0,
         right: 800,
         width: 800,
-        height: 100,
+        height: bottom - top,
         x: 0,
         y: top,
         toJSON() {},
@@ -101,6 +107,13 @@ describe("composer menu viewport boundaries", () => {
       expect(
         host.querySelector<HTMLElement>("[role=listbox]")!.style.maxHeight,
       ).toBe("106px");
+      promptTop = 60;
+      await act(async () =>
+        host.querySelector(".home-content")!.dispatchEvent(new Event("scroll")),
+      );
+      const menu = host.querySelector<HTMLElement>("[role=listbox]")!;
+      expect(menu.classList.contains("is-below")).toBe(true);
+      expect(menu.style.maxHeight).toBe("400px");
     },
   );
 
@@ -111,8 +124,24 @@ describe("composer menu viewport boundaries", () => {
     ).toBe("148px");
     promptTop = 100;
     await act(async () => window.dispatchEvent(new Event("resize")));
-    expect(
-      host.querySelector<HTMLElement>("[role=listbox]")!.style.maxHeight,
-    ).toBe("8px");
+    const menu = host.querySelector<HTMLElement>("[role=listbox]")!;
+    expect(menu.classList.contains("is-below")).toBe(true);
+    expect(menu.style.maxHeight).toBe("388px");
+    promptTop = 240;
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(menu.classList.contains("is-below")).toBe(false);
+    expect(menu.style.maxHeight).toBe("148px");
+  });
+
+  it("keeps a usable menu inside the composer when neither side has room", async () => {
+    promptTop = 100;
+    paneBottom = 220;
+    await act(async () => root.render(<Composer prompt="@" agent />));
+    const menu = host.querySelector<HTMLElement>("[role=listbox]")!;
+    expect(menu.classList.contains("is-inside")).toBe(true);
+    expect(menu.classList.contains("is-below")).toBe(false);
+    expect(menu.style.top).toBe("0px");
+    expect(menu.style.maxHeight).toBe("108px");
+    expect(menu.querySelector("[role=option]")).not.toBeNull();
   });
 });

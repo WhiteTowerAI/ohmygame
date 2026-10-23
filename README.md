@@ -271,6 +271,12 @@ Web search works without setup. Sign in under **Account** only when you want
 to publish a game; making games locally needs no account.
 Reopen the welcome from **Settings → About → View getting started**.
 
+To move a project to another computer, choose **Export project** in its card
+menu. The ZIP file holds the workspace, project settings and cover, without
+dependencies, build output or `.env` files. Story settings uses the same project
+export. **Import project** on the Projects
+page opens it as a new project. See [Project archives](docs/project-archives.md).
+
 ### Run from source
 
 Requires Bun 1.4.2 or newer for the toolchain and Node.js 22.19+ for the daemon.

@@ -96,10 +96,6 @@ export interface AgentRuntimeStatus {
     account?: string;
     billing: AgentRuntimeBilling;
   };
-  /** Run without the person's own CLI settings, hooks, MCP servers and instructions. */
-  isolateUserConfig: boolean;
-  /** The CLI cannot be run fully isolated; part of the person's own configuration still applies. */
-  partialIsolation?: boolean;
   /**
    * Whether the commands the agent runs are confined by an operating-system
    * sandbox, beyond OhMyGame's approvals. "none" means approvals alone.
@@ -114,7 +110,6 @@ export interface AgentRuntimeStatus {
 
 export interface UpdateAgentRuntimeRequest {
   enabled?: boolean;
-  isolateUserConfig?: boolean;
   permissionMode?: AgentPermissionMode;
   /** An executable to use instead of the one found on PATH; empty clears it. */
   binaryPath?: string;

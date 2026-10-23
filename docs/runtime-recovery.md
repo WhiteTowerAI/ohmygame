@@ -12,12 +12,8 @@ aborting an otherwise healthy desktop startup.
 
 ## Preview lifecycle
 
-Package-manager selection follows project settings, `package.json.packageManager`,
-lockfiles, then npm. The selected executable is checked against the environment
-passed to the child before dependency installation changes `node_modules`.
-The packaged runtime provides Node/npm; Bun, pnpm, and Yarn require an executable
-available to the application. Missing managers produce an actionable project
-error. There is no silent switch to another manager.
+See [startup configuration](preview-runtime.md#startup-configuration) for
+package-manager selection, executable checks, and installation behavior.
 
 Spawn errors, early exits, readiness timeouts, cancellation, and exits after
 startup are handled throughout the child lifecycle. Output is bounded and
@@ -26,27 +22,10 @@ Stopping a preview closes its proxy and terminates the process group, including
 descendants. Desktop-owned daemons register those groups over private IPC so
 Electron can clean them up after an unexpected daemon exit.
 
-HTTP readiness and content diagnostics are separate. Once the development
-server responds, a separate loopback proxy forwards its HTTP traffic and HMR
-WebSocket. Failed module responses produce compilation diagnostics. A browser
-bridge reports uncaught exceptions and rejected promises to that same proxy.
-The daemon owns diagnostic state and the renderer displays it through project events.
-Browser reports must have the proxy's origin and current document ID; late reports
-and module responses from an old document are ignored. Diagnostics clear after a
-successful module response, HMR update, or new document, including when a broken
-module was removed rather than repaired.
-The development server stays alive while project code is repaired.
-
-The proxy injects an external classic script into uncompressed HTML up to 2 MiB,
-before project scripts, and preserves CSP, including an existing script nonce.
-The bridge has its own function scope so it cannot collide with project globals.
-Larger or compressed pages keep their original representation;
-browser diagnostics can be unavailable when injection is skipped or CSP blocks
-the bridge. The application's recovery controls do not depend on that bridge.
-Automatic project-cover capture pauses while an error is visible.
-
-See [preview configuration and lifecycle](preview-runtime.md) for startup modes,
-automatic policy, idle collection, stable storage origins, and window diagnostics.
+Compilation and browser errors leave the development server alive while project
+code is repaired. [Preview diagnostics](preview-runtime.md#pages-diagnostics-and-saved-games)
+defines report validation, clearing, and bridge limits. Recovery controls remain
+available when the bridge cannot run.
 
 ## Desktop recovery
 

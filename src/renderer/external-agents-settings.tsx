@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { LoaderCircle, Terminal } from "./icons.js";
+import { CircleX, LoaderCircle, Plug, Terminal } from "./icons.js";
 import type { AgentRuntimeId } from "../shared/agent-runtimes.js";
 import {
   EXTERNAL_MCP_SERVER_NAME,
@@ -122,6 +122,9 @@ export function ExternalAgentsSettings() {
             {settings.clients.map((client) => {
               const { name, runtime } = CLIENTS[client.id];
               const busy = pending === client.id;
+              const actionLabel = t(
+                client.connected ? "externalAgents.disconnect" : "externalAgents.connect",
+              );
               return (
                 <div className="settings-provider-row" key={client.id}>
                   <AgentMark id={runtime} />
@@ -142,7 +145,10 @@ export function ExternalAgentsSettings() {
                   {client.available ? (
                     <button
                       type="button"
-                      className="settings-secondary-button"
+                      className={`external-agent-action${client.connected ? " is-danger" : ""}`}
+                      aria-label={actionLabel}
+                      title={actionLabel}
+                      aria-busy={busy}
                       disabled={pending !== undefined}
                       onClick={() =>
                         void change(client.id, () =>
@@ -158,10 +164,11 @@ export function ExternalAgentsSettings() {
                           size={14}
                           aria-hidden="true"
                         />
-                      ) : null}
-                      {client.connected
-                        ? t("externalAgents.disconnect")
-                        : t("externalAgents.connect")}
+                      ) : client.connected ? (
+                        <CircleX size={16} aria-hidden="true" />
+                      ) : (
+                        <Plug size={16} aria-hidden="true" />
+                      )}
                     </button>
                   ) : null}
                 </div>
