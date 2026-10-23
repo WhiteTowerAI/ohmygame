@@ -1,3 +1,22 @@
+diff --git a/out/targets/nsis/nsisLang.js b/out/targets/nsis/nsisLang.js
+index cd7986e44e0b47f840b4ff34b75397ed75ff2f42..ee9e1122d018be66fc1bb91c1ba30f7b9ecfdd3b 100644
+--- a/out/targets/nsis/nsisLang.js
++++ b/out/targets/nsis/nsisLang.js
+@@ -66,6 +66,14 @@ async function writeCustomLangFile(data, packager) {
+ }
+ async function addCustomMessageFileInclude(input, packager, scriptGenerator, langConfigurator) {
+     const data = (0, js_yaml_1.load)(await (0, fs_extra_1.readFile)(path.join(nsisUtil_1.nsisTemplatesDir, input), "utf-8"));
++    // OhMyGame: build/messages.yml adds installer messages and replaces bundled ones.
++    if (input === "messages.yml") {
++        const custom = await (0, fs_extra_1.readFile)(path.join(packager.info.buildResourcesDir, input), "utf-8").catch(error => {
++            if (error.code === "ENOENT") return undefined;
++            throw error;
++        });
++        if (custom != null) Object.assign(data, (0, js_yaml_1.load)(custom));
++    }
+     const instructions = computeCustomMessageTranslations(data, langConfigurator).join("\n");
+     debug(instructions);
+     scriptGenerator.include(await writeCustomLangFile(instructions, packager));
 diff --git a/templates/nsis/include/extractAppPackage.nsh b/templates/nsis/include/extractAppPackage.nsh
 --- a/templates/nsis/include/extractAppPackage.nsh
 +++ b/templates/nsis/include/extractAppPackage.nsh

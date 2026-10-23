@@ -15,7 +15,7 @@ interface LocalPublishedGame {
   game: CommunityGame;
   firstListedAt: string;
   updatedAt: string;
-  viewers: Set<string>;
+  viewCount: number;
   liked: boolean;
 }
 
@@ -31,9 +31,12 @@ export class LocalPublisher {
     let mount: { token: string; url: string } | undefined;
     try {
       await extractArtifact(artifact, directory);
-      mount = await this.#files.mount(directory);
       const gameId = project.publication?.gameId.startsWith("local-") ? project.publication.gameId : `local-${randomUUID()}`;
       const deploymentId = `local-${randomUUID()}`;
+      mount = await this.#files.mount(directory, () => {
+        const current = this.#games.get(gameId);
+        if (current?.game.deploymentId === deploymentId) current.viewCount += 1;
+      });
       const playUrl = `${mount.url}index.html`;
       const cover = await readFile(path.join(directory, PUBLISH_GAME_COVER_PATH)).catch(() => undefined);
       const coverUrl = cover ? `${mount.url}${PUBLISH_GAME_COVER_PATH}` : undefined;
@@ -52,7 +55,7 @@ export class LocalPublisher {
         game: { ...game, author: { id: LOCAL_DEBUG_USER.id, displayName: LOCAL_DEBUG_USER.name } },
         firstListedAt: previous?.firstListedAt ?? publishedAt,
         updatedAt: publishedAt,
-        viewers: previous?.viewers ?? new Set<string>(),
+        viewCount: previous?.viewCount ?? 0,
         liked: previous?.liked ?? false,
       });
       this.#directories.set(deploymentId, { gameId, directory, token: mount.token });
@@ -118,13 +121,6 @@ export class LocalPublisher {
     record.updatedAt = new Date().toISOString();
   }
 
-  async recordView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
-    const record = this.#listedGame(gameId);
-    if (accessToken) this.#authorize(accessToken);
-    if (!accessToken) record.viewers.add(visitorId);
-    return this.#stats(record, accessToken);
-  }
-
   async setLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
     this.#authorize(accessToken);
     const record = this.#listedGame(gameId);
@@ -139,7 +135,7 @@ export class LocalPublisher {
   }
 
   #stats(record: LocalPublishedGame, accessToken?: string): CommunityGameStats {
-    return { viewerCount: record.viewers.size, likeCount: record.liked ? 1 : 0,
+    return { viewCount: record.viewCount, likeCount: record.liked ? 1 : 0,
       ...(accessToken ? { liked: record.liked } : {}) };
   }
 

@@ -32,7 +32,7 @@ const game: CommunityGame = {
   coverUrl: "https://play.example/cover.webp",
   publishedAt: "2026-10-01T00:00:00Z",
   author: { id: "creator", displayName: "Creator" },
-  stats: { viewerCount: 4, likeCount: 2, liked: true },
+  stats: { viewCount: 4, likeCount: 2, liked: true },
 };
 let root: ReturnType<typeof createRoot>;
 let container: HTMLDivElement;
@@ -117,7 +117,7 @@ describe("Community covers", () => {
       container.querySelector(".explore-game-cover")?.getAttribute("src"),
     ).toBe("blob:cover");
     expect(observers[0].disconnect).toHaveBeenCalled();
-    await render({ ...game, stats: { viewerCount: 5, likeCount: 3 } });
+    await render({ ...game, stats: { viewCount: 5, likeCount: 3 } });
     expect(mocks.cover).toHaveBeenCalledTimes(1);
     await act(async () => root.unmount());
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:cover");

@@ -625,10 +625,6 @@ export function getMyCommunityGames(accessToken: string): Promise<CommunityProfi
   return request("/community/me/games", { headers: communityHeaders(accessToken) });
 }
 
-export function recordCommunityView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
-  return request(`/community/games/${encodeURIComponent(gameId)}/view`, { method: "POST", body: JSON.stringify({ visitorId, ...(accessToken ? { accessToken } : {}) }) });
-}
-
 export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
 }
@@ -896,6 +892,20 @@ export async function uploadLibraryAsset(file: File, mediaType: LibraryUploadMed
     headers: { "content-type": "application/octet-stream" },
     body: file,
   });
+}
+
+/** Copies a file that is not a document, table or media asset into the project's `assets/files/` folder. */
+export async function importCanvasFile(projectId: string, file: File, directory?: string): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/canvas/files?${new URLSearchParams({ name: file.name, ...(directory ? { directory } : {}) })}`, {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: file,
+  });
+}
+
+/** Creates an `assets/files/` folder for a folder imported on the canvas; a repeated name gets a suffix. */
+export async function createCanvasImportFolder(projectId: string, name: string): Promise<{ path: string }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/canvas/folders`, { method: "POST", body: JSON.stringify({ name }) });
 }
 
 export async function getLibraryAsset(assetId: string): Promise<Blob> {

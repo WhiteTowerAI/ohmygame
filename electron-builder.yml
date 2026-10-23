@@ -62,6 +62,10 @@ win:
 
 nsis:
   include: build/installer.nsh
+  # The installer follows the app's UI languages; other systems get English.
+  installerLanguages:
+    - en_US
+    - zh_CN
   deleteAppDataOnUninstall: false
   # Show the setup wizard so users can choose the install scope and location.
   oneClick: false

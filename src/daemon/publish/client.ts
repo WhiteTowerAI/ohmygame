@@ -83,12 +83,6 @@ export class RemotePublisher {
     await this.#request(`/v1/games/${encodeURIComponent(gameId)}`, { method: "PUT", body: JSON.stringify(metadata) }, accessToken);
   }
 
-  recordView(gameId: string, visitorId: string, accessToken?: string): Promise<CommunityGameStats> {
-    return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}/view`, {
-      method: "POST", body: JSON.stringify({ visitorId }),
-    }, accessToken);
-  }
-
   setLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
     return this.#request(`/v1/community/games/${encodeURIComponent(gameId)}/like`, {
       method: "PUT", body: JSON.stringify({ liked }),

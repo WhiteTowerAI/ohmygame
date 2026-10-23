@@ -4,7 +4,7 @@ import { Search, X } from "./icons.js";
 
 export interface CommunityFilters {
   search: string;
-  sort: "latest" | "viewers" | "likes";
+  sort: "latest" | "views" | "likes";
   period: "all" | "week" | "month";
 }
 
@@ -34,8 +34,8 @@ export function filterCommunityGames<T extends CommunityGame>(
     )
     .sort((a, b) => {
       const metric =
-        filters.sort === "viewers"
-          ? (b.stats?.viewerCount ?? -1) - (a.stats?.viewerCount ?? -1)
+        filters.sort === "views"
+          ? (b.stats?.viewCount ?? -1) - (a.stats?.viewCount ?? -1)
           : filters.sort === "likes"
             ? (b.stats?.likeCount ?? -1) - (a.stats?.likeCount ?? -1)
             : 0;
@@ -58,7 +58,7 @@ export function CommunityToolbar({
 }) {
   const sorts = [
     ["latest", "community.latestListed"],
-    ["viewers", "community.mostViewed"],
+    ["views", "community.mostViewed"],
     ["likes", "community.mostLiked"],
   ] as const;
   return (

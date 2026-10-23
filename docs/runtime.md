@@ -555,7 +555,7 @@ Deployment ID, play URL, publish time, and the published title and description.
 
 Community displays games in a responsive grid with 16:10 covers, titles, creator
 links, and view/like counts visible below each cover. Search across title,
-description, and author, sorting by first listing, viewers, or likes, the
+description, and author, sorting by first listing, views, or likes, the
 first-listed time filter, and reset stay above the grid. Clicking or tapping the
 cover opens the game detail, including on the owner's profile; creator links and
 likes stay independently clickable. Covers are requested only when cards approach
@@ -598,15 +598,23 @@ Legacy hidden works remain accessible to their signed-in author through the
 same detail page, with read-only engagement counts. Other visitors cannot read
 their Community details or covers.
 
-Viewer counts are cumulative unique viewers per work, recorded when the app
-successfully opens the Community game detail. Refreshes and repeat visits do
-not add viewers. Signed-in visits use the account identity; anonymous visits
-use a random browser identifier. Logging in merges that browser's anonymous
-visit with the account, and signed-out returns from it reuse the same identity.
-Authenticated creator visits do not increment their own count. Shared play HTML
-does not include an injected tracking script, so direct shared-link visits are
-not included in this count. Clearing browser storage or visiting from another
-browser can count an anonymous viewer again.
+View counts measure successful game entry requests, including repeat visits,
+refreshes, and creator visits. The Cloud play server counts GET requests for
+`/` and `/index.html`, covering desktop iframes, direct shared links, and future
+web Community players with the same `playUrl`. Lists, covers, assets, other HTML
+pages, HEAD requests, missing files, and explicit preloads do not add views.
+The client reads the latest metrics after the game iframe loads; it does not
+send a view mutation or create a visitor identity.
+
+Entry HTML is served with `Cache-Control: no-store`; versioned assets retain
+immutable caching. Counts are best effort: a failed counter does not block play,
+and they do not establish that the game finished loading or a human played it.
+Browser history restoration without a new request and offline play are not
+counted. Counts start at zero with the play-count migration, survive publishing
+updates, and reset when a work is unpublished and published as a new game.
+Local debug publishing follows the same entry-counting rule for current snapshots.
+
+![Game details display cumulative opens from embedded and shared play](assets/community-view-count.png)
 
 Likes require sign-in, support undo, and are unique per account and work. A
 completed like updates the card, sort order, and profile total together, even
@@ -616,8 +624,9 @@ without metrics show unavailable counts. Cloud access tokens are forwarded
 transiently and never stored in project files. Local development provides the
 same flows through temporary debug snapshots.
 
-Hosted use requires the Community engagement migration and matching Cloud API
-before releasing the updated client. See the Cloud contract for rollout order.
+Hosted use requires the Cloud play-count migration and matching API/client rollout.
+The old unique-viewer endpoint and schema are removed. See the Cloud contract
+for deployment and cache-purge instructions.
 
 The Publish v1 contract is in the
 [`ohmygame-cloud` repository](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md).

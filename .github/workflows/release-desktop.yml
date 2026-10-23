@@ -4,6 +4,9 @@ on:
   push:
     tags:
       - "v*"
+  # Builds both packages from any branch without publishing, to install them
+  # before tagging a release.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,8 +26,8 @@ jobs:
           node-version: 22.19.0
       - name: Validate version and changelog
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node scripts/release-notes.mjs --check "$RELEASE_TAG"
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+        run: node scripts/release-notes.mjs --check "${RELEASE_TAG:-v$(node -p 'require("./package.json").version')}"
 
   windows:
     needs: release-notes
@@ -82,7 +85,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OhMyGame-Windows-x64
-          retention-days: 1
+          retention-days: ${{ github.event_name == 'push' && 1 || 7 }}
           if-no-files-found: error
           path: |
             release/*.exe
@@ -145,7 +148,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: OhMyGame-macOS-arm64
-          retention-days: 1
+          retention-days: ${{ github.event_name == 'push' && 1 || 7 }}
           if-no-files-found: error
           path: |
             release/*.dmg
@@ -154,6 +157,7 @@ jobs:
             release/latest-mac.yml
 
   release:
+    if: github.event_name == 'push'
     needs:
       - windows
       - macos

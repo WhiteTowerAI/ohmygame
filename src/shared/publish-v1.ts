@@ -60,7 +60,8 @@ export interface CommunityGamesQuery {
 }
 
 export interface CommunityGameStats {
-  viewerCount: number;
+  /** Successful game entry requests since play counting was enabled. */
+  viewCount: number;
   likeCount: number;
   liked?: boolean;
 }

@@ -2,6 +2,7 @@ import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
+import type { MediaContentType } from "./media-files.js";
 import type { AgentRuntimeAuthStatus, AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
@@ -437,7 +438,7 @@ export interface ProjectActivitySnapshot {
   names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -486,6 +487,8 @@ export interface AssetCanvasTextGenerationResponse {
 
 export type AssetCanvasNode = (
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
+  /** Any other project file or folder, by project-relative path. */
+  | { id: string; type: "file"; position: AssetCanvasPosition; data: { path: string; directory?: true } }
   | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string; references?: AssetCanvasTextReference[] } }
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
@@ -1009,21 +1012,12 @@ export interface LibraryAssetSummary extends LibraryAsset {
   referenceOnly: boolean;
 }
 
-export type LibraryUploadMediaType =
-  | "image/png"
-  | "image/jpeg"
-  | "image/svg+xml"
-  | "image/webp"
-  | "video/mp4"
-  | "video/quicktime"
-  | "video/webm"
-  | "audio/mpeg"
-  | "audio/wav";
+export type LibraryUploadMediaType = MediaContentType;
 
 export interface CreateLibraryImageRequest {
   name: string;
   purpose?: LibraryAssetPurpose;
-  image: PromptImage & { mediaType: Extract<LibraryUploadMediaType, `image/${string}`> };
+  image: PromptImage & { mediaType: "image/png" | "image/jpeg" | "image/webp" };
 }
 
 export interface LineChanges {

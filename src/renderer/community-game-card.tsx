@@ -154,6 +154,8 @@ export function GameStats({
     };
   }, []);
   const stats = game.stats;
+  const currentStats = useRef(stats);
+  currentStats.current = stats;
   const liked = Boolean(userId && stats?.liked);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -175,7 +177,7 @@ export function GameStats({
       if (identity.gameId !== game.id || (userId && identity.userId !== userId))
         return;
       const next = await setCommunityLike(game.id, token, !liked);
-      if (isCurrent()) onChange(next);
+      if (isCurrent()) onChange({ ...next, viewCount: Math.max(next.viewCount, currentStats.current?.viewCount ?? 0) });
     } catch (cause) {
       if (isCurrent())
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -184,25 +186,26 @@ export function GameStats({
     }
   }
 
-  const viewers = stats ? compactCount(stats.viewerCount) : "—";
+  const viewCount = stats?.viewCount;
+  const views = viewCount !== undefined ? compactCount(viewCount) : "—";
   const likes = stats ? compactCount(stats.likeCount) : "—";
   const iconSize = "var(--community-stats-icon-size, 13px)";
   return (
     <div className="community-game-stats">
       <span
         aria-label={
-          stats
-            ? t("community.uniqueViewers", { count: stats.viewerCount })
+          viewCount !== undefined
+            ? t("community.views", { count: viewCount })
             : t("community.viewCountUnavailable")
         }
         title={
-          stats
-            ? t("community.uniqueViewers", { count: stats.viewerCount })
+          viewCount !== undefined
+            ? t("community.views", { count: viewCount })
             : t("community.viewCountUnavailable")
         }
       >
         <Eye size={iconSize} />
-        {viewers}
+        {views}
       </span>
       {onChange && game.listingStatus !== "unlisted" ? (
         <button

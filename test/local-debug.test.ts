@@ -78,19 +78,19 @@ describe("local debug mode", () => {
     const gameId = published.game.id;
     const headers = { "x-publish-access-token": LOCAL_DEBUG_ACCESS_TOKEN };
     const mine = (await app.inject({ method: "GET", url: "/community/me/games", headers })).json();
-    expect(mine.games[0]).toMatchObject({ id: gameId, listingStatus: "listed", stats: { viewerCount: 0, likeCount: 0 } });
+    expect(mine.games[0]).toMatchObject({ id: gameId, listingStatus: "listed", stats: { viewCount: 0, likeCount: 0 } });
     const firstListedAt = mine.games[0].firstListedAt;
     expect((await app.inject({ method: "GET", url: "/community/me/games" })).statusCode).toBe(401);
-    const visitorId = "33333333-3333-4333-8333-333333333333";
+    expect((await app.inject({ method: "POST", url: `/community/games/${gameId}/view`, payload: { visitorId: "33333333-3333-4333-8333-333333333333" } })).statusCode).toBe(404);
     for (let attempt = 0; attempt < 2; attempt++) {
-      expect((await app.inject({ method: "POST", url: `/community/games/${gameId}/view`, payload: { visitorId } })).json().viewerCount).toBe(1);
+      expect((await fetch(published.game.playUrl)).status).toBe(200);
       expect((await app.inject({ method: "PUT", url: `/community/games/${gameId}/like`, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN, liked: true } })).json().likeCount).toBe(1);
     }
     await app.inject({ method: "PUT", url: `/community/games/${gameId}`, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN, title: "Renamed", description: "Updated metadata" } });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication.title).toBe("Renamed");
     await app.inject({ method: "POST", url: `/projects/${project.id}/publish`, payload: { accessToken: LOCAL_DEBUG_ACCESS_TOKEN, title: "Renamed" } });
     const updated = (await app.inject({ method: "GET", url: "/community/me/games", headers })).json();
-    expect(updated.games[0]).toMatchObject({ stats: { viewerCount: 1, likeCount: 1 } });
+    expect(updated.games[0]).toMatchObject({ stats: { viewCount: 2, likeCount: 1 } });
     expect(updated.games[0].firstListedAt).toBe(firstListedAt);
     expect((await app.inject({ method: "DELETE", url: `/community/games/${gameId}`, payload: { accessToken: "invalid" } })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/community/me/games", headers })).json().games).toHaveLength(1);
@@ -103,7 +103,28 @@ describe("local debug mode", () => {
     const republished = await publish(app, project.id);
     expect(republished.statusCode).toBe(201);
     expect(republished.json().game.id).not.toBe(gameId);
-    expect((await app.inject({ method: "GET", url: "/community/me/games", headers })).json().games[0].stats).toMatchObject({ viewerCount: 0, likeCount: 0 });
+    expect((await app.inject({ method: "GET", url: "/community/me/games", headers })).json().games[0].stats).toMatchObject({ viewCount: 0, likeCount: 0 });
+  });
+
+  it("counts only game entries and keeps counts across publication updates", async () => {
+    const { app, project } = await runtime();
+    await writeFile(path.join(project.workspacePath, "index.html"), "Game");
+    await writeFile(path.join(project.workspacePath, "game.js"), "script");
+    const first = (await publish(app, project.id)).json<PublishResult>();
+    const count = async () => (await app.inject({ method: "GET", url: `/community/games/${first.game.id}?metrics=true` })).json().stats.viewCount;
+    await fetch(first.game.playUrl, { method: "HEAD" });
+    await fetch(new URL("game.js", first.game.playUrl));
+    await fetch(new URL("missing.html", first.game.playUrl));
+    await fetch(first.game.playUrl, { headers: { purpose: "prefetch" } });
+    expect(await count()).toBe(0);
+    await fetch(first.game.playUrl);
+    await fetch(new URL("./?source=shared", first.game.playUrl));
+    expect(await count()).toBe(2);
+    const second = (await publish(app, project.id)).json<PublishResult>();
+    await fetch(first.game.playUrl);
+    expect(await count()).toBe(2);
+    await fetch(second.game.playUrl);
+    expect(await count()).toBe(3);
   });
 
   it("updates one Community entry while preserving earlier snapshots", async () => {

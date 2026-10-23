@@ -1827,13 +1827,26 @@ body {
   height: 22px;
 }
 
-/* Connect and Disconnect are text buttons in the columns a row's toggle and icon use. */
-.external-agents-clients .settings-provider-row > .settings-secondary-button {
-  width: auto;
-  grid-column: 3 / 5;
-  padding: 0 15px;
-  background: var(--settings-row-surface-emphasis);
-  color: var(--text);
+.external-agents-settings .settings-provider-row {
+  display: flex;
+  padding: 12px;
+}
+
+.external-agents-settings .settings-provider-copy {
+  flex: 1;
+}
+
+.external-agents-settings .settings-provider-description {
+  max-width: 100%;
+}
+
+.external-agents-settings .external-agent-action {
+  width: 34px;
+  flex-shrink: 0;
+}
+
+.external-agents-settings .settings-provider-row > .external-agent-action.is-danger {
+  color: var(--danger);
 }
 
 .external-agents-manual {
@@ -5300,6 +5313,19 @@ button.home-nav-item-active:hover {
   align-items: center;
   gap: 6px;
 }
+.sidebar-page-toolbar .library-toolbar {
+  flex-flow: row nowrap;
+  align-items: center;
+  gap: 12px;
+}
+.sidebar-page-toolbar .library-filters {
+  width: auto;
+  flex: 1 1 0;
+}
+.sidebar-page-toolbar .library-toolbar-end {
+  width: clamp(150px, 30%, 298px);
+  flex: 0 0 auto;
+}
 .library-filter-trigger {
   position: relative;
   display: grid;
@@ -6622,6 +6648,7 @@ button.home-nav-item-active:hover {
 .plugins-group-count { margin-left: 8px; color: var(--text-faint); font-size: 11px; font-weight: 400; }
 
 .plugins-installed {
+  container: plugins / inline-size;
   margin-top: 28px;
 }
 .plugins-installed h2 {
@@ -6773,9 +6800,39 @@ button.home-nav-item-active:hover {
   color: var(--text);
 }
 
-@media (max-width: 1000px) {
+@container plugins (max-width: 560px) {
   .plugins-installed-grid {
-    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .plugin-card-open {
+    display: flex;
+    align-self: stretch;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+  }
+  .plugin-card-open .plugin-row-icon {
+    width: 36px;
+    height: 36px;
+  }
+  .plugin-card-copy {
+    width: 100%;
+  }
+  .plugin-card-title {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .plugin-card-title strong {
+    flex-basis: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .plugin-catalog-card > .plugin-switch {
+    position: absolute;
+    top: 14px;
+    right: 12px;
+    margin: 0;
   }
 }
 
@@ -13709,7 +13766,7 @@ button {
 
 .community-toolbar {
   display: flex;
-  flex-wrap: wrap;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -13718,7 +13775,11 @@ button {
 
 .community-sort {
   display: inline-flex;
+  min-width: 0;
   max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -13727,6 +13788,7 @@ button {
 
 .community-sort button {
   min-height: 30px;
+  flex: 0 0 auto;
   padding: 0 12px;
   border: 0;
   border-radius: 4px;
@@ -13735,6 +13797,7 @@ button {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .community-sort button:hover { color: var(--text); }
@@ -13742,8 +13805,9 @@ button {
 
 .community-search-controls {
   display: flex;
-  flex-wrap: wrap;
+  width: clamp(200px, 48%, 380px);
   min-width: 0;
+  flex: 0 0 auto;
   align-items: center;
   gap: 10px;
 }
@@ -13759,8 +13823,8 @@ button {
   font-size: 12px;
 }
 
-.community-period { max-width: 100%; padding: 0 8px; }
-.community-search { display: flex; width: 240px; max-width: 100%; align-items: center; gap: 8px; padding: 0 10px; }
+.community-period { max-width: 42%; padding: 0 8px; }
+.community-search { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; padding: 0 10px; }
 .community-search:focus-within { border-color: var(--border-strong); }
 .community-search svg { flex: 0 0 auto; }
 .community-search input { width: 100%; min-width: 0; padding: 0; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; }
@@ -13774,13 +13838,14 @@ button {
 
 @container community (max-width: 680px) {
   .community-game-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 16px; }
-  .community-search-controls { flex: 1 1 100%; }
-  .community-search { flex: 1; width: auto; }
 }
 
 @container community (max-width: 380px) {
   .community-game-grid { grid-template-columns: minmax(0, 1fr); }
-  .community-sort button { padding: 0 9px; }
+  .community-toolbar { gap: 8px; }
+  .community-sort button { padding: 0 6px; font-size: 11px; }
+  .community-search-controls { gap: 6px; }
+  .community-search { gap: 6px; padding: 0 8px; }
 }
 
 .community-profile-summary { display: flex; gap: 14px; align-items: center; margin-bottom: 26px; }

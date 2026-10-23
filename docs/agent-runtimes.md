@@ -86,7 +86,7 @@ model does not inherit an incompatible effort. Existing conversations with no
 native selection continue through Pi.
 
 `agent-runtimes.json` stores per-runtime `enabled` (default false),
-`isolateUserConfig` (default true), optional absolute `binaryPath`, and optional
+`permissionMode` (default standard), optional absolute `binaryPath`, and optional
 `defaultModel`. It contains no credentials. Damaged settings fall back to safe
 defaults.
 
@@ -98,7 +98,7 @@ defaults.
 | `PUT /projects/:p/conversations/:c/model`                 | Change the conversation model and derive its runtime                           |
 | `PUT /projects/:p/conversations/:c/reasoning`             | Validate Pi reasoning or native effort for the selected model                  |
 | `GET /agent-runtimes`                                     | Discovery/status; `?recheck=1` refreshes probes                                |
-| `PATCH /agent-runtimes/:id`                               | Enablement, configuration isolation, executable override                       |
+| `PATCH /agent-runtimes/:id`                               | Enablement, permissions, executable override                       |
 | `POST /agent-runtimes/:id/recheck`                        | Refresh one runtime                                                            |
 | `POST /agent-runtimes/:id/login`                          | Return the CLI's login URL or terminal command                                 |
 | `POST /projects/:p/conversations/:c/approvals/:requestId` | Answer a pending approval                                                      |
@@ -197,11 +197,13 @@ group; it is not an OS-wide process supervisor or resource scheduler.
 | ----------- | -------------------------------------------------------------------------------------- | --------------------- |
 | Claude Code | Long-lived stream-json stdin/stdout; control requests and MCP tool callbacks           | 2.1.302               |
 | Codex       | App Server JSON-RPC; native `dynamicTools`, approval responses, thread/turn lifecycle  | 0.163.0               |
-| OpenCode    | Private authenticated loopback `serve`; HTTP requests, SSE events, daemon MCP endpoint | 1.18.33               |
+| OpenCode    | Private authenticated `serve --stdio`; v2 HTTP API, SSE events, daemon MCP endpoint | 2.1.0 |
 
 These versions record real acceptance, not minimum versions or certification of
 all later releases. Discovery checks required protocol capabilities; real drivers
-retain their startup checks. Only a documented feature that cannot be verified
+retain their startup checks. OpenCode supports the v2 API generation from 2.1.0
+and does not run v1 or assume a future major version has the same contract.
+Outside that explicit API boundary, only a documented feature that cannot be verified
 through the protocol uses a conditional version requirement: Claude
 `sandbox.failIfUnavailable` (2.1.83+) when Standard permissions rely on its OS
 sandbox. See [compatibility checks](coding-agents.md#compatibility-and-real-acceptance).
@@ -232,7 +234,7 @@ the tool environment without native authentication tokens.
 
 OpenCode must establish the SSE connection before sending a prompt; HTTP calls
 have timeouts and stream loss fails/stops the active turn. Permission paths use
-the native worktree/search metadata, not an assumed common root. Verify child
+the v2 session location and search metadata, not an assumed Git root. Verify child
 session ancestry through the API before handling its approval; unrelated
 sessions cannot inherit authority.
 
@@ -354,18 +356,30 @@ ambient provider API keys, the daemon token, or unrelated `OHMYGAME_*` values.
 An explicit environment API-key profile is not implemented. Native stored
 provider credentials may still determine billing; display only what is known.
 
-Configuration isolation defaults on:
+All runtimes inherit the person's CLI configuration. The removed
+`isolateUserConfig` setting is ignored on load and no longer persisted or
+accepted by the update API. The UI explains inheritance without a toggle.
+OhMyGame still supplies tools, project instructions, staged Skills and the
+selected permission policy. Claude Code and Codex suppress only the external
+`ohmygame-studio` MCP connection to avoid recursion; personal MCP servers and
+notification hooks remain enabled. Codex's workspace-root override remains part
+of its permission profile, because denied parent-folder instructions otherwise
+prevent startup. See [configuration behavior](coding-agents.md#environment-and-isolation)
+for the runtime details.
 
-- Claude: empty `--setting-sources` and strict MCP configuration.
-- Codex: turn off user MCP and notification hooks; fail startup if inspection
-  fails. User Skills, plugins, and AGENTS.md can still load; disclose partial
-  isolation in settings.
-- OpenCode: private config, `--pure`, external Skills disabled, and project
-  config disabled.
+OpenCode v2 adds callback rules, instructions and staged Skills in memory/private
+files. Its v2 MCP registration disables code mode to preserve tool names and
+results, and explicitly connects and verifies the bridge before sending a prompt.
 
-A per-runtime **Use my own CLI configuration** toggle opts into configuration
-inheritance. It does not disable the shared approval policy. Configuration
-isolation and process sandboxing are separate capabilities.
+OpenCode supports 2.1.0 or newer in the 2.x API generation. Startup uses the
+JSON address announcement and the same v2 server checks as model discovery;
+configuration transforms may finish after the server begins listening, so the
+agent callback check waits briefly before declaring incompatibility. Prompts
+start only after session permissions are reapplied and verified. CLI saved
+permissions for the project override native `ask` rules: fail explicitly if
+present, without deleting the user's grants. User plugins are trusted CLI code.
+The native session ID is marked `opencode-v2:`; legacy v1 IDs use the existing
+expired-session handoff instead of being resumed across protocol generations.
 
 ## Events and UI
 
@@ -398,12 +412,15 @@ queue checkpoints, cancellation races, token revocation, SSE loss, model/default
 migration, planning writes, child approvals, staged Skill boundaries, and
 verified orphan recovery. No rewrite of the runtime architecture is required.
 
-Validation recorded during review on macOS:
+Current OpenCode v2 acceptance and its validation boundaries are recorded in
+[coding agent acceptance](coding-agents.md#compatibility-and-real-acceptance).
+
+Earlier validation recorded during review on macOS:
 
 - Public local checks: 2,916 tests passed and 23 skipped; typecheck, renderer
   build, Node startup/build, plugin preparation, and changelog checks passed.
   Private cloud contracts remain skipped where unavailable.
-- Real Codex 0.163.0-alpha.10.2 and OpenCode 1.18.33 acceptance passed: file
+- Historical real Codex 0.163.0-alpha.10.2 and OpenCode 1.18.33 acceptance passed: file
   edits, shared tool use, continuation, daemon restart, compaction, message edit,
   checkpoint restore, external dummy-file denial, approval history, and
   cancellation during an executing shell command.

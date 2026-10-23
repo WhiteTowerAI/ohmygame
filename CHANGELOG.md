@@ -31,12 +31,18 @@ Older versions are documented in
   and simplify provider detail controls. Availability and quota errors are reported
   when generating an image.
   ([#356](https://github.com/WhiteTowerAI/ohmygame/pull/356) by @dogxii)
+- The Windows installer is shown in English or Simplified Chinese, matching the
+  app's languages; other system languages get English.
+  ([#377](https://github.com/WhiteTowerAI/ohmygame/pull/377) by @dihuangdh)
 
 ### Fixed
 
 - Preserve recoverable canvas drafts when concurrent changes would merge into
   invalid node references, and offer conflict choices instead of losing edits.
   ([#342](https://github.com/WhiteTowerAI/ohmygame/pull/342) by @jsdhwfmax)
+- Avoid a Windows checkpoint write failure when multiple files have the same
+  contents and are saved at the same time.
+  ([#373](https://github.com/WhiteTowerAI/ohmygame/pull/373) by @xinyang6879)
 - Keep the previous story picture visible while the next node's media loads,
   reducing black flashes between story nodes.
   ([#343](https://github.com/WhiteTowerAI/ohmygame/pull/343) by @82228)
@@ -44,7 +50,8 @@ Older versions are documented in
   moving forward, allow more time for first-start plugin preparation, and
   prevent a failed process check from incorrectly blocking installation.
   ([#352](https://github.com/WhiteTowerAI/ohmygame/pull/352) by @82228,
-  [#369](https://github.com/WhiteTowerAI/ohmygame/pull/369) by @82228)
+  [#369](https://github.com/WhiteTowerAI/ohmygame/pull/369) by @82228,
+  [#377](https://github.com/WhiteTowerAI/ohmygame/pull/377) by @dihuangdh)
 - Keep composer attachment and context menus usable near window edges and in
   short viewports, with scrolling when the full menu does not fit.
   ([#352](https://github.com/WhiteTowerAI/ohmygame/pull/352) by @82228,

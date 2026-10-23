@@ -1,4 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
@@ -31,6 +34,41 @@ describe("Windows desktop installer safety", () => {
     for (const key of ["omgInstalling", "omgPreparing", "omgExtracting", "omgCopying", "omgFinalizing", "omgComplete", "appProcessCheckFailed"]) {
       expect(messages[key].en).toBeTruthy();
       expect(messages[key].zh_CN).toBeTruthy();
+    }
+  });
+
+  it("compiles every installer message in each installer language", async () => {
+    // Runs electron-builder's own message generation, which build/messages.yml only reaches through the patch.
+    const config = parse(await readFile("electron-builder.yml", "utf8"));
+    expect(config.nsis.installerLanguages).toEqual(["en_US", "zh_CN"]);
+    const require = createRequire(import.meta.url);
+    const { LangConfigurator, addCustomMessageFileInclude } = require("app-builder-lib/out/targets/nsis/nsisLang.js");
+    const { lcid } = require("app-builder-lib/out/util/langs.js");
+    const languages = new LangConfigurator(config.nsis);
+    const temporary = await mkdtemp(path.join(os.tmpdir(), "ohmygame-installer-messages-"));
+    try {
+      let included = "";
+      await addCustomMessageFileInclude(
+        "messages.yml",
+        { info: { buildResourcesDir: path.resolve("build") }, getTempFile: async (name: string) => path.join(temporary, name) },
+        { include: (file: string) => { included = file; } },
+        languages,
+      );
+      const compiled = await readFile(included, "utf8");
+      const used = new Set([...(await readFile("build/installer.nsh", "utf8")).matchAll(/\$\((\w+)\)/g)].map((match) => match[1]));
+      expect(used.size).toBeGreaterThan(0);
+      for (const key of used) {
+        for (const language of ["en_US", "zh_CN"]) {
+          expect(compiled, `${key} in ${language}`).toMatch(new RegExp(`^LangString ${key} ${lcid[language]} "`, "m"));
+        }
+      }
+      // Only the installer languages are compiled, so NSIS never finds a language without our messages.
+      expect(new Set([...compiled.matchAll(/^LangString \w+ (\d+) /gm)].map((match) => Number(match[1])))).toEqual(
+        new Set([lcid.en_US, lcid.zh_CN]),
+      );
+      expect(compiled).toContain(`LangString appProcessCheckFailed ${lcid.zh_CN} "安装程序无法检测`);
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
     }
   });
 

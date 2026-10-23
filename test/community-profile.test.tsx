@@ -21,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   publish: vi.fn(),
   games: vi.fn(),
   detail: vi.fn(),
-  view: vi.fn(),
 }));
 vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({
   useAuth: () => mocks.auth,
@@ -61,7 +60,6 @@ vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   setCommunityLike: mocks.like,
   listExploreGames: mocks.games,
   getExploreGame: mocks.detail,
-  recordCommunityView: mocks.view,
 }));
 const { CommunityProfilePage } =
   await import("../src/renderer/community-profile.js");
@@ -81,7 +79,7 @@ const profile: CommunityProfile = {
     playUrl: `https://play.example/${status}`,
     publishedAt: "2026-10-01T00:00:00Z",
     updatedAt: "2026-10-01T00:00:00Z",
-    stats: { viewerCount: 3, likeCount: 1 },
+    stats: { viewCount: 3, likeCount: 1 },
   })),
 };
 let root: ReturnType<typeof createRoot>;
@@ -102,13 +100,12 @@ beforeEach(() => {
   mocks.cover.mockResolvedValue(undefined);
   mocks.unpublish.mockResolvedValue(undefined);
   mocks.update.mockImplementation(async (_id, _token, metadata) => metadata);
-  mocks.like.mockResolvedValue({ viewerCount: 3, likeCount: 2, liked: true });
+  mocks.like.mockResolvedValue({ viewCount: 3, likeCount: 2, liked: true });
   mocks.games.mockResolvedValue(profile.games);
   mocks.detail.mockResolvedValue({
     ...profile.games[0],
     playUrl: "about:blank",
   });
-  mocks.view.mockResolvedValue({ viewerCount: 3, likeCount: 1 });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -208,14 +205,16 @@ describe("game detail management", () => {
 
   it("shows owner controls before related games, view metrics or iframe finish loading", async () => {
     mocks.games.mockReturnValue(new Promise(() => {}));
-    mocks.view.mockReturnValue(new Promise(() => {}));
+    mocks.detail
+      .mockResolvedValueOnce({ ...profile.games[0], playUrl: "about:blank" })
+      .mockReturnValueOnce(new Promise(() => {}));
     await renderPlayer();
     expect(container.querySelector('[aria-label="Edit game"]')).not.toBeNull();
     expect(container.querySelector("iframe")).not.toBeNull();
     expect(mocks.projects).not.toHaveBeenCalled();
     expect(mocks.own).not.toHaveBeenCalled();
     expect(mocks.public).not.toHaveBeenCalled();
-    expect(mocks.detail).toHaveBeenCalledTimes(1);
+    expect(mocks.detail).toHaveBeenCalledTimes(2);
     expect(mocks.games).toHaveBeenCalledWith("token", {
       limit: 10,
       excludeGameId: "listed",
@@ -266,7 +265,7 @@ describe("game detail management", () => {
       container.querySelector(".electron-game-identity")?.textContent,
     ).toContain("Saved description");
     expect(container.querySelector("iframe")).toBe(frame);
-    expect(mocks.detail).toHaveBeenCalledTimes(1);
+    expect(mocks.detail).toHaveBeenCalledTimes(2);
     expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 
@@ -343,7 +342,6 @@ describe("game detail management", () => {
       playUrl: "about:blank",
     });
     await renderPlayer("unlisted");
-    expect(mocks.view).not.toHaveBeenCalled();
     expect(
       container.querySelector('button[aria-label="Like Hidden game"]'),
     ).toBeNull();
@@ -386,17 +384,19 @@ describe("game detail management", () => {
     ).toContain("Service unavailable");
   });
 
-  it("cannot restore the player when a view request finishes after unpublish", async () => {
-    let resolve!: (stats: { viewerCount: number; likeCount: number }) => void;
-    mocks.view.mockReturnValueOnce(
-      new Promise((done) => {
-        resolve = done;
-      }),
-    );
+  it("cannot restore the player when a metrics read finishes after unpublish", async () => {
+    let resolve!: (game: CommunityProfile["games"][number]) => void;
+    mocks.detail
+      .mockResolvedValueOnce({ ...profile.games[0], playUrl: "about:blank" })
+      .mockReturnValueOnce(
+        new Promise((done) => {
+          resolve = done;
+        }),
+      );
     await renderPlayer();
     await chooseUnpublish();
     await click("Confirm unpublish");
-    await act(async () => resolve({ viewerCount: 4, likeCount: 2 }));
+    await act(async () => resolve({ ...profile.games[0], stats: { viewCount: 4, likeCount: 2 } }));
     expect(container.querySelector("iframe")).toBeNull();
     expect(window.location.hash).toBe("#/community/creators/creator");
   });
@@ -562,7 +562,7 @@ describe("Community card interactions", () => {
     await renderGames();
     let resolveLoad!: (value: CommunityProfile["games"]) => void;
     let resolveLike!: (value: {
-      viewerCount: number;
+      viewCount: number;
       likeCount: number;
       liked: boolean;
     }) => void;
@@ -586,7 +586,7 @@ describe("Community card interactions", () => {
     await click("Like Public game");
     expect(mocks.like).toHaveBeenCalledWith("listed", "token", true);
     await act(async () =>
-      resolveLike({ viewerCount: 3, likeCount: 2, liked: true }),
+      resolveLike({ viewCount: 3, likeCount: 2, liked: true }),
     );
     await act(async () => resolveLoad(profile.games));
     expect(
@@ -596,21 +596,27 @@ describe("Community card interactions", () => {
     ).toBe("true");
   });
 
+  it("keeps a newer view count when a delayed like response arrives", async () => {
+    let resolveLike!: (value: { viewCount: number; likeCount: number; liked: boolean }) => void;
+    mocks.like.mockReturnValueOnce(new Promise(done => { resolveLike = done; }));
+    await renderPlayer();
+    await click("Like Public game");
+    mocks.detail.mockResolvedValueOnce({ ...profile.games[0], stats: { viewCount: 5, likeCount: 1 } });
+    await act(async () => container.querySelector("iframe")!.dispatchEvent(new Event("load")));
+    await act(async () => resolveLike({ viewCount: 3, likeCount: 2, liked: true }));
+    expect(container.querySelector('.electron-game-toolbar [aria-label="5 views"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Unlike Public game"]')?.textContent).toBe("2");
+  });
+
   it("keeps newer likes when a delayed view count response arrives", async () => {
-    mocks.detail.mockResolvedValueOnce({
-      ...profile.games[0],
-      playUrl: "about:blank",
-    });
-    let resolve!: (value: {
-      viewerCount: number;
-      likeCount: number;
-      liked: boolean;
-    }) => void;
-    mocks.view.mockReturnValueOnce(
-      new Promise((done) => {
-        resolve = done;
-      }),
-    );
+    let resolve!: (value: CommunityProfile["games"][number]) => void;
+    mocks.detail
+      .mockResolvedValueOnce({ ...profile.games[0], playUrl: "about:blank" })
+      .mockReturnValueOnce(
+        new Promise((done) => {
+          resolve = done;
+        }),
+      );
     await act(async () =>
       root.render(
         <GamePlayer
@@ -623,11 +629,11 @@ describe("Community card interactions", () => {
     );
     await click("Like Public game");
     await act(async () =>
-      resolve({ viewerCount: 4, likeCount: 1, liked: false }),
+      resolve({ ...profile.games[0], stats: { viewCount: 4, likeCount: 1, liked: false } }),
     );
     const toolbar = container.querySelector(".electron-game-toolbar")!;
     expect(
-      toolbar.querySelector('[aria-label="4 unique viewers"]'),
+      toolbar.querySelector('[aria-label="4 views"]'),
     ).not.toBeNull();
     expect(
       toolbar.querySelector('[aria-label="Unlike Public game"]')?.textContent,

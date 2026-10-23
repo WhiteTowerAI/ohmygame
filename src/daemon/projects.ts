@@ -517,15 +517,43 @@ export class ProjectManager {
     });
   }
 
-  async #storeImportedAsset(id: string, fileName: string, writeTemporary: (temporary: string) => Promise<unknown>): Promise<string> {
+  /**
+   * Stores a file the canvas imported that is not a document, table or media asset, under `assets/files/`.
+   * A file from an imported folder names that folder's `assets/files/...` directory.
+   */
+  async importWorkspaceFile(id: string, fileName: string, contents: Uint8Array, directory = "assets/files"): Promise<string> {
+    if (!this.#projects.has(id)) throw new ProjectAssetError("Project not found", 404);
+    const [assets, files, ...folder] = directory.split("/");
+    if (assets !== "assets" || files !== "files") throw new ProjectAssetError("Imported files belong under assets/files", 400);
+    return this.#mutateWorkspace(id, () => this.#storeImportedAsset(id, fileName, (temporary) => writeFile(temporary, contents, { flag: "wx" }), ["files", ...folder]));
+  }
+
+  /** Creates the `assets/files/` folder a folder imported on the canvas fills; a repeated name gets a suffix. */
+  async createImportFolder(id: string, name: string): Promise<string> {
+    const project = this.#projects.get(id);
+    if (!project) throw new ProjectAssetError("Project not found", 404);
+    if (!validAssetName(name)) throw new ProjectAssetError("Invalid folder name", 400);
+    return this.#mutateWorkspace(id, async () => {
+      const parent = await importDirectory(project.workspacePath, ["files"]);
+      for (let suffix = 1; ; suffix += 1) {
+        const candidate = suffix === 1 ? name : `${name}-${suffix}`;
+        try {
+          await mkdir(path.join(parent, candidate));
+        } catch (cause) {
+          if ((cause as NodeJS.ErrnoException).code === "EEXIST") continue;
+          throw cause;
+        }
+        await this.touch(id);
+        return path.posix.join("assets", "files", candidate);
+      }
+    });
+  }
+
+  async #storeImportedAsset(id: string, fileName: string, writeTemporary: (temporary: string) => Promise<unknown>, folder: readonly string[] = ["imported"]): Promise<string> {
     const project = this.#projects.get(id);
     if (!project) throw new Error(`Project not found: ${id}`);
     if (!validAssetName(fileName)) throw new ProjectAssetError("Invalid asset name", 400);
-    const assetsDirectory = path.join(project.workspacePath, "assets");
-    const importedDirectory = path.join(assetsDirectory, "imported");
-    await ensureDirectory(project.workspacePath);
-    await ensureDirectory(assetsDirectory, true);
-    await ensureDirectory(importedDirectory, true);
+    const importedDirectory = await importDirectory(project.workspacePath, folder);
     const parsed = path.parse(fileName);
     let candidate = fileName;
     for (let suffix = 2; await exists(path.join(importedDirectory, candidate)); suffix += 1) {
@@ -540,7 +568,7 @@ export class ProjectManager {
       await rm(temporary, { force: true });
     }
     await this.touch(id);
-    return path.posix.join("assets", "imported", candidate);
+    return path.posix.join("assets", ...folder, candidate);
   }
 
   async renameAsset(id: string, assetPath: string, name: string): Promise<string> {
@@ -1175,6 +1203,19 @@ function pathsOverlap(left: string, right: string): boolean {
 function pathContains(parent: string, child: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
+}
+
+/** Creates `assets/<folder...>` one level at a time, refusing a symbolic link at any level. */
+async function importDirectory(workspacePath: string, folder: readonly string[]): Promise<string> {
+  if (!folder.every(validAssetName)) throw new ProjectAssetError("Invalid folder name", 400);
+  let directory = path.join(workspacePath, "assets");
+  await ensureDirectory(workspacePath);
+  await ensureDirectory(directory, true);
+  for (const part of folder) {
+    directory = path.join(directory, part);
+    await ensureDirectory(directory, true);
+  }
+  return directory;
 }
 
 async function ensureDirectory(target: string, create = false): Promise<void> {
