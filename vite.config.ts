@@ -49,7 +49,7 @@ export default defineConfig({
   },
   test: {
     include: ["test/**/*.test.{ts,tsx}"],
-    setupFiles: ["test/provider-environment.ts"],
+    setupFiles: ["test/provider-environment.ts", "test/setup.ts"],
     // Real compiler builds and grammar initialization need bounded parallelism on Bun.
     maxWorkers: 4,
     // Playable build tests run real esbuild/vite builds and exceed the 5s default under parallel load.

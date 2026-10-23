@@ -324,7 +324,7 @@ describe("custom providers", () => {
     await vi.waitFor(async () => {
       const jobs = (await app.inject({ method: "GET", url: "/tool-jobs" })).json();
       expect(jobs.find((job: { id: string }) => job.id === response.json().id)?.status).toBe("succeeded");
-    }, { timeout: 5_000 });
+    });
     const generated = request.mock.calls.find(([input]) => String(input).endsWith("/images/generations"));
     expect(generated?.[0]).toBe(`${gateway.baseUrl}/images/generations`);
     expect(generated?.[1]?.headers).toMatchObject({ authorization: `Bearer ${gateway.apiKey}` });

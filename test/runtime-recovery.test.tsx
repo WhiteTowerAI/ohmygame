@@ -444,9 +444,7 @@ describe("renderer service recovery", () => {
         recovered: true,
       });
       updateRuntimeConnection(ready(2));
-      await vi.waitFor(() => expect(received).toEqual([51, 1]), {
-        timeout: 2000,
-      });
+      await vi.waitFor(() => expect(received).toEqual([51, 1]));
       expect(reset).toHaveBeenCalledTimes(1);
       expect(requests[1]).toBe(
         "http://127.0.0.1:1002/projects/project/events?cursor=0",

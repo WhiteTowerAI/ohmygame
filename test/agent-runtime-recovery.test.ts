@@ -8,10 +8,10 @@ import {
   readFile,
 } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   approvalScope,
   canonicalPath,
@@ -208,11 +208,11 @@ it("reclaims a verified orphan, preserving a live daemon and unrelated PID ident
   trackAgentProcess(root, child);
   cleanup.push(() => terminateProjectProcess(child));
   await once(child, "spawn");
-  const identity = processIdentity(child.pid!)!;
+  const identity = (await processIdentity(child.pid!))!;
   expect(identity).toBeTruthy();
-  expect(await readdir(root)).toHaveLength(1);
+  await vi.waitFor(async () => expect(await readdir(root)).toHaveLength(1));
   await recoverAgentProcesses(root);
-  expect(processIdentity(child.pid!)).toBe(identity);
+  expect(await processIdentity(child.pid!)).toBe(identity);
   const journal = path.join(root, `2147483647-${child.pid}.json`);
   await writeFile(
     journal,
@@ -225,7 +225,7 @@ it("reclaims a verified orphan, preserving a live daemon and unrelated PID ident
     }),
   );
   await recoverAgentProcesses(root);
-  expect(processIdentity(child.pid!)).toBe(identity);
+  expect(await processIdentity(child.pid!)).toBe(identity);
   const closed = once(child, "close");
   await writeFile(
     journal,
@@ -242,19 +242,43 @@ it("reclaims a verified orphan, preserving a live daemon and unrelated PID ident
   expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
 });
 
+it("records no journal for a process that exits before its identity is known", async () => {
+  const root = await folder();
+  const exited = Object.assign(new EventEmitter(), { pid: process.pid });
+  const running = Object.assign(new EventEmitter(), { pid: process.ppid });
+  trackAgentProcess(root, exited as never);
+  exited.emit("spawn");
+  exited.emit("close", 0, null);
+  trackAgentProcess(root, running as never);
+  running.emit("spawn");
+  // The running process's journal shows that both identity lookups have had their turn.
+  await vi.waitFor(async () =>
+    expect(await readdir(root).catch(() => [])).toEqual([
+      `${process.pid}-${process.ppid}.json`,
+    ]),
+  );
+});
+
 it("preserves a live daemon's private folders while reclaiming verified orphan folders", async () => {
   const root = await folder();
   const live = path.join(root, "live"),
     orphan = path.join(root, "orphan"),
     unknown = path.join(root, "legacy");
   for (const directory of [live, orphan, unknown]) await mkdir(directory);
-  await leaseAgentDirectory(live);
+  await leaseAgentDirectory(live).written;
   await writeFile(
     path.join(orphan, ".owner.json"),
     JSON.stringify({ version: 1, pid: 2147483647, identity: "gone" }),
   );
   await recoverAgentDirectories(root);
   expect((await readdir(root)).sort()).toEqual(["legacy", "live"]);
+  expect(await readdir(live)).toEqual([".owner.json"]);
+  // A folder released before its lease is written gets none, so removing it
+  // cannot race the write.
+  const released = leaseAgentDirectory(unknown);
+  await released.release();
+  await released.written;
+  expect(await readdir(unknown)).toEqual([]);
 });
 
 it("allows reading session-owned Skills while keeping sibling app data and Skill writes protected", async () => {
