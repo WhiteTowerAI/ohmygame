@@ -149,6 +149,10 @@ These checks run on Ubuntu. Plugin preparation, types, tests and the Node
 startup check also run on macOS and Windows, the platforms the app ships for.
 When a test cannot hold on one platform, skip only the assertion that does not
 apply there, as the file permission checks do on Windows.
+`vi.waitFor` and `vi.waitUntil` wait up to 10 seconds by default
+([test/setup.ts](test/setup.ts)), because real processes and servers start
+slowly on a loaded Windows runner. Set a shorter `timeout` only when the test
+needs to fail quickly.
 CLI integration cases that execute POSIX script fixtures run on Ubuntu and macOS;
 Windows still runs the in-process adapter and protocol tests.
 
