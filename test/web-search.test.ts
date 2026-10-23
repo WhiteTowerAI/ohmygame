@@ -115,6 +115,74 @@ describe("web search", () => {
     );
   });
 
+  it("uses a multiline event-stream response through the search service", async () => {
+    const store = await settingsStore({ provider: "exa", fallback: false });
+    const request = vi.fn<typeof fetch>(
+      async () =>
+        new Response(searchEvent(resultBody, "\r\n"), {
+          headers: { "content-type": "text/event-stream" },
+        }),
+    );
+
+    const result = await new WebSearchService(store, request).search(
+      "session",
+      { query: "game engine docs" },
+    );
+
+    expect(result.content).toBe("Search result");
+    expect(result.provider).toBe("exa");
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it.each(["\n", "\r\n", "\r"])(
+    "joins data lines within one event with %j line endings",
+    (newline) => {
+      const notification = `: keepalive${newline}data: {"jsonrpc":"2.0","method":"notifications/progress"}${newline}${newline}`;
+      expect(
+        parseMcpSearchResponse(notification + searchEvent(resultBody, newline)),
+      ).toBe("Search result");
+    },
+  );
+
+  it("accepts a leading BOM and preserves complete events without a final blank line", () => {
+    expect(parseMcpSearchResponse(`\uFEFFdata: ${resultBody}\n\n`)).toBe(
+      "Search result",
+    );
+    expect(parseMcpSearchResponse(searchEvent(resultBody).trimEnd())).toBe(
+      "Search result",
+    );
+  });
+
+  it("does not join data from separate events", () => {
+    expect(
+      parseMcpSearchResponse(
+        'data: {"result":\n\ndata: {"content":[{"type":"text","text":"not one event"}]}}\n\n',
+      ),
+    ).toBeUndefined();
+  });
+
+  it("preserves multiline MCP errors", () => {
+    const error = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      error: { code: -32603, message: "Search unavailable" },
+    });
+    const toolError = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      result: {
+        isError: true,
+        content: [{ type: "text", text: "Tool failed" }],
+      },
+    });
+    expect(() => parseMcpSearchResponse(searchEvent(error))).toThrow(
+      "Search unavailable",
+    );
+    expect(() => parseMcpSearchResponse(searchEvent(toolError))).toThrow(
+      "Tool failed",
+    );
+  });
+
   it("parses JSON and event-stream MCP responses", () => {
     expect(parseMcpSearchResponse(resultBody)).toBe("Search result");
     expect(
@@ -122,6 +190,18 @@ describe("web search", () => {
     ).toBe("Search result");
   });
 });
+
+function searchEvent(payload: string, newline = "\n"): string {
+  return [
+    "event: message",
+    "id: search-1",
+    ...JSON.stringify(JSON.parse(payload), null, 2)
+      .split("\n")
+      .map((line) => `data: ${line}`),
+    "",
+    "",
+  ].join(newline);
+}
 
 async function settingsStore(overrides: {
   provider: "auto" | "exa" | "parallel";
