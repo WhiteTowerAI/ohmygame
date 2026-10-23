@@ -862,6 +862,7 @@ const zhCN: typeof en = {
     viewport: {
       tablet: "平板 · 768px",
       mobile: "手机 · 375px",
+      mobileLandscape: "手机横屏 · 667 × 375",
     },
     previewTitle: "{{name}} 预览",
     project: "项目",
@@ -985,6 +986,7 @@ const zhCN: typeof en = {
       fit: "适应窗口",
       tablet: "平板",
       mobile: "手机",
+      mobileLandscape: "手机横屏",
     },
     cleanup: "后台清理",
     stopAfter: "闲置多久后停止预览",
