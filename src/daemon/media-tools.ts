@@ -1,18 +1,18 @@
 import { execFile, spawn } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
 import yazl from "yazl";
+import { MAX_MEDIA_FRAMES, MAX_MEDIA_OUTPUT_BYTES } from "../shared/media-tools.js";
 
 const execFileAsync = promisify(execFile);
 const MAX_PIXELS = 100_000_000;
-const MAX_FRAMES = 1_000;
+const MAX_FRAMES = MAX_MEDIA_FRAMES;
 const IMAGE_FORMATS = new Set(["png", "jpeg", "webp"] as const);
 const require = createRequire(import.meta.url);
-
 function ffmpegExecutable(): string {
   if (process.env.OHMYGAME_FFMPEG_PATH) return process.env.OHMYGAME_FFMPEG_PATH;
   try {
@@ -36,6 +36,17 @@ function imageOutput(
   return { name, bytes, mediaType: mediaTypeFor(format) };
 }
 
+function addBoundedOutput(outputs: MediaOutput[], output: MediaOutput): void {
+  const bytes = outputs.reduce((total, item) => total + item.bytes.byteLength, output.bytes.byteLength);
+  if (bytes > MAX_MEDIA_OUTPUT_BYTES) throw new Error("Media output exceeds 128 MiB");
+  outputs.push(output);
+}
+
+function boundedOutput(output: MediaOutput): MediaOutput {
+  if (output.bytes.byteLength > MAX_MEDIA_OUTPUT_BYTES) throw new Error("Media output exceeds 128 MiB");
+  return output;
+}
+
 export async function cropImage(
   options: SingleImageOptions & {
     left: number;
@@ -56,7 +67,7 @@ export async function cropImage(
     })
     .toFormat(format)
     .toBuffer();
-  return imageOutput(`cropped.${extensionFor(format)}`, bytes, format);
+  return boundedOutput(imageOutput(`cropped.${extensionFor(format)}`, bytes, format));
 }
 
 export async function extractGifFrames(
@@ -81,9 +92,7 @@ export async function extractGifFrames(
     })
       .png()
       .toBuffer();
-    outputs.push(
-      imageOutput(`frame-${String(page).padStart(4, "0")}.png`, bytes, "png"),
-    );
+    addBoundedOutput(outputs, imageOutput(`frame-${String(page).padStart(4, "0")}.png`, bytes, "png"));
   }
   return outputs;
 }
@@ -142,9 +151,9 @@ export async function composeImageLayers(options: {
       data[offset] = Math.round(data[offset]! * layer.opacity);
     return { input: await sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }).png().toBuffer(), left, top };
   }));
-  return imageOutput("composed-layers.png", await sharp({
+  return boundedOutput(imageOutput("composed-layers.png", await sharp({
     create: { width: options.width, height: options.height, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
-  }).composite(layers.filter((layer): layer is NonNullable<typeof layer> => Boolean(layer))).png().toBuffer(), "png");
+  }).composite(layers.filter((layer): layer is NonNullable<typeof layer> => Boolean(layer))).png().toBuffer(), "png"));
 }
 
 export type ImageOutputFormat = "png" | "jpeg" | "webp";
@@ -217,7 +226,7 @@ export async function splitImageGrid(
         })
         .toFormat(format)
         .toBuffer();
-      outputs.push({
+      addBoundedOutput(outputs, {
         name: `frame-${String(index).padStart(4, "0")}.${extensionFor(format)}`,
         bytes,
         mediaType: mediaTypeFor(format),
@@ -225,7 +234,7 @@ export async function splitImageGrid(
     }
   }
   if (options.includeManifest !== false) {
-    outputs.push({
+    addBoundedOutput(outputs, {
       name: "manifest.json",
       bytes: Buffer.from(
         JSON.stringify(
@@ -307,16 +316,21 @@ export async function extractVideoStrip(
     const selectedSet = selected ? new Set(selected) : undefined;
     const indices = files.map((_, index) => index).filter((index) => !selectedSet || selectedSet.has(index));
     if (!indices.length) throw new Error("No selected frames exist in this video range");
-    const outputs = await Promise.all(
-      indices.map(async (index) => ({
+    const outputs: MediaOutput[] = [];
+    let outputBytes = 0;
+    for (const index of indices) {
+      const file = path.join(temporary, files[index]!);
+      outputBytes += (await stat(file)).size;
+      if (outputBytes > MAX_MEDIA_OUTPUT_BYTES) throw new Error("Media output exceeds 128 MiB");
+      addBoundedOutput(outputs, {
         name: `frame-${String(index).padStart(4, "0")}.${extension}`,
-        bytes: await readFile(path.join(temporary, files[index]!)),
+        bytes: await readFile(file),
         mediaType: extension === "jpg" ? "image/jpeg" : "image/png",
-      })),
-    );
+      });
+    }
     if (options.includeManifest !== false) {
       const fps = options.fps ?? 12;
-      outputs.push({
+      addBoundedOutput(outputs, {
         name: "manifest.json",
         bytes: Buffer.from(
           JSON.stringify(
@@ -383,8 +397,9 @@ export async function composeVideo(
       format === "mp4"
         ? firstDimensions.height + (firstDimensions.height % 2)
         : firstDimensions.height;
-    await Promise.all(
-      options.framePaths.map(async (source, index) => {
+    for (let start = 0; start < options.framePaths.length; start += 2) {
+      await Promise.all(options.framePaths.slice(start, start + 2).map(async (source, offset) => {
+        const index = start + offset;
         const image = sharp(source, {
           animated: false,
           limitInputPixels: MAX_PIXELS,
@@ -401,8 +416,8 @@ export async function composeVideo(
           .toFile(
             path.join(temporary, `frame-${String(index + 1).padStart(6, "0")}.png`),
           );
-      }),
-    );
+      }));
+    }
     const output = path.join(temporary, `output.${format}`);
     const args = [
       "-hide_banner",
@@ -432,11 +447,12 @@ export async function composeVideo(
       );
     args.push("-y", output);
     await runFfmpeg(args, options.signal);
-    return {
+    if ((await stat(output)).size > MAX_MEDIA_OUTPUT_BYTES) throw new Error("Media output exceeds 128 MiB");
+    return boundedOutput({
       name: `composed.${format}`,
       bytes: await readFile(output),
       mediaType: format === "gif" ? "image/gif" : "video/mp4",
-    };
+    });
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
@@ -445,6 +461,8 @@ export async function composeVideo(
 export async function zipMediaOutputs(
   outputs: readonly MediaOutput[],
 ): Promise<Buffer> {
+  if (outputs.reduce((total, output) => total + output.bytes.byteLength, 0) > MAX_MEDIA_OUTPUT_BYTES)
+    throw new Error("Media output exceeds 128 MiB");
   const zip = new yazl.ZipFile();
   for (const output of outputs) zip.addBuffer(output.bytes, output.name);
   const chunks: Buffer[] = [];
@@ -454,7 +472,7 @@ export async function zipMediaOutputs(
   })();
   zip.end();
   await done;
-  return Buffer.concat(chunks);
+  return boundedOutput({ name: "archive.zip", bytes: Buffer.concat(chunks), mediaType: "application/zip" }).bytes;
 }
 
 function gridEdges(size: number, cells: number): number[] {

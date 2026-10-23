@@ -1401,6 +1401,18 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   async function executeMediaTool(operation: CanvasMediaOperation, assetIds: string[], toolOptions: Record<string, unknown>): Promise<void> {
     if (mediaToolBusy) return;
+    const expectedNodes = operation === "split-image-grid"
+      ? Array.isArray(toolOptions.selectedFrames)
+        ? toolOptions.selectedFrames.length
+        : Number(toolOptions.columns ?? 2) * Number(toolOptions.rows ?? 2)
+      : operation === "video-frame-strip" && Array.isArray(toolOptions.selectedFrames)
+        ? toolOptions.selectedFrames.length : 1;
+    if (nodesRef.current.length + expectedNodes > MAX_ASSET_CANVAS_NODES) {
+      const message = t("assetCanvas.canvasFull");
+      setMediaToolError(message);
+      setNotice({ kind: "action", message });
+      return;
+    }
     setMediaToolBusy(true);
     setMediaToolError(undefined);
     setGenerationError(undefined);

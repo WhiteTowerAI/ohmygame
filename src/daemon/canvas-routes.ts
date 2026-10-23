@@ -9,7 +9,7 @@ import { ProjectAssetError, type ProjectManager } from "./projects.js";
 import type { AssetLibrary } from "./asset-library.js";
 import { ToolRunError, type ToolRunner } from "./tools.js";
 import { composeGif, composeImageLayers, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, type ImageLayer } from "./media-tools.js";
-import type { CanvasMediaOperation } from "../shared/media-tools.js";
+import { MAX_MEDIA_FRAMES, type CanvasMediaOperation } from "../shared/media-tools.js";
 import { ensureCanvasAssets, readCanvasAssets } from "./canvas-assets.js";
 import { getWorkspaceMedia } from "./workspace.js";
 
@@ -150,7 +150,7 @@ async function runCanvasMedia(
 ): Promise<CanvasMediaResult> {
   const project = options.projects.get(projectId);
   if (!project) throw new CanvasError("Project not found", 404);
-  if (!Array.isArray(request.assetIds) || request.assetIds.length < 1 || request.assetIds.length > 1_000 || request.assetIds.some((id) => typeof id !== "string" || !id)) {
+  if (!Array.isArray(request.assetIds) || request.assetIds.length < 1 || request.assetIds.length > MAX_MEDIA_FRAMES || request.assetIds.some((id) => typeof id !== "string" || !id)) {
     throw new CanvasError("Choose at least one canvas asset", 400);
   }
   // A node can be acted on immediately after it is added, before the board
@@ -177,7 +177,7 @@ async function runCanvasMedia(
     const columns = input.columns ?? 2;
     const rows = input.rows ?? 2;
     const cellCount = columns * rows;
-    if (!validInteger(columns, 1, 100) || !validInteger(rows, 1, 100) || cellCount > 1_000) throw new CanvasError("Invalid grid size", 400);
+    if (!validInteger(columns, 1, 100) || !validInteger(rows, 1, 100) || cellCount > MAX_MEDIA_FRAMES) throw new CanvasError("Invalid grid size", 400);
     if (input.selectedFrames !== undefined && (!Array.isArray(input.selectedFrames) || !input.selectedFrames.length || input.selectedFrames.some((index, position) => !validInteger(index, 0, cellCount - 1) || (position > 0 && index <= input.selectedFrames![position - 1]!)))) throw new CanvasError("Invalid selected frames", 400);
     outputs = await splitImageGrid({ inputPath: first.absolutePath, columns: input.columns ?? 2, rows: input.rows ?? 2, selectedFrames: input.selectedFrames, format: input.format === "jpeg" ? "jpeg" : input.format === "webp" ? "webp" : "png" });
   } else if (request.operation === "compose-image-layers") {
@@ -186,7 +186,7 @@ async function runCanvasMedia(
     output = await composeImageLayers({ inputPaths: sources.map((source) => source.absolutePath), layers: input.layers, width: input.width, height: input.height });
   } else if (request.operation === "video-frame-strip") {
     requireMedia(first.contentType, "video");
-    if (input.selectedFrames !== undefined && (!Array.isArray(input.selectedFrames) || !input.selectedFrames.length || input.selectedFrames.some((index, position) => !validInteger(index, 0, 999) || (position > 0 && index <= input.selectedFrames![position - 1]!)))) throw new CanvasError("Invalid selected video frames", 400);
+    if (input.selectedFrames !== undefined && (!Array.isArray(input.selectedFrames) || !input.selectedFrames.length || input.selectedFrames.some((index, position) => !validInteger(index, 0, MAX_MEDIA_FRAMES - 1) || (position > 0 && index <= input.selectedFrames![position - 1]!)))) throw new CanvasError("Invalid selected video frames", 400);
     outputs = await extractVideoStrip({ inputPath: first.absolutePath, fps: input.fps, startTime: input.startTime, duration: input.duration, selectedFrames: input.selectedFrames, format: input.format === "jpg" ? "jpg" : "png" });
   } else if (request.operation === "compose-video") {
     if (sources.some((source) => !source.contentType.startsWith("image/"))) throw new CanvasError("Video composition requires image frame assets", 400);

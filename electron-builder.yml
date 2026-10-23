@@ -7,7 +7,6 @@ asarUnpack:
   - node_modules/esbuild/**/*
   - node_modules/@esbuild/**/*
   - node_modules/@ffmpeg-installer/*/**/*
-  - node_modules/onnxruntime-node/bin/**/*
   - dist/player/**/*
 
 directories:

@@ -12,6 +12,7 @@ import {
   composeVideo,
   extractVideoStrip,
 } from "../src/daemon/media-tools.js";
+import { MAX_MEDIA_FRAMES } from "../src/shared/media-tools.js";
 
 async function fixturePath(name: string): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-media-tools-"));
@@ -68,6 +69,13 @@ describe("media tools", () => {
     expect([...await sharp(frames[1]!.bytes).ensureAlpha().raw().toBuffer()]).toEqual([255, 255, 0, 255]);
     expect(JSON.parse(frames[2]!.bytes.toString()).selectedFrames).toEqual([0, 3]);
     await expect(splitImageGrid({ inputPath, columns: 2, rows: 2, selectedFrames: [3, 0] })).rejects.toThrow("ascending order");
+  });
+
+  it("rejects batches over the shared frame limit before processing", async () => {
+    const inputPath = await fixturePath("frame-limit.png");
+    await sharp({ create: { width: 11, height: 10, channels: 4, background: "red" } }).png().toFile(inputPath);
+    await expect(splitImageGrid({ inputPath, columns: 11, rows: 10 })).rejects.toThrow(`maximum ${MAX_MEDIA_FRAMES}`);
+    await expect(composeVideo({ framePaths: Array(MAX_MEDIA_FRAMES + 1).fill(inputPath) })).rejects.toThrow(`1-${MAX_MEDIA_FRAMES}`);
   });
   it("crops by source pixels", async () => {
     const inputPath = await fixturePath("crop.png");

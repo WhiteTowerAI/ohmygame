@@ -22,6 +22,7 @@ import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
 import { composeGif, composeVideo, cropImage, extractGifFrames, extractVideoStrip, splitImageGrid, zipMediaOutputs, type MediaOutput } from "./media-tools.js";
+import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -81,7 +82,7 @@ const imageParameters = {
   sourcePath: imageSourceParameter,
   format: Type.Optional(Type.Union([Type.Literal("png"), Type.Literal("jpeg"), Type.Literal("webp")])),
 };
-const framePathsParameter = Type.Array(imageSourceParameter, { minItems: 1, maxItems: 1000 });
+const framePathsParameter = Type.Array(imageSourceParameter, { minItems: 1, maxItems: MAX_MEDIA_FRAMES });
 
 export function createAgentTools(
   project: ProjectState,
@@ -611,7 +612,7 @@ export function createAgentTools(
     label: "Compose Video",
     description: "Compose project image frames into an MP4 or looping GIF using FFmpeg.",
     parameters: Type.Object({
-      framePaths: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: 1_000 }),
+      framePaths: Type.Array(Type.String({ minLength: 1 }), { minItems: 1, maxItems: MAX_MEDIA_FRAMES }),
       fps: Type.Optional(Type.Number({ minimum: 0.1, maximum: 120 })),
       format: Type.Optional(Type.Union([Type.Literal("mp4"), Type.Literal("gif")])),
     }),

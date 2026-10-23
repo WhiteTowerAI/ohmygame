@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ImgHTMLAttributes, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "./icons.js";
 import { t } from "./i18n.js";
+import { MAX_MEDIA_FRAMES } from "../shared/media-tools.js";
 import { useWorkspaceAssetUrl } from "./use-workspace-asset-url.js";
 
 export interface CanvasLayerSetting {
@@ -271,7 +272,7 @@ export function CanvasVideoFrameEditor({
   );
   const count =
     Number.isFinite(fps) && fps > 0 && Number.isFinite(available)
-      ? Math.min(1000, Math.ceil(available * fps))
+      ? Math.min(MAX_MEDIA_FRAMES, Math.ceil(available * fps))
       : 0;
   useEffect(() => {
     onSelected(Array.from({ length: count }, (_, index) => index));
