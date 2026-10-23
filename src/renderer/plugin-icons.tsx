@@ -28,7 +28,6 @@ import {
   Wrench,
   type IconComponent,
 } from "./icons.js";
-import { GodotIcon } from "./godot-icon.js";
 import { readPluginIconImage } from "./api.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 
@@ -58,16 +57,7 @@ export const PLUGIN_PRESET_GLYPHS: Record<PluginIconPresetId, IconComponent> = {
   clipboard: Clipboard,
   flag: Flag,
 };
-const INCLUDED_ICONS: Record<string, IconComponent> = {
-  "game-studio": Gamepad2,
-  "web-game-studio": Globe2,
-  "threejs-world": Box,
-  img2threejs: Image,
-};
-type IconPlugin = Pick<
-  PluginSummary,
-  "id" | "name" | "source" | "icon" | "iconRevision"
->;
+type IconPlugin = Pick<PluginSummary, "id" | "icon" | "iconRevision">;
 
 export function PluginGlyph({
   plugin,
@@ -134,14 +124,7 @@ export function PluginGlyph({
     const Icon = PLUGIN_PRESET_GLYPHS[plugin.icon.id] ?? Package;
     return <Icon size={size} aria-hidden="true" />;
   }
-  if (!plugin.icon && plugin.id === "ohmygame:godot")
-    return <GodotIcon size={size} />;
-  const included =
-    plugin.source.type === "builtIn" || plugin.source.type === "preinstalled";
-  const Icon =
-    (!plugin.icon && included ? INCLUDED_ICONS[plugin.name] : undefined) ??
-    Package;
-  return <Icon size={size} aria-hidden="true" />;
+  return <Package size={size} aria-hidden="true" />;
 }
 
 export function PluginIcon({
@@ -157,7 +140,7 @@ export function PluginIcon({
 }): ReactNode {
   return (
     <span
-      className={`plugin-row-icon${!plugin.icon && plugin.id === "ohmygame:godot" ? " plugin-row-icon-godot" : ""}${large ? " plugin-row-icon-large" : ""}`}
+      className={`plugin-row-icon${large ? " plugin-row-icon-large" : ""}`}
     >
       <PluginGlyph
         plugin={plugin}

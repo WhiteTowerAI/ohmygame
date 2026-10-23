@@ -63,13 +63,13 @@ async function fixture() {
 }
 
 describe("onboarding persistence", () => {
-  it.each(["pending", "completed", "skipped"])("reads the media step from another host version and preserves %s status", async (status) => {
+  it.each(["pending", "completed", "skipped"])("restores the media step and preserves %s status", async (status) => {
     const { directory } = await fixture();
     await writeFile(path.join(directory, "onboarding.json"), JSON.stringify({ version: 1, status, step: "media" }));
     const store = new OnboardingStore(directory);
     await store.load();
     expect(store.initialized).toBe(true);
-    expect(store.get()).toEqual({ version: 1, status, step: "connect" });
+    expect(store.get()).toEqual({ version: 1, status, step: "media" });
   });
 
   it("still rejects unknown onboarding steps", async () => {
@@ -94,9 +94,10 @@ describe("onboarding persistence", () => {
       status: "pending",
       step: "connect",
     });
-    expect(
-      (await stat(path.join(directory, "onboarding.json"))).mode & 0o777,
-    ).toBe(0o600);
+    if (process.platform !== "win32")
+      expect(
+        (await stat(path.join(directory, "onboarding.json"))).mode & 0o777,
+      ).toBe(0o600);
     await Promise.all([
       store.update({ status: "skipped", step: "connect" }),
       store.update({ status: "pending", step: "welcome" }),
@@ -107,6 +108,15 @@ describe("onboarding persistence", () => {
       ),
     ).toEqual(store.get());
     expect(store.get().status).toBe("pending");
+  });
+
+  it("restores the optional media step without changing existing version-1 records", async () => {
+    const { directory } = await fixture();
+    const store = new OnboardingStore(directory);
+    await store.update({ status: "pending", step: "media" });
+    const restored = new OnboardingStore(directory);
+    await restored.load();
+    expect(restored.get()).toEqual({ version: 1, status: "pending", step: "media" });
   });
 
   it("keeps state unchanged after a failed write and permits a later retry", async () => {

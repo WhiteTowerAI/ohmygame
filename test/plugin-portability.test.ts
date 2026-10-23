@@ -124,6 +124,25 @@ async function packageAt(
 }
 
 describe("plugin portability", () => {
+  it("preserves a package-owned SVG icon and its source notice across export and restore", async () => {
+    const source = await environment();
+    const root = path.join(source.directory, "source");
+    const icon = { type: "asset" as const, path: "./assets/icon.svg" };
+    await packageAt(root, { ...manifest, interface: { icon } });
+    await mkdir(path.join(root, "assets"));
+    const bytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0h24v24H0z" fill="#123456"/></svg>');
+    await writeFile(path.join(root, "assets/icon.svg"), bytes);
+    await writeFile(path.join(root, "assets/NOTICE.md"), "Source: test artwork");
+    const installed = await source.local.installAuthored(root);
+    expect(installed.icon).toEqual(icon);
+    const archive = await source.portability.export(installed.id);
+    const target = await environment();
+    const restored = await target.portability.restore(archive);
+    expect(restored.icon).toEqual(icon);
+    expect((await target.local.readIcon(restored.id))?.bytes).toEqual(bytes);
+    expect(await readFile(path.join((await target.local.installedPath(restored.id))!, "assets/NOTICE.md"), "utf8")).toBe("Source: test artwork");
+  });
+
   it("round-trips files, effective definitions and nonsecret settings independently of AI workspaces", async () => {
     const source = await environment();
     const root = path.join(source.directory, "source");

@@ -188,6 +188,7 @@ export class ProviderModelSettingsStore {
     if (!current || current.modelConfigurationVersion === 2) return;
     const models = new Map(current.models.map((model) => [model.id, { ...model, usages: modelUsages(model) }]));
     for (const image of images) {
+      if (image.protocol === "codex-cli") continue;
       const previous = models.get(image.id);
       models.set(image.id, { ...(previous ?? { id: image.id, name: image.name, api: current.api, contextWindow: 128_000, maxTokens: 16_384, reasoning: false, supportsImages: false }),
         usages: { ...previous?.usages, image: { protocol: image.protocol,

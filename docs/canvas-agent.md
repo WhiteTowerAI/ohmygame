@@ -4,6 +4,8 @@ Design and Asset Canvas share a project directory the agent edits with its ordin
 The canvas renders those files and autosaves user edits into the same sources.
 The agent can initialize a canvas when design or asset work needs it, without
 requiring the user to open Design first.
+The agent shows final media deliverables on the relevant board, reusing existing
+nodes and asset IDs. Local media can reference existing project-relative paths.
 
 Creation templates appear beside Explore as five example cards: Pixel game assets,
 Character reference sheet, Quick reskin, Character sequences, and Character action
@@ -119,6 +121,11 @@ for explicit adoption. Invalid or incomplete output preserves the table, and AI
 instructions and valid candidates survive reloads. Adopting an AI draft is one
 table undo step.
 
+Canvas generation prompts use Enter to generate and Shift+Enter for a new line.
+Enter confirms an active input-method composition or a video `@` reference
+suggestion before it can generate. Text and document content, negative prompts,
+and lyrics keep ordinary multiline editing.
+
 `assets.json` maps asset IDs to readable names and project-relative paths.
 Descriptions describe purpose; prompts record generation instructions.
 Neither is a verified description of image pixels. The agent reads local
@@ -129,7 +136,11 @@ records the origin of an imported or generated file.
 The editor supplies the current board path and selected node IDs as a
 removable chat context. The agent reads current files before making changes.
 Concurrent edits to different fields merge; competing edits require the user
-to choose a version. Invalid external edits leave the last valid canvas
+to choose a version. A node type change is adopted as a whole when the other
+version of that node is unchanged; competing edits during a type change require
+a version choice. If combined edits create invalid node references, the editor
+also requires a version choice and preserves the local recovery draft.
+Invalid external edits leave the last valid canvas
 visible with diagnostics. External node changes enter the canvas undo history.
 
 Asset Canvas has **Canvas** and **Code** navigation. Code shows the workspace
@@ -209,6 +220,28 @@ references. A selected image can start either action workflow on a new board in
 the same project. Asset Canvas retains automatic covers and sending assets to
 projects. Game projects expose multiple boards and an optional main game design
 document.
+
+Dropping, pasting or uploading files imports Markdown and text files as
+documents (up to 1 MB) and CSV or TSV files as tables (up to 4 MB). Images
+(PNG, JPEG, GIF, WebP, AVIF, SVG), video (MP4, MOV, WebM), audio (MP3, WAV,
+Ogg, M4A) and GLB models go to the Library as asset nodes, up to 200 MB each;
+`src/shared/media-files.ts` lists the media types, and the daemon checks each
+file's data against its type. Any other file, such as a source file, font,
+archive or editor project, is copied into the project under `assets/files/`
+(a repeated name gets a `-2` suffix) and shown as a file node whose
+`data.path` is that project-relative path. File nodes stay in their project:
+pasting one into another project is refused. `canvas_check` reports a file
+node whose file is missing. System files such as `.DS_Store`, `__MACOSX` and
+hidden entries inside a dropped folder are left out.
+
+Dropping or pasting a folder asks first, because a folder is easy to drop by
+mistake. **Import folder** copies it into `assets/files/<folder>/` with its
+structure intact, so files that refer to each other by relative path (a glTF
+with its textures, a sprite atlas, an engine asset pack) keep working, and adds
+one folder node (`data.directory: true`). A repeated folder name gets a `-2`
+suffix. Folder imports take up to 5,000 files and 2 GB at a time.
+**Import files separately** imports each file as above, and **Cancel** imports
+nothing.
 
 Hold Option (Alt on Windows and Linux) when starting a node drag to pull out
 copies. Copies keep node content and Library resources, use new IDs, and drop

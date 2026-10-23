@@ -9,6 +9,7 @@ import { t } from "./i18n.js";
 import { listModels, MODELS_CHANGED_EVENT, waitForRuntime } from "./api.js";
 import { menuPlacement } from "./popover-placement.js";
 import { settingsHash } from "./routes.js";
+import { PROVIDER_ICONS } from "./provider-icons.js";
 
 interface ModelSelectorProps {
   models: AgentModel[];
@@ -143,6 +144,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
         onClick={toggle}
         title={current ? `${t("modelSelector.textModelTitle", { provider: current.providerName, name: current.name })}${supportsReasoning ? ` · ${reasoningText}` : ""}` : unavailableLabel}
       >
+        {native ? <AgentIcon provider={current?.provider} /> : null}
         <span className="model-selector-name">{current?.name ?? unavailableLabel}</span>
         {supportsReasoning ? <span className="model-selector-reasoning-value">{reasoningText}</span> : null}
         <ChevronDown aria-hidden="true" size={12} />
@@ -180,7 +182,7 @@ export function ModelSelector({ models, status = "ready", value, reasoningLevel,
               <div className="model-selector-model-list">
                 {providerGroups.map((group) => (
                   <div className="model-selector-provider-group" role="group" aria-label={group.providerName} key={group.provider}>
-                    <div className="model-selector-provider-name">{group.providerName}</div>
+                    <div className="model-selector-provider-name"><AgentIcon provider={group.provider} />{group.providerName}</div>
                     {group.models.map((model) => {
                       const selected = modelKey(model) === currentKey;
                       return (
@@ -292,6 +294,11 @@ export function useAgentModels(options: { agentRuntimes?: boolean } = {}): Agent
     };
   }, [agentRuntimes]);
   return catalog;
+}
+
+function AgentIcon({ provider }: { provider?: string }) {
+  const icon = isAgentRuntimeId(provider) ? PROVIDER_ICONS[provider] : undefined;
+  return icon ? <img className={`model-selector-agent-icon is-${icon.tone}`} src={icon.src} width={14} height={14} alt="" aria-hidden="true" /> : null;
 }
 
 function modelKey(model: AgentModelRef): string {

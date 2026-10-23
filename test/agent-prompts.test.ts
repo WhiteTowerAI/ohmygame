@@ -49,6 +49,13 @@ describe("OhMyGame system prompt", () => {
     expect(text).not.toContain("playable_add_node");
   });
 
+  it("uses the selected plugin's native preview without Web setup guidance", () => {
+    const text = appendSystemPromptForProject({ type: "general", integration: { pluginId: "ohmygame:taptap-maker", preview: "external" } }).join("\n");
+    expect(text).toContain("project_preview or View");
+    expect(text).toContain("Preserve its engine and project binding");
+    expect(text).not.toContain("Web preview switch in Project settings");
+    expect(text).not.toContain("Web publishing is independent");
+  });
   it("keeps disabled General previews under user control without requiring a Node stack", () => {
     const text = prompt({ type: "general" });
     expect(text).toContain("Web preview is disabled");

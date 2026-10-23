@@ -140,10 +140,6 @@
 .projects-controls .projects-search {
   min-width: 0;
 }
-.game-studio-home :is(a, button):focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 3px;
-}
 
 @media (max-width: 720px) {
   .home-shell:has(> .home-sidebar > nav[aria-label="Main navigation"]) {

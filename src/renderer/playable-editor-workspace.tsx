@@ -55,7 +55,7 @@ import {
   addPlayableNode,
   ApiError,
   buildInteractiveStory,
-  exportInteractiveStoryProject,
+  exportProject,
   getNodeCodebase,
   getPlayableValidation,
   getStoryUpgrade,
@@ -335,6 +335,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   useEffect(() => {
     const capture = window.ohMyGameDesktop?.captureNodeThumbnail;
     const batchId = crypto.randomUUID();
+    const version = workspaceVersion(projectId);
     let disposed = false;
     let capturing = false;
     void (async () => {
@@ -348,6 +349,19 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       });
       if (!pending.length) return;
       capturing = true;
+      if (window.ohMyGameDesktop?.prepareNodeThumbnails) {
+        const status = await getStoryUpgrade(projectId);
+        if (disposed) return;
+        await window.ohMyGameDesktop.prepareNodeThumbnails(projectId, batchId, {
+          definition: builtDefinition,
+          version,
+          ...(status.web ? { web: true } : {}),
+        });
+        if (disposed) {
+          await window.ohMyGameDesktop.cancelNodeThumbnails?.(batchId);
+          return;
+        }
+      }
       await Promise.all(pending.map(async ({ nodeId, hash }) => {
         const captured = await capture(projectId, nodeId, builtDefinition.graph.viewport, batchId).catch(() => false);
         if (!captured || disposed) return;
@@ -1005,7 +1019,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       await save(codebase);
       const artifact = kind === "game"
         ? await buildInteractiveStory(projectId, writeVersion)
-        : await exportInteractiveStoryProject(projectId, writeVersion);
+        : await exportProject(projectId, writeVersion);
       const url = URL.createObjectURL(artifact);
       const link = window.document.createElement("a");
       link.href = url;
@@ -1263,7 +1277,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         onExport={exportGame}
         onClose={() => setProjectSettingsOpen(false)}
       /> : null}
-      {publishDialog ? <PublishDialog project={project} publishing={publishing} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
+      {publishDialog ? <PublishDialog project={project} publishing={publishing || building} justPublished={publishDialog === "success"} onClose={onClosePublish} onPublish={publishGame} /> : null}
     </section>
   );
 }

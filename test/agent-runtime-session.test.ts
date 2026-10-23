@@ -604,13 +604,14 @@ describe("coding agent sessions", () => {
       },
     ]);
     const run = manager.prompt(project, conversation, "one");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect.poll(() => drivers[0]?.inputs.length).toBe(1);
     const queued = manager.prompt(project, conversation, "two");
     expect(queued.queued).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Admission reads project context asynchronously; finish it while the
+    // first turn is still held so this actually exercises the same-run queue.
+    await queued.result;
     release();
     await run.result;
-    await queued.result;
     expect(drivers[0]!.inputs.map((input) => input.text)).toEqual([
       "one",
       "two",
@@ -623,9 +624,14 @@ describe("coding agent sessions", () => {
   });
 
   it("stops a turn and keeps what the agent said before it was stopped", async () => {
+    let spoke!: () => void;
+    const said = new Promise<void>((resolve) => {
+      spoke = resolve;
+    });
     const { manager, project, conversation, sessionManager, received } = setup([
       async (_input, sink, signal) => {
         sink.text("a", "Working");
+        spoke();
         await new Promise<void>((resolve) =>
           signal.addEventListener("abort", () => resolve(), { once: true }),
         );
@@ -633,7 +639,8 @@ describe("coding agent sessions", () => {
       },
     ]);
     const run = manager.prompt(project, conversation, "go");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Stop only once the agent has spoken: a fixed delay raced a slow runner.
+    await said;
     await manager.cancel(project.id, conversation.summary.id, run.turnId);
     await expect(run.result).resolves.toBe("cancelled");
     expect(received.map((event) => event.type)).toContain("agent.cancelled");

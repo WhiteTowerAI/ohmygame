@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
@@ -238,8 +238,9 @@ describe("preview content isolation", () => {
   });
 
   it("preserves Vite compilation diagnostics, recovery, and its HMR WebSocket", async () => {
-    const directory = await mkdtemp(
-      path.join(tmpdir(), "ohmygame-vite-isolation-"),
+    // Windows runners name the temporary folder with a short 8.3 name, and Vite only serves files below the real path.
+    const directory = await realpath(
+      await mkdtemp(path.join(tmpdir(), "ohmygame-vite-isolation-")),
     );
     cleanups.push(() => rm(directory, { recursive: true, force: true }));
     await mkdir(path.join(directory, "src"));
@@ -265,7 +266,8 @@ describe("preview content isolation", () => {
       (diagnostic) => diagnostics.push(diagnostic),
     );
     cleanups.push(() => proxy.close());
-    expect((await fetch(proxy.url)).status).toBe(200);
+    const page = await fetch(proxy.url);
+    expect(page.status, await page.text()).toBe(200);
     expect((await fetch(`${proxy.url}/src/main.ts`)).status).toBe(500);
     expect(diagnostics.at(-1)?.message).toContain(
       'Failed to resolve import "./style.css"',

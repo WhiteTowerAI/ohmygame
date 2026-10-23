@@ -21,8 +21,11 @@ files:
   - dist/desktop/**/*.cjs
   - dist/daemon/**/*.js
   - dist/shared/**/*.js
+  - dist/story-web/resources.json
   - dist/renderer/**/*
   - dist/player/**/*
+  # Renderer source maps go to Sentry, not into the package, even if their upload failed.
+  - "!dist/renderer/**/*.map"
   - "!node_modules/typebox/build/**/*.mjs"
   - from: .runtime/typebox
     to: node_modules/typebox/build
@@ -30,6 +33,8 @@ files:
 extraResources:
   - from: plugins
     to: plugins
+  - from: integrations/skills
+    to: integrations/skills
   - from: .runtime/preinstalled-plugins
     to: preinstalled-plugins
   - from: .runtime/examples
@@ -59,6 +64,10 @@ win:
 
 nsis:
   include: build/installer.nsh
+  # The installer follows the app's UI languages; other systems get English.
+  installerLanguages:
+    - en_US
+    - zh_CN
   deleteAppDataOnUninstall: false
   # Show the setup wizard so users can choose the install scope and location.
   oneClick: false

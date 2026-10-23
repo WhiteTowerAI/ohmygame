@@ -4,6 +4,7 @@ import {
   Background,
   BackgroundVariant,
   MarkerType,
+  Panel,
   ReactFlow,
   ViewportPortal,
   useReactFlow,
@@ -79,12 +80,17 @@ export function EditorCanvas<N extends Node>({
   onNodeContextMenu,
   fitViewOnLoad = false,
   onInitialFit,
+  style,
   children,
   ...props
 }: EditorCanvasProps<N>) {
   const [mode, setMode] = useState<InteractionMode>("pointer");
   const [guides, setGuides] = useState<CanvasAlignmentGuides>();
   const instance = useRef<ReactFlowInstance<N, Edge>>(null);
+  // React Flow applies defaultViewport in an effect. Keep measuring the canvas,
+  // but do not paint its initial 100% view before the saved viewport (or fit).
+  const [viewportReady, setViewportReady] = useState(false);
+  const needsInitialFit = fitViewOnLoad && nodes.some((node) => !node.hidden);
 
   function openMenu(event: { preventDefault: () => void; clientX: number; clientY: number }, kind: CanvasContextMenuState["kind"], nodeId?: string): void {
     event.preventDefault();
@@ -119,7 +125,12 @@ export function EditorCanvas<N extends Node>({
       zoomOnDoubleClick={false}
       proOptions={{ hideAttribution: true }}
       {...props}
-      onInit={(value) => { instance.current = value; onInit?.(value); }}
+      style={{ ...style, ...(!viewportReady ? { opacity: 0, pointerEvents: "none" as const } : {}) }}
+      onInit={(value) => {
+        instance.current = value;
+        if (!needsInitialFit) setViewportReady(true);
+        onInit?.(value);
+      }}
       onNodeDragStart={(event, node, dragged) => { setGuides(undefined); onNodeDragStart?.(event, node, dragged); }}
       onNodeDrag={(_event, node) => {
         const [active, ...candidates] = alignmentNodesFromDom([node, ...nodes.filter((candidate) => !candidate.dragging)]);
@@ -136,8 +147,8 @@ export function EditorCanvas<N extends Node>({
       <AlignmentGuides guides={guides} />
       <ZoomControls />
       <PinchZoomOverScrollingContent />
-      {fitViewOnLoad ? <InitialCanvasView onReady={onInitialFit} /> : null}
-      <div className="react-flow__panel bottom center story-canvas-toolbar">
+      {needsInitialFit ? <InitialCanvasView onReady={onInitialFit} onVisible={setViewportReady} /> : null}
+      <Panel className="story-canvas-toolbar" position="bottom-center">
         {addControl}
         <button className={mode === "pointer" ? "is-active" : undefined} type="button" title={t("editorCanvas.select")} aria-label={t("editorCanvas.select")} aria-pressed={mode === "pointer"} onClick={() => setMode("pointer")}>
           <MousePointer2 size={18} />
@@ -146,7 +157,7 @@ export function EditorCanvas<N extends Node>({
           <Hand size={18} />
         </button>
         <FitViewButton />
-      </div>
+      </Panel>
       {children}
     </ReactFlow>
   );
@@ -200,8 +211,9 @@ export function pinchedViewport(
 }
 
 /** Wait for actual node sizes and a visible canvas before consuming a remix's fit request. */
-function InitialCanvasView({ onReady }: {
+function InitialCanvasView({ onReady, onVisible }: {
   onReady?: (viewport: { x: number; y: number; zoom: number }) => void;
+  onVisible: (ready: boolean) => void;
 }) {
   const initialized = useNodesInitialized();
   const width = useStore((state) => state.width);
@@ -211,10 +223,12 @@ function InitialCanvasView({ onReady }: {
     if (!initialized || width <= 0 || height <= 0) return;
     let disposed = false;
     void fitView({ padding: 0.2, maxZoom: 1 }).then((fitted) => {
-      if (fitted && !disposed) onReady?.(getViewport());
+      if (disposed) return;
+      onVisible(true);
+      if (fitted) onReady?.(getViewport());
     });
     return () => { disposed = true; };
-  }, [initialized, width, height, fitView, getViewport, onReady]);
+  }, [initialized, width, height, fitView, getViewport, onReady, onVisible]);
   return null;
 }
 

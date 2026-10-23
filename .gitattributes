@@ -1,0 +1,3 @@
+# Preinstalled Plugin archives are checksummed byte for byte, so keep their
+# repository assets free of line-ending conversion on every platform.
+config/plugin-assets/** -text

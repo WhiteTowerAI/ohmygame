@@ -161,7 +161,8 @@ describe("durable 3D tasks and asset preflight", () => {
     expect(posts(request).filter(([url]) => !String(url).endsWith("/status") && !String(url).endsWith("/download"))).toHaveLength(before);
     const content = await readFile(path.join(location, "recovery.json"), "utf8");
     expect(content).not.toContain('"key"');
-    expect((await stat(path.join(location, "recovery.json"))).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(path.join(location, "recovery.json"))).mode & 0o777).toBe(0o600);
   });
   it("blocks an ambiguous submission and a changed connection instead of paying again", async () => {
     const location = await directory(), request = vi.fn<typeof fetch>().mockRejectedValue(new Error("lost POST response"));

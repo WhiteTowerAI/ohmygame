@@ -1,11 +1,12 @@
-import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import sharp from "sharp";
+import { mkdir, mkdtemp, readFile, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import yauzl from "yauzl";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
-import { ArtifactBuilder, validatePlayablePublishDirectory } from "../src/daemon/publish/archive.js";
+import { ArtifactBuilder, createPluginArchive, validatePlayablePublishDirectory } from "../src/daemon/publish/archive.js";
 import { isPublishedNodeManifest } from "../src/shared/playable-publish.js";
 import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import { createNodeCodebase, readNodeCodebaseDetail, writeNodeCodebase } from "../src/daemon/playable-codebase.js";
@@ -26,6 +27,42 @@ afterEach(async () => {
 });
 
 describe("Web output", () => {
+  it("accepts a 99 MiB media ZIP and rejects a ZIP over 100 MiB", async () => {
+    const workspace = await temporary("ohmygame-publish-limit-");
+    await writeFile(path.join(workspace, "index.html"), "Game");
+    const video = path.join(workspace, "clip.webm");
+    await writeFile(video, "");
+    const builder = new ArtifactBuilder();
+    const game = { ...project(workspace), type: "web-game" as const };
+    try {
+      // WebM is stored in the ZIP, so zero-filled fixtures exercise real ZIP
+      // limits without allocating a second large random buffer in the test.
+      await truncate(video, 99 * 1024 * 1024);
+      await builder.create(game).then((archive) => {
+        expect(archive.length).toBeGreaterThan(99 * 1024 * 1024);
+        expect(archive.length).toBeLessThanOrEqual(100 * 1024 * 1024);
+      });
+      await truncate(video, 101 * 1024 * 1024);
+      await expect(builder.create(game)).rejects.toMatchObject({
+        statusCode: 413,
+        message: "Publish artifact exceeds 100 MB",
+      });
+    } finally { await builder.close(); }
+  }, 60_000);
+
+  it("accepts an artifact larger than 25 MiB and still enforces explicit archive limits", async () => {
+    const workspace = await temporary("ohmygame-large-publish-");
+    await writeFile(path.join(workspace, "index.html"), "Game");
+    await writeFile(path.join(workspace, "clip.webm"), randomBytes(26 * 1024 * 1024));
+    const builder = new ArtifactBuilder();
+    try {
+      const archive = await builder.create({ ...project(workspace), type: "web-game" });
+      expect(archive.length).toBeGreaterThan(25 * 1024 * 1024);
+      expect((await unzip(archive)).get("clip.webm")!.length).toBe(26 * 1024 * 1024);
+      await expect(createPluginArchive(workspace, 1024)).rejects.toMatchObject({ statusCode: 413 });
+    } finally { await builder.close(); }
+  }, 30_000);
+
   it.each(["web-game", "general"] as const)("publishes %s from its configured startup directory", async (type) => {
     const workspace = await temporary("ohmygame-web-publish-");
     const client = path.join(workspace, "client");
@@ -47,6 +84,27 @@ describe("Web output", () => {
 });
 
 describe("Web story output", () => {
+  it("compresses publish PNGs without altering workspace originals or local builds", async () => {
+    const workspace = await temporary("ohmygame-web-story-compression-");
+    await createNodeCodebase(workspace, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
+    await mkdir(path.join(workspace, "assets"));
+    const original = await sharp({ create: { width: 512, height: 512, channels: 4, background: { r: 40, g: 80, b: 120, alpha: 0.5 } } }).png({ compressionLevel: 0 }).toBuffer();
+    const assetPath = path.join(workspace, "assets", "background.png");
+    await writeFile(assetPath, original);
+    const codebase = await readNodeCodebaseDetail(workspace);
+    await writeNodeCodebase(workspace, { ...codebase, graph: { ...codebase.graph, nodes: codebase.graph.nodes.map((node) => ({ ...node, signals: [] })), assets: { background: { type: "image", source: { kind: "workspace", path: "assets/background.png" } } } } });
+    const builder = new ArtifactBuilder();
+    try {
+      const local = await unzip(await builder.buildInteractiveStory(project(workspace)));
+      const published = await unzip(await builder.create(project(workspace)));
+      const optimized = published.get("assets/background.png")!;
+      expect(optimized.length).toBeLessThan(original.length / 10);
+      expect((await sharp(optimized).raw().toBuffer()).equals(await sharp(original).raw().toBuffer())).toBe(true);
+      expect(local.get("assets/background.png")!.equals(original)).toBe(true);
+      expect((await readFile(assetPath)).equals(original)).toBe(true);
+    } finally { await builder.close(); }
+  });
+
   it("publishes the files that play the story and the assets it uses, and nothing of the editor", async () => {
     const workspace = await temporary("ohmygame-web-story-publish-");
     await createNodeCodebase(workspace, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));
@@ -108,6 +166,33 @@ describe("Web story output", () => {
 });
 
 describe("Published Player", () => {
+  it("hashes optimized assets in the legacy manifest and preserves originals", async () => {
+    const workspace = await temporary("ohmygame-legacy-compression-");
+    const player = await playerFixture();
+    const data = await temporary("ohmygame-legacy-compression-data-");
+    const graph = createNodeGraphFixture();
+    delete graph.assets.theme;
+    graph.assets.background = { type: "image", source: { kind: "workspace", path: "assets/background.png" } };
+    for (const node of graph.nodes) node.assets = node.assets.filter((id) => id !== "theme");
+    await writePlayableFixtureWorkspace(workspace, graph);
+    const original = await sharp({ create: { width: 512, height: 512, channels: 4, background: "red" } }).png({ compressionLevel: 0 }).toBuffer();
+    await writeFile(path.join(workspace, "assets/background.png"), original);
+    const library = new AssetLibrary(data);
+    await library.load();
+    const builder = new ArtifactBuilder(library, player);
+    try {
+      const files = await unzip(await builder.create(project(workspace)));
+      const manifest = JSON.parse(files.get("manifest.json")!.toString());
+      const asset = manifest.assets.background;
+      const optimized = files.get(asset.path.slice(2))!;
+      expect(optimized.length).toBeLessThan(original.length / 10);
+      expect(asset.size).toBe(optimized.length);
+      expect(asset.integrity).toBe(`sha256-${createHash("sha256").update(optimized).digest("base64")}`);
+      expect(asset.path).toBe(`./assets/media/${createHash("sha256").update(optimized).digest("hex")}.png`);
+      expect((await readFile(path.join(workspace, "assets/background.png"))).equals(original)).toBe(true);
+    } finally { await builder.close(); }
+  });
+
   it("validates the strict published manifest contract", () => {
     const manifest = {
       version: 1,

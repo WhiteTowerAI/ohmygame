@@ -2,7 +2,8 @@ import type { ProjectPreviewSettings } from "./preview-settings.js";
 import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
-import type { AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
+import type { MediaContentType } from "./media-files.js";
+import type { AgentRuntimeAuthStatus, AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -79,6 +80,8 @@ export type MediaModelUsage = "image" | "3d" | "video";
 export type MediaModelDefaults = Partial<Record<MediaModelUsage, ModelRef>>;
 
 export interface ProviderSummary extends ModelProviderSummary {
+  /** Saved sign-in status for a local CLI provider. */
+  authStatus?: AgentRuntimeAuthStatus;
   /** OpenAI can connect chat and images independently. */
   languageConfigured?: boolean;
   imageConfigured?: boolean;
@@ -340,7 +343,7 @@ export interface ImageModel extends ImageModelRef {
   supportsReferenceImage: boolean;
   maxReferenceImages?: number;
   maxOutputs: ImageOutputCount;
-  protocol: ImageProtocol;
+  protocol: ImageProtocol | "codex-cli";
   supportsResolution?: boolean;
   supportsAspectRatio?: boolean;
 }
@@ -391,6 +394,8 @@ export interface ProjectState extends ProjectPreviewSettings {
   type: ProjectType;
   updatedAt: string;
   workspacePath: string;
+  /** The plugin owns the binding file; OhMyGame stores only its identity and presentation. */
+  integration?: { pluginId: string; preview?: "external" };
   /** General Game's explicit Web preview opt-in; missing means disabled. */
   webPreviewEnabled?: boolean;
   /** Directory, relative to the workspace root, in which the Web Game preview starts. */
@@ -433,7 +438,7 @@ export interface ProjectActivitySnapshot {
   names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -482,6 +487,8 @@ export interface AssetCanvasTextGenerationResponse {
 
 export type AssetCanvasNode = (
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
+  /** Any other project file or folder, by project-relative path. */
+  | { id: string; type: "file"; position: AssetCanvasPosition; data: { path: string; directory?: true } }
   | { id: string; type: "document"; position: AssetCanvasPosition; data: { documentId: string; references?: AssetCanvasTextReference[] } }
   | { id: string; type: "asset"; position: AssetCanvasPosition; data: {
     assetId: string;
@@ -900,6 +907,7 @@ export interface CreateProjectRequest {
   viewport?: Viewport;
   /** Absolute path returned by the desktop directory picker. */
   workspacePath?: string;
+  pluginId?: string;
 }
 /** `reasoningLevel` is for a Pi model and `nativeReasoningLevel` for a coding agent's. */
 export interface CreateConversationRequest {
@@ -947,6 +955,10 @@ export interface ConversationCapabilities {
     description: string;
     marketplaceId: string;
     marketplaceDisplayName: string;
+    icon?: import("./plugins.js").PluginIcon;
+    iconRevision?: string;
+    projectTypes?: ProjectType[];
+    integration?: import("./plugin-integration.js").PluginIntegrationDefinition;
   }>;
   skills: Array<{
     name: string;
@@ -1008,21 +1020,12 @@ export interface LibraryAssetSummary extends LibraryAsset {
   referenceOnly: boolean;
 }
 
-export type LibraryUploadMediaType =
-  | "image/png"
-  | "image/jpeg"
-  | "image/svg+xml"
-  | "image/webp"
-  | "video/mp4"
-  | "video/quicktime"
-  | "video/webm"
-  | "audio/mpeg"
-  | "audio/wav";
+export type LibraryUploadMediaType = MediaContentType;
 
 export interface CreateLibraryImageRequest {
   name: string;
   purpose?: LibraryAssetPurpose;
-  image: PromptImage & { mediaType: Extract<LibraryUploadMediaType, `image/${string}`> };
+  image: PromptImage & { mediaType: "image/png" | "image/jpeg" | "image/webp" };
 }
 
 export interface LineChanges {

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type {
   AgentModelCatalog,
+  AgentModelRef,
   ModelAuthMethod,
   ProviderSummary,
 } from "../shared/contracts.js";
@@ -10,6 +11,11 @@ import {
   preferredAgentModel,
   recommendedAgentModel,
 } from "../shared/agent-models.js";
+import {
+  isAgentRuntimeId,
+  nativeEffort,
+  type AgentRuntimeId,
+} from "../shared/agent-runtimes.js";
 import { clampReasoningLevel } from "../shared/reasoning.js";
 import {
   getCustomProvider,
@@ -22,18 +28,24 @@ import {
 import {
   Check,
   ChevronDown,
+  Plug,
   LoaderCircle,
   Plus,
   Search,
   Server,
+  Settings,
+  Key,
+  LogIn,
 } from "./icons.js";
 import { ActiveProviderAuth } from "./models-settings.js";
 import { CustomProviderForm } from "./custom-provider-dialog.js";
-import { groupModelsByProvider } from "./model-selector.js";
+import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { PROVIDER_ICONS } from "./provider-icons.js";
 import { groupProviders } from "./provider-groups.js";
 import { useReadyRuntimeGeneration } from "./runtime-connection.js";
 import { WindowDragRegion } from "./window-drag-region.js";
+import { OnboardingMedia } from "./onboarding-media.js";
+import { OnboardingAgents } from "./onboarding-agents.js";
 import { OnboardingDemo } from "./onboarding-demo.js";
 import { t } from "./i18n.js";
 import "./onboarding.css";
@@ -58,19 +70,56 @@ export function Onboarding({
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string>();
   const [loadError, setLoadError] = useState<string>();
+  const [providerError, setProviderError] = useState<string>();
+  const [loadingProviders, setLoadingProviders] = useState(true);
   const [running, setRunning] = useState(false);
   const [savingProvider, setSavingProvider] = useState(false);
-  const busy = running || savingProvider;
+  const [savingAgent, setSavingAgent] = useState(false);
+  const busy = running || savingProvider || savingAgent;
   const failedAction = useRef<(() => Promise<void>) | undefined>(undefined);
   const [connection, setConnection] = useState<Connection>();
   const [adding, setAdding] = useState(false);
   const [customSettings, setCustomSettings] =
     useState<Awaited<ReturnType<typeof getCustomProvider>>>();
   const [refresh, setRefresh] = useState(0);
+  const [playWelcomeIntro, setPlayWelcomeIntro] = useState(step === "welcome");
+  useEffect(() => {
+    if (step !== "welcome") setPlayWelcomeIntro(false);
+  }, [step]);
+  const [choosingAgent, setChoosingAgent] = useState(true);
+  const [selectedAgent, setSelectedAgent] = useState<"pi" | AgentRuntimeId>();
+  const [selectedModels, setSelectedModels] = useState<
+    Partial<Record<"pi" | AgentRuntimeId, AgentModelRef>>
+  >({});
+  const [connectedProvider, setConnectedProvider] = useState<string>();
   const heading = useRef<HTMLHeadingElement>(null);
-  const model =
+  const preferredModel = preferredAgentModel(
+    catalog.models,
+    undefined,
+    catalog.defaultModel,
+  );
+  const model = phase === "ready" ? preferredModel : undefined;
+  const activeAgent =
+    selectedAgent ??
+    (isAgentRuntimeId(preferredModel?.provider)
+      ? preferredModel.provider
+      : "pi");
+  const agentModels = catalog.models.filter((item) =>
+    activeAgent === "pi"
+      ? !isAgentRuntimeId(item.provider)
+      : item.provider === activeAgent,
+  );
+  const agentModel =
     phase === "ready"
-      ? preferredAgentModel(catalog.models, undefined, catalog.defaultModel)
+      ? preferredAgentModel(
+          agentModels,
+          selectedModels[activeAgent],
+          activeAgent === "pi" && connectedProvider
+            ? catalog.defaultModel?.provider === connectedProvider
+              ? catalog.defaultModel
+              : recommendedAgentModel(agentModels, connectedProvider)
+            : catalog.defaultModel,
+        )
       : undefined;
   const languageProviders = providers.filter(
     (provider) =>
@@ -79,27 +128,23 @@ export function Onboarding({
       (provider.id !== "openai-codex" || chatConnected(provider)),
   );
   useEffect(() => {
-    if (!adding) heading.current?.focus({ preventScroll: true });
-  }, [step, adding, connection]);
-  useEffect(() => {
     if (step !== "connect") return;
-    setPhase("loading");
     let active = true,
       sequence = 0;
+    setLoadingProviders(true);
     const load = () => {
       const current = ++sequence;
-      void Promise.all([listProviders(), listModels()])
-        .then(([loadedProviders, loadedCatalog]) => {
+      void listProviders()
+        .then((loaded) => {
           if (!active || current !== sequence) return;
-          setProviders(loadedProviders);
-          setCatalog(loadedCatalog);
-          setPhase("ready");
-          setLoadError(undefined);
+          setProviders(loaded);
+          setProviderError(undefined);
+          setLoadingProviders(false);
         })
         .catch((cause) => {
           if (!active || current !== sequence) return;
-          setPhase("error");
-          setLoadError(errorMessage(cause));
+          setProviderError(errorMessage(cause));
+          setLoadingProviders(false);
         });
     };
     load();
@@ -109,6 +154,50 @@ export function Onboarding({
       active = false;
       window.removeEventListener(MODELS_CHANGED_EVENT, load);
       window.removeEventListener("focus", load);
+    };
+  }, [step, generation, refresh]);
+  useEffect(() => {
+    if (!adding) heading.current?.focus({ preventScroll: true });
+  }, [step, adding, connection]);
+  useEffect(() => {
+    if (step === "welcome") return;
+    setPhase("loading");
+    let active = true,
+      sequence = 0;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const load = () => {
+      clearTimeout(retry);
+      const current = ++sequence;
+      void listModels({ agentRuntimes: true })
+        .then((loadedCatalog) => {
+          if (!active || current !== sequence) return;
+          setCatalog(loadedCatalog);
+          setPhase("ready");
+          setLoadError(undefined);
+          if (loadedCatalog.loadingRuntimes?.length && attempts++ < 5)
+            retry = setTimeout(load, 3_000);
+        })
+        .catch((cause) => {
+          if (!active || current !== sequence) return;
+          setPhase("error");
+          setLoadError(errorMessage(cause));
+        });
+    };
+    const reload = () => {
+      attempts = 0;
+      load();
+    };
+    reload();
+    if (step === "connect") {
+      window.addEventListener(MODELS_CHANGED_EVENT, reload);
+      window.addEventListener("focus", reload);
+    }
+    return () => {
+      active = false;
+      clearTimeout(retry);
+      window.removeEventListener(MODELS_CHANGED_EVENT, reload);
+      window.removeEventListener("focus", reload);
     };
   }, [step, generation, refresh]);
 
@@ -136,8 +225,7 @@ export function Onboarding({
       if (current.enabled === false) {
         await setProviderEnabled(current.id, true);
       }
-      await selectProviderModel(current.id);
-      setRefresh((value) => value + 1);
+      completed(current.id);
     } else if (current.custom) {
       setCustomSettings(await getCustomProvider(current.id));
       setAdding(true);
@@ -146,37 +234,44 @@ export function Onboarding({
     }
   }
 
-  /** The provider connected last during setup supplies the default model. */
-  async function selectProviderModel(providerId: string) {
-    const latest = await listModels();
-    const next = recommendedAgentModel(latest.models, providerId);
-    if (next) await chooseModel(latest, next);
-  }
-
   async function chooseModel(
     current: AgentModelCatalog,
     next: AgentModelCatalog["models"][number],
   ) {
     if (findAgentModel([next], current.defaultModel)) return;
-    await updateAgentDefaults({
-      model: next,
-      reasoningLevel: clampReasoningLevel(
-        current.defaultReasoningLevel,
-        next.reasoningLevels,
-      ),
-    });
+    await updateAgentDefaults(
+      isAgentRuntimeId(next.provider)
+        ? {
+            model: next,
+            nativeReasoningLevel: nativeEffort(
+              next,
+              current.defaultNativeReasoningLevel,
+            ),
+          }
+        : {
+            model: next,
+            reasoningLevel: clampReasoningLevel(
+              current.defaultReasoningLevel,
+              next.reasoningLevels,
+            ),
+          },
+    );
+    setCatalog((value) => ({ ...value, defaultModel: next }));
   }
 
   function completed(providerId: string) {
     setConnection(undefined);
-    setPhase("loading");
-    void run(async () => {
-      try {
-        await selectProviderModel(providerId);
-      } finally {
-        setRefresh((value) => value + 1);
-      }
-    });
+    setConnectedProvider(providerId);
+    setSelectedModels((value) => ({ ...value, pi: undefined }));
+  }
+
+  function selectAgent(id: "pi" | AgentRuntimeId) {
+    setChoosingAgent(false);
+    if (agentModel)
+      setSelectedModels((value) => ({ ...value, [activeAgent]: agentModel }));
+    setSelectedAgent(id);
+    setError(undefined);
+    failedAction.current = undefined;
   }
 
   function navigate(next: OnboardingStep) {
@@ -192,6 +287,8 @@ export function Onboarding({
       return;
     }
     void run(async () => {
+      if (step === "connect" && next === "media" && agentModel)
+        await chooseModel(catalog, agentModel);
       await onStepChange(next);
       reset();
       setLoadError(undefined);
@@ -247,53 +344,72 @@ export function Onboarding({
       <h1 ref={heading} tabIndex={-1}>
         {t("onboarding.chooseProvider")}
       </h1>
-      {phase === "loading" ? (
-        <p className="onboarding-status" role="status">
-          <LoaderCircle className="spin" size={16} />
-          {t("onboarding.loadingProviders")}
-        </p>
-      ) : null}
-      {phase !== "loading" ? (
-        <ProviderPicker
-          providers={languageProviders}
-          busy={busy}
-          onChoose={(provider, method) =>
-            void run(() => connect(provider, method))
-          }
-          onAdd={() => {
-            setCustomSettings(undefined);
-            setError(undefined);
-            failedAction.current = undefined;
-            setAdding(true);
-          }}
-        />
-      ) : null}
-      {model ? (
-        <ReadyModel
-          models={catalog.models}
-          model={model}
-          busy={busy}
-          onChange={(next) =>
-            void run(async () => {
-              await chooseModel(catalog, next);
-              setRefresh((value) => value + 1);
-            })
-          }
-        />
-      ) : phase === "ready" && languageProviders.some(chatConnected) ? (
-        <p className="onboarding-lede">{t("onboarding.needsLanguageModel")}</p>
-      ) : null}
+      <OnboardingAgents
+        busy={busy}
+        models={catalog.models}
+        selectedAgent={activeAgent}
+        choosing={choosingAgent}
+        onExpand={() => setChoosingAgent(true)}
+        onSelectAgent={selectAgent}
+        loadingRuntimes={catalog.loadingRuntimes}
+        onBusyChange={setSavingAgent}
+      >
+        {activeAgent === "pi" ? (
+          <>
+            <div className="onboarding-provider-heading">
+              {t("onboarding.providers")}
+            </div>
+            {loadingProviders ? (
+              <p className="onboarding-status" role="status">
+                <LoaderCircle className="spin" size={16} />
+                {t("onboarding.loadingProviders")}
+              </p>
+            ) : (
+              <ProviderPicker
+                providers={languageProviders}
+                busy={busy}
+                onChoose={(provider, method) =>
+                  void run(() => connect(provider, method))
+                }
+                onAdd={() => {
+                  setCustomSettings(undefined);
+                  setError(undefined);
+                  failedAction.current = undefined;
+                  setAdding(true);
+                }}
+              />
+            )}
+          </>
+        ) : null}
+        {agentModel ? (
+          <ReadyModel
+            models={agentModels}
+            model={agentModel}
+            busy={busy}
+            onChange={(next) => {
+              setSelectedModels((value) => ({ ...value, [activeAgent]: next }));
+              setError(undefined);
+              failedAction.current = undefined;
+            }}
+          />
+        ) : null}
+        {catalog.loadingRuntimes?.length ? (
+          <p className="onboarding-status" role="status">
+            {t("onboarding.loadingAgentModels")}
+          </p>
+        ) : null}
+      </OnboardingAgents>
     </>
   );
 
   return (
     <main
-      className={`onboarding onboarding-${step}${adding ? " onboarding-custom" : ""}`}
+      className={`onboarding onboarding-${step}${step === "welcome" && !playWelcomeIntro ? " onboarding-welcome-static" : ""}${adding ? " onboarding-custom" : ""}`}
       aria-label={t("onboarding.welcome")}
       aria-busy={busy}
     >
       <WindowDragRegion />
-      <div className="onboarding-content">
+      <div key={`content-${step}`} className="onboarding-content">
         {step === "welcome" ? (
           <>
             <OnboardingDemo />
@@ -309,13 +425,26 @@ export function Onboarding({
               {t("onboarding.tagline")}
             </h1>
           </>
+        ) : step === "media" ? (
+          <>
+            <h1 ref={heading} tabIndex={-1}>
+              {t("onboarding.mediaTitle")}
+            </h1>
+            <p className="onboarding-lede">{t("onboarding.mediaHint")}</p>
+            <OnboardingMedia busy={busy} onSavingChange={setSavingProvider} />
+          </>
         ) : (
           connectionContent
         )}
-        {error || loadError ? (
+        {error ||
+        loadError ||
+        (step === "connect" &&
+          !choosingAgent &&
+          activeAgent === "pi" &&
+          providerError) ? (
           <div className="onboarding-feedback">
             <p className="onboarding-error" role="alert">
-              {error ?? loadError}
+              {error ?? loadError ?? providerError}
             </p>
             <button
               className="onboarding-text-button"
@@ -336,7 +465,7 @@ export function Onboarding({
         ) : null}
       </div>
       {!adding && (step === "welcome" || !connection) ? (
-        <footer className="onboarding-footer">
+        <footer key={`footer-${step}`} className="onboarding-footer">
           {step === "welcome" ? (
             <button
               className="onboarding-primary-button"
@@ -346,19 +475,17 @@ export function Onboarding({
             >
               {t("onboarding.next")}
             </button>
-          ) : (
+          ) : step === "connect" ? (
             <>
               <button
                 className="onboarding-primary-button"
                 type="button"
-                disabled={busy || !model}
-                onClick={() => {
-                  if (model) void run(() => onFinish("completed"));
-                }}
+                disabled={busy || choosingAgent || !agentModel}
+                onClick={() => navigate("media")}
               >
-                {t("onboarding.startCreating")}
+                {t("onboarding.next")}
               </button>
-              {model ? null : (
+              {!model ? (
                 <button
                   className="onboarding-text-button onboarding-skip-button"
                   type="button"
@@ -367,8 +494,21 @@ export function Onboarding({
                 >
                   {t("onboarding.skipAndStart")}
                 </button>
-              )}
+              ) : null}
             </>
+          ) : (
+            <button
+              className="onboarding-primary-button"
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void run(() =>
+                  onFinish(catalog.models.length ? "completed" : "skipped"),
+                )
+              }
+            >
+              {t("onboarding.startCreating")}
+            </button>
           )}
         </footer>
       ) : null}
@@ -376,7 +516,7 @@ export function Onboarding({
         className="onboarding-progress"
         aria-label={t("onboarding.gettingStarted")}
       >
-        {(["welcome", "connect"] as const).map((target, index) => (
+        {(["welcome", "connect", "media"] as const).map((target, index) => (
           <button
             key={target}
             className={step === target ? "is-current" : undefined}
@@ -386,7 +526,9 @@ export function Onboarding({
               title: t(
                 target === "welcome"
                   ? "onboarding.welcomeStep"
-                  : "onboarding.providerStep",
+                  : target === "connect"
+                    ? "onboarding.providerStep"
+                    : "onboarding.mediaStep",
               ),
             })}
             aria-current={step === target ? "step" : undefined}
@@ -424,43 +566,35 @@ function ReadyModel({
   busy: boolean;
   onChange: (model: AgentModelCatalog["models"][number]) => void;
 }) {
-  const groups = groupModelsByProvider(models);
   return (
-    <div className="onboarding-ready" role="status">
-      <Check size={16} />
-      {t("onboarding.readyWith")}{" "}
+    <div className="onboarding-ready">
+      {t("onboarding.defaultModel")}{" "}
       {models.length > 1 ? (
         <span className="onboarding-model-select">
-          <select
-            aria-label={t("onboarding.defaultModel")}
+          <CanvasChipSelect
+            label={t("onboarding.defaultModel")}
             value={`${model.provider}/${model.id}`}
             disabled={busy}
-            onChange={(event) => {
+            options={models.map((item) => ({
+              value: `${item.provider}/${item.id}`,
+              label: item.name,
+              group: item.providerName,
+            }))}
+            onChange={(value) => {
               const next = models.find(
-                (item) => `${item.provider}/${item.id}` === event.target.value,
+                (item) => `${item.provider}/${item.id}` === value,
               );
               if (next) onChange(next);
             }}
-          >
-            {groups.map((group) => (
-              <optgroup label={group.providerName} key={group.provider}>
-                {group.models.map((item) => (
-                  <option
-                    value={`${item.provider}/${item.id}`}
-                    key={`${item.provider}/${item.id}`}
-                  >
-                    {item.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-          <ChevronDown size={12} aria-hidden="true" />
+          />
         </span>
       ) : (
         <strong>{model.name}</strong>
       )}{" "}
-      <span className="onboarding-ready-provider">· {model.providerName}</span>
+      <span className="onboarding-ready-provider">
+        <ProviderMark id={model.provider} />
+        {model.providerName}
+      </span>
     </div>
   );
 }
@@ -491,52 +625,90 @@ function ProviderPicker({
     isLocal: () => false,
   });
   const featured = [...connected, ...popular];
-  const collapsed = !filtering && featured.length > 0 && more.length > 0;
-  const row = (provider: ProviderSummary) => (
-    <div
-      className="onboarding-provider-row"
-      key={provider.id}
-      role="group"
-      aria-label={provider.name}
-    >
-      <span>
-        <ProviderMark id={provider.id} />
-        {provider.name}
-      </span>
-      <div>
-        {chatConnected(provider) || provider.custom ? (
-          <button
-            className="onboarding-text-button"
-            type="button"
-            disabled={
-              busy || (chatConnected(provider) && provider.enabled !== false)
-            }
-            onClick={() => onChoose(provider, "api_key")}
-          >
-            {chatConnected(provider)
-              ? provider.enabled === false
-                ? t("common.enable")
-                : t("providers.status.connected")
-              : t("onboarding.configure")}
-          </button>
-        ) : (
-          provider.methods.map((method) => (
+  const hasMore = !filtering && featured.length > 0 && more.length > 0;
+  const row = (provider: ProviderSummary) => {
+    const connected = chatConnected(provider);
+    return (
+      <div
+        className="onboarding-provider-row"
+        key={provider.id}
+        role="group"
+        aria-label={provider.name}
+      >
+        <span>
+          <ProviderMark id={provider.id} />
+          {provider.name}
+        </span>
+        <div>
+          {connected ? (
             <button
-              className="onboarding-text-button"
               type="button"
-              key={method.type}
-              disabled={busy}
-              onClick={() => onChoose(provider, method.type)}
+              className="onboarding-text-button onboarding-icon-button"
+              aria-label={
+                provider.enabled === false
+                  ? t("common.enable")
+                  : t("providers.status.connected")
+              }
+              title={
+                provider.enabled === false
+                  ? t("common.enable")
+                  : t("providers.status.connected")
+              }
+              disabled={busy || provider.enabled !== false}
+              onClick={() => onChoose(provider, "api_key")}
             >
-              {method.type === "oauth"
-                ? t("common.signIn")
-                : t("providers.apiKey")}
+              {provider.enabled === false ? (
+                <Plug size={16} aria-hidden="true" />
+              ) : (
+                <Check
+                  size={16}
+                  className="onboarding-connected"
+                  aria-hidden="true"
+                />
+              )}
             </button>
-          ))
-        )}
+          ) : provider.custom ? (
+            <button
+              className="onboarding-text-button onboarding-icon-button"
+              type="button"
+              aria-label={t("onboarding.configure")}
+              title={t("onboarding.configure")}
+              disabled={busy}
+              onClick={() => onChoose(provider, "api_key")}
+            >
+              <Settings size={16} aria-hidden="true" />
+            </button>
+          ) : (
+            provider.methods.map((method) => (
+              <button
+                className="onboarding-text-button onboarding-icon-button"
+                type="button"
+                key={method.type}
+                aria-label={
+                  method.type === "oauth"
+                    ? t("common.signIn")
+                    : t("providers.apiKey")
+                }
+                title={
+                  method.type === "oauth"
+                    ? t("common.signIn")
+                    : t("providers.apiKey")
+                }
+                disabled={busy}
+                onClick={() => onChoose(provider, method.type)}
+              >
+                {method.type === "oauth" ? (
+                  <LogIn size={16} aria-hidden="true" />
+                ) : (
+                  <Key size={16} aria-hidden="true" />
+                )}
+              </button>
+            ))
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
   return (
     <div className="onboarding-picker">
       <div className="onboarding-search-row">
@@ -562,19 +734,18 @@ function ProviderPicker({
         </button>
       </div>
       <div className="onboarding-provider-list">
-        {(collapsed ? featured : visible).map(row)}
-        {collapsed ? (
+        {(hasMore ? featured : visible).map(row)}
+        {hasMore && !moreOpen ? (
           <button
             className="onboarding-text-button onboarding-more-providers"
             type="button"
-            aria-expanded={moreOpen}
-            onClick={() => setMoreOpen((open) => !open)}
+            onClick={() => setMoreOpen(true)}
           >
             {t("providers.group.more")} <small>({more.length})</small>
             <ChevronDown size={14} aria-hidden="true" />
           </button>
         ) : null}
-        {collapsed && moreOpen ? more.map(row) : null}
+        {hasMore && moreOpen ? more.map(row) : null}
         {!visible.length ? (
           <p className="onboarding-lede">{t("onboarding.noProviders")}</p>
         ) : null}
@@ -616,6 +787,40 @@ export function OnboardingLoading({
         </p>
       )}
     </main>
+  );
+}
+
+/** The studio mounts behind this brief, one-time greeting after setup saves. */
+export function OnboardingArrival({ onComplete }: { onComplete: () => void }) {
+  const complete = useRef(onComplete);
+  complete.current = onComplete;
+  const heading = useRef<HTMLHeadingElement>(null);
+  const duration = 1_900;
+  useEffect(() => {
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (motion.matches) {
+      complete.current();
+      return;
+    }
+    heading.current?.focus({ preventScroll: true });
+    const finish = () => complete.current();
+    const timer = setTimeout(finish, duration);
+    motion.addEventListener("change", finish);
+    return () => {
+      clearTimeout(timer);
+      motion.removeEventListener("change", finish);
+    };
+  }, []);
+  return (
+    <div
+      className="onboarding-arrival"
+      style={{ "--arrival-duration": `${duration}ms` } as CSSProperties}
+    >
+      <WindowDragRegion />
+      <h1 ref={heading} tabIndex={-1}>
+        {t("onboarding.arrival")}
+      </h1>
+    </div>
   );
 }
 

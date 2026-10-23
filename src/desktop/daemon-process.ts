@@ -4,6 +4,7 @@ import path from "node:path";
 import type { PlaytestIpcMessage, PlaytestRequest, PlaytestResult } from "../shared/playtest.js";
 import { signalProcessTree } from "../daemon/process-lifecycle.js";
 import type { DaemonRuntime } from "../shared/desktop-runtime.js";
+import type { ExternalMcpLauncher } from "../shared/external-mcp.js";
 export type { DaemonRuntime } from "../shared/desktop-runtime.js";
 
 const MAX_STARTUP_OUTPUT_CHARS = 8_000;
@@ -25,6 +26,9 @@ export interface StartDaemonOptions {
   preinstalledPluginsDirectory?: string;
   examplesDirectory?: string;
   playerDirectory?: string;
+  /** How external agents start `ohmygame-mcp`, and the Skill they are given. */
+  externalMcpLauncher?: ExternalMcpLauncher;
+  externalSkillDirectory?: string;
   executable?: string;
   environment?: NodeJS.ProcessEnv;
   development?: boolean;
@@ -61,6 +65,8 @@ export async function startDaemon(options: StartDaemonOptions): Promise<ManagedD
       ...(options.preinstalledPluginsDirectory ? { OHMYGAME_PREINSTALLED_PLUGINS_DIR: path.resolve(options.preinstalledPluginsDirectory) } : {}),
       ...(options.examplesDirectory ? { OHMYGAME_EXAMPLES_DIR: path.resolve(options.examplesDirectory) } : {}),
       ...(options.playerDirectory ? { OHMYGAME_PLAYER_DIR: path.resolve(options.playerDirectory) } : {}),
+      ...(options.externalMcpLauncher ? { OHMYGAME_EXTERNAL_MCP_LAUNCHER: JSON.stringify(options.externalMcpLauncher) } : {}),
+      ...(options.externalSkillDirectory ? { OHMYGAME_EXTERNAL_SKILL_DIR: path.resolve(options.externalSkillDirectory) } : {}),
       ...(options.handlePlaytestRequest ? { OHMYGAME_PLAYTEST_IPC: "1" } : {}),
     },
     stdio: ["pipe", "pipe", "pipe", "ipc"],

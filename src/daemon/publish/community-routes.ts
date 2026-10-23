@@ -109,38 +109,6 @@ export function registerCommunityRoutes(
       }),
   );
 
-  app.post<{
-    Params: { gameId: string };
-    Body: { visitorId: string; accessToken?: string };
-  }>(
-    "/community/games/:gameId/view",
-    {
-      schema: {
-        body: {
-          type: "object",
-          additionalProperties: false,
-          required: ["visitorId"],
-          properties: {
-            ...authenticatedBody,
-            visitorId: {
-              type: "string",
-              pattern:
-                "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-            },
-          },
-        },
-      },
-    },
-    async (request, reply) =>
-      respond(reply, () =>
-        publisher.recordView(
-          request.params.gameId,
-          request.body.visitorId,
-          request.body.accessToken,
-        ),
-      ),
-  );
-
   app.put<{
     Params: { gameId: string };
     Body: { liked: boolean; accessToken: string };

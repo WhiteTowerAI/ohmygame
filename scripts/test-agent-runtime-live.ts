@@ -191,6 +191,7 @@ try {
       installed: status.installed,
       version: status.version,
       auth: status.auth.status,
+      diagnostics: status.diagnostics,
       root,
     }),
   );
@@ -223,7 +224,9 @@ try {
     first.items.some(
       (item) =>
         item.type === "dynamicToolCall" &&
-        JSON.stringify(item).includes("canvas_check"),
+        (runtime === "opencode-cli"
+          ? item.tool === "canvas_check"
+          : JSON.stringify(item).includes("canvas_check")),
     ),
     "OhMyGame tool bridge was not called",
   );

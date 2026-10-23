@@ -43,7 +43,7 @@ import { inspectPluginDraft, pluginDraftPath, readPluginDraftFile } from "./plug
 import { PLUGIN_AUTHORING_RULES } from "./plugin-authoring.js";
 import { openRouterAttributionExtension } from "./openrouter-attribution.js";
 import { isPluginIcon, isPluginManifest, pluginCollection, PLUGIN_MANIFEST_PATH } from "../shared/plugins.js";
-import { PLUGIN_ICON_MAX_BYTES } from "../shared/plugin-icons.js";
+import { PLUGIN_ICON_MAX_BYTES, PLUGIN_ICON_MEDIA_TYPES } from "../shared/plugin-icons.js";
 import { readPluginIconAsset, validatePluginIconImage } from "./plugin-icons.js";
 
 const SETUP_PROMPT = `You create and edit native OhMyGame plugins in this Plugin Builder workspace.
@@ -288,11 +288,11 @@ export class PluginSetupManager {
       let icon = "icon" in input ? input.icon : undefined;
       if ("image" in input) {
         const { data, mediaType } = input.image;
-        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data) || data.length > Math.ceil(PLUGIN_ICON_MAX_BYTES / 3) * 4) throw new Error("Choose a PNG or WebP plugin icon up to 1 MB");
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data) || data.length > Math.ceil(PLUGIN_ICON_MAX_BYTES / 3) * 4) throw new Error("Choose a PNG, WebP, or static SVG plugin icon up to 1 MB");
         const bytes = Buffer.from(data, "base64");
         if (bytes.toString("base64") !== data) throw new Error("Invalid plugin icon image");
         const image = await validatePluginIconImage(bytes, mediaType);
-        const filename = `plugin-icon-${image.revision}.${image.mediaType === "image/png" ? "png" : "webp"}`;
+        const filename = `plugin-icon-${image.revision}.${Object.entries(PLUGIN_ICON_MEDIA_TYPES).find(([, type]) => type === image.mediaType)![0]}`;
         const assets = path.join(root, "assets");
         await mkdir(assets, { recursive: true });
         const target = path.join(assets, filename);
@@ -302,7 +302,7 @@ export class PluginSetupManager {
         });
         icon = { type: "asset", path: `./assets/${filename}` };
       }
-      if (icon && !isPluginIcon(icon)) throw new Error("Choose a supported preset ID or a PNG/WebP path inside the plugin");
+      if (icon && !isPluginIcon(icon)) throw new Error("Choose a supported preset ID or a PNG/WebP/SVG path inside the plugin");
       await readPluginIconAsset(root, icon ?? undefined);
       const file = path.join(root, PLUGIN_MANIFEST_PATH);
       const manifest = JSON.parse(await readFile(file, "utf8"));
@@ -756,7 +756,7 @@ export function registerPluginSetupRoutes(
     try {
       const image = await manager.icon(request.params.id, request.query.path);
       if (!image) return reply.code(404).send({ error: "Plugin icon not found" });
-      return reply.header("Cache-Control", "no-store").header("X-Content-Type-Options", "nosniff").type(image.mediaType).send(image.bytes);
+      return reply.header("Cache-Control", "no-store").header("X-Content-Type-Options", "nosniff").header("Content-Security-Policy", "default-src 'none'; sandbox").type(image.mediaType).send(image.bytes);
     } catch { return reply.code(404).send({ error: "Plugin icon not found" }); }
   });
   app.put<{ Params: { id: string }; Body: PluginIconUpdate }>("/plugins/setup-sessions/:id/icon", {
@@ -770,7 +770,7 @@ export function registerPluginSetupRoutes(
           type: { enum: ["preset", "asset"] }, id: { type: "string", maxLength: 100 }, path: { type: "string", maxLength: 1000 },
         } }] },
         image: { type: "object", required: ["mediaType", "data"], additionalProperties: false, properties: {
-          mediaType: { enum: ["image/png", "image/webp"] }, data: { type: "string", minLength: 1, maxLength: Math.ceil(PLUGIN_ICON_MAX_BYTES / 3) * 4 },
+          mediaType: { enum: Object.values(PLUGIN_ICON_MEDIA_TYPES) }, data: { type: "string", minLength: 1, maxLength: Math.ceil(PLUGIN_ICON_MAX_BYTES / 3) * 4 },
         } },
       },
     } },

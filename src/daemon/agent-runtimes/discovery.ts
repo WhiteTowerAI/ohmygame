@@ -15,6 +15,7 @@ import type { AgentModel, AgentUsageLimit } from "../../shared/contracts.js";
 import type {
   AgentRuntimeAuthStatus,
   AgentRuntimeBilling,
+  AgentRuntimeBinarySource,
   AgentRuntimeId,
 } from "../../shared/agent-runtimes.js";
 import {
@@ -44,6 +45,7 @@ const PROBE_TIMEOUT_MS = 15_000;
 
 export interface ResolvedBinary {
   path: string;
+  source: AgentRuntimeBinarySource;
   /** Changes when the CLI is updated in place, so a cached probe is not trusted past it. */
   signature: string;
 }
@@ -61,19 +63,22 @@ export async function resolveBinary(
   override?: string,
   recheck = false,
 ): Promise<ResolvedBinary | undefined> {
+  if (recheck) await loginShellPath(true);
   if (recheck)
     for (const key of versionCache.keys())
       if (key.startsWith(`${id}:`)) versionCache.delete(key);
   const definition = AGENT_RUNTIME_DEFINITIONS[id];
   const candidates = override
-    ? [override]
+    ? [{ path: override, source: "manual" as const }]
     : [
         ...(await searchCandidates(definition.binaries)),
         ...(definition.bundledPaths?.[process.platform] ?? []).map(
-          (candidate) =>
-            candidate.startsWith("~/")
-              ? path.join(os.homedir(), candidate.slice(2))
-              : candidate,
+          (candidate) => ({
+            ...candidate,
+            path: candidate.path.startsWith("~/")
+              ? path.join(os.homedir(), candidate.path.slice(2))
+              : candidate.path,
+          }),
         ),
       ];
   const found: ResolvedBinary[] = [];
@@ -81,18 +86,18 @@ export async function resolveBinary(
   for (const candidate of candidates) {
     try {
       await access(
-        candidate,
+        candidate.path,
         process.platform === "win32" ? constants.F_OK : constants.X_OK,
       );
-      const info = await stat(candidate);
+      const info = await stat(candidate.path);
       if (!info.isFile()) continue;
       // One installation is often reachable through several links.
-      const target = await realpath(candidate);
+      const target = await realpath(candidate.path);
       if (seen.has(target)) continue;
       seen.add(target);
       found.push({
-        path: candidate,
-        signature: `${candidate}:${info.size}:${info.mtimeMs}`,
+        ...candidate,
+        signature: `${candidate.path}:${info.size}:${info.mtimeMs}`,
       });
     } catch {
       continue;
@@ -144,25 +149,27 @@ function cachedVersion(
   return entry.promise;
 }
 
-async function searchCandidates(names: readonly string[]): Promise<string[]> {
+async function searchCandidates(
+  names: readonly string[],
+): Promise<Array<{ path: string; source: AgentRuntimeBinarySource }>> {
   const shell = await loginShellPath();
-  const directories = [
-    ...new Set(
-      [
-        ...(process.env.PATH ?? "").split(path.delimiter),
-        ...(shell ?? "").split(path.delimiter),
-        ...commonBinaryDirectories(),
-      ].filter(Boolean),
-    ),
-  ];
+  const directories = new Map<string, AgentRuntimeBinarySource>();
+  for (const [folders, source] of [
+    [(process.env.PATH ?? "").split(path.delimiter), "path"],
+    [(shell ?? "").split(path.delimiter), "login-shell"],
+    [commonBinaryDirectories(), "common-directory"],
+  ] as const)
+    for (const folder of folders)
+      if (folder && !directories.has(folder)) directories.set(folder, source);
   // Node cannot start a .cmd or .bat script, such as an npm shim, without a
   // shell, and the CLIs' long JSON arguments are not safe to pass through one.
   const extensions = process.platform === "win32" ? [".exe"] : [""];
-  return directories.flatMap((directory) =>
+  return [...directories].flatMap(([directory, source]) =>
     names.flatMap((name) =>
-      extensions.map((extension) =>
-        path.join(directory, `${name}${extension}`),
-      ),
+      extensions.map((extension) => ({
+        path: path.join(directory, `${name}${extension}`),
+        source,
+      })),
     ),
   );
 }
@@ -276,7 +283,6 @@ export async function probeModels(
   id: AgentRuntimeId,
   env: Record<string, string>,
   privateDirectory: string,
-  isolate: boolean,
 ): Promise<{
   models: AgentModel[];
   account?: string;
@@ -362,62 +368,13 @@ export async function probeModels(
       await server.stop();
     }
   }
-  const configHome = path.join(privateDirectory, "opencode-config");
-  await mkdir(path.join(configHome, "opencode"), {
-    recursive: true,
-    mode: 0o700,
-  });
-  await writeFile(path.join(configHome, "opencode", "opencode.json"), "{}\n", {
-    mode: 0o600,
-  });
-  // Inspect the actual command, rather than assuming an installed version
-  // supports serving or the flag that isolates external plugins.
-  const help = await runCli(
-    binaryPath,
-    ["serve", "--help"],
-    env,
-    privateDirectory,
-  );
-  if (help.code !== 0)
-    throw cliProbeError(
-      "OpenCode",
-      help.stderr.trim() || "OpenCode serve help failed",
-    );
-  const required = ["--hostname", "--port", ...(isolate ? ["--pure"] : [])];
-  const missing = required.filter(
-    (flag) => !`${help.stdout}\n${help.stderr}`.includes(flag),
-  );
-  if (missing.length)
-    throw new AgentRuntimeCompatibilityError(
-      `OpenCode serve does not advertise ${missing.join(", ")}, required by OhMyGame${isolate ? " with CLI configuration isolation enabled" : ""}. Update OpenCode and check again in Settings.`,
-      missing.join(", "),
-    );
-  await OpenCodeDriver.checkCompatibility({
+  const output = await OpenCodeDriver.discover({
     binaryPath,
     env,
     privateDirectory,
-    isolateUserConfig: isolate,
   });
-  const { stdout, stderr, code } = await runCli(
-    binaryPath,
-    ["models", "--verbose", ...(isolate ? ["--pure"] : [])],
-    {
-      ...env,
-      OPENCODE_DISABLE_AUTOUPDATE: "1",
-      ...(isolate
-        ? { XDG_CONFIG_HOME: configHome, OPENCODE_DISABLE_PROJECT_CONFIG: "1" }
-        : {}),
-    },
-    privateDirectory,
-    60_000,
-  );
-  if (code !== 0)
-    throw cliProbeError(
-      "OpenCode",
-      `OpenCode could not list its models: ${stderr.trim().slice(-500) || `exit ${code}`}`,
-    );
   return {
-    models: parseOpenCodeModels(stdout).map((entry) => ({
+    models: parseOpenCodeModels(output).map((entry) => ({
       ...model(entry.id, entry.name, entry.variants),
       ...(entry.contextWindow ? { contextWindow: entry.contextWindow } : {}),
     })),
@@ -559,61 +516,45 @@ async function claudeModels(
   });
 }
 
-/** `opencode models --verbose` prints each model's `provider/model` line followed by its JSON. */
-export function parseOpenCodeModels(output: string): Array<{
+/** OpenCode v2's structured /api/model catalog. */
+export function parseOpenCodeModels(output: unknown): Array<{
   id: string;
   name: string;
   variants: string[];
   contextWindow?: number;
 }> {
-  const models: Array<{
-    id: string;
-    name: string;
-    variants: string[];
-    contextWindow?: number;
-  }> = [];
-  const lines = output.split("\n");
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index]!.trim();
-    if (!/^[\w.@-]+\/\S+$/.test(line)) continue;
-    let end = index + 1;
-    let depth = 0;
-    let json = "";
-    for (; end < lines.length; end++) {
-      const current = lines[end]!;
-      json += `${current}\n`;
-      depth +=
-        (current.match(/{/g)?.length ?? 0) - (current.match(/}/g)?.length ?? 0);
-      if (depth <= 0 && json.trim()) break;
-    }
-    try {
-      const value = JSON.parse(json) as {
-        name?: unknown;
-        capabilities?: { toolcall?: unknown };
-        variants?: Record<string, unknown>;
-        status?: unknown;
-        limit?: { context?: number };
-      };
-      // An agent needs tools; a model that cannot call them cannot do the work.
-      if (
-        value.capabilities?.toolcall === false ||
-        value.status === "deprecated"
-      )
-        continue;
-      models.push({
-        id: line,
-        name: typeof value.name === "string" ? value.name : line,
-        variants: Object.keys(value.variants ?? {}),
-        ...(typeof value.limit?.context === "number" && value.limit.context > 0
-          ? { contextWindow: value.limit.context }
+  if (!Array.isArray(output))
+    throw new Error("OpenCode did not return a readable model catalog");
+  return output.flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const item = value as Record<string, unknown>;
+    const capabilities = item.capabilities as { tools?: unknown } | undefined;
+    if (
+      typeof item.id !== "string" ||
+      typeof item.providerID !== "string" ||
+      item.enabled !== true ||
+      capabilities?.tools !== true ||
+      item.status === "deprecated"
+    )
+      return [];
+    const context = (item.limit as { context?: unknown } | undefined)?.context;
+    return [
+      {
+        id: `${item.providerID}/${item.id}`,
+        name: typeof item.name === "string" ? item.name : item.id,
+        variants: Array.isArray(item.variants)
+          ? item.variants.flatMap((v) =>
+              v && typeof v === "object" && typeof v.id === "string"
+                ? [v.id]
+                : [],
+            )
+          : [],
+        ...(typeof context === "number" && context > 0
+          ? { contextWindow: context }
           : {}),
-      });
-      index = end;
-    } catch {
-      models.push({ id: line, name: line, variants: [] });
-    }
-  }
-  return models;
+      },
+    ];
+  });
 }
 
 /** A private folder for one probe or session, removed with it. */

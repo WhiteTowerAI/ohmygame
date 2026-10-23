@@ -44,6 +44,7 @@ export type AgentRuntimeAuthStatus = "signed-in" | "signed-out" | "unknown";
 
 export type AgentRuntimeDiagnosticCode =
   | "not-installed"
+  | "invalid-executable"
   | "runtime-incompatible"
   | "signed-out"
   | "probe-failed"
@@ -68,6 +69,14 @@ export interface AgentRuntimeDiagnostic {
 export const AGENT_PERMISSION_MODES = ["standard", "full"] as const;
 export type AgentPermissionMode = (typeof AGENT_PERMISSION_MODES)[number];
 
+export type AgentRuntimeBinarySource =
+  | "manual"
+  | "path"
+  | "login-shell"
+  | "common-directory"
+  | "codex-app"
+  | "chatgpt-app";
+
 export interface AgentRuntimeStatus {
   id: AgentRuntimeId;
   name: string;
@@ -75,6 +84,9 @@ export interface AgentRuntimeStatus {
   installed: boolean;
   /** The executable that runs, resolved to an absolute path. */
   binaryPath?: string;
+  /** The person's override, kept even when it cannot be resolved. Empty means automatic discovery. */
+  configuredBinaryPath?: string;
+  binarySource?: AgentRuntimeBinarySource;
   version?: string;
   /** Version used for real acceptance; it is not a compatibility floor. */
   testedVersion?: string;
@@ -84,10 +96,6 @@ export interface AgentRuntimeStatus {
     account?: string;
     billing: AgentRuntimeBilling;
   };
-  /** Run without the person's own CLI settings, hooks, MCP servers and instructions. */
-  isolateUserConfig: boolean;
-  /** The CLI cannot be run fully isolated; part of the person's own configuration still applies. */
-  partialIsolation?: boolean;
   /**
    * Whether the commands the agent runs are confined by an operating-system
    * sandbox, beyond OhMyGame's approvals. "none" means approvals alone.
@@ -102,7 +110,6 @@ export interface AgentRuntimeStatus {
 
 export interface UpdateAgentRuntimeRequest {
   enabled?: boolean;
-  isolateUserConfig?: boolean;
   permissionMode?: AgentPermissionMode;
   /** An executable to use instead of the one found on PATH; empty clears it. */
   binaryPath?: string;

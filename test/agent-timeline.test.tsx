@@ -72,7 +72,7 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain("Worked for");
   });
 
-  it("shows initial Thinking in the stable activity header", () => {
+  it("shows initial Thinking in a stable shimmering header without a loading icon", () => {
     const html = renderToStaticMarkup(
       <AgentTimeline items={[user()]} activeTurnId="turn-1" />,
     );
@@ -80,6 +80,8 @@ describe("AgentTimeline", () => {
     expect(html).toContain("Thinking");
     expect(html).toContain("work-summary-thinking");
     expect(html).toContain("work-activity-active");
+    expect(html).toContain('<span class="activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
+    expect(html).not.toContain("solar-refresh-linear spin");
     expect(html).not.toContain("Working for");
     expect(html).not.toContain("Worked");
     expect(html).not.toContain("<details");
@@ -110,13 +112,6 @@ describe("AgentTimeline", () => {
     expect(html).not.toContain('class="thinking-activity"');
     expect(html).not.toContain('class="tool-activity-group" open');
     expect(html).not.toContain("<details class=\"work-activity\"");
-  });
-
-  it("shimmers the initial Thinking header without a loading icon", () => {
-    const html = renderToStaticMarkup(<AgentTimeline items={[user()]} activeTurnId="turn-1" />);
-
-    expect(html).toContain('<span class="activity-shimmer">Thinking<span class="activity-shimmer-highlight" aria-hidden="true">Thinking</span></span>');
-    expect(html).not.toContain("solar-refresh-linear spin");
   });
 
   it("uses Working while streaming a direct answer but does not retain Worked after completion", () => {

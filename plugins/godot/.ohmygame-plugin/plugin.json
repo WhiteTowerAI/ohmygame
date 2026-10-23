@@ -1,19 +1,34 @@
 {
   "name": "godot",
-  "version": "0.1.0",
-  "description": "Connect OhMyGame to the Godot editor.",
+  "version": "0.2.0",
+  "description": "Build Godot scenes, scripts, and asset workflows with runtime diagnostics.",
+  "skills": "./skills/",
+  "requirements": {
+    "commands": ["npx"]
+  },
+  "configuration": {
+    "godot-path": {
+      "type": "text",
+      "label": "Godot executable",
+      "description": "Executable path or command. Keep godot to use automatic discovery; set an absolute path if detection fails.",
+      "default": "godot"
+    }
+  },
   "interface": {
+    "beta": true,
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.svg"
+    },
     "displayName": "Godot",
-    "shortDescription": "Connect the agent to the Godot editor.",
-    "longDescription": "Use the Godot plugin to inspect scenes, edit scripts, create nodes, and control the running editor directly from OhMyGame.",
+    "shortDescription": "Build Godot games and diagnose project execution.",
+    "longDescription": "Create scenes and scripts, import game assets, launch the editor or game, and read debug output. Requires a local Godot installation. Visual inspection and gameplay input need a separate supported workflow.",
     "defaultPrompt": [
       "Create a playable 3D scene in Godot.",
       "Inspect the current Godot project and suggest the next implementation step.",
       "Build a player controller for the current Godot scene."
     ],
-    "projectTypes": [
-      "godot-game"
-    ]
+    "projectTypes": ["godot-game", "general"]
   },
   "mcpServers": "./mcp.json"
 }

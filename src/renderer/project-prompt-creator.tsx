@@ -1,3 +1,5 @@
+import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
+import { pluginProjectType } from "../shared/project-runtime.js";
 import { Check, ChevronDown, Folder, FolderOpen, FolderPlus, LoaderCircle, SendArrow } from "./icons.js";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { AgentModel, AgentModelRef, AgentReasoningLevel, ConversationCapabilities, PluginMention, ProjectState, ProjectType, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
@@ -87,6 +89,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
     if (next && next !== reasoningLevel) setReasoningLevel(next);
   }, [selectedModel, modelCatalog.defaultReasoningLevel, modelCatalog.defaultNativeReasoningLevel, reasoningLevel, nativeReasoningLevel]);
 
+  const integrationGate = usePluginIntegrationGate();
+
   async function submit(): Promise<void> {
     if (matchesPlanCommand(prompt)) {
       togglePlanning();
@@ -97,13 +101,23 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
     setCreating(true);
     setError(undefined);
     try {
-      if (!created.current || created.current.project.type !== projectType || created.current.workspacePath !== workspacePath) {
-        created.current = { project: await createProject({ type: projectType, ...(workspacePath ? { workspacePath } : {}) }), workspacePath };
+      const submittedMentions = activePluginMentions(submittedPrompt, pluginMentions);
+      const referenced = capabilities.plugins.filter(plugin => submittedMentions.some(mention => mention.name === plugin.name && mention.marketplaceId === plugin.marketplaceId));
+      const type = pluginProjectType(projectType, referenced);
+      if (!type) throw new Error(t("integration.incompatible"));
+      const pluginId = referencedIntegration(submittedMentions, capabilities.plugins);
+      if (!created.current || created.current.project.type !== type || created.current.workspacePath !== workspacePath || created.current.project.integration?.pluginId !== pluginId) {
+        created.current = { project: await createProject({ type, pluginId, ...(workspacePath ? { workspacePath } : {}) }), workspacePath };
       }
-      const project = created.current.project;
+      // An imported workspace may be registered already; connecting it is confirmed in the panel.
+      const integrationId = pluginId ?? created.current.project.integration?.pluginId;
+      const project = await integrationGate.ensure(created.current.project, integrationId, integrationId ? {
+        canCreate: !!capabilities.plugins.find(plugin => plugin.id === integrationId)?.integration?.createProject,
+      } : undefined);
+      if (!project) { setCreating(false); requestAnimationFrame(() => promptRef.current?.focus()); return; }
+      created.current.project = project;
       created.current.conversationId ??= (await createConversation(project.id)).id;
       const uploaded = await uploadAttachments(project.id, crypto.randomUUID(), attachments);
-      const submittedMentions = activePluginMentions(submittedPrompt, pluginMentions);
       saveHomePrompt({ prompt: submittedPrompt, mentions: submittedMentions });
       onCreate(
         project,
@@ -239,6 +253,8 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
       focusAt(activeMention.start);
       return;
     }
+    const nextType = pluginProjectType(projectType, [mention.value]);
+    if (nextType && nextType !== projectType) onProjectTypeChange?.(nextType);
     const selected = toPluginMention(mention.value);
     if ((!query || activeMention.start === 0) && !selectedPlugin) {
       const nextPrompt = query ? prompt.slice(activeMention.end).replace(/^\s+/, "") : prompt;
@@ -288,6 +304,7 @@ export function ProjectPromptCreator({ projectType, projectTypes = PROJECT_TYPES
 
   return (
     <>
+      {integrationGate.dialog}
       <PromptBox
         actions={(
           <>

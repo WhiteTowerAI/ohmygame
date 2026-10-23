@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { ArrowLeft, Bot, Check, ExternalLink, Globe2, InfoCircle, Package, Palette, Plug, Server, UserRound, Wifi } from "./icons.js";
+import { ArrowLeft, Bot, Check, ExternalLink, Globe2, InfoCircle, Palette, Plug, Server, UserRound, Wifi } from "./icons.js";
 import { useAuth } from "./auth.js";
 import { readSidebarWidth } from "./app-sidebar.js";
 import { ModelsSettings, type ModelsView } from "./models-settings.js";
@@ -11,10 +11,9 @@ import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import { readAppearance, setAppearance as persistAppearance, type Appearance } from "./appearance.js";
 import { WebSearchSettingsPanel } from "./web-search-settings.js";
 import { NetworkSettingsPanel } from "./network-settings.js";
+import { ExternalAgentsSettings } from "./external-agents-settings.js";
 import { readChatLayout, setChatLayout, type ChatLayout } from "./chat-layout.js";
 import { SegmentedControl } from "./segmented-control.js";
-import { PluginsSettings } from "./plugins.js";
-import type { PluginDetail } from "../shared/plugins.js";
 import { readLanguagePreference, setLanguagePreference, t, type LanguagePreference } from "./i18n.js";
 import { ChangelogPanel } from "./changelog-panel.js";
 import brandMark from "../shared/assets/ohmygame-mark-v2.svg";
@@ -38,17 +37,14 @@ const SETTINGS_SECTIONS: Array<{ section: SettingsSection; label: string; icon: 
   { section: "appearance", label: t("settings.nav.appearance"), icon: Palette },
   { section: "web-search", label: t("settings.nav.webSearch"), icon: Globe2 },
   { section: "network", label: t("settings.nav.network"), icon: Wifi },
-  { section: "plugins", label: t("settings.nav.plugins"), icon: Package },
+  { section: "mcp-server", label: t("settings.nav.mcpServer"), icon: Plug },
   { section: "about", label: t("settings.nav.about"), icon: InfoCircle },
 ];
 
-export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPluginChange, onTryPlugin, onOpenOnboarding }: {
+export function SettingsPage({ section, onBack, onSectionChange, onOpenOnboarding }: {
   section: SettingsSection;
-  pluginId?: string;
   onBack: () => void;
   onSectionChange: (section: SettingsSection) => void;
-  onPluginChange: (pluginId?: string) => void;
-  onTryPlugin: (plugin: PluginDetail, prompt: string, projectId?: string) => Promise<void>;
   onOpenOnboarding?: () => void;
 }) {
   const [modelsView, setModelsView] = useState<ModelsView>({ page: "providers" });
@@ -92,7 +88,7 @@ export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPlu
       </aside>
       <section className="settings-page-content">
         <WindowDragRegion />
-        <div className={`settings-page-inner${section === "plugins" ? " settings-page-inner-plugins" : ""}`}>
+        <div className="settings-page-inner">
           {section === "account" ? <AccountSettings /> : null}
           {section === "billing" ? <BillingSettings /> : null}
           {section === "appearance" ? <AppearanceSettings /> : null}
@@ -100,7 +96,7 @@ export function SettingsPage({ section, pluginId, onBack, onSectionChange, onPlu
           {section === "agents" ? <AgentsSettings view={agentsView} onViewChange={setAgentsView} onOpenProviders={() => chooseSection("providers")} /> : null}
           {section === "web-search" ? <WebSearchSettingsPanel /> : null}
           {section === "network" ? <NetworkSettingsPanel /> : null}
-          {section === "plugins" ? <PluginsSettings pluginId={pluginId} onPluginChange={onPluginChange} onTryPlugin={onTryPlugin} /> : null}
+          {section === "mcp-server" ? <ExternalAgentsSettings /> : null}
           {section === "about" ? <AboutSettings onOpenNetwork={() => chooseSection("network")} onOpenOnboarding={onOpenOnboarding} /> : null}
         </div>
       </section>

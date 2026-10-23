@@ -24,6 +24,23 @@ them against your endpoint's documentation. Refreshing the list preserves saved
 names, uses, protocols, limits and enable state, including models no longer listed
 by the endpoint. Remove those models explicitly if you no longer want them.
 
+## Gemini 4
+
+OhMyGame bundles Pi 1.3.0, including `gemini-4-argon` for Google Gemini and
+Google Vertex AI. Connect the provider with credentials that have access to the
+model, enable it in **Providers & Models**, and select it for a conversation.
+New Google connections recommend Gemini 4 Argon; saved default models are preserved.
+
+Gemini 4 supports **Low**, **Medium**, and **High** reasoning. Other levels,
+including **Off**, are unavailable; an older saved level is clamped to a supported
+level when selecting the model. Pi sends `thinkingLevel` for both Google protocols.
+Compatible custom providers using the exact `gemini-4-argon` ID inherit the
+matching protocol's reasoning template unless explicitly overridden.
+
+Upgrading Pi preserves OhMyGame's local provider-failure diagnostics and retry
+patch. Pi 1.3 also changes Kimi Coding to OpenAI Chat Completions: existing
+`kimi-coding` Base URL overrides must include `/v1`.
+
 ## Azure provider upgrade
 
 Pi 1.2 uses provider ID `azure` in place of `azure-openai-responses`.
@@ -187,9 +204,10 @@ Pi's `models.json`. Project overrides are stored in each project's `project.json
 Credentials remain in the existing credential store and are not copied into model
 definitions or returned in settings responses.
 
-Connected provider details end with a **Remove provider** section; **Remove…**
-opens an inline confirmation with **Delete provider**. Meshy, Tripo and Hyper3D
-keep a **Remove API key** button beside their key field instead. For custom providers, it removes the provider definition, credential
+Connected provider details place the delete icon to the left of the enable
+switch in the header. The icon opens an inline confirmation with **Delete
+provider** (or **Remove API key** for Hyper3D). For custom
+providers, it removes the provider definition, credential
 and model settings. For built-in providers, including Meshy, Tripo and Hyper3D, it clears
 the saved credential, endpoint overrides, custom models and visibility/enable
 settings; the service remains available to connect again. Global media defaults
@@ -199,14 +217,15 @@ choices stay saved and need an available connection to generate again.
 Deleting an official browser sign-in clears the local login only. It does not
 cancel or change the service's subscription.
 
-Provider details start with a **Providers & Models** breadcrumb and a status
-line such as **Connected · ChatGPT**. Built-in language providers show a
+Provider details start with a Back button, provider name and connection
+description. Built-in language providers show a
 **Connection** row for the current sign-in (**Reconnect**) or API key (edit
 icon); when the provider offers both methods, the section heading has a button
 to switch. The model list shows the global default language model
 first with a **Default** badge; hidden models stay under **Hidden models (n)**.
-Base URL and Responses connection settings sit in the collapsed **Advanced**
-section, and the page ends with **Remove provider**.
+Base URL and Responses connection settings sit in the **Advanced** section.
+
+![Provider detail header with delete before the enable switch (sample data)](assets/provider-detail-controls.png)
 
 ## Global and project defaults
 

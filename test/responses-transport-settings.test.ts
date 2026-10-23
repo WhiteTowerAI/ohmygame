@@ -45,9 +45,10 @@ describe("Responses transport settings", () => {
     expect(restored.isVisible({ provider: "openai", id: "hidden-model" })).toBe(
       false,
     );
-    expect(
-      (await stat(path.join(dir, "model-visibility.json"))).mode & 0o777,
-    ).toBe(0o600);
+    if (process.platform !== "win32")
+      expect(
+        (await stat(path.join(dir, "model-visibility.json"))).mode & 0o777,
+      ).toBe(0o600);
     await expect(
       restored.removeProviderSettings("relay", async () => {
         throw new Error("Could not remove provider");

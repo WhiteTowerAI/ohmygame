@@ -14,6 +14,7 @@ import { PluginCapabilities } from "../src/daemon/plugin-capabilities.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { LocalPluginStore } from "../src/daemon/local-plugins.js";
 import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
+import { resolvePluginSkillPaths } from "../src/daemon/plugin-runtime.js";
 import { LegacyMcpConfiguration } from "../src/daemon/legacy-mcp.js";
 import { createApp } from "../src/daemon/app.js";
 import { PluginSetupManager } from "../src/daemon/plugin-setup.js";
@@ -48,6 +49,76 @@ async function environment() {
   return { directory, agentDir, settings, local, bundled, service };
 }
 describe("native plugin capabilities", () => {
+  it("excludes optional beta workflows until enabled and scopes their Skills and Unreal MCP", async () => {
+    const { service, bundled, settings } = await environment();
+    const optionalNames = ["aseprite", "cocos-creator", "douyin-minigame", "tiled", "unity", "unreal-engine", "wechat-minigame"];
+    const optional = optionalNames.map(name => bundled.read(`ohmygame:${name}`)!);
+    const roots = optional.map(plugin => path.resolve("plugins", plugin.name));
+    const initialSkills = await resolvePluginSkillPaths([bundled], settings, "general");
+    expect(initialSkills.filter(file => roots.some(root => file.startsWith(`${root}${path.sep}`)))).toEqual([]);
+    const unreal = bundled.read("ohmygame:unreal-engine")!;
+    const unrealName = service.runtimeName(unreal.id, "unreal");
+    expect((await service.effective("general")).mcpServers).not.toHaveProperty(unrealName);
+
+    for (const plugin of optional) await settings.update(plugin, { enabled: true, components: {} });
+    for (const projectType of ["general", "web-game", "godot-game", "asset-canvas"] as const) {
+      const skills = await resolvePluginSkillPaths([bundled], settings, projectType);
+      for (const plugin of optional) {
+        const skill = path.resolve("plugins", plugin.name, plugin.skills[0]!.id);
+        expect(skills.includes(skill)).toBe(projectType === "general" || plugin.name === "aseprite" || plugin.name === "tiled");
+      }
+      const servers = (await service.effective(projectType)).mcpServers;
+      if (projectType === "general") {
+        expect(servers[unrealName]).toMatchObject({ url: "http://127.0.0.1:8000/mcp", lifecycle: "lazy" });
+      } else {
+        expect(servers).not.toHaveProperty(unrealName);
+      }
+    }
+    await service.configuration.update(unreal, { endpoint: "http://127.0.0.1:8100/mcp" });
+    expect((await service.effective("general")).mcpServers[unrealName]).toMatchObject({ url: "http://127.0.0.1:8100/mcp" });
+    await settings.update(unreal, { enabled: false, components: {} });
+    expect((await service.effective("general")).mcpServers).not.toHaveProperty(unrealName);
+    expect(await resolvePluginSkillPaths([bundled], settings, "general")).not.toContain(path.resolve("plugins/unreal-engine/skills/unreal-game/SKILL.md"));
+  });
+
+  it("resolves Godot configuration and scopes Maker to General projects", async () => {
+    const { service, bundled, settings } = await environment();
+    const godot = bundled.read("ohmygame:godot")!;
+    const godotName = service.runtimeName(godot.id, "godot");
+    expect(await service.definition(godot, "godot")).toMatchObject({
+      env: { GODOT_PATH: "godot" }, lifecycle: "lazy",
+    });
+    const godotSkill = path.resolve("plugins/godot/skills/godot-game/SKILL.md");
+    for (const projectType of ["general", "godot-game"] as const) {
+      expect((await service.effective(projectType)).mcpServers).toHaveProperty(godotName);
+      expect(await resolvePluginSkillPaths([bundled], settings, projectType)).toContain(godotSkill);
+    }
+    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(godotName);
+    expect(await resolvePluginSkillPaths([bundled], settings, "web-game")).not.toContain(godotSkill);
+    const probe = vi.spyOn(service.host, "probe").mockResolvedValue({ status: "connected", toolCount: 14, message: "godot: get_godot_version" });
+    expect((await service.test(godot, "godot")).message).toBe("godot: get_godot_version");
+    probe.mockRestore();
+    await service.configuration.update(godot, { "godot-path": "/custom/Godot" });
+    expect(await service.definition(godot, "godot")).toMatchObject({ env: { GODOT_PATH: "/custom/Godot" } });
+    expect(service.runtimeName(godot.id, "godot")).toBe(godotName);
+    await service.configuration.setLegacyOwner("ohmygame-godot", godot.id, "godot");
+    expect(service.runtimeName(godot.id, "godot")).toBe("ohmygame-godot");
+    const maker = bundled.read("ohmygame:taptap-maker")!;
+    const makerName = service.runtimeName(maker.id, "taptap-maker");
+    expect((await service.effective()).mcpServers).not.toHaveProperty(makerName);
+    expect((await service.effective("general")).mcpServers).not.toHaveProperty(makerName);
+    await settings.update(maker, { enabled: true, components: {} });
+    expect((await service.effective("general")).mcpServers[makerName]).toMatchObject({
+      args: ["./scripts/mcp.mjs"],
+      env: { OHMYGAME_PLUGIN_DATA_DIR: service.dataPath(maker.id) },
+      lifecycle: "lazy",
+      requestTimeoutMs: 3600000,
+      cwd: path.resolve("plugins/taptap-maker"),
+    });
+    expect((await service.effective("godot-game")).mcpServers).not.toHaveProperty(makerName);
+    expect((await service.effective("web-game")).mcpServers).not.toHaveProperty(makerName);
+  });
+
   it("reads credential masks without writes and preserves them on an explicit save", async () => {
     const { service, local, directory } = await environment();
     const source = path.join(directory, "raw-service");

@@ -4,6 +4,7 @@ import { resolveAssetCanvasAssetId } from "../shared/asset-canvas.js";
 import type { CanvasAssetCatalogEntry } from "../shared/canvas-assets.js";
 import { inspectCanvasBoard, readCanvasIndex, readCanvasDocument } from "./canvas-workspace.js";
 import { canvasAssetCatalog, readCanvasAssets } from "./canvas-assets.js";
+import { resolveWorkspaceEntry } from "./workspace.js";
 
 export interface CanvasCheckIssue { file: string; message: string }
 export interface CanvasCheckResult { ok: boolean; issues: CanvasCheckIssue[] }
@@ -35,6 +36,7 @@ export async function checkCanvasWorkspace(workspace: string): Promise<CanvasChe
     for (const message of inspected.issues) issues.push({ file: `canvas/editor/${entry.id}.json`, message });
     for (const node of detail.board.nodes) if (node.type === "document" && !documentIds.has(node.data.documentId)) issues.push({ file, message: `Node ${node.id}: unknown document ${node.data.documentId}` });
     for (const node of detail.board.nodes) if (node.type === "table" && !tableIds.has(node.data.tableId)) issues.push({ file, message: `Node ${node.id}: unknown table ${node.data.tableId}` });
+    for (const node of detail.board.nodes) if (node.type === "file") await resolveWorkspaceEntry(workspace, node.data.path).catch((cause: unknown) => issues.push({ file, message: `Node ${node.id}: file ${node.data.path}: ${cause instanceof Error ? cause.message : String(cause)}` }));
     if (manifest) for (const id of canvasNodeAssetIds(detail.board.nodes)) if (!manifest.assets[id]) issues.push({ file, message: `Asset ${id} is not registered in canvas/assets.json` });
     for (const node of detail.board.nodes) {
       const outputId = "assetId" in node.data ? node.data.assetId : undefined;

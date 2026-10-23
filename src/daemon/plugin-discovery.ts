@@ -91,7 +91,7 @@ async function discoverMarketplace(root: string, manifestPath: string): Promise<
       continue;
     }
     const icon = manifest.interface?.icon;
-    manifest = { ...manifest, skills: rebasePaths(root, sourceRoot, manifest.skills), ...(icon?.type === "asset" ? {
+    manifest = { ...manifest, ...(manifest.integration ? { integration: { ...manifest.integration, entry: relativePath(path.relative(root, path.resolve(sourceRoot, manifest.integration.entry))) } } : {}), skills: rebasePaths(root, sourceRoot, manifest.skills), ...(icon?.type === "asset" ? {
       interface: { ...manifest.interface, icon: { type: "asset", path: relativePath(path.relative(root, path.resolve(sourceRoot, icon.path))) } },
     } : {}) };
     candidates.push({ ...await installCandidate(root, format, manifest, marketplaceRef), key: `marketplace:${marketplaceRef.id}:${manifest.name}` });

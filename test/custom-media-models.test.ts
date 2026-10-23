@@ -1,5 +1,5 @@
 import { TEST_GLB } from "./model3d-fixture.js";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
@@ -25,6 +25,8 @@ const model = (id: string, usages: CustomProviderModel["usages"]): CustomProvide
 async function fixture(request: typeof fetch = vi.fn(async () => Response.json({ data: [] }))) {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-custom-media-"));
   directories.push(directory);
+  // This suite exercises only its simulated HTTP providers, regardless of local CLI logins.
+  await writeFile(path.join(directory, "agent-runtimes.json"), JSON.stringify({ runtimes: { "codex-cli": { binaryPath: path.join(directory, "missing-codex") } } }));
   const runtime = await ModelRuntime.create({ authPath: path.join(directory, "auth.json"), modelsPath: path.join(directory, "models.json"), modelsStorePath: path.join(directory, "catalog.json"), allowModelNetwork: false });
   const app = createApp({ dataDirectory: directory, piAgentDirectory: directory, createModelRuntime: async () => runtime,
     imageFetch: request, videoFetch: request, model3DFetch: request, modelDiscoveryFetch: request });

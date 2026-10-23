@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
@@ -23,6 +25,51 @@ async function fixture() {
 const model = { id: "custom/test", name: "Custom test", api: "openai-completions", contextWindow: 32_000, maxTokens: 4_000, reasoning: true, supportsImages: true };
 
 describe("provider model settings", () => {
+  it("isolates inherited provider credentials while allowing explicit test credentials", async () => {
+    const { directory } = await fixture();
+    // A fresh process exercises the setup with inherited credentials before Pi
+    // creates its availability snapshot, without changing this worker's environment.
+    const script = `
+      import assert from "node:assert/strict";
+      import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+      const options = {
+        authPath: ${JSON.stringify(path.join(directory, "auth.json"))},
+        modelsPath: ${JSON.stringify(path.join(directory, "models.json"))},
+        allowModelNetwork: false,
+      };
+      const inherited = await ModelRuntime.create(options);
+      assert.equal(inherited.hasConfiguredAuth("anthropic"), true);
+      await import("./test/provider-environment.ts");
+      const isolated = await ModelRuntime.create(options);
+      assert.deepEqual(await isolated.getAvailable(), []);
+      await isolated.setRuntimeApiKey("anthropic", "fixture-key");
+      assert.equal(isolated.hasConfiguredAuth("anthropic"), true);
+      console.log("provider-environment-ok");
+    `;
+    const { stdout } = await promisify(execFile)(
+      "node",
+      ["--import", "tsx", "--input-type=module", "--eval", script],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          GEMINI_API_KEY: "fixture-key",
+          OPENAI_API_KEY: "fixture-key",
+          HF_TOKEN: "fixture-token",
+          COPILOT_GITHUB_TOKEN: "fixture-token",
+          AWS_PROFILE: "fixture-profile",
+          ANTHROPIC_FEDERATION_RULE_ID: "fixture-rule",
+          ANTHROPIC_ORGANIZATION_ID: "fixture-org",
+          ANTHROPIC_IDENTITY_TOKEN_FILE: path.join(directory, "identity-token"),
+          ANTHROPIC_SERVICE_ACCOUNT_ID: "fixture-account",
+          ANTHROPIC_WORKSPACE_ID: "fixture-workspace",
+        },
+        timeout: 15_000,
+      },
+    );
+    expect(stdout.trim()).toBe("provider-environment-ok");
+  });
+
   it("persists visibility per provider and serializes simultaneous updates", async () => {
     const { directory, store } = await fixture();
     await store.load();

@@ -51,6 +51,7 @@ export function canvasNodeTitle(node: AssetCanvasNode, documents: readonly { id:
   if (node.type === "document") return documents.find((doc) => doc.id === node.data.documentId)?.title || "Untitled document";
   if (node.type === "table") return tables.find((table) => table.id === node.data.tableId)?.title || "Table";
   if (node.type === "asset") return assets.find((asset) => asset.id === node.data.assetId)?.name || "Asset";
+  if (node.type === "file") return node.data.path.split("/").at(-1) || "File";
   if (node.type === "text") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Text";
   if (node.type === "speech") return node.data.text.trim().split("\n")[0]?.slice(0, 80) || "Speech";
   if (node.type === "sound-effect") return node.data.prompt.trim().split("\n")[0]?.slice(0, 80) || "Sound effect";

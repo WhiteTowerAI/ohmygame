@@ -1,0 +1,21 @@
+{
+  "name": "blender",
+  "version": "0.1.0",
+  "description": "Create game assets in Blender and export GLB files into the project.",
+  "skills": "./skills/",
+  "interface": {
+    "beta": true,
+    "displayName": "Blender",
+    "shortDescription": "Make game assets and export project-ready GLB files.",
+    "longDescription": "Use a local Blender installation to create or refine game assets, preserve editable blend sources, export GLB, and validate the result in the target project. Includes a collection-aware export helper. Blender is required; this workflow uses its command line and Python API.",
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.png"
+    },
+    "defaultPrompt": [
+      "Create a low-poly game prop in Blender and export it as GLB into this project.",
+      "Prepare this Blender asset for the project and verify its GLB export."
+    ],
+    "projectTypes": ["general", "web-game", "godot-game", "asset-canvas"]
+  }
+}

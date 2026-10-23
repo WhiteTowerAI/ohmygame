@@ -14,7 +14,6 @@
 .plugin-builder-overview-heading { display: flex; align-items: center; gap: 10px; }
 .plugin-builder-icon-button { padding: 0; border: 0; border-radius: 9px; background: transparent; cursor: pointer; }
 .plugin-builder-icon-button:hover .plugin-row-icon { background: var(--control-selected); color: var(--theme-accent); }
-.plugin-builder-icon-button:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 3px; }
 .plugin-builder-overview-heading h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
 .plugin-builder-overview-heading small { color: var(--text-muted); font-size: 10px; }
 .plugin-builder-overview > section { margin-top: 20px; }

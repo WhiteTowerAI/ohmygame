@@ -2,14 +2,14 @@ import type { ProjectState } from "../shared/contracts.js";
 
 /** The parts of a project that change what the agent is told. */
 export type AgentPromptProject = Pick<ProjectState, "type"> &
-  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled">>;
+  Partial<Pick<ProjectState, "startupDirectory" | "startupScript" | "packageManager" | "workspaceLocation" | "webPreviewEnabled" | "integration">>;
 
 const COMMON_AGENT_INSTRUCTIONS = [
   "Do not create or change files for casual conversation or for questions that need no code.",
   "For tasks that require several tool calls, send a brief commentary update before the first tool call and whenever you discover something important or begin a new major step. Keep commentary concise, do not narrate routine tool calls, and reserve the final answer for the completed result.",
   "For work with several meaningful steps, keep a concise plan with update_plan: at most one step in_progress, updated as steps start or finish. Skip it for quick one-step requests.",
   "The user and the OhMyGame editor can change files between your turns. Build on the files as they are now, and do not revert changes you did not make.",
-  "When canvas/index.json exists, read canvas/AGENTS.md, the index and relevant boards/documents before canvas, design or asset work. If the requested work needs a canvas and none exists, use canvas_initialize before editing. For game implementation, also read the main document if one is selected. Canvas is ordinary project JSON, Markdown and local media; use read/edit/write and run canvas_check after changes. Use the current board and selected node IDs from editor context to resolve references. Preserve IDs and concurrent user edits. Read actual image files when evaluating appearance. Follow the user's current request and explicitly referenced document snapshots; do not silently rewrite documents. Use generate_canvas_media to execute saved generation nodes through shared canvas history. Editing a prompt or reference does not request generation. Casual conversation needs no canvas reads.",
+  "When canvas/index.json exists, read canvas/AGENTS.md, the index and relevant boards/documents before canvas, design or asset work. If the requested work needs a canvas and none exists, use canvas_initialize before editing. Show final media deliverables on the relevant canvas board, reusing existing nodes and asset IDs. For game implementation, also read the main document if one is selected. Canvas is ordinary project JSON, Markdown and local media; use read/edit/write and run canvas_check after changes. Use the current board and selected node IDs from editor context to resolve references. Preserve IDs and concurrent user edits. Read actual image files when evaluating appearance. Follow the user's current request and explicitly referenced document snapshots; do not silently rewrite documents. Use generate_canvas_media to execute saved generation nodes through shared canvas history. Editing a prompt or reference does not request generation. Casual conversation needs no canvas reads.",
   "End a turn that changed the game with a short summary in the user's language: what changed in terms of what the player sees, how you checked it, and anything you could not verify. Do not repeat file contents the user can already see.",
 ] as const;
 
@@ -20,7 +20,6 @@ const GENERAL_GAME_INSTRUCTIONS = [
   "For requests to create a game, use game-studio when available to coordinate design, production assets, implementation, and verification. For focused features, fixes, or non-game work, use only the relevant workflow and keep the requested scope. Do not require a Plugin to perform ordinary coding or content work.",
   GENERATED_MEDIA,
   "Integrate generated assets using the chosen engine's actual import and build pipeline. Verify that required files are included in the shipped output; asset generation alone does not make an asset part of the game.",
-  "OhMyGame's built-in Preview, game_use, and cloud publishing currently support Web output in this workspace. For Web output, OhMyGame owns the dev server; do not start persistent background servers yourself. Use game_use only for a configured Web preview. For native engines, use available engine tools, connections, or existing project checks and state when visual gameplay was not verified. An editor connection alone does not establish a successful playtest.",
 ] as const;
 
 const WEB_GAME_INSTRUCTIONS = [
@@ -49,10 +48,15 @@ export function appendSystemPromptForProject(project: AgentPromptProject): strin
   if (project.type === "general") return [
     ...COMMON_AGENT_INSTRUCTIONS,
     ...GENERAL_GAME_INSTRUCTIONS,
-    project.webPreviewEnabled === true
-      ? `Web preview is enabled by the user. OhMyGame starts it after your turn and game_use can open it when available. For the browser target, follow this preview contract: ${webGameRunContract(project)}`
-      : "Web preview is disabled. Do not start a persistent dev server or enable the capability yourself. You can create browser output and run builds or other one-off checks; when the user wants to preview it here, direct them to the Web preview switch in Project settings. Native engine checks do not require this switch.",
-    "Web publishing is independent of the preview switch. It accepts a static index.html in the configured startup directory, or a package.json build script that produces dist/, build/, or out/index.html with relative asset URLs. Do not change engines or add a Web wrapper just to satisfy preview or publishing.",
+    ...(project.integration?.preview === "external" ? [
+      `This workspace uses ${project.integration.pluginId}. Preserve its engine and project binding. Follow its plugin Skill and workspace instructions. Use project_preview or View for native preview controls; the game opens in its own window. Web preview and OhMyGame Community publishing are unavailable for this project.`,
+    ] : [
+      "OhMyGame's built-in Preview, game_use, and cloud publishing currently support Web output in this workspace. For Web output, OhMyGame owns the dev server; do not start persistent background servers yourself. Use game_use only for a configured Web preview. For native engines, use available engine tools, connections, or existing project checks and state when visual gameplay was not verified. An editor connection alone does not establish a successful playtest.",
+      project.webPreviewEnabled === true
+        ? `Web preview is enabled by the user. OhMyGame starts it after your turn and game_use can open it when available. For the browser target, follow this preview contract: ${webGameRunContract(project)}`
+        : "Web preview is disabled. Do not start a persistent dev server or enable the capability yourself. You can create browser output and run builds or other one-off checks; when the user wants to preview it here, direct them to the Web preview switch in Project settings. Native engine checks do not require this switch.",
+      "Web publishing is independent of the preview switch. It accepts a static index.html in the configured startup directory, or a package.json build script that produces dist/, build/, or out/index.html with relative asset URLs. Do not change engines or add a Web wrapper just to satisfy preview or publishing.",
+    ]),
   ];
   if (project.type === "web-game") return [...COMMON_AGENT_INSTRUCTIONS, ...WEB_GAME_INSTRUCTIONS, webGameRunContract(project)];
   if (project.type === "interactive-story") return [...COMMON_AGENT_INSTRUCTIONS, ...INTERACTIVE_STORY_INSTRUCTIONS];

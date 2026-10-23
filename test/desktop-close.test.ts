@@ -36,6 +36,7 @@ vi.doMock(path.resolve("src/desktop/network.ts"), () => ({
 vi.doMock(path.resolve("src/desktop/daemon-process.ts"), () => ({
   startDaemon: async () => ({ runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped }),
 }));
+vi.doMock(path.resolve("src/desktop/external-mcp-install.ts"), () => ({ installExternalMcpLauncher: vi.fn(async () => undefined), markExternalMcpApp: vi.fn(async () => async () => {}) }));
 vi.doMock(path.resolve("src/desktop/oauth.ts"), () => ({
   isOAuthAuthorizationUrl: vi.fn(), OAuthCallbackFlow: class { cancel = async () => {}; },
 }));

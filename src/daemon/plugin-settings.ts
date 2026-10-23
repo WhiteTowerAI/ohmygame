@@ -46,7 +46,7 @@ export class PluginSettingsStore {
     const components = componentEntries(plugin).map(([key, component]) => [key, component.enabled] as const);
     const resolvedComponents = Object.fromEntries(components.map(([key, defaultEnabled]) => [key, stored?.components[key] ?? defaultEnabled]));
     return {
-      enabled: stored?.enabled ?? true,
+      enabled: stored?.enabled ?? plugin.enabled,
       components: resolvedComponents,
     };
   }

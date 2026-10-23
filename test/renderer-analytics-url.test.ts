@@ -19,7 +19,9 @@ describe("analytics paths", () => {
     expect(analyticsPath(parseAppRoute("#/projects?type=godot-game"))).toBe("/projects");
     expect(analyticsPath(parseAppRoute("#/projects/p1/conversations/c1/design"))).toBe("/projects/:id/conversations/:id/design");
     expect(analyticsPath(parseAppRoute("#/community/games/g1"))).toBe("/community/games/:id");
-    expect(analyticsPath(parseAppRoute("#/settings/plugins/acme"))).toBe("/settings/plugins/:id");
+    expect(analyticsPath(parseAppRoute("#/plugins"))).toBe("/plugins");
+    expect(analyticsPath(parseAppRoute("#/plugins/acme"))).toBe("/plugins/:id");
+    expect(analyticsPath(parseAppRoute("#/settings/plugins/acme"))).toBe("/plugins/:id");
     expect(analyticsPath(parseAppRoute("#/settings/providers"))).toBe("/settings/providers");
   });
 });

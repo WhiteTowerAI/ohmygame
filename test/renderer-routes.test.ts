@@ -42,13 +42,17 @@ describe("renderer routes", () => {
     expect(parseAppRoute("#/projects?q=&sort=updated")).toEqual({ page: "projects" });
   });
 
-  it("opens plugins within Settings and keeps legacy links working", () => {
-    expect(pluginHash("personal:game tools")).toBe("#/settings/plugins/personal%3Agame%20tools");
-    expect(parseAppRoute(pluginHash("personal:game tools"))).toEqual({ page: "settings", section: "plugins", pluginId: "personal:game tools" });
-    expect(parseAppRoute("#/plugins/personal%3Agame%20tools")).toEqual({ page: "settings", section: "plugins", pluginId: "personal:game tools" });
-    expect(parseAppRoute("#/plugins")).toEqual({ page: "settings", section: "plugins" });
-    expect(parseAppRoute("#/plugins/%")).toEqual({ page: "settings", section: "plugins" });
-    expect(parseAppRoute("#/settings/plugins/%")).toEqual({ page: "settings", section: "plugins" });
+  it("opens plugins from the main navigation and keeps Settings links working", () => {
+    expect(pluginHash()).toBe("#/plugins");
+    expect(sidebarHash("plugins")).toBe("#/plugins");
+    expect(pluginHash("personal:game tools")).toBe("#/plugins/personal%3Agame%20tools");
+    expect(parseAppRoute(pluginHash("personal:game tools"))).toEqual({ page: "plugins", pluginId: "personal:game tools" });
+    expect(parseAppRoute("#/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
+    expect(parseAppRoute("#/plugins")).toEqual({ page: "plugins" });
+    expect(parseAppRoute("#/settings/plugins")).toEqual({ page: "plugins" });
+    expect(parseAppRoute("#/settings/plugins/personal%3Agame%20tools")).toEqual({ page: "plugins", pluginId: "personal:game tools" });
+    expect(parseAppRoute("#/plugins/%")).toEqual({ page: "plugins" });
+    expect(parseAppRoute("#/settings/plugins/%")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/plugins/id/extra")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/plugins/id/extra")).toEqual({ page: "home" });
   });
@@ -79,11 +83,11 @@ describe("renderer routes", () => {
   it("parses and formats Settings routes", () => {
     expect(DEFAULT_SETTINGS_SECTION).toBe("providers");
     expect(parseAppRoute("#/settings")).toEqual({ page: "settings", section: "providers" });
-    for (const section of ["account", "billing", "appearance", "providers", "agents", "web-search", "network", "plugins", "about"] as const) {
+    for (const section of ["account", "billing", "appearance", "providers", "agents", "web-search", "network", "mcp-server", "about"] as const) {
       expect(parseAppRoute(`#/settings/${section}`)).toEqual({ page: "settings", section });
       expect(settingsHash(section)).toBe(`#/settings/${section}`);
     }
-    expect(parseAppRoute("#/settings/connections")).toEqual({ page: "settings", section: "plugins" });
+    expect(parseAppRoute("#/settings/connections")).toEqual({ page: "plugins" });
     expect(parseAppRoute("#/settings/usage")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/plans")).toEqual({ page: "home" });
     expect(parseAppRoute("#/settings/unknown")).toEqual({ page: "home" });

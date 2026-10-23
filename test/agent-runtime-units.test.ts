@@ -65,7 +65,6 @@ it("requires Claude's sandbox when the policy automatically allows confined comm
       workspacePath: workspace,
       privateDirectory: path.join(os.tmpdir(), "ohmygame-session"),
       env: {},
-      isolateUserConfig: true,
       instructions: "",
       bridge: new ToolBridge([]),
       skillDirectories: [],
@@ -522,7 +521,9 @@ describe("coding agent tool names", () => {
 });
 
 describe("coding agent discovery", () => {
-  it("uses the newest of several installations, unless one was chosen", async () => {
+  // Windows starts only .exe programs, so it cannot run these script stand-ins, and
+  // discovery ignores them there (see docs/agent-runtimes.md).
+  it.skipIf(process.platform === "win32")("uses the newest of several installations, unless one was chosen", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-binaries-"));
     const install = async (folder: string, version: string) => {
       await mkdir(path.join(root, folder));
@@ -549,7 +550,7 @@ describe("coding agent discovery", () => {
     }
   });
 
-  it("orders prereleases by SemVer and retries failed probes without changing the executable", async () => {
+  it.skipIf(process.platform === "win32")("orders prereleases by SemVer and retries failed probes without changing the executable", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "ohmygame-versions-"));
     const install = async (name: string, body: string) => {
       const directory = path.join(root, name);
@@ -603,34 +604,49 @@ describe("coding agent discovery", () => {
 
   it("lists OpenCode's tool-calling models with their variants", () => {
     const output = [
-      "opencode/big-pickle",
-      JSON.stringify(
-        {
-          name: "Big Pickle",
-          capabilities: { toolcall: true },
-          variants: { low: {}, high: {} },
-        },
-        null,
-        2,
-      ),
-      "openai/text-only",
-      JSON.stringify(
-        { name: "Text only", capabilities: { toolcall: false } },
-        null,
-        2,
-      ),
-      "anthropic/claude-sonnet-5",
-      JSON.stringify(
-        { name: "Claude Sonnet 5", capabilities: { toolcall: true } },
-        null,
-        2,
-      ),
-    ].join("\n");
+      {
+        providerID: "opencode",
+        id: "big-pickle",
+        name: "Big Pickle",
+        enabled: true,
+        capabilities: { tools: true },
+        variants: [{ id: "low" }, { id: "high" }],
+        limit: { context: 200000 },
+      },
+      {
+        providerID: "openai",
+        id: "text-only",
+        enabled: true,
+        capabilities: { tools: false },
+      },
+      {
+        providerID: "anthropic",
+        id: "claude-sonnet-5",
+        name: "Claude Sonnet 5",
+        enabled: true,
+        capabilities: { tools: true },
+      },
+      {
+        providerID: "x",
+        id: "disabled",
+        enabled: false,
+        capabilities: { tools: true },
+      },
+      {
+        providerID: "x",
+        id: "old",
+        enabled: true,
+        status: "deprecated",
+        capabilities: { tools: true },
+      },
+      { id: "broken" },
+    ];
     expect(parseOpenCodeModels(output)).toEqual([
       {
         id: "opencode/big-pickle",
         name: "Big Pickle",
         variants: ["low", "high"],
+        contextWindow: 200000,
       },
       {
         id: "anthropic/claude-sonnet-5",
@@ -655,6 +671,7 @@ describe("coding agent discovery", () => {
         OHMYGAME_DAEMON_TOKEN: "secret",
         CLAUDE_CODE_OAUTH_TOKEN: "subscription",
         CODEX_HOME: "/home/me/.codex",
+        OPENCODE_CONFIG_DIR: "/home/me/opencode",
         HTTPS_PROXY: "http://proxy",
       },
     );
@@ -671,6 +688,36 @@ describe("coding agent discovery", () => {
     expect(env).not.toHaveProperty("OHMYGAME_DAEMON_TOKEN");
     // Another CLI's own folder is not this one's to see.
     expect(env).not.toHaveProperty("CODEX_HOME");
+    expect(env).not.toHaveProperty("OPENCODE_CONFIG_DIR");
+    expect(
+      agentEnvironment(
+        "opencode-cli",
+        "/opt/bin/opencode",
+        {},
+        {
+          OPENCODE_CONFIG_DIR: "/home/me/opencode",
+          OPENCODE_CONFIG: "/home/me/opencode.json",
+          OPENCODE_CONFIG_CONTENT: "ignored",
+          OPENAI_API_KEY: "ignored",
+        },
+      ),
+    ).toMatchObject({
+      OPENCODE_CONFIG_DIR: "/home/me/opencode",
+      OPENCODE_CONFIG: "/home/me/opencode.json",
+    });
+    const nativeEnv = agentEnvironment(
+      "opencode-cli",
+      "/opt/bin/opencode",
+      {},
+      {
+        OPENCODE_CONFIG_CONTENT: "ignored",
+        OPENAI_API_KEY: "ignored",
+      },
+    );
+    expect(nativeEnv).not.toHaveProperty("OPENCODE_CONFIG_CONTENT");
+    expect(nativeEnv).not.toHaveProperty("OPENAI_API_KEY");
+    // An ohmygame-mcp launcher the CLI may start must not connect back to OhMyGame.
+    expect(env.OHMYGAME_EXTERNAL_MCP_DISABLED).toBe("1");
   });
 });
 

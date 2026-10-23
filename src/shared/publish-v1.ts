@@ -1,5 +1,5 @@
 export const PUBLISH_GAME_TITLE_MAX_LENGTH = 200;
-export const PUBLISH_ARTIFACT_MAX_BYTES = 25 * 1024 * 1024;
+export const PUBLISH_ARTIFACT_MAX_BYTES = 100 * 1024 * 1024;
 export const PUBLISH_GAME_COVER_PATH = "__ohmygame/cover.webp";
 
 export type PublishListingStatus = "listed" | "unlisted";
@@ -60,7 +60,8 @@ export interface CommunityGamesQuery {
 }
 
 export interface CommunityGameStats {
-  viewerCount: number;
+  /** Successful game entry requests since play counting was enabled. */
+  viewCount: number;
   likeCount: number;
   liked?: boolean;
 }

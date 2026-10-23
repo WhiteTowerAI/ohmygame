@@ -2,7 +2,6 @@ import { createReadStream } from "node:fs";
 import { createHash, type Hash } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { setImmediate } from "node:timers/promises";
-import { StringDecoder } from "node:string_decoder";
 import { CURRENT_SESSION_VERSION, parseSessionEntries, SessionManager, type FileEntry, type SessionInfo } from "@earendil-works/pi-coding-agent";
 import type { PromptImage, ProjectState } from "../shared/contracts.js";
 import type { ConversationImageStore } from "./conversation-images.js";
@@ -76,27 +75,36 @@ export class ConversationCache {
     const entries = appended ? [...cached.entries] : [];
     const start = appended ? cached.offset : 0;
     let offset = start;
-    let pending = "";
-    const decoder = new StringDecoder("utf8");
+    // Inline images can make one record tens of MB. Collect bytes until its
+    // newline instead of repeatedly copying and scanning an incomplete string.
+    let fragments: Buffer[] = [];
+    let pendingBytes = 0;
     if (stats.size > start) {
       for await (const chunk of createReadStream(file, { start, end: stats.size - 1, highWaterMark: 64 * 1024 })) {
-        hash.update(chunk as Buffer);
-        pending += decoder.write(chunk as Buffer);
-        let newline: number;
-        while ((newline = pending.indexOf("\n")) >= 0) {
-          const line = pending.slice(0, newline);
-          pending = pending.slice(newline + 1);
-          offset += Buffer.byteLength(line) + 1;
+        const bytes = chunk as Buffer;
+        hash.update(bytes);
+        let chunkStart = 0;
+        for (let newline = bytes.indexOf(10); newline >= 0; newline = bytes.indexOf(10, chunkStart)) {
+          fragments.push(bytes.subarray(chunkStart, newline));
+          pendingBytes += newline - chunkStart;
+          const line = Buffer.concat(fragments, pendingBytes).toString("utf8");
+          offset += pendingBytes + 1;
+          fragments = [];
+          pendingBytes = 0;
           for (const entry of parseSessionEntries(line)) {
             entries.push(this.#projectEntry(project.id, entry));
           }
+          chunkStart = newline + 1;
+        }
+        if (chunkStart < bytes.length) {
+          fragments.push(bytes.subarray(chunkStart));
+          pendingBytes += bytes.length - chunkStart;
         }
         // Bound parsing and media work between event-loop turns, including buffered lines.
         await this.images?.flush(project.id);
         await setImmediate();
       }
-      pending += decoder.end();
-      const trailing = parseSessionEntries(pending);
+      const trailing = parseSessionEntries(Buffer.concat(fragments, pendingBytes).toString("utf8"));
       if (trailing.length) {
         entries.push(...trailing.map((entry) => this.#projectEntry(project.id, entry)));
         offset = stats.size;

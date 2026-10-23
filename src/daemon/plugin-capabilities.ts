@@ -35,6 +35,9 @@ interface PluginMcpPackage {
 export class PluginCapabilities {
   readonly configuration: PluginConfigurationStore;
   readonly host = new PluginMcpHost();
+  dataPath(pluginId: string): string {
+    return path.join(this.dataDirectory, "plugin-data", createHash("sha256").update(pluginId).digest("hex").slice(0, 24));
+  }
   async skillContent(plugin: PluginDetail, id: string): Promise<string | undefined> {
     return readPluginSkillContent(plugin, id, this.sources);
   }
@@ -108,6 +111,9 @@ export class PluginCapabilities {
       );
     const values = this.configuration.resolved(plugin);
     const resolved = substitute(template, values) as McpServerDefinition;
+    if (plugin.integration && resolved.command) {
+      resolved.env = { ...(resolved.env as Record<string, string> | undefined), OHMYGAME_PLUGIN_DATA_DIR: this.dataPath(plugin.id) };
+    }
     if (!isMcpServerDefinition(resolved))
       throw new PluginConfigurationError("Resolved MCP definition is invalid");
     if (typeof resolved.cwd === "string" && !path.isAbsolute(resolved.cwd))
@@ -224,17 +230,19 @@ export class PluginCapabilities {
     input?: string,
   ) {
     const definition = await this.definition(plugin, serverId);
-    return this.#testDefinition(plugin, serverId, definition, `${plugin.id}:${serverId}`, action, input);
+    return this.#testDefinition(plugin, serverId, definition, await this.template(plugin, serverId), `${plugin.id}:${serverId}`, action, input);
   }
   async testDraft(plugin: PluginDetail, root: string, serverId: string, scope: string) {
     const definitions = plugin.mcpConfigPath ? await readPluginMcpServers(root, plugin.mcpConfigPath) : {};
     const definition = this.#resolve(plugin, serverId, { root, definitions });
-    return this.#testDefinition(plugin, serverId, definition, `draft:${scope}:${serverId}`, "test");
+    return this.#testDefinition(plugin, serverId, definition, definitions[serverId]!, `draft:${scope}:${serverId}`, "test");
   }
-  async #testDefinition(plugin: PluginDetail, serverId: string, definition: McpServerDefinition, key: string,
+  async #testDefinition(plugin: PluginDetail, serverId: string, definition: McpServerDefinition, template: McpServerDefinition, key: string,
     action: "test" | "auth-start" | "auth-complete", input?: string) {
     const literals: PluginConfigurationValues = {};
-    protectDefinitions({ [serverId]: definition }, {}, literals, true);
+    // Keep public configuration placeholders out of literal-secret detection.
+    // Declared secret values are redacted separately by the configuration store.
+    protectDefinitions({ [serverId]: template }, {}, literals, true);
     const redact = (text: string) =>
       this.configuration.redact(
         plugin,

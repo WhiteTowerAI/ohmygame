@@ -318,7 +318,7 @@ export function ProjectSettingsDialog({
                   role="switch"
                   aria-label={t("projectSettings.webPreview")}
                   checked={webPreviewEnabled}
-                  disabled={saving}
+                  disabled={saving || project.integration?.preview === "external"}
                   onChange={(event) =>
                     setWebPreviewEnabled(event.target.checked)
                   }

@@ -72,6 +72,7 @@ describe("Playable codebase", () => {
       "story/shared/playable-sandbox.js",
       "story/shared/playable-state.js",
       "story/shared/playable-story-map.js",
+      "story/shared/playable-surface-ready.js",
       "story/shared/playable-video-clip.js",
       "story/story-web/runtime.js",
     ].sort());

@@ -64,9 +64,9 @@ describe("Node Runtime", () => {
 
     expect(host.events).toEqual([
       "mount:menu",
+      "mount:lobby",
       "cleanup:menu",
       "destroy:menu",
-      "mount:lobby",
     ]);
     expect(runtime.snapshot()).toMatchObject({
       currentNodeId: "lobby",
@@ -245,9 +245,9 @@ describe("Node Runtime", () => {
     await disposal;
     expect(host.events).toEqual([
       "mount:menu",
+      "mount:archive",
       "cleanup:menu",
       "destroy:menu",
-      "mount:archive",
       "cleanup:archive",
       "destroy:archive",
     ]);
@@ -270,9 +270,9 @@ describe("Node Runtime", () => {
     });
     expect(host.events).toEqual([
       "mount:menu",
+      "mount:archive",
       "cleanup:menu",
       "destroy:menu",
-      "mount:archive",
     ]);
     expect(() => nodeContext(host, "archive").state.get()).toThrowError(
       expect.objectContaining({ code: "runtime-failed" }),

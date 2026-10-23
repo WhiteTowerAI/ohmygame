@@ -11,6 +11,7 @@ import {
   inspectPluginArchive,
   restorePluginArchive,
 } from "./api.js";
+import { LoaderCircle, Wrench } from "./icons.js";
 import { t } from "./i18n.js";
 import { PluginFilePicker } from "./plugin-file-picker.js";
 
@@ -189,48 +190,74 @@ export function PluginDependencyPanel({ plugin }: { plugin: PluginDetail }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   return (
-    <section className="plugin-management">
+    <section className="plugin-components plugin-dependencies">
       <h2>{t("pluginPortability.dependencies")}</h2>
-      <p>{t("pluginPortability.dependenciesHint")}</p>
-      <button
-        className="plugin-detail-secondary"
-        type="button"
-        disabled={busy}
-        onClick={() => {
-          setBusy(true);
-          setError(undefined);
-          void checkPluginDependencies(plugin.id)
-            .then(setDiagnostics)
-            .catch((cause) => setError(message(cause)))
-            .finally(() => setBusy(false));
-        }}
-      >
-        {t(busy ? "pluginPortability.checking" : "pluginPortability.check")}
-      </button>
-      {diagnostics ? (
-        <div role="status">
-          {diagnostics.checks.length ? (
-            <ul>
-              {diagnostics.checks.map((check, index) => (
-                <li key={index}>
-                  <strong>
-                    {t(`pluginPortability.status.${check.status}`)}
-                  </strong>{" "}
-                  ·{" "}
+      <div>
+        <div className="plugin-component-row plugin-mcp-row">
+          <span className="plugin-component-icon">
+            {busy ? (
+              <LoaderCircle size={15} className="spin" aria-hidden="true" />
+            ) : (
+              <Wrench size={15} aria-hidden="true" />
+            )}
+          </span>
+          <span className="plugin-row-copy">
+            <strong>{t("pluginPortability.localTools")}</strong>
+            <span role="status">
+              {busy
+                ? t("pluginPortability.checking")
+                : diagnostics && !diagnostics.checks.length
+                  ? t("pluginPortability.noDependencies")
+                  : diagnostics
+                    ? t(`pluginPortability.status.${worstStatus(diagnostics)}`)
+                    : t("pluginPortability.dependenciesHint")}
+            </span>
+          </span>
+          <div className="plugin-mcp-actions">
+            <button
+              className="plugin-detail-secondary"
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setBusy(true);
+                setError(undefined);
+                void checkPluginDependencies(plugin.id)
+                  .then(setDiagnostics)
+                  .catch((cause) => setError(message(cause)))
+                  .finally(() => setBusy(false));
+              }}
+            >
+              {t("pluginPortability.check")}
+            </button>
+          </div>
+        </div>
+        {diagnostics?.checks.length ? (
+          <ul className="plugin-dependency-checks">
+            {diagnostics.checks.map((check, index) => (
+              <li key={index} className={`is-${check.status}`}>
+                <strong>{t(`pluginPortability.status.${check.status}`)}</strong>
+                <span>
                   {t(`pluginPortability.checks.${check.code}`, {
                     target: check.target,
                   })}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>{t("pluginPortability.noDependencies")}</p>
-          )}
-        </div>
-      ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
       {error ? <p role="alert">{error}</p> : null}
     </section>
   );
+}
+
+function worstStatus(diagnostics: PluginDiagnostics) {
+  const statuses = diagnostics.checks.map((check) => check.status);
+  return statuses.includes("error")
+    ? "error"
+    : statuses.includes("warning")
+      ? "warning"
+      : "ok";
 }
 
 function message(cause: unknown): string {

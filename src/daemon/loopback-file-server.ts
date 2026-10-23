@@ -34,13 +34,13 @@ const CONTENT_TYPES: Record<string, string> = {
  * access token, so the path is their only credential.
  */
 export class LoopbackFileServer {
-  readonly #mounts = new Map<string, string>();
+  readonly #mounts = new Map<string, { directory: string; onEntry?: () => void }>();
   #server: Promise<{ server: Server; port: number }> | undefined;
 
   /** Serves `directory` and returns the URL of its root, ending in a slash. */
-  async mount(directory: string): Promise<{ token: string; url: string }> {
+  async mount(directory: string, onEntry?: () => void): Promise<{ token: string; url: string }> {
     const token = randomBytes(24).toString("base64url");
-    this.#mounts.set(token, directory);
+    this.#mounts.set(token, { directory, onEntry });
     const { port } = await this.#listen();
     return { token, url: `http://127.0.0.1:${port}/${token}/` };
   }
@@ -62,7 +62,11 @@ export class LoopbackFileServer {
   #listen(): Promise<{ server: Server; port: number }> {
     this.#server ??= new Promise((resolve, reject) => {
       const server = createServer((request, response) => {
-        void this.#serve(request.method ?? "GET", request.url ?? "/").then(({ status, type, body }) => {
+        const destination = request.headers["sec-fetch-dest"];
+        const speculative = `${request.headers.purpose ?? ""} ${request.headers["sec-purpose"] ?? ""}`;
+        const navigation = (!destination || ["document", "iframe", "frame"].includes(String(destination)))
+          && !/prefetch|prerender/i.test(speculative);
+        void this.#serve(request.method ?? "GET", request.url ?? "/", navigation).then(({ status, type, body }) => {
           response.writeHead(status, {
             "content-type": type,
             "cache-control": "no-store",
@@ -77,7 +81,7 @@ export class LoopbackFileServer {
     return this.#server;
   }
 
-  async #serve(method: string, url: string): Promise<{ status: number; type: string; body: Buffer | string }> {
+  async #serve(method: string, url: string, navigation: boolean): Promise<{ status: number; type: string; body: Buffer | string }> {
     const notFound = { status: 404, type: "text/plain; charset=utf-8", body: "Not found" };
     if (method !== "GET" && method !== "HEAD") return { status: 405, type: "text/plain; charset=utf-8", body: "Method not allowed" };
     let pathname: string;
@@ -87,7 +91,8 @@ export class LoopbackFileServer {
       return notFound;
     }
     const [, token = "", ...rest] = pathname.split("/");
-    const directory = this.#mounts.get(token);
+    const mount = this.#mounts.get(token);
+    const directory = mount?.directory;
     // A directory URL (".../") serves its index.html.
     const segments = rest.length && rest[rest.length - 1] === "" ? [...rest.slice(0, -1), "index.html"] : rest;
     if (!directory || !segments.length || segments.some((segment) => !segment || segment === "." || segment === "..")) return notFound;
@@ -95,6 +100,9 @@ export class LoopbackFileServer {
     if (path.relative(directory, file).startsWith("..")) return notFound;
     try {
       const body = await readFile(file);
+      if (method === "GET" && navigation && segments.length === 1 && segments[0] === "index.html") {
+        try { mount?.onEntry?.(); } catch { /* Counting must not prevent serving the file. */ }
+      }
       return { status: 200, type: CONTENT_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream", body };
     } catch {
       return notFound;

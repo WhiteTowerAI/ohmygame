@@ -20,7 +20,7 @@ export function customModelCatalog(models: readonly RuntimeModel[]): CustomModel
 /** Relays often return only IDs; use an upstream catalog entry for missing metadata. */
 export function knownCustomModel(id: string, api: string, catalog: CustomModelCatalog): RuntimeModel | undefined {
   const upstream = api === "anthropic-messages" ? "anthropic"
-    : api === "google-generative-ai" || api === "google-vertex" ? "google" : "openai";
+    : api === "google-generative-ai" ? "google" : api === "google-vertex" ? "google-vertex" : "openai";
   const matches = catalog.get(id) ?? [];
   return matches.find((model) => model.provider === upstream)
     ?? matches.find((model) => !model.provider.startsWith("custom-") && model.api === api);

@@ -67,6 +67,11 @@ export async function resolvePluginSkillPaths(
   return (await resolvePluginSkills(sources, settings, projectType)).map((skill) => skill.path);
 }
 
+/** Coding agent CLIs stage a Skill's folder; Pi reads its SKILL.md path. */
+export function pluginSkillFolders(skills: readonly PluginSkillRegistration[]): string[] {
+  return skills.map((skill) => path.dirname(skill.path));
+}
+
 export async function resolvePluginSkills(
   sources: readonly PluginSkillSource[],
   settings: PluginSettingsStore,

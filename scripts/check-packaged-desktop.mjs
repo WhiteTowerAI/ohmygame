@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { extractFile } from "@electron/asar";
 import { startDaemon } from "../dist/desktop/daemon-process.js";
+import { checkStoryWeb } from "./check-story-web.mjs";
 
 // Run against the assembled app, before creating installers or publishing it.
 export default async function checkPackagedDesktop(context) {
@@ -12,6 +14,11 @@ export default async function checkPackagedDesktop(context) {
   const archive = path.join(resources, "app.asar");
   const appDirectory = packager.info.appDir;
   const metadata = JSON.parse(await readFile(path.join(appDirectory, "package.json"), "utf8"));
+  const storyResources = path.join("dist", "story-web", "resources.json");
+  assert(
+    extractFile(archive, storyResources).equals(await readFile(path.join(appDirectory, storyResources))),
+    "Packaged story resources must match the build",
+  );
   const piVersion = metadata.dependencies["@earendil-works/pi-ai"];
   const patch = await readFile(path.join(appDirectory, metadata.patchedDependencies[`@earendil-works/pi-ai@${piVersion}`]), "utf8");
   const patchedFiles = [...patch.matchAll(/^diff --git .* b\/(\S+\.js)$/gm)].map(match => match[1]);
@@ -23,7 +30,7 @@ export default async function checkPackagedDesktop(context) {
   }
 
   if (electronPlatformName !== process.platform) {
-    console.log("Packaged Pi patch verified; daemon startup requires the target platform.");
+    console.log("Packaged Pi patch and story resources verified; daemon startup requires the target platform.");
     return;
   }
   const ffmpeg = path.join(resources, "app.asar.unpacked", "node_modules", "@ffmpeg-installer", `${process.platform}-${process.arch}`, process.platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
@@ -64,7 +71,11 @@ export default async function checkPackagedDesktop(context) {
     });
     assert.equal(response.status, 200, "Packaged daemon must serve the projects API");
     assert.deepEqual(await response.json(), [], "Package check must use an empty isolated workspace");
-    console.log("Packaged Pi patch, daemon startup and authenticated API passed.");
+    await access(path.join(resources, "integrations", "skills", "ohmygame-studio", "SKILL.md"));
+    const handshake = await externalMcpHandshake(executable, path.join(archive, "dist", "desktop", "external-mcp-main.js"), path.join(directory, "data"), environment);
+    assert.equal(handshake.result?.serverInfo?.name, "ohmygame-studio", "Packaged MCP launcher must answer from the app archive");
+    await checkStoryWeb(daemon.runtime);
+    console.log("Packaged Pi patch, daemon startup, authenticated API, MCP launcher and story creation, upgrade and preview passed.");
   } finally {
     await daemon?.stop();
     // Windows can retain the executable image lock briefly after the process
@@ -75,4 +86,26 @@ export default async function checkPackagedDesktop(context) {
     }
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+/** Runs the launcher the way Claude Code and Codex do and reads its answer to `initialize`. */
+function externalMcpHandshake(executable, entry, dataDirectory, environment) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, [entry, "--data-dir", dataDirectory], {
+      env: { ...environment, ELECTRON_RUN_AS_NODE: "1" },
+      stdio: ["pipe", "pipe", "inherit"],
+    });
+    const timer = setTimeout(() => { child.kill(); reject(new Error("The MCP launcher did not answer")); }, 15_000);
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+      const line = output.split("\n").find((item) => item.trim());
+      if (!line || !output.includes("\n")) return;
+      clearTimeout(timer);
+      child.stdin.end();
+      try { resolve(JSON.parse(line)); } catch (error) { reject(error); }
+    });
+    child.once("error", (error) => { clearTimeout(timer); reject(error); });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {} } })}\n`);
+  });
 }

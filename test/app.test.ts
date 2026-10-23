@@ -679,6 +679,42 @@ describe("daemon", () => {
     expect(content.rawPayload).toEqual(svg);
   });
 
+  it("uploads GIF, AVIF, Ogg, M4A and GLB files whose data matches their type", async () => {
+    const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
+    apps.push(app);
+    const ftyp = (brand: string) => Buffer.concat([Buffer.from([0, 0, 0, 0x14]), Buffer.from(`ftyp${brand}\0\0\0\0mif1`, "latin1")]);
+    const glb = Buffer.alloc(12);
+    glb.write("glTF", 0, "ascii");
+    glb.writeUInt32LE(2, 4);
+    glb.writeUInt32LE(12, 8);
+    const upload = (name: string, mediaType: string, payload: Buffer) => app.inject({
+      method: "POST",
+      url: `/library/assets/upload?name=${name}&mediaType=${encodeURIComponent(mediaType)}`,
+      headers: { "content-type": "application/octet-stream" },
+      payload,
+    });
+    for (const [name, mediaType, kind, payload] of [
+      ["walk.gif", "image/gif", "image", Buffer.from("GIF89a\x01\0\x01\0", "latin1")],
+      ["sky.avif", "image/avif", "image", ftyp("avif")],
+      ["theme.ogg", "audio/ogg", "audio", Buffer.from("OggS\0\x02", "latin1")],
+      ["voice.m4a", "audio/mp4", "audio", ftyp("M4A ")],
+      ["hero.glb", "model/gltf-binary", "model", glb],
+    ] as const) {
+      const response = await upload(name, mediaType, payload);
+      expect(response.statusCode, response.body).toBe(201);
+      expect(response.json()).toMatchObject({ name, mediaType: kind, contentType: mediaType });
+    }
+    for (const [name, mediaType, payload] of [
+      ["sky.avif", "image/avif", ftyp("isom")],
+      ["clip.mp4", "video/mp4", ftyp("avif")],
+      ["hero.glb", "model/gltf-binary", Buffer.from("not a model")],
+    ] as const) {
+      const response = await upload(name, mediaType, payload);
+      expect(response.statusCode, name).toBe(400);
+      expect(response.json()).toEqual({ error: "File data does not match its media type" });
+    }
+  });
+
   it("rejects non-SVG data uploaded as SVG", async () => {
     const app = createApp({ dataDirectory: await mkdtemp(path.join(tmpdir(), "ohmygame-library-upload-")) });
     apps.push(app);
@@ -761,7 +797,7 @@ describe("daemon", () => {
       }),
     });
     apps.push(app);
-    const project = (await app.inject({ method: "POST", url: "/projects", payload: {} })).json();
+    const project = (await app.inject({ method: "POST", url: "/projects", payload: { type: "godot-game" } })).json();
     const conversation = (await app.inject({ method: "POST", url: `/projects/${project.id}/conversations` })).json();
     const mention = { name: "godot", displayName: "Godot", marketplaceId: "ohmygame" };
 
@@ -771,6 +807,11 @@ describe("daemon", () => {
       payload: { prompt: "Use @Godot", mentions: [mention] },
     });
     await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Use [@Godot](plugin://godot@ohmygame)"));
+    const incompatible = (await app.inject({ method: "POST", url: "/projects", payload: { type: "web-game" } })).json();
+    const otherConversation = (await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations` })).json();
+    const mismatch = await app.inject({ method: "POST", url: `/projects/${incompatible.id}/conversations/${otherConversation.id}/turns`, payload: { prompt: "Use @Godot", mentions: [mention] } });
+    expect(mismatch.statusCode).toBe(409);
+    expect(prompt).toHaveBeenCalledTimes(1);
     const rejected = await app.inject({
       method: "POST",
       url: `/projects/${project.id}/conversations/${conversation.id}/turns`,
@@ -2410,13 +2451,13 @@ describe("Playable Nodes projects", () => {
       payload: { name: "Story", type: "interactive-story" },
     })).json();
 
-    const exported = await app.inject({ method: "POST", url: `/projects/${story.id}/interactive-story/export-project` });
-    const rejected = await app.inject({ method: "POST", url: `/projects/${webGame.id}/interactive-story/export-project` });
+    const exported = await app.inject({ method: "POST", url: `/projects/${story.id}/export` });
+    const webExport = await app.inject({ method: "POST", url: `/projects/${webGame.id}/export` });
 
     expect(exported.statusCode).toBe(200);
     expect(exported.headers["content-type"]).toBe("application/zip");
     expect(exported.rawPayload.subarray(0, 2).toString()).toBe("PK");
-    expect(rejected.statusCode).toBe(409);
+    expect(webExport.statusCode).toBe(200);
   });
 
   it("protects Library assets declared by a Playable Nodes graph", async () => {

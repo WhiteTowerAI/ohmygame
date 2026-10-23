@@ -1,3 +1,4 @@
+import { ExternalProjectPreview } from "./plugin-integration.js";
 import { previewPageUrl as isolatedPreviewUrl } from "../shared/preview-page.js";
 import {
   ArrowLeft,
@@ -38,13 +39,14 @@ import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
-import { isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
+import { isWebRuntimeProjectType, supportsWebPreview, supportsProjectPreview } from "../shared/project-runtime.js";
 import { createWorkspaceEntry, deleteWorkspaceEntry, getProjectCover, getProjectCoverState, getWorkspaceFile, listWorkspaceFiles, renameWorkspaceEntry, saveProjectAssetToLibrary, setProjectCover } from "./api.js";
 import { captureElementImage } from "./page-capture.js";
 import { AssetToolbar, WorkspaceAssetCard, WorkspaceAssetDialog, fileName, filterAssets, hasMediaType, type MediaFilter, type ProjectAssetFilters } from "./asset-browser.js";
 import { ProjectAssetCollectionFilters } from "./library-filters.js";
 import { ProjectRenameDialog } from "./project-rename-dialog.js";
 import { HighlightedCode } from "./highlighted-code.js";
+import { MarkdownContent, workspaceLinkPath } from "./markdown-content.js";
 import { PublishDialog, type PublishDetails } from "./publish-dialog.js";
 import { ProjectSettingsDialog } from "./project-settings-dialog.js";
 import { AssetMedia } from "./asset-gallery.js";
@@ -123,12 +125,13 @@ export function CodingWorkspace({
   onToggleChat,
 }: CodingWorkspaceProps) {
   const supportsPreview = supportsWebPreview(project);
-  const publishingUnavailable = project?.type === "godot-game";
+  const hasPreview = supportsProjectPreview(project);
+  const publishingUnavailable = project?.type === "godot-game" || !!project?.integration;
   const publishLabel = project?.type === "godot-game"
     ? t("workspace.godotPublishing")
     : publishing ? t("workspace.publishing") : t("workspace.publish");
-  const [selectedTab, setSelectedTab] = useState<WorkspaceTab>(supportsPreview ? "preview" : "code");
-  const activeTab = selectedTab === "preview" && !supportsPreview ? "code" : selectedTab;
+  const [selectedTab, setSelectedTab] = useState<WorkspaceTab>(hasPreview ? "preview" : "code");
+  const activeTab = selectedTab === "preview" && !hasPreview ? "code" : selectedTab;
   const shownTab = designOpen ? "design" : activeTab;
   const [designHeaderActions, setDesignHeaderActions] = useState<HTMLDivElement | null>(null);
   const designLeave = useRef<((action: () => void) => void) | undefined>(undefined);
@@ -297,7 +300,7 @@ export function CodingWorkspace({
   }
 
   const tabs: WorkspaceTabOption<WorkspaceTab | "design">[] = [
-    ...(supportsPreview ? [{ id: "preview" as const, label: t("workspace.tab.preview"), icon: Globe2 }] : []),
+    ...(hasPreview ? [{ id: "preview" as const, label: t("workspace.tab.preview"), icon: Globe2 }] : []),
     ...(onDesignOpenChange ? [{ id: "design" as const, label: t("workspace.tab.design"), icon: FileText }] : []),
     { id: "code", label: t("workspace.tab.code"), icon: Code2 },
     { id: "assets", label: t("workspace.tab.assets"), icon: Layers3 },
@@ -341,7 +344,7 @@ export function CodingWorkspace({
           ) : null}
         </div>
         <div className={`viewer-publish${designOpen ? " design-header-actions" : ""}`} ref={setDesignHeaderActions}>
-          {project && isWebRuntimeProjectType(project.type) && shownTab !== "preview" ? <button
+          {project && !project.integration && isWebRuntimeProjectType(project.type) && shownTab !== "preview" ? <button
             className="icon-button pane-header-action"
             type="button"
             aria-label={t("projectSettings.title")}
@@ -397,6 +400,7 @@ export function CodingWorkspace({
         project={project} onProjectUpdated={onProjectUpdated} headerActionsTarget={designHeaderActions} onLeaveReady={registerDesignLeave} onSaveReady={onDesignSaveReady} onContextChange={onDesignContextChange}
       /></Suspense> : null}
 
+      {project?.integration?.preview === "external" && shownTab === "preview" ? <ExternalProjectPreview key={project.id} project={project} onProjectUpdated={onProjectUpdated} /> : null}
       {supportsPreview ? (
         <div
           className="coding-workspace-preview-panel"
@@ -1075,6 +1079,7 @@ export function WorkspaceFileBrowser({
               : selectedFile.binary
               ? <WorkspaceState label={t("workspace.binaryUnavailable")} />
               : renderFile ? renderFile(selectedFile)
+              : isMarkdownFile(selectedFile.path) ? <WorkspaceMarkdownPreview projectId={projectId} revision={revision} file={selectedFile} onOpenFile={onSelect} />
               : <HighlightedCode path={selectedFile.path} content={selectedFile.content ?? ""} />}
           </>
         ) : <WorkspaceState icon={<FolderOpen size={20} />} label={t("workspace.selectFile")} />}
@@ -1358,6 +1363,33 @@ function WorkspaceMediaPreview({ projectId, file, revision }: {
   );
 }
 
+function WorkspaceMarkdownPreview({ projectId, revision, file, onOpenFile }: {
+  projectId?: string;
+  revision: number;
+  file: WorkspaceFileContent;
+  onOpenFile: (path: string) => void;
+}) {
+  const baseDir = file.path.split("/").slice(0, -1).join("/");
+  const renderImage = useCallback((src: string | undefined, alt: string | undefined) => (
+    <WorkspaceMarkdownImage projectId={projectId} revision={revision} baseDir={baseDir} src={src} alt={alt} />
+  ), [projectId, revision, baseDir]);
+  return <MarkdownContent className="file-content-markdown" text={file.content ?? ""} baseDir={baseDir} onOpenWorkspaceFile={onOpenFile} renderImage={renderImage} />;
+}
+
+function WorkspaceMarkdownImage({ projectId, revision, baseDir, src, alt }: {
+  projectId?: string;
+  revision: number;
+  baseDir: string;
+  src?: string;
+  alt?: string;
+}) {
+  const path = workspaceLinkPath(src, undefined, baseDir);
+  const { url } = useWorkspaceAssetUrl(path ? projectId : undefined, path ?? "", revision);
+  const external = src && /^(?:https?:|data:image\/)/i.test(src) ? src : undefined;
+  const resolved = url ?? external;
+  return resolved ? <img src={resolved} alt={alt ?? ""} loading="lazy" /> : <span className="file-content-markdown-image">{alt}</span>;
+}
+
 function loadWorkspaceFile(projectId: string, filePath: string, files: WorkspaceFile[]): Promise<WorkspaceFileContent> {
   const file = files.find((candidate) => candidate.path === filePath);
   if (file?.directory) return Promise.reject(new Error("Path is a directory"));
@@ -1381,6 +1413,11 @@ interface MutableWorkspaceFileNode {
   path?: string;
   directory?: true;
   children: Map<string, MutableWorkspaceFileNode>;
+}
+
+function isMarkdownFile(path: string): boolean {
+  const ext = path.split(".").at(-1)?.toLocaleLowerCase();
+  return ext === "md" || ext === "markdown";
 }
 
 export function workspaceFileTree(files: readonly WorkspaceFile[]): WorkspaceFileNode[] {

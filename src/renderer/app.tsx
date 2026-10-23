@@ -11,23 +11,28 @@ import { AssetCanvasHome } from "./asset-canvas-home.js";
 import { invalidateQuickStartModels, loadQuickStartModels } from "./asset-canvas-quick-start.js";
 import { GameStudioHome } from "./game-studio-home.js";
 import { SettingsPage } from "./settings-page.js";
+import { PluginsSettings } from "./plugins.js";
+import { SidebarPageLayout } from "./sidebar-page.js";
 import { PluginBuilder } from "./plugin-builder.js";
 import type { PluginMention, ProjectState, PromptAttachment, PromptImage, PromptMode } from "../shared/contracts.js";
 import type { PluginDetail } from "../shared/plugins.js";
 import { pluginMentionToken } from "../shared/plugins.js";
-import { createConversation, createProject, MODELS_CHANGED_EVENT } from "./api.js";
+import { createConversation, createProject, getProject, MODELS_CHANGED_EVENT } from "./api.js";
 import type { ComposerDraft } from "./composer.js";
 import { runtimeConnection, useReadyRuntimeGeneration } from "./runtime-connection.js";
-import { Onboarding, OnboardingLoading } from "./onboarding.js";
+import { Onboarding, OnboardingArrival, OnboardingLoading } from "./onboarding.js";
 import { useOnboarding } from "./use-onboarding.js";
+import { usePluginIntegrationGate } from "./plugin-integration.js";
 
 export function App() {
   const serviceGeneration = useReadyRuntimeGeneration();
   const { route, navigate, projectReturnTo, projectBackLabel } = useAppNavigation();
   const onboarding = useOnboarding(route.page === "home");
+  const [welcoming, setWelcoming] = useState(false);
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
   const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
+  const creationGate = usePluginIntegrationGate();
 
   // Provider catalogs are slow; load them now so asset canvas quick starts open without waiting.
   useEffect(() => {
@@ -42,15 +47,18 @@ export function App() {
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
       onStepChange={(step) => onboarding.save({ status: "pending", step })}
-      onFinish={async (status) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); navigate("#/"); }} />;
+      onFinish={async (status) => { await onboarding.save({ status, step: onboarding.state?.step ?? "welcome" }); setWelcoming(true); navigate("#/"); }} />;
   }
   if (route.page === "home" && !onboarding.state) return <OnboardingLoading error={onboarding.error} onRetry={onboarding.retry} />;
   if (route.page === "plugin-builder") return <PluginBuilder key={route.sessionId} sessionId={route.sessionId} />;
   if (route.page === "settings") {
-    return <SettingsPage section={route.section} pluginId={route.pluginId} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} onOpenOnboarding={onboarding.open} />;
+    return <SettingsPage section={route.section} onBack={leaveSettings} onSectionChange={navigateToSettingsSection} onOpenOnboarding={onboarding.open} />;
   }
+  if (route.page === "plugins") return <>{creationGate.dialog}<SidebarPageLayout active="plugins" onNavigate={navigateToSidebarPage}>
+    <PluginsSettings pluginId={route.pluginId} onPluginChange={navigateToPlugin} onTryPlugin={tryPlugin} />
+  </SidebarPageLayout></>;
   if (route.page === "home") {
-    return <Home onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} onOpenAssetCanvas={openAssetCanvasProject} />;
+    return <><Home inert={welcoming} onNavigate={navigateToSidebarPage} onCreate={openCreatedProject} onOpen={openProject} onOpenAssetCanvas={openAssetCanvasProject} />{welcoming ? <OnboardingArrival onComplete={() => setWelcoming(false)} /> : null}</>;
   }
   if (route.page === "community") {
     return <GamesPage onNavigate={navigateToSidebarPage} onOhMyGame={ohMyGame} />;
@@ -89,7 +97,7 @@ export function App() {
   function openCreatedProject(project: ProjectState, conversationId: string, prompt: string, mentions: PluginMention[], images: PromptImage[], mode: PromptMode, attachments?: PromptAttachment[]): void {
     const connection = runtimeConnection();
     setInitialPrompt({ generation: connection.status === "ready" ? connection.generation : -1, conversationId, prompt, mentions, images, mode, attachments });
-    navigateToConversation(project.id, conversationId, false, createdProjectView(project.type));
+    navigateToConversation(project.id, conversationId, false, project.integration ? undefined : createdProjectView(project.type));
   }
 
   function openProject(projectId: string, view?: "design"): void {
@@ -107,7 +115,12 @@ export function App() {
   }
 
   async function tryPlugin(plugin: PluginDetail, prompt: string, projectId?: string): Promise<void> {
-    const project = projectId ? { id: projectId, type: undefined } : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game" });
+    let project = projectId ? await getProject(projectId) : await createProject({ type: plugin.projectTypes?.[0] ?? "web-game", ...(plugin.integration ? { pluginId: plugin.id } : {}) });
+    if (!projectId && plugin.integration) {
+      const ready = await creationGate.ensure(project, plugin.id, { canCreate: !!plugin.integration.createProject });
+      if (!ready) return;
+      project = ready;
+    }
     const conversation = await createConversation(project.id);
     const mention: PluginMention = {
       name: plugin.name,
@@ -119,7 +132,7 @@ export function App() {
       conversationId: conversation.id,
       draft: { prompt: `${pluginMentionToken(mention)} ${prompt}`, mentions: [mention] },
     });
-    navigateToConversation(project.id, conversation.id, false, createdProjectView(project.type));
+    navigateToConversation(project.id, conversation.id, false, project.integration ? undefined : createdProjectView(project.type));
   }
 
   function clearInitialPrompt(): void {
@@ -157,7 +170,7 @@ export function App() {
   }
 
   function navigateToPlugin(pluginId?: string): void {
-    navigate(pluginId ? pluginHash(pluginId) : settingsHash("plugins"), { replace: true, state: historyState() });
+    navigate(pluginHash(pluginId), { replace: true, state: historyState() });
   }
 
   function leaveSettings(): void {

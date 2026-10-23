@@ -40,7 +40,7 @@ let removed: string[];
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  window.location.hash = "#/settings/plugins";
+  window.location.hash = "#/plugins";
   plugins = [structuredClone(official), structuredClone(imported)];
   saved = undefined;
   removed = [];
@@ -94,7 +94,23 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+async function selectCollection(name: string) {
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+    .find(tab => tab.textContent === name)!.click());
+}
+
 describe("Plugin library", () => {
+  it("shows beta metadata on the matching card without marking other plugins", async () => {
+    plugins[0]!.beta = true;
+    await act(async () => root.render(<PluginsSettings onPluginChange={() => {}} onTryPlugin={async () => {}} />));
+    const cards = [...container.querySelectorAll(".plugin-catalog-card")];
+    const betaCard = cards.find(card => card.textContent?.includes("Studio"))!;
+    expect(betaCard.querySelector(".plugin-beta")?.textContent).toBe("Beta");
+    expect(betaCard.querySelector('[aria-label="Disable Studio"]')).not.toBeNull();
+    await selectCollection("Personal");
+    expect(container.querySelector(".plugin-catalog-card .plugin-beta")).toBeNull();
+  });
+
   it("groups official plugins under Public and user marketplace imports under Personal", async () => {
     await act(async () =>
       root.render(
@@ -105,17 +121,20 @@ describe("Plugin library", () => {
       ),
     );
     expect(
-      container.querySelector('[aria-labelledby="public-plugins-title"]')
+      container.querySelector('[role="tabpanel"]')
         ?.textContent,
     ).toContain("Studio");
     expect(
-      container.querySelector('[aria-labelledby="public-plugins-title"]')
+      container.querySelector('[role="tabpanel"]')
         ?.textContent,
     ).not.toContain("Community Review");
+    await selectCollection("Personal");
+    expect(container.querySelectorAll(".plugin-catalog-card")).toHaveLength(1);
     expect(
-      container.querySelector('[aria-labelledby="personal-plugins-title"]')
+      container.querySelector('[role="tabpanel"]')
         ?.textContent,
     ).toContain("Community Review");
+    await selectCollection("Public");
     const toggle = container.querySelector<HTMLButtonElement>(
       '[aria-label="Disable Studio"]',
     )!;
@@ -127,7 +146,7 @@ describe("Plugin library", () => {
         ?.getAttribute("aria-checked"),
     ).toBe("false");
     expect(plugins[0]!.skills[0]!.enabled).toBe(false);
-    expect(window.location.hash).toBe("#/settings/plugins");
+    expect(window.location.hash).toBe("#/plugins");
   });
 
   it("shows compact configuration workspaces with delete in the actions menu", async () => {

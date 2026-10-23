@@ -14,6 +14,7 @@ import type {
 } from "./native-session.js";
 import { AgentProcess, processFailure } from "./process.js";
 import { BRIDGE_SERVER_NAME } from "./tool-bridge.js";
+import { EXTERNAL_MCP_SERVER_NAME } from "../../shared/external-mcp.js";
 import {
   BridgeResults,
   decideApproval,
@@ -252,8 +253,8 @@ export class ClaudeCodeDriver implements NativeDriver {
       context.instructions,
     ];
     if (context.reasoningLevel) args.push("--effort", context.reasoningLevel);
-    if (context.isolateUserConfig)
-      args.push("--setting-sources", "", "--strict-mcp-config");
+    // Avoid recursively reconnecting to OhMyGame through the person's own MCP config.
+    args.push("--disallowedTools", `mcp__${EXTERNAL_MCP_SERVER_NAME}`);
     // Flag settings apply whichever sources load, so the sandbox holds with
     // the person's own configuration too. Full access runs without it.
     if (!context.policy.fullAccess) {

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  PLUGIN_ICON_MEDIA_TYPES,
   PLUGIN_ICON_MAX_BYTES,
   PLUGIN_ICON_PRESETS,
 } from "../shared/plugin-icons.js";
@@ -126,9 +127,7 @@ export function PluginIconPicker({
           change = {
             image: {
               data,
-              mediaType: file.name.toLowerCase().endsWith(".webp")
-                ? "image/webp"
-                : "image/png",
+              mediaType: PLUGIN_ICON_MEDIA_TYPES[file.name.toLowerCase().split(".").at(-1) as keyof typeof PLUGIN_ICON_MEDIA_TYPES],
             },
           };
         } else if (isPluginIcon(icon)) change = { icon };
@@ -272,14 +271,14 @@ export function PluginIconPicker({
                   chooseLabel={t("common.chooseFile")}
                   emptyLabel={t("common.noFileSelected")}
                   file={file}
-                  accept="image/png,image/webp,.png,.webp"
+                  accept="image/png,image/webp,image/svg+xml,.png,.webp,.svg"
                   disabled={busy || disabled}
                   onChange={(selected) => {
                     setFile(undefined);
                     setError(undefined);
                     if (!selected) return;
                     if (
-                      !/\.(png|webp)$/i.test(selected.name) ||
+                      !/\.(png|webp|svg)$/i.test(selected.name) ||
                       selected.size > PLUGIN_ICON_MAX_BYTES ||
                       !selected.size
                     ) {
@@ -308,7 +307,7 @@ export function PluginIconPicker({
                 </label>
                 <datalist id={pathsId}>
                   {files
-                    .filter((entry) => /\.(png|webp)$/.test(entry.path))
+                    .filter((entry) => /\.(png|webp|svg)$/.test(entry.path))
                     .map((entry) => (
                       <option key={entry.path} value={`./${entry.path}`} />
                     ))}

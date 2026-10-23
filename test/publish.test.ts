@@ -133,7 +133,7 @@ describePublishContract("remote publish", () => {
     expect(await readFile(path.join(output, ...manifest.assets.clip.path.slice(2).split("/")))).toEqual(videoContents);
   }, 20_000);
 
-  it("does not apply the remote publish size limit to a local Interactive Story build", async () => {
+  it("builds a local Interactive Story larger than the former 25 MiB publish limit", async () => {
     const runtime = await testRuntime();
     const project = await createProject(runtime.daemon, "Large Story", "interactive-story");
     await playInSandbox(project.workspacePath);
@@ -389,13 +389,14 @@ describePublishContract("remote publish", () => {
     await runtime.daemon.inject({ method: "PUT", url: `/projects/${project.id}/cover`, headers: { "content-type": "image/webp" }, payload: cover });
     const first = (await publishProject(runtime.daemon, project.id)).json();
     const headers = { "x-publish-access-token": token };
-    const visitorId = "12345678-1234-4123-8123-123456789abc";
-    const view = () => runtime.daemon.inject({ method: "POST", url: `/community/games/${first.game.id}/view`, payload: { visitorId } });
-    expect((await view()).json()).toMatchObject({ viewerCount: 1, likeCount: 0 });
-    expect((await view()).json()).toMatchObject({ viewerCount: 1 });
+    const playUrl = new URL(first.game.playUrl);
+    const open = () => runtime.publishServer.inject({ method: "GET", url: playUrl.pathname, headers: { host: playUrl.host } });
+    expect((await open()).statusCode).toBe(200);
+    expect((await open()).statusCode).toBe(200);
+    expect((await runtime.daemon.inject({ method: "POST", url: `/community/games/${first.game.id}/view`, payload: {} })).statusCode).toBe(404);
     const like = await runtime.daemon.inject({ method: "PUT", url: `/community/games/${first.game.id}/like`, payload: { accessToken: token, liked: true } });
-    expect(like.json()).toMatchObject({ viewerCount: 1, likeCount: 1, liked: true });
-    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games?metrics=true", headers })).json()[0].stats).toEqual({ viewerCount: 1, likeCount: 1, liked: true });
+    expect(like.json()).toMatchObject({ viewCount: 2, likeCount: 1, liked: true });
+    expect((await runtime.daemon.inject({ method: "GET", url: "/community/games?metrics=true", headers })).json()[0].stats).toMatchObject({ viewCount: 2, likeCount: 1, liked: true });
 
     expect((await runtime.daemon.inject({ method: "PUT", url: `/community/games/${first.game.id}`, payload: { accessToken: token, title: "Edited title", description: "Edited description" } })).statusCode).toBe(200);
     expect((await runtime.daemon.inject({ method: "GET", url: `/projects/${project.id}` })).json().publication).toMatchObject({ title: "Edited title", description: "Edited description" });
@@ -492,7 +493,7 @@ describePublishContract("remote publish", () => {
     );
   });
 
-  it("rejects an artifact larger than the publish limit before upload", async () => {
+  it("publishes media larger than the former 25 MiB limit", async () => {
     const publishFetch = vi.fn(fetch);
     const runtime = await testRuntime(undefined, publishFetch);
     const project = await createProject(runtime.daemon, "Large");
@@ -501,9 +502,9 @@ describePublishContract("remote publish", () => {
 
     const response = await publishProject(runtime.daemon, project.id);
 
-    expect(response.statusCode).toBe(413);
-    expect(response.json()).toEqual({ error: "Publish artifact exceeds 25 MB" });
-    expect(publishFetch).not.toHaveBeenCalled();
+    expect(response.statusCode, response.body).toBe(201);
+    expect(publishFetch).toHaveBeenCalled();
+    expect((await readFile(path.join(runtime.publishData, "artifacts", response.json().deployment.id, "large.bin"))).length).toBe(26 * 1024 * 1024);
   });
 
   it("keeps the user token out of the project and published artifact", async () => {

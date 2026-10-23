@@ -1,0 +1,22 @@
+{
+  "name": "tiled",
+  "version": "0.1.0",
+  "enabledByDefault": false,
+  "description": "Create Tiled maps, tilesets, and gameplay object layers and validate their engine imports.",
+  "skills": "./skills/",
+  "interface": {
+    "beta": true,
+    "displayName": "Tiled",
+    "shortDescription": "Build tile maps, collisions, and gameplay object layers.",
+    "longDescription": "Create or edit TMX/TMJ maps and TSX/TSJ tilesets, keep image references and gameplay properties, export with the local Tiled CLI, and check the result in the game engine.",
+    "icon": {
+      "type": "asset",
+      "path": "./assets/icon.svg"
+    },
+    "defaultPrompt": [
+      "Create a small Tiled level with a player spawn, collision layer, and goal, then integrate it into this game.",
+      "Check this Tiled map's tilesets, object properties, and target-engine import."
+    ],
+    "projectTypes": ["general", "web-game", "godot-game", "asset-canvas"]
+  }
+}

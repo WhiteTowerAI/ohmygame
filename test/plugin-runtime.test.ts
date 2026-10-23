@@ -4,25 +4,54 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PluginDetail } from "../src/shared/plugins.js";
 import type { LocalPluginStore } from "../src/daemon/local-plugins.js";
-import { resolvePluginSkillPaths, resolvePluginSkills } from "../src/daemon/plugin-runtime.js";
+import { pluginSkillFolders, resolvePluginSkillPaths, resolvePluginSkills } from "../src/daemon/plugin-runtime.js";
+import { stageSkills } from "../src/daemon/agent-runtimes/skills.js";
 import { PluginSettingsStore } from "../src/daemon/plugin-settings.js";
 import { BundledPluginStore } from "../src/daemon/bundled-plugins.js";
 
 describe("plugin runtime", () => {
+  it("only exposes Maker skills after the user enables the plugin", async () => {
+    const store = new BundledPluginStore(path.resolve("plugins"));
+    await store.load();
+    const settings = await settingsStore();
+    const before = await resolvePluginSkills([store], settings, "general");
+    expect(before.some(skill => skill.pluginDisplayName === "TapTap Maker")).toBe(false);
+    expect(before.some(skill => skill.pluginDisplayName === "Blender")).toBe(true);
+
+    const maker = store.read("ohmygame:taptap-maker")!;
+    await settings.update(maker, { enabled: true, components: {} });
+    expect((await resolvePluginSkills([store], settings, "general")).filter(skill => skill.pluginDisplayName === "TapTap Maker")).toHaveLength(1);
+    expect((await resolvePluginSkills([store], settings, "godot-game")).some(skill => skill.pluginDisplayName === "TapTap Maker")).toBe(false);
+    await settings.update(maker, { enabled: false, components: {} });
+    expect(await resolvePluginSkills([store], settings, "general")).toEqual(before);
+  });
+
+  it("stages enabled plugin Skills for coding agent CLIs", async () => {
+    const store = new BundledPluginStore(path.resolve("plugins"));
+    await store.load();
+    const settings = await settingsStore();
+    await settings.update(store.read("ohmygame:taptap-maker")!, { enabled: true, components: {} });
+    const skills = await resolvePluginSkills([store], settings, "general");
+    const target = await mkdtemp(path.join(tmpdir(), "ohmygame-staged-skills-"));
+    const staged = await stageSkills(pluginSkillFolders(skills), target);
+    expect(staged).toHaveLength(skills.length);
+    expect(staged).toEqual(expect.arrayContaining(["taptap-maker", "game-studio", "blender-assets"]));
+  });
+
   it("keeps Game Studio isolated from Web Game skills and honors its disabled setting", async () => {
     const store = new BundledPluginStore(path.resolve("plugins"));
     await store.load();
     const settings = await settingsStore();
     const webBefore = await resolvePluginSkills([store], settings, "web-game");
     const general = await resolvePluginSkills([store], settings, "general");
-    expect(general).toHaveLength(3);
-    expect(general.every((skill) => skill.pluginDisplayName === "Game Studio")).toBe(true);
+    expect(general.filter((skill) => skill.pluginDisplayName === "Game Studio")).toHaveLength(3);
+    expect(general.some((skill) => skill.pluginDisplayName === "Web Game Studio")).toBe(false);
     expect(webBefore.filter((skill) => skill.pluginDisplayName === "Web Game Studio")).toHaveLength(9);
     expect(webBefore.some((skill) => skill.pluginDisplayName === "Game Studio")).toBe(false);
 
     const plugin = store.read("ohmygame:game-studio")!;
     await settings.update(plugin, { ...settings.resolve(plugin), enabled: false });
-    expect(await resolvePluginSkills([store], settings, "general")).toEqual([]);
+    expect(await resolvePluginSkills([store], settings, "general")).toEqual(general.filter((skill) => skill.pluginDisplayName !== "Game Studio"));
     expect(await resolvePluginSkills([store], settings, "web-game")).toEqual(webBefore);
   });
   it("loads only enabled plugin skills", async () => {
@@ -48,7 +77,7 @@ describe("plugin runtime", () => {
     } as unknown as LocalPluginStore;
 
     await expect(resolvePluginSkills([local], settings)).resolves.toEqual([{
-      path: "/managed/plugin/0.1.0/skills/review/SKILL.md",
+      path: path.join("/managed/plugin/0.1.0", "skills/review/SKILL.md"),
       pluginDisplayName: "Test",
       marketplaceDisplayName: "Personal",
     }]);
