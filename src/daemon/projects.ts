@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, copyFile, cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { LibraryAssetProject, MediaModelDefaults, PreviewViewport, ProjectCoverMode, ProjectCoverState, ProjectPackageManager, ProjectRunSettings, ProjectState, ProjectType, PublicationState, ToolJob } from "../shared/contracts.js";
 import { defaultProjectName } from "../shared/project-names.js";
 import { isProjectType, isWebRuntimeProjectType, supportsWebPreview } from "../shared/project-runtime.js";
@@ -1026,7 +1027,7 @@ function normalizePreviewPath(value: unknown): string | undefined {
 }
 
 function isPreviewViewport(value: unknown): value is PreviewViewport {
-  return value === "fit" || value === "tablet" || value === "mobile";
+  return PREVIEW_VIEWPORTS.some((viewport) => viewport === value);
 }
 
 function projectRunSettings(project: ProjectState): ProjectRunSettings {

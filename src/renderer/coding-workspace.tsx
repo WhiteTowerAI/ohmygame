@@ -37,6 +37,7 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Tree, type NodeRendererProps, type TreeApi } from "react-arborist";
+import { PREVIEW_VIEWPORTS } from "../shared/contracts.js";
 import type { PreviewViewport, ProjectFileOpenMode, ProjectState, WorkspaceFile, WorkspaceFileContent } from "../shared/contracts.js";
 import type { PlaytestWatchState } from "../shared/playtest.js";
 import { isWebRuntimeProjectType, supportsWebPreview, supportsProjectPreview } from "../shared/project-runtime.js";
@@ -706,7 +707,7 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
       </button>
       {open ? (
         <div className="viewport-menu-popover" id={menuId} role="menu" aria-label={t("workspace.viewportLabel")}>
-          {(["fit", "tablet", "mobile"] as const).map((viewport) => (
+          {PREVIEW_VIEWPORTS.map((viewport) => (
             <button
               className="viewport-option"
               type="button"
@@ -733,17 +734,20 @@ function ViewportMenu({ value, onChange }: { value: PreviewViewport; onChange: (
 function ViewportIcon({ viewport }: { viewport: PreviewViewport }) {
   if (viewport === "tablet") return <Tablet size={14} />;
   if (viewport === "mobile") return <Smartphone size={14} />;
+  if (viewport === "mobile-landscape") return <Smartphone size={14} style={{ transform: "rotate(90deg)" }} />;
   return <Monitor size={14} />;
 }
 
 function viewportLabel(viewport: PreviewViewport): string {
   if (viewport === "tablet") return t("workspace.viewport.tablet");
   if (viewport === "mobile") return t("workspace.viewport.mobile");
+  if (viewport === "mobile-landscape") return t("workspace.viewport.mobileLandscape");
   return t("projectSettings.device.fit");
 }
 
 export function playerViewport(viewport: PreviewViewport, bounds?: { width: number; height: number }): { width: number; height: number } {
   if (viewport === "mobile") return { width: 375, height: 667 };
+  if (viewport === "mobile-landscape") return { width: 667, height: 375 };
   if (viewport === "tablet") return { width: 768, height: 1024 };
   const size = (value: number | undefined, fallback: number) => Math.min(8192, Math.max(240, Math.round(value || fallback)));
   return { width: size(bounds?.width, 1280), height: size(bounds?.height, 720) };

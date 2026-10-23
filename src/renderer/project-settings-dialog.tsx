@@ -496,6 +496,7 @@ export function ProjectSettingsDialog({
                   <option value="fit">{t("projectSettings.device.fit")}</option>
                   <option value="tablet">{t("projectSettings.device.tablet")}</option>
                   <option value="mobile">{t("projectSettings.device.mobile")}</option>
+                  <option value="mobile-landscape">{t("projectSettings.device.mobileLandscape")}</option>
                 </select>
               </label>
             </div>

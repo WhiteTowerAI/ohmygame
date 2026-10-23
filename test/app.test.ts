@@ -260,25 +260,27 @@ describe("daemon", () => {
     expect(configured.statusCode).toBe(200);
     expect(configured.json()).toMatchObject({ startupDirectory: "apps/game", preview: { status: "stopped" } });
 
-    const runSettings = await app.inject({
-      method: "PUT",
-      url: `/projects/${project.id}/settings/run`,
-      payload: {
+    for (const previewViewport of ["mobile", "mobile-landscape"]) {
+      const runSettings = await app.inject({
+        method: "PUT",
+        url: `/projects/${project.id}/settings/run`,
+        payload: {
+          startupDirectory: "apps/game",
+          startupScript: "dev",
+          packageManager: "pnpm",
+          previewPath: "/play",
+          previewViewport,
+          ...(type === "general" ? { webPreviewEnabled: true } : {}),
+        },
+      });
+      expect(runSettings.statusCode).toBe(200);
+      expect(runSettings.json()).toMatchObject({
         startupDirectory: "apps/game",
-        startupScript: "dev",
         packageManager: "pnpm",
         previewPath: "/play",
-        previewViewport: "mobile",
-        ...(type === "general" ? { webPreviewEnabled: true } : {}),
-      },
-    });
-    expect(runSettings.statusCode).toBe(200);
-    expect(runSettings.json()).toMatchObject({
-      startupDirectory: "apps/game",
-      packageManager: "pnpm",
-      previewPath: "/play",
-      previewViewport: "mobile",
-    });
+        previewViewport,
+      });
+    }
 
     const invalid = await app.inject({
       method: "PUT",
