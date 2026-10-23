@@ -130,7 +130,7 @@ export async function createDesktopWindow(options: CreateWindowOptions): Promise
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, url) => {
-    if (withoutHash(url) !== rendererTarget) event.preventDefault();
+    if (!isRendererPage(url, rendererTarget)) event.preventDefault();
   });
   // A hidden window, such as a Scene thumbnail capture, runs the game out of
   // sight, so it must not be heard either.
