@@ -7,7 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { RotatingLogFile } from "../src/desktop/log-file.js";
 import { createLogRedactor } from "../src/shared/log-redaction.js";
 import { daemonLoggerOptions } from "../src/daemon/request-log.js";
-import { recordConsole } from "../src/desktop/console-log.js";
+import {
+  recordConsole,
+  recordUncaughtErrors,
+} from "../src/desktop/console-log.js";
 
 const directories: string[] = [];
 const now = () => new Date("2026-10-21T08:00:00.000Z");
@@ -27,6 +30,45 @@ afterEach(async () => {
 });
 
 describe("rotating log file", () => {
+  it.each(["console", "fatal"])(
+    "preserves cross-line credential fields until redaction: %s",
+    async (source) => {
+      const log = new RotatingLogFile({
+        directory: await logDirectory(),
+        name: "main",
+        redact: createLogRedactor(),
+      });
+      const message =
+        "Request rejected: password:\n'fixture_multiline_secret with spaces'";
+      if (source === "console") {
+        const noop = (..._values: unknown[]) => {};
+        const target = {
+          debug: noop,
+          log: noop,
+          info: noop,
+          warn: noop,
+          error: noop,
+        };
+        recordConsole(log, target);
+        target.error(message);
+      } else {
+        let listener: (error: Error, origin: string) => void = () => {};
+        recordUncaughtErrors(log, {
+          on: ((_name: string, callback: typeof listener) => {
+            listener = callback;
+          }) as never,
+        });
+        const error = new Error(message);
+        error.stack = `Error: ${message}`;
+        listener(error, "uncaughtException");
+      }
+      await log.close();
+      const text = await readFile(log.path, "utf8");
+      expect(text).not.toContain("fixture_multiline_secret");
+      expect(text).toContain("Request rejected");
+      expect(text).toContain("[redacted]");
+    },
+  );
   it("redacts console object values and multiline credentials before splitting lines", async () => {
     const log = new RotatingLogFile({
       directory: await logDirectory(),

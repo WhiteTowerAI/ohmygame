@@ -66,6 +66,8 @@ Each line is timestamped and redacted before it is written
   string nesting are omitted instead of risking a credential being cut away from
   its field name. An oversized chunked line is discarded through its newline.
 - Quoted console object values and complete Cookie headers are redacted too.
+  Console messages and fatal stacks retain their original line breaks until
+  redaction, including credentials whose value starts on the next line.
   Error snippets are selected only after redaction, so taking the end of a tool
   or preview error cannot separate a credential from its field name.
 

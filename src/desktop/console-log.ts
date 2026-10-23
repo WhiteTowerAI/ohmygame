@@ -15,12 +15,7 @@ export function recordConsole(
   for (const level of LEVELS) {
     const write = target[level].bind(target);
     target[level] = (...values: unknown[]) => {
-      log.line(
-        format(...values)
-          .split("\n")
-          .map((line) => `[${level}] ${line}`)
-          .join("\n"),
-      );
+      log.line(`[${level}] ${format(...values)}`);
       write(...values);
     };
   }
@@ -58,12 +53,7 @@ export function recordUncaughtErrors(
   target.on("uncaughtExceptionMonitor", (error, origin) => {
     const text =
       error instanceof Error ? (error.stack ?? error.message) : String(error);
-    log.line(
-      `${origin}: ${text}`
-        .split("\n")
-        .map((line) => `[fatal] ${line}`)
-        .join("\n"),
-    );
+    log.line(`[fatal] ${origin}: ${text}`);
     // The process may end before a background write runs.
     log.flushSync?.();
   });
