@@ -93,6 +93,13 @@ images when it needs to inspect appearance. The shared canvas reference type
 `library` resolves through this project manifest; `libraryAssetId`
 records the origin of an imported or generated file.
 
+Canvas media downloads use the node's custom `title` as the filename, falling
+back to the original asset name when the title is blank or unusable. The preview
+and context menu use the same name. Downloads retain the asset extension, remove
+unsafe filename characters, handle reserved device names and limit the full name
+to 200 UTF-8 bytes. Renaming a node does not rename the workspace file or shared
+Library asset; adding the asset to another project still uses its asset name.
+
 The editor supplies the current board path and selected node IDs as a
 removable chat context. The agent reads current files before making changes.
 Concurrent edits to different fields merge; competing edits require the user
