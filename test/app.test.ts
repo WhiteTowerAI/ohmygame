@@ -1971,7 +1971,7 @@ describe("daemon", () => {
         status: "completed",
         items: [
           { id: "user-1", turnId: "user-1", type: "userMessage", text: "Hello", timestamp: 0 },
-          { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
+          { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", branchEntryId: "assistant-1", text: "Hi", status: "completed", phase: "final_answer", timestamp: 1 },
           { id: "compaction-1", turnId: "user-1", type: "contextCompaction", status: "completed", summary: "Earlier context", tokensBefore: 42_000, timestamp: 2 },
         ],
       }],

@@ -1494,6 +1494,8 @@ const zhCN: typeof en = {
   },
   timeline: {
     waitingToSteer: "等待引导",
+    branchChat: "在新聊天中创建分支",
+    branchConfirm: "将截至此回复（包含此回复）的消息复制到新聊天？",
     copyResponse: "复制回复",
     attachedImage: "附加图片 {{number}}",
     editMessage: "编辑消息",

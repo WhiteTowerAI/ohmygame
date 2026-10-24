@@ -63,6 +63,23 @@ export class ConversationManager {
     return stored;
   }
 
+  /** Copy only the current path through a finished assistant message. Never mutate the source manager. */
+  async branch(project: ProjectState, stored: StoredConversation, entryId: string): Promise<StoredConversation> {
+    const source = SessionManager.open(stored.sessionPath, sessionDirectory(project), project.workspacePath);
+    const entry = source.getBranch().find((candidate) => candidate.id === entryId);
+    if (entry?.type !== "message" || entry.message.role !== "assistant" || !["stop", "length"].includes(entry.message.stopReason) ||
+      !entry.message.content.some((block) => block.type === "text" && block.text.trim())) {
+      throw new Error("Choose a completed agent response on the current conversation branch");
+    }
+    const sessionPath = source.createBranchedSession(entry.id);
+    if (!sessionPath) throw new Error("Could not create a persistent conversation branch");
+    // The selected assistant message ends this path, so earlier native ready markers are already stale.
+    source.appendCustomEntry(PLAN_STATE_ENTRY, { mode: "normal" });
+    const suffix = " (branch)";
+    source.appendSessionInfo(normalizeTitle(`${stored.summary.title.slice(0, TITLE_MAX_LENGTH - suffix.length)}${suffix}`));
+    return (await this.get(project, source.getSessionId()))!;
+  }
+
   async get(project: ProjectState, conversationId: string): Promise<StoredConversation | undefined> {
     const session = (await this.#sessions(project)).find((candidate) => candidate.id === conversationId);
     if (session) {

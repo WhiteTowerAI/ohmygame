@@ -2994,6 +2994,23 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.post<{ Params: { projectId: string; conversationId: string }; Body: { entryId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/branch",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["entryId"], properties: { entryId: { type: "string", minLength: 1, maxLength: 128 } } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      try {
+        const branched = await conversations.branch(project, conversation, request.body.entryId);
+        return reply.code(201).send(branched.summary);
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
   app.get<{ Params: { projectId: string; imageId: string } }>("/projects/:projectId/conversation-images/:imageId", async (request, reply) => {
     if (!projects.get(request.params.projectId)) return reply.code(404).send({ error: "Project not found" });
     const image = await conversationImages.read(request.params.projectId, request.params.imageId);

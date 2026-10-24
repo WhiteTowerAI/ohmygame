@@ -1527,6 +1527,8 @@ const en = {
   },
   timeline: {
     waitingToSteer: "Waiting to steer",
+    branchChat: "Branch in new chat",
+    branchConfirm: "Create a new chat with all messages through this response?",
     copyResponse: "Copy response",
     attachedImage: "Attached image {{number}}",
     editMessage: "Edit message",

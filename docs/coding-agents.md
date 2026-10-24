@@ -137,6 +137,21 @@ Validation includes simulated canvas-to-Library generation, image-toggle
 persistence, failure/cancellation fixtures, and a real image generation with
 Codex 0.163.0-alpha.10.2 on macOS while its conversation agent was disabled.
 
+## Branch in new chat
+
+A completed agent response has **Branch in new chat** immediately to the right
+of Copy. After confirmation, OhMyGame opens a new chat containing the source
+chat's current history through that response, inclusive. Later messages are not
+copied. The source chat is unchanged, and either chat can continue independently.
+This applies to Pi and all supported coding agent CLIs.
+
+![Branch in new chat next to Copy on a completed response](assets/chat-branch-response.png)
+
+Both chats use the same project's current files. Branching a chat does not
+restore older files or create a separate workspace. The new chat receives the
+model and settings recorded at the branch point, clears active
+plan state, and creates its own native CLI context from a history handoff.
+
 ## What OhMyGame keeps
 
 A coding agent session (`NativeCodingSession`) implements the same
