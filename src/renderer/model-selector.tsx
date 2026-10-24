@@ -270,13 +270,14 @@ export function useAgentModels(options: { agentRuntimes?: boolean } = {}): Agent
     let retries = 0;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const load = (quiet = false) => {
+      clearTimeout(retry);
       const request = ++generation;
       if (!quiet) setCatalog((current) => ({ ...current, status: "loading" }));
       void waitForRuntime().then(() => listModels({ agentRuntimes })).then((available) => {
         if (disposed || request !== generation) return;
         setCatalog({ ...available, status: "ready" });
-        // A coding agent that was slow to list its models is asked again, a few times, without hiding the others.
-        if (available.loadingRuntimes?.length && retries < 5) {
+        // Poll pending CLI discovery and Pi refreshes without hiding the existing models.
+        if ((available.loadingRuntimes?.length || available.loadingProviders?.length) && retries < 6) {
           retries++;
           retry = setTimeout(() => load(true), 3_000);
         }

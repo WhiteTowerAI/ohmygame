@@ -41,6 +41,33 @@ Upgrading Pi preserves OhMyGame's local provider-failure diagnostics and retry
 patch. Pi 1.3 also changes Kimi Coding to OpenAI Chat Completions: existing
 `kimi-coding` Base URL overrides must include `/v1`.
 
+## Built-in model catalog updates
+
+Pi starts with its bundled model catalog, saved custom definitions, and the last
+cached remote catalog. Connected, enabled built-in providers refresh in the
+background when the runtime or a model list is opened; lists and conversations
+remain usable while the request runs. Pi uses its persisted four-hour cache for
+ordinary providers. OhMyGame checks at most once per minute and also limits
+OpenRouter's personalized network refreshes to once per four hours per daemon
+session, since Pi does not throttle those. Failed requests retain the existing
+catalog and wait one minute before another automatic attempt.
+
+Use **Refresh models** on a connected built-in provider's Models section to
+request an immediate update. Signing in again invalidates that provider's
+pending refresh and requests a fresh catalog. `PI_OFFLINE` disables both
+automatic and manual network refreshes. User-added providers keep their explicit
+**Fetch models** workflow; coding agents retain their own model discovery.
+
+Most Pi providers use the catalog maintained at `pi.dev`, with SDK caching and
+ETag revalidation. OpenRouter additionally personalizes chat models using its
+configured endpoint's `/models/user` API. A catalog entry does not verify model
+access or generation. Refreshes preserve custom definitions, visibility settings,
+and saved model choices; they do not switch an active conversation's model.
+The SDK stores remote metadata in `pi-agent/models-store.json`, separately from
+user configuration in `models.json`.
+
+![Refresh models in a built-in provider’s model list (browser fixture)](assets/pi-model-catalog-refresh.png)
+
 ## Azure provider upgrade
 
 Pi 1.2 uses provider ID `azure` in place of `azure-openai-responses`.
