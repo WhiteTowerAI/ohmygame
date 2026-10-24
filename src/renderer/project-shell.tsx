@@ -35,6 +35,7 @@ import {
   cancelPlan,
   compactConversation,
   createConversation,
+  branchConversation,
   getConversation,
   getConversationContextUsage,
   getConversationCapabilities,
@@ -717,6 +718,18 @@ export function ProjectShell({
     }
   }
 
+  async function branchChat(entryId: string) {
+    if (!project || !conversation || creatingConversation || !window.confirm(t("timeline.branchConfirm"))) return;
+    setCreatingConversation(true);
+    dispatch({ type: "notice", message: undefined });
+    try {
+      const created = await branchConversation(project.id, conversation.id, entryId);
+      onOpenConversation(created.id);
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+    } finally { setCreatingConversation(false); }
+  }
+
   async function changeReasoning(level: AgentReasoningLevel) {
     if (!project || !conversation || agentBusy || modelChanging) return;
     setModelChanging(true);
@@ -847,6 +860,8 @@ export function ProjectShell({
                 changeControls={turnChanges}
                 workspaceRevision={workspaceRevision}
                 onAddToChat={addToChat}
+                onBranch={branchChat}
+                branchDisabled={creatingConversation || state.connection !== "open"}
               />
               </ErrorBoundary>
             </Activity>

@@ -453,7 +453,7 @@ describe("conversationItems", () => {
         timestamp: 2,
       },
       { id: "assistant-1:assistant:3", turnId: "user-1", type: "agentMessage", text: "Starting now.", status: "completed", phase: "commentary", timestamp: 0 },
-      { id: "assistant-2:assistant:0", turnId: "user-1", type: "agentMessage", text: "Done.", status: "completed", phase: "final_answer", timestamp: 0 },
+      { id: "assistant-2:assistant:0", turnId: "user-1", type: "agentMessage", branchEntryId: "assistant-2", text: "Done.", status: "completed", phase: "final_answer", timestamp: 0 },
     ]);
   });
 
@@ -641,7 +641,7 @@ describe("conversationItems", () => {
       sessionMessage("assistant-1", { role: "assistant", content: [{ type: "text", text: "Built" }], stopReason: "stop", timestamp: 2 }),
     ];
     const message = { id: "user-1", turnId: "user-1", type: "userMessage", text: "Build", checkpointId: "checkpoint-1", timestamp: 1 };
-    const reply = { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", text: "Built", status: "completed", phase: "final_answer", timestamp: 2 };
+    const reply = { id: "assistant-1:assistant:0", turnId: "user-1", type: "agentMessage", branchEntryId: "assistant-1", text: "Built", status: "completed", phase: "final_answer", timestamp: 2 };
     expect(conversationItems(turn as never)).toEqual([message, reply]);
 
     const undone = sessionEntry("undone-1", CHECKPOINT_UNDONE_ENTRY, { version: 1, checkpoint: "checkpoint-1", previous: "c".repeat(40), kept: 0 });
@@ -2546,6 +2546,27 @@ describe("AgentManager", () => {
     await manager.prompt(project, createConversation(project), "Build").result;
     expect(events.since(project.id).filter((event) => event.type === "checkpoint.created").map((event) => event.data)).toEqual([{ checkpointId: "checkpoint-1" }]);
     expect(entries.at(-1)).toMatchObject({ customType: TURN_END_ENTRY, data: { checkpoint: "checkpoint-1", commit: "b".repeat(40), files: 1 } });
+    await manager.close();
+  });
+
+  it.each([true, false])("binds identical live responses to their own stored message IDs (persist first: %s)", async (persistFirst) => {
+    const { session, entries } = checkpointSession();
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
+    session.prompt.mockImplementation(async () => {
+      for (const id of ["one", "two"]) {
+        const message = {role:"assistant",content:[{type:"text",text:"Done"}],stopReason:"stop",timestamp:1};
+        session.emit({type:"message_start",message} as never);
+        session.emit({type:"message_update",message,assistantMessageEvent:{type:"text_end",contentIndex:0,content:"Done",partial:message}} as never);
+        if (persistFirst) entries.push(sessionMessage(id, message));
+        session.emit({type:"message_end",message} as never);
+        if (!persistFirst) entries.push(sessionMessage(id, message));
+      }
+    });
+    const project = createProject(), conversation = createConversation(project);
+    await manager.prompt(project, conversation, "Go").result;
+    const points = events.since(project.id).flatMap((event) => event.type === "item.updated" && event.data.item.type === "agentMessage" && event.data.item.branchEntryId ? [event.data.item.branchEntryId] : []);
+    expect(points).toEqual(["one", "two"]);
     await manager.close();
   });
 

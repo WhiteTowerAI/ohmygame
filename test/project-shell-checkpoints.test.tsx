@@ -96,12 +96,12 @@ async function openProject(
     init: RequestInit,
   ) => Response | Promise<Response> | undefined,
   conversation = detail("live-turn", { files: 2 }),
-  shellProps: Pick<
+  shellProps: Partial<Pick<
     ComponentProps<
       typeof import("../src/renderer/project-shell.js").ProjectShell
     >,
-    "initialPrompt" | "onInitialPromptHandled"
-  > = {},
+    "initialPrompt" | "onInitialPromptHandled" | "onOpenConversation"
+  >> = {},
 ) {
   Object.defineProperty(window, "ohMyGameDesktop", {
     configurable: true,
@@ -400,6 +400,23 @@ describe("checkpoints in the project shell", () => {
     expect(button("2 files changed")!.getAttribute("aria-expanded")).toBe(
       "true",
     );
+  });
+
+  it("branches after confirmation and opens the returned conversation", async () => {
+    const chat = detail("turn");
+    const response = chat.turns[0]!.items[1]!;
+    if (response.type === "agentMessage") response.branchEntryId = "stored-response";
+    const onOpenConversation = vi.fn();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const daemon = await openProject((route, init) => route.endsWith("/branch") && init.method === "POST"
+      ? Response.json({ ...chat.conversation, id: "new-branch" }) : undefined, chat, { onOpenConversation });
+    await click("Branch in new chat");
+    expect(confirm).toHaveBeenCalledWith("Create a new chat with all messages through this response?");
+    expect(daemon.requests.some((request) => request.route.endsWith("/branch"))).toBe(false);
+    confirm.mockReturnValue(true);
+    await click("Branch in new chat");
+    expect(daemon.requests.find((request) => request.route.endsWith("/branch"))).toMatchObject({ method: "POST", body: JSON.stringify({ entryId: "stored-response" }) });
+    expect(onOpenConversation).toHaveBeenCalledWith("new-branch");
   });
 
   it("reapplies a turn, updates editors through SSE, and keeps the current conversation", async () => {

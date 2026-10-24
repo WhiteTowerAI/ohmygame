@@ -1009,6 +1009,10 @@ export async function createConversation(
   });
 }
 
+export async function branchConversation(projectId: string, conversationId: string, entryId: string): Promise<ConversationSummary> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/branch`, { method: "POST", body: JSON.stringify({ entryId }) });
+}
+
 export async function getConversation(projectId: string, conversationId: string, reset = false): Promise<ConversationDetail> {
   return request(`/projects/${projectId}/conversations/${conversationId}${reset ? "?reset=1" : ""}`);
 }

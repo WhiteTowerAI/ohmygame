@@ -1,8 +1,10 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
+import { latestNativeSession } from "../src/daemon/agent-runtimes/native-session.js";
+import { ConversationImageStore } from "../src/daemon/conversation-images.js";
 import { ConversationManager, defaultConversationTitle } from "../src/daemon/conversations.js";
 import type { ProjectState } from "../src/shared/contracts.js";
 
@@ -104,6 +106,62 @@ describe("ConversationManager", () => {
     expect(renamed).toMatchObject({ title: "Renamed", messageCount: 2 });
   });
 
+  it("branches only through the selected response without changing the source or sharing native context", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager(new ConversationImageStore(path.join(path.dirname(project.workspacePath), "image-cache")));
+    const created = await conversations.create(project, { provider: "claude-code-cli", id: "sonnet" });
+    const session = conversations.open(project, created);
+    session.appendCustomEntry("fixture-settings", { choice: "work" });
+    const plan = { steps: [{ step: "Explore movement", status: "in_progress" as const }] };
+    session.appendCustomEntry("ohmygame-plan", { mode: "planning", plan });
+    session.appendCustomEntry("ohmygame-native-session", { version: 2, runtime: "claude-code-cli", state: "ready", sessionId: "old-thread", profileId: "work" });
+    appendCompletedTurn(session, "First question", "First answer", "aW1hZ2U=");
+    const target = session.getBranch().at(-1)!.id;
+    appendCompletedTurn(session, "Later question", "Later answer");
+    await conversations.view(project, created); // UI projection strips inline image payloads.
+    await conversations.rename(project, created.summary.id, "x".repeat(80));
+    const source = (await conversations.get(project, created.summary.id))!;
+    const before = await readFile(created.sessionPath, "utf8");
+    const branched = await conversations.branch(project, source, target);
+    expect(branched.summary.title).toHaveLength(80);
+    expect(branched.summary.title.endsWith(" (branch)")).toBe(true);
+    expect(branched.summary.id).not.toBe(created.summary.id);
+    expect(branched.summary.messageCount).toBe(2);
+    expect(branched.summary.updatedAt >= branched.summary.createdAt).toBe(true);
+    expect(await readFile(created.sessionPath, "utf8")).toBe(before);
+    expect(await conversations.model(project, branched)).toEqual({ provider: "claude-code-cli", id: "sonnet" });
+    const branch = conversations.open(project, branched);
+    expect(JSON.stringify(branch.getBranch())).toContain("aW1hZ2U=");
+    expect(branch.getBranch().find((entry) => entry.type === "custom" && entry.customType === "fixture-settings")).toMatchObject({ data: { choice: "work" } });
+    expect(branch.getHeader()?.parentSession).toBe(created.sessionPath);
+    expect(branch.getBranch().filter((entry) => entry.type === "message")).toHaveLength(2);
+    expect(JSON.stringify(branch.getBranch())).not.toContain("Later question");
+    for (const runtime of ["claude-code-cli", "codex-cli", "opencode-cli"] as const) {
+      expect(latestNativeSession(branch.getBranch(), runtime)).toBeUndefined();
+    }
+    expect(await conversations.planState(project, source)).toEqual({ mode: "awaiting_approval", plan });
+    expect(await conversations.planState(project, branched)).toEqual({ mode: "normal" });
+    appendCompletedTurn(branch, "Independent question", "Independent answer");
+    expect(await readFile(created.sessionPath, "utf8")).toBe(before);
+    expect((await conversations.list(project)).map((chat) => chat.id)).toContain(branched.summary.id);
+  });
+
+  it("rejects missing, user, unfinished and abandoned branch points", async () => {
+    const project = await createProject();
+    const conversations = new ConversationManager();
+    const created = await conversations.create(project);
+    const session = conversations.open(project, created);
+    appendCompletedTurn(session, "First", "Answer");
+    const user = session.getBranch().find((entry) => entry.type === "message" && entry.message.role === "user")!;
+    const abandoned = session.getLeafId()!;
+    for (const id of ["missing", user.id]) await expect(conversations.branch(project, created, id)).rejects.toThrow("completed agent response");
+    session.branch(user.id);
+    appendCompletedTurn(session, "Replacement", "New answer");
+    await expect(conversations.branch(project, created, abandoned)).rejects.toThrow("completed agent response");
+    const failed = session.appendMessage({ role: "assistant", content: [{ type: "text", text: "Failed" }], stopReason: "error", timestamp: Date.now() } as never);
+    await expect(conversations.branch(project, created, failed)).rejects.toThrow("completed agent response");
+  });
+
   it("returns undefined for an unknown session", async () => {
     const project = await createProject();
     await expect(new ConversationManager().get(project, "missing")).resolves.toBeUndefined();
@@ -143,10 +201,12 @@ function sessionDirectory(project: ProjectState): string {
   return path.join(path.dirname(project.workspacePath), "session");
 }
 
-function appendCompletedTurn(session: SessionManager, prompt: string, response: string): void {
-  session.appendMessage({ role: "user", content: prompt, timestamp: Date.now() } as never);
+function appendCompletedTurn(session: SessionManager, prompt: string, response: string, image?: string): void {
+  session.appendMessage({ role: "user", content: image ? [{ type: "text", text: prompt }, { type: "image", mimeType: "image/png", data: image }] : prompt, timestamp: Date.now() } as never);
   session.appendMessage({
     role: "assistant",
+    provider: "claude-code-cli",
+    model: "sonnet",
     content: [{ type: "text", text: response }],
     stopReason: "stop",
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },

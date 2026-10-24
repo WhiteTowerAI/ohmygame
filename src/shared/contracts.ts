@@ -741,6 +741,8 @@ export type ThreadItem = (
       id: string;
       turnId: string;
       type: "agentMessage";
+      /** Persisted message at which a new independent chat can branch. */
+      branchEntryId?: string;
       text: string;
       status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "interrupted" | "failed">;
       phase?: AgentMessagePhase;
