@@ -244,6 +244,33 @@ async function click(name: string) {
 }
 
 describe("checkpoints in the project shell", () => {
+  it.each(["claude-code-cli", "codex-cli"] as const)("switches the selected %s chat account without changing its model or other chats", async (runtime) => {
+    const chat = detail("turn");
+    chat.settings = { model: { provider: runtime, id: runtime === "codex-cli" ? "gpt-test" : "sonnet" }, accountProfiles: { [runtime]: "system" } };
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const daemon = await openProject((route, init) => {
+      if (route === `/agent-runtimes/${runtime}/profiles`) return Response.json([
+        { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription", account: "personal@example.com" } },
+        { id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription", account: "work@example.com" } },
+      ]);
+      if (route.endsWith("/account-profile") && init.method === "PUT") return Response.json({ profileId: "work" });
+    }, chat);
+    const label = `${runtime === "codex-cli" ? "Codex" : "Claude Code"} account`;
+    const selector = container.querySelector<HTMLButtonElement>(`[aria-label^="${label}:"]`)!;
+    expect(selector).not.toBeNull();
+    const profileReads = daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`).length;
+    await act(async () => selector.click());
+    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((button) => button.textContent?.includes("Work"))!;
+    await act(async () => option.click());
+    await settle();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(selector.textContent).toBe("Work");
+    expect(container.querySelector(`[aria-label^="${label}:"]`)).toBe(selector);
+    expect(daemon.requests.filter((request) => request.route === `/agent-runtimes/${runtime}/profiles`)).toHaveLength(profileReads);
+    expect(daemon.requests.find((request) => request.route.endsWith("/account-profile"))).toMatchObject({ method: "PUT", body: JSON.stringify({ runtime, profileId: "work" }) });
+    expect(daemon.requests.some((request) => request.route.endsWith("/model") && request.method === "PUT")).toBe(false);
+  });
+
   it("retains the initial message after cancelling plugin setup and allows sending it after connection", async () => {
     let ready = false;
     const handled = vi.fn();

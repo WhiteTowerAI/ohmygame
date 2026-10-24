@@ -223,6 +223,14 @@ describe("coding agent sessions", () => {
     return { session, sessionManager, drivers };
   }
 
+  it.each(["claude-code-cli", "codex-cli"] as const)("only resumes a %s native session for the same account configuration", (runtime) => {
+    const manager = SessionManager.inMemory("/tmp/profile-test");
+    manager.appendCustomEntry(NATIVE_SESSION_ENTRY, { version: 2, runtime, state: "ready", sessionId: "thread-a", profileId: "personal" });
+    expect(latestNativeSession(manager.getBranch(), runtime, "personal")?.sessionId).toBe("thread-a");
+    expect(latestNativeSession(manager.getBranch(), runtime, "work")).toBeUndefined();
+    expect(latestNativeSession(manager.getBranch(), runtime)).toBeUndefined();
+  });
+
   it("stops an idle CLI and resumes the same native session with the next message", async () => {
     const { session, drivers } = fixture(
       [

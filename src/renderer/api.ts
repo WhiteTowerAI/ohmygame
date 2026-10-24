@@ -77,7 +77,7 @@ import {
   type Model3DModel,
   type Model3DAnimationAction,
 } from "../shared/contracts.js";
-import type { AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import type { AccountRuntimeId, AccountProfileIds, AgentAccountProfile, AgentAccountProfileStatus, AgentRuntimeId, AgentRuntimeLoginResponse, AgentRuntimeStatus, AnswerApprovalRequest, ApprovalDecision, UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import type { AudioModelCatalog } from "../shared/audio.js";
 import type { DesktopUpdateState } from "../shared/desktop-update.js";
 import type { WorkspaceGitChanges, WorkspaceGitFileView } from "../shared/workspace-git.js";
@@ -292,8 +292,8 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 /** Conversations list coding agents' models too; canvas text and other one-off generation use OhMyGame's own models only. */
-export async function listModels(options: { agentRuntimes?: boolean } = {}): Promise<AgentModelCatalog> {
-  return request(options.agentRuntimes ? "/models?runtimes=1" : "/models");
+export async function listModels(options: { agentRuntimes?: boolean; accountProfiles?: AccountProfileIds } = {}): Promise<AgentModelCatalog> {
+  return request(options.agentRuntimes ? `/models?runtimes=1${options.accountProfiles ? `&profiles=${encodeURIComponent(JSON.stringify(options.accountProfiles))}` : ""}` : "/models");
 }
 
 export async function listAgentRuntimes(recheck = false): Promise<AgentRuntimeStatus[]> {
@@ -308,8 +308,20 @@ export async function recheckAgentRuntime(id: AgentRuntimeId): Promise<AgentRunt
   return request(`/agent-runtimes/${id}/recheck`, { method: "POST" });
 }
 
-export async function loginAgentRuntime(id: AgentRuntimeId): Promise<AgentRuntimeLoginResponse> {
-  return request(`/agent-runtimes/${id}/login`, { method: "POST" });
+export async function loginAgentRuntime(id: AgentRuntimeId, profileId?: string): Promise<AgentRuntimeLoginResponse> {
+  return request(`/agent-runtimes/${id}/login${profileId ? `?profileId=${encodeURIComponent(profileId)}` : ""}`, { method: "POST" });
+}
+
+export function listAccountProfiles(runtime: AccountRuntimeId, recheck = false): Promise<AgentAccountProfileStatus[]> {
+  return request(`/agent-runtimes/${runtime}/profiles${recheck ? "?recheck=1" : ""}`);
+}
+
+export function addAccountProfile(runtime: AccountRuntimeId, name: string, configDirectory?: string): Promise<AgentAccountProfile> {
+  return request(`/agent-runtimes/${runtime}/profiles`, { method: "POST", body: JSON.stringify({ name, ...(configDirectory ? { configDirectory } : {}) }) });
+}
+
+export function setConversationAccountProfile(projectId: string, conversationId: string, runtime: AccountRuntimeId, profileId: string): Promise<{ profileId: string }> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/account-profile`, { method: "PUT", body: JSON.stringify({ runtime, profileId }) });
 }
 
 export async function recheckCodexImages(): Promise<ProviderSummary> {

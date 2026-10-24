@@ -126,6 +126,33 @@ into another runtime. Native compaction and terminal approval decisions use
 versioned custom entries when ordinary messages do not represent them.
 Reloading approval history never restores permission grants.
 
+### Account configurations
+
+The runtime settings store owns Claude Code and Codex account names, directory
+references and new-chat defaults under `accountProfiles` in `agent-runtimes.json`.
+Branch-local `ohmygame-account-profile` entries store `{ version: 1, runtime,
+profileId }`. Missing selections mean System default; changing the new-chat
+default does not change existing chats.
+
+The service passes `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to login, discovery and
+inference. Explicit Claude profiles omit ambient OAuth tokens. Managed Codex
+homes are created with file-backed credentials; imported homes keep their native
+settings. Credentials remain CLI-owned.
+
+Caches and quota reports are keyed by runtime and profile. Login invalidates only
+that profile; executable changes invalidate the runtime. Warm catalogs bypass
+auth probing, and native usage reads never initialize a session. The existing
+Codex server key includes environment and staged Skills, so different homes need
+no additional process pool. Image-provider and external MCP setup independently
+use System default.
+
+Native ready markers include the profile ID. Changing accounts creates a context
+from the bounded history handoff; it cannot resume another account's native
+session. Busy changes are refused. The existing tool policy protects connected
+credential directories. Tests cover persistence, directory creation, account
+isolation, shared servers within one home and switching without extra probes.
+Real sign-in and model turns require acceptance beyond simulated protocol tests.
+
 Native resume metadata is also a session-tree custom entry, not a sidecar:
 
 ```ts
@@ -134,6 +161,7 @@ interface StoredNativeSession {
   runtime: AgentRuntimeId;
   state: "active" | "ready" | "invalid";
   sessionId?: string;
+  profileId?: string;
 }
 ```
 

@@ -22,10 +22,8 @@ enables a CLI.
 agent comes first: it uses the models set up in Providers & Models, and its row
 links there. The coding agent CLIs follow, under **Coding agent CLIs on this
 computer**; **Rescan** checks for them again. Each row shows whether the CLI
-was found and its version; the detail page shows its account, billing, and a
-verified version for reference. The verified version records a real acceptance
-run and is not a minimum version. The agent whose model new conversations start with is
-marked **Default**.
+was found and its version; the detail page provides account and permission
+controls. The agent whose model new conversations start with is marked **Default**.
 Agents are off by default. Enabling the switch offers their models in the conversation model picker; the
 detail page signs in, checks again, chooses the executable and permissions, and
 explains that the CLI loads the person's existing configuration.
@@ -95,6 +93,63 @@ has no quota of its own.
 ![Compact quota percentages in the slash menu (sample data)](assets/agent-usage-compact.png)
 
 ![Codex conversation with a denied read, a cancelled turn, and Medium effort selected](assets/coding-agent-native-effort.png)
+
+## Account configurations (Claude Code and Codex)
+
+Both CLIs support a separate configuration/state directory for each sign-in:
+
+| Agent | Official environment setting | What stays separate |
+| --- | --- | --- |
+| Claude Code | `CLAUDE_CONFIG_DIR` | CLI configuration, sign-in and native history |
+| Codex | `CODEX_HOME` | CLI configuration, credential store, sessions and state |
+
+In **Settings → Agents → Claude Code/Codex → Accounts**, click **+**, enter a
+name and click **Add** to create a private configuration and start the official
+sign-in flow. **Use an existing directory** expands an optional import field for
+an absolute configuration path; importing does not start another sign-in.
+A managed Codex directory is created before its CLI starts and uses
+`cli_auth_credentials_store = "file"` in its own `config.toml`. The directory is
+private, and Codex manages its sign-in in `auth.json`. Imported configurations
+keep their own native credential-storage settings. OhMyGame stores profile names
+and directory references; it never copies tokens between accounts or implements
+its own OAuth flow. Each account row has a sign-in action. Use the refresh icon
+after the official browser flow completes if the status has not updated.
+The sign-in action starts the CLI's official login flow directly; OhMyGame does
+not log out first, delete the account configuration or clear conversation history.
+Completing authorization lets the CLI update credentials in that configuration.
+
+![Compact account list with a default selection and sign-in actions](assets/coding-agent-accounts.png)
+
+**System default** retains the existing CLI environment and sign-in. New profiles
+have independent CLI settings, hooks, MCP servers, Skills and native history.
+Select an account row's radio button to make it the default for new chats. Existing chats retain
+their own selections; switching between Claude Code and Codex in a chat retains
+each agent's selection. With multiple profiles, the chat header offers an account
+menu showing the selected account name. Picking another account switches it
+without an additional confirmation. Wait for the current request to finish before switching. The next
+message creates a context for the selected account, with a bounded history
+handoff if it has not seen this chat. Other chats keep their accounts. No automatic
+rotation at usage limits is provided.
+
+Switching saves the selection locally and reads previously reported usage without
+creating a native session. Model catalogs are cached per account for ten minutes;
+a valid catalog is returned without another auth probe. A cold or expired catalog
+can query the CLI for models, account information and limits, which may contact
+the provider. Switching does not start sign-in, force a token refresh or send a
+model turn; the CLI session is created when it is needed for a message.
+
+Authentication, models and usage caches are separate per runtime and profile.
+Codex app servers may be shared only when executable, environment (including
+`CODEX_HOME`) and staged Skills match. Different account homes never share a
+server. Explicit Claude profiles omit an ambient `CLAUDE_CODE_OAUTH_TOKEN` so it
+cannot override the selected sign-in. Codex Image and external MCP client
+configuration continue using System default independently of chat selections.
+
+See the official [Claude account configuration guide](https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts),
+[Codex state directory reference](https://learn.chatgpt.com/docs/config-file/environment-variables)
+and [Codex credential storage reference](https://learn.chatgpt.com/docs/auth).
+Directory isolation does not establish whether combining subscription allowances
+is permitted by a provider's terms.
 
 ## Codex as an image provider
 

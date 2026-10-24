@@ -323,7 +323,7 @@ export async function probeModels(
         server
           .request<{ account?: { email?: unknown } | null }>(
             "account/read",
-            {},
+            { refreshToken: false },
             PROBE_TIMEOUT_MS,
           )
           .catch(() => undefined),

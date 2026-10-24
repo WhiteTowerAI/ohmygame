@@ -27,6 +27,7 @@ export interface StoredNativeSession {
   runtime: AgentRuntimeId;
   state: "active" | "ready" | "invalid";
   sessionId?: string;
+  profileId?: string;
 }
 
 /** A native context was removed; the shared session must rebuild it from the current branch. */
@@ -121,6 +122,7 @@ export interface NativeDriver {
 }
 
 export interface NativeSessionOptions {
+  profileId?: string;
   runtime: AgentRuntimeId;
   /** The model as the conversation names it: the runtime's own model ID. */
   model: string;
@@ -197,6 +199,7 @@ export class NativeCodingSession implements CodingSession {
     const stored = latestNativeSession(
       this.sessionManager.getBranch(),
       options.runtime,
+      options.profileId,
     );
     this.#nativeSessionId = stored?.sessionId;
     // A branch with messages and no native session of this agent was held by another agent, or by this one before
@@ -602,6 +605,7 @@ export class NativeCodingSession implements CodingSession {
     this.sessionManager.appendCustomEntry(NATIVE_SESSION_ENTRY, {
       version: 2,
       runtime: this.runtime,
+      ...(this.options.profileId ? { profileId: this.options.profileId } : {}),
       state,
       ...(state !== "invalid" && this.#nativeSessionId
         ? { sessionId: this.#nativeSessionId }
@@ -1050,6 +1054,7 @@ function usageRecord(usage: NativeUsage) {
 export function latestNativeSession(
   entries: readonly SessionEntry[],
   runtime: AgentRuntimeId,
+  profileId?: string,
 ): StoredNativeSession | undefined {
   for (let index = entries.length - 1; index >= 0; index--) {
     const entry = entries[index];
@@ -1072,7 +1077,7 @@ export function latestNativeSession(
       !data.sessionId
     )
       return undefined;
-    return data.runtime === runtime
+    return data.runtime === runtime && (data.profileId ?? "system") === (profileId ?? "system")
       ? { version: 2, runtime, state: "ready", sessionId: data.sessionId }
       : undefined;
   }

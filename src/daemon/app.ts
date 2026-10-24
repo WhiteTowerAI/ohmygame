@@ -18,7 +18,7 @@ import { isUtf8 } from "node:buffer";
 import { sniffImageType } from "./image-format.js";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { access as fileAccess, readFile, rm } from "node:fs/promises";
+import { access as fileAccess, readFile, realpath, rm } from "node:fs/promises";
 import { OnboardingStore } from "./onboarding.js";
 import type { UpdateOnboardingRequest } from "../shared/onboarding.js";
 import path from "node:path";
@@ -45,7 +45,7 @@ import { AgentRuntimeService } from "./agent-runtimes/service.js";
 import { neverTouchPaths } from "./agent-runtimes/policy.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
-import { isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest, type UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
+import { ACCOUNT_RUNTIME_IDS, isAccountRuntimeId, isAccountProfileIds, isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest, type UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
 import { OwnedPlaytestDriver } from "./owned-playtest.js";
@@ -430,6 +430,7 @@ const updateAgentRuntimeSchema = {
       enabled: { type: "boolean" },
       permissionMode: { enum: ["standard", "full"] },
       binaryPath: { type: "string", maxLength: 4_096 },
+      defaultProfileId: { type: "string", minLength: 1, maxLength: 80 },
     },
   },
 } as const;
@@ -953,10 +954,12 @@ export function createApp(options: AppOptions = {}) {
       pluginCapabilities.effective(project.type),
       conversations.nativeReasoningLevel(project, conversation, { provider: runtime, id: modelId }),
     ]);
-    const model = await agentRuntimes.model(runtime, modelId);
+    const profileId = isAccountRuntimeId(runtime) ? await conversations.accountProfileId(project, conversation, runtime) : undefined;
+    const model = await agentRuntimes.model(runtime, modelId, profileId);
     const effort = nativeEffort(model, reasoningLevel);
     return agentRuntimes.createSession({
       runtime,
+      ...(profileId ? { profileId } : {}),
       model: modelId,
       ...(effort ? { reasoningLevel: effort } : {}),
       ...(model?.contextWindow ? { contextWindow: model.contextWindow } : {}),
@@ -969,7 +972,7 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject(project).join("\n\n"),
       policy: {
         workspacePath: project.workspacePath,
-        neverTouch: neverTouchPaths(dataDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)),
+        neverTouch: [...neverTouchPaths(dataDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)), ...ACCOUNT_RUNTIME_IDS.flatMap((runtime) => agentRuntimes.settings.profiles(runtime)).flatMap((profile) => profile.configDirectory ? [profile.configDirectory, `${profile.configDirectory}.json`] : [])],
       },
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
@@ -2285,7 +2288,10 @@ export function createApp(options: AppOptions = {}) {
     return conversations.list(project);
   });
 
-  app.get<{ Querystring: { runtimes?: string } }>("/models", async (request) => {
+  app.get<{ Querystring: { runtimes?: string; profiles?: string } }>("/models", async (request, reply) => {
+    let profiles: unknown = {};
+    try { profiles = request.query.profiles ? JSON.parse(request.query.profiles) : {}; } catch { return reply.code(400).send({ error: "Invalid account profile selections" }); }
+    if (!isAccountProfileIds(profiles) || Object.entries(profiles).some(([runtime, id]) => !agentRuntimes.settings.profiles(runtime as "claude-code-cli" | "codex-cli").some((profile) => profile.id === id))) return reply.code(400).send({ error: "Account configuration not found" });
     const runtime = await getModelRuntime();
     const available = resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider)));
     const models = available.filter((model) => providerModelSettings.isVisible(model));
@@ -2299,7 +2305,7 @@ export function createApp(options: AppOptions = {}) {
       reasoningLevels: supportedReasoningLevels(model),
     });
     // Conversations also list coding agents' models; canvas text and other one-off generation use Pi's only.
-    const agents = request.query.runtimes === "1" ? await agentRuntimes.models() : { models: [], loading: [] };
+    const agents = request.query.runtimes === "1" ? await agentRuntimes.models(profiles) : { models: [], loading: [] };
     const nativeDefaults = request.query.runtimes === "1" ? agentRuntimes.settings.defaultModel() : undefined;
     const nativeDefault = nativeDefaults ? findAgentModel(agents.models, nativeDefaults.model) : undefined;
     return {
@@ -2964,6 +2970,7 @@ export function createApp(options: AppOptions = {}) {
           return reply.code(400).send({ error: "Reasoning level is not available for this model" });
         }
         const conversation = await conversations.create(project, { provider: agentModel.provider, id: agentModel.id });
+        if (isAccountRuntimeId(agentModel.provider)) conversations.setAccountProfile(project, conversation, agentModel.provider, agentRuntimes.settings.get(agentModel.provider).defaultProfileId ?? "system");
         if (nativeLevel) conversations.setNativeReasoningLevel(project, conversation, agentModel, nativeLevel);
         return reply.code(201).send(conversation.summary);
       }
@@ -3013,16 +3020,18 @@ export function createApp(options: AppOptions = {}) {
       const planState = await conversations.planState(project, conversation);
       agents.restorePlanState(conversation, planState);
       const agentRuntime = modelRef && isAgentRuntimeId(modelRef.provider) ? modelRef.provider : undefined;
+      const accountProfiles = await conversations.accountProfiles(project, conversation);
       const runtime = modelRef && !agentRuntime ? await getModelRuntime() : undefined;
       const model = runtime && modelRef ? resolveModel(runtime, runtime.getModel(modelRef.provider, modelRef.id)) : undefined;
       // A coding agent's models load from its CLI; a slow one leaves the level to the picker rather than delay the conversation.
-      const agentModel = agentRuntime && modelRef ? await Promise.race([agentRuntimes.model(agentRuntime, modelRef.id), new Promise<undefined>((resolve) => setTimeout(resolve, 2_000))]) : undefined;
+      const agentModel = agentRuntime && modelRef ? await Promise.race([agentRuntimes.model(agentRuntime, modelRef.id, isAccountRuntimeId(agentRuntime) ? accountProfiles[agentRuntime] ?? "system" : undefined), new Promise<undefined>((resolve) => setTimeout(resolve, 2_000))]) : undefined;
       const storedLevel = model || agentModel ? await conversations.reasoningLevel(project, conversation) : undefined;
       const fallbackLevel = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
       const nativeStoredLevel = agentRuntime && modelRef ? await conversations.nativeReasoningLevel(project, conversation, modelRef) : undefined;
       // Slow discovery must not erase a persisted choice in the initial UI state.
       const nativeLevel = agentModel ? nativeEffort(agentModel, nativeStoredLevel) : nativeStoredLevel;
       const settings = {
+        ...(Object.values(accountProfiles).some((id) => id !== "system") ? { accountProfiles } : {}),
         ...(modelRef ? { model: modelRef } : {}),
         ...(model ? { reasoningLevel: effectiveReasoningLevel(model, storedLevel, fallbackLevel) } : {}),
         ...(nativeLevel ? { nativeReasoningLevel: nativeLevel } : {}),
@@ -3072,6 +3081,25 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.put<{ Params: { projectId: string; conversationId: string }; Body: { runtime: string; profileId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/account-profile",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["runtime", "profileId"], properties: { runtime: { enum: ACCOUNT_RUNTIME_IDS }, profileId: { type: "string", minLength: 1, maxLength: 80 } } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      const { runtime, profileId } = request.body;
+      if (!isAccountRuntimeId(runtime) || !agentRuntimes.settings.profiles(runtime).some((profile) => profile.id === profileId)) return reply.code(400).send({ error: "Account configuration not found" });
+      try {
+        await agents.replaceSession(project.id, conversation.summary.id, () => conversations.setAccountProfile(project, conversation, runtime, profileId));
+        return { runtime, profileId };
+      } catch (cause) {
+        return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
+    },
+  );
+
   app.get<{ Params: { projectId: string; conversationId: string } }>(
     "/projects/:projectId/conversations/:conversationId/capabilities",
     async (request, reply) => {
@@ -3114,7 +3142,8 @@ export function createApp(options: AppOptions = {}) {
       if (!project) return reply.code(404).send({ error: "Project not found" });
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
-      const agentModel = isAgentRuntimeId(request.body.provider) ? await agentRuntimes.model(request.body.provider, request.body.id) : undefined;
+      const accountProfiles = await conversations.accountProfiles(project, conversation);
+      const agentModel = isAgentRuntimeId(request.body.provider) ? await agentRuntimes.model(request.body.provider, request.body.id, isAccountRuntimeId(request.body.provider) ? accountProfiles[request.body.provider] ?? "system" : undefined) : undefined;
       const model = agentModel ? undefined : await availableModel(request.body.provider, request.body.id);
       if (!model && !agentModel) return reply.code(400).send({ error: "Model is not available" });
       try {
@@ -3137,12 +3166,13 @@ export function createApp(options: AppOptions = {}) {
         }
         if (agentModel) {
           const effort = nativeEffort(agentModel, await conversations.nativeReasoningLevel(project, conversation, agentModel));
-          return { model: request.body, ...(effort ? { nativeReasoningLevel: effort } : {}) } satisfies ConversationAgentSettings;
+          return { ...(Object.values(accountProfiles).some((id) => id !== "system") ? { accountProfiles } : {}), model: request.body, ...(effort ? { nativeReasoningLevel: effort } : {}) } satisfies ConversationAgentSettings;
         }
         const levels = supportedReasoningLevels(model!);
         const stored = await conversations.reasoningLevel(project, conversation);
         const fallback = defaultReasoningLevel(project.workspacePath, piAgentDirectory);
         return {
+          ...(Object.values(accountProfiles).some((id) => id !== "system") ? { accountProfiles } : {}),
           model: request.body,
           ...(levels.length ? { reasoningLevel: clampReasoningLevel(stored ?? fallback, levels) } : {}),
         } satisfies ConversationAgentSettings;
@@ -3163,7 +3193,7 @@ export function createApp(options: AppOptions = {}) {
       const modelRef = await conversations.model(project, conversation);
       if (!modelRef) return reply.code(409).send({ error: "Select a model before changing reasoning" });
       if (isAgentRuntimeId(modelRef.provider)) {
-        const model = await agentRuntimes.model(modelRef.provider, modelRef.id);
+        const model = await agentRuntimes.model(modelRef.provider, modelRef.id, isAccountRuntimeId(modelRef.provider) ? await conversations.accountProfileId(project, conversation, modelRef.provider) : undefined);
         if (!model?.nativeReasoningLevels?.includes(request.body.level)) return reply.code(400).send({ error: "Reasoning level is not available for this model" });
         try {
           await agents.replaceSession(project.id, conversation.summary.id, () => conversations.setNativeReasoningLevel(project, conversation, model, request.body.level));
@@ -3425,7 +3455,12 @@ export function createApp(options: AppOptions = {}) {
       const conversation = await conversations.get(project, request.params.conversationId);
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       try {
-        return { contextUsage: await agents.contextUsage(project, conversation) };
+        const provider = (await conversations.model(project, conversation))?.provider;
+        const native = isAgentRuntimeId(provider);
+        // Displaying native usage must not create a session or probe the selected account.
+        const usage = await agents.contextUsage(project, conversation, { loadSession: !native });
+        const limits = native ? agentRuntimes.cachedLimits(provider, isAccountRuntimeId(provider) ? await conversations.accountProfileId(project, conversation, provider) : undefined) : undefined;
+        return { contextUsage: usage ?? (limits?.length ? { tokens: null, contextWindow: 0, percent: null, limits } : undefined) };
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }
@@ -3525,6 +3560,29 @@ export function createApp(options: AppOptions = {}) {
     },
   );
 
+  app.get<{ Params: { runtimeId: string }; Querystring: { recheck?: string } }>("/agent-runtimes/:runtimeId/profiles", async (request, reply) => {
+    if (!isAccountRuntimeId(request.params.runtimeId)) return reply.code(404).send({ error: "Account configurations are not supported for this coding agent" });
+    return agentRuntimes.accountProfiles(request.params.runtimeId, request.query.recheck === "1");
+  });
+  app.post<{ Params: { runtimeId: string }; Body: { name: string; configDirectory?: string } }>("/agent-runtimes/:runtimeId/profiles", {
+    schema: { body: { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", minLength: 1, maxLength: 80 }, configDirectory: { type: "string", minLength: 1, maxLength: 4096 } } } },
+  }, async (request, reply) => {
+    if (!isAccountRuntimeId(request.params.runtimeId)) return reply.code(404).send({ error: "Account configurations are not supported for this coding agent" });
+    try {
+      let configDirectory = request.body.configDirectory;
+      if (configDirectory) {
+        if (!path.isAbsolute(configDirectory)) throw new Error("The configuration directory must be absolute");
+        const directory = await realpath(configDirectory);
+        configDirectory = directory;
+        if (projects.list().some((project) => directory === project.workspacePath || directory.startsWith(`${project.workspacePath}${path.sep}`))) throw new Error("Keep account configurations outside project workspaces");
+      }
+      const profile = await agentRuntimes.addAccountProfile(request.params.runtimeId, request.body.name, configDirectory);
+      // All native agents must protect every connected credential directory in their next session.
+      for (const runtime of ["claude-code-cli", "codex-cli", "opencode-cli"] as const) agents.releaseRuntimeSessions(runtime);
+      return reply.code(201).send(profile);
+    } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+
   app.get<{ Querystring: { recheck?: string } }>("/agent-runtimes", async (request) => agentRuntimes.statuses(request.query.recheck === "1"));
 
   app.patch<{ Params: { runtimeId: string }; Body: UpdateAgentRuntimeRequest }>("/agent-runtimes/:runtimeId", { schema: updateAgentRuntimeSchema }, async (request, reply) => {
@@ -3544,10 +3602,10 @@ export function createApp(options: AppOptions = {}) {
     return agentRuntimes.status(request.params.runtimeId, true);
   });
 
-  app.post<{ Params: { runtimeId: string } }>("/agent-runtimes/:runtimeId/login", async (request, reply) => {
+  app.post<{ Params: { runtimeId: string }; Querystring: { profileId?: string } }>("/agent-runtimes/:runtimeId/login", async (request, reply) => {
     if (!isAgentRuntimeId(request.params.runtimeId)) return reply.code(404).send({ error: "Coding agent not found" });
     try {
-      return await agentRuntimes.login(request.params.runtimeId);
+      return await agentRuntimes.login(request.params.runtimeId, request.query.profileId);
     } catch (cause) {
       return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
     }

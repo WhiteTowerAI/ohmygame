@@ -38,6 +38,7 @@ interface ComposerProps {
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   nativeReasoningLevel?: string;
+  accountProfileId?: string;
   modelChanging: boolean;
   promptHistory: Array<{ prompt: string; mentions: PluginMention[] }>;
   capabilities: ConversationCapabilities;
@@ -77,6 +78,7 @@ export function Composer({
   model,
   reasoningLevel,
   nativeReasoningLevel,
+  accountProfileId,
   modelChanging,
   promptHistory,
   capabilities,
@@ -319,7 +321,7 @@ export function Composer({
       if (!disposed) setRuntimeUsage(undefined);
     });
     return () => { disposed = true; };
-  }, [showCompactCommand, running, model?.provider, model?.id, conversationId, contextMenu.open]);
+  }, [showCompactCommand, running, modelStatus, model?.provider, model?.id, conversationId, accountProfileId, contextMenu.open]);
 
   useEffect(() => {
     if (planMode === "planning") updateDraft({ planning: true });
