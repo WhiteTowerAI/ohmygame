@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,6 +11,7 @@ import {
   writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
+import { compileNodeGraph } from "../src/daemon/playable-compiler.js";
 import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, playablePreset } from "../src/daemon/playable-presets.js";
 import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
 import { playableBackdrop } from "../src/shared/playable-backdrop.js";
@@ -40,6 +41,13 @@ describe("Playable Presets", () => {
       expect(source.javascript).toContain("mount");
       // Every Template has one background the editor can set.
       expect(playableBackdrop(source.html)).toBe("missing");
+      expect(source.html).toContain('data-template-artwork="lastbus-');
+      for (const [file, css] of Object.entries(preset.sharedFiles ?? {})) {
+        if (!file.startsWith("shared/templates/")) continue;
+        expect(css).not.toContain("data:image");
+        expect(Buffer.byteLength(css)).toBeLessThan(2048);
+        expect(css).not.toMatch(/^\.has-backdrop\s*\{/m);
+      }
       // Declared Signals are the ones the starter source emits, from any of its files.
       const files = [source.html, source.javascript, ...Object.values(source.files ?? {}), ...Object.values(preset.sharedFiles ?? {})].join("");
       for (const signal of preset.signals) {
@@ -184,22 +192,57 @@ describe("addPlayableNode", () => {
     expect(codebase.editorLayout.nodes.carriage).toEqual({ x: 560, y: 180 });
     expect(await readFile(path.join(workspacePath, "nodes/carriage/index.html"), "utf8"))
       .toContain("The carriage");
+    // Only the chosen Template's picture is copied on first use.
+    expect(await readdir(path.join(workspacePath, "shared/templates/lastbus"))).toEqual(["phone.webp"]);
     // The new Node compiles alongside the rest of the project.
     const validation = await validatePlayableProject(workspacePath, "draft");
     expect(validation.issues).toEqual([]);
   });
 
-  it("keeps a menu and a Story map off the Story map, and compiles the Story map", async () => {
+  it("compiles all eight Templates with bundled artwork and preserves project edits", async () => {
     const workspacePath = await createWorkspace("add-story-map");
 
-    await addPlayableNode(workspacePath, { preset: "main-menu", id: "menu" });
-    await addPlayableNode(workspacePath, { preset: "story-map", id: "map" });
+    for (const preset of PLAYABLE_PRESETS) {
+      await addPlayableNode(workspacePath, { preset: preset.id, id: preset.id });
+    }
 
-    const nodes = (await readNodeCodebase(workspacePath)).graph.nodes;
+    const { graph } = await readNodeCodebase(workspacePath);
+    const { nodes } = graph;
     expect(nodes.find((node) => node.id === "start")?.story).toBeUndefined();
-    expect(nodes.find((node) => node.id === "menu")?.story).toEqual({ hidden: true });
-    expect(nodes.find((node) => node.id === "map")?.story).toEqual({ hidden: true });
+    expect(nodes.find((node) => node.id === "main-menu")?.story).toEqual({ hidden: true });
+    expect(nodes.find((node) => node.id === "story-map")?.story).toEqual({ hidden: true });
     expect((await validatePlayableProject(workspacePath, "draft")).issues).toEqual([]);
+    const compiled = await compileNodeGraph(workspacePath, graph);
+    for (const id of PLAYABLE_PRESET_IDS) {
+      const preset = playablePreset(id)!;
+      for (const [relative, css] of Object.entries(preset.sharedFiles ?? {})) {
+        if (!relative.startsWith("shared/templates/")) continue;
+        const actual = await readFile(path.join(workspacePath, relative), "utf8");
+        expect(actual).toBe(css);
+        expect(actual).not.toContain("base64");
+        const image = actual.match(/url\("(\.\/lastbus\/[^\"]+\.webp)"\)/)![1]!;
+        await access(path.resolve(workspacePath, path.dirname(relative), image));
+      }
+      for (const [relative, bundled] of Object.entries(preset.sharedFileCopies ?? {})) {
+        expect(await readFile(path.join(workspacePath, relative))).toEqual(await readFile(bundled));
+      }
+      // The legacy sandbox build may inline the separate project image for distribution.
+      expect(compiled.nodes[id]!.css).toContain("data:image/webp;base64,");
+      expect(compiled.nodes[id]!.css).toContain(':not([data-asset])');
+    }
+    expect(await readdir(path.join(workspacePath, "shared/templates/lastbus"))).toHaveLength(8);
+
+    const illustration = "shared/templates/lastbus-station.css";
+    const authored = "/* Author's replacement artwork */\n.backdrop { background: navy; }\n";
+    await writeFile(path.join(workspacePath, illustration), authored);
+    const imagePath = path.join(workspacePath, "shared/templates/lastbus/station.webp");
+    const replacement = await readFile(path.join(workspacePath, "shared/templates/lastbus/cover.webp"));
+    await writeFile(imagePath, replacement);
+    const existingScene = await readFile(path.join(workspacePath, "nodes/story-map/style.css"), "utf8");
+    await addPlayableNode(workspacePath, { preset: "visual-novel", id: "chapter-2" });
+    expect(await readFile(path.join(workspacePath, illustration), "utf8")).toBe(authored);
+    expect(await readFile(imagePath)).toEqual(replacement);
+    expect(await readFile(path.join(workspacePath, "nodes/story-map/style.css"), "utf8")).toBe(existingScene);
   });
 
   it("gives a Main menu a Story map Exit that waits to be connected", async () => {

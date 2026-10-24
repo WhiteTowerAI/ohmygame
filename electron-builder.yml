@@ -18,6 +18,7 @@ files:
   - dist/desktop/**/*.js
   - dist/desktop/**/*.cjs
   - dist/daemon/**/*.js
+  - dist/daemon/assets/scene-templates/*.webp
   - dist/shared/**/*.js
   - dist/story-web/resources.json
   - dist/renderer/**/*

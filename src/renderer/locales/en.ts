@@ -2805,6 +2805,16 @@ const en = {
     noCompile: "The project does not compile",
     code: "Playable Nodes code",
   },
+  storyTemplates: {
+    blank: { label: "Blank", summary: "A video or an image, then next" },
+    mainMenu: { label: "Main menu", summary: "A title, the game's entries, Load, and Settings" },
+    choice: { label: "Choice", summary: "Answers that lead different ways" },
+    qte: { label: "QTE", summary: "Press in time, or miss" },
+    hotspot: { label: "Hotspot", summary: "Spots on a picture to click" },
+    ending: { label: "Ending", summary: "The end, with Play again" },
+    storyMap: { label: "Story map", summary: "The branches the player has found so far" },
+    visualNovel: { label: "Visual Novel", summary: "Dialogue lines with characters, then answers" },
+  },
   storyMenu: {
     addScene: "Add Scene",
     addAScene: "Add a Scene",

@@ -22,6 +22,7 @@ import { createPortal } from "react-dom";
 import { CanvasContextMenu, useCanvasCenter, type CanvasContextMenuState } from "./editor-canvas.js";
 import { type PlayablePresetSummary } from "../shared/playable-editor.js";
 import { PlayableTemplateDialog } from "./playable-template-dialog.js";
+import { playableTemplateText } from "./playable-template-labels.js";
 import { t } from "./i18n.js";
 
 /** Opens Add a Scene and adds the chosen Template at the center of the canvas. */
@@ -94,9 +95,9 @@ export function PlayableCanvasContextMenu({ menu, presets, canUndo, canRedo, can
                 role="menuitem"
                 key={preset.id}
                 disabled={busy}
-                title={preset.summary}
+                title={playableTemplateText(preset).summary}
                 onClick={() => run(() => onAdd(preset.id))}
-              ><Clapperboard size={15} /><span>{preset.label}</span></button>)}
+              ><Clapperboard size={15} /><span>{playableTemplateText(preset).label}</span></button>)}
             </div>
           </div> : null}
         </div>

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import yauzl from "yauzl";
 import { AssetLibrary } from "../src/daemon/asset-library.js";
+import { addPlayableNode } from "../src/daemon/playable-add-node.js";
 import {
   createNodeCodebase,
   readNodeCodebase,
@@ -38,6 +39,7 @@ describe("Interactive Story project export", () => {
     };
     await createNodeCodebase(workspace, codebase);
     await writeFile(path.join(workspace, "portrait.PNG"), "image bytes");
+    await addPlayableNode(workspace, { preset: "visual-novel", id: "chapter" });
     const archive = await exportStoryArchive(workspace, library);
     const methods = await new Promise<Record<string, number>>(
       (resolve, reject) => {
@@ -59,9 +61,19 @@ describe("Interactive Story project export", () => {
     expect(methods["portrait.PNG"]).toBe(0);
     expect(methods["assets/library/clip.mp4"]).toBe(0);
     expect(methods["graph.json"]).toBe(8);
+    expect(methods["shared/templates/lastbus/station.webp"]).toBe(0);
+    expect(methods["shared/templates/lastbus-station.css"]).toBe(8);
     const files = await unzip(archive);
     expect(files["portrait.PNG"]!.toString()).toBe("image bytes");
     expect(files["assets/library/clip.mp4"]!.toString()).toBe("video bytes");
+    expect(files["shared/templates/lastbus/station.webp"]).toEqual(
+      await readFile(
+        path.join(workspace, "shared/templates/lastbus/station.webp"),
+      ),
+    );
+    const css = files["shared/templates/lastbus-station.css"]!.toString();
+    expect(css).toContain('url("./lastbus/station.webp")');
+    expect(css).not.toContain("base64");
   });
 
   it("packs the editable project with its Library assets and without local folders", async () => {

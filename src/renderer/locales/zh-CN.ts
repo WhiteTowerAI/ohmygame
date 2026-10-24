@@ -2730,6 +2730,16 @@ const zhCN: typeof en = {
     noCompile: "项目无法编译",
     code: "互动故事代码",
   },
+  storyTemplates: {
+    blank: { label: "空白场景", summary: "播放视频或显示图片，然后进入下一幕" },
+    mainMenu: { label: "主菜单", summary: "游戏标题、开始入口、读取存档和设置" },
+    choice: { label: "选项", summary: "通过不同回答走向不同分支" },
+    qte: { label: "快速反应（QTE）", summary: "在限定时间内按下按键，成功或失败" },
+    hotspot: { label: "热点交互", summary: "点击画面中的热点进行探索" },
+    ending: { label: "结局", summary: "故事结束，并提供重新开始入口" },
+    storyMap: { label: "故事地图", summary: "展示玩家已探索的故事分支" },
+    visualNovel: { label: "视觉小说", summary: "逐句呈现角色对话，然后选择回答" },
+  },
   storyMenu: {
     addScene: "添加场景",
     addAScene: "添加一个场景",

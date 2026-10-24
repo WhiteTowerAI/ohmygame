@@ -311,7 +311,13 @@ vignette, and film grain over the background, dialogue as subtitles, answers
 as dark bars across the screen, a ring for timed presses, and pulsing dots
 for hotspots. Sizes follow the screen width (`cqw`), so a Scene looks the
 same at any size. Until the author sets a background, each Template shows a
-placeholder picture chosen by a class on its `.backdrop`.
+still from Last Bus: the cover, bus stop, phone, cabin, stop bell, or store
+interior. Small project-owned stylesheets under `shared/templates/` reference
+separate WebP files under `shared/templates/lastbus/`, copied only on first use.
+Their `data-template-artwork` selector scopes the illustration and zero
+letterbox to that Scene; other Scenes keep their own Project Style. Replacing
+the WebP changes the illustration without editing CSS. Setting an image or
+video background in the editor replaces the illustration.
 
 Project Style is how two different screens, such as the Ash Club menu and
 archive, stay recognizably part of one game.
@@ -498,9 +504,9 @@ already uses the Project Style, its expected Signals, a one-line summary
 for the author, and a brief that tells the Agent what the author usually
 wants next. The brief is not shown to the author. Each Template's picture in
 **Add a Scene** is a capture of the Scene it creates: the starter source
-with the default Project Style and no background. The Story map's shows a
-sample story partly played, since a new one has nothing seen to show, and
-the Visual Novel's shows its first line of dialogue.
+with the default Project Style and its bundled Last Bus artwork. The Story
+map picture shows a sample story partly played, since a new one has nothing
+seen to show, and the Visual Novel picture shows its first line of dialogue.
 
 | Template  | Starter content                                        | Starter Signals        |
 | --------- | ------------------------------------------------------ | ---------------------- |
