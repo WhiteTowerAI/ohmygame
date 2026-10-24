@@ -1,11 +1,12 @@
 import { referencedIntegration, usePluginIntegrationGate } from "./plugin-integration.js";
-import { isAgentRuntimeId, type ApprovalDecision } from "../shared/agent-runtimes.js";
+import { isAccountRuntimeId, isAgentRuntimeId, type ApprovalDecision, type AgentAccountProfileStatus } from "../shared/agent-runtimes.js";
 import {
   ArrowLeft,
   LoaderCircle,
   MessageSquarePlus,
   PanelToggle,
   RefreshCw,
+  UserRound,
   X,
 } from "./icons.js";
 import { observeWorkspaceVersion, workspaceVersion } from "./workspace-version.js";
@@ -56,12 +57,15 @@ import {
   sendPrompt,
   steerPendingPrompt,
   setConversationModel,
+  setConversationAccountProfile,
+  listAccountProfiles,
   setConversationReasoning,
   startPreview,
   subscribeToProject,
   undoCheckpoint,
   waitForRuntime,
 } from "./api.js";
+import { CanvasChipSelect } from "./canvas-chip-select.js";
 import { ConversationMenu } from "./conversation-menu.js";
 import { AgentTimeline } from "./agent-timeline.js";
 import type { TurnChangesControls } from "./turn-changes.js";
@@ -153,6 +157,7 @@ export function ProjectShell({
   const [unfinishedRestore, setUnfinishedRestore] = useState(false);
   const [openFileRequest, setOpenFileRequest] = useState<{ path: string; id: number }>();
   const [modelChanging, setModelChanging] = useState(false);
+  const [accountProfiles, setAccountProfiles] = useState<AgentAccountProfileStatus[]>([]);
   const [capabilities, setCapabilities] = useState<ConversationCapabilities>(EMPTY_CAPABILITIES);
   const [playableChat, setPlayableChat] = useState<PlayableChatState>();
   /** The Playable surface whose chip the user removed from the next message. */
@@ -164,7 +169,18 @@ export function ProjectShell({
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
   // The chat takes the request once its conversation is open.
   usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
-  const modelCatalog = useAgentModels({ agentRuntimes: true });
+  const accountRuntime = isAccountRuntimeId(state.settings.model?.provider) ? state.settings.model.provider : undefined;
+  const selectedProfileId = accountRuntime ? state.settings.accountProfiles?.[accountRuntime] ?? "system" : "system";
+  const modelCatalog = useAgentModels({ agentRuntimes: true, accountProfiles: state.conversation ? { "claude-code-cli": state.settings.accountProfiles?.["claude-code-cli"] ?? "system", "codex-cli": state.settings.accountProfiles?.["codex-cli"] ?? "system" } : undefined });
+  useEffect(() => {
+    setAccountProfiles([]);
+    if (!accountRuntime) return;
+    let disposed = false;
+    const load = () => void listAccountProfiles(accountRuntime).then((profiles) => { if (!disposed) setAccountProfiles(profiles); }).catch(() => {});
+    load();
+    window.addEventListener("focus", load);
+    return () => { disposed = true; window.removeEventListener("focus", load); };
+  }, [accountRuntime]);
   const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
   const unsubscribeEvents = useRef<(() => void) | undefined>(undefined);
@@ -703,6 +719,16 @@ export function ProjectShell({
     }
   }
 
+  async function changeAccountProfile(profileId: string) {
+    if (!project || !conversation || !accountRuntime || agentBusy || modelChanging) return;
+    setModelChanging(true);
+    try {
+      await setConversationAccountProfile(project.id, conversation.id, accountRuntime, profileId);
+      dispatch({ type: "conversation-settings", settings: { ...state.settings, accountProfiles: { ...state.settings.accountProfiles, [accountRuntime]: profileId } } });
+    } catch (error) { dispatch({ type: "notice", message: errorMessage(error) }); }
+    finally { setModelChanging(false); }
+  }
+
   async function changeModel(model: AgentModel) {
     if (!project || !conversation || agentBusy || modelChanging) return;
     setModelChanging(true);
@@ -791,6 +817,14 @@ export function ProjectShell({
         const element = event.currentTarget;
         followTimeline.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
       }} actions={<>
+            {accountRuntime && accountProfiles.length > 1 ? <div className="chat-account-selector">
+              <CanvasChipSelect icon={UserRound} label={t("codingAgents.chatProfile", { name: accountRuntime === "codex-cli" ? "Codex" : "Claude Code" })} value={selectedProfileId}
+                options={accountProfiles.map((profile) => {
+                  const name = profile.id === "system" ? t("codingAgents.profileSystem") : profile.name;
+                  return { value: profile.id, shortLabel: name, label: profile.auth.account ? `${name} · ${profile.auth.account}` : name };
+                })}
+                disabled={agentBusy || modelChanging || state.connection !== "open"} onChange={(profileId) => void changeAccountProfile(profileId)} />
+            </div> : null}
             <button
               className="icon-button pane-header-action"
               type="button"
@@ -910,6 +944,7 @@ export function ProjectShell({
             model={effectiveModel}
             reasoningLevel={state.settings.reasoningLevel}
             nativeReasoningLevel={state.settings.nativeReasoningLevel}
+            accountProfileId={accountRuntime ? selectedProfileId : undefined}
             modelChanging={modelChanging}
             promptHistory={[
               ...items.flatMap((item) => item.type === "userMessage" && item.text.trim()

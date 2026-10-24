@@ -34,6 +34,12 @@ const api = {
       ...change,
     }),
   ),
+  listAccountProfiles: vi.fn(async () => [
+    { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription" } },
+    { id: "work", name: "Work", auth: { status: "signed-out", billing: "unknown" } },
+  ]),
+  loginAgentRuntime: vi.fn(async () => ({ command: "fixture-cli login" })),
+  addAccountProfile: vi.fn(async (_runtime: string, name: string, configDirectory?: string) => ({ id: "new-account", name, configDirectory })),
   listAgentRuntimes: vi.fn(async () => [
     agent("claude-code-cli", "Claude Code", true),
     agent("codex-cli", "Codex", false),
@@ -162,7 +168,7 @@ it("asks for a provider when OhMyGame has no models", async () => {
   );
 });
 
-it("shows a CLI's command sandbox as one row on its detail page", async () => {
+it("keeps the detail page focused on status and configurable controls", async () => {
   await act(async () =>
     root.render(
       <AgentsSettings
@@ -175,13 +181,14 @@ it("shows a CLI's command sandbox as one row on its detail page", async () => {
   const rows = [...host.querySelectorAll(".settings-provider-setting-row")].map(
     (item) => item.textContent,
   );
-  expect(rows).toContain("Command sandboxOperating system");
+  expect(rows).toContain("StatusInstalled · v1.0.0");
+  expect(rows.some((row) => /Command sandbox|Billing|Verified version/.test(row ?? ""))).toBe(false);
   expect(host.textContent).toContain(
     "Leave empty and save to find the CLI automatically.",
   );
 });
 
-it("labels the verified version as a reference and identifies a missing CLI capability", async () => {
+it("shows the installed version and missing capability without reference metadata", async () => {
   api.listAgentRuntimes.mockResolvedValueOnce([
     {
       ...agent("codex-cli", "Codex", true),
@@ -205,7 +212,8 @@ it("labels the verified version as a reference and identifies a missing CLI capa
       />,
     ),
   );
-  expect(host.textContent).toContain("v0.163.0 (reference only)");
+  expect(host.textContent).not.toContain("Verified version");
+  expect(host.textContent).toContain("0.162.0-alpha.17.2");
   expect(host.textContent).toContain("permissions / activePermissionProfile");
   expect(host.textContent).toContain("CLI incompatible");
   expect(host.textContent).not.toContain("too old");
@@ -236,7 +244,7 @@ it("switches a CLI to full access and says what that means", async () => {
     [...host.querySelectorAll(".settings-provider-setting-row")].map(
       (row) => row.textContent,
     ),
-  ).toContain("Command sandboxOff, full access");
+  ).not.toContain("Command sandboxOff, full access");
 });
 
 it("refreshes account limits when the model probe finishes after the first status read", async () => {
@@ -379,4 +387,61 @@ it("does not label a failed CLI probe as a successful installation check", async
     ),
   );
   expect(host.textContent).toContain("CLI check failed");
+});
+
+
+it.each(["claude-code-cli", "codex-cli"] as const)("uses the shared sign-in result and command controls for a named %s profile", async (id) => {
+  api.listAgentRuntimes.mockResolvedValueOnce([agent(id, id === "codex-cli" ? "Codex" : "Claude Code", true)]);
+  await act(async () => root.render(
+    <AgentsSettings view={{ page: "agent", id }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />,
+  ));
+  const profile = [...host.querySelectorAll(".agent-account-profile-list .provider-model-row")].find((item) => item.querySelector("strong")?.textContent === "Work")!;
+  expect(profile).toBeDefined();
+  const confirm = vi.spyOn(window, "confirm");
+  await act(async () => profile.querySelector<HTMLButtonElement>("button")!.click());
+  expect(confirm).not.toHaveBeenCalled();
+  confirm.mockRestore();
+  expect(api.loginAgentRuntime).toHaveBeenCalledWith(id, "work");
+  expect(host.querySelector(".coding-agent-command code")?.textContent).toBe("fixture-cli login");
+  expect(host.querySelector('[aria-label="Copy command"]')).not.toBeNull();
+});
+
+
+it.each([undefined, "/existing/config"])("keeps account creation collapsed and uses the directory only when supplied (%s)", async (directory) => {
+  api.listAgentRuntimes.mockResolvedValueOnce([agent("codex-cli", "Codex", true)]);
+  await act(async () => root.render(
+    <AgentsSettings view={{ page: "agent", id: "codex-cli" }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />,
+  ));
+  expect(host.querySelector('[aria-label="Account name"]')).toBeNull();
+  expect(host.textContent).not.toContain("Sign in once per configuration");
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Add account"]')!.click());
+  const fill = async (label: string, value: string) => act(async () => {
+    const input = host.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await fill("Account name", "Personal");
+  const advanced = host.querySelector<HTMLDetailsElement>(".agent-account-profile-form details")!;
+  expect(advanced.open).toBe(false);
+  if (directory) {
+    advanced.open = true;
+    await fill("Configuration directory", directory);
+  }
+  await act(async () => host.querySelector<HTMLFormElement>(".agent-account-profile-form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+  expect(api.addAccountProfile).toHaveBeenCalledWith("codex-cli", "Personal", directory);
+  expect(host.querySelector('[aria-label="Account name"]')).toBeNull();
+  if (directory) expect(api.loginAgentRuntime).not.toHaveBeenCalled();
+  else expect(api.loginAgentRuntime).toHaveBeenCalledWith("codex-cli", "new-account");
+});
+
+it("selects the default account directly from its row", async () => {
+  api.listAgentRuntimes.mockResolvedValueOnce([agent("codex-cli", "Codex", true)]);
+  await act(async () => root.render(
+    <AgentsSettings view={{ page: "agent", id: "codex-cli" }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />,
+  ));
+  const choice = host.querySelector<HTMLInputElement>('[aria-label="Use Work for new chats"]')!;
+  await act(async () => choice.click());
+  expect(api.updateAgentRuntime).toHaveBeenCalledWith("codex-cli", { defaultProfileId: "work" });
+  expect(choice.checked).toBe(true);
+  expect(choice.closest("label")?.textContent).toContain("Default");
 });

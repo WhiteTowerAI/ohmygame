@@ -3,7 +3,7 @@ import type { PublishCommunityGame, PublishDeployment } from "./publish-v1.js";
 import type { WebSearchToolMetadata } from "./web-search.js";
 import type { DiffHunk } from "./line-diff.js";
 import type { MediaContentType } from "./media-files.js";
-import type { AgentRuntimeAuthStatus, AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
+import type { AccountProfileIds, AgentRuntimeAuthStatus, AgentRuntimeId, ApprovalDecision, ApprovalRequestDetails } from "./agent-runtimes.js";
 
 export type PreviewStatus = "waiting" | "stopped" | "starting" | "ready" | "error";
 export type AgentStatus = "idle" | "running" | "cancelling" | "error";
@@ -918,6 +918,7 @@ export type SetConversationModelRequest = AgentModelRef;
 /** Validated against the selected model: Pi enum or native effort/variant. */
 export interface SetConversationReasoningRequest { level: string }
 export interface ConversationAgentSettings {
+  accountProfiles?: AccountProfileIds;
   model?: AgentModelRef;
   reasoningLevel?: AgentReasoningLevel;
   nativeReasoningLevel?: string;

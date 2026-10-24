@@ -120,6 +120,16 @@ describe("ConversationManager", () => {
     expect(await conversations.planState(project, created)).toEqual({ mode: "awaiting_approval", plan });
   });
 
+  it("retains independent runtime selections and defaults an unselected runtime to system", async () => {
+    const project = await createProject(), conversations = new ConversationManager();
+    const chat = await conversations.create(project);
+    expect(await conversations.accountProfileId(project, chat, "claude-code-cli")).toBe("system");
+    conversations.setAccountProfile(project, chat, "claude-code-cli", "work");
+    conversations.setAccountProfile(project, chat, "codex-cli", "work");
+    conversations.setAccountProfile(project, chat, "claude-code-cli", "personal");
+    expect(await conversations.accountProfiles(project, chat)).toEqual({"claude-code-cli":"personal","codex-cli":"work"});
+  });
+
   it("normalizes deterministic fallback titles", () => {
     expect(defaultConversationTitle("   ")).toBe("New conversation");
     expect(defaultConversationTitle("hello\n    world")).toBe("hello world");

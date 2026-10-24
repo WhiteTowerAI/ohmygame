@@ -1,3 +1,4 @@
+import { isAccountRuntimeId, type AccountRuntimeId, type AccountProfileIds } from "../shared/agent-runtimes.js";
 import path from "node:path";
 import { readdir } from "node:fs/promises";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
@@ -151,6 +152,24 @@ export class ConversationManager {
 
   setNativeReasoningLevel(project: ProjectState, stored: StoredConversation, model: AgentModelRef, level: string): void {
     this.open(project, stored).appendCustomEntry("ohmygame-native-reasoning", { version: 1, provider: model.provider, model: model.id, level });
+  }
+
+  async accountProfiles(project: ProjectState, stored: StoredConversation): Promise<AccountProfileIds> {
+    const profiles: AccountProfileIds = {};
+    for (const entry of (await this.view(project, stored)).getBranch()) {
+      if (entry.type !== "custom" || entry.customType !== "ohmygame-account-profile") continue;
+      const data = entry.data as { version?: unknown; runtime?: unknown; profileId?: unknown } | undefined;
+      if (data?.version === 1 && isAccountRuntimeId(data.runtime) && typeof data.profileId === "string") profiles[data.runtime] = data.profileId;
+    }
+    return profiles;
+  }
+
+  async accountProfileId(project: ProjectState, stored: StoredConversation, runtime: AccountRuntimeId): Promise<string> {
+    return (await this.accountProfiles(project, stored))[runtime] ?? "system";
+  }
+
+  setAccountProfile(project: ProjectState, stored: StoredConversation, runtime: AccountRuntimeId, profileId: string): void {
+    this.open(project, stored).appendCustomEntry("ohmygame-account-profile", { version: 1, runtime, profileId });
   }
 
   async planState(project: ProjectState, stored: StoredConversation): Promise<PlanSessionState> {

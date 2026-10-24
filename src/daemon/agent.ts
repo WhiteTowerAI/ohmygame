@@ -706,9 +706,10 @@ export class AgentManager {
     return { turnId, result: run };
   }
 
-  async contextUsage(project: ProjectState, conversation: StoredConversation): Promise<AgentContextUsage | undefined> {
-    const managed = await this.#getSession(project, conversation);
-    return managed.session.getContextUsage?.();
+  async contextUsage(project: ProjectState, conversation: StoredConversation, { loadSession = true } = {}): Promise<AgentContextUsage | undefined> {
+    const managed = this.#sessions.get(conversationKey(project.id, conversation.summary.id))
+      ?? (loadSession ? await this.#getSession(project, conversation) : undefined);
+    return managed?.session.getContextUsage?.();
   }
 
   async skills(project: ProjectState, conversation: StoredConversation): Promise<SkillCatalogItem[]> {
