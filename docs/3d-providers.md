@@ -43,6 +43,12 @@ Native processing and animation connections remain available when generation mod
 are hidden. Each native provider appears once in these selectors, using the stable
 `connection` ID; older geometry-version references still resolve to that connection.
 Generation selectors keep their geometry versions. Moves load when the picker opens.
+An open move picker reloads only when its connection or rig settings change, or a
+failed load is retried; catalog updates preserve its loaded moves and previews.
+Local operation connections refresh on configuration changes. While a cloud 3D
+provider is signed in, the visible canvas refreshes its generation catalog every
+30 seconds for cloud availability and allowance, and when the page becomes visible
+again. Background polling does not refresh local operation connections or moves.
 Meshy's supplied previews appear as cards; providers without preview URLs, including
 Tripo's documented presets, use a searchable name list with ordered selection.
 Own-key balances live in provider settings, using one balance per compatible
