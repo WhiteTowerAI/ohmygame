@@ -17119,14 +17119,13 @@ button {
 .audio-subtitle-seek { max-width: 100%; }
 .audio-target-duration { display: flex; min-width: 0; align-items: center; gap: 3px; color: var(--text-secondary); font-size: 11px; }
 .audio-target-duration input { width: 62px; min-width: 0; padding: 5px; border: 1px solid var(--border); border-radius: 5px; background: transparent; color: var(--text); font: inherit; }
-.doubao-service-navigation { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.doubao-service-navigation { display: flex; align-items: center; }
 .doubao-service-tabs { display: inline-flex; min-width: 0; gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; background: var(--settings-row-surface); }
 .doubao-service-tabs button { min-height: 30px; padding: 0 12px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
 .doubao-service-tabs button[aria-pressed="true"] { color: var(--text); }
 .doubao-service-credentials { position: relative; }
 .doubao-service-credentials summary { padding: 4px 0; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
 .doubao-service-credentials[open] summary { margin-bottom: 12px; }
-.doubao-service-disconnect { position: absolute; top: 0; right: 0; }
 .doubao-service-preview { display: grid; justify-items: start; gap: 12px; }
 .story-media-composer:has(.canvas-audio-options) { max-height: min(44vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
 .story-media-composer:has(.canvas-audio-options) .story-media-controls { position: sticky; bottom: 0; z-index: 2; padding-top: 10px; background: var(--surface-raised); }

@@ -533,6 +533,9 @@ function DoubaoVoiceAuthView({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
+  const deletion = useProviderDeletion(service, () =>
+    setRevision((value) => value + 1),
+  );
   useEffect(() => {
     let active = true;
     void Promise.all([listProviders(), getDoubaoVoiceSettings()])
@@ -577,7 +580,32 @@ function DoubaoVoiceAuthView({
         provider={{ ...provider, name: "Doubao Voice" }}
         description={null}
         onBack={onBack}
-      />
+      >
+        {selected?.configured ? (
+          <>
+            <ProviderDeleteButton deletion={deletion} disabled={busy} />
+            <ProviderEnableControl
+              provider={selected}
+              label={t("providers.enableProvider", {
+                name: t(
+                  service === "volcengine-tts"
+                    ? "audioStudio.speechService"
+                    : "audioStudio.seedService",
+                ),
+              })}
+              disabled={busy || deletion.busy}
+              onChanged={() => setRevision((value) => value + 1)}
+            />
+          </>
+        ) : null}
+      </ProviderDetailHeader>
+      {selected?.configured ? (
+        <ProviderDeleteConfirmation
+          provider={selected}
+          deletion={deletion}
+          disabled={busy}
+        />
+      ) : null}
       <form
         className="settings-detail-field"
         onSubmit={(event) => void save(event)}
@@ -606,9 +634,9 @@ function DoubaoVoiceAuthView({
           </button>
         </div>
       </form>
-      {error ? (
+      {error || deletion.error ? (
         <p className="settings-error" role="alert">
-          {error}
+          {deletion.error ?? error}
         </p>
       ) : null}
       <div className="doubao-service-navigation">
@@ -625,21 +653,6 @@ function DoubaoVoiceAuthView({
           ]}
           onChange={setService}
         />
-        {selected ? (
-          <ProviderEnableControl
-            provider={selected}
-            label={t("providers.enableProvider", {
-              name: t(
-                service === "volcengine-tts"
-                  ? "audioStudio.speechService"
-                  : "audioStudio.seedService",
-              ),
-            })}
-            compact
-            disabled={busy}
-            onChanged={() => setRevision((value) => value + 1)}
-          />
-        ) : null}
       </div>
       {selected ? (
         service === "volcengine-tts" ? (
@@ -736,9 +749,8 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
       {!embedded ? <ProviderDetailHeader provider={provider} description={t("providers.audioDescription")} onBack={onBack}>
         {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={savingKey} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader> : null}
-      {provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={savingKey} /> : null}
+      {!embedded && provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={savingKey} /> : null}
       <details className="doubao-service-credentials" open={!embedded}><summary>{t("audioStudio.serviceOverride")}</summary>
-      {embedded && provider.configured ? <div className="doubao-service-disconnect"><ProviderDeleteButton deletion={deletion} /></div> : null}
       <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
         <label className="settings-search-field-label" htmlFor={inputId}>{t("providers.apiKey")}</label>
         <div className="settings-detail-inline">
@@ -853,9 +865,8 @@ function VolcengineSeedAudioAuthView({ provider, onBack, onCompleted, embedded =
       {!embedded ? <ProviderDetailHeader provider={provider} description={t("providers.seedAudioDescription")} onBack={onBack}>
         {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
       </ProviderDetailHeader> : null}
-      {provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} /> : null}
+      {!embedded && provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} /> : null}
       <details className="doubao-service-credentials" open={!embedded}><summary>{t("audioStudio.serviceOverride")}</summary>
-      {embedded && provider.configured ? <div className="doubao-service-disconnect"><ProviderDeleteButton deletion={deletion} /></div> : null}
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
         <label className="settings-search-field-label" htmlFor={inputId}>{t("providers.apiKey")}</label>
         <div className="settings-detail-inline">
@@ -1008,6 +1019,7 @@ function useProviderDeletion(providerId: string, onRemoved?: () => void) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  useEffect(() => { setConfirming(false); setError(undefined); }, [providerId]);
   async function remove() {
     if (busy) return;
     setBusy(true);
@@ -1397,7 +1409,7 @@ function ProviderDetailHeader({ provider, onBack, children, description }: { pro
   );
 }
 
-function ProviderEnableControl({ provider, onChanged, disabled = false, label, compact = false }: { provider: ProviderSummary; onChanged?: () => void; disabled?: boolean; label?: string; compact?: boolean }) {
+function ProviderEnableControl({ provider, onChanged, disabled = false, label }: { provider: ProviderSummary; onChanged?: () => void; disabled?: boolean; label?: string }) {
   const [enabled, setEnabled] = useState(provider.enabled !== false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -1414,7 +1426,7 @@ function ProviderEnableControl({ provider, onChanged, disabled = false, label, c
   }
   return <div className="settings-provider-enable-control">
     <label className="settings-provider-enable-label" title={enabled ? t("providers.availableForRequests") : t("providers.disabledKept")}>
-      {!compact ? <small>{enabled ? t("common.enabled") : t("common.disabled")}</small> : null}
+      <small>{enabled ? t("common.enabled") : t("common.disabled")}</small>
       <span className="settings-toggle"><input type="checkbox" role="switch" aria-label={label ?? t("providers.enableProvider", { name: provider.name })} checked={enabled} disabled={busy || disabled} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></span>
     </label>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}

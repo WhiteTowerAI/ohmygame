@@ -9,7 +9,9 @@ provider-neutral settings and asset references.
 
 **Settings → Providers & Models → Doubao Voice** connects both services with one
 API key. The Speech synthesis and Audio generation tabs retain separate enable
-switches, tests, and optional credential overrides. Existing independent keys
+states, tests, and optional credential overrides. The header's delete button and
+enable switch act on the selected service, matching other provider details.
+Switching tabs dismisses a pending deletion confirmation. Existing independent keys
 are preserved when they differ. Saving a shared key explicitly replaces both
 service selections; disconnecting one service keeps the other connected.
 Credentials are stored locally with restricted file permissions and never
