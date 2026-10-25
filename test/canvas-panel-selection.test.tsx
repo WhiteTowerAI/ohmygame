@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act } from "react";
+import { act, useContext } from "react";
+import { CanvasInteractions } from "../src/renderer/canvas-node-interactions.js";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Node } from "@xyflow/react";
@@ -14,11 +15,12 @@ import {
 } from "../src/shared/asset-canvas.js";
 
 type CanvasProps = Parameters<typeof EditorCanvas<Node>>[0];
-const captured = { props: undefined as CanvasProps | undefined };
+const captured = { props: undefined as CanvasProps | undefined, actions: undefined as React.ContextType<typeof CanvasInteractions> };
 vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
   ...(await original<typeof import("../src/renderer/editor-canvas.js")>()),
   EditorCanvas: (props: CanvasProps) => {
     captured.props = props;
+    captured.actions = useContext(CanvasInteractions);
     return (
       <div>
         {props.nodes.map((node) => (
@@ -45,6 +47,7 @@ vi.doMock(
 );
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
+  listAudioModelCatalog: async () => ({ models: [], providers: [] }),
   listImageModelCatalog: async () => ({ models: [], providers: [] }),
   listVideoModelCatalog: async () => ({ models: [], providers: [] }),
   listModel3DCatalog: async () => ({ models: [], providers: [] }),
@@ -241,4 +244,81 @@ it("leaves Enter and Space in node controls to those controls", async () => {
     await press(target, " ");
     expect(flowNode("image").data.panelOpen).toBe(false);
   }
+});
+
+
+it("selects and removes canvas references through the same semantic connection, then exits with Escape", async () => {
+  await act(async () => captured.actions!.pickReferences("image"));
+  expect(captured.props!.pickingReferences).toBe(true);
+  expect(container.querySelector('.canvas-reference-mode [role="status"]')?.textContent).toBe("Select reference nodes");
+  expect(flowNode("image").className).toBe("canvas-reference-target");
+  expect(flowNode("image").ariaLabel).toBe("Image");
+  expect(flowNode("text").className).toBe("canvas-reference-candidate");
+  expect(flowNode("table").className).toBe("canvas-reference-unavailable");
+  const clickText = () => captured.props!.onNodeClick!({ target: nodeElement("text") } as never, flowNode("text"));
+  await act(async () => clickText());
+  expect(flowNode("image").data.promptSource).toEqual({ type: "node", nodeId: "text" });
+  expect(captured.props!.edges).toContainEqual(expect.objectContaining({ source: "text", target: "image" }));
+  expect(flowNode("text").className).toBe("canvas-reference-selected");
+  expect(flowNode("image").selected).toBe(true);
+  expect(flowNode("text").selected).toBe(false);
+  await act(async () => clickText());
+  expect(flowNode("image").data.promptSource).toBeUndefined();
+  expect(captured.props!.edges).not.toContainEqual(expect.objectContaining({ source: "text", target: "image" }));
+  await press(container.querySelector(".interactive-story-canvas")!, "Escape");
+  expect(captured.props!.pickingReferences).toBe(false);
+  expect(flowNode("image").selected).toBe(true);
+  expect(flowNode("image").data.panelOpen).toBe(true);
+});
+
+it("creates a compatible continuation and undoes the node and reference together", async () => {
+  const count = captured.props!.nodes.length;
+  await act(async () => captured.actions!.openPort("text", "source", { x: 200, y: 200 }));
+  const button = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Image")!;
+  expect(button).toBeDefined();
+  await act(async () => button.click());
+  expect(captured.props!.nodes).toHaveLength(count + 1);
+  const added = captured.props!.nodes.find((node) => node.id !== "image" && node.type === "image")!;
+  expect(added.data.promptSource).toEqual({ type: "node", nodeId: "text" });
+  expect(added.selected).toBe(true);
+  expect(document.activeElement).toBe(container.querySelector(".interactive-story-canvas"));
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  const canvas = container.querySelector(".interactive-story-canvas")!;
+  await act(async () => canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })));
+  expect(captured.props!.nodes).toHaveLength(count);
+  expect(captured.props!.edges!.some((edge) => edge.target === added.id)).toBe(false);
+  await act(async () => canvas.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, shiftKey: true, bubbles: true })));
+  expect(flowNode(added.id).data.promptSource).toEqual({ type: "node", nodeId: "text" });
+});
+
+
+it("restores the previous prompt source when undoing a context node created from an input", async () => {
+  await act(async () => captured.props!.onConnect!({ source: "text", target: "image", sourceHandle: "out", targetHandle: null }));
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  const count = captured.props!.nodes.length;
+  await act(async () => captured.actions!.openPort("image", "target", { x: 200, y: 200 }));
+  const button = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Text")!;
+  await act(async () => button.click());
+  const newSource = captured.props!.nodes.find((node) => node.type === "text" && node.id !== "text")!;
+  expect(flowNode("image").data.promptSource).toEqual({ type: "node", nodeId: newSource.id });
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  await act(async () => document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })));
+  expect(captured.props!.nodes).toHaveLength(count);
+  expect(flowNode("image").data.promptSource).toEqual({ type: "node", nodeId: "text" });
+});
+
+
+it("places a continuation below an occupied area while preserving grid alignment", async () => {
+  await act(async () => captured.props!.onNodesChange!([
+    { type: "position", id: "image", position: { x: 560, y: 0 } },
+    { type: "dimensions", id: "image", dimensions: { width: 440, height: 401 } },
+  ]));
+  await act(async () => captured.actions!.openPort("text", "source", { x: 200, y: 200 }));
+  const button = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((button) => button.textContent === "Image")!;
+  await act(async () => button.click());
+  const added = captured.props!.nodes.find((node) => node.type === "image" && node.id !== "image")!;
+  expect(added.position.x).toBe(560);
+  expect(added.position.y).toBeGreaterThan(581);
+  expect(added.position.y % 10).toBe(0);
+  expect(added.data.promptSource).toEqual({ type: "node", nodeId: "text" });
 });

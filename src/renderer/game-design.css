@@ -176,3 +176,37 @@
 .canvas-table-notice[role=alert], .canvas-table-scroll small { color: var(--danger); }
 .canvas-table-scroll small { display: block; padding: 3px 8px; font-size: 10px; }
 .canvas-table-editor > .canvas-table-scroll { margin: 0 16px; }
+
+/* Handle bounds end at the node edge; the icon and hit area sit outside it. */
+.story-node .react-flow__handle.canvas-port { width: 16px; height: 16px; border: 0; border-radius: 50%; background: transparent; cursor: crosshair; z-index: 5; }
+.story-node .canvas-port.react-flow__handle-left { left: 8px; --canvas-port-offset: -20px; }
+.story-node .canvas-port.react-flow__handle-right { right: 8px; --canvas-port-offset: 20px; }
+.story-node .canvas-port::before { content: ""; position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; width: var(--canvas-port-size); height: var(--canvas-port-size); transform: translate(-50%, -50%); border-radius: 50%; }
+.canvas-port-icon { position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; display: grid; place-items: center; width: 16px; height: 16px; transform: translate(-50%, -50%); border: 1px solid var(--theme-accent); border-radius: 50%; background: var(--theme-accent); color: var(--surface); opacity: 0; pointer-events: none; transition: opacity 120ms; }
+.canvas-port:is(:hover, :active, :focus-visible, .connectingfrom, .connectingto) .canvas-port-icon { opacity: 1; }
+.canvas-port[aria-disabled="true"] { pointer-events: none; }
+.canvas-port:focus-visible { outline: none; }
+.canvas-port:focus-visible .canvas-port-icon { outline: 2px solid var(--theme-accent); outline-offset: 3px; }
+.canvas-edge-pulse { fill: none; stroke: var(--theme-accent); stroke-width: 3; stroke-dasharray: 6 18; pointer-events: none; animation: canvas-edge-flow 1.2s linear infinite; }
+@keyframes canvas-edge-flow { to { stroke-dashoffset: -48; } }
+.canvas-edge-disconnect { position: absolute; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; pointer-events: all; color: var(--text); background: var(--surface-raised); border: 1px solid var(--border); border-radius: 50%; box-shadow: var(--menu-shadow); cursor: pointer; }
+.canvas-edge-disconnect:is(:hover, :focus-visible) { color: var(--danger); border-color: var(--danger); }
+.canvas-composer-anchor { position: relative; left: 50%; transform: translateX(-50%); width: max(100%, 440px); max-width: var(--canvas-composer-max-width, calc(100vw - 32px)); }
+.canvas-composer-toolbar { display: flex; align-items: center; margin-bottom: 8px; gap: 8px; }
+.canvas-composer-toolbar > button:last-child { margin-left: auto; }
+.canvas-composer-toolbar button, .canvas-reference-mode button { display: inline-flex; align-items: center; justify-content: center; min-height: 26px; padding: 4px 7px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 11px; }
+.canvas-composer-toolbar button:is(:hover, :focus-visible) { background: var(--surface-hover); color: var(--text); }
+.canvas-composer-backdrop { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 24px; background: #0007; }
+.canvas-composer-backdrop > section { width: min(900px, 100%); min-width: 0; }
+.canvas-composer.is-expanded { margin: 0; max-height: calc(100dvh - 48px); overflow: auto; padding: 18px; }
+.canvas-composer.is-expanded > textarea, .canvas-composer.is-expanded .video-reference-prompt textarea { min-height: min(45dvh, 420px); font-size: 14px; line-height: 1.7; resize: vertical; }
+.canvas-composer.is-expanded .video-mention-menu { top: 32px; bottom: auto; }
+.canvas-reference-mode { position: absolute; z-index: 10; top: 48px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 8px 12px; border: 1px solid var(--theme-accent); border-radius: 9px; background: var(--surface-raised); box-shadow: var(--menu-shadow); font-size: 12px; }
+.canvas-reference-mode button { flex-shrink: 0; color: var(--text); background: var(--surface-hover); }
+.canvas-reference-candidate { cursor: crosshair !important; }
+.canvas-reference-selected { outline: 2px solid var(--theme-accent); border-radius: 10px; cursor: pointer !important; }
+:is(.canvas-reference-candidate, .canvas-reference-unavailable)::after { content: ""; position: absolute; inset: 0; z-index: 6; border-radius: 10px; background: rgb(0 0 0 / 48%); pointer-events: none; }
+.canvas-reference-unavailable::after { background: rgb(0 0 0 / 68%); }
+:is(.canvas-reference-candidate, .canvas-reference-selected, .canvas-reference-unavailable) .story-node { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .canvas-edge-pulse { animation: none; } .canvas-port-icon { transition: none; } }
+@media (max-width: 600px) { .canvas-composer-anchor { width: max(100%, 340px); } .canvas-reference-mode { width: calc(100% - 24px); } }

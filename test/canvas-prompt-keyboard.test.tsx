@@ -171,3 +171,65 @@ it("selects video references before submitting and allows Shift+Enter inside the
   await enter();
   expect(submit).toHaveBeenCalledTimes(1);
 });
+
+
+it("keeps the prompt and settings when expanded, traps focus and restores the expand button", async () => {
+  const generate = vi.fn();
+  function Editable() {
+    const [instruction, setInstruction] = useState("Long prompt draft");
+    return <CanvasTextComposer models={[model]} modelStatus="ready" defaultModel={model} instruction={instruction}
+      onInstruction={setInstruction} onModel={() => {}} onReasoningChange={() => {}} onGenerate={generate} />;
+  }
+  await render(<Editable />);
+  const expand = host.querySelector<HTMLButtonElement>('[aria-label="Expand prompt editor"]')!;
+  await act(async () => expand.click());
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-label="Prompt editor"]')!;
+  const input = dialog.querySelector("textarea")!;
+  expect(input.value).toBe("Long prompt draft");
+  expect(document.activeElement).toBe(input);
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+  await act(async () => { setter.call(input, "Edited expanded draft"); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  expect(dialog.querySelector('[aria-label="Generate text"]')).not.toBeNull();
+  const boardKey = vi.fn();
+  document.addEventListener("keydown", boardKey);
+  await act(async () => dialog.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true })));
+  document.removeEventListener("keydown", boardKey);
+  expect(boardKey).not.toHaveBeenCalled();
+  const last = dialog.querySelector<HTMLButtonElement>('[aria-label="Generate text"]')!;
+  last.focus();
+  await act(async () => last.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+  expect(document.activeElement).toBe(dialog.querySelector("button"));
+  await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+  expect(document.querySelector('[role="dialog"][aria-label="Prompt editor"]')).toBeNull();
+  expect(host.querySelector("textarea")!.value).toBe("Edited expanded draft");
+  expect(document.activeElement).toBe(host.querySelector('[aria-label="Expand prompt editor"]'));
+  expect(generate).not.toHaveBeenCalled();
+});
+
+
+it("keeps a scaled editor inside the viewport without feeding its offset back into layout", async () => {
+  await render(<Composer onGenerate={vi.fn()} />);
+  const anchor = host.querySelector<HTMLElement>(".canvas-composer-anchor")!;
+  Object.defineProperty(anchor, "offsetWidth", { configurable: true, value: 440 });
+  vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue({ x: 600, y: 20, left: 600, right: 1150, top: 20, bottom: 120, width: 550, height: 100, toJSON: () => ({}) });
+  await act(async () => window.dispatchEvent(new Event("resize")));
+  const expected = (Math.max(0, 12 - 600) - Math.max(0, 1150 - window.innerWidth + 12)) / 1.25;
+  expect(host.querySelector<HTMLElement>(".canvas-composer")!.style.transform).toBe(`translateX(${expected}px)`);
+  await act(async () => window.dispatchEvent(new Event("resize")));
+  expect(host.querySelector<HTMLElement>(".canvas-composer")!.style.transform).toBe(`translateX(${expected}px)`);
+});
+
+
+it("recovers an editor clamped while its browser panel was hidden", async () => {
+  await render(<Composer onGenerate={vi.fn()} />);
+  const anchor = host.querySelector<HTMLElement>(".canvas-composer-anchor")!;
+  Object.defineProperty(anchor, "offsetWidth", { configurable: true, value: 440 });
+  vi.spyOn(anchor, "getBoundingClientRect").mockImplementation(() => {
+    const width = anchor.style.getPropertyValue("--canvas-composer-max-width") === "0px" ? 0 : 440;
+    return { x: 100, y: 20, left: 100, right: 100 + width, top: 20, bottom: 120, width, height: 100, toJSON: () => ({}) };
+  });
+  anchor.style.setProperty("--canvas-composer-max-width", "0px");
+  await act(async () => window.dispatchEvent(new Event("resize")));
+  expect(parseFloat(anchor.style.getPropertyValue("--canvas-composer-max-width"))).toBeGreaterThan(0);
+  expect(host.querySelector<HTMLElement>(".canvas-composer")!.style.transform).toBe("translateX(0px)");
+});
