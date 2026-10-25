@@ -46,3 +46,30 @@ describe("Volcengine Seed Audio settings", () => {
     );
   });
 });
+
+describe("shared Doubao Voice connection", () => {
+  it("preserves distinct legacy keys and supports shared credentials with service overrides", async () => {
+    const { DoubaoVoiceSettingsStore } = await import("../src/daemon/doubao-voice-settings.js");
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-doubao-shared-"));
+    const settings = new DoubaoVoiceSettingsStore(directory);
+    await settings.load({ "volcengine-tts": "tts-secret", "volcengine-seed-audio": "seed-secret" });
+    expect(settings.key("volcengine-tts")).toBe("tts-secret");
+    expect(settings.key("volcengine-seed-audio")).toBe("seed-secret");
+    expect(settings.get()).toMatchObject({ distinctKeys: true, ttsConfigured: true, seedConfigured: true });
+    expect(JSON.stringify(settings.get())).not.toContain("secret");
+    await settings.setService("volcengine-tts", "tts-override");
+    const restored = new DoubaoVoiceSettingsStore(directory);
+    await restored.load({});
+    expect(restored.key("volcengine-tts")).toBe("tts-override");
+    expect(restored.key("volcengine-seed-audio")).toBe("seed-secret");
+    await restored.update("shared-secret");
+    expect(restored.get()).toMatchObject({ shared: true, distinctKeys: false });
+    await restored.setService("volcengine-tts", null);
+    expect(restored.key("volcengine-tts")).toBeUndefined();
+    expect(restored.key("volcengine-seed-audio")).toBe("shared-secret");
+    const again = new DoubaoVoiceSettingsStore(directory); await again.load({ "volcengine-tts": "stale" });
+    expect(again.key("volcengine-tts")).toBeUndefined();
+    expect(again.key("volcengine-seed-audio")).toBe("shared-secret");
+    await expect(again.update("bad\nkey")).rejects.toThrow("printable ASCII");
+  });
+});

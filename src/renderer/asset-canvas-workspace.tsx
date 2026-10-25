@@ -90,8 +90,9 @@ import {
   type VideoResolution,
 } from "../shared/contracts.js";
 import { combineAssetCanvasPrompt, createAssetGenerationNode, isTextGenerationReferenceNode, preferredImageOption, validateAssetCanvasDocument } from "../shared/asset-canvas.js";
-import { VOLCENGINE_TTS_VOICES, availableAudioOperations, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
+import { VOLCENGINE_TTS_VOICES, audioSettings, audioCanvasSettings, isAudioNodeType, type AudioCanvasSettings, type AudioAssetData, availableAudioOperations, type AudioModel, type AudioOperation, type AudioProviderCatalogStatus } from "../shared/audio.js";
 import { createLibraryImage, getLibraryAsset, getWorkspaceAsset, getProjectCover, getProjectCoverState, listAudioModelCatalog, listImageModelCatalog, listModel3DAnimations, listModel3DOperations, listModel3DCatalog, listVideoModelCatalog, MODELS_CHANGED_EVENT, setProjectCover, uploadLibraryAsset, importCanvasFile, createCanvasImportFolder } from "./api.js";
+import { CanvasAudioControls, AudioCompanionDownloads, audioSettingsIssue, type AudioReferenceControls } from "./canvas-audio-controls.js";
 import { useAuth } from "./auth.js";
 import { accountCloudState, canAffordCloudModel, CloudQuotaStatus } from "./cloud-quota.js";
 import { downloadAssetBlob, loadLibraryAssets, type LibraryAsset } from "./library-assets.js";
@@ -171,6 +172,7 @@ const BASE_CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
       { label: t("assetCanvas.node.video"), description: t("assetCanvas.node.videoHint"), icon: Film, action: { kind: "node", type: "video" } },
       { label: t("assetCanvas.node.speech"), description: t("assetCanvas.node.speechHint"), icon: Music2, action: { kind: "node", type: "speech" } },
       { label: t("assetCanvas.node.soundEffect"), description: t("assetCanvas.node.soundEffectHint"), icon: Volume2, action: { kind: "node", type: "sound-effect" } },
+      { label: t("audioStudio.scene"), description: t("audioStudio.sceneHint"), icon: Music2, action: { kind: "node", type: "audio-scene" } },
       { label: t("assetCanvas.node.music"), description: t("assetCanvas.node.musicHint"), icon: Music2, action: { kind: "node", type: "music" } },
       { label: t("assetCanvas.node.model3d"), description: t("assetCanvas.node.model3dHint"), icon: Box, action: { kind: "node", type: "model-3d" } },
       { label: t("assetCanvas.node.animate3d"), description: t("assetCanvas.node.animate3dHint"), icon: WandSparkles, action: { kind: "node", type: "animate-3d" } },
@@ -198,7 +200,8 @@ function canvasCreationGroups(documents: CanvasDocuments, tables: CanvasTables, 
   return [{ label: t("assetCanvas.group.documents"), items }, ...assetGroups];
 }
 
-type AssetCanvasFlowData = {
+type AssetCanvasFlowData = AudioCanvasSettings & Record<string, unknown> & {
+  audioAsset?: AudioAssetData;
   resizeRuntime?: CanvasNodeResizeRuntime;
   nodeDetails?: CanvasNodeDetails;
   panelOpen?: boolean;
@@ -313,6 +316,8 @@ interface VideoNodeRuntime extends ReferenceMediaNodeRuntime {
 }
 
 interface AudioNodeRuntime extends MediaNodeRuntime {
+  referenceControls?: AudioReferenceControls;
+  audio?: AudioAssetData;
   models: AudioModel[];
   providers: AudioProviderCatalogStatus[];
 }
@@ -345,6 +350,7 @@ const STORY_NODE_TYPES: NodeTypes = {
   speech: SpeechNode,
   "sound-effect": SoundEffectNode,
   music: MusicNode,
+  "audio-scene": AudioSceneNode,
   "model-3d": Model3DNode,
   "animate-3d": Animate3DNode,
   asset: AssetNode,
@@ -783,13 +789,17 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       selected: selectedAssetEdgeId === assetEdgeId("reference", node.id, reference.nodeId),
       data: { relation: node.type === "video" ? "video-reference" : "text-reference", referenceId: reference.nodeId },
     }] : []));
-    if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music") && node.data.promptSource) derived.push({
+    if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") && node.data.promptSource) derived.push({
       id: assetEdgeId("prompt", node.id, node.data.promptSource.nodeId),
       source: node.data.promptSource.nodeId,
       target: node.id,
       sourceHandle: OUTPUT_HANDLE,
       selected: selectedAssetEdgeId === assetEdgeId("prompt", node.id, node.data.promptSource.nodeId),
       data: { relation: "media-prompt", referenceId: node.data.promptSource.nodeId },
+    });
+    if (isAudioNodeType(node.type)) for (const reference of node.data.audioReferences ?? []) if (reference.source.type === "node") derived.push({
+      id: assetEdgeId("audio", node.id, reference.id), source: reference.source.nodeId, target: node.id, sourceHandle: OUTPUT_HANDLE,
+      selected: selectedAssetEdgeId === assetEdgeId("audio", node.id, reference.id), data: { relation: "audio-reference", referenceId: reference.id },
     });
     return derived;
   }), [nodes, selectedAssetEdgeId]);
@@ -955,6 +965,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         const relation = edge?.data?.relation;
         const referenceId = edge?.data?.referenceId;
         if (edge && typeof referenceId === "string") setNodes((current) => current.map((node) => {
+          if (relation === "audio-reference" && node.id === edge.target) return { ...node, data: { ...node.data, audioReferences: node.data.audioReferences?.filter((reference) => reference.id !== referenceId) } };
           if (relation === "media-image" && node.id === edge.target && (node.type === "image" || node.type === "model-3d" || node.type === "animate-3d")) {
             return { ...node, data: { ...node.data, images: (node.data.images ?? []).filter((image) => image.type !== "node" || image.nodeId !== referenceId) } };
           }
@@ -962,7 +973,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             return { ...node, data: { ...node.data, references: (node.data.references ?? []).filter((reference) => reference.type !== "node" || reference.nodeId !== referenceId) } };
           }
           if (relation === "media-model" && node.id === edge.target && node.type === "model-3d") return { ...node, data: { ...node.data, model3DSource: undefined } };
-          if (relation === "media-prompt" && node.id === edge.target && (node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music")) {
+          if (relation === "media-prompt" && node.id === edge.target && (node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene")) {
             return { ...node, data: { ...node.data, promptSource: undefined } };
           }
           return node;
@@ -979,7 +990,11 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const target = nodes.find((node) => node.id === connection.target);
     const source = nodes.find((node) => node.id === connection.source);
     if (!source || !target) return;
-    const relation = connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels, model3DModels);
+    const relation = connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels, model3DModels, audioModels);
+    if (relation === "audio-reference") {
+      updateAudioReferences(target.id, (data) => { const serial = Math.max(data.audioReferenceSerial ?? 0, ...(data.audioReferences ?? []).map((item) => Number(item.id.replace(/\D/g, "")))) + 1; const type = isImageFlowSource(source) ? "image" as const : "audio" as const; return (data.audioReferences?.length ?? 0) >= 3 ? data : { ...data, audioReferenceSerial: serial, audioReferences: [...data.audioReferences ?? [], { id: `${type === "audio" ? "Audio" : "Image"}${serial}`, type, source: { type: "node", nodeId: source.id } }] }; });
+      return;
+    }
     if (relation === "image-reference" && (target.type === "image" || target.type === "model-3d")) {
       setNodes((current) => current.map((node) => node.id === target.id && (node.type === "image" || node.type === "model-3d")
         ? { ...node, data: { ...node.data, images: [...(node.data.images ?? []), { type: "node", nodeId: source.id }] } }
@@ -1003,7 +1018,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         : node));
       return;
     }
-    if (relation === "prompt" && (target.type === "image" || target.type === "video" || target.type === "model-3d" || target.type === "speech" || target.type === "sound-effect" || target.type === "music")) {
+    if (relation === "prompt" && (target.type === "image" || target.type === "video" || target.type === "model-3d" || target.type === "speech" || target.type === "sound-effect" || target.type === "music" || target.type === "audio-scene")) {
       setNodes((current) => current.map((node) => node.id === target.id
         ? { ...node, data: { ...node.data, promptSource: { type: "node", nodeId: source.id } } }
         : node));
@@ -1485,11 +1500,42 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const expandedNode = nodes.find((node) => node.id === expandedDocument?.nodeId && node.type === "document");
 
   const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
+  function updateAudioReferences(nodeId: string, update: (data: AssetCanvasFlowData) => AssetCanvasFlowData) {
+    setNodes((current) => current.map((item) => item.id === nodeId ? { ...item, data: update(item.data) } : item));
+  }
+  function audioReferenceRuntime(node: AssetCanvasFlowNode): AudioReferenceControls {
+    const read = (assetId: string) => { const local = localAssets?.find((asset) => asset.id === assetId); return local ? getWorkspaceAsset(projectId, local.path) : getLibraryAsset(assetId); };
+    return {
+      choices: libraryAssets.filter((asset) => (asset.mediaType === "image" || asset.mediaType === "audio") && asset.id !== node.data.assetId).map((asset) => ({ id: asset.id, name: asset.name, type: asset.mediaType as "audio" | "image" })),
+      references: (node.data.audioReferences ?? []).map((reference) => {
+        const source = reference.source.type === "node" ? nodes.find((candidate) => candidate.id === (reference.source.type === "node" ? reference.source.nodeId : "")) : undefined;
+        const id = reference.source.type === "library" ? reference.source.assetId : source?.data.assetId;
+        return { ...reference, assetId: id, name: libraryAssets.find((asset) => asset.id === id)?.name ?? t("assetCanvas.missingNode") };
+      }), read,
+      add: (assetId, type) => updateAudioReferences(node.id, (data) => { const serial = Math.max(data.audioReferenceSerial ?? 0, ...(data.audioReferences ?? []).map((item) => Number(item.id.replace(/\D/g, "")))) + 1; return (data.audioReferences?.length ?? 0) >= 3 ? data : { ...data, audioReferenceSerial: serial, audioReferences: [...data.audioReferences ?? [], { id: `${type === "audio" ? "Audio" : "Image"}${serial}`, type, source: { type: "library", assetId } }] }; }),
+      remove: (id) => updateAudioReferences(node.id, (data) => ({ ...data, audioReferences: data.audioReferences?.filter((item) => item.id !== id) })),
+      move: (id, direction) => updateAudioReferences(node.id, (data) => { const references = [...data.audioReferences ?? []], index = references.findIndex((item) => item.id === id), next = index + direction; if (index >= 0 && next >= 0 && next < references.length) [references[index], references[next]] = [references[next]!, references[index]!]; return { ...data, audioReferences: references }; }),
+      replace: (id, assetId) => updateAudioReferences(node.id, (data) => ({ ...data, audioReferences: data.audioReferences?.map((reference) => reference.id === id ? { ...reference, source: { type: "library", assetId } } : reference) })),
+      upload: async (file, mediaType, duration, derivedFrom) => {
+        let derivation = derivedFrom;
+        if (derivation && localAssets?.some((asset) => asset.id === derivation!.assetId)) {
+          const source = localAssets.find((asset) => asset.id === derivation!.assetId)!;
+          const blob = await read(source.id);
+          const imported = await uploadLibraryAsset(new File([blob], source.name, { type: blob.type }), blob.type as LibraryUploadMediaType, undefined, "reference");
+          derivation = { ...derivation, assetId: imported.id };
+        }
+        const uploaded = await uploadLibraryAsset(file, mediaType, duration, "reference", derivation);
+        setLibraryAssets((current) => [...current.filter((asset) => asset.id !== uploaded.id), { ...uploaded, assetId: uploaded.id, path: uploaded.name }]);
+        return uploaded.id;
+      },
+    };
+  }
   const renderedNodes = nodes.map((original) => {
     const size = isResizableCanvasNodeType(original.type) ? RESIZABLE_CANVAS_NODE_SIZES[original.type] : undefined;
     // A render can arrive before React Flow publishes its first dimensions.
     // An empty measurement keeps it from clearing freshly measured handle bounds.
     const node = { ...original, measured: original.measured ?? {}, ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: original.height ?? size.height } } : {}), data: { ...original.data,
+      audioAsset: libraryAssets.find((asset) => asset.id === original.data.assetId)?.audio,
       ...(size ? { resizeRuntime: {
         start: beginHistoryGesture, end: finishHistoryGesture,
         reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id) return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
@@ -1620,7 +1666,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
         },
       };
     }
-    if (node.type === "speech" || node.type === "sound-effect" || node.type === "music") {
+    if (node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") {
       const nodeJob = canvasJobs[node.id];
       const linkedPrompt = resolveLinkedPrompt(node, nodes, documents);
       const operation = audioOperationForNode(node.type)!;
@@ -1648,6 +1694,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             },
             models: audioModels.filter((model) => model.capabilities.operations.includes(operation)),
             providers: audioProviders,
+            audio: node.data.audioAsset,
+            referenceControls: audioReferenceRuntime(node),
           } satisfies AudioNodeRuntime,
         },
       };
@@ -1800,7 +1848,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               isValidConnection={(connection) => {
                 const target = nodes.find((node) => node.id === connection.target);
                 const source = nodes.find((node) => node.id === connection.source);
-                return Boolean(source && target && connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels, model3DModels));
+                return Boolean(source && target && connectionRelation(source, target, connection.sourceHandle, nodes, libraryAssets, imageModels, model3DModels, audioModels));
               }}
               defaultViewport={editorLayout.viewport}
               fitViewOnLoad={editorLayout.fitView === true}
@@ -2085,89 +2133,14 @@ function videoAspectRatios(model: VideoModel | undefined, referenceCount: number
   return videoReferenceAspectRatios(model, referenceCount, mode);
 }
 
-const SPEECH_SPEED_OPTIONS = [-50, -25, 0, 25, 50] as const;
-
-function speechSpeedLabel(value: number): string {
-  if (value === 0) return t("assetCanvas.speed.normal");
-  if (value <= -50) return t("assetCanvas.speed.muchSlower");
-  if (value < 0) return t("assetCanvas.speed.slower");
-  if (value >= 50) return t("assetCanvas.speed.muchFaster");
-  return t("assetCanvas.speed.faster");
-}
-
-function SpeechNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
-  const runtime = data.audioRuntime;
-  const selectedModel = runtime?.models.find((model) => sameModel(model, data.audioModel));
-  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(combineAssetCanvasPrompt(runtime?.linkedPrompt, data.text ?? "").trim() && selectedModel);
-  const knownVoice = VOLCENGINE_TTS_VOICES.some((voice) => voice.id === data.voiceId);
-  const presetVoices = !selectedModel || selectedModel.provider === "volcengine-tts" ? VOLCENGINE_TTS_VOICES : [];
-  const voiceOptions = [
-    { value: "", label: t("assetCanvas.voice.default") },
-    ...(data.voiceId && !knownVoice ? [{ value: data.voiceId, label: data.voiceId, group: t("assetCanvas.voice.custom") }] : []),
-    ...presetVoices.map((voice) => ({
-      value: voice.id,
-      label: voice.name,
-      group: voice.language === "zh-cn" ? t("assetCanvas.voice.chinese") : t("assetCanvas.voice.english"),
-    })),
-  ];
-
-  function selectModel(key: string): void {
-    const model = runtime?.models.find((candidate) => modelRefKey(candidate) === key);
-    if (!model || !runtime) return;
-    runtime.onChange({ ...data, audioRuntime: undefined, audioModel: { provider: model.provider, id: model.id } });
-  }
-
-  return (
-    <MediaNodeShell kind="audio" selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
-      <MediaPrompt
-        kind="audio"
-        value={data.text ?? ""}
-        runtime={runtime}
-        onSubmit={canGenerate ? runtime?.onGenerate : undefined}
-        onChange={(text) => runtime?.onChange({ ...data, audioRuntime: undefined, text })}
-      />
-      {runtime?.error ? <p role="alert">{runtime.error}</p> : null}
-      <div className="story-media-controls">
-        <CanvasChipSelect
-          label={t("assetCanvas.audioModel")}
-          wide
-          value={selectedModel ? modelRefKey(selectedModel) : undefined}
-          placeholder={data.audioModel ? t("assetCanvas.unavailableModel") : runtime?.models.length ? t("assetCanvas.selectModel") : t("assetCanvas.noAudioModel")}
-          options={(runtime?.models ?? []).map((model) => ({ value: modelRefKey(model), label: mediaModelName(model), group: model.providerName }))}
-          notes={audioProviderNotes(runtime?.providers)}
-          action={MANAGE_PROVIDERS}
-          disabled={runtime?.busy}
-          onChange={selectModel}
-        />
-        <CanvasChipSelect
-          label={t("assetCanvas.voice.label")}
-          wide
-          value={data.voiceId ?? ""}
-          options={voiceOptions}
-          disabled={runtime?.busy}
-          onChange={(voiceId) => runtime?.onChange({ ...data, audioRuntime: undefined, voiceId: voiceId || undefined })}
-        />
-        <CanvasChipSelect
-          label={t("assetCanvas.speechSpeed")}
-          value={String(data.speed ?? 0)}
-          options={SPEECH_SPEED_OPTIONS.map((value) => ({ value: String(value), label: speechSpeedLabel(value) }))}
-          disabled={runtime?.busy}
-          onChange={(value) => {
-            const speed = Number(value);
-            runtime?.onChange({ ...data, audioRuntime: undefined, speed: speed || undefined });
-          }}
-        />
-        <GenerateMediaButton kind="audio" assetId={data.assetId} runtime={runtime} disabled={!canGenerate} />
-      </div>
-    </MediaNodeShell>
-  );
-}
+function SpeechNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) { return <PromptAudioNode {...props} operation="speech" />; }
+function AudioSceneNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) { return <PromptAudioNode {...props} operation="audio-scene" />; }
 
 function audioProviderNotes(providers: readonly AudioProviderCatalogStatus[] | undefined): CanvasChipNote[] {
   return (providers ?? []).flatMap((provider) => provider.state === "ready" || !provider.message ? [] : [{ group: provider.name, message: provider.message }]);
 }
 
-const AUDIO_DURATION_OPTIONS = [5, 10, 15, 30, 60, 120, 300, 600] as const;
+const AUDIO_DURATION_OPTIONS = [1, 2, 3, 5, 10, 15, 30, 60, 120, 300, 600] as const;
 
 function SoundEffectNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
   return <PromptAudioNode {...props} operation="sound-effect" />;
@@ -2177,7 +2150,7 @@ function MusicNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selecte
   return <PromptAudioNode {...props} operation="music" />;
 }
 
-function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected"> & { operation: "sound-effect" | "music" }) {
+function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected"> & { operation: "speech" | "sound-effect" | "music" | "audio-scene" }) {
   const runtime = data.audioRuntime;
   const selectedModel = runtime?.models.find((model) => sameModel(model, data.audioModel));
   const maximumDuration = selectedModel?.capabilities.maxDurationSeconds;
@@ -2199,21 +2172,24 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
       ...(maxDuration !== undefined && data.durationSeconds !== undefined && data.durationSeconds > maxDuration ? { durationSeconds: maxDuration } : {}),
     });
   };
-  const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, data.prompt ?? "");
-  const canGenerate = !runtime?.busy && !runtime?.generating && Boolean(prompt.trim() && selectedModel);
-  const label = operation === "music" ? t("assetCanvas.node.music") : t("assetCanvas.node.soundEffect");
+  const prompt = combineAssetCanvasPrompt(runtime?.linkedPrompt, operation === "speech" ? data.text ?? "" : data.prompt ?? "");
+  const issue = (selectedModel?.protocol === "volcengine-tts-v3" && !data.voiceId && !runtime?.providers.find((provider) => provider.provider === selectedModel.provider)?.defaultVoiceId ? t("audioStudio.needVoice") : undefined) ?? (runtime?.referenceControls?.references.some((reference) => !reference.assetId) ? t("assetCanvas.missingNode") : undefined) ?? audioSettingsIssue(data, selectedModel) ?? (selectedModel?.capabilities.maxTextCharacters && prompt.length + (data.style?.length ?? 0) > selectedModel.capabilities.maxTextCharacters ? t("audioStudio.promptLimit", { count: selectedModel.capabilities.maxTextCharacters }) : undefined);
+  const canGenerate = !runtime?.busy && !runtime?.generating && !issue && Boolean(prompt.trim() && selectedModel);
+  const label = operation === "music" ? t("assetCanvas.node.music") : operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : t("assetCanvas.node.soundEffect");
 
   return (
     <MediaNodeShell kind="audio" label={label} selected={selected} panelOpen={data.panelOpen} assetId={data.assetId} runtime={runtime} details={data.nodeDetails}>
       <MediaPrompt
         kind="audio"
-        label={operation === "music" ? t("assetCanvas.musicPrompt") : t("assetCanvas.soundEffectPrompt")}
+        label={operation === "speech" ? t("assetCanvas.node.speech") : operation === "audio-scene" ? t("audioStudio.scene") : operation === "music" ? t("assetCanvas.musicPrompt") : t("assetCanvas.soundEffectPrompt")}
         placeholder={operation === "music" ? t("assetCanvas.musicPromptPlaceholder") : t("assetCanvas.soundEffectPromptPlaceholder")}
-        value={data.prompt ?? ""}
+        value={operation === "speech" ? data.text ?? "" : data.prompt ?? ""}
         runtime={runtime}
         onSubmit={canGenerate ? runtime?.onGenerate : undefined}
-        onChange={(value) => change({ prompt: value })}
+        onChange={(value) => change(operation === "speech" ? { text: value } : { prompt: value })}
       />
+      {issue ? <p role="alert">{issue}</p> : null}
+      <CanvasAudioControls value={data} model={selectedModel} disabled={runtime?.busy} onChange={change} referenceControls={runtime?.referenceControls} />
       {operation === "sound-effect" && selectedModel?.capabilities.supportsNegativePrompt ? <CanvasTextarea
         aria-label={t("assetCanvas.negativePrompt")}
         rows={2}
@@ -2243,13 +2219,14 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
           disabled={runtime?.busy}
           onChange={selectModel}
         />
-        {durationOptions.length ? <CanvasChipSelect
-          label={t("assetCanvas.audioDuration")}
+        {operation !== "speech" && durationOptions.length ? <CanvasChipSelect
+          label={t("audioStudio.targetDuration")}
           value={data.durationSeconds === undefined ? "" : String(data.durationSeconds)}
           options={[{ value: "", label: t("assetCanvas.automatic") }, ...durationOptions.map((duration) => ({ value: String(duration), label: t("assetCanvas.seconds", { count: duration }) }))]}
           disabled={!selectedModel || runtime?.busy}
           onChange={(value) => change({ durationSeconds: value ? Number(value) : undefined })}
         /> : null}
+        {operation !== "speech" ? <label className="audio-target-duration nodrag nokey">{t("audioStudio.targetDuration")}<input type="number" min={0.1} max={maximumDuration ?? 600} step={0.1} value={data.durationSeconds ?? ""} placeholder={t("assetCanvas.automatic")} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })} /></label> : null}
         {operation === "music" && selectedModel?.capabilities.supportsInstrumental ? <CanvasChipToggle
           label={t("assetCanvas.instrumental")}
           pressed={data.instrumental !== false}
@@ -2270,7 +2247,7 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
 
 function audioOperationForNode(type: AssetCanvasNodeType): AudioOperation | undefined {
   if (type === "speech") return "speech";
-  if (type === "sound-effect" || type === "music") return type;
+  if (type === "sound-effect" || type === "music" || type === "audio-scene") return type;
   return undefined;
 }
 
@@ -2367,7 +2344,7 @@ function AssetNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "dat
         {preview.url && kind === "image" ? <img src={preview.url} alt={data.name || t("assetCanvas.libraryImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
         {preview.url && kind === "model" ? <ModelPreview source={preview.url} label={data.name || "3D model"} minHeight={220} interactive={false} /> : null}
-        {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} /> : null}
+        {preview.url && kind === "audio" ? <CanvasAudio src={preview.url} data={data.audioAsset} /> : null}
         {!preview.url ? <div className="story-media-empty"><Icon size={34} /><strong>{data.assetError || preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset")}</strong>{data.assetError ? <span>{data.assetError}</span> : <CanvasAssetRecovery preview={preview} />}</div> : null}
       </div>
       <Handle className="story-media-output-handle" id={OUTPUT_HANDLE} type="source" position={Position.Right} />
@@ -2691,7 +2668,7 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
         {preview.url ? kind === "audio" ? null : <MediaViewButton /> : null}
         {preview.url && kind === "image" ? <img src={preview.url} alt={t("timeline.generatedImage")} onLoad={mediaLayout.onImageLoad} /> : null}
         {preview.url && kind === "video" ? <CanvasVideo src={preview.url} onLoadedMetadata={mediaLayout.onVideoMetadata} /> : null}
-        {preview.url && audio ? <CanvasAudio src={preview.url} /> : null}
+        {preview.url && audio ? <CanvasAudio src={preview.url} data={runtime && "audio" in runtime ? runtime.audio as AudioAssetData : undefined} /> : null}
         {preview.url && threeD ? <ModelPreview source={preview.url} label={kind === "animation" ? t("assetCanvas.animated3d") : t("timeline.generated3d")} minHeight={220} interactive={false} /> : null}
         {!preview.url && !runtime?.generating ? (
           <div className="story-media-empty">
@@ -2785,7 +2762,7 @@ function CanvasVideo({ src, onLoadedMetadata }: {
   );
 }
 
-function CanvasAudio({ src }: { src: string }) {
+function CanvasAudio({ src, data }: { src: string; data?: AudioAssetData }) {
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -2819,6 +2796,9 @@ function CanvasAudio({ src }: { src: string }) {
         onLoadedMetadata={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
         onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
       />
+      <AudioCompanionDownloads data={data} />
+      {data?.subtitles?.sentences.length ? <select className="audio-subtitle-seek nodrag nopan" aria-label={t("audioStudio.transcript")} value="" onChange={(event) => { const sentence = data.subtitles!.sentences[Number(event.target.value)]; if (sentence && audio.current) { audio.current.currentTime = sentence.startMs / 1000; setCurrentTime(sentence.startMs / 1000); } }}><option value="">{t("audioStudio.transcript")}</option>{data.subtitles.sentences.map((sentence, index) => <option key={index} value={index}>{(sentence.startMs / 1000).toFixed(2)}s · {sentence.text}</option>)}</select> : null}
+      {data?.subtitles ? <p className="audio-current-subtitle">{data.subtitles.sentences.find((sentence) => currentTime * 1000 >= sentence.startMs && currentTime * 1000 < sentence.endMs)?.text ?? ""}</p> : null}
       <InlineVideoControls
         label={t("assetCanvas.media.audio.label")}
         playing={playing}
@@ -3302,12 +3282,17 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
       },
     };
   }
+  if (node.type === "audio-scene") return { id: node.id, type: "audio-scene", position: node.position, data: {
+    ...audioCanvasSettings(node.data), prompt: node.data.prompt ?? "", ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
+    ...(node.data.model ? { audioModel: node.data.model } : {}), ...(node.data.durationSeconds !== undefined ? { durationSeconds: node.data.durationSeconds } : {}), ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+  } };
   if (node.type === "speech") return {
     id: node.id,
     type: "speech",
     position: node.position,
     deletable: true,
     data: {
+      ...audioCanvasSettings(node.data),
       text: node.data.text,
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.model ? { audioModel: node.data.model } : {}),
@@ -3322,6 +3307,7 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
     position: node.position,
     deletable: true,
     data: {
+      ...audioCanvasSettings(node.data),
       prompt: node.data.prompt,
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.model ? { audioModel: node.data.model } : {}),
@@ -3337,6 +3323,7 @@ function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoMod
     position: node.position,
     deletable: true,
     data: {
+      ...audioCanvasSettings(node.data),
       prompt: node.data.prompt,
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.model ? { audioModel: node.data.model } : {}),
@@ -3412,6 +3399,7 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
     return toFlowNode(createAssetGenerationNode(type, position, { ...(model ? { videoModel: { provider: model.provider, id: model.id }, videoReferenceMode: model.imageReferenceMode } : {}), videoAspectRatio: aspectRatio }), imageModels, videoModels);
   }
   if (type === "model-3d") return toFlowNode(createAssetGenerationNode(type, position), imageModels, videoModels);
+  if (type === "audio-scene") return { id: crypto.randomUUID(), type, position, data: { prompt: "" } };
   if (type === "speech") return { id: crypto.randomUUID(), type, position, data: { text: "" } };
   if (type === "sound-effect") return { id: crypto.randomUUID(), type, position, data: { prompt: "" } };
   if (type === "music") return { id: crypto.randomUUID(), type, position, data: { prompt: "", instrumental: true } };
@@ -3423,7 +3411,7 @@ function createFlowNode(type: Exclude<AssetCanvasNodeType, "asset">, position: {
 }
 
 /** The generation settings a node passes on to the next node of its type. */
-type NodeGenerationSettings = Pick<AssetCanvasFlowData, "textModel" | "reasoningLevel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "audioModel" | "voiceId" | "speed" | "durationSeconds" | "loop" | "instrumental" | "model3DConfig">;
+type NodeGenerationSettings = AudioCanvasSettings & Pick<AssetCanvasFlowData, "textModel" | "reasoningLevel" | "model" | "resolution" | "aspectRatio" | "videoModel" | "videoResolution" | "videoAspectRatio" | "duration" | "audioModel" | "voiceId" | "speed" | "durationSeconds" | "loop" | "instrumental" | "model3DConfig">;
 type RememberedSettings = Partial<Record<AssetCanvasNodeType, NodeGenerationSettings>>;
 
 export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | "data">): NodeGenerationSettings | undefined {
@@ -3431,9 +3419,9 @@ export function nodeGenerationSettings(node: Pick<AssetCanvasFlowNode, "type" | 
   if (node.type === "text") return { ...(data.textModel ? { textModel: { provider: data.textModel.provider, id: data.textModel.id } } : {}), ...(data.reasoningLevel ? { reasoningLevel: data.reasoningLevel } : {}) };
   if (node.type === "image") return { model: data.model, resolution: data.resolution, aspectRatio: data.aspectRatio };
   if (node.type === "video") return { videoModel: data.videoModel, videoResolution: data.videoResolution, videoAspectRatio: data.videoAspectRatio, duration: data.duration };
-  if (node.type === "speech") return { ...(data.audioModel ? { audioModel: { provider: data.audioModel.provider, id: data.audioModel.id } } : {}), ...(data.voiceId ? { voiceId: data.voiceId } : {}), ...(data.speed !== undefined ? { speed: data.speed } : {}) };
-  if (node.type === "sound-effect") return { ...(data.audioModel ? { audioModel: modelRef(data.audioModel) } : {}), ...(data.durationSeconds !== undefined ? { durationSeconds: data.durationSeconds } : {}), ...(data.loop !== undefined ? { loop: data.loop } : {}) };
-  if (node.type === "music") return { ...(data.audioModel ? { audioModel: modelRef(data.audioModel) } : {}), ...(data.durationSeconds !== undefined ? { durationSeconds: data.durationSeconds } : {}), ...(data.loop !== undefined ? { loop: data.loop } : {}), ...(data.instrumental !== undefined ? { instrumental: data.instrumental } : {}) };
+  if (node.type === "speech") return { ...audioSettings(data), ...(data.audioModel ? { audioModel: { provider: data.audioModel.provider, id: data.audioModel.id } } : {}), ...(data.voiceId ? { voiceId: data.voiceId } : {}), ...(data.speed !== undefined ? { speed: data.speed } : {}) };
+  if (node.type === "sound-effect" || node.type === "audio-scene") return { ...audioSettings(data), ...(data.audioModel ? { audioModel: modelRef(data.audioModel) } : {}), ...(data.durationSeconds !== undefined ? { durationSeconds: data.durationSeconds } : {}), ...(data.loop !== undefined ? { loop: data.loop } : {}) };
+  if (node.type === "music") return { ...audioSettings(data), ...(data.audioModel ? { audioModel: modelRef(data.audioModel) } : {}), ...(data.durationSeconds !== undefined ? { durationSeconds: data.durationSeconds } : {}), ...(data.loop !== undefined ? { loop: data.loop } : {}), ...(data.instrumental !== undefined ? { instrumental: data.instrumental } : {}) };
   if (node.type === "model-3d") return { model3DConfig: data.model3DConfig };
   return undefined;
 }
@@ -3484,7 +3472,7 @@ export function applyRememberedSettings(
     }
     if (settings?.model3DConfig) return { ...node, data: { ...node.data, model3DConfig: normalizeModel3DConfig(settings.model3DConfig) } };
   }
-  if (node.type === "speech" || node.type === "sound-effect" || node.type === "music") {
+  if (node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") {
     const operation = audioOperationForNode(node.type)!;
     const compatibleModels = catalogs.audioModels?.filter((candidate) => candidate.capabilities.operations.includes(operation)) ?? [];
     const reference = settings?.audioModel;
@@ -3493,6 +3481,7 @@ export function applyRememberedSettings(
       ...node,
       data: {
         ...node.data,
+        ...audioSettings(settings ?? {}),
         ...(model ? { audioModel: { provider: model.provider, id: model.id } } : reference ? { audioModel: reference } : {}),
         ...(settings?.voiceId ? { voiceId: settings.voiceId } : {}),
         ...(settings?.speed !== undefined ? { speed: settings.speed } : {}),
@@ -3598,11 +3587,16 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
       ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
     },
   };
+  if (node.type === "audio-scene") return { id: node.id, type: "audio-scene", position: node.position, data: {
+    ...audioCanvasSettings(node.data), prompt: node.data.prompt ?? "", ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
+    ...(node.data.audioModel ? { model: node.data.audioModel } : {}), ...(node.data.durationSeconds !== undefined ? { durationSeconds: node.data.durationSeconds } : {}), ...(node.data.assetId ? { assetId: node.data.assetId } : {}),
+  } };
   if (node.type === "speech") return {
     id: node.id,
     type: "speech",
     position: node.position,
     data: {
+      ...audioCanvasSettings(node.data),
       text: node.data.text ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.audioModel ? { model: modelRef(node.data.audioModel) } : {}),
@@ -3616,6 +3610,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
     type: "sound-effect",
     position: node.position,
     data: {
+      ...audioCanvasSettings(node.data),
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.audioModel ? { model: modelRef(node.data.audioModel) } : {}),
@@ -3630,6 +3625,7 @@ function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly
     type: "music",
     position: node.position,
     data: {
+      ...audioCanvasSettings(node.data),
       prompt: node.data.prompt ?? "",
       ...(node.data.promptSource ? { promptSource: node.data.promptSource } : {}),
       ...(node.data.audioModel ? { model: modelRef(node.data.audioModel) } : {}),
@@ -3785,7 +3781,7 @@ function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data">, mod
   return normalizeModel3DConfig(config, nodeModel3D(node, models), node.data.model3DOperation);
 }
 
-type ConnectionRelation = "image-reference" | "video-reference" | "model-reference" | "prompt" | "text-reference";
+type ConnectionRelation = "image-reference" | "video-reference" | "model-reference" | "prompt" | "text-reference" | "audio-reference";
 
 export function connectionRelation(
   source: AssetCanvasFlowNode,
@@ -3795,6 +3791,7 @@ export function connectionRelation(
   libraryAssets: LibraryAsset[],
   imageModels: ImageModel[],
   model3DModels: readonly Model3DModel[] = [],
+  audioModels: readonly AudioModel[] = [],
 ): ConnectionRelation | undefined {
   if (source.id === target.id) return undefined;
   if (target.type === "text" || target.type === "document") {
@@ -3826,8 +3823,17 @@ export function connectionRelation(
     const current = target.data.images?.[0];
     return isModelSource(source, libraryAssets) && !(current?.type === "node" && current.nodeId === source.id) ? "model-reference" : undefined;
   }
-  if ((source.type === "text" || source.type === "document") && (target.type === "image" || target.type === "video" || target.type === "speech" || target.type === "sound-effect" || target.type === "music" || target.type === "model-3d" && (target.data.model3DOperation === "text" || target.data.model3DOperation === "retexture"))) {
+  if ((source.type === "text" || source.type === "document") && (target.type === "image" || target.type === "video" || target.type === "speech" || target.type === "sound-effect" || target.type === "music" || target.type === "audio-scene" || target.type === "model-3d" && (target.data.model3DOperation === "text" || target.data.model3DOperation === "retexture"))) {
     return target.data.promptSource?.nodeId === source.id ? undefined : "prompt";
+  }
+  if (isAudioNodeType(target.type) && source.data.assetId) {
+    const image = isSupportedImageReferenceSource(source, libraryAssets), audio = isAudioNodeType(source.type) || source.type === "asset" && source.data.mediaType === "audio";
+    const model = audioModels.find((model) => sameModel(model, target.data.audioModel));
+    const references = target.data.audioReferences ?? [];
+    const type = image ? "image" : "audio";
+    const limit = image ? model?.capabilities.maxReferenceImages ?? 0 : model?.capabilities.maxReferenceAudio ?? 0;
+    const exclusive = model?.capabilities.referenceModesExclusive && (target.data.voiceId || references.some((reference) => reference.type !== type));
+    if (!exclusive && references.filter((reference) => reference.type === type).length < limit && (image && model?.capabilities.supportsReferenceImage || audio && model?.capabilities.supportsReferenceAudio) && !references.some((reference) => reference.source.type === "node" && reference.source.nodeId === source.id)) return "audio-reference";
   }
   if (target.type === "video") {
     return canAddVideoReference(target, source, nodes, libraryAssets) ? "video-reference" : undefined;
@@ -3872,7 +3878,7 @@ function canAddVideoReference(target: AssetCanvasFlowNode, source: AssetCanvasFl
   return references.filter((reference) => reference.type === type).length < 9;
 }
 
-function assetEdgeId(relation: "scene" | "image" | "model" | "reference" | "prompt" | "presentation", targetId: string, referenceId: string): string {
+function assetEdgeId(relation: "scene" | "image" | "model" | "reference" | "prompt" | "presentation" | "audio", targetId: string, referenceId: string): string {
   return `${ASSET_EDGE_PREFIX}${relation}:${targetId}:${referenceId}`;
 }
 
@@ -3884,6 +3890,7 @@ export function removeNodesAndReferences(nodes: AssetCanvasFlowNode[], removedId
             ...node,
             data: {
               ...node.data,
+              audioReferences: node.data.audioReferences?.filter((reference) => reference.source.type !== "node" || !removedIds.has(reference.source.nodeId)),
               ...(node.data.model3DSource?.type === "node" && removedIds.has(node.data.model3DSource.nodeId) ? { model3DSource: undefined } : {}),
               images: (node.data.images ?? []).filter((image) => image.type !== "node" || !removedIds.has(image.nodeId)),
               ...(node.data.promptSource && removedIds.has(node.data.promptSource.nodeId) ? { promptSource: undefined } : {}),
@@ -3894,15 +3901,17 @@ export function removeNodesAndReferences(nodes: AssetCanvasFlowNode[], removedId
             ...node,
             data: {
               ...node.data,
+              audioReferences: node.data.audioReferences?.filter((reference) => reference.source.type !== "node" || !removedIds.has(reference.source.nodeId)),
               references: (node.data.references ?? []).filter((reference) => reference.type !== "node" || !removedIds.has(reference.nodeId)),
               ...(node.data.promptSource && removedIds.has(node.data.promptSource.nodeId) ? { promptSource: undefined } : {}),
             },
           }
-      : node.type === "speech" || node.type === "sound-effect" || node.type === "music"
+      : node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene"
         ? {
             ...node,
             data: {
               ...node.data,
+              audioReferences: node.data.audioReferences?.filter((reference) => reference.source.type !== "node" || !removedIds.has(reference.source.nodeId)),
               ...(node.data.promptSource && removedIds.has(node.data.promptSource.nodeId) ? { promptSource: undefined } : {}),
             },
           }

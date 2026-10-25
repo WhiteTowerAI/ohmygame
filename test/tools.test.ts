@@ -190,7 +190,7 @@ describe("tool runner", () => {
     expect(run).toMatchObject({
       toolId: "generate-speech",
       model,
-      files: [{ name: "output.mp3", mediaType: "audio/mpeg", assetId: expect.any(String) }],
+      files: [{ name: "output.mp3", mediaType: "audio/mpeg", role: "audio", assetId: expect.any(String) }, { name: "output.mp3.audio.json", mediaType: "application/json", role: "metadata" }],
     });
     const asset = library.get(run.files[0]!.assetId!);
     expect(asset).toMatchObject({ mediaType: "audio", contentType: "audio/mpeg", origin: "generated", prompt: "Welcome, traveler", duration: 1.25 });

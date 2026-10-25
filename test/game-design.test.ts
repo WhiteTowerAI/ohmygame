@@ -920,3 +920,27 @@ describe("design merge and validation", () => {
     expect(merged.edges).toEqual([]);
   });
 });
+
+it("saves scene references and subtitle companions outside temporary runs", async () => {
+  const model = { provider: "volcengine-seed-audio", id: "seed-audio-1.0" };
+  const subtitles = { text: "Welcome", sentences: [{ text: "Welcome", startMs: 100, endMs: 800, words: [{ text: "Welcome", startMs: 100, endMs: 800 }] }] };
+  const generate = vi.fn().mockResolvedValue({ bytes: Buffer.from("fixture audio"), mediaType: "audio/wav", model, metadata: { durationMs: 1000, originalDurationMs: 1200, providerRequestId: "trace-scene" }, subtitles });
+  const { directory, store, project, boardId, library } = await runtime(fakeGenerator, "asset-canvas", undefined, { catalog: () => ({ models: [], providers: [] }), generate });
+  const reference = await library.add("rain.wav", Buffer.from("reference"));
+  const detail = await store.board(project.id, boardId);
+  detail.board.nodes.push({ id: "scene", type: "audio-scene", position: { x: 300, y: 0 }, data: { prompt: "Use @Audio1 behind a welcoming voice", model, pitch: -3, volume: 10, subtitles: true, output: { format: "wav", sampleRate: 48000 }, audioReferenceSerial: 1, audioReferences: [{ id: "Audio1", type: "audio", source: { type: "library", assetId: reference.id } }] } });
+  detail.board.editorLayout.nodes.scene = { x: 300, y: 0 };
+  await store.saveBoard(project.id, detail.board, detail.revision);
+  await store.generateNode(project.id, boardId, "scene");
+  const job = await waitForJob(store, project.id);
+  expect(job.status).toBe("succeeded");
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({ operation: "audio-scene", pitch: -3, volume: 10, subtitles: true, references: [{ id: "Audio1", type: "audio", assetId: reference.id }] }), expect.any(AbortSignal));
+  const output = job.run!.files.find((file) => file.role === "audio")!;
+  const manifest = await readCanvasAssets(project.workspacePath), asset = manifest.assets[output.assetId!]!;
+  expect(asset.audio?.subtitles).toEqual(subtitles);
+  expect(await readFile(path.join(project.workspacePath, `${asset.path}.srt`), "utf8")).toContain("00:00:00,100 --> 00:00:00,800");
+  expect(JSON.parse(await readFile(path.join(project.workspacePath, `${asset.path}.audio.json`), "utf8"))).toMatchObject({ metadata: { originalDurationMs: 1200 }, subtitles });
+  await expect(readFile(path.join(directory, "tools/runs", job.run!.id, "run.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  const restored = new AssetLibrary(directory); await restored.load();
+  expect(restored.get(output.assetId!)?.audio?.subtitles).toEqual(subtitles);
+});

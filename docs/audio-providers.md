@@ -1,112 +1,194 @@
 # Audio providers
 
-OhMyGame treats audio as a capability family rather than a TTS-only feature. The shared contract has four operations:
+Audio is a capability family: speech, sound effects, music, and composite scene
+creation share model selection, jobs, Library storage, and project export. The
+daemon owns credentials and provider calls. Canvas and agents submit the same
+provider-neutral settings and asset references.
 
-- `speech` for narration and character voices;
-- `dialogue` for multi-speaker synthesis when a provider supports it;
-- `sound-effect` for prompted effects and ambience;
-- `music` for instrumental or lyrical music.
+## Providers and connection settings
 
-The daemon owns credentials, provider calls, generated files, and Library registration. The renderer and agents submit provider-neutral requests and never receive saved API keys.
+**Settings → Providers & Models → Doubao Voice** connects both services with one
+API key. The Speech synthesis and Audio generation tabs retain separate enable
+switches, tests, and optional credential overrides. Existing independent keys
+are preserved when they differ. Saving a shared key explicitly replaces both
+service selections; disconnecting one service keeps the other connected.
+Credentials are stored locally with restricted file permissions and never
+returned by settings or catalog endpoints.
 
-## Architecture
+The internal provider IDs remain `volcengine-tts` and `volcengine-seed-audio`.
+Existing nodes, model references, and service-specific settings endpoints stay
+compatible. A saved key means configured; it does not verify service entitlement
+or quota. Preview actions make a real, potentially billable generation request.
 
-`src/shared/audio.ts` defines requests, output settings, model capabilities, catalogs, and generated-audio metadata. A provider adapter implements `AudioProviderAdapter`; `ProviderAudio` selects only a configured, enabled model that advertises the requested operation. `ToolRunner` then persists MP3 or WAV output through the same job and Library flow used by image, video, and 3D generation.
+| Tool                    | Operation      | Models                                  |
+| ----------------------- | -------------- | --------------------------------------- |
+| `generate-speech`       | `speech`       | TTS 2.0; Seed Audio 1.0                 |
+| `generate-sound-effect` | `sound-effect` | Seed Audio 1.0                          |
+| `generate-music`        | `music`        | Seed Audio 1.0, instrumental workflow   |
+| `generate-audio`        | `audio-scene`  | Seed Audio 1.0, composite scene prompts |
 
-The stable tool boundary is:
+`dialogue` remains a reserved shared operation. Use an audio-scene prompt to
+express multiple speakers; this is not a structured per-speaker synthesis API.
+No adapter currently advertises seamless looping, separate audio stems, negative
+prompts, or precise lyric singing. Unsupported controls fail before generation.
 
-| Tool                    | Operation      | Current implementation                     |
-| ----------------------- | -------------- | ------------------------------------------ |
-| `generate-speech`       | `speech`       | Volcengine Doubao Speech synthesis 2.0     |
-| `generate-sound-effect` | `sound-effect` | Volcengine Doubao Seed Audio 1.0            |
-| `generate-music`        | `music`        | Volcengine Doubao Seed Audio 1.0            |
+## Asset Canvas
 
-Unsupported operations fail before an incompatible provider is called. Adding ElevenLabs, MiniMax, Suno, Gemini, Fish Audio, or SiliconFlow should normally require a new adapter and settings integration, not changes to jobs or Library storage.
+Speech, Sound effect, Music, and Audio creation appear when a configured,
+enabled model supports the operation. Existing nodes remain readable after a
+service is disconnected. Text and Document nodes can supply prompt content.
 
-## Asset Canvas audio nodes
+**Voice, references and output** exposes model-supported controls:
 
-Asset Canvas exposes the common layer as three generation node types: **Speech**, **Sound effect**, and **Music**. The Add menu shows a type only when the live audio catalog contains a configured, enabled model for that operation, and each existing node filters the same catalog by its required operation. A speech-only model therefore cannot be selected for music or effects. A Text or Document node can be connected as a prompt source; its current content is combined with the node's local text when the job starts.
+- preset or custom Speaker ID, including an existing cloned voice;
+- delivery style, language, and speech rate;
+- pitch, volume, subtitles, format, and sample rate;
+- TTS automatic language recognition, dialect, pronunciation dictionary, SSML,
+  trailing silence, and bit rate;
+- ordered reference media from uploads, the Library, or connected image/audio
+  generation nodes that already have an output.
 
-Speech nodes store provider-neutral model, speaker, and speed settings. Sound-effect and music nodes store provider-neutral prompt, duration, and loop settings, plus capability-gated options such as negative prompts, lyrics, and instrumental mode. Generated MP3 or WAV output is registered in the Library, written back to the node as an `assetId`, and playable in both generation nodes and Library asset nodes. Model and option selections are remembered independently for each node type.
+Node settings survive save/reopen and copy/paste. Voice and output preferences
+are remembered per node type; source references remain local to their node.
+Switching models retains reference drafts and reports incompatible inputs.
 
-Existing nodes remain readable when a provider is disconnected, but generation stays disabled until a compatible model is available. Installing a future adapter that advertises sound-effect or music activates the existing node contract and adds that node type to the menu without another canvas schema change. Agent generation tools follow the same live capability filter, so unsupported operations are not offered on a turn.
+Sound effects and music provide target-duration presets and manual input,
+including short effects. Seed Audio expresses duration through natural-language
+instructions; it is a target, not a guaranteed exact cut. The original generated
+audio is limited to 120 seconds. A specific sub-second result needs real-service
+validation or local editing.
 
-## Volcengine Doubao Speech
+Audio creation preserves general prompts combining dialogue, ambience, effects,
+and music; it does not append the dedicated tools' no-voice instructions.
+Music remains an instrumental workflow. Reference images are supported with
+text; their suitability for a particular pure-ambience task must be evaluated
+with real examples.
 
-The first adapter uses the official TTS v3 unidirectional HTTP streaming endpoint. Configure it in **Settings → Providers & Models → Doubao Speech**. The key is stored in the local data directory with restricted file permissions and is sent only from the daemon.
+## Reference media
 
-Configure a default Volcengine Speaker ID from the console's Voice Library, or supply `voiceId` on an individual request. The adapter supports the official Speech synthesis 2.0 service, MP3 output, mono audio, supported sample rates, language hints, delivery context, and speech-rate control. The first adapter deliberately avoids streamed WAV because the provider documents repeated WAV headers as a streaming caveat; the common layer still supports WAV for adapters that return a valid complete file. Account activation, API key access, model entitlement, quota, and the exact voice ID still belong to the user's Volcengine account and must be verified with a real credential. Voice Clone 2.0 (`seed-icl-2.0`) is intentionally separate because its resource ID, entitlements, and model options differ.
+Seed Audio supports these separate input modes:
 
-The settings page ships the published seed-tts-2.0 preset voice catalog (`VOLCENGINE_TTS_VOICES` in `src/shared/audio.ts`) as a picker. The provider's `ListSpeakers` API is a console API that requires AccessKey signing instead of the console API key, so the catalog is bundled from the official voice list; cloned or custom Speaker IDs can still be entered as raw IDs. The default voice saves on its own without re-entering the API key, and a preview action synthesizes a short sample (up to 500 characters) to verify the connection and voice before real use.
+| Mode  | Limits                                                                       |
+| ----- | ---------------------------------------------------------------------------- |
+| Audio | Up to 3 references; each at most 30 seconds and 10 MB; WAV, MP3, or Ogg Opus |
+| Image | One PNG, JPEG, or WebP at most 10 MB                                         |
+| Voice | A preset TTS 2.0 Speaker ID or an existing cloned Speaker ID                 |
 
-The daemon endpoints are:
+Images cannot be combined with audio references or a Speaker ID. The application
+also keeps audio-reference and Speaker-ID modes separate until their mixed
+numbering has been validated against real responses. It does not infer a
+three-speaker limit from the three-uploaded-audio limit.
 
-- `GET /audio-models/catalog` — available models plus provider status;
-- `GET /settings/models/providers/volcengine-tts` — saved settings without the key;
-- `PUT /settings/models/providers/volcengine-tts` — save `{ "apiKey": "..." }`, `{ "defaultVoiceId": "..." }`, or both (voice-only updates keep the stored key; `defaultVoiceId: null` clears it);
-- `POST /settings/models/providers/volcengine-tts/preview` — synthesize a short sample and return MP3 bytes;
-- `DELETE /settings/models/providers/volcengine-tts` — remove the saved connection;
-- `POST /tools/generate-speech/jobs` — enqueue speech generation.
+Each canvas reference has a stable `AudioN`/`ImageN` alias and a node or Library
+source. Prompts use `@AudioN`; the daemon maps aliases to the actual ordered
+`@音频N` references required by Seed Audio. Reordering does not change their
+meaning, and a removed alias cannot silently point to a replacement asset.
 
-Example job body:
+Audio uploads can be decoded locally and a selected range saved as a new PCM
+WAV reference. The original and clip provenance are retained. The daemon checks
+actual encoded format, duration, and size instead of trusting uploaded metadata.
+M4A and other browser-decodable sources need conversion before reference use;
+plain Ogg does not necessarily contain Opus. Raw PCM is not exposed because it
+needs external decoding parameters. Reference binary data is read by the daemon
+and sent as Base64; canvas files and task history contain asset IDs, not Base64
+or expiring URLs. Submitted tasks resolve node references to fixed assets.
+
+## Provider translation
+
+The authoritative contracts are the official [Seed Audio HTTP API](https://docs.volcengine.com/docs/DoubaoVoice/audio-generation-http?lang=zh)
+and [TTS HTTP API](https://docs.volcengine.com/docs/DoubaoVoice/unidirectional-streaming-text-to-speech-http?lang=zh).
+
+Seed Audio uses `POST /api/v3/tts/create`, `X-Api-Key`, and `seed-audio-1.0`.
+`pitch`, `volume`, `speed`, and `subtitles` map to `audio_config.pitch_rate`,
+`loudness_rate`, `speech_rate`, and `enable_subtitle`. A Speaker ID becomes a
+`references[].speaker` entry. Reference images/audio become Base64 entries.
+The model's user prompt limit reserves 256 characters for generated instructions:
+2744 user characters, with a final check of the complete 3000-character request.
+Linked text and delivery instructions also count toward the request limit.
+
+TTS uses `POST /api/v3/tts/unidirectional`. Preset voices use resource
+`seed-tts-2.0`; existing cloned voices use `seed-icl-2.0`, with standard or
+expressive model selection. Voice instructions are not combined with cloned
+voices. Creating/training a new voice is a separate workflow.
+TTS pitch maps to `additions.post_process.pitch`, whereas volume and speed map
+to `audio_params`. `additions` is serialized JSON. Language and dialect hints
+must match an eligible voice. SSML and pronunciation correction are separate
+modes; dictionary entries use `word/replacement`, one per line.
+
+Pitch is an integer from -12 to 12. Speech rate and volume are integers from -50
+to 100 in provider-relative units; volume is not dB. Zero preserves the default.
+TTS subtitles support Chinese and English; Seed subtitle language availability
+must be verified for the selected content.
+
+| Output   | Seed sample rates (Hz)                         | TTS sample rates (Hz)                          |
+| -------- | ---------------------------------------------- | ---------------------------------------------- |
+| MP3      | 8000, 16000, 24000, 32000, 44100, 48000        | 8000, 16000, 22050, 24000, 32000, 44100, 48000 |
+| WAV      | 8000, 16000, 24000, 32000, 40000, 44100, 48000 | Not exposed for the streaming adapter          |
+| Ogg Opus | 48000                                          | 48000                                          |
+
+The application deliberately does not concatenate streaming WAV output. TTS
+MP3/Opus bit rates can be selected; Seed does not advertise that parameter.
+Output bytes are strictly Base64-decoded and demuxed to check the actual audio
+format, sample rate, channel count, and playable sample duration. Provider
+responses are bounded; generation times out after five minutes, supports local
+cancellation, and is not automatically resubmitted on failure.
+
+## Subtitles, metadata, and project files
+
+Subtitles normalize to sentence/word entries with `startMs` and `endMs`.
+Seed timestamps are milliseconds; TTS word timestamps are converted from seconds.
+The canvas shows the active sentence during playback. Audio assets retain
+subtitle JSON and metadata in the Library and canvas manifest, including
+provider request ID, actual duration, original billable duration when returned,
+sample rate, codec, and reported character usage.
+
+Library/canvas previews offer Audio JSON, SRT, and WebVTT downloads. Materializing
+an asset in a game project writes companions beside the audio:
+
+- `voice.mp3.audio.json` — normalized subtitles, metadata, and generation input;
+- `voice.mp3.srt` and `voice.mp3.vtt` — sentence-level subtitles, when available.
+
+Agent tools return all written paths. Word timing remains in JSON for game UI
+and timing logic; it does not imply an implemented lip-sync/viseme system.
+Companions persist after temporary tool runs are removed and travel with the
+project's files. Asset Canvas dependencies include reference audio and images.
+A generation with no spoken text can validly return no subtitles.
+
+## HTTP interfaces
+
+- `GET /audio-models/catalog` — live models, capabilities, and provider states;
+- `GET /settings/models/providers/doubao-voice` — shared connection state, no key;
+- `PUT /settings/models/providers/doubao-voice` — set `{ "apiKey": "..." }` for both services;
+- service-specific GET/PUT/DELETE endpoints remain available at
+  `/settings/models/providers/volcengine-tts` and `volcengine-seed-audio`;
+- `POST /settings/models/providers/volcengine-tts/preview` — a short speech test;
+- `POST /settings/models/providers/volcengine-seed-audio/preview` — a short effect test;
+- `POST /tools/<tool-id>/jobs` — enqueue one of the tools above;
+- `GET /library/assets/<asset-id>/audio/audio.audio.json`, `audio.srt`, or
+  `audio.vtt` — persistent audio companions when available.
+
+Example scene request (references use existing Library asset IDs):
 
 ```json
 {
-  "text": "欢迎来到雾港。",
-  "voiceId": "your-volcengine-voice-id",
-  "style": "calm fantasy narrator",
-  "speed": 0,
-  "output": { "format": "mp3", "sampleRate": 24000 }
-}
-```
-
-The model can be omitted to use the first configured compatible model, or supplied explicitly as `{ "provider": "volcengine-tts", "id": "seed-tts-2.0" }`.
-
-## Volcengine Doubao Seed Audio
-
-The Seed Audio adapter uses the official non-streaming `POST /api/v3/tts/create` endpoint with model `seed-audio-1.0`. Configure it separately in **Settings → Providers & Models → Doubao Seed Audio**. Its API key is stored in `volcengine-seed-audio.json` and is never returned by a settings or catalog endpoint. Doubao Speech and Doubao Seed Audio deliberately remain separate connections, so enabling, disabling, replacing, or deleting one does not change the other.
-
-The first integration exposes text-to-audio generation for standalone game sound effects and instrumental game background music. It supports MP3 and WAV at 8, 16, 24, or 48 kHz, an optional target duration from 1 to 120 seconds, and Chinese or English prompts. Provider-specific prompt instructions keep sound-effect jobs free of dialogue and music, and music jobs free of voices and lyrics. Generated bytes are validated before they enter the normal job and Library flow.
-
-Although the underlying Seed Audio API can accept richer scene prompts and reference media, this adapter does not yet advertise reference audio, images, lyrics, negative prompts, channel selection, or guaranteed seamless loops. Those options stay hidden in Asset Canvas and are rejected at the daemon boundary rather than being silently ignored. A real Volcengine account must have Seed Audio 1.0 access; a Doubao Speech key alone does not prove that entitlement is enabled.
-
-The daemon endpoints are:
-
-- `GET /settings/models/providers/volcengine-seed-audio` — saved connection state without the key;
-- `PUT /settings/models/providers/volcengine-seed-audio` — save `{ "apiKey": "..." }`;
-- `DELETE /settings/models/providers/volcengine-seed-audio` — remove only the Seed Audio connection;
-- `POST /tools/generate-sound-effect/jobs` — enqueue sound-effect generation;
-- `POST /tools/generate-music/jobs` — enqueue instrumental music generation.
-
-Example sound-effect job body:
-
-```json
-{
-  "prompt": "A heavy castle door slams shut with a short stone echo",
-  "durationSeconds": 3,
-  "output": { "format": "mp3", "sampleRate": 48000 }
-}
-```
-
-Example music job body:
-
-```json
-{
-  "prompt": "Quiet harbor exploration theme with piano and soft strings",
-  "instrumental": true,
-  "durationSeconds": 30,
+  "prompt": "A character says Welcome over the rain in @Audio1, followed by quiet footsteps.",
+  "model": { "provider": "volcengine-seed-audio", "id": "seed-audio-1.0" },
+  "references": [
+    { "id": "Audio1", "type": "audio", "assetId": "library-asset-id" }
+  ],
+  "pitch": -2,
+  "volume": 10,
+  "subtitles": true,
+  "durationSeconds": 8,
   "output": { "format": "wav", "sampleRate": 48000 }
 }
 ```
 
-The model can be omitted to use the configured compatible model, or supplied explicitly as `{ "provider": "volcengine-seed-audio", "id": "seed-audio-1.0" }`.
-
 ## Adding another provider
 
-1. Describe every offered model with precise operations, formats, duration/text limits, execution mode, and optional features.
-2. Implement an adapter that translates only supported fields and maps authentication, quota, validation, provider, and network failures to `AudioGenerationError`.
-3. Keep task polling or streaming details inside the adapter. Return final bytes plus normalized metadata.
-4. Add a secret settings store and provider UI. Never expose the secret from a read endpoint.
-5. Add request-translation, failure-mapping, catalog, job, and Library tests.
-
-Do not make one adapter pretend to support all audio operations. Capability-driven selection is what lets TTS, effects, music, dialogue, voice cloning, and future realtime speech coexist behind one contract.
+Extend `AudioProviderAdapter`, publish precise model capabilities, and translate
+only supported settings. Keep protocol details inside the adapter and normalized
+subtitle/metadata storage inside the common pipeline. Extend existing provider,
+job, canvas, settings, and export tests before adding another boundary. Real
+credentials are still needed to validate entitlement, voice consistency,
+reference-image results, subtitle chunk timing, and production latency.

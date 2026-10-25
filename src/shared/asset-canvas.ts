@@ -122,8 +122,19 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
     if (node.type === "video") {
       for (const reference of node.data.references) validateReference(node.id, reference, nodes, ["image", "video", "asset"]);
     }
+    if (node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") {
+      const references = node.data.audioReferences ?? [];
+      if (new Set(references.map((reference) => reference.id)).size !== references.length) throw new Error(`Node ${node.id} has duplicate audio reference aliases`);
+      for (const reference of references) {
+        validateReference(node.id, reference.source, nodes, reference.type === "image" ? ["image", "asset"] : ["speech", "sound-effect", "music", "audio-scene", "asset"]);
+        if (reference.source.type === "node") {
+          const source = nodes.get(reference.source.nodeId);
+          if (source?.type === "asset" && source.data.mediaType !== reference.type) throw new Error(`Node ${node.id} has a reference with the wrong media type`);
+        }
+      }
+    }
     if ((node.type === "animate-3d" || node.type === "model-3d") && node.data.source) validateReference(node.id, node.data.source, nodes, ["model-3d", "animate-3d", "asset"]);
-    if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music") && node.data.promptSource) {
+    if ((node.type === "image" || node.type === "video" || node.type === "model-3d" || node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "audio-scene") && node.data.promptSource) {
       const source = nodes.get(node.data.promptSource.nodeId);
       if (!source || (source.type !== "text" && source.type !== "document") || source.id === node.id) throw new Error(`Node ${node.id} has an invalid Text reference`);
     }

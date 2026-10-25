@@ -16996,3 +16996,27 @@ button {
   font-size: 11px;
   line-height: 1.5;
 }
+
+.canvas-audio-options { margin: 8px 12px; font-size: 12px; }
+.canvas-audio-options summary { cursor: pointer; padding: 8px 0; }
+.canvas-audio-options fieldset { border: 0; padding: 6px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.canvas-audio-options label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.canvas-audio-options input, .canvas-audio-options select, .canvas-audio-options textarea { min-width: 0; max-width: 100%; color: inherit; background: var(--bg-panel, transparent); border: 1px solid var(--border, #8884); border-radius: 6px; padding: 6px; }
+.canvas-audio-options input[type="checkbox"] { width: auto; align-self: flex-start; }
+.audio-reference-controls { grid-column: 1 / -1; display: grid; gap: 8px; }
+.audio-reference-item { display: grid; gap: 6px; padding: 8px; border: 1px solid #8884; border-radius: 6px; }
+.audio-reference-item > div, .audio-companion-downloads { display: flex; flex-wrap: wrap; gap: 6px; }
+.audio-reference-item audio { width: 100%; max-height: 32px; }
+.audio-reference-item img { max-width: 100%; max-height: 100px; object-fit: contain; }
+.audio-current-subtitle { margin: 0; font-size: 12px; min-height: 18px; max-height: 48px; overflow: auto; text-align: center; }
+.audio-companion-downloads { font-size: 11px; }
+.audio-target-duration { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+.audio-target-duration input { width: 65px; color: inherit; background: transparent; border: 1px solid #8884; border-radius: 5px; padding: 4px; }
+.doubao-service-tabs { display: flex; gap: 8px; margin: 16px 0; }
+.doubao-service-tabs button { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--settings-row-surface); color: var(--text-secondary); font: inherit; font-size: 12px; cursor: pointer; }
+.doubao-service-tabs button[aria-pressed="true"] { background: var(--theme-accent); color: var(--accent-ink); }
+.doubao-service-heading { display: flex; align-items: center; gap: 12px; }
+.story-media-composer:has(.canvas-audio-options) { max-height: min(44vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+.story-media-composer:has(.canvas-audio-options) .story-media-controls { position: sticky; bottom: 0; z-index: 2; background: var(--bg-panel, #262626); padding-top: 8px; }
+.audio-companion-downloads button, .audio-subtitle-seek { background: #ffffff0a; color: inherit; border: 1px solid #8884; border-radius: 6px; padding: 4px 7px; font: inherit; cursor: pointer; }
+.audio-subtitle-seek { max-width: 100%; font-size: 11px; }

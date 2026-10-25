@@ -3,6 +3,7 @@ import type {
   AudioModel,
   AudioModelCatalog,
   GeneratedAudio,
+  AudioReferenceData,
 } from "../shared/audio.js";
 import type { ModelRef } from "../shared/contracts.js";
 
@@ -18,12 +19,14 @@ export class AudioGenerationError extends Error {
 export interface AudioProviderAdapter {
   readonly id: string;
   readonly name: string;
+  defaultVoiceId?(): string | undefined;
   configured(): boolean;
   enabled(): boolean;
   models(): AudioModel[];
   generate(
     input: AudioGenerationRequest,
     signal?: AbortSignal,
+    references?: readonly AudioReferenceData[],
   ): Promise<GeneratedAudio>;
 }
 
@@ -36,7 +39,7 @@ export interface AudioGenerator {
 }
 
 export class ProviderAudio implements AudioGenerator {
-  constructor(private readonly adapters: readonly AudioProviderAdapter[]) {}
+  constructor(private readonly adapters: readonly AudioProviderAdapter[], private readonly resolveReference?: (assetId: string) => Promise<{ bytes: Uint8Array; mediaType: string }>) {}
 
   catalog(): AudioModelCatalog {
     const providers = this.adapters.map((adapter) => {
@@ -45,6 +48,7 @@ export class ProviderAudio implements AudioGenerator {
       return {
         provider: adapter.id,
         name: adapter.name,
+        ...(adapter.defaultVoiceId?.() ? { defaultVoiceId: adapter.defaultVoiceId() } : {}),
         configured,
         state: !enabled
           ? ("disabled" as const)
@@ -80,6 +84,7 @@ export class ProviderAudio implements AudioGenerator {
     input: AudioGenerationRequest,
     signal?: AbortSignal,
   ): Promise<GeneratedAudio> {
+    if (input.operation === "music" && input.referenceAssetId && !input.references?.length) input = { ...input, references: [{ id: "Audio1", type: "audio", assetId: input.referenceAssetId }] };
     const model = this.resolveModel(input.operation, input.model);
     if (!model) {
       if (input.model)
@@ -100,9 +105,14 @@ export class ProviderAudio implements AudioGenerator {
         "The selected audio provider is unavailable",
         503,
       );
+    const references = "references" in input ? input.references ?? [] : [];
+    if (references.length > 3 || new Set(references.map((reference) => reference.id)).size !== references.length || references.some((reference) => !/^(Audio|Image)[1-9][0-9]*$/.test(reference.id) || !["image", "audio"].includes(reference.type))) throw new AudioGenerationError("Invalid audio reference aliases", 400);
+    if (references.length && !this.resolveReference) throw new AudioGenerationError("Audio reference assets are unavailable", 400);
+    const resolved = await Promise.all(references.map(async (reference) => ({ ...reference, ...await this.resolveReference!(reference.assetId) })));
     return adapter.generate(
       { ...input, model: { provider: model.provider, id: model.id } },
       signal,
+      resolved,
     );
   }
 }

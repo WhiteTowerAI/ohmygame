@@ -1,3 +1,4 @@
+import { mp3Fixture, wavFixture } from "./audio-fixtures.js";
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -965,6 +966,7 @@ describe("daemon", () => {
       "generate_speech",
       "generate_sound_effect",
       "generate_music",
+      "generate_audio",
     ]);
   });
 
@@ -1780,7 +1782,7 @@ describe("daemon", () => {
       expect.objectContaining({
         provider: "volcengine-seed-audio",
         id: "seed-audio-1.0",
-        capabilities: expect.objectContaining({ operations: ["sound-effect", "music"] }),
+        capabilities: expect.objectContaining({ operations: ["speech", "sound-effect", "music", "audio-scene"] }),
       }),
     ]);
     expect(catalog.providers).toEqual(expect.arrayContaining([
@@ -1810,7 +1812,7 @@ describe("daemon", () => {
 
     await app.inject({ method: "PUT", url: "/settings/models/providers/volcengine-tts", payload: { apiKey: "doubao-key" } });
     audioFetch.mockResolvedValue(new Response(
-      `${JSON.stringify({ code: 0, data: Buffer.from("preview audio").toString("base64") })}\n`,
+      `${JSON.stringify({ code: 0, data: mp3Fixture().toString("base64") })}\n`,
       { status: 200, headers: { "x-tt-logid": "preview-log-1" } },
     ));
     const preview = await app.inject({
@@ -1821,7 +1823,7 @@ describe("daemon", () => {
     expect(preview.statusCode).toBe(200);
     expect(preview.headers["content-type"]).toBe("audio/mpeg");
     expect(preview.headers["x-provider-request-id"]).toBe("preview-log-1");
-    expect(preview.body).toBe("preview audio");
+    expect(preview.rawPayload).toEqual(mp3Fixture());
     expect(audioFetch).toHaveBeenCalledTimes(1);
   });
 

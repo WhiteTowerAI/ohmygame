@@ -1598,3 +1598,15 @@ export function clearProjectIntegration(projectId: string): Promise<ProjectState
 export function setProjectIntegration(projectId: string, pluginId: string): Promise<ProjectState> {
   return request(`/projects/${encodeURIComponent(projectId)}/integration`, { method: "PUT", body: JSON.stringify({ pluginId }) });
 }
+
+export interface DoubaoVoiceConnection { configured: boolean; shared: boolean; distinctKeys: boolean; ttsConfigured: boolean; seedConfigured: boolean }
+export function getDoubaoVoiceSettings(): Promise<DoubaoVoiceConnection> { return request("/settings/models/providers/doubao-voice"); }
+export async function updateDoubaoVoiceApiKey(apiKey: string): Promise<DoubaoVoiceConnection> {
+  const result = await request<DoubaoVoiceConnection>("/settings/models/providers/doubao-voice", { method: "PUT", body: JSON.stringify({ apiKey }) });
+  notifyAgentModelsChanged(); return result;
+}
+export async function previewSeedAudio(): Promise<Blob> {
+  const response = await fetch(apiUrl("/settings/models/providers/volcengine-seed-audio/preview"), { method: "POST", headers: { ...runtimeHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ prompt: "A short soft bell chime", durationSeconds: 1 }) });
+  if (!response.ok) throw new Error((await response.json()).error ?? "Audio preview failed");
+  return response.blob();
+}

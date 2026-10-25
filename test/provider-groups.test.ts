@@ -70,3 +70,13 @@ describe("provider groups", () => {
     expect(ids(groups.more)).toEqual(["cerebras"]);
   });
 });
+
+it("groups both Doubao services as one connection without hiding a Seed-only credential", async () => {
+  const { withDoubaoConnection } = await import("../src/renderer/provider-groups.js");
+  const services = [
+    { id: "volcengine-tts", name: "Doubao Speech", configured: false, enabled: false, status: "not_configured", methods: [], capabilities: ["audio"] },
+    { id: "volcengine-seed-audio", name: "Doubao Seed Audio", configured: true, enabled: true, status: "connected", methods: [], capabilities: ["audio"] },
+  ] as import("../src/shared/contracts.js").ProviderSummary[];
+  expect(withDoubaoConnection(services)).toMatchObject([{ id: "volcengine-tts", name: "Doubao Voice", configured: true, enabled: true }]);
+  expect(services[0]!.configured).toBe(false);
+});
