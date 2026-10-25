@@ -15,7 +15,10 @@ import {
 } from "../shared/audio.js";
 import { encodeAudioClip } from "./audio-clip.js";
 import { downloadAssetBlob } from "./library-assets.js";
-import { t } from "./i18n.js";
+import { language as uiLanguage, t } from "./i18n.js";
+import { ArrowUp, Scissors, Trash2, Upload } from "./icons.js";
+
+const languageNames = new Intl.DisplayNames([uiLanguage], { type: "language" });
 
 export interface AudioReferenceChoice {
   id: string;
@@ -152,6 +155,7 @@ export function CanvasAudioControls({
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string>();
+  const [customVoice, setCustomVoice] = useState(false);
   const [busy, setBusy] = useState(false);
   const [clip, setClip] = useState<{
     buffer: AudioBuffer;
@@ -163,6 +167,13 @@ export function CanvasAudioControls({
     [end, setEnd] = useState(0);
   const caps = model?.capabilities,
     tts = model?.protocol === "volcengine-tts-v3";
+  const usesCustomVoice =
+    customVoice ||
+    Boolean(
+      value.voiceId &&
+      !VOLCENGINE_TTS_VOICES.some((voice) => voice.id === value.voiceId),
+    ) ||
+    value.voiceKind === "cloned";
   const control = (
     key: "speed" | "pitch" | "volume",
     min: number,
@@ -176,6 +187,7 @@ export function CanvasAudioControls({
         min={min}
         max={max}
         step={1}
+        title={`${min} … ${max}`}
         value={value[key] ?? 0}
         onChange={(event) => onChange({ [key]: Number(event.target.value) })}
       />
@@ -291,24 +303,26 @@ export function CanvasAudioControls({
         ) : null}
         {caps?.supportsSpeaker ? (
           <>
-            <label>
+            <label className="audio-control-wide">
               {t("assetCanvas.voice.label")}
               <select
                 value={
-                  value.voiceId &&
-                  VOLCENGINE_TTS_VOICES.some(
-                    (voice) => voice.id === value.voiceId,
-                  )
-                    ? value.voiceId
-                    : ""
+                  usesCustomVoice
+                    ? value.voiceKind === "cloned" && tts
+                      ? "__cloned"
+                      : "__custom"
+                    : (value.voiceId ?? "")
                 }
-                onChange={(event) =>
+                onChange={(event) => {
+                  const mode = event.target.value;
+                  const custom = mode === "__custom" || mode === "__cloned";
+                  setCustomVoice(custom);
                   onChange({
-                    voiceId: event.target.value || undefined,
-                    voiceKind: "preset",
+                    voiceId: custom ? undefined : mode || undefined,
+                    voiceKind: mode === "__cloned" ? "cloned" : "preset",
                     voiceModel: undefined,
-                  })
-                }
+                  });
+                }}
               >
                 <option value="">{t("assetCanvas.voice.default")}</option>
                 {VOLCENGINE_TTS_VOICES.map((voice) => (
@@ -316,33 +330,25 @@ export function CanvasAudioControls({
                     {voice.name}
                   </option>
                 ))}
+                <option value="__custom">
+                  {t("providers.voiceSelectCustom")}
+                </option>
+                {tts ? (
+                  <option value="__cloned">{t("audioStudio.cloned")}</option>
+                ) : null}
               </select>
             </label>
-            <label>
-              {t("providers.voiceIdInputLabel")}
-              <input
-                value={value.voiceId ?? ""}
-                maxLength={256}
-                onChange={(event) =>
-                  onChange({ voiceId: event.target.value || undefined })
-                }
-                placeholder={t("providers.defaultVoiceIdPlaceholder")}
-              />
-            </label>
-            {tts ? (
-              <label>
-                {t("audioStudio.voiceKind")}
-                <select
-                  value={value.voiceKind ?? "preset"}
+            {usesCustomVoice ? (
+              <label className="audio-control-wide">
+                {t("providers.voiceIdInputLabel")}
+                <input
+                  value={value.voiceId ?? ""}
+                  maxLength={256}
                   onChange={(event) =>
-                    onChange({
-                      voiceKind: event.target.value as "preset" | "cloned",
-                    })
+                    onChange({ voiceId: event.target.value || undefined })
                   }
-                >
-                  <option value="preset">{t("audioStudio.preset")}</option>
-                  <option value="cloned">{t("audioStudio.cloned")}</option>
-                </select>
+                  placeholder={t("providers.defaultVoiceIdPlaceholder")}
+                />
               </label>
             ) : null}
             {tts && value.voiceKind === "cloned" ? (
@@ -357,22 +363,28 @@ export function CanvasAudioControls({
                     })
                   }
                 >
-                  <option value="standard">Standard</option>
-                  <option value="expressive">Expressive</option>
+                  <option value="standard">
+                    {t("audioStudio.standardVoice")}
+                  </option>
+                  <option value="expressive">
+                    {t("audioStudio.expressiveVoice")}
+                  </option>
                 </select>
               </label>
             ) : null}
           </>
         ) : null}
-        {control("speed", -50, 100, t("audioStudio.speed"))}
-        {caps?.supportsPitch
-          ? control("pitch", -12, 12, t("audioStudio.pitch"))
-          : null}
-        {caps?.supportsVolume
-          ? control("volume", -50, 100, t("audioStudio.volume"))
-          : null}
+        <div className="audio-control-adjustments">
+          {control("speed", -50, 100, t("audioStudio.speed"))}
+          {caps?.supportsPitch
+            ? control("pitch", -12, 12, t("audioStudio.pitch"))
+            : null}
+          {caps?.supportsVolume
+            ? control("volume", -50, 100, t("audioStudio.volume"))
+            : null}
+        </div>
         {caps?.supportsStyle ? (
-          <label>
+          <label className="audio-control-wide">
             {t("audioStudio.style")}
             <textarea
               rows={2}
@@ -394,113 +406,13 @@ export function CanvasAudioControls({
             <option value="">{t("assetCanvas.automatic")}</option>
             {caps?.languages?.map((language) => (
               <option key={language} value={language}>
-                {language}
+                {languageNames.of(language)}
               </option>
             ))}
           </select>
         </label>
-        {tts ? (
-          <>
-            <label>
-              <input
-                type="checkbox"
-                checked={value.autoLanguage ?? false}
-                onChange={(event) =>
-                  onChange({ autoLanguage: event.target.checked })
-                }
-              />
-              {t("audioStudio.autoLanguage")}
-            </label>
-            <label>
-              {t("audioStudio.dialect")}
-              <select
-                value={value.dialect ?? ""}
-                onChange={(event) =>
-                  onChange({ dialect: event.target.value || undefined })
-                }
-              >
-                <option value="">{t("assetCanvas.automatic")}</option>
-                {[
-                  "beijing",
-                  "dongbei",
-                  "henan",
-                  "shaanxi",
-                  "shanghai",
-                  "sichuan",
-                  "tianjin",
-                  "yue",
-                ].map((dialect) => (
-                  <option key={dialect} value={dialect}>
-                    {t(
-                      `audioStudio.dialects.${dialect}` as "audioStudio.dialects.beijing",
-                    )}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("audioStudio.pronunciation")}
-              <textarea
-                rows={2}
-                value={
-                  value.pronunciation
-                    ?.map((entry) => `${entry.word}/${entry.replacement}`)
-                    .join("\n") ?? ""
-                }
-                onChange={(event) =>
-                  onChange({
-                    pronunciation: event.target.value
-                      ? event.target.value.split("\n").map((line) => {
-                          const at = line.indexOf("/");
-                          return {
-                            word: at < 0 ? line : line.slice(0, at),
-                            replacement: at < 0 ? "" : line.slice(at + 1),
-                          };
-                        })
-                      : undefined,
-                  })
-                }
-              />
-            </label>
-            <label>
-              SSML
-              <textarea
-                rows={2}
-                value={value.ssml ?? ""}
-                onChange={(event) =>
-                  onChange({ ssml: event.target.value || undefined })
-                }
-              />
-            </label>
-            <label>
-              {t("audioStudio.silence")}
-              <input
-                type="number"
-                min={0}
-                max={30000}
-                step={1}
-                value={value.silenceMs ?? 0}
-                onChange={(event) =>
-                  onChange({ silenceMs: Number(event.target.value) })
-                }
-              />
-            </label>
-          </>
-        ) : null}
-        {tts ? (
-          <label>
-            {t("audioStudio.sectionId")}
-            <input
-              maxLength={120}
-              value={value.sectionId ?? ""}
-              onChange={(event) =>
-                onChange({ sectionId: event.target.value || undefined })
-              }
-            />
-          </label>
-        ) : null}
         {caps?.supportsAlignment ? (
-          <label>
+          <label className="audio-checkbox">
             <input
               type="checkbox"
               checked={value.subtitles ?? false}
@@ -509,9 +421,6 @@ export function CanvasAudioControls({
               }
             />
             {t("audioStudio.subtitles")}
-            {caps.subtitleLanguages ? (
-              <small>{t("audioStudio.subtitleLanguages")}</small>
-            ) : null}
           </label>
         ) : null}
         <label>
@@ -582,16 +491,117 @@ export function CanvasAudioControls({
             </select>
           </label>
         ) : null}
+        {tts ? (
+          <details className="audio-advanced-options audio-control-wide">
+            <summary>{t("audioStudio.speechOptions")}</summary>
+            <div className="audio-control-grid">
+              <label className="audio-checkbox">
+                <input
+                  type="checkbox"
+                  checked={value.autoLanguage ?? false}
+                  onChange={(event) =>
+                    onChange({ autoLanguage: event.target.checked })
+                  }
+                />
+                {t("audioStudio.autoLanguage")}
+              </label>
+              <label>
+                {t("audioStudio.dialect")}
+                <select
+                  value={value.dialect ?? ""}
+                  onChange={(event) =>
+                    onChange({ dialect: event.target.value || undefined })
+                  }
+                >
+                  <option value="">{t("assetCanvas.automatic")}</option>
+                  {[
+                    "beijing",
+                    "dongbei",
+                    "henan",
+                    "shaanxi",
+                    "shanghai",
+                    "sichuan",
+                    "tianjin",
+                    "yue",
+                  ].map((dialect) => (
+                    <option key={dialect} value={dialect}>
+                      {t(
+                        `audioStudio.dialects.${dialect}` as "audioStudio.dialects.beijing",
+                      )}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t("audioStudio.pronunciation")}
+                <textarea
+                  rows={2}
+                  placeholder={t("audioStudio.pronunciationExample")}
+                  value={
+                    value.pronunciation
+                      ?.map((entry) => `${entry.word}/${entry.replacement}`)
+                      .join("\n") ?? ""
+                  }
+                  onChange={(event) =>
+                    onChange({
+                      pronunciation: event.target.value
+                        ? event.target.value.split("\n").map((line) => {
+                            const at = line.indexOf("/");
+                            return {
+                              word: at < 0 ? line : line.slice(0, at),
+                              replacement: at < 0 ? "" : line.slice(at + 1),
+                            };
+                          })
+                        : undefined,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                SSML
+                <textarea
+                  rows={2}
+                  value={value.ssml ?? ""}
+                  onChange={(event) =>
+                    onChange({ ssml: event.target.value || undefined })
+                  }
+                />
+              </label>
+              <label>
+                {t("audioStudio.silence")}
+                <input
+                  type="number"
+                  min={0}
+                  max={30000}
+                  step={1}
+                  value={value.silenceMs ?? 0}
+                  onChange={(event) =>
+                    onChange({ silenceMs: Number(event.target.value) })
+                  }
+                />
+              </label>
+
+              <label>
+                {t("audioStudio.sectionId")}
+                <input
+                  maxLength={120}
+                  value={value.sectionId ?? ""}
+                  onChange={(event) =>
+                    onChange({ sectionId: event.target.value || undefined })
+                  }
+                />
+              </label>
+            </div>
+          </details>
+        ) : null}
         {referenceControls &&
         (caps?.supportsReferenceAudio ||
           caps?.supportsReferenceImage ||
           value.audioReferences?.length) ? (
           <section className="audio-reference-controls">
-            <strong>{t("audioStudio.references")}</strong>
-            <small>{t("audioStudio.referenceRule")}</small>
-            <label>
-              {t("assetCanvas.fromLibrary")}
+            <div className="audio-reference-toolbar">
               <select
+                aria-label={t("audioStudio.chooseReference")}
                 value=""
                 onChange={(event) => {
                   const asset = referenceControls.choices.find(
@@ -607,26 +617,74 @@ export function CanvasAudioControls({
                   </option>
                 ))}
               </select>
-            </label>
-            <input
-              ref={input}
-              type="file"
-              hidden
-              accept="audio/*,image/png,image/jpeg,image/webp"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) void upload(file);
-              }}
-            />
-            <button type="button" onClick={() => input.current?.click()}>
-              {t("assetCanvas.upload")}
-            </button>
-            {referenceControls.references.map((reference) => (
-              <div key={reference.id} className="audio-reference-item">
-                <span>
-                  @{reference.id} · {reference.name}
-                </span>
+              <input
+                ref={input}
+                type="file"
+                hidden
+                accept="audio/*,image/png,image/jpeg,image/webp"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void upload(file);
+                }}
+              />
+              <button
+                type="button"
+                className="audio-icon-button"
+                aria-label={t("assetCanvas.upload")}
+                title={t("assetCanvas.upload")}
+                onClick={() => input.current?.click()}
+              >
+                <Upload size={15} />
+              </button>
+            </div>
+            {referenceControls.references.map((reference, index) => (
+              <div
+                key={reference.id}
+                className="audio-reference-item"
+                role="group"
+                aria-label={`@${reference.id} · ${reference.name}`}
+              >
+                <div className="audio-reference-heading">
+                  <code>@{reference.id}</code>
+                  <span title={reference.name}>{reference.name}</span>
+                  <div className="audio-reference-actions">
+                    <button
+                      type="button"
+                      className="audio-icon-button"
+                      aria-label={t("audioStudio.moveUp")}
+                      title={t("audioStudio.moveUp")}
+                      disabled={index === 0}
+                      onClick={() => referenceControls.move(reference.id, -1)}
+                    >
+                      <ArrowUp size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="audio-icon-button"
+                      aria-label={t("audioStudio.moveDown")}
+                      title={t("audioStudio.moveDown")}
+                      disabled={
+                        index === referenceControls.references.length - 1
+                      }
+                      onClick={() => referenceControls.move(reference.id, 1)}
+                    >
+                      <ArrowUp
+                        size={13}
+                        style={{ transform: "rotate(180deg)" }}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      className="audio-icon-button"
+                      aria-label={t("audioStudio.removeReference")}
+                      title={t("audioStudio.removeReference")}
+                      onClick={() => referenceControls.remove(reference.id)}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
                 {reference.assetId ? (
                   <AudioReferencePreview
                     assetId={reference.assetId}
@@ -634,58 +692,43 @@ export function CanvasAudioControls({
                     read={referenceControls.read}
                   />
                 ) : null}
-                <div>
+                {reference.type === "audio" && reference.assetId ? (
                   <button
+                    className="audio-clip-button"
                     type="button"
-                    aria-label={t("audioStudio.moveUp")}
-                    onClick={() => referenceControls.move(reference.id, -1)}
+                    onClick={() => {
+                      setBusy(true);
+                      setError(undefined);
+                      void referenceControls
+                        .read(reference.assetId!)
+                        .then((blob) =>
+                          decode(
+                            blob,
+                            reference.name,
+                            reference.assetId!,
+                            reference.id,
+                          ),
+                        )
+                        .catch((cause) => setError(String(cause)))
+                        .finally(() => setBusy(false));
+                    }}
                   >
-                    ↑
+                    <Scissors size={13} />
+                    {t("audioStudio.selectClip")}
                   </button>
-                  <button
-                    type="button"
-                    aria-label={t("audioStudio.moveDown")}
-                    onClick={() => referenceControls.move(reference.id, 1)}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => referenceControls.remove(reference.id)}
-                  >
-                    {t("audioStudio.removeReference")}
-                  </button>
-                  {reference.type === "audio" && reference.assetId ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBusy(true);
-                        setError(undefined);
-                        void referenceControls
-                          .read(reference.assetId!)
-                          .then((blob) =>
-                            decode(
-                              blob,
-                              reference.name,
-                              reference.assetId!,
-                              reference.id,
-                            ),
-                          )
-                          .catch((cause) => setError(String(cause)))
-                          .finally(() => setBusy(false));
-                      }}
-                    >
-                      {t("audioStudio.selectClip")}
-                    </button>
-                  ) : null}
-                </div>
+                ) : null}
               </div>
             ))}
             {clip ? (
-              <section>
-                <strong>{t("audioStudio.clipTitle")}</strong>
-                <span>
-                  {clip.name} · {clip.buffer.duration.toFixed(2)} s
+              <section
+                className="audio-clip-editor"
+                aria-label={t("audioStudio.clipTitle")}
+              >
+                <span
+                  className="audio-control-wide audio-clip-name"
+                  title={clip.name}
+                >
+                  {clip.name}
                 </span>
                 <label>
                   {t("audioStudio.clipStart")}
@@ -709,12 +752,18 @@ export function CanvasAudioControls({
                     onChange={(event) => setEnd(Number(event.target.value))}
                   />
                 </label>
-                <button type="button" onClick={() => void saveClip()}>
-                  {t("common.save")}
-                </button>
-                <button type="button" onClick={() => setClip(undefined)}>
-                  {t("common.cancel")}
-                </button>
+                <div className="audio-clip-actions audio-control-wide">
+                  <button type="button" onClick={() => setClip(undefined)}>
+                    {t("common.cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    className="audio-clip-save"
+                    onClick={() => void saveClip()}
+                  >
+                    {t("common.save")}
+                  </button>
+                </div>
               </section>
             ) : null}
           </section>

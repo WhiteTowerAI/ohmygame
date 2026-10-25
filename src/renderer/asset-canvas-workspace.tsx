@@ -33,7 +33,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent, type ClipboardEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useId, useRef, useState, type CSSProperties, type SyntheticEvent, type ClipboardEvent, type ReactNode } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
   Handle,
@@ -143,7 +143,7 @@ const MEDIA_NODE_MIN_HEIGHT = 200;
 type CanvasNodeCreationAction = { kind: "node"; type: Exclude<AssetCanvasNodeType, "asset">; documentId?: string; tableId?: string };
 interface CanvasNodeCreationLeaf {
   label: string;
-  description: string;
+  description?: string;
   icon: IconComponent;
   action: CanvasNodeCreationAction;
 }
@@ -172,7 +172,7 @@ const BASE_CANVAS_NODE_CREATION_GROUPS: CanvasNodeCreationGroup[] = [
       { label: t("assetCanvas.node.video"), description: t("assetCanvas.node.videoHint"), icon: Film, action: { kind: "node", type: "video" } },
       { label: t("assetCanvas.node.speech"), description: t("assetCanvas.node.speechHint"), icon: Music2, action: { kind: "node", type: "speech" } },
       { label: t("assetCanvas.node.soundEffect"), description: t("assetCanvas.node.soundEffectHint"), icon: Volume2, action: { kind: "node", type: "sound-effect" } },
-      { label: t("audioStudio.scene"), description: t("audioStudio.sceneHint"), icon: Music2, action: { kind: "node", type: "audio-scene" } },
+      { label: t("audioStudio.scene"), icon: Music2, action: { kind: "node", type: "audio-scene" } },
       { label: t("assetCanvas.node.music"), description: t("assetCanvas.node.musicHint"), icon: Music2, action: { kind: "node", type: "music" } },
       { label: t("assetCanvas.node.model3d"), description: t("assetCanvas.node.model3dHint"), icon: Box, action: { kind: "node", type: "model-3d" } },
       { label: t("assetCanvas.node.animate3d"), description: t("assetCanvas.node.animate3dHint"), icon: WandSparkles, action: { kind: "node", type: "animate-3d" } },
@@ -2151,6 +2151,7 @@ function MusicNode(props: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selecte
 }
 
 function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected"> & { operation: "speech" | "sound-effect" | "music" | "audio-scene" }) {
+  const durationListId = useId();
   const runtime = data.audioRuntime;
   const selectedModel = runtime?.models.find((model) => sameModel(model, data.audioModel));
   const maximumDuration = selectedModel?.capabilities.maxDurationSeconds;
@@ -2219,14 +2220,7 @@ function PromptAudioNode({ data, selected, operation }: Pick<NodeProps<AssetCanv
           disabled={runtime?.busy}
           onChange={selectModel}
         />
-        {operation !== "speech" && durationOptions.length ? <CanvasChipSelect
-          label={t("audioStudio.targetDuration")}
-          value={data.durationSeconds === undefined ? "" : String(data.durationSeconds)}
-          options={[{ value: "", label: t("assetCanvas.automatic") }, ...durationOptions.map((duration) => ({ value: String(duration), label: t("assetCanvas.seconds", { count: duration }) }))]}
-          disabled={!selectedModel || runtime?.busy}
-          onChange={(value) => change({ durationSeconds: value ? Number(value) : undefined })}
-        /> : null}
-        {operation !== "speech" ? <label className="audio-target-duration nodrag nokey">{t("audioStudio.targetDuration")}<input type="number" min={0.1} max={maximumDuration ?? 600} step={0.1} value={data.durationSeconds ?? ""} placeholder={t("assetCanvas.automatic")} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })} /></label> : null}
+        {operation !== "speech" ? <label className="audio-target-duration nodrag nokey" title={t("audioStudio.targetDuration")}><input aria-label={t("audioStudio.targetDuration")} type="number" list={durationListId} min={0.1} max={maximumDuration ?? 600} step={0.1} value={data.durationSeconds ?? ""} placeholder={t("assetCanvas.automatic")} disabled={!selectedModel || runtime?.busy} onChange={(event) => change({ durationSeconds: event.target.value ? Number(event.target.value) : undefined })} /><span aria-hidden="true">s</span><datalist id={durationListId}>{durationOptions.map((duration) => <option key={duration} value={duration} />)}</datalist></label> : null}
         {operation === "music" && selectedModel?.capabilities.supportsInstrumental ? <CanvasChipToggle
           label={t("assetCanvas.instrumental")}
           pressed={data.instrumental !== false}
@@ -2674,14 +2668,14 @@ function MediaNodeShell({ kind, label: labelOverride, selected, panelOpen, asset
           <div className="story-media-empty">
             <Icon size={34} />
             <strong>{assetId ? preview.error ? t("assetCanvas.assetUnavailable") : t("assetCanvas.loadingAsset") : t(`assetCanvas.media.${kind}.none`)}</strong>
-            {assetId ? <CanvasAssetRecovery preview={preview} /> : <span>{emptyHint ?? (kind === "animation" ? t("assetCanvas.hint.humanoid") : t(`assetCanvas.media.${kind}.describe`))}</span>}
+            {assetId ? <CanvasAssetRecovery preview={preview} /> : !audio ? <span>{emptyHint ?? (kind === "animation" ? t("assetCanvas.hint.humanoid") : t(`assetCanvas.media.${kind}.describe`))}</span> : null}
           </div>
         ) : null}
         {runtime?.generating ? (
           <div className="story-media-empty story-media-generation" role="status">
             <LoaderCircle className="spin" size={20} />
             <strong>{kind === "animation" ? t("assetCanvas.rigging") : t(`assetCanvas.media.${kind}.generating`)}</strong>
-            <span>{kind === "animation" ? t("assetCanvas.takesMinutes") : t("assetCanvas.takesMoment")}</span>
+            {!audio ? <span>{kind === "animation" ? t("assetCanvas.takesMinutes") : t("assetCanvas.takesMoment")}</span> : null}
           </div>
         ) : null}
       </div>
@@ -3006,8 +3000,8 @@ function AssetCanvasAddControl({
                     aria-expanded={openCreationBranch?.branch === item}
                     onPointerEnter={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
                     onClick={(event) => setOpenCreationBranch({ branch: item, top: event.currentTarget.offsetTop })}
-                  ><Icon size={15} /><span><strong>{item.label}</strong><small>{item.description}</small></span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
-                  return <button type="button" role="menuitem" key={item.label} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong><small>{item.description}</small></span></button>;
+                  ><Icon size={15} /><span><strong>{item.label}</strong>{item.description ? <small>{item.description}</small> : null}</span><ChevronRight className="story-add-node-submenu-arrow" size={13} /></button>;
+                  return <button type="button" role="menuitem" key={item.label} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => addItem(item)}><Icon size={15} /><span><strong>{item.label}</strong>{item.description ? <small>{item.description}</small> : null}</span></button>;
                 })}
               </Fragment>)}
               <button type="button" role="menuitem" disabled={importing} onPointerEnter={() => setOpenCreationBranch(undefined)} onClick={() => uploadInput.current?.click()}><Upload size={15} /><span><strong>{importing ? t("assetCanvas.uploading") : t("assetCanvas.upload")}</strong><small>{t("assetCanvas.uploadHint")}</small></span></button>

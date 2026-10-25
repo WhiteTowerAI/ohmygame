@@ -38,7 +38,7 @@ Speech, Sound effect, Music, and Audio creation appear when a configured,
 enabled model supports the operation. Existing nodes remain readable after a
 service is disconnected. Text and Document nodes can supply prompt content.
 
-**Voice, references and output** exposes model-supported controls:
+**Audio settings** exposes model-supported controls:
 
 - preset or custom Speaker ID, including an existing cloned voice;
 - delivery style, language, and speech rate;
@@ -48,11 +48,15 @@ service is disconnected. Text and Document nodes can supply prompt content.
 - ordered reference media from uploads, the Library, or connected image/audio
   generation nodes that already have an output.
 
+Speaker ID appears when a custom or cloned voice is selected. Less frequently
+used TTS controls are grouped under **Speech options**; reference actions remain
+on each media card. Unsupported combinations are reported when selected.
+
 Node settings survive save/reopen and copy/paste. Voice and output preferences
 are remembered per node type; source references remain local to their node.
 Switching models retains reference drafts and reports incompatible inputs.
 
-Sound effects and music provide target-duration presets and manual input,
+Sound effects and music provide a target-duration input with preset suggestions,
 including short effects. Seed Audio expresses duration through natural-language
 instructions; it is a target, not a guaranteed exact cut. The original generated
 audio is limited to 120 seconds. A specific sub-second result needs real-service

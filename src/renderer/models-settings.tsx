@@ -517,25 +517,151 @@ function MinimaxAuthView({ provider, onBack, onCompleted }: { provider: Provider
   );
 }
 
-function DoubaoVoiceAuthView({ provider, onBack, onCompleted }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void }) {
-  const [services, setServices] = useState<ProviderSummary[]>([]), [distinct, setDistinct] = useState(false);
-  const [service, setService] = useState("volcengine-tts"), [apiKey, setApiKey] = useState("");
-  const [busy, setBusy] = useState(false), [error, setError] = useState<string>();
+function DoubaoVoiceAuthView({
+  provider,
+  onBack,
+  onCompleted,
+}: {
+  provider: ProviderSummary;
+  onBack: () => void;
+  onCompleted: () => void;
+}) {
+  const [services, setServices] = useState<ProviderSummary[]>([]),
+    [distinct, setDistinct] = useState(false);
+  const [service, setService] = useState("volcengine-tts"),
+    [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
-  useEffect(() => { let active = true; void Promise.all([listProviders(), getDoubaoVoiceSettings()]).then(([items, connection]) => { if (active) { setServices(items.filter((item) => item.id === "volcengine-tts" || item.id === "volcengine-seed-audio")); setDistinct(connection.distinctKeys); } }).catch((cause) => { if (active) setError(errorMessage(cause)); }); return () => { active = false; }; }, [revision]);
+  useEffect(() => {
+    let active = true;
+    void Promise.all([listProviders(), getDoubaoVoiceSettings()])
+      .then(([items, connection]) => {
+        if (active) {
+          setServices(
+            items.filter(
+              (item) =>
+                item.id === "volcengine-tts" ||
+                item.id === "volcengine-seed-audio",
+            ),
+          );
+          setDistinct(connection.distinctKeys);
+        }
+      })
+      .catch((cause) => {
+        if (active) setError(errorMessage(cause));
+      });
+    return () => {
+      active = false;
+    };
+  }, [revision]);
   const selected = services.find((item) => item.id === service);
   async function save(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError(undefined);
-    try { await updateDoubaoVoiceApiKey(apiKey); setApiKey(""); setRevision((value) => value + 1); onCompleted(); }
-    catch (cause) { setError(errorMessage(cause)); } finally { setBusy(false); }
+    event.preventDefault();
+    setBusy(true);
+    setError(undefined);
+    try {
+      await updateDoubaoVoiceApiKey(apiKey);
+      setApiKey("");
+      setRevision((value) => value + 1);
+      onCompleted();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   }
-  return <section className="settings-panel settings-provider-detail">
-    <ProviderDetailHeader provider={{ ...provider, name: "Doubao Voice" }} description={t("audioStudio.sharedHint")} onBack={onBack} />
-    <form className="settings-detail-field" onSubmit={(event) => void save(event)}><label className="settings-search-field-label" htmlFor="doubao-shared-key">{t("audioStudio.sharedKey")}</label><div className="settings-detail-inline"><input id="doubao-shared-key" className="settings-search-input" type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} disabled={busy} /><button className="settings-primary-button" type="submit" disabled={busy || !apiKey.trim()}>{busy ? t("common.saving") : t("common.save")}</button></div></form>
-    {distinct ? <p>{t("audioStudio.distinctKeys")}</p> : null}{error ? <p role="alert">{error}</p> : null}
-    <div className="doubao-service-tabs">{["volcengine-tts", "volcengine-seed-audio"].map((id) => <button type="button" key={id} aria-pressed={service === id} onClick={() => setService(id)}>{t(id === "volcengine-tts" ? "audioStudio.speechService" : "audioStudio.seedService")}</button>)}</div>
-    {selected ? service === "volcengine-tts" ? <VolcengineTtsAuthView key={`${service}-${revision}`} provider={{ ...selected, name: t("audioStudio.speechService") }} onBack={onBack} onCompleted={() => setRevision((value) => value + 1)} embedded /> : <VolcengineSeedAudioAuthView key={`${service}-${revision}`} provider={selected} onBack={onBack} onCompleted={() => setRevision((value) => value + 1)} embedded /> : null}
-  </section>;
+  return (
+    <section className="settings-panel settings-provider-detail">
+      <ProviderDetailHeader
+        provider={{ ...provider, name: "Doubao Voice" }}
+        description={null}
+        onBack={onBack}
+      />
+      <form
+        className="settings-detail-field"
+        onSubmit={(event) => void save(event)}
+      >
+        <label
+          className="settings-search-field-label"
+          htmlFor="doubao-shared-key"
+        >
+          {t(distinct ? "audioStudio.replaceKeys" : "audioStudio.sharedKey")}
+        </label>
+        <div className="settings-detail-inline">
+          <input
+            id="doubao-shared-key"
+            className="settings-search-input"
+            type="password"
+            value={apiKey}
+            onChange={(event) => setApiKey(event.target.value)}
+            disabled={busy}
+          />
+          <button
+            className="settings-primary-button"
+            type="submit"
+            disabled={busy || !apiKey.trim()}
+          >
+            {busy ? t("common.saving") : t("common.save")}
+          </button>
+        </div>
+      </form>
+      {error ? (
+        <p className="settings-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className="doubao-service-navigation">
+        <SegmentedControl
+          className="doubao-service-tabs"
+          label={t("capability.audio")}
+          value={service}
+          options={[
+            { value: "volcengine-tts", label: t("audioStudio.speechService") },
+            {
+              value: "volcengine-seed-audio",
+              label: t("audioStudio.seedService"),
+            },
+          ]}
+          onChange={setService}
+        />
+        {selected ? (
+          <ProviderEnableControl
+            provider={selected}
+            label={t("providers.enableProvider", {
+              name: t(
+                service === "volcengine-tts"
+                  ? "audioStudio.speechService"
+                  : "audioStudio.seedService",
+              ),
+            })}
+            compact
+            disabled={busy}
+            onChanged={() => setRevision((value) => value + 1)}
+          />
+        ) : null}
+      </div>
+      {selected ? (
+        service === "volcengine-tts" ? (
+          <VolcengineTtsAuthView
+            key={`${service}-${revision}`}
+            provider={{ ...selected, name: t("audioStudio.speechService") }}
+            onBack={onBack}
+            onCompleted={() => setRevision((value) => value + 1)}
+            embedded
+          />
+        ) : (
+          <VolcengineSeedAudioAuthView
+            key={`${service}-${revision}`}
+            provider={selected}
+            onBack={onBack}
+            onCompleted={() => setRevision((value) => value + 1)}
+            embedded
+          />
+        )
+      ) : null}
+    </section>
+  );
 }
 
 function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false }: { provider: ProviderSummary; onBack: () => void; onCompleted: () => void; embedded?: boolean }) {
@@ -544,6 +670,7 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
   const [keyError, setKeyError] = useState<string>();
   const [savingKey, setSavingKey] = useState(false);
   const [defaultVoiceId, setDefaultVoiceId] = useState("");
+  const [customVoice, setCustomVoice] = useState(false);
   const [voiceError, setVoiceError] = useState<string>();
   const [savingVoice, setSavingVoice] = useState(false);
   const [modelsRevision, setModelsRevision] = useState(0);
@@ -602,14 +729,16 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
     { language: "en" as const, label: t("providers.englishVoices") },
   ];
   const knownVoice = VOLCENGINE_TTS_VOICES.some((voice) => voice.id === defaultVoiceId);
+  const usesCustomVoice = customVoice || !knownVoice;
   const inputId = "volcengine-tts-api-key";
   return (
     <section className="settings-panel settings-provider-detail">
       {!embedded ? <ProviderDetailHeader provider={provider} description={t("providers.audioDescription")} onBack={onBack}>
         {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={savingKey} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
-      </ProviderDetailHeader> : <div className="doubao-service-heading"><strong>{provider.name}</strong><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /><ProviderDeleteButton deletion={deletion} /></div>}
+      </ProviderDetailHeader> : null}
       {provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={savingKey} /> : null}
-      <details open={!embedded}><summary>{t("audioStudio.serviceOverride")}</summary>
+      <details className="doubao-service-credentials" open={!embedded}><summary>{t("audioStudio.serviceOverride")}</summary>
+      {embedded && provider.configured ? <div className="doubao-service-disconnect"><ProviderDeleteButton deletion={deletion} /></div> : null}
       <form className="settings-detail-field" onSubmit={(event) => void saveKey(event)}>
         <label className="settings-search-field-label" htmlFor={inputId}>{t("providers.apiKey")}</label>
         <div className="settings-detail-inline">
@@ -632,11 +761,12 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
       {provider.configured ? (
         <form className="settings-detail-field" onSubmit={(event) => void saveVoice(event)}>
           <label className="settings-search-field-label" htmlFor="volcengine-tts-voice-select">{t("providers.defaultVoiceId")}</label>
+          <div className="settings-detail-inline">
           <select
             id="volcengine-tts-voice-select"
             className="settings-search-input"
-            value={knownVoice ? defaultVoiceId : ""}
-            onChange={(event) => setDefaultVoiceId(event.target.value)}
+            value={usesCustomVoice ? "" : defaultVoiceId}
+            onChange={(event) => { setCustomVoice(!event.target.value); setDefaultVoiceId(event.target.value); }}
             disabled={savingVoice || deletion.busy}
           >
             <option value="">{t("providers.voiceSelectCustom")}</option>
@@ -648,10 +778,13 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
               </optgroup>
             ))}
           </select>
-          <label className="settings-search-field-label" htmlFor="volcengine-tts-voice-id">{t("providers.voiceIdInputLabel")}</label>
-          <div className="settings-detail-inline">
-            <input
+            <button className="settings-primary-button" type="submit" disabled={savingVoice || deletion.busy}>
+              {savingVoice ? t("common.saving") : t("common.save")}
+            </button>
+          </div>
+          {usesCustomVoice ? <input
               id="volcengine-tts-voice-id"
+              aria-label={t("providers.voiceIdInputLabel")}
               className="settings-search-input"
               value={defaultVoiceId}
               onChange={(event) => setDefaultVoiceId(event.target.value)}
@@ -659,37 +792,28 @@ function VolcengineTtsAuthView({ provider, onBack, onCompleted, embedded = false
               pattern={AUDIO_VOICE_ID_PATTERN}
               placeholder={t("providers.defaultVoiceIdPlaceholder")}
               disabled={savingVoice || deletion.busy}
-            />
-            <button className="settings-primary-button" type="submit" disabled={savingVoice || deletion.busy}>
-              {savingVoice ? t("common.saving") : t("common.save")}
-            </button>
-          </div>
-          <p className="settings-detail-hint">{t("providers.defaultVoiceIdHint")}</p>
+            /> : null}
           {voiceError ? <p className="settings-error" role="alert">{voiceError}</p> : null}
         </form>
       ) : null}
       {provider.configured ? (
         <section className="settings-detail-section" aria-label={t("providers.previewTitle")}>
-          <div className="provider-models-heading">
-            <h4>{t("providers.previewTitle")}</h4>
-          </div>
-          <label className="settings-search-field-label" htmlFor="volcengine-tts-preview-text">{t("providers.previewTextLabel")}</label>
           <div className="settings-detail-inline">
             <input
               id="volcengine-tts-preview-text"
+              aria-label={t("providers.previewTextLabel")}
               className="settings-search-input"
               value={previewText}
               onChange={(event) => setPreviewText(event.target.value)}
               maxLength={500}
               disabled={previewBusy}
             />
-            <button className="settings-primary-button" type="button" disabled={previewBusy || !previewText.trim() || provider.enabled === false} onClick={() => void runPreview()}>
-              {previewBusy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.saving")}</span> : t("providers.previewAction")}
+            <button className="settings-primary-button" type="button" title={t("providers.previewHint")} disabled={previewBusy || !previewText.trim() || provider.enabled === false} onClick={() => void runPreview()}>
+              {previewBusy ? <span className="settings-loading-inline"><LoaderCircle className="spin" size={14} />{t("common.loading")}</span> : t("providers.previewAction")}
             </button>
           </div>
           {previewUrl ? <audio controls src={previewUrl} className="settings-audio-preview" /> : null}
           {previewError ? <p className="settings-error" role="alert">{previewError}</p> : null}
-          <p className="settings-detail-hint">{t("providers.previewHint")}</p>
         </section>
       ) : null}
       {provider.configured ? <AudioModels key={`audio-${modelsRevision}`} providerId={provider.id} /> : null}
@@ -728,9 +852,10 @@ function VolcengineSeedAudioAuthView({ provider, onBack, onCompleted, embedded =
     <section className="settings-panel settings-provider-detail">
       {!embedded ? <ProviderDetailHeader provider={provider} description={t("providers.seedAudioDescription")} onBack={onBack}>
         {provider.configured ? <><ProviderDeleteButton deletion={deletion} disabled={saving} /><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /></> : null}
-      </ProviderDetailHeader> : <div className="doubao-service-heading"><strong>{provider.name}</strong><ProviderEnableControl provider={provider} disabled={deletion.busy} onChanged={() => setModelsRevision((value) => value + 1)} /><ProviderDeleteButton deletion={deletion} /></div>}
+      </ProviderDetailHeader> : null}
       {provider.configured ? <ProviderDeleteConfirmation provider={provider} deletion={deletion} disabled={saving} /> : null}
-      <details open={!embedded}><summary>{t("audioStudio.serviceOverride")}</summary>
+      <details className="doubao-service-credentials" open={!embedded}><summary>{t("audioStudio.serviceOverride")}</summary>
+      {embedded && provider.configured ? <div className="doubao-service-disconnect"><ProviderDeleteButton deletion={deletion} /></div> : null}
       <form className="settings-detail-field" onSubmit={(event) => void save(event)}>
         <label className="settings-search-field-label" htmlFor={inputId}>{t("providers.apiKey")}</label>
         <div className="settings-detail-inline">
@@ -747,11 +872,10 @@ function VolcengineSeedAudioAuthView({ provider, onBack, onCompleted, embedded =
             {saving ? t("common.saving") : t("common.save")}
           </button>
         </div>
-        <p className="settings-detail-hint">{t("providers.seedAudioHint")}</p>
       </form>
       </details>
       {error || deletion.error ? <p className="settings-error" role="alert">{deletion.error ?? error}</p> : null}
-      {provider.configured ? <section><button className="settings-primary-button" type="button" disabled={previewBusy || provider.enabled === false} onClick={() => void preview()}>{previewBusy ? t("common.saving") : t("audioStudio.seedTest")}</button><p className="settings-detail-hint">{t("audioStudio.seedTestHint")}</p>{previewUrl ? <audio controls src={previewUrl} /> : null}</section> : null}
+      {provider.configured ? <section className="doubao-service-preview"><button className="settings-primary-button" type="button" title={t("audioStudio.seedTestHint")} disabled={previewBusy || provider.enabled === false} onClick={() => void preview()}>{previewBusy ? t("common.loading") : t("audioStudio.seedTest")}</button>{previewUrl ? <audio className="settings-audio-preview" controls src={previewUrl} /> : null}</section> : null}
       {provider.configured ? <AudioModels key={`seed-audio-${modelsRevision}`} providerId={provider.id} /> : null}
     </section>
   );
@@ -778,7 +902,7 @@ function AudioModels({ providerId }: { providerId: string }) {
   return (
     <section className="settings-detail-section provider-models" aria-label={t("providers.audioModels")}>
       <div className="provider-models-heading">
-        <h4>{t("providers.audioModels")} <small>{models?.length ?? ""}</small></h4>
+        <h4>{t("providers.audioModels")}</h4>
       </div>
       {error ? <p className="settings-error" role="alert">{error}</p> : null}
       {models ? (
@@ -787,8 +911,7 @@ function AudioModels({ providerId }: { providerId: string }) {
             <div className="provider-model-row" key={model.id} role="listitem">
               <div className="provider-model-readonly">
                 <span className="provider-model-copy">
-                  <strong title={model.name}>{model.name}</strong>
-                  <small title={model.id}>{model.id}</small>
+                  <strong title={model.id}>{model.name}</strong>
                 </span>
               </div>
             </div>
@@ -1260,21 +1383,21 @@ export function ActiveProviderAuth({ provider, method, inline = false, onBack, o
   );
 }
 
-function ProviderDetailHeader({ provider, onBack, children, description }: { provider: ModelProviderSummary; onBack: () => void; children?: ReactNode; description?: string }) {
+function ProviderDetailHeader({ provider, onBack, children, description }: { provider: ModelProviderSummary; onBack: () => void; children?: ReactNode; description?: string | null }) {
   return (
     <header className="settings-provider-detail-header">
       <button className="icon-button settings-provider-back" type="button" onClick={onBack} aria-label={t("common.back")}><ArrowLeft size={16} /></button>
       <ProviderMark provider={provider} />
       <span className="settings-provider-heading">
         <h3>{provider.name}</h3>
-        <small>{description ?? providerDescription(provider)}</small>
+        {description !== null ? <small>{description ?? providerDescription(provider)}</small> : null}
       </span>
       {children}
     </header>
   );
 }
 
-function ProviderEnableControl({ provider, onChanged, disabled = false, label }: { provider: ProviderSummary; onChanged?: () => void; disabled?: boolean; label?: string }) {
+function ProviderEnableControl({ provider, onChanged, disabled = false, label, compact = false }: { provider: ProviderSummary; onChanged?: () => void; disabled?: boolean; label?: string; compact?: boolean }) {
   const [enabled, setEnabled] = useState(provider.enabled !== false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -1291,7 +1414,7 @@ function ProviderEnableControl({ provider, onChanged, disabled = false, label }:
   }
   return <div className="settings-provider-enable-control">
     <label className="settings-provider-enable-label" title={enabled ? t("providers.availableForRequests") : t("providers.disabledKept")}>
-      <small>{enabled ? t("common.enabled") : t("common.disabled")}</small>
+      {!compact ? <small>{enabled ? t("common.enabled") : t("common.disabled")}</small> : null}
       <span className="settings-toggle"><input type="checkbox" role="switch" aria-label={label ?? t("providers.enableProvider", { name: provider.name })} checked={enabled} disabled={busy || disabled} onChange={(event) => void toggle(event.target.checked)} /><span aria-hidden="true" /></span>
     </label>
     {error ? <p className="settings-error" role="alert">{error}</p> : null}

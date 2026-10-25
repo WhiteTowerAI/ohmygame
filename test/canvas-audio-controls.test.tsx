@@ -7,6 +7,7 @@ import {
   audioSettingsIssue,
 } from "../src/renderer/canvas-audio-controls.js";
 import { VOLCENGINE_SEED_AUDIO_MODELS } from "../src/daemon/volcengine-seed-audio-provider.js";
+import { VOLCENGINE_TTS_MODELS } from "../src/daemon/volcengine-tts-provider.js";
 import { encodeAudioClip } from "../src/renderer/audio-clip.js";
 import {
   audioSubtitleFile,
@@ -67,6 +68,107 @@ it("offers format-specific rates and persists the subtitle and voice controls", 
     host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(),
   );
   expect(changed).toHaveBeenLastCalledWith({ subtitles: true });
+});
+
+it("reveals custom and cloned voice controls without losing saved synthesis settings", async () => {
+  const changed = vi.fn();
+  function Harness() {
+    const [value, setValue] = useState<AudioCanvasSettings>({
+      voiceId: "zh_female_vv_uranus_bigtts",
+      pitch: -2,
+      subtitles: true,
+      pronunciation: [{ word: "NPC", replacement: "non-player character" }],
+    });
+    return (
+      <CanvasAudioControls
+        value={value}
+        model={VOLCENGINE_TTS_MODELS[0]}
+        onChange={(patch) => {
+          changed(patch);
+          setValue((value) => ({ ...value, ...patch }));
+        }}
+      />
+    );
+  }
+  await act(async () => root.render(<Harness />));
+  const label = (text: string) =>
+    Array.from(host.querySelectorAll("label")).find((label) =>
+      label.textContent?.startsWith(text),
+    );
+  expect(label("Speaker ID")).toBeUndefined();
+  expect(
+    host.querySelector(".audio-advanced-options")?.hasAttribute("open"),
+  ).toBe(false);
+  const voice = label("Voice")!.querySelector("select")!;
+  await act(async () => {
+    voice.value = "__cloned";
+    voice.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(changed).toHaveBeenLastCalledWith({
+    voiceId: undefined,
+    voiceKind: "cloned",
+    voiceModel: undefined,
+  });
+  expect(label("Speaker ID")?.querySelector("input")).toBeTruthy();
+  expect(label("Cloned voice model")?.querySelector("select")).toBeTruthy();
+  expect(label("Pitch")?.querySelector("input")?.value).toBe("-2");
+  expect(label("Subtitles")?.querySelector("input")?.checked).toBe(true);
+  expect(label("Pronunciation")?.querySelector("textarea")?.value).toBe(
+    "NPC/non-player character",
+  );
+  await act(async () => {
+    voice.value = "zh_female_vv_uranus_bigtts";
+    voice.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(label("Speaker ID")).toBeUndefined();
+  expect(label("Cloned voice model")).toBeUndefined();
+});
+
+it("keeps reference actions accessible and disables moves past the list boundaries", async () => {
+  const move = vi.fn(),
+    remove = vi.fn();
+  await act(async () =>
+    root.render(
+      <CanvasAudioControls
+        value={{}}
+        model={VOLCENGINE_SEED_AUDIO_MODELS[0]}
+        onChange={vi.fn()}
+        referenceControls={{
+          choices: [],
+          references: [
+            {
+              id: "Audio1",
+              name: "Rain",
+              type: "audio",
+              source: { type: "library", assetId: "rain" },
+            },
+            {
+              id: "Audio2",
+              name: "Wind",
+              type: "audio",
+              source: { type: "library", assetId: "wind" },
+            },
+          ],
+          move,
+          remove,
+          read: vi.fn(),
+          upload: vi.fn(),
+          replace: vi.fn(),
+          add: vi.fn(),
+        }}
+      />,
+    ),
+  );
+  const rain = host.querySelector('[aria-label="@Audio1 · Rain"]')!,
+    wind = host.querySelector('[aria-label="@Audio2 · Wind"]')!;
+  const button = (group: Element, name: string) =>
+    group.querySelector<HTMLButtonElement>(`[aria-label="${name}"]`)!;
+  expect(button(rain, "Move reference earlier").disabled).toBe(true);
+  expect(button(wind, "Move reference later").disabled).toBe(true);
+  await act(async () => button(rain, "Move reference later").click());
+  expect(move).toHaveBeenCalledWith("Audio1", 1);
+  await act(async () => button(wind, "Remove reference").click());
+  expect(remove).toHaveBeenCalledWith("Audio2");
 });
 
 it("blocks mixed modes and resolves stable reference aliases after reordering", () => {
