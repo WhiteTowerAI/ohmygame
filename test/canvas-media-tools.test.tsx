@@ -15,6 +15,9 @@ const captured = {
   props: undefined as Parameters<typeof EditorCanvas<Node>>[0] | undefined,
 };
 const viewport = { x: 0, y: 100, zoom: 1 };
+let composerHeight = 260;
+let renderForms = true;
+const resizeCallbacks = new Map<Element, () => void>();
 const setCenter = vi.fn();
 const runMedia = vi.fn();
 const loadAssets = vi.fn(async (): Promise<LibraryAsset[]> => []);
@@ -25,7 +28,9 @@ vi.doMock(path.resolve("src/renderer/editor-canvas.tsx"), async (original) => ({
   ...(await original<typeof import("../src/renderer/editor-canvas.js")>()),
   EditorCanvas: (props: Parameters<typeof EditorCanvas<Node>>[0]) => {
     captured.props = props;
-    return <div>{props.children}</div>;
+    return <div>{props.nodes.map((node) => <div className="react-flow__node" data-id={node.id} key={node.id}>
+      {renderForms && node.type !== "asset" && node.data.panelOpen ? <div className="canvas-node-auxiliary" /> : null}
+    </div>)}{props.children}</div>;
   },
 }));
 vi.doMock("@xyflow/react", async (original) => ({
@@ -86,6 +91,21 @@ beforeEach(async () => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
+  composerHeight = 260;
+  renderForms = true;
+  resizeCallbacks.clear();
+  vi.stubGlobal("ResizeObserver", class {
+    private observed = new Set<Element>();
+    constructor(private callback: () => void) {}
+    observe(element: Element) { this.observed.add(element); resizeCallbacks.set(element, this.callback); }
+    disconnect() { this.observed.forEach((element) => resizeCallbacks.delete(element)); }
+  });
+  const getRect = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this.classList.contains("react-flow__node")) return { ...getRect.call(this), bottom: 300, height: 240 * viewport.zoom } as DOMRect;
+    if (this.classList.contains("canvas-node-auxiliary")) return { ...getRect.call(this), bottom: 300 + composerHeight * viewport.zoom, height: composerHeight * viewport.zoom } as DOMRect;
+    return getRect.call(this);
+  });
   localStorage.clear();
   runMedia.mockReset();
   loadAssets.mockResolvedValue([]);
@@ -141,6 +161,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 async function select(id: string) {
@@ -169,7 +190,7 @@ async function submit() {
       .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
   );
 }
-it("anchors to the newly selected node with a constant screen offset across zoom and pan", async () => {
+it("anchors to the selected node and leaves room for its scaled generation form", async () => {
   Object.assign(viewport, { y: 300 });
   await select("first");
   expect(
@@ -194,12 +215,72 @@ it("anchors to the newly selected node with a constant screen offset across zoom
   ).toBe("second");
   expect(
     container.querySelector("[data-toolbar-node]")?.getAttribute("data-offset"),
-  ).toBe("10");
+  ).toBe("140");
   expect(
     container
       .querySelector("[data-toolbar-node]")
       ?.getAttribute("data-position"),
   ).toBe("bottom");
+});
+
+it("moves a bottom toolbar after the form as it grows and removes the extra offset when the form closes", async () => {
+  viewport.y = -300;
+  await select("second");
+  const toolbar = () => container.querySelector('[data-toolbar-node="second"]')!;
+  expect(toolbar().getAttribute("data-position")).toBe("bottom");
+  expect(toolbar().getAttribute("data-offset")).toBe("270");
+  const form = container.querySelector('.react-flow__node[data-id="second"] .canvas-node-auxiliary')!;
+  composerHeight = 420;
+  await act(async () => resizeCallbacks.get(form)!());
+  expect(toolbar().getAttribute("data-offset")).toBe("430");
+  await act(async () => captured.props!.onSelectionStart!({} as never));
+  expect(container.querySelector(".canvas-node-auxiliary")).toBeNull();
+  expect(toolbar().getAttribute("data-offset")).toBe("10");
+  await act(async () => captured.props!.onSelectionEnd!({} as never));
+});
+
+it("keeps the form offset out of a top toolbar and recalculates it when zoom changes", async () => {
+  viewport.y = 400;
+  await select("second");
+  const toolbar = () => container.querySelector('[data-toolbar-node="second"]')!;
+  expect(toolbar().getAttribute("data-position")).toBe("top");
+  expect(toolbar().getAttribute("data-offset")).toBe("10");
+  Object.assign(viewport, { y: -200, zoom: 0.5 });
+  await select("second");
+  expect(toolbar().getAttribute("data-position")).toBe("bottom");
+  expect(toolbar().getAttribute("data-offset")).toBe("140");
+  Object.assign(viewport, { y: -600, zoom: 2 });
+  await select("second");
+  expect(toolbar().getAttribute("data-offset")).toBe("530");
+});
+
+it("reserves form space when React Flow mounts the input panel after the toolbar", async () => {
+  renderForms = false;
+  viewport.y = -300;
+  await select("second");
+  const toolbar = () => container.querySelector('[data-toolbar-node="second"]')!;
+  expect(toolbar().getAttribute("data-offset")).toBe("10");
+  const form = document.createElement("div");
+  form.className = "canvas-node-auxiliary";
+  await act(async () => container.querySelector('.react-flow__node[data-id="second"]')!.append(form));
+  expect(toolbar().getAttribute("data-offset")).toBe("270");
+  composerHeight = 420;
+  await act(async () => resizeCallbacks.get(form)!());
+  expect(toolbar().getAttribute("data-offset")).toBe("430");
+});
+
+it("uses the canvas position of a nested media node to choose the toolbar side", async () => {
+  await act(async () => captured.props!.onNodesChange!([
+    { type: "add", item: { id: "outer", type: "group", position: { x: 0, y: 500 }, width: 1200, height: 800, data: { name: "Outer" } } },
+    { type: "add", item: { id: "inner", type: "group", parentId: "outer", position: { x: 0, y: 50 }, width: 800, height: 600, data: { name: "Inner" } } },
+    { type: "replace", id: "second", item: { ...captured.props!.nodes.find((node) => node.id === "second")!, parentId: "inner", position: { x: 20, y: 5 } } },
+  ]));
+  await select("second");
+  const toolbar = container.querySelector('[data-toolbar-node="second"]')!;
+  expect(toolbar.getAttribute("data-position")).toBe("top");
+  expect(toolbar.getAttribute("data-offset")).toBe("10");
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Image tools"]')!.click());
+  expect(container.querySelector('[role="menu"]')?.classList.contains("is-below")).toBe(false);
 });
 
 it("shows only categories until opened, including GIF and frame actions on generated images", async () => {

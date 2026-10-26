@@ -442,7 +442,7 @@ export interface ProjectActivitySnapshot {
   names: Pick<ProjectState, "id" | "name" | "nameSource">[];
 }
 
-export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file";
+export type AssetCanvasNodeType = "text" | "image" | "video" | "speech" | "sound-effect" | "music" | "model-3d" | "animate-3d" | "asset" | "document" | "table" | "file" | "group";
 
 export interface AssetCanvasPosition {
   x: number;
@@ -490,6 +490,7 @@ export interface AssetCanvasTextGenerationResponse {
 }
 
 export type AssetCanvasNode = (
+  | { id: string; type: "group"; position: AssetCanvasPosition; data: { name: string } }
   | { id: string; type: "table"; position: AssetCanvasPosition; data: { tableId: string } }
   /** Any other project file or folder, by project-relative path. */
   | { id: string; type: "file"; position: AssetCanvasPosition; data: { path: string; directory?: true } }
@@ -587,7 +588,7 @@ export type AssetCanvasNode = (
     actionIds: Model3DActionId[];
     assetId?: string;
   } }
-) & { title?: string; description?: string; width?: number; height?: number };
+) & { parentId?: string; title?: string; description?: string; width?: number; height?: number };
 
 export interface AssetCanvasEdge {
   id: string;

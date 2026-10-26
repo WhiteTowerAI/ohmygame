@@ -8,6 +8,7 @@ export function AssetCanvasTemplateGuide({ template }: {
 }) {
   const presets = templateImagePresets(template);
   const showOptions = presets.length > 1;
+  const showPreview = template === "action-set";
   const description = (preset?: CanvasImagePreset) => {
     if (preset === "continuous-sequence" || preset === "consistent-sequence") {
       return t(`assetCanvasTemplates.free-sequence.${preset}.output`);
@@ -29,7 +30,7 @@ export function AssetCanvasTemplateGuide({ template }: {
           {description(preset) ? <p>{description(preset)}</p> : null}
         </div>)}
       </div> : null}
-      {!showOptions ? <div className="asset-template-guide-preview"><TemplateDemo template={template} /></div> : null}
+      {showPreview ? <div className="asset-template-guide-preview"><TemplateDemo template={template} /></div> : null}
       <p className="asset-template-guide-instruction">{t(`assetCanvasTemplates.${template}.guide`)}</p>
       {!showOptions && description() ? <p className="asset-template-guide-instruction asset-template-guide-description">{description()}</p> : null}
     </div>

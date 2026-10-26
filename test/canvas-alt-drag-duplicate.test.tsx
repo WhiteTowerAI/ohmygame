@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import path from "node:path";
-import { act } from "react";
+import { act, isValidElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Node } from "@xyflow/react";
@@ -11,7 +11,9 @@ import type {
   AssetCanvasDocument,
   AssetCanvasNode,
   ProjectState,
+  ToolJob,
 } from "../src/shared/contracts.js";
+import { mergeCanvasDocument } from "../src/shared/canvas-workspace.js";
 import {
   createAssetCanvasDocument,
   createAssetGenerationNode,
@@ -56,6 +58,11 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
 vi.doMock(path.resolve("src/renderer/library-assets.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/library-assets.js")>()),
   loadLibraryAssets: async () => [],
+}));
+const generateText = vi.fn();
+vi.doMock(path.resolve("src/renderer/canvas-api.ts"), async (original) => ({
+  ...(await original<typeof import("../src/renderer/canvas-api.js")>()),
+  generateCanvasText: generateText,
 }));
 
 const { CanvasBoardEditor } =
@@ -134,6 +141,13 @@ const original = (id: string) =>
   connectedBoard().nodes.find((node) => node.id === id)!;
 
 const save = vi.fn(async (value: AssetCanvasDocument) => value);
+const generate = vi.fn();
+const jobs = vi.fn<CanvasBoardStorage["jobs"]>();
+const refresh = vi.fn<CanvasBoardStorage["refresh"]>();
+const mediaJob = (nodeId: string, status: ToolJob["status"] = "succeeded"): ToolJob => ({
+  id: `job-${nodeId}`, toolId: "generate-image", createdAt: "2026-10-26T00:00:00Z",
+  title: nodeId, status, context: { projectId: "p", boardId: "b", nodeId },
+});
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 async function mount(board: AssetCanvasDocument) {
   captured.props = undefined;
@@ -142,11 +156,11 @@ async function mount(board: AssetCanvasDocument) {
     boardId: "b",
     load: async () => structuredClone(board),
     save,
-    refresh: async () => undefined,
-    reconcile: (_submitted, current) => current,
+    refresh,
+    reconcile: (submitted, current, saved) => mergeCanvasDocument(submitted, current, saved)!,
     resolveConflict: async (_version, value) => value,
-    jobs: async () => [],
-    generate: vi.fn(),
+    jobs,
+    generate,
     cancel: vi.fn(),
   };
   container = document.createElement("div");
@@ -157,7 +171,7 @@ async function mount(board: AssetCanvasDocument) {
       <CanvasBoardEditor
         project={{ id: "p", type: "asset-canvas" } as ProjectState}
         storage={storage}
-        documents={{ documents: [] } as unknown as CanvasDocuments}
+        documents={{ documents: [], flush: vi.fn(async () => {}) } as unknown as CanvasDocuments}
         tables={{
           storage: new CanvasTableStorage("p"),
           open: vi.fn(),
@@ -178,6 +192,10 @@ beforeEach(async () => {
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   save.mockReset().mockImplementation(async (value) => value);
+  generate.mockReset().mockImplementation(async (id: string) => mediaJob(id));
+  generateText.mockReset();
+  jobs.mockReset().mockResolvedValue([]);
+  refresh.mockReset().mockResolvedValue(undefined);
   await mount(connectedBoard());
 });
 afterEach(async () => {
@@ -645,5 +663,808 @@ describe("a marquee selection", () => {
         .map((node) => node.id),
     ).toEqual(["image", "video"]);
     expect(panels()).toEqual([]);
+  });
+});
+
+describe("canvas grouping interactions", () => {
+  async function select(ids: string[]) {
+    await act(async () =>
+      captured.props!.onNodesChange!(
+        captured.props!.nodes.map((node) => ({
+          type: "select",
+          id: node.id,
+          selected: ids.includes(node.id),
+        })),
+      ),
+    );
+  }
+  const groupNodes = () =>
+    captured.props!.nodes.filter((node) => node.type === "group");
+  async function groupPair() {
+    await select(["prompt", "art"]);
+    await shortcut("g");
+    return groupNodes()[0]!;
+  }
+
+  it("puts group and ungroup in the floating selection toolbars", async () => {
+    await select(["prompt", "art"]);
+    expect(captured.props!.selectionAction).toBeUndefined();
+    let toolbar = (captured.props!.children as ReactElement[]).find((child) => isValidElement(child) && typeof child.type === "function" && child.type.name === "MediaCanvasToolbarOverlay")!;
+    expect(toolbar).toBeDefined();
+    expect((toolbar.props as { onGroup?: () => void }).onGroup).toBeTypeOf("function");
+    await act(async () => (toolbar.props as { onGroup: () => void }).onGroup());
+    const grouped = groupNodes()[0]!;
+    toolbar = (captured.props!.children as ReactElement[]).find((child) => isValidElement(child) && typeof child.type === "function" && child.type.name === "GroupCanvasToolbarOverlay")!;
+    expect(toolbar).toBeDefined();
+    await act(async () => (toolbar.props as { onUngroup: () => void }).onUngroup());
+    expect(groupNodes()).toHaveLength(0);
+    expect(flowNode("prompt").parentId).toBeUndefined();
+    expect(flowNode("art").parentId).toBeUndefined();
+    expect(grouped.id).toBeDefined();
+
+    await select(["prompt", "notes"]);
+    toolbar = (captured.props!.children as ReactElement[]).find((child) => isValidElement(child) && typeof child.type === "function" && child.type.name === "SelectionCanvasToolbarOverlay")!;
+    expect(toolbar).toBeDefined();
+    expect((toolbar.props as { onGroup?: () => void }).onGroup).toBeTypeOf("function");
+  });
+
+  it("shows group actions for a selected frame and runs its nested generation nodes", async () => {
+    const inner = await groupPair();
+    await select([inner.id, "image"]);
+    await shortcut("g");
+    const outer = groupNodes().find((node) => node.id !== inner.id)!;
+    await select([outer.id]);
+    expect(captured.props!.selectionAction).toBeUndefined();
+    const toolbar = (captured.props!.children as ReactElement[]).find((child) => isValidElement(child) && typeof child.type === "function" && child.type.name === "GroupCanvasToolbarOverlay")!;
+    expect(toolbar).toBeDefined();
+    const actions = toolbar.props as { canExecute: boolean; onExecute: () => void; onUngroup: () => void; onDetails?: () => void };
+    expect(actions.canExecute).toBe(true);
+    expect(actions.onUngroup).toBeTypeOf("function");
+    expect(actions.onDetails).toBeUndefined();
+    await act(async () => actions.onExecute());
+    await settle();
+    expect(generate).toHaveBeenCalledWith("image");
+  });
+
+  const groupActions = () => {
+    const toolbar = (captured.props!.children as ReactElement[]).find(
+      (child) =>
+        isValidElement(child) &&
+        typeof child.type === "function" &&
+        child.type.name === "GroupCanvasToolbarOverlay",
+    )!;
+    return toolbar.props as { canExecute: boolean; onExecute: () => void };
+  };
+  async function mountGenerationGroup(nodes: AssetCanvasNode[]) {
+    await unmount();
+    const board = createAssetCanvasDocument();
+    board.nodes = [
+      {
+        id: "frame",
+        type: "group",
+        position: { x: 0, y: 0 },
+        width: 2000,
+        height: 2000,
+        data: { name: "Workflow" },
+      },
+      ...nodes.map((node) => ({ ...node, parentId: "frame" })),
+    ];
+    board.editorLayout.nodes = Object.fromEntries(
+      board.nodes.map((node) => [
+        node.id,
+        {
+          ...node.position,
+          ...(node.width ? { width: node.width, height: node.height } : {}),
+        },
+      ]),
+    );
+    await mount(board);
+    await select(["frame"]);
+  }
+  function imageNode(id: string): Extract<AssetCanvasNode, { type: "image" }> {
+    const node = createAssetGenerationNode("image", { x: 20, y: 50 });
+    if (node.type !== "image") throw new Error("Expected image");
+    return { ...node, id };
+  }
+  function videoNode(
+    source: string,
+  ): Extract<AssetCanvasNode, { type: "video" }> {
+    const node = createAssetGenerationNode("video", { x: 600, y: 50 });
+    if (node.type !== "video") throw new Error("Expected video");
+    return {
+      ...node,
+      id: "downstream",
+      data: {
+        ...node.data,
+        prompt: "Animate",
+        references: [{ type: "node", nodeId: source }],
+      },
+    };
+  }
+
+  it.each(["video", "model-3d"] as const)(
+    "waits for an image and syncs its output before a dependent %s, even in reverse node order",
+    async (type) => {
+      const image = imageNode("upstream");
+      const model = createAssetGenerationNode("model-3d", { x: 600, y: 50 });
+      if (model.type !== "model-3d") throw new Error("Expected model-3d");
+      const downstream =
+        type === "video"
+          ? videoNode(image.id)
+          : {
+              ...model,
+              id: "downstream",
+              data: {
+                ...model.data,
+                images: [{ type: "node" as const, nodeId: image.id }],
+              },
+            };
+      let status: ToolJob["status"] = "running";
+      generate.mockImplementation(async (id: string) => {
+        if (id === image.id) return mediaJob(id, "running");
+        expect(savedNode(image.id).data).toHaveProperty(
+          "assetId",
+          "fresh-output",
+        );
+        return mediaJob(id);
+      });
+      jobs.mockImplementation(async () =>
+        generate.mock.calls.length ? [mediaJob(image.id, status)] : [],
+      );
+      refresh.mockImplementation(async (canvas) =>
+        status === "succeeded"
+          ? {
+              ...canvas,
+              nodes: canvas.nodes.map((node) =>
+                node.id === image.id
+                  ? ({
+                      ...node,
+                      data: { ...node.data, assetId: "fresh-output" },
+                    } as AssetCanvasNode)
+                  : node,
+              ),
+            }
+          : undefined,
+      );
+      await mountGenerationGroup([downstream, image]);
+      const actions = groupActions();
+      await act(async () => {
+        actions.onExecute();
+        actions.onExecute();
+      });
+      await settle();
+      expect(generate.mock.calls.map(([id]) => id)).toEqual([image.id]);
+      expect(groupActions().canExecute).toBe(false);
+      status = "succeeded";
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(generate.mock.calls.map(([id]) => id)).toEqual([
+        image.id,
+        "downstream",
+      ]);
+      expect(groupActions().canExecute).toBe(true);
+      expect(flowNode(image.id).data.assetId).toBe("fresh-output");
+    },
+  );
+
+  it("runs up to three independent media jobs and fills a free slot without waiting for the others", async () => {
+    const nodes = Array.from({ length: 5 }, (_, index) =>
+      imageNode(`image-${index}`),
+    );
+    const finished = new Set<string>();
+    generate.mockImplementation(async (id: string) => mediaJob(id, "running"));
+    jobs.mockImplementation(async () =>
+      generate.mock.calls.map(([id]) =>
+        mediaJob(id, finished.has(id) ? "succeeded" : "running"),
+      ),
+    );
+    await mountGenerationGroup(nodes);
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generate.mock.calls.map(([id]) => id)).toEqual(
+      nodes.slice(0, 3).map((node) => node.id),
+    );
+    expect(groupActions().canExecute).toBe(false);
+    finished.add(nodes[1]!.id);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(generate.mock.calls.map(([id]) => id)).toEqual(
+      nodes.slice(0, 4).map((node) => node.id),
+    );
+    finished.add(nodes[3]!.id);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(generate.mock.calls.map(([id]) => id)).toEqual(
+      nodes.map((node) => node.id),
+    );
+    expect(groupActions().canExecute).toBe(false);
+    nodes.forEach((node) => finished.add(node.id));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(groupActions().canExecute).toBe(true);
+  });
+
+  it("starts ready dependents while an unrelated job is running and waits for every required output", async () => {
+    const first = imageNode("first"),
+      second = imageNode("second");
+    const child = videoNode(first.id);
+    const combined = imageNode("combined");
+    combined.data.images = [first, second].map((node) => ({
+      type: "node",
+      nodeId: node.id,
+    }));
+    const finished = new Set<string>();
+    generate.mockImplementation(async (id: string) => {
+      if (id === child.id || id === combined.id) {
+        expect(savedNode(first.id).data).toHaveProperty("assetId", "fresh-first");
+        if (id === combined.id)
+          expect(savedNode(second.id).data).toHaveProperty(
+            "assetId",
+            "fresh-second",
+          );
+        return mediaJob(id);
+      }
+      return mediaJob(id, "running");
+    });
+    jobs.mockImplementation(async () =>
+      [first, second]
+        .filter((node) => generate.mock.calls.some(([id]) => id === node.id))
+        .map((node) =>
+          mediaJob(node.id, finished.has(node.id) ? "succeeded" : "running"),
+        ),
+    );
+    refresh.mockImplementation(async (canvas) => ({
+      ...canvas,
+      nodes: canvas.nodes.map((node) =>
+        finished.has(node.id)
+          ? ({
+              ...node,
+              data: { ...node.data, assetId: `fresh-${node.id}` },
+            } as AssetCanvasNode)
+          : node,
+      ),
+    }));
+    await mountGenerationGroup([combined, child, first, second]);
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generate.mock.calls.map(([id]) => id)).toEqual([first.id, second.id]);
+    finished.add(first.id);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(generate.mock.calls.map(([id]) => id)).toEqual([
+      first.id,
+      second.id,
+      child.id,
+    ]);
+    expect(groupActions().canExecute).toBe(false);
+    finished.add(second.id);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(generate.mock.calls.map(([id]) => id)).toEqual([
+      first.id,
+      second.id,
+      child.id,
+      combined.id,
+    ]);
+    expect(groupActions().canExecute).toBe(true);
+  });
+
+  it("generates independent text nodes together, keeps their busy state separate, and preserves both outputs", async () => {
+    const model = { provider: "custom", id: "node-model" };
+    const first: AssetCanvasNode = {
+      id: "first",
+      type: "text",
+      position: { x: 20, y: 50 },
+      data: { instruction: "First", text: "old-first", model },
+    };
+    const second: AssetCanvasNode = {
+      id: "second",
+      type: "text",
+      position: { x: 400, y: 50 },
+      data: { instruction: "Second", text: "old-second", model },
+    };
+    const image = imageNode("image");
+    image.data.promptSource = { type: "node", nodeId: second.id };
+    const finish = new Map<
+      string,
+      (value: { text: string; model: typeof model }) => void
+    >();
+    generateText.mockImplementation(
+      (_project, _instruction, _model, _reasoning, source) =>
+        new Promise((resolve) => {
+          finish.set(source.nodeId, resolve);
+        }),
+    );
+    generate.mockImplementation(async (id: string) => {
+      expect(savedNode(second.id).data).toHaveProperty("text", "new-second");
+      return mediaJob(id);
+    });
+    await mountGenerationGroup([image, first, second]);
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generateText).toHaveBeenCalledTimes(2);
+    for (const node of [first, second]) {
+      expect(flowNode(node.id).data.textRuntime).toMatchObject({
+        generating: true,
+        busy: true,
+      });
+    }
+    const runtime = flowNode(first.id).data.textRuntime as {
+      onGenerate: (chosenModel: typeof model, reasoning: "medium") => void;
+    };
+    await act(async () => runtime.onGenerate(model, "medium"));
+    expect(generateText).toHaveBeenCalledTimes(2);
+    await act(async () => finish.get(second.id)!({ text: "new-second", model }));
+    await settle();
+    expect(generate).toHaveBeenCalledWith(image.id);
+    expect(flowNode(first.id).data.textRuntime).toMatchObject({
+      generating: true,
+      busy: true,
+    });
+    expect(flowNode(second.id).data.textRuntime).toMatchObject({
+      generating: false,
+      busy: false,
+    });
+    expect(groupActions().canExecute).toBe(false);
+    await act(async () => finish.get(first.id)!({ text: "new-first", model }));
+    await settle();
+    expect(savedNode(first.id).data).toHaveProperty("text", "new-first");
+    expect(savedNode(second.id).data).toHaveProperty("text", "new-second");
+    expect(groupActions().canExecute).toBe(true);
+  });
+
+  it("uses each text node's own model without a default and saves new text before dependent requests", async () => {
+    const model = { provider: "custom", id: "node-model" };
+    const first: AssetCanvasNode = {
+      id: "first",
+      type: "text",
+      position: { x: 20, y: 50 },
+      data: { instruction: "Write first", text: "old", model },
+    };
+    const second: AssetCanvasNode = {
+      id: "second",
+      type: "text",
+      position: { x: 400, y: 50 },
+      data: {
+        instruction: "Write second",
+        text: "old",
+        model,
+        references: [{ type: "node", nodeId: first.id }],
+      },
+    };
+    const image = imageNode("image");
+    image.data.promptSource = { type: "node", nodeId: second.id };
+    generateText.mockImplementation(
+      async (_project, instruction, chosenModel, _reasoning, source) => {
+        expect(chosenModel).toEqual(model);
+        if (source.nodeId === second.id)
+          expect(savedNode(first.id).data).toHaveProperty(
+            "text",
+            "New Write first",
+          );
+        return { text: `New ${instruction}`, model: chosenModel };
+      },
+    );
+    generate.mockImplementation(async (id: string) => {
+      expect(savedNode(second.id).data).toHaveProperty(
+        "text",
+        "New Write second",
+      );
+      return mediaJob(id);
+    });
+    await mountGenerationGroup([image, second, first]);
+    expect(groupActions().canExecute).toBe(true);
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generateText.mock.calls.map((call) => call[4].nodeId)).toEqual([
+      first.id,
+      second.id,
+    ]);
+    expect(generate).toHaveBeenCalledWith(image.id);
+    expect(groupActions().canExecute).toBe(true);
+    expect(container.textContent).not.toContain("Skipped");
+  });
+
+  it("enables a group containing only a text node with its own model", async () => {
+    const model = { provider: "custom", id: "node-model" };
+    const text: AssetCanvasNode = {
+      id: "text",
+      type: "text",
+      position: { x: 20, y: 50 },
+      data: { instruction: "Write", text: "", model },
+    };
+    generateText.mockResolvedValue({ text: "New text", model });
+    await mountGenerationGroup([text]);
+    expect(groupActions().canExecute).toBe(true);
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(savedNode(text.id).data).toHaveProperty("text", "New text");
+  });
+
+  it.each(["failed", "cancelled"] as const)(
+    "skips dependent jobs when a running upstream later becomes %s",
+    async (terminal) => {
+      const image = imageNode("upstream");
+      let status: ToolJob["status"] = "running";
+      generate.mockImplementation(async (id: string) => mediaJob(id, "running"));
+      jobs.mockImplementation(async () =>
+        generate.mock.calls.length ? [mediaJob(image.id, status)] : [],
+      );
+      await mountGenerationGroup([videoNode(image.id), image]);
+      await act(async () => groupActions().onExecute());
+      await settle();
+      expect(groupActions().canExecute).toBe(false);
+      status = terminal;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(generate.mock.calls.map(([id]) => id)).toEqual([image.id]);
+      expect(container.textContent).toContain("Skipped because a dependency");
+      expect(groupActions().canExecute).toBe(true);
+    },
+  );
+
+  it("skips dependents when synchronizing a completed output fails", async () => {
+    const image = imageNode("upstream");
+    await mountGenerationGroup([videoNode(image.id), image]);
+    refresh.mockRejectedValue(new Error("Board changed elsewhere"));
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generate.mock.calls.map(([id]) => id)).toEqual([image.id]);
+    expect(container.textContent).toContain("Board changed elsewhere");
+    expect(container.textContent).toContain("Skipped because a dependency");
+  });
+
+  it("recognizes a completion polled before the start request returns", async () => {
+    const image = imageNode("upstream");
+    let finishStart: (job: ToolJob) => void = () => {};
+    generate.mockImplementation((id: string) =>
+      id === image.id
+        ? new Promise<ToolJob>((resolve) => {
+            finishStart = resolve;
+          })
+        : Promise.resolve(mediaJob(id)),
+    );
+    jobs.mockImplementation(async () =>
+      generate.mock.calls.length ? [mediaJob(image.id)] : [],
+    );
+    await mountGenerationGroup([videoNode(image.id), image]);
+    await act(async () => groupActions().onExecute());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    await act(async () => finishStart(mediaJob(image.id, "running")));
+    await settle();
+    expect(generate.mock.calls.map(([id]) => id)).toEqual([
+      image.id,
+      "downstream",
+    ]);
+    expect(groupActions().canExecute).toBe(true);
+  });
+
+  it.each(["failed", "cancelled", "request-rejected"] as const)(
+    "skips transitive dependents after %s while continuing independent nodes",
+    async (status) => {
+      const image = imageNode("upstream");
+      const model = createAssetGenerationNode("model-3d", { x: 600, y: 50 });
+      if (model.type !== "model-3d") throw new Error("Expected model-3d");
+      model.data.images = [{ type: "node", nodeId: image.id }];
+      const animation: AssetCanvasNode = {
+        id: "animation",
+        type: "animate-3d",
+        position: { x: 1000, y: 50 },
+        data: {
+          source: { type: "node", nodeId: model.id },
+          actionIds: [],
+          heightMeters: 1.8,
+        },
+      };
+      const independent = imageNode("independent");
+      generate.mockImplementation(async (id: string) => {
+        if (id !== image.id) return mediaJob(id);
+        if (status === "request-rejected")
+          throw new Error("Provider unavailable");
+        return { ...mediaJob(id, status), error: "Provider stopped" };
+      });
+      await mountGenerationGroup([
+        videoNode(image.id),
+        animation,
+        model,
+        image,
+        independent,
+      ]);
+      await act(async () => groupActions().onExecute());
+      await settle();
+      expect(generate.mock.calls.map(([id]) => id)).toEqual([
+        image.id,
+        independent.id,
+      ]);
+      expect(container.textContent).toContain(
+        status === "request-rejected"
+          ? "Provider unavailable"
+          : "Provider stopped",
+      );
+      expect(
+        container.textContent.match(/Skipped because a dependency/g),
+      ).toHaveLength(3);
+      expect(groupActions().canExecute).toBe(true);
+    },
+  );
+
+  it("does not run dependents with stale text after text generation fails", async () => {
+    const text: AssetCanvasNode = {
+      id: "text",
+      type: "text",
+      position: { x: 20, y: 50 },
+      data: {
+        instruction: "Write",
+        text: "stale",
+        model: { provider: "custom", id: "model" },
+      },
+    };
+    const image = imageNode("image");
+    image.data.promptSource = { type: "node", nodeId: text.id };
+    generateText.mockRejectedValue(new Error("Text generation failed"));
+    await mountGenerationGroup([image, text]);
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generateText).toHaveBeenCalledTimes(1);
+    expect(generate).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Text generation failed");
+    expect(container.textContent).toContain("Skipped because a dependency");
+  });
+
+  it("rejects circular generation references before starting any jobs", async () => {
+    const first = imageNode("first"),
+      second = imageNode("second");
+    first.data.images = [{ type: "node", nodeId: second.id }];
+    second.data.images = [{ type: "node", nodeId: first.id }];
+    await mountGenerationGroup([first, second]);
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generate).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("circular generation references");
+    expect(groupActions().canExecute).toBe(true);
+  });
+
+  it("waits for a job that was already running instead of starting it again", async () => {
+    const image = imageNode("upstream");
+    let status: ToolJob["status"] = "running";
+    jobs.mockImplementation(async () => [mediaJob(image.id, status)]);
+    await mountGenerationGroup([videoNode(image.id), image]);
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generate).not.toHaveBeenCalled();
+    status = "succeeded";
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(generate.mock.calls.map(([id]) => id)).toEqual(["downstream"]);
+  });
+
+  it("stops scheduling the old group's jobs after leaving the board", async () => {
+    const image = imageNode("upstream");
+    generate.mockImplementation(async (id: string) => mediaJob(id, "running"));
+    await mountGenerationGroup([videoNode(image.id), image]);
+    await act(async () => groupActions().onExecute());
+    await settle();
+    expect(generate).toHaveBeenCalledTimes(1);
+    await unmount();
+    jobs.mockResolvedValue([mediaJob(image.id)]);
+    await mount(connectedBoard());
+    await settle();
+    expect(generate.mock.calls.map(([id]) => id)).toEqual([image.id]);
+  });
+
+  it("frames selected nodes, persists the group, and undoes/redoes creation and naming", async () => {
+    const group = await groupPair();
+    expect(group).toMatchObject({
+      type: "group",
+      selected: true,
+      dragHandle: ".canvas-group-heading",
+      data: { name: "Group" },
+    });
+    expect(flowNode("prompt").parentId).toBe(group.id);
+    expect(flowNode("art").parentId).toBe(group.id);
+    await settle();
+    expect(isAssetCanvasDocument(lastSaved())).toBe(true);
+    await shortcut("z");
+    expect(groupNodes()).toHaveLength(0);
+    expect(flowNode("prompt").position).toEqual({ x: 0, y: 0 });
+    await shortcut("z", true);
+    expect(groupNodes()).toHaveLength(1);
+    await act(async () =>
+      captured.props!.onNodeDoubleClick!(
+        { target: document.body } as never,
+        flowNode(group.id),
+      ),
+    );
+    const input = document.querySelector<HTMLInputElement>(
+      'input[maxlength="120"]',
+    )!;
+    expect(input).not.toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "Characters");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () =>
+      input
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    await settle();
+    expect(flowNode(group.id).data.name).toBe("Characters");
+    await shortcut("z");
+    expect(flowNode(group.id).data.name).toBe("Group");
+  });
+
+  it("clamps a group at its children and still expands when the same resize reverses", async () => {
+    const group = await groupPair();
+    const resize = flowNode(group.id).data.resizeRuntime as { start: () => void; end: () => void };
+    const initial = flowNode(group.id);
+    const child = flowNode("prompt");
+    const absoluteChildX = initial.position.x + child.position.x;
+    const absoluteChildY = initial.position.y + child.position.y;
+    await act(async () => resize.start());
+    const dimension = (width: number, height = group.height!) => ({
+      type: "dimensions" as const, id: group.id, resizing: true,
+      setAttributes: true as const, dimensions: { width, height },
+    });
+    await act(async () => captured.props!.onNodesChange!([dimension(650)]));
+    expect(flowNode(group.id).width).toBe(650);
+    await act(async () => captured.props!.onNodesChange!([dimension(467)]));
+    expect(flowNode(group.id).width).toBe(468);
+    await act(async () => captured.props!.onNodesChange!([dimension(600)]));
+    expect(flowNode(group.id).width).toBe(600);
+
+    const startX = initial.position.x;
+    const startY = initial.position.y;
+    const right = startX + 600;
+    await act(async () => captured.props!.onNodesChange!([
+      { type: "position", id: group.id, position: { x: startX + 30, y: startY + 60 } },
+      dimension(right - startX - 30, group.height! - 60),
+      { type: "position", id: child.id, position: { x: child.position.x - 30, y: child.position.y - 60 } },
+    ]));
+    expect(flowNode(group.id).position.x).toBe(absoluteChildX);
+    expect(flowNode(group.id).position.y).toBe(absoluteChildY);
+    expect(flowNode(group.id).position.x + flowNode("prompt").position.x).toBe(absoluteChildX);
+    expect(flowNode(group.id).position.y + flowNode("prompt").position.y).toBe(absoluteChildY);
+
+    await act(async () => captured.props!.onNodesChange!([
+      { type: "position", id: group.id, position: { x: startX - 100, y: startY - 80 } },
+      dimension(right - startX + 100, group.height! + 80),
+      { type: "position", id: child.id, position: { x: child.position.x + 130, y: child.position.y + 140 } },
+    ]));
+    expect(flowNode(group.id).position).toEqual({ x: startX - 100, y: startY - 80 });
+    expect(flowNode(group.id).width).toBe(700);
+    expect(flowNode(group.id).position.x + flowNode("prompt").position.x).toBe(absoluteChildX);
+    expect(flowNode(group.id).position.y + flowNode("prompt").position.y).toBe(absoluteChildY);
+
+    await act(async () => captured.props!.onNodesChange!([
+      { type: "dimensions", id: group.id, resizing: false, dimensions: { width: 467, height: 200 } },
+    ]));
+    await act(async () => resize.end());
+    expect(flowNode(group.id).width).toBe(700);
+    await settle();
+    await shortcut("z");
+    expect(flowNode(group.id).position).toEqual(initial.position);
+    expect(flowNode(group.id).width).toBe(initial.width);
+  });
+
+  it("moves a group as one tree and reparents children on drop without jumping", async () => {
+    const group = await groupPair();
+    const start = { ...group.position };
+    const childStart = { ...flowNode("prompt").position };
+    const gesture = await drag([group.id], false);
+    await gesture.by(100, 100);
+    await gesture.drop();
+    expect(flowNode(group.id).position).toEqual({
+      x: start.x + 100,
+      y: start.y + 100,
+    });
+    expect(flowNode("prompt").position).toEqual(childStart);
+    await settle();
+    const child = await drag(["prompt"], false);
+    await child.by(2000, 0);
+    await child.drop();
+    expect(flowNode("prompt").parentId).toBeUndefined();
+    expect(flowNode("prompt").position).toEqual({ x: 2100, y: 100 });
+    await settle();
+    await shortcut("z");
+    expect(flowNode("prompt").parentId).toBe(group.id);
+    const reenter = await drag(["notes"], false);
+    await reenter.by(-250, -200);
+    await reenter.drop();
+    expect(flowNode("notes").parentId).toBe(group.id);
+    await settle();
+    expect(isAssetCanvasDocument(lastSaved())).toBe(true);
+  });
+
+  it("duplicates a nested tree, selects its root, and deletes or restores all descendants together", async () => {
+    const inner = await groupPair();
+    await select([inner.id, "image"]);
+    await shortcut("g");
+    const outer = groupNodes().find((node) => node.id !== inner.id)!;
+    expect(flowNode(inner.id).parentId).toBe(outer.id);
+    await settle();
+    await shortcut("d");
+    const copiedOuter = groupNodes().find(
+      (node) => node.id !== outer.id && !node.parentId,
+    )!;
+    const copiedInner = groupNodes().find(
+      (node) => node.parentId === copiedOuter.id,
+    )!;
+    expect(copiedInner).toBeDefined();
+    expect(
+      captured.props!.nodes.filter((node) => node.parentId === copiedInner.id),
+    ).toHaveLength(2);
+    expect(
+      captured
+        .props!.nodes.filter((node) => node.selected)
+        .map((node) => node.id),
+    ).toEqual([copiedOuter.id]);
+    await settle();
+    expect(isAssetCanvasDocument(lastSaved())).toBe(true);
+    const count = nodeIds().length;
+    await pressDelete();
+    expect(nodeIds()).toHaveLength(count - 5);
+    await settle();
+    await shortcut("z");
+    expect(nodeIds()).toHaveLength(count);
+    expect(flowNode(copiedInner.id).parentId).toBe(copiedOuter.id);
+  });
+
+  it("ungroups multiple nested frames into the nearest surviving parent", async () => {
+    const inner = await groupPair();
+    await select([inner.id, "image"]);
+    await shortcut("g");
+    const outer = groupNodes().find((node) => node.id !== inner.id)!;
+    await settle();
+    await select([inner.id, outer.id]);
+    await shortcut("g", true);
+    expect(groupNodes()).toHaveLength(0);
+    expect(flowNode("prompt")).toMatchObject({
+      parentId: undefined,
+      position: { x: 0, y: 0 },
+    });
+    expect(flowNode("art")).toMatchObject({
+      parentId: undefined,
+      position: { x: 0, y: 300 },
+    });
+    await settle();
+    expect(isAssetCanvasDocument(lastSaved())).toBe(true);
+  });
+
+  it("Option-drags the complete group tree and can undo the copy in one step", async () => {
+    const group = await groupPair();
+    await settle();
+    const gesture = await drag([group.id], true);
+    const copy = groupNodes().find((node) => node.id !== group.id)!;
+    expect(
+      captured.props!.nodes.filter((node) => node.parentId === copy.id),
+    ).toHaveLength(2);
+    await gesture.by(1000, 600);
+    await gesture.drop();
+    expect(flowNode(copy.id).position).toEqual({
+      x: group.position.x + 1000,
+      y: group.position.y + 600,
+    });
+    await settle();
+    expect(isAssetCanvasDocument(lastSaved())).toBe(true);
+    await shortcut("z");
+    expect(groupNodes().map((node) => node.id)).toEqual([group.id]);
+    expect(nodeIds()).toHaveLength(6);
   });
 });

@@ -4,6 +4,7 @@ import type { ImageModel } from "../src/shared/contracts.js";
 import { isAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import { canvasImagePresetPrompt } from "../src/shared/canvas-image-presets.js";
 import { ASSET_CANVAS_TEMPLATES, createAssetCanvasTemplateDocument, templateGuideInfo, templateImagePresets } from "../src/renderer/asset-canvas-templates.js";
+import { canvasAbsolutePosition } from "../src/renderer/canvas-groups.js";
 
 const textOnly: ImageModel = {
   provider: "example", id: "text", name: "Text", providerName: "Example", sizes: ["1024x1024"],
@@ -26,12 +27,45 @@ describe("asset canvas templates", () => {
     expect(templateImagePresets("action-set")).toEqual([]);
   });
 
-  it.each(ASSET_CANVAS_TEMPLATES)("%s creates a valid board with a visible guide", (template) => {
-    const { document, focusNodeId } = createAssetCanvasTemplateDocument(template, [textOnly, reference]);
+  it.each(ASSET_CANVAS_TEMPLATES.flatMap((template) => [
+    { template, input: {}, mode: "examples" },
+    { template, input: { prompt: "Forest ranger" }, mode: "custom prompt" },
+    { template, input: { sourceAssetId: "reference-1" }, mode: "library reference" },
+  ]))("$template creates a valid grouped board with a visible guide for $mode", ({ template, input }) => {
+    const { document, focusNodeId, outputNodeIds, sampleImages } = createAssetCanvasTemplateDocument(template, [textOnly, reference], input);
     expect(isAssetCanvasDocument(document)).toBe(true);
     expect(document.nodes[0]).toMatchObject({ type: "text", data: { instruction: `asset-canvas-template:${template}` } });
+    expect(document.nodes[0]?.parentId).toBeUndefined();
     expect(document.nodes.find((node) => node.id === focusNodeId)).toBeDefined();
     expect(document.nodes.filter((node) => node.type === "text")).toHaveLength(1);
+    const groups = document.nodes.filter((node) => node.type === "group");
+    expect(groups).toHaveLength(1);
+    const group = groups[0]!;
+    expect(document.nodes[1]).toBe(group);
+    expect(group.data.name).toBe("Template examples");
+    expect(group.parentId).toBeUndefined();
+    expect(group.width).toBeLessThanOrEqual(4096);
+    expect(group.height).toBeLessThanOrEqual(4096);
+    const examples = document.nodes.slice(2);
+    expect(examples).toHaveLength(outputNodeIds.length + (template === "character-sheet" ? 0 : template === "quick-reskin" ? 2 : 1));
+    for (const node of examples) {
+      expect(node.parentId).toBe(group.id);
+      expect(node.position.x).toBeGreaterThanOrEqual(28);
+      expect(node.position.y).toBeGreaterThanOrEqual(54);
+      expect(node.position.x + 440).toBeLessThanOrEqual(group.width! - 28);
+      expect(node.position.y + 400).toBeLessThanOrEqual(group.height! - 28);
+    }
+    for (const id of [...sampleImages.keys(), ...outputNodeIds]) {
+      expect(examples.some((node) => node.id === id)).toBe(true);
+    }
+    expect(canvasAbsolutePosition(examples[0]!, document.nodes)).toEqual({ x: 560, y: 80 });
+    for (const node of document.nodes) {
+      expect(document.editorLayout.nodes[node.id]).toEqual({
+        ...node.position,
+        ...(node.width ? { width: node.width } : {}),
+        ...(node.height ? { height: node.height } : {}),
+      });
+    }
   });
 
   it("recognizes saved legacy guides without rewriting boards", () => {
@@ -85,6 +119,7 @@ describe("asset canvas templates", () => {
     try {
       await i18next.changeLanguage("zh-CN");
       const { document, outputNodeIds } = createAssetCanvasTemplateDocument("quick-reskin", [reference]);
+      expect(document.nodes.find((node) => node.type === "group")?.data.name).toBe("模板示例");
       const output = document.nodes.find((node) => node.id === outputNodeIds[0]);
       expect(output?.type === "image" && output.data.prompt).toBe("Put the clothing from the clothing reference image on the person in the person image. Keep the person's pose and composition.");
     } finally {

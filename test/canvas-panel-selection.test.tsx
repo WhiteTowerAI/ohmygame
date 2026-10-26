@@ -203,7 +203,7 @@ it("keeps a single marquee node directly clickable and opens only its panel", as
   expect(flowNode("video").data.panelOpen).toBe(false);
 });
 
-it("opens a marquee node selected through its context menu", async () => {
+it("opens a marquee node through its context menu while preserving the selection", async () => {
   await marquee(["image", "video"]);
   await act(async () =>
     captured.props!.onNodeContextMenu!({} as never, flowNode("image")),
@@ -212,7 +212,7 @@ it("opens a marquee node selected through its context menu", async () => {
     selected: true,
     data: { panelOpen: true },
   });
-  expect(flowNode("video").selected).toBe(false);
+  expect(flowNode("video").selected).toBe(true);
 });
 
 it("keeps panels closed through movement and clears the marquee mark after deselection", async () => {

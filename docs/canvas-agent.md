@@ -17,8 +17,11 @@ same selection behavior as other image nodes.
 
 Introduction nodes reuse the existing `text` node type, carry an
 `asset-canvas-template:<id>` instruction marker, and show example art and output
-guidance. Character reference sheet, Quick reskin, and Character action set use
-full-width examples. Introduction panels size to their content, including on saved
+guidance. Character reference sheet and Quick reskin introductions show text
+guidance only. The other introductions and all five launcher covers reuse the
+bundled example images shown on the template's image nodes. Multiple
+asset types, sequence modes, and actions appear together in grids; individual
+images fit in full without cropping. Introduction panels size to their content, including on saved
 boards with an older fixed introduction height, so all guidance is visible without
 extra space below it.
 Pixel game assets opens with one shared
@@ -40,7 +43,10 @@ assets, quick reskin, character sequences, and action set use a bundled characte
 sheet in their replaceable reference node; quick reskin also includes a clothing
 example. Each output node displays the image matching its preset or action.
 Character sheets have no reference node. Generation only runs when requested and
-an image model is available.
+an image model is available. Each new template board places all example inputs
+and outputs inside one group named **Template examples** (localized in the UI).
+The introduction stays outside the group. Grouping preserves the node references
+and their positions on the canvas.
 Model, resolution, aspect ratio, and prompt controls stay in the shared image
 generator. The example art illustrates formats rather than guaranteed model output.
 Existing boards retain their earlier
@@ -67,6 +73,34 @@ optional `title` and `description`, content, and references. Markdown bodies
 are shared between document nodes. Connections for prompts and media are
 derived from `promptSource`, `images`, `references`, and `source`.
 
+Boards may also contain `group` nodes with `data.name`. A grouped node stores
+`parentId` pointing to a group on the same board, and its layout position is
+relative to that parent. Groups can be nested, but parent chains cannot form a
+cycle. Group frames have width and height in `editor/<board-id>.json`. The editor
+supports grouping selected nodes, ungrouping, dragging nodes between groups,
+copying group trees, and undo/redo. Deleting a group deletes its descendants.
+Media toolbars move below the node when there is insufficient room above it.
+When the generation form is open, the lower toolbar sits after the form and
+follows its height and canvas zoom so it does not cover the inputs.
+Select two or more nodes and use Group in the floating selection toolbar or Cmd/Ctrl+G to group them;
+selecting one group shows a toolbar beside its frame with Run group (starts generation
+for executable descendants, including nested groups) and Ungroup. The floating toolbar
+also shows Ungroup when multiple selected nodes include a group.
+Run group executes up to three ready nodes concurrently, including text nodes.
+Nodes wait only for their own generation references; media jobs must finish and
+their saved outputs must be synchronized before dependent nodes can start.
+Failed or cancelled nodes cause their dependents to be skipped; independent nodes
+still run. Circular generation references prevent the batch from starting.
+Text nodes use their own selected model, falling back to the default text model.
+Shift+Cmd/Ctrl+G ungroups selected frames. Double-click a group heading to name
+it, and drag the heading to move its entire tree. The empty frame interior
+allows marquee selection of its children. Dropping a node with its center
+inside a frame adds it to the deepest containing group; dropping completely outside
+removes it from that group. A frame expands after a child is moved across its
+edge, up to the 4096 × 4096 layout limit. Frames also support manual resizing.
+Shrinking a frame stops at the bounds of its children; resizing from the top or
+left keeps the children fixed in canvas coordinates.
+
 Generation nodes use these semantic board fields (runtime state and visual size
 do not belong in the board file):
 
@@ -90,7 +124,7 @@ nodes' saved text, Markdown and actual image output from the workspace. Image
 references require a language model that accepts images. A node cannot reference
 itself or, for Document nodes, another node pointing to the same document.
 
-Positions, zoom and the width/height of text, document and table nodes live in
+Positions, zoom and the width/height of text, document, table and group nodes live in
 `editor/`. Media and generation nodes size to their content: the editor ignores
 a width/height on them and canvas_check reports it. New nodes get positions
 automatically.

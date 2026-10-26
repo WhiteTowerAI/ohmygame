@@ -70,10 +70,15 @@ export function parseCanvasClipboard(text: string): CanvasClipboard | undefined 
 
 export function duplicateCanvasSelection(nodes: AssetCanvasNode[], edges: AssetCanvasEdge[], position: { x: number; y: number }, newId: () => string = () => crypto.randomUUID()): { nodes: AssetCanvasNode[]; edges: AssetCanvasEdge[] } {
   const ids = new Map(nodes.map((node) => [node.id, newId()]));
-  const left = Math.min(...nodes.map((node) => node.position.x)), top = Math.min(...nodes.map((node) => node.position.y));
+  const idsInSelection = new Set(nodes.map((node) => node.id));
+  const roots = nodes.filter((node) => !node.parentId || !idsInSelection.has(node.parentId));
+  const left = Math.min(...roots.map((node) => node.position.x)), top = Math.min(...roots.map((node) => node.position.y));
   const duplicates = structuredClone(nodes).map((node) => {
+    const parentId = node.parentId;
     node.id = ids.get(node.id)!;
-    node.position = snapCanvasPosition({ x: position.x + node.position.x - left, y: position.y + node.position.y - top });
+    if (parentId && ids.has(parentId)) node.parentId = ids.get(parentId)!;
+    else delete node.parentId;
+    node.position = node.parentId ? node.position : snapCanvasPosition({ x: position.x + node.position.x - left, y: position.y + node.position.y - top });
     remapReferences(node, ids);
     return node;
   });

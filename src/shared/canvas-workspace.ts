@@ -72,8 +72,14 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
     if (equal(ours, theirs) || equal(before, theirs)) { nodes.push(ours); continue; }
     if (equal(before, ours)) { nodes.push(theirs); continue; }
     if (before.type !== ours.type || ours.type !== theirs.type) return undefined;
-    const position = merge(before.position, ours.position, theirs.position);
-    if (!position) return undefined;
+    // Relative position and parent form one coordinate space and must merge together.
+    const placement = merge(
+      { position: before.position, parentId: before.parentId },
+      { position: ours.position, parentId: ours.parentId },
+      { position: theirs.position, parentId: theirs.parentId },
+    );
+    if (!placement) return undefined;
+    const { position, parentId } = placement;
     const dimensions: { width?: number; height?: number } = {};
     for (const key of ["width", "height"] as const) {
       if (!equal(before[key], ours[key]) && !equal(before[key], theirs[key]) && !equal(ours[key], theirs[key])) return undefined;
@@ -91,7 +97,8 @@ export function mergeCanvasDocument(base: AssetCanvasDocument, local: AssetCanva
       const value = merge(a, b, c);
       if (value !== undefined) data[key] = value;
     }
-    nodes.push({ ...ours, ...metadata, ...dimensions, position, data } as AssetCanvasNode);
+    const { parentId: _oldParentId, ...withoutParent } = ours;
+    nodes.push({ ...withoutParent, ...(parentId ? { parentId } : {}), ...metadata, ...dimensions, position, data } as AssetCanvasNode);
   }
   const edges = [];
   for (const id of new Set([...local.edges, ...remote.edges].map((edge) => edge.id))) {

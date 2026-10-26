@@ -43,7 +43,7 @@ import {
   X,
   type IconComponent,
 } from "./icons.js";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent, type ClipboardEvent, type FormEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type SyntheticEvent, type ClipboardEvent, type FormEvent, type ReactNode, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
   Handle,
@@ -62,6 +62,7 @@ import {
   type ReactFlowInstance,
 } from "@xyflow/react";
 import { CANVAS_GRID_SIZE, snapCanvasPosition } from "./canvas-alignment.js";
+import { clampCanvasGroupResize, canvasAbsolutePosition, canvasDescendantIds, canvasDropGroup, canvasGroupExecutionPlan, canvasSelectionRoots, expandCanvasGroups, orderedCanvasNodes, reparentCanvasNode } from "./canvas-groups.js";
 import { RESIZABLE_CANVAS_NODE_SIZES, canvasNodeLayout, isResizableCanvasNodeType } from "../shared/canvas-node-layout.js";
 import { CanvasNodeResizer, CanvasNodeSizeActions, type CanvasNodeResizeRuntime } from "./canvas-node-resizer.js";
 import { MAX_ASSET_CANVAS_NODES, MAX_TEXT_NODE_REFERENCES } from "../shared/asset-canvas-schema.js";
@@ -147,6 +148,7 @@ import { fileExtension } from "../shared/media-files.js";
 import { importCanvasCsv } from "../shared/canvas-table.js";
 
 const ASSET_EDGE_PREFIX = "asset:";
+const GROUP_GENERATION_CONCURRENCY = 3;
 const OUTPUT_HANDLE = "out";
 const MEDIA_NODE_MAX_WIDTH = 440;
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -365,6 +367,7 @@ interface MediaReferenceView {
 }
 
 const STORY_NODE_TYPES: NodeTypes = {
+  group: CanvasGroupNode,
   table: CanvasTableNode,
   document: CanvasDocumentNode,
   text: TextNode,
@@ -378,6 +381,13 @@ const STORY_NODE_TYPES: NodeTypes = {
   asset: AssetNode,
   file: FileNode,
 };
+
+function CanvasGroupNode({ data, selected }: Pick<NodeProps<AssetCanvasFlowNode>, "data" | "selected">) {
+  return <div className={`canvas-group-node${selected ? " is-selected" : ""}`}>
+    <CanvasNodeResizer selected={selected} runtime={data.resizeRuntime} />
+    <div className="canvas-group-heading"><Layers3 size={14} /><strong>{data.name}</strong></div>
+  </div>;
+}
 
 export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled, hidden = false, storage, documents, tables, assets: localAssets, conflicted = false, overlay, onSaveReady, onSyncReady, onResolveReady, onStatusChange, onSelectionChange, expandedDocument }: {
   project: ProjectState;
@@ -469,6 +479,9 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const textModelCatalog = useAgentModels();
   const defaultTextModel = textModelCatalog.defaultModel ?? textModelCatalog.models[0];
   const [canvasJobs, setCanvasJobs] = useState<Record<string, ToolJob>>({});
+  const canvasJobsRef = useRef(canvasJobs); canvasJobsRef.current = canvasJobs;
+  const observedGroupJobs = useRef(new Map<string, ToolJob>());
+  const groupJobWaiters = useRef(new Map<string, (job: ToolJob) => void>());
   // The last settings picked per node type, so a new node starts where the user left off.
   const rememberedSettings = useRef<RememberedSettings>({});
   const [viewedAsset, setViewedAsset] = useState<ViewableCanvasAsset>();
@@ -480,7 +493,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const [startingCanvasNodes, setStartingCanvasNodes] = useState<Set<string>>(() => new Set());
   const startingCanvasNodesRef = useRef(new Set<string>());
   const hydratedJobRuns = useRef(new Set<string>());
-  const [generatingTextNodeId, setGeneratingTextNodeId] = useState<string>();
+  const [generatingTextNodeIds, setGeneratingTextNodeIds] = useState<ReadonlySet<string>>(() => new Set());
+  const generatingTextNodesRef = useRef(new Set<string>());
   const [uploadingNodeId, setUploadingNodeId] = useState<string>();
   const [importingAssets, setImportingAssets] = useState(false);
   const [folderPrompt, setFolderPrompt] = useState<{ folders: DroppedFolder[]; answer: (choice: "folder" | "files" | undefined) => void }>();
@@ -504,6 +518,17 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   const altDragCopies = useRef<ReadonlyMap<string, string> | undefined>(undefined);
   const [, setHistoryRevision] = useState(0);
   const selectedNodes = nodes.filter((node) => node.selected);
+  const selectedGroup = selectedNodes.length === 1 && selectedNodes[0]?.type === "group" ? selectedNodes[0] : undefined;
+  const canGroupSelection = canvasSelectionRoots(nodes, new Set(selectedNodes.map((node) => node.id))).length >= 2;
+  const canUngroupSelection = selectedNodes.some((node) => node.type === "group");
+  const groupDescendants = selectedGroup ? canvasDescendantIds(nodes, new Set([selectedGroup.id])) : new Set<string>();
+  const executableGroupNodes = selectedGroup ? orderedCanvasNodes(nodes).filter((node) => groupDescendants.has(node.id) && (
+    node.type === "text" && Boolean(node.data.instruction?.trim() && (node.data.textModel ?? defaultTextModel)) ||
+    (node.type === "image" && !node.data.sourceInput || node.type === "video" || node.type === "speech" || node.type === "sound-effect" || node.type === "music" || node.type === "model-3d" || node.type === "animate-3d")
+  )) : [];
+  const [batchExecuting, setBatchExecuting] = useState(false);
+  const batchRun = useRef<AbortController | undefined>(undefined);
+  useEffect(() => () => { batchRun.current?.abort(); }, [storage, closing]);
   const selectedMediaNodes = selectedNodes.filter((node) => {
     const mediaType = node.type === "asset" ? node.data.mediaType : node.type;
     return Boolean(node.data.assetId && (mediaType === "image" || mediaType === "video"));
@@ -531,7 +556,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const loadedVideoModels = videoCatalog.models;
       if (disposed) return;
       setViewport(story.viewport);
-      const loadedNodes = story.nodes.map((node) => toFlowNode(node, models, loadedVideoModels));
+      const loadedNodes = orderedCanvasNodes(story.nodes).map((node) => toFlowNode(node, models, loadedVideoModels));
       const request = initialNodeRequest.current;
       initialNodeRequest.current = { nodeId: undefined, onHandled: undefined };
       const initialNode = request.nodeId ? loadedNodes.find((node) => node.id === request.nodeId) : undefined;
@@ -633,6 +658,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           if (nodeId && !latestJobs.has(nodeId)) latestJobs.set(nodeId, job);
         }
         setCanvasJobs(Object.fromEntries(latestJobs));
+        observedGroupJobs.current = new Map(jobs.map((job) => [job.id, job]));
+        for (const job of jobs) if (job.status !== "running") groupJobWaiters.current.get(job.id)?.(job);
         const completedAssetIds: string[] = [];
         let completedCover: AssetCanvasCoverSource | undefined;
         // Jobs arrive newest first; the daemon persists outputs to the current board.
@@ -796,10 +823,18 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.keyCode === 229 || isTextEntry(event.target) || eventWithin(event, ".nokey") || !canvasElement.current?.contains(event.target as globalThis.Node)) return;
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        if (event.shiftKey) ungroupSelection(); else groupSelection();
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "d") {
         event.preventDefault();
-        const selected = nodes.filter((node) => node.selected).map((node) => toAssetCanvasNode(node, model3DModels));
-        if (selected.length) pasteSelection(createCanvasClipboard(projectId, selected, document.edges), { x: Math.min(...selected.map((node) => node.position.x)) + 40, y: Math.min(...selected.map((node) => node.position.y)) + 40 });
+        const selected = clipboardNodes(new Set(nodes.filter((node) => node.selected).map((node) => node.id)));
+        if (selected.length) {
+          const roots = selected.filter((node) => !node.parentId);
+          pasteSelection(createCanvasClipboard(projectId, selected, document.edges), { x: Math.min(...roots.map((node) => node.position.x)) + 40, y: Math.min(...roots.map((node) => node.position.y)) + 40 });
+        }
         return;
       }
       const step = undoShortcut(event);
@@ -895,7 +930,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const previous = new Map(nodesRef.current.map((node) => [node.id, node]));
     latestCanvas.current = merged;
     observeHistoryDocument(merged);
-    setNodes(merged.nodes.map((node) => ({ ...toFlowNode(node, imageModelsRef.current, videoModelsRef.current, previous.get(node.id)), selected: previous.get(node.id)?.selected === true })));
+    setNodes(orderedCanvasNodes(merged.nodes).map((node) => ({ ...toFlowNode(node, imageModelsRef.current, videoModelsRef.current, previous.get(node.id)), selected: previous.get(node.id)?.selected === true })));
     setEdges(merged.edges); setViewport(merged.viewport); setEditorLayout(merged.editorLayout);
     updateHistoryControls();
   }
@@ -995,7 +1030,42 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const id = copies.get(change.id);
       return id ? [{ ...change, id }] : [];
     }) : changes;
-    setNodes((current) => applyNodeChanges(moves, current));
+    setNodes((current) => {
+      const resizedGroups = new Map<string, ReturnType<typeof clampCanvasGroupResize>>();
+      for (const change of moves) {
+        if (change.type !== "dimensions" || !change.resizing) continue;
+        const group = current.find((node) => node.id === change.id);
+        if (group?.type !== "group") continue;
+        const position = moves.find((candidate) => candidate.type === "position" && candidate.id === group.id);
+        const proposed = position?.type === "position" ? position.position ?? group.position : group.position;
+        resizedGroups.set(group.id, clampCanvasGroupResize(group, current, {
+          x: proposed.x, y: proposed.y,
+          width: change.dimensions?.width ?? group.width ?? group.measured?.width ?? 500,
+          height: change.dimensions?.height ?? group.height ?? group.measured?.height ?? 400,
+        }));
+      }
+      const corrected = moves.flatMap<NodeChange<AssetCanvasFlowNode>>((change) => {
+        if (change.type === "dimensions") {
+          const group = current.find((node) => node.id === change.id);
+          if (group?.type !== "group") return [change];
+          if (change.resizing === false && group.resizing) return [{ ...change, dimensions: { width: group.width ?? group.measured?.width ?? 500, height: group.height ?? group.measured?.height ?? 400 } }];
+          if (!change.resizing) return [change];
+          const bounds = resizedGroups.get(change.id)!;
+          return [{ ...change, dimensions: { width: bounds.width, height: bounds.height } }];
+        }
+        if (change.type !== "position") return [change];
+        const groupBounds = resizedGroups.get(change.id);
+        if (groupBounds) return [{ ...change, position: { x: groupBounds.x, y: groupBounds.y } }];
+        const node = current.find((candidate) => candidate.id === change.id);
+        const parent = node?.parentId && current.find((candidate) => candidate.id === node.parentId);
+        const bounds = parent && resizedGroups.get(parent.id);
+        return bounds && node ? [{ ...change, position: {
+          x: node.position.x + parent.position.x - bounds.x,
+          y: node.position.y + parent.position.y - bounds.y,
+        } }] : [change];
+      });
+      return applyNodeChanges(corrected, current);
+    });
   }, []);
   function onEdgesChange(changes: EdgeChange[]): void {
     const assetEdgeIds = new Set(assetEdges.map((edge) => edge.id));
@@ -1234,23 +1304,167 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     commitPendingHistory();
     setTransferError(undefined);
     const copied = duplicateCanvasSelection(value.nodes, value.edges, position);
-    setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), ...copied.nodes.map((node) => ({ ...toFlowNode(node, imageModels, videoModels), selected: true }))]);
+    setNodes((current) => orderedCanvasNodes([...current.map((node) => ({ ...node, selected: false })), ...copied.nodes.map((node) => ({ ...toFlowNode(node, imageModels, videoModels), selected: !node.parentId }))]));
     setEdges((current) => [...current, ...copied.edges]);
     setSelectedAssetEdgeId(undefined);
+  }
+
+  function clipboardNodes(selectedIds: ReadonlySet<string>): AssetCanvasNode[] {
+    const ids = canvasDescendantIds(nodes, selectedIds);
+    return orderedCanvasNodes(nodes.filter((node) => ids.has(node.id))).map((node) => {
+      const canonical = toAssetCanvasNode(node, model3DModels);
+      return canonical.parentId && ids.has(canonical.parentId) ? canonical : { ...canonical, parentId: undefined, position: canvasAbsolutePosition(node, nodes) };
+    });
+  }
+
+  function groupSelection(): void {
+    const selected = nodes.filter((node) => node.selected);
+    const roots = canvasSelectionRoots(nodes, new Set(selected.map((node) => node.id)));
+    if (roots.length < 2) return;
+    if (nodes.length >= MAX_ASSET_CANVAS_NODES) { setTransferError(t("assetCanvas.nodeLimit")); return; }
+    const parentId = roots.every((node) => node.parentId === roots[0]?.parentId) ? roots[0]?.parentId : undefined;
+    const parent = nodes.find((node) => node.id === parentId);
+    const origin = parent ? canvasAbsolutePosition(parent, nodes) : { x: 0, y: 0 };
+    const positions = roots.map((node) => ({ node, at: canvasAbsolutePosition(node, nodes) }));
+    const left = Math.min(...positions.map(({ at }) => at.x)) - 28;
+    const top = Math.min(...positions.map(({ at }) => at.y)) - 54;
+    const right = Math.max(...positions.map(({ node, at }) => at.x + (node.width ?? node.measured?.width ?? 440))) + 28;
+    const bottom = Math.max(...positions.map(({ node, at }) => at.y + (node.height ?? node.measured?.height ?? 320))) + 28;
+    if (right - left > 4096 || bottom - top > 4096) { setTransferError(t("assetCanvas.groupTooLarge")); return; }
+    const group: AssetCanvasFlowNode = { id: crypto.randomUUID(), type: "group", parentId, position: { x: left - origin.x, y: top - origin.y }, width: Math.min(4096, Math.max(500, right - left)), height: Math.min(4096, Math.max(400, bottom - top)), data: { name: t("assetCanvas.groupName") }, selected: true, deletable: true };
+    const selectedIds = new Set(roots.map((node) => node.id));
+    commitPendingHistory();
+    setNodes((current) => orderedCanvasNodes([...current.map((node) => selectedIds.has(node.id)
+      ? { ...node, parentId: group.id, position: { x: canvasAbsolutePosition(node, current).x - left, y: canvasAbsolutePosition(node, current).y - top }, selected: false }
+      : { ...node, selected: false }), group]));
+    setMarqueeSelectedIds(new Set());
+  }
+
+  async function executeGroup(): Promise<void> {
+    if (batchRun.current || closing || !executableGroupNodes.length) return;
+    const plan = canvasGroupExecutionPlan(executableGroupNodes.map((node) => toAssetCanvasNode(node, model3DModels)));
+    if (!plan) { setNotice({ kind: "action", message: t("assetCanvas.groupDependencyCycle") }); return; }
+    const controller = new AbortController();
+    const { signal } = controller;
+    batchRun.current = controller;
+    setNotice((current) => current?.kind === "action" ? undefined : current);
+    setBatchExecuting(true);
+    const failed = new Set<string>();
+    const failures: string[] = [];
+    const completed = new Set<string>();
+    const pending = new Map(plan.map((item) => [item.node.id, item]));
+    const running = new Map<string, Promise<void>>();
+    const execute = async (item: (typeof plan)[number]) => {
+      try {
+        if (signal.aborted) return;
+        if (item.dependencies.some((id) => failed.has(id))) throw new Error(t("assetCanvas.groupDependencyFailed"));
+        const node = nodesRef.current.find((candidate) => candidate.id === item.node.id);
+        if (!node || node.type !== item.node.type) throw new Error(t("assetCanvas.groupNodeUnavailable"));
+        if (node.type === "text") {
+          const model = node.data.textModel ?? defaultTextModel;
+          if (!model) throw new Error(t("assetCanvas.selectModel"));
+          await generateTextNode(node, model, node.data.reasoningLevel ?? textModelCatalog.defaultReasoningLevel ?? "medium", true, signal);
+        } else {
+          const job = await generateMedia(node, true, signal);
+          if (signal.aborted) return;
+          if (!job) throw new Error(t("assetCanvas.groupNodeUnavailable"));
+          const result = await waitForGroupJob(job, signal);
+          if (result.status !== "succeeded") throw new Error(result.error || t("assetCanvas.groupGenerationFailed"));
+          // The daemon has persisted the output. Merge it before releasing dependents.
+          if (signal.aborted) return;
+          await sync();
+        }
+      } catch (cause) {
+        if (signal.aborted) return;
+        failed.add(item.node.id);
+        failures.push(`${canvasNodeTitle(item.node)}: ${errorMessage(cause)}`);
+      } finally {
+        completed.add(item.node.id);
+      }
+    };
+    try {
+      while (pending.size || running.size) {
+        if (signal.aborted) return;
+        for (const [id, item] of pending) {
+          if (running.size >= GROUP_GENERATION_CONCURRENCY) break;
+          if (!item.dependencies.every((dependency) => completed.has(dependency))) continue;
+          pending.delete(id);
+          const operation = execute(item).finally(() => { running.delete(id); });
+          running.set(id, operation);
+        }
+        // Refill a slot as soon as one node finishes, including newly ready dependents.
+        await Promise.race(running.values());
+      }
+      if (failures.length) setNotice({ kind: "action", message: failures.join("\n") });
+    } finally {
+      if (batchRun.current === controller) {
+        batchRun.current = undefined;
+        if (mounted.current) setBatchExecuting(false);
+      }
+    }
+  }
+
+  function waitForGroupJob(job: ToolJob, signal: AbortSignal): Promise<ToolJob> {
+    if (signal.aborted) return Promise.reject(signal.reason);
+    job = observedGroupJobs.current.get(job.id) ?? job;
+    if (job.status !== "running") return Promise.resolve(job);
+    return new Promise((resolve, reject) => {
+      const cleanup = () => { groupJobWaiters.current.delete(job.id); signal.removeEventListener("abort", abort); };
+      const abort = () => { cleanup(); reject(signal.reason); };
+      groupJobWaiters.current.set(job.id, (completed) => { cleanup(); resolve(completed); });
+      signal.addEventListener("abort", abort, { once: true });
+    });
+  }
+
+  function ungroupSelection(): void {
+    const groups = nodes.filter((node) => node.selected && node.type === "group");
+    if (!groups.length) return;
+    commitPendingHistory();
+    setNodes((current) => {
+      const groupIds = new Set(groups.map((group) => group.id));
+      return orderedCanvasNodes(current.filter((node) => !groupIds.has(node.id)).map((node) => {
+        if (!node.parentId || !groupIds.has(node.parentId)) return node;
+        const group = current.find((candidate) => candidate.id === node.parentId)!;
+        let destination = group.parentId;
+        while (destination && groupIds.has(destination)) destination = current.find((candidate) => candidate.id === destination)?.parentId;
+        return { ...reparentCanvasNode(node, destination, current), selected: true };
+      }));
+    });
+  }
+
+  function finishGroupDrag(dragged: readonly AssetCanvasFlowNode[]): void {
+    const ids = new Set(dragged.map((node) => node.id));
+    setNodes((current) => {
+      const roots = canvasSelectionRoots(current, ids);
+      let next = current;
+      for (const node of roots) {
+        const target = canvasDropGroup(node, current, ids);
+        if (target !== node.parentId) next = next.map((candidate) => candidate.id === node.id ? reparentCanvasNode(candidate, target, next) : candidate);
+      }
+      return expandCanvasGroups(orderedCanvasNodes(next));
+    });
   }
 
   function startAltDragDuplicate(dragged: readonly AssetCanvasFlowNode[]): void {
     // A rejected copy gesture must not fall back to moving the originals.
     altDragCopies.current = new Map();
-    if (nodesRef.current.length + dragged.length > MAX_ASSET_CANVAS_NODES) { setTransferError(t("assetCanvas.nodeLimit")); return; }
+    const source = clipboardNodes(new Set(dragged.map((node) => node.id)));
+    if (nodesRef.current.length + source.length > MAX_ASSET_CANVAS_NODES) { setTransferError(t("assetCanvas.nodeLimit")); return; }
     setTransferError(undefined);
-    const copies = dragged.map((node) => {
-      const source = toAssetCanvasNode(node, model3DModels);
-      return { ...toFlowNode(duplicateAssetCanvasNode(source, source.position), imageModels, videoModels), selected: true };
+    const roots = canvasSelectionRoots(nodes, new Set(dragged.map((node) => node.id)));
+    const at = roots.map((node) => canvasAbsolutePosition(node, nodes));
+    const duplicated = duplicateCanvasSelection(source, [], { x: Math.min(...at.map((point) => point.x)), y: Math.min(...at.map((point) => point.y)) });
+    const mapping = new Map(source.map((node, index) => [node.id, duplicated.nodes[index]!.id]));
+    const copies = duplicated.nodes.map((node, index) => {
+      const original = nodes.find((item) => item.id === source[index]!.id)!;
+      // Keep the roots in the original coordinate space while React Flow reports the drag.
+      const disconnected = duplicateAssetCanvasNode(source[index]!, node.position, node.id);
+      const copy = source[index]!.parentId ? { ...disconnected, parentId: node.parentId } : { ...disconnected, parentId: original.parentId, position: original.position };
+      return { ...toFlowNode(copy, imageModels, videoModels), selected: roots.some((root) => root.id === original.id) };
     });
-    altDragCopies.current = new Map(dragged.map((node, index) => [node.id, copies[index]!.id]));
+    altDragCopies.current = mapping;
     clearSelection();
-    setNodes((current) => [...current, ...copies]);
+    setNodes((current) => orderedCanvasNodes([...current, ...copies]));
     setMarqueeSelectedIds(new Set(altDragCopies.current.values()));
   }
 
@@ -1261,13 +1475,14 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const start = new Map(nodesRef.current.map((node) => [node.id, node.position]));
     if (dragged.some((node) => node.position.x !== start.get(node.id)?.x || node.position.y !== start.get(node.id)?.y)) return;
     const copyIds = new Set(copies.values());
+    setEdges((current) => current.filter((edge) => !copyIds.has(edge.source) && !copyIds.has(edge.target)));
     setNodes((current) => current.flatMap((node) => copyIds.has(node.id) ? [] : [copies.has(node.id) ? { ...node, selected: true } : node]));
     setMarqueeSelectedIds(new Set(copies.keys()));
   }
 
   function copySelection(event: ClipboardEvent<HTMLDivElement>, cut = false): void {
     if (isTextEntry(event.target) || eventWithin(event, ".nokey")) return;
-    const selected = nodes.filter((node) => node.selected).map((node) => toAssetCanvasNode(node, model3DModels));
+    const selected = clipboardNodes(new Set(nodes.filter((node) => node.selected).map((node) => node.id)));
     if (!selected.length) return;
     const value = createCanvasClipboard(projectId, selected, document.edges);
     event.preventDefault(); event.clipboardData.setData("text/plain", JSON.stringify(value));
@@ -1301,7 +1516,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   function copyCanvasNode(nodeId: string): void {
     const source = nodes.find((node) => node.id === nodeId);
     if (!source) return;
-    const value = createCanvasClipboard(projectId, [toAssetCanvasNode(source, model3DModels)], []);
+    const value = createCanvasClipboard(projectId, clipboardNodes(new Set([nodeId])), document.edges);
     rememberCanvasClipboard(value); setCopiedSelection(value);
     void navigator.clipboard?.writeText(JSON.stringify(value)).catch(() => {});
   }
@@ -1309,12 +1524,13 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
   function duplicateCanvasNode(nodeId: string): void {
     const source = nodes.find((node) => node.id === nodeId);
     if (!source) return;
-    const canonical = toAssetCanvasNode(source, model3DModels);
-    insertNodeCopy(canonical, { x: source.position.x + CANVAS_GRID_SIZE * 2, y: source.position.y + CANVAS_GRID_SIZE * 2 });
+    const selection = clipboardNodes(new Set([nodeId]));
+    const at = canvasAbsolutePosition(source, nodes);
+    pasteSelection(createCanvasClipboard(projectId, selection, document.edges), { x: at.x + CANVAS_GRID_SIZE * 2, y: at.y + CANVAS_GRID_SIZE * 2 });
   }
 
   function removeCanvasNodes(requestedIds: ReadonlySet<string>): void {
-    const removedIds = new Set(nodes.filter((node) => requestedIds.has(node.id)).map((node) => node.id));
+    const removedIds = canvasDescendantIds(nodes, requestedIds);
     if (!removedIds.size) return;
     commitPendingHistory();
     setNodes((current) => removeNodesAndReferences(current, removedIds));
@@ -1505,26 +1721,37 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     });
   }
 
-  async function generateTextNode(node: AssetCanvasFlowNode, model: AgentModelRef, reasoningLevel: AgentReasoningLevel): Promise<void> {
-    if (node.type !== "text" || generatingTextNodeId) return;
+  async function generateTextNode(node: AssetCanvasFlowNode, model: AgentModelRef, reasoningLevel: AgentReasoningLevel, propagateError = false, signal?: AbortSignal): Promise<void> {
+    if (node.type !== "text" || generatingTextNodesRef.current.has(node.id)) {
+      if (propagateError) throw new Error(t("assetCanvas.groupNodeUnavailable"));
+      return;
+    }
     const instruction = node.data.instruction?.trim();
     if (!instruction) {
       setGenerationError({ nodeId: node.id, message: t("assetCanvas.instructionRequired") });
+      if (propagateError) throw new Error(t("assetCanvas.instructionRequired"));
       return;
     }
-    setGeneratingTextNodeId(node.id);
+    generatingTextNodesRef.current.add(node.id);
+    setGeneratingTextNodeIds(new Set(generatingTextNodesRef.current));
     setGenerationError(undefined);
     try {
       const referenceSource = { boardId: storage.boardId, nodeId: node.id };
+      await flush();
       await documents.flush();
+      signal?.throwIfAborted();
       const result = await generateCanvasText(projectId, instruction, model, reasoningLevel, referenceSource, writeVersion);
-      setNodes((current) => current.map((candidate) => candidate.id === node.id
+      signal?.throwIfAborted();
+      // Publish the text before a batch proceeds to a dependent node or flushes the board.
+      flushSync(() => setNodes((current) => current.map((candidate) => candidate.id === node.id
         ? { ...candidate, data: { ...candidate.data, text: result.text, textModel: result.model, reasoningLevel } }
-        : candidate));
+        : candidate)));
     } catch (error) {
-      setGenerationError({ nodeId: node.id, message: errorMessage(error) });
+      if (!signal?.aborted) setGenerationError({ nodeId: node.id, message: errorMessage(error) });
+      if (propagateError) throw error;
     } finally {
-      setGeneratingTextNodeId(undefined);
+      generatingTextNodesRef.current.delete(node.id);
+      if (mounted.current) setGeneratingTextNodeIds(new Set(generatingTextNodesRef.current));
     }
   }
 
@@ -1622,17 +1849,27 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     }
   }
 
-  async function generateMedia(node: AssetCanvasFlowNode): Promise<void> {
-    if (canvasJobs[node.id]?.status === "running" || startingCanvasNodesRef.current.has(node.id)) return;
+  async function generateMedia(node: AssetCanvasFlowNode, propagateError = false, signal?: AbortSignal): Promise<ToolJob | undefined> {
+    const running = canvasJobsRef.current[node.id];
+    if (running?.status === "running") return propagateError ? running : undefined;
+    if (startingCanvasNodesRef.current.has(node.id)) {
+      if (propagateError) throw new Error(t("assetCanvas.groupNodeUnavailable"));
+      return;
+    }
     startingCanvasNodesRef.current.add(node.id);
     setStartingCanvasNodes((current) => new Set(current).add(node.id));
     setGenerationError(undefined);
     try {
+      const targetStorage = storageRef.current;
       await flush();
-      const job = await storageRef.current.generate(node.id);
+      signal?.throwIfAborted();
+      const job = await targetStorage.generate(node.id);
+      signal?.throwIfAborted();
       setCanvasJobs((current) => ({ ...current, [node.id]: job }));
+      return job;
     } catch (error) {
-      setGenerationError({ nodeId: node.id, message: errorMessage(error) });
+      if (!signal?.aborted) setGenerationError({ nodeId: node.id, message: errorMessage(error) });
+      if (propagateError) throw error;
     } finally {
       startingCanvasNodesRef.current.delete(node.id);
       setStartingCanvasNodes((current) => {
@@ -1686,20 +1923,22 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   const tableContents = [...tables.storage.sessions.values()].map((session) => session.local);
   const templateBoard = nodes.flatMap((node) => node.type === "text" ? [templateGuideInfo(node.data.instruction)?.template] : []).find((value) => value !== undefined);
-  const renderedNodes = nodes.map((original) => {
+  const renderedNodes = orderedCanvasNodes(nodes).map((original) => {
     const size = isResizableCanvasNodeType(original.type) ? RESIZABLE_CANVAS_NODE_SIZES[original.type] : undefined;
     const isTemplateGuide = original.type === "text" && Boolean(templateGuideInfo(original.data.instruction));
     // A render can arrive before React Flow publishes its first dimensions.
     // An empty measurement keeps it from clearing freshly measured handle bounds.
     const node = { ...original, measured: original.measured ?? {}, ...(isTemplateGuide ? { height: undefined } : {}), ...(size ? { style: { ...original.style, width: original.width ?? size.width, height: isTemplateGuide ? "auto" : original.height ?? size.height } } : {}), data: { ...original.data,
       ...(size ? { resizeRuntime: {
-        start: beginHistoryGesture, end: finishHistoryGesture,
-        reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id) return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
+        start: beginHistoryGesture,
+        end: finishHistoryGesture,
+        reset: () => { beginHistoryGesture(); setNodes((current) => current.map((node) => { if (node.id !== original.id || node.type === "group") return node; const { width: _width, height: _height, ...rest } = node; return rest; })); finishHistoryGesture(); },
         ...(original.type === "text" ? { open: () => setExpandedTextId(original.id) } : {}),
     } } : {}), assetAspectRatio: mediaAspectRatio(libraryAssets.find((asset) => asset.id === original.data.assetId)), panelOpen: original.selected === true && !marqueeActive && !marqueeSelectedIds.has(original.id), nodeDetails: {
       title: original.title?.trim(), label: canvasNodeTitle(toAssetCanvasNode(original, model3DModels), documents.documents, libraryAssets, tableContents), description: original.description,
-      edit: () => setNodeDetails({ id: original.id, title: original.title ?? "", description: original.description ?? "" }),
+      edit: () => setNodeDetails({ id: original.id, title: original.type === "group" ? original.data.name ?? "" : original.title ?? "", description: original.description ?? "" }),
     } } };
+    if (node.type === "group") return { ...node, dragHandle: ".canvas-group-heading" };
     if (node.type === "table") {
       const session = tables.storage.sessions.get(node.data.tableId ?? "");
       return { ...node, data: { ...node.data, tableRuntime: { tables, table: session?.local, issue: session?.issue ?? tables.issues?.find((issue) => issue.id === node.data.tableId)?.message, models: textModelCatalog.models, modelStatus: textModelCatalog.status, defaultModel: defaultTextModel, defaultReasoningLevel: textModelCatalog.defaultReasoningLevel } } };
@@ -1736,8 +1975,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           modelStatus: textModelCatalog.status,
           ...(defaultTextModel ? { defaultModel: defaultTextModel } : {}),
           defaultReasoningLevel: textModelCatalog.defaultReasoningLevel,
-          generating: generatingTextNodeId === node.id,
-          busy: Boolean(generatingTextNodeId),
+          generating: generatingTextNodeIds.has(node.id),
+          busy: generatingTextNodeIds.has(node.id),
           ...(generationError?.nodeId === node.id ? { error: generationError.message } : {}),
           onChange: (data: AssetCanvasFlowData) => {
             rememberSettings(node, data);
@@ -1917,7 +2156,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     observeHistoryDocument(next);
     setViewport(next.viewport);
     const previous = new Map(nodesRef.current.map((node) => [node.id, node]));
-    setNodes(next.nodes.map((node) => toFlowNode(node, imageModels, videoModels, previous.get(node.id))));
+    setNodes(orderedCanvasNodes(next.nodes).map((node) => toFlowNode(node, imageModels, videoModels, previous.get(node.id))));
     setEdges(next.edges);
     setEditorLayout(next.editorLayout);
   }
@@ -1981,7 +2220,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 altDragCopies.current = undefined;
                 if (event.altKey) startAltDragDuplicate(dragged);
               }}
-              onNodeDragStop={(_event, _node, dragged) => { finishAltDragDuplicate(dragged); finishHistoryGesture(); }}
+              onNodeDragStop={(_event, _node, dragged) => { const copies = altDragCopies.current; finishAltDragDuplicate(dragged); if (!copies) finishGroupDrag(dragged); else if (copies.size) finishGroupDrag(nodesRef.current.filter((node) => [...copies.values()].includes(node.id) && node.selected)); finishHistoryGesture(); }}
               onMoveStart={() => setCanvasContextMenu(undefined)}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
@@ -1997,11 +2236,11 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
                 if (eventWithin(event, ".story-media-view-button")) openViewer(node);
               }}
               // Only the preview opens the viewer; the prompt, chips, and video controls below keep their own double-click.
-              onNodeDoubleClick={(event, node) => { if (eventWithin(event, ".story-media-stage")) openViewer(node); }}
+              onNodeDoubleClick={(event, node) => { if (node.type === "group") setNodeDetails({ id: node.id, title: node.data.name ?? "", description: node.description ?? "" }); else if (eventWithin(event, ".story-media-stage")) openViewer(node); }}
               onPaneClick={() => { setCanvasContextMenu(undefined); clearSelection(); }}
               onNodeContextMenu={(_event, node) => {
                 activateNode(node.id);
-                setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
+                setNodes((current) => current.map((candidate) => ({ ...candidate, selected: node.selected ? candidate.selected : candidate.id === node.id })));
               }}
               onNodesDelete={(deleted) => {
                 removeCanvasNodes(new Set(deleted.map((node) => node.id)));
@@ -2016,13 +2255,30 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               fitViewOnLoad={editorLayout.fitView === true}
               onInitialFit={finishInitialFit}
             >
+              {selectedNodes.length > 1 && !selectedMediaType && (canGroupSelection || canUngroupSelection) ? <SelectionCanvasToolbarOverlay
+                nodes={selectedNodes}
+                allNodes={nodes}
+                onGroup={canGroupSelection ? groupSelection : undefined}
+                onUngroup={canUngroupSelection ? ungroupSelection : undefined}
+              /> : null}
+              {selectedGroup ? <GroupCanvasToolbarOverlay
+                node={selectedGroup}
+                nodes={nodes}
+                canExecute={executableGroupNodes.length > 0 && !batchExecuting}
+                onExecute={() => void executeGroup()}
+                onUngroup={ungroupSelection}
+              /> : null}
               {selectedMediaType && selectedMediaNodes[0] && !cropNodeId ? <MediaCanvasToolbarOverlay
-                node={selectedMediaNodes[0]}
+                node={renderedNodes.find((node) => node.id === selectedMediaNodes[0]!.id)!}
+                nodes={nodes}
+                canvasElement={canvasElement}
                 mediaType={selectedMediaType}
                 isGif={selectedImageIsGif}
                 imageCount={selectedMediaType === "image" ? selectedMediaNodes.length : 0}
                 busy={mediaToolBusy}
                 onOpen={openMediaTool}
+                onGroup={canGroupSelection ? groupSelection : undefined}
+                onUngroup={canUngroupSelection ? ungroupSelection : undefined}
               /> : null}
               {cropNodeId && selectedMediaNodes[0]?.id === cropNodeId ? <CanvasImageCrop
                 key={cropNodeId} nodeId={cropNodeId} busy={mediaToolBusy} error={mediaToolError}
@@ -2040,13 +2296,15 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             canRedo={canRedo}
             canPaste={canInsertCopiedNode}
             canDuplicate={Boolean(contextMenuNode)}
+            canUngroup={selectedNodes.some((node) => node.type === "group")}
             canView={Boolean(contextMenuNode && viewableCanvasAsset(contextMenuNode))}
             canDownload={Boolean(contextMenuNode?.data.assetId)}
             canSendToProject={Boolean(contextMenuNode?.data.assetId)}
             nodeActionsDisabled={Boolean(contextMenuNodeMissing)}
             importing={importingAssets}
             onClose={() => setCanvasContextMenu(undefined)}
-            onDetails={contextMenuNode ? () => setNodeDetails({ id: contextMenuNode.id, title: contextMenuNode.title ?? "", description: contextMenuNode.description ?? "" }) : undefined}
+            onDetails={contextMenuNode ? () => setNodeDetails({ id: contextMenuNode.id, title: contextMenuNode.type === "group" ? contextMenuNode.data.name ?? "" : contextMenuNode.title ?? "", description: contextMenuNode.description ?? "" }) : undefined}
+            onUngroup={ungroupSelection}
             onUndo={undoEditorChange}
             onRedo={redoEditorChange}
             onPaste={() => { const value = lastCanvasClipboard(); if (value) pasteSelection(value, canvasContextMenu.flowPosition); }}
@@ -2093,8 +2351,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       {folderPrompt ? createPortal(<FolderImportDialog folders={folderPrompt.folders} onAnswer={folderPrompt.answer} />, window.document.body) : null}
       {nodeDetails ? createPortal(<div className="design-modal-backdrop nokey" onPointerDown={(event) => { if (event.target === event.currentTarget) setNodeDetails(undefined); }}><section className="design-modal" role="dialog" aria-modal="true" aria-label={t("assetCanvas.nodeDetails")} onKeyDown={(event) => { if (event.key === "Escape") setNodeDetails(undefined); }}>
         <header><h2>{t("assetCanvas.nodeDetails")}</h2><button type="button" title={t("common.close")} aria-label={t("common.close")} onClick={() => setNodeDetails(undefined)}><X size={16} /></button></header>
-        <form onSubmit={(event) => { event.preventDefault(); setNodes((current) => current.map((node) => node.id === nodeDetails.id ? { ...node, title: nodeDetails.title.trim() || undefined, description: nodeDetails.description.trim() || undefined } : node)); setNodeDetails(undefined); }}>
-          <label>{t("common.name")}<input autoFocus maxLength={200} value={nodeDetails.title} placeholder={t("assetCanvas.automaticName")} onChange={(event) => setNodeDetails({ ...nodeDetails, title: event.target.value })} /></label>
+        <form onSubmit={(event) => { event.preventDefault(); setNodes((current) => current.map((node) => node.id === nodeDetails.id ? node.type === "group" ? { ...node, data: { ...node.data, name: nodeDetails.title.trim().slice(0, 120) || t("assetCanvas.groupName") }, description: nodeDetails.description.trim() || undefined } : { ...node, title: nodeDetails.title.trim() || undefined, description: nodeDetails.description.trim() || undefined } : node)); setNodeDetails(undefined); }}>
+          <label>{t("common.name")}<input autoFocus maxLength={nodes.find((node) => node.id === nodeDetails.id)?.type === "group" ? 120 : 200} value={nodeDetails.title} placeholder={t("assetCanvas.automaticName")} onChange={(event) => setNodeDetails({ ...nodeDetails, title: event.target.value })} /></label>
           <label>{t("publish.description")}<textarea rows={3} maxLength={2000} value={nodeDetails.description} onChange={(event) => setNodeDetails({ ...nodeDetails, description: event.target.value })} /></label>
           <code className="canvas-node-id">{nodeDetails.id}</code>
           <footer><button type="button" onClick={() => setNodeDetails(undefined)}>{t("common.cancel")}</button><button type="submit">{t("common.save")}</button></footer>
@@ -2112,13 +2370,15 @@ export function canvasHistoryKey(canvas: AssetCanvasDocument): string {
 type MediaGridSize = { columns: number; rows: number };
 type DialogMediaOperation = Exclude<CanvasMediaOperation, "crop-image" | "split-image-grid" | "extract-gif-frames">;
 
-function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onOpen }: {
+function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onOpen, onGroup, onUngroup }: {
   mediaType: "image" | "video";
   imageCount: number;
   isGif: boolean;
   busy: boolean;
   menuBelow: boolean;
   onOpen: (operation: CanvasMediaToolbarAction, grid?: MediaGridSize) => void;
+  onGroup?: () => void;
+  onUngroup?: () => void;
 }) {
   const [openGroup, setOpenGroup] = useState<string>();
   const [customGrid, setCustomGrid] = useState(false);
@@ -2156,6 +2416,8 @@ function MediaCanvasToolbar({ mediaType, imageCount, isGif, busy, menuBelow, onO
   </div>;
   const operation = (id: CanvasMediaToolbarAction) => ({ id, label: t(`assetCanvas.mediaTools.${id}`), title: id === "ai-image-cutout" ? t("assetCanvas.mediaTools.aiImageCutoutHint") : undefined, onClick: () => onOpen(id), disabled: (isMultiImageOperation(id) && imageCount < 2) || (id === "extract-gif-frames" && !isGif) });
   return <div ref={toolbar} className="asset-media-toolbar" role="toolbar" aria-label={t("assetCanvas.mediaTools.toolbar") } onPointerDown={(event) => event.stopPropagation()}>
+    {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
+    {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
     {mediaType === "image" ? <>
       {MEDIA_TOOL_GROUPS.map((entry) => <Fragment key={entry.id}>
         {entry.id === "gif-frames" ? group("grid", t("assetCanvas.mediaTools.grid"), Widget, [
@@ -2189,32 +2451,84 @@ function MediaGridPicker({ onPick }: { onPick: (grid: MediaGridSize) => void }) 
   </div>;
 }
 
-function MediaCanvasToolbarOverlay({ node, mediaType, imageCount, isGif, busy, onOpen }: {
+function SelectionCanvasToolbarOverlay({ nodes, allNodes, onGroup, onUngroup }: {
+  nodes: readonly AssetCanvasFlowNode[];
+  allNodes: readonly AssetCanvasFlowNode[];
+  onGroup?: () => void;
+  onUngroup?: () => void;
+}) {
+  const { y, zoom } = useViewport();
+  const below = y + Math.min(...nodes.map((node) => canvasAbsolutePosition(node, allNodes).y)) * zoom < 70;
+  return <NodeToolbar nodeId={nodes.map((node) => node.id)} isVisible position={below ? Position.Bottom : Position.Top} offset={10} className="asset-media-toolbar-panel nodrag nopan nowheel">
+    <div className="asset-media-toolbar">
+      {onGroup ? <button className="asset-media-toolbar-button" type="button" onClick={onGroup}><Layers3 size={16} /><span>{t("assetCanvas.createGroup")}</span></button> : null}
+      {onUngroup ? <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
+    </div>
+  </NodeToolbar>;
+}
+
+function GroupCanvasToolbarOverlay({ node, nodes, canExecute, onExecute, onUngroup }: {
   node: AssetCanvasFlowNode;
+  nodes: readonly AssetCanvasFlowNode[];
+  canExecute: boolean;
+  onExecute: () => void;
+  onUngroup: () => void;
+}) {
+  const { y, zoom } = useViewport();
+  const below = y + canvasAbsolutePosition(node, nodes).y * zoom < 70;
+  return <NodeToolbar nodeId={node.id} isVisible position={below ? Position.Bottom : Position.Top} offset={10} className="asset-media-toolbar-panel nodrag nopan nowheel">
+    <div className="asset-media-toolbar">
+      <button className="asset-media-toolbar-button" type="button" disabled={!canExecute} onClick={onExecute}><Play size={16} /><span>{t("assetCanvas.executeGroup")}</span></button>
+      <button className="asset-media-toolbar-button" type="button" onClick={onUngroup}><Layers3 size={16} /><span>{t("assetCanvas.ungroup")}</span></button>
+    </div>
+  </NodeToolbar>;
+}
+
+function MediaCanvasToolbarOverlay({ node, nodes, canvasElement, mediaType, imageCount, isGif, busy, onOpen, onGroup, onUngroup }: {
+  node: AssetCanvasFlowNode;
+  nodes: readonly AssetCanvasFlowNode[];
+  canvasElement: RefObject<HTMLDivElement | null>;
   mediaType: "image" | "video";
   imageCount: number;
   isGif: boolean;
   busy: boolean;
   onOpen: (operation: CanvasMediaToolbarAction, grid?: MediaGridSize) => void;
+  onGroup?: () => void;
+  onUngroup?: () => void;
 }) {
   const { y, zoom } = useViewport();
   const toolbar = useRef<HTMLDivElement>(null);
   const [toolbarHeight, setToolbarHeight] = useState(180);
-  useEffect(() => {
-    const element = toolbar.current;
-    if (!element) return;
-    const measure = () => {
-      const height = element.getBoundingClientRect().height;
-      if (height > 0) setToolbarHeight(height);
-    };
-    measure();
+  const [formOffset, setFormOffset] = useState(0);
+  useLayoutEffect(() => {
+    const canvas = canvasElement.current;
+    if (!canvas) return;
+    let observed: Element[] = [];
     const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  const below = y + node.position.y * zoom < toolbarHeight + 20;
-  return <NodeToolbar nodeId={node.id} isVisible position={below ? Position.Bottom : Position.Top} offset={10} className="asset-media-toolbar-panel nodrag nopan nowheel">
-    <div ref={toolbar}><MediaCanvasToolbar key={node.id} mediaType={mediaType} imageCount={imageCount} isGif={isGif} busy={busy} menuBelow={below || y + node.position.y * zoom < toolbarHeight + 320} onOpen={onOpen} /></div>
+    function measure(): void {
+      const root = [...canvas!.querySelectorAll<HTMLElement>(".react-flow__node[data-id]")].find((element) => element.dataset.id === node.id);
+      const form = node.data.panelOpen ? root?.querySelector<HTMLElement>(".canvas-node-auxiliary") : undefined;
+      const targets = [toolbar.current, root, form].filter((element): element is HTMLElement => Boolean(element));
+      if (targets.length !== observed.length || targets.some((element, index) => element !== observed[index])) {
+        observer.disconnect();
+        targets.forEach((element) => observer.observe(element));
+        observed = targets;
+      }
+      const height = toolbar.current?.getBoundingClientRect().height ?? 0;
+      if (height > 0) setToolbarHeight(height);
+      // The form sits outside the measured node frame; NodeToolbar cannot account for it.
+      setFormOffset(form && root ? Math.max(0, form.getBoundingClientRect().bottom - root.getBoundingClientRect().bottom) : 0);
+    }
+    // React Flow may mount the selected node's form after this overlay's layout effect.
+    const mutations = new MutationObserver(measure);
+    mutations.observe(canvas, { childList: true, subtree: true });
+    measure();
+    return () => { observer.disconnect(); mutations.disconnect(); };
+  }, [canvasElement, node.id, node.data.panelOpen, node.measured?.width, node.measured?.height, zoom]);
+  const screenTop = y + canvasAbsolutePosition(node, nodes).y * zoom;
+  const below = screenTop < toolbarHeight + 20;
+  return <NodeToolbar nodeId={node.id} isVisible position={below ? Position.Bottom : Position.Top} offset={10 + (below ? formOffset : 0)} className="asset-media-toolbar-panel nodrag nopan nowheel">
+    <div ref={toolbar}><MediaCanvasToolbar key={node.id} mediaType={mediaType} imageCount={imageCount} isGif={isGif} busy={busy} menuBelow={below || screenTop < toolbarHeight + 320} onOpen={onOpen} onGroup={onGroup} onUngroup={onUngroup} /></div>
   </NodeToolbar>;
 }
 
@@ -3683,6 +3997,7 @@ function AssetCanvasContextMenu({
   canRedo,
   canPaste,
   canDuplicate,
+  canUngroup,
   canView,
   canDownload,
   canSendToProject,
@@ -3699,6 +4014,7 @@ function AssetCanvasContextMenu({
   onSendToProject,
   onCopy,
   onDuplicate,
+  onUngroup,
   onDelete,
   onDetails,
 }: {
@@ -3711,6 +4027,7 @@ function AssetCanvasContextMenu({
   canRedo: boolean;
   canPaste: boolean;
   canDuplicate: boolean;
+  canUngroup: boolean;
   canView: boolean;
   canDownload: boolean;
   canSendToProject: boolean;
@@ -3727,6 +4044,7 @@ function AssetCanvasContextMenu({
   onSendToProject: () => void;
   onCopy: () => void;
   onDuplicate: () => void;
+  onUngroup: () => void;
   onDelete: () => void;
   onDetails?: () => void;
 }) {
@@ -3770,6 +4088,7 @@ function AssetCanvasContextMenu({
 
   return (
     <CanvasContextMenu screenPosition={menu.screenPosition} label={menu.kind === "pane" ? t("assetCanvas.canvasActions") : t("assetCanvas.nodeActions")} onClose={onClose}>
+      {canUngroup ? <button type="button" role="menuitem" onClick={() => run(onUngroup)}><Layers3 size={15} /><span>{t("assetCanvas.ungroup")}</span></button> : null}
       {onDetails ? <button type="button" role="menuitem" onClick={() => run(onDetails)}><Pencil size={15} /><span>{t("assetCanvas.nodeDetails")}</span></button> : null}
       {onUseInDocument ? <button type="button" role="menuitem" onClick={() => run(onUseInDocument)}><FileText size={15} /><span>{t("assetCanvas.addToDocument")}</span></button> : null}
       {menu.kind === "pane" ? <>
@@ -3813,9 +4132,10 @@ function toFlowNode(node: AssetCanvasNode, imageModels: ImageModel[], videoModel
   // Clearing measured on a mounted node also clears React Flow's handle bounds.
   // Keep them across document updates; ResizeObserver handles actual size changes.
   const measured = previous?.id === node.id && previous.type === node.type ? previous.measured : undefined;
-  return { ...flowNodeData(node, imageModels, videoModels), ...(measured ? { measured } : {}), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
+  return { ...flowNodeData(node, imageModels, videoModels), ...(node.parentId ? { parentId: node.parentId } : {}), ...(measured ? { measured } : {}), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
 }
 function flowNodeData(node: AssetCanvasNode, imageModels: ImageModel[], videoModels: VideoModel[]): AssetCanvasFlowNode {
+  if (node.type === "group") return { id: node.id, type: "group", position: node.position, data: { name: node.data.name }, width: node.width, height: node.height, deletable: true };
   if (node.type === "asset" || node.type === "file") return { ...node, deletable: true };
   if (node.type === "text") return {
     id: node.id,
@@ -4073,15 +4393,16 @@ function assetCanvasDocument(
     version: 1,
     editorLayout,
     viewport,
-    nodes: nodes.map((node) => toAssetCanvasNode(node, model3DModels)),
+    nodes: orderedCanvasNodes(nodes).map((node) => toAssetCanvasNode(node, model3DModels)),
     edges: edges.map(({ id, source, target, sourceHandle }) => ({ id, source, target, ...(sourceHandle ? { sourceHandle } : {}) })),
   };
 }
 
 export function toAssetCanvasNode(node: AssetCanvasFlowNode, model3DModels?: readonly Model3DModel[]): AssetCanvasNode {
-  return { ...assetCanvasNodeData(node, model3DModels), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
+  return { ...assetCanvasNodeData(node, model3DModels), ...(node.parentId ? { parentId: node.parentId } : {}), ...(node.width !== undefined ? { width: node.width } : {}), ...(node.height !== undefined ? { height: node.height } : {}), ...(node.title !== undefined ? { title: node.title } : {}), ...(node.description !== undefined ? { description: node.description } : {}) };
 }
 function assetCanvasNodeData(node: AssetCanvasFlowNode, model3DModels?: readonly Model3DModel[]): AssetCanvasNode {
+  if (node.type === "group") return { id: node.id, type: "group", position: node.position, data: { name: node.data.name ?? "Group" } };
   if (node.type === "animate-3d") {
     const source = node.data.images?.[0];
     return {

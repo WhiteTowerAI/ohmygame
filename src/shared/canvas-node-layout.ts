@@ -5,6 +5,7 @@ export const RESIZABLE_CANVAS_NODE_SIZES = {
   text: { width: 300, height: 190 },
   document: { width: 360, height: 330 },
   table: { width: 640, height: 360 },
+  group: { width: 500, height: 400 },
 } as const;
 
 export function isResizableCanvasNodeType(type: AssetCanvasNodeType): type is keyof typeof RESIZABLE_CANVAS_NODE_SIZES {

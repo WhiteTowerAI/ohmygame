@@ -107,6 +107,17 @@ export function validateAssetCanvasDocument(document: AssetCanvasDocument): void
   }
   const nodes = new Map(document.nodes.map((node) => [node.id, node]));
   for (const node of document.nodes) {
+    const seen = new Set([node.id]);
+    let parentId = node.parentId;
+    while (parentId) {
+      const parent = nodes.get(parentId);
+      if (parent?.type !== "group" || seen.has(parentId)) throw new Error(`Node ${node.id} has an invalid parent group`);
+      seen.add(parentId);
+      parentId = parent.parentId;
+    }
+    if (node.type === "group" && (!node.width || !node.height)) throw new Error(`Group ${node.id} needs a width and height`);
+  }
+  for (const node of document.nodes) {
     if (node.type === "text" || node.type === "document") {
       for (const reference of node.data.references ?? []) {
         const source = nodes.get(reference.nodeId);

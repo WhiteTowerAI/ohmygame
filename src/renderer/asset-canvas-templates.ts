@@ -150,8 +150,26 @@ export function createAssetCanvasTemplateDocument(
   }
 
   function finish(focusNodeId: string) {
-    document.nodes = nodes;
-    document.editorLayout.nodes = Object.fromEntries(nodes.map((node) => [
+    const examples = nodes.filter((node) => node.id !== guide.id);
+    const left = Math.min(...examples.map((node) => node.position.x)) - 28;
+    const top = Math.min(...examples.map((node) => node.position.y)) - 54;
+    // Leave room for the largest media preview and its label; cards size to content.
+    const right = Math.max(...examples.map((node) => node.position.x + 440)) + 28;
+    const bottom = Math.max(...examples.map((node) => node.position.y + 400)) + 28;
+    const group: AssetCanvasNode = {
+      id: crypto.randomUUID(),
+      type: "group",
+      position: { x: left, y: top },
+      width: Math.max(500, right - left),
+      height: Math.max(400, bottom - top),
+      data: { name: t("assetCanvasTemplates.examplesGroup") },
+    };
+    document.nodes = [guide, group, ...examples.map((node) => ({
+      ...node,
+      parentId: group.id,
+      position: { x: node.position.x - left, y: node.position.y - top },
+    }))];
+    document.editorLayout.nodes = Object.fromEntries(document.nodes.map((node) => [
       node.id,
       { ...node.position, ...(node.width ? { width: node.width } : {}), ...(node.height ? { height: node.height } : {}) },
     ]));

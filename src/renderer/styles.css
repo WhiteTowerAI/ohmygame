@@ -3378,18 +3378,20 @@ button.home-nav-item-active:hover {
 
 .asset-template-launcher { margin-top: 38px; }
 .asset-canvas-home .asset-template-launcher { margin: 0 0 28px; }
-.asset-template-cover svg { display: block; width: 100%; height: 100%; object-fit: cover; }
+.asset-template-demo { display: grid; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface); }
+.asset-template-demo img { display: block; width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; }
+.asset-template-demo.is-collage { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; }
+.asset-template-demo.is-pixel-art { grid-template-columns: repeat(5, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.asset-template-demo.is-action-set { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
 .asset-template-cover .home-explore-play { position: absolute; }
 .story-text-node.asset-template-guide-node { width: 100%; height: auto; }
 .asset-template-guide-node .story-text-output { display: flex; flex-direction: column; }
 .asset-template-guide-content { padding-bottom: 12px; }
 .asset-template-guide-preview { width: 100%; overflow: hidden; aspect-ratio: 680 / 390; }
-.asset-template-guide-preview svg { display: block; width: 100%; height: 100%; }
 .asset-template-guide-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 10px 12px; }
 .asset-template-guide-options.is-compact { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .asset-template-guide-option { min-width: 0; padding: 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); font-size: 11px; text-align: center; }
-.asset-template-guide-options svg { display: block; width: 100%; height: 64px; }
-.asset-template-guide-options.is-compact svg { height: 38px; }
+.asset-template-guide-options .asset-template-demo { height: auto; aspect-ratio: 1; }
 .asset-template-guide-option > span { display: block; padding: 4px 2px; font-weight: 600; }
 .asset-template-guide-option p { margin: 0; padding: 0 4px 4px; color: var(--text-secondary); font-size: 10px; line-height: 1.4; }
 .asset-template-guide-instruction { margin: 0; padding: 9px 15px 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
