@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile, stat, realpath, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type {
   SessionManager,
@@ -34,6 +35,7 @@ import {
   probeModels,
   probeVersion,
   resolveBinary,
+  runCli,
   type AuthProbe,
 } from "./discovery.js";
 import { agentEnvironment, loginShellPath } from "./environment.js";
@@ -338,6 +340,25 @@ export class AgentRuntimeService {
     if (!this.settings.get(id).enabled) return undefined;
     const models = await this.#loadModels(id, profileId).catch(() => []);
     return models.find((model) => model.id === modelId);
+  }
+
+  /**
+   * The models an account offers, or undefined when its catalog cannot be read
+   * in time (signed out, slow or failing), so callers do not judge a model by it.
+   */
+  async offeredModels(
+    id: AgentRuntimeId,
+    profileId?: string,
+  ): Promise<AgentModel[] | undefined> {
+    if (!this.settings.get(id).enabled) return undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const models = await Promise.race([
+      this.#loadModels(id, profileId).catch(() => undefined),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), MODELS_WAIT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+    return models?.length ? models : undefined;
   }
 
   /** Starts the CLI's own sign-in. A browser page comes back when the CLI hands one out; otherwise the command to run. */
@@ -710,6 +731,12 @@ export class AgentRuntimeService {
       const managedRoot = await realpath(path.join(this.#root, "account-profiles")).catch(() => path.join(this.#root, "account-profiles"));
       if (directory === managedRoot || directory.startsWith(`${managedRoot}${path.sep}`))
         throw new Error("Managed account directories cannot be imported");
+      // Naming System default's directory explicitly gives Claude another Keychain entry and global config file.
+      const system = runtime === "claude-code-cli"
+        ? process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude")
+        : process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+      if (directory === await realpath(system).catch(() => path.resolve(system)))
+        throw new Error("System default already uses this configuration directory");
     }
     try {
       if (!configDirectory) {
@@ -744,9 +771,8 @@ export class AgentRuntimeService {
         const managedRoot = path.join(this.#root, "account-profiles", runtime);
         if (!profile.configDirectory || path.dirname(profile.configDirectory) !== managedRoot)
           throw new Error("Managed account directory is outside its reserved folder");
+        await this.#signOut(runtime, profile.configDirectory);
         await rm(profile.configDirectory, { recursive: true, force: true });
-        // Claude also keeps a configuration file beside its configuration directory.
-        if (runtime === "claude-code-cli") await rm(`${profile.configDirectory}.json`, { force: true });
       }
       await this.settings.removeProfile(runtime, profileId);
       this.#limits.delete(cacheKey);
@@ -785,6 +811,17 @@ export class AgentRuntimeService {
     binaryPath: string,
     profileId?: string,
   ): Promise<Record<string, string>> {
+    const configDirectory = isAccountRuntimeId(id)
+      ? this.settings.profiles(id).find((profile) => profile.id === this.#profileId(id, profileId))!.configDirectory
+      : undefined;
+    return this.#profileEnvironment(id, binaryPath, configDirectory);
+  }
+
+  async #profileEnvironment(
+    id: AgentRuntimeId,
+    binaryPath: string,
+    configDirectory?: string,
+  ): Promise<Record<string, string>> {
     const env = agentEnvironment(
       id,
       binaryPath,
@@ -792,16 +829,26 @@ export class AgentRuntimeService {
       process.env,
       await loginShellPath(),
     );
-    if (isAccountRuntimeId(id)) {
-      const profile = this.settings.profiles(id).find((profile) => profile.id === this.#profileId(id, profileId))!;
-      if (profile.configDirectory) {
-        if (id === "claude-code-cli") {
-          delete env.CLAUDE_CODE_OAUTH_TOKEN;
-          env.CLAUDE_CONFIG_DIR = profile.configDirectory;
-        } else env.CODEX_HOME = profile.configDirectory;
-      }
+    if (configDirectory) {
+      if (id === "claude-code-cli") {
+        delete env.CLAUDE_CODE_OAUTH_TOKEN;
+        env.CLAUDE_CONFIG_DIR = configDirectory;
+      } else if (id === "codex-cli") env.CODEX_HOME = configDirectory;
     }
     return env;
+  }
+
+  /**
+   * Signs a managed configuration out with its CLI before its directory goes.
+   * Claude keeps a macOS sign-in in a Keychain entry keyed to the directory,
+   * which removing the directory would leave behind. A missing CLI or a failed
+   * sign-out does not keep the directory.
+   */
+  async #signOut(id: AccountRuntimeId, configDirectory: string): Promise<void> {
+    const binary = await resolveBinary(id, this.settings.get(id).binaryPath).catch(() => undefined);
+    if (!binary) return;
+    const env = await this.#profileEnvironment(id, binary.path, configDirectory);
+    await runCli(binary.path, id === "claude-code-cli" ? ["auth", "logout"] : ["logout"], env, this.#root).catch(() => undefined);
   }
 
   async #probe(

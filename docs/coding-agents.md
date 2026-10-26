@@ -107,6 +107,9 @@ In **Settings → Agents → Claude Code/Codex → Accounts**, click **+**, ente
 name and click **Add** to create a private configuration and start the official
 sign-in flow. **Use an existing directory** expands an optional import field for
 an absolute configuration path; importing does not start another sign-in.
+System default's own directory (`CLAUDE_CONFIG_DIR` or `~/.claude`, `CODEX_HOME`
+or `~/.codex`) cannot be imported: naming it explicitly would give Claude a
+separate Keychain entry and global configuration file while sharing its settings.
 A managed Codex directory is created before its CLI starts and uses
 `cli_auth_credentials_store = "file"` in its own `config.toml`. The directory is
 private, and Codex manages its sign-in in `auth.json`. Imported configurations
@@ -126,7 +129,12 @@ Select an account row's radio button to make it the default for new chats. Exist
 their own selections; switching between Claude Code and Codex in a chat retains
 each agent's selection. With multiple profiles, the chat header offers an account
 menu showing the selected account name. Picking another account switches it
-without an additional confirmation. Wait for the current request to finish before switching. The next
+without an additional confirmation. Wait for the current request to finish before switching.
+Choosing the account the chat already uses changes nothing. When the selected
+account's model catalog does not offer the chat's model, the chat moves to the
+new-chat default model if that account offers it, otherwise to the first model
+the account lists, and the timeline records the model change. A catalog that
+cannot be read in time leaves the model unchanged. The next
 message creates a context for the selected account, with a bounded history
 handoff if it has not seen this chat. Other chats keep their accounts. No automatic
 rotation at usage limits is provided.
@@ -141,11 +149,16 @@ default when next read and discard the deleted account's native resume context;
 the shared conversation history remains available for a fresh handoff. Deletion
 is refused during a turn or session startup; finish or cancel the work first.
 Idle sessions and pending sign-in processes stop before managed files are removed.
+A managed profile is then signed out with the CLI's own command (`claude auth
+logout` or `codex logout`) in its directory, so Claude's macOS Keychain entry for
+that directory does not outlive it; a missing CLI or failed sign-out does not keep
+the directory. Imported profiles are not signed out.
 
 ![Account removal confirmation stating that managed files will be deleted (sample data)](assets/coding-agent-account-delete.png)
 
 Switching saves the selection locally and reads previously reported usage without
-creating a native session. Model catalogs are cached per account for ten minutes;
+creating a native session. It reads the selected account's model catalog to check
+the chat's model. Model catalogs are cached per account for ten minutes;
 a valid catalog is returned without another auth probe. A cold or expired catalog
 can query the CLI for models, account information and limits, which may contact
 the provider. Switching does not start sign-in, force a token refresh or send a

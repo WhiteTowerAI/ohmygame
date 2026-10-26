@@ -727,8 +727,12 @@ export function ProjectShell({
     if (!project || !conversation || !accountRuntime || agentBusy || modelChanging) return;
     setModelChanging(true);
     try {
-      await setConversationAccountProfile(project.id, conversation.id, accountRuntime, profileId);
-      dispatch({ type: "conversation-settings", settings: { ...state.settings, accountProfiles: { ...state.settings.accountProfiles, [accountRuntime]: profileId } } });
+      const changed = await setConversationAccountProfile(project.id, conversation.id, accountRuntime, profileId);
+      dispatch({ type: "conversation-settings", settings: {
+        ...state.settings,
+        accountProfiles: { ...state.settings.accountProfiles, [accountRuntime]: profileId },
+        ...(changed.model ? { model: changed.model, nativeReasoningLevel: changed.nativeReasoningLevel } : {}),
+      } });
     } catch (error) { dispatch({ type: "notice", message: errorMessage(error) }); }
     finally { setModelChanging(false); }
   }

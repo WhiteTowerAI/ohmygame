@@ -140,7 +140,11 @@ homes are created with file-backed credentials; imported homes keep their native
 settings. Credentials remain CLI-owned. Each profile records `managed` ownership;
 only directories directly inside the runtime's reserved account folder may be
 deleted. Removing a profile resets its new-chat default, stops idle sessions and
-pending sign-ins, waits for probes to finish, and erases its caches. Running
+pending sign-ins, waits for probes to finish, and erases its caches. A managed
+directory is signed out with the CLI's logout command in that directory's
+environment before it is removed, since Claude keys its macOS Keychain entry to
+the directory; failures do not block removal. Imports reject the directory System
+default resolves to. Running
 sessions refuse removal. Conversation reads resolve deleted IDs to System default and append an
 invalid native-session marker, including after branch restoration.
 
@@ -153,7 +157,10 @@ use System default.
 
 Native ready markers include the profile ID. Changing accounts creates a context
 from the bounded history handoff; it cannot resume another account's native
-session. Busy changes are refused. The existing tool policy protects connected
+session. Busy changes are refused, and choosing the current account is a no-op.
+When the target account's readable catalog lacks the chat's model, the same
+replacement persists a model it offers (the new-chat default first) and the route
+returns it. The existing tool policy protects connected
 credential directories. Tests cover persistence, directory creation, account
 isolation, shared servers within one home and switching without extra probes.
 Real sign-in and model turns require acceptance beyond simulated protocol tests.

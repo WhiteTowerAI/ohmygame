@@ -59,6 +59,7 @@ const record = (extra) => fs.appendFileSync(log, JSON.stringify({pid:process.pid
 record({});
 if (args[0] === "--version") { console.log("codex-cli 0.163.0"); process.exit(0); }
 if (args[0] === "login") { console.log("Logged in using ChatGPT"); process.exit(0); }
+if (args[0] === "logout") { console.log("Successfully logged out"); process.exit(0); }
 let next = 0;
 const send = (value) => console.log(JSON.stringify(value));
 require("node:readline").createInterface({input:process.stdin}).on("line", line => {
@@ -177,6 +178,12 @@ describe("coding agent routes", () => {
     await call("PUT", `${first}/account-profile`, {runtime:"codex-cli",profileId:work.id});
     await turn(first, "Continue on work");
     await turn(second, "Still personal");
+    // Choosing the account a chat already uses keeps its native thread.
+    expect((await call("PUT", `${second}/account-profile`, {runtime:"codex-cli",profileId:personal.id})).status).toBe(200);
+    await turn(second, "Same account");
+    const sameAccount = (await log()).filter((entry) => entry.method === "turn/start");
+    expect(sameAccount.at(-1).params.threadId).toBe(sameAccount.at(-2).params.threadId);
+    expect(JSON.stringify(sameAccount.at(-1).params.input)).not.toContain("conversation-handoff");
     turns = (await log()).filter((entry) => entry.method === "turn/start");
     expect(turns[3].pid).toBe(turns[2].pid);
     expect(turns[4].pid).toBe(turns[0].pid);
@@ -248,6 +255,8 @@ describe("coding agent routes", () => {
     expect((await call("DELETE", `/agent-runtimes/codex-cli/profiles/${profile.id}`)).status).toBe(204);
     expect(() => process.kill(pid, 0)).toThrow();
     expect(await stat(profile.configDirectory!).catch(() => undefined)).toBeUndefined();
+    const after = (await readFile(`${codex}.log`, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(after.filter((record) => record.args[0] === "logout").map((record) => record.home)).toEqual([profile.configDirectory]);
   });
 
   it.each(["claude-code-cli", "codex-cli"] as const)("deletes managed %s files, preserves imports and resets defaults", async (runtime) => {
@@ -256,15 +265,19 @@ describe("coding agent routes", () => {
     const managed = (await call<AgentAccountProfile>("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Managed" })).body;
     expect(managed.managed).toBe(true);
     await writeFile(path.join(managed.configDirectory!, "auth.json"), "managed credentials");
-    if (runtime === "claude-code-cli") await writeFile(`${managed.configDirectory}.json`, "managed CLI state");
     await call("PATCH", `/agent-runtimes/${runtime}`, { defaultProfileId: managed.id });
     expect((await call("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Alias", configDirectory: managed.configDirectory })).status).toBe(400);
+    const systemDirectory = path.join(dataDirectory, "system-cli");
+    await mkdir(systemDirectory);
+    vi.stubEnv(runtime === "claude-code-cli" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME", systemDirectory);
+    try {
+      expect((await call("POST", `/agent-runtimes/${runtime}/profiles`, { name: "System", configDirectory: systemDirectory })).status).toBe(400);
+    } finally { vi.unstubAllEnvs(); }
     expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/system`)).status).toBe(400);
     expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/missing`)).status).toBe(404);
     expect((await call("DELETE", `/agent-runtimes/opencode-cli/profiles/${managed.id}`)).status).toBe(404);
     expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/${managed.id}`)).status).toBe(204);
     expect(await stat(managed.configDirectory!).catch(() => undefined)).toBeUndefined();
-    if (runtime === "claude-code-cli") expect(await stat(`${managed.configDirectory}.json`).catch(() => undefined)).toBeUndefined();
     const importedDirectory = path.join(dataDirectory, "imported");
     await mkdir(importedDirectory);
     await writeFile(path.join(importedDirectory, "auth.json"), "existing credentials");
@@ -350,6 +363,7 @@ describe("coding agent routes", () => {
 
   it.skipIf(process.platform === "win32")("keeps profile authentication, catalog caches and chat selections separate", async () => {
     const source = FAKE_CLAUDE
+      .replace('{ value: "haiku", displayName: "Haiku" }] }', '{ value: "haiku", displayName: "Haiku" }].filter((model) => model.value === "haiku" || !String(process.env.CLAUDE_CONFIG_DIR).endsWith("limited")) }')
       .replace('email: "player@example.com"', 'email: (process.env.CLAUDE_CONFIG_DIR ? require("node:path").basename(process.env.CLAUDE_CONFIG_DIR) : "system") + "@example.com"')
       .replace('displayName: "Sonnet"', 'displayName: "Sonnet " + (process.env.CLAUDE_CONFIG_DIR ? require("node:path").basename(process.env.CLAUDE_CONFIG_DIR) : "system")');
     const { call, claude, dataDirectory } = await start(source);
@@ -371,7 +385,11 @@ describe("coding agent routes", () => {
     expect((await call<ConversationDetail>("GET", base)).body.settings.accountProfiles?.["claude-code-cli"]).toBe(work.id);
     expect((await call("PUT", `${base}/account-profile`, { runtime: "claude-code-cli", profileId: personal.id })).status).toBe(200);
     expect((await call<ConversationDetail>("GET", base)).body.settings.accountProfiles?.["claude-code-cli"]).toBe(personal.id);
+    expect((await call("PUT", `${base}/account-profile`, { runtime: "claude-code-cli", profileId: personal.id })).body).toEqual({ runtime: "claude-code-cli", profileId: personal.id });
     expect((await call("PUT", `${base}/account-profile`, { runtime: "claude-code-cli", profileId: "missing" })).status).toBe(400);
+    const limited = (await add("limited")).body;
+    expect((await call("PUT", `${base}/account-profile`, { runtime: "claude-code-cli", profileId: limited.id })).body).toMatchObject({ profileId: limited.id, model: { provider: "claude-code-cli", id: "haiku" } });
+    expect((await call<ConversationDetail>("GET", base)).body.settings.model).toEqual({ provider: "claude-code-cli", id: "haiku" });
     expect((await call("POST", "/agent-runtimes/claude-code-cli/profiles", { name: "Relative", configDirectory: "relative" })).status).toBe(400);
     expect((await add("personal")).status).toBe(400);
     const settings = new AgentRuntimeSettingsStore(dataDirectory);
@@ -384,7 +402,7 @@ describe("coding agent routes", () => {
     const { call, claude, dataDirectory } = await start();
     const log = path.join(dataDirectory, "environment.jsonl");
     const source = FAKE_CLAUDE
-      .replace('const args = process.argv.slice(2);', `const args = process.argv.slice(2); require("node:fs").appendFileSync(${JSON.stringify(log)}, JSON.stringify({args, dir: process.env.CLAUDE_CONFIG_DIR, tokenPresent: Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN)}) + "\\n"); if (args[0] === "auth" && args[1] === "login") process.exit(0);`)
+      .replace('const args = process.argv.slice(2);', `const args = process.argv.slice(2); require("node:fs").appendFileSync(${JSON.stringify(log)}, JSON.stringify({args, dir: process.env.CLAUDE_CONFIG_DIR, tokenPresent: Boolean(process.env.CLAUDE_CODE_OAUTH_TOKEN)}) + "\\n"); if (args[0] === "auth" && (args[1] === "login" || args[1] === "logout")) process.exit(0);`)
       .replace('if (message.type !== "control_request") return;', `if (message.type === "user") { console.log(JSON.stringify({type:"system", subtype:"init", session_id:"test-thread"})); console.log(JSON.stringify({type:"assistant", message:{content:[{type:"text",text:"Profile answer"}]}})); console.log(JSON.stringify({type:"result",subtype:"success"})); return; } if (message.type !== "control_request") return;`);
     await writeFile(claude, source);
     vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-ambient-token");
@@ -404,6 +422,12 @@ describe("coding agent routes", () => {
       expect(selected.some((record) => record.args[0] === "auth" && record.args[1] === "login")).toBe(true);
       expect(selected.some((record) => record.args[0] === "-p")).toBe(true);
       expect(selected.every((record) => !record.tokenPresent)).toBe(true);
+      const importedDirectory = path.join(dataDirectory, "imported");
+      await mkdir(importedDirectory);
+      const imported = (await call<AgentAccountProfile>("POST", "/agent-runtimes/claude-code-cli/profiles", { name: "Imported", configDirectory: importedDirectory })).body;
+      for (const removed of [profile, imported]) expect((await call("DELETE", `/agent-runtimes/claude-code-cli/profiles/${removed.id}`)).status).toBe(204);
+      const logouts = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line)).filter((record) => record.args[0] === "auth" && record.args[1] === "logout");
+      expect(logouts).toEqual([{ args: ["auth", "logout"], dir: profile.configDirectory, tokenPresent: false }]);
     } finally { vi.unstubAllEnvs(); }
   });
 

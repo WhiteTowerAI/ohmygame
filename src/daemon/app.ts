@@ -980,7 +980,7 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject(project).join("\n\n"),
       policy: {
         workspacePath: project.workspacePath,
-        neverTouch: [...neverTouchPaths(dataDirectory, piAgentDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)), ...ACCOUNT_RUNTIME_IDS.flatMap((runtime) => agentRuntimes.settings.profiles(runtime)).flatMap((profile) => profile.configDirectory ? [profile.configDirectory, `${profile.configDirectory}.json`] : [])],
+        neverTouch: [...neverTouchPaths(dataDirectory, piAgentDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)), ...ACCOUNT_RUNTIME_IDS.flatMap((runtime) => agentRuntimes.settings.profiles(runtime)).flatMap((profile) => profile.configDirectory ? [profile.configDirectory] : [])],
       },
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
@@ -3136,9 +3136,30 @@ export function createApp(options: AppOptions = {}) {
       if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
       const { runtime, profileId } = request.body;
       if (!isAccountRuntimeId(runtime) || !agentRuntimes.settings.profiles(runtime).some((profile) => profile.id === profileId)) return reply.code(400).send({ error: "Account configuration not found" });
+      // Choosing the current account keeps its native context.
+      if (await conversations.accountProfileId(project, conversation, runtime) === profileId) return { runtime, profileId };
+      // Another account may not offer the chat's model; move to one it does rather than fail the next message.
+      const modelRef = await conversations.model(project, conversation);
+      const offered = modelRef?.provider === runtime ? await agentRuntimes.offeredModels(runtime, profileId) : undefined;
+      const preferred = agentRuntimes.settings.defaultModel()?.model;
+      const replacement = offered && !offered.some((model) => model.id === modelRef!.id)
+        ? offered.find((model) => preferred?.provider === runtime && model.id === preferred.id) ?? offered[0]
+        : undefined;
+      const replacementRef: AgentModelRef | undefined = replacement ? { provider: runtime, id: replacement.id } : undefined;
       try {
-        await agents.replaceSession(project.id, conversation.summary.id, () => conversations.setAccountProfile(project, conversation, runtime, profileId));
-        return { runtime, profileId };
+        await agents.replaceSession(project.id, conversation.summary.id, () => {
+          if (replacementRef) conversations.setModel(project, conversation, replacementRef);
+          conversations.setAccountProfile(project, conversation, runtime, profileId);
+        });
+        if (!replacement || !replacementRef) return { runtime, profileId };
+        if (conversation.summary.messageCount > 0) {
+          const itemId = randomUUID();
+          events.publish(project.id, "conversation.model.changed", {
+            item: { id: itemId, turnId: itemId, type: "modelChange", model: replacementRef, name: replacement.name },
+          }, { conversationId: conversation.summary.id, turnId: itemId });
+        }
+        const effort = nativeEffort(replacement, await conversations.nativeReasoningLevel(project, conversation, replacementRef));
+        return { runtime, profileId, model: replacementRef, ...(effort ? { nativeReasoningLevel: effort } : {}) };
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }

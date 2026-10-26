@@ -324,7 +324,8 @@ export function deleteAccountProfile(runtime: AccountRuntimeId, profileId: strin
   return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
 }
 
-export function setConversationAccountProfile(projectId: string, conversationId: string, runtime: AccountRuntimeId, profileId: string): Promise<{ profileId: string }> {
+/** A model comes back when the chosen account does not offer the chat's model and the chat moved to one it does. */
+export function setConversationAccountProfile(projectId: string, conversationId: string, runtime: AccountRuntimeId, profileId: string): Promise<{ profileId: string; model?: AgentModelRef; nativeReasoningLevel?: string }> {
   return request(`/projects/${projectId}/conversations/${conversationId}/account-profile`, { method: "PUT", body: JSON.stringify({ runtime, profileId }) });
 }
 
