@@ -15,6 +15,10 @@ describe("canvas download names", () => {
     ["骑士模型", "model.glb", "骑士模型.glb"],
     ["片头", "output.mp4", "片头.mp4"],
     ["脚步声", "output.ogg", "脚步声.ogg"],
+    ["FooBar-Cat", "output.webp", "FooBar-Cat.webp"],
+    ["ABCDEFGHIJKLMNOPQRSTUVWXYZ", "output.png", "ABCDEFGHIJKLMNOPQRSTUVWXYZ.png"],
+    ["Hero_01@2x^preview", "output.png", "Hero_01@2x^preview.png"],
+    [undefined, "Hero_01.PNG", "Hero_01.PNG"],
     ["角色 v1.2", "model.glb", "角色 v1.2.glb"],
     ["角色.GLB", "model.glb", "角色.glb"],
     ["  小猫照片.webp  ", "output.webp", "小猫照片.webp"],
@@ -36,6 +40,13 @@ describe("canvas download names", () => {
     expect(canvasAssetDownloadName("小猫", "output", "image/webp")).toBe("小猫.webp");
     expect(canvasAssetDownloadName("", "", "model/gltf-binary")).toBe("asset.glb");
     expect(canvasAssetDownloadName("", "")).toBe("asset");
+  });
+
+  it("removes every ASCII control character while preserving printable title characters", () => {
+    for (const code of [...Array.from({ length: 32 }, (_, index) => index), 127]) {
+      expect(canvasAssetDownloadName(`Hero${String.fromCharCode(code)}_01`, "output.webp"))
+        .toBe("Hero_01.webp");
+    }
   });
 
   it("bounds UTF-8 filename length without splitting Unicode or losing the extension", () => {

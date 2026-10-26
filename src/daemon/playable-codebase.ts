@@ -264,6 +264,8 @@ export interface NodeCodebaseFiles {
   files?: Record<string, string>;
   /** Written only when the workspace lacks them, so the author's edits stay. */
   missingFiles?: Record<string, string>;
+  /** Bundled files copied only when missing. Sources are daemon-owned absolute paths. */
+  missingFileCopies?: Record<string, string>;
 }
 
 /**
@@ -282,9 +284,9 @@ export async function changeNodeCodebase(
     const current = await readCodebase(workspacePath);
     const update = await change(current);
     if (!update) return;
-    const { files, missingFiles, ...codebase } = update;
+    const { files, missingFiles, missingFileCopies, ...codebase } = update;
     // The revision still refuses to write over a file the Agent edited in the meantime.
-    await writeCodebase(workspacePath, { ...codebase, revision: current.revision }, { files, missingFiles });
+    await writeCodebase(workspacePath, { ...codebase, revision: current.revision }, { files, missingFiles, missingFileCopies });
   });
 }
 
@@ -331,9 +333,12 @@ async function writeCodebase(
     update.sourceDeletions,
     Object.keys(sources),
   );
-  const files = { ...extra.files };
+  const files: Record<string, string | Uint8Array> = { ...extra.files };
   for (const [relative, content] of Object.entries(extra.missingFiles ?? {})) {
     if (!(await workspaceFileExists(workspacePath, relative))) files[relative] = content;
+  }
+  for (const [relative, source] of Object.entries(extra.missingFileCopies ?? {})) {
+    if (!(await workspaceFileExists(workspacePath, relative))) files[relative] = await readFile(source);
   }
   await validateCodebase(workspacePath, codebase, true, [...Object.keys(sources), ...Object.keys(files)]);
   const touchedFiles = [
@@ -352,15 +357,15 @@ async function writeCodebase(
   const snapshot = await snapshotFiles(workspacePath, touchedFiles);
   try {
     for (const [relative, content] of Object.entries({ ...files, ...sources })) {
-      await writeTextAtomic(workspacePath, relative, content);
+      await writeFileAtomic(workspacePath, relative, content);
     }
     for (const relative of sourceDeletions) {
       await rm(await resolveWorkspaceMutationPath(workspacePath, relative), { force: true });
     }
     const graphText = jsonText(codebase.graph);
     const layoutText = jsonText(codebase.editorLayout);
-    await writeTextAtomic(workspacePath, GRAPH_FILE, graphText);
-    await writeTextAtomic(workspacePath, LAYOUT_FILE, layoutText);
+    await writeFileAtomic(workspacePath, GRAPH_FILE, graphText);
+    await writeFileAtomic(workspacePath, LAYOUT_FILE, layoutText);
     await ensureNodeCodebaseContract(workspacePath);
     await removeEmptySourceDirectories(workspacePath, sourceDeletions);
     return codebaseRevision(graphText, layoutText);
@@ -415,7 +420,7 @@ async function migratePlayableProjectStyle(
         content,
       );
     }
-    await writeTextAtomic(
+    await writeFileAtomic(
       workspacePath,
       PROJECT_STYLE_MIGRATION_FILE,
       PROJECT_STYLE_MIGRATION_CONTENT,
@@ -571,16 +576,16 @@ async function writeJsonIfChanged(file: string, value: unknown): Promise<void> {
   await writeFile(file, expected, "utf8");
 }
 
-async function writeTextAtomic(
+async function writeFileAtomic(
   workspacePath: string,
   relative: string,
-  content: string,
+  content: string | Uint8Array,
 ): Promise<void> {
   const destination = await resolveWorkspaceMutationPath(workspacePath, relative);
   const temporary = `${destination}.tmp-${process.pid}-${randomUUID()}`;
   await mkdir(path.dirname(destination), { recursive: true });
   try {
-    await writeFile(temporary, content, "utf8");
+    await writeFile(temporary, content);
     await rename(temporary, destination);
   } finally {
     await rm(temporary, { force: true });

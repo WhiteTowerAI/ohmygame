@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { resolveLanguage, t } from "../src/renderer/i18n.js";
 import en from "../src/renderer/locales/en.js";
 import zhCN from "../src/renderer/locales/zh-CN.js";
+import { playableTemplateText } from "../src/renderer/playable-template-labels.js";
+import { PLAYABLE_PRESETS } from "../src/daemon/playable-presets.js";
 
 type Messages = { [key: string]: string | Messages };
 
@@ -52,6 +54,14 @@ describe("resolveLanguage", () => {
 });
 
 describe("t", () => {
+  it("keeps the English Scene template labels and summaries aligned with the catalog", () => {
+    for (const preset of PLAYABLE_PRESETS) {
+      expect(playableTemplateText(preset)).toEqual({ label: preset.label, summary: preset.summary });
+    }
+    const custom = { id: "__proto__", label: "Custom", summary: "Custom description" };
+    expect(playableTemplateText(custom)).toEqual(custom);
+  });
+
   it("lowercases a label reused mid-sentence in English", () => {
     expect(t("assetCanvas.addSlot", { slot: "First frame" })).toBe(
       "Add first frame",

@@ -321,6 +321,7 @@ it("keeps the viewed output extension when a node receives a new asset", async (
 it("downloads the current title after renaming a node and falls back when cleared", async () => {
   for (const [title, filename] of [
     ["更新后的猫咪", "更新后的猫咪.webp"],
+    ["FooBar-Cat_01", "FooBar-Cat_01.webp"],
     ["", "output.webp"],
   ]) {
     await clickNodeAction("image-0", t("assetCanvas.nodeDetails"));

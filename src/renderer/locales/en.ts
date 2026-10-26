@@ -885,6 +885,7 @@ const en = {
     viewport: {
       tablet: "Tablet · 768px",
       mobile: "Mobile · 375px",
+      mobileLandscape: "Mobile landscape · 667 × 375",
     },
     previewTitle: "{{name}} preview",
     project: "Project",
@@ -1009,6 +1010,7 @@ const en = {
       fit: "Fit",
       tablet: "Tablet",
       mobile: "Mobile",
+      mobileLandscape: "Mobile landscape",
     },
     cleanup: "Background cleanup",
     stopAfter: "Stop unused preview after",
@@ -1296,6 +1298,7 @@ const en = {
     copyCommand: "Copy command",
     copied: "Copied",
     installGuide: "Installation guide",
+    sandboxGuide: "Windows sandbox guide",
     diagnostics: "Problems",
     configuration: "Configuration",
     permissions: "Permissions",
@@ -1315,6 +1318,7 @@ const en = {
       "chatgpt-app": "Bundled with ChatGPT",
     },
     diagnostic: {
+      codexWindowsSandbox: "Codex’s unelevated Windows sandbox cannot enforce OhMyGame’s file access restrictions. Set up the elevated sandbox in Codex, or use MXC with a supported device and CLI, then check again.",
       notInstalled: "OhMyGame could not find the {{name}} CLI. If it is installed, specify its executable path or check again.",
       invalidExecutable: "The selected executable is missing or cannot be executed. Correct the path, or clear it and save to restore automatic detection.",
       runtimeIncompatible: "{{name}} does not support a required CLI capability. Update it and check again.",
@@ -2817,6 +2821,16 @@ const en = {
     loadingScenes: "Loading Scenes...",
     noCompile: "The project does not compile",
     code: "Playable Nodes code",
+  },
+  storyTemplates: {
+    blank: { label: "Blank", summary: "A video or an image, then next" },
+    mainMenu: { label: "Main menu", summary: "A title, the game's entries, Load, and Settings" },
+    choice: { label: "Choice", summary: "Answers that lead different ways" },
+    qte: { label: "QTE", summary: "Press in time, or miss" },
+    hotspot: { label: "Hotspot", summary: "Spots on a picture to click" },
+    ending: { label: "Ending", summary: "The end, with Play again" },
+    storyMap: { label: "Story map", summary: "The branches the player has found so far" },
+    visualNovel: { label: "Visual Novel", summary: "Dialogue lines with characters, then answers" },
   },
   storyMenu: {
     addScene: "Add Scene",

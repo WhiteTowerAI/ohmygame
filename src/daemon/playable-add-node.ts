@@ -107,6 +107,7 @@ export async function addPlayableNode(
       },
       files,
       ...(preset.sharedFiles ? { missingFiles: preset.sharedFiles } : {}),
+      ...(preset.sharedFileCopies ? { missingFileCopies: preset.sharedFileCopies } : {}),
     };
   });
   return {

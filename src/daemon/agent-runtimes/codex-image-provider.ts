@@ -272,14 +272,16 @@ export class CodexImageProvider {
         REQUEST_TIMEOUT,
       );
       const profile = "ohmygame-image";
+      // Windows' sandbox requires `:root` read access; `:minimal` is rejected.
+      const filesystemPermissions: Record<string, unknown> =
+        process.platform === "win32"
+          ? { ":root": "read", ":workspace_roots": { ".": "read" } }
+          : { ":minimal": "read", ":workspace_roots": { ".": "read" } };
       const config: Record<string, unknown> = {
         default_permissions: profile,
         permissions: {
           [profile]: {
-            filesystem: {
-              ":minimal": "read",
-              ":workspace_roots": { ".": "read" },
-            },
+            filesystem: filesystemPermissions,
             network: { enabled: true },
           },
         },

@@ -14274,7 +14274,8 @@ button {
 }
 
 .viewer-stage-tablet,
-.viewer-stage-mobile {
+.viewer-stage-mobile,
+.viewer-stage-mobile-landscape {
   padding: 10px;
   overflow: auto;
 }
@@ -14284,6 +14285,12 @@ button {
 }
 .viewer-stage-mobile .preview-frame-wrap {
   width: min(375px, 100%);
+}
+
+.viewer-stage-mobile-landscape .preview-frame-wrap {
+  width: min(667px, 100%);
+  height: auto;
+  aspect-ratio: 667 / 375;
 }
 
 .preview-frame {

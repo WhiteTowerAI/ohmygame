@@ -32,6 +32,9 @@ Static directory index pages redirect to a trailing-slash URL while preserving
 the query string, so relative scripts and other assets resolve from that directory.
 Directories without an index return 404; missing extensionless application routes
 can still fall back to the root `index.html` when the request accepts HTML.
+Static file media types are matched without regard to extension case, so module
+scripts, stylesheets and WebAssembly also load with names such as `main.JS`,
+`style.CsS` and `game.WASM`. This does not change filesystem path matching.
 Static files support byte ranges on GET for media seeking. HEAD ignores Range
 and returns the complete file's headers without a response body.
 
@@ -92,6 +95,14 @@ Start/Play request takes over that launch under manual policy. Reopening during 
 cleanup waits for the old server to close before starting again.
 If the replacement fails configuration inspection, the closed preview remains
 stopped and its old URL is cleared.
+
+The device menu and Project settings offer **Mobile landscape** for horizontal
+phone games. Preview fits a 667:375 landscape frame within the editor panel;
+Play requests a 667 × 375 window. Set the preset in Project settings to save the default
+for future visits and project copies; the toolbar menu changes the current preview.
+
+![Mobile landscape selected in the preview device menu](assets/mobile-landscape-preview.png)
+
 Saving viewport, default route, automatic policy or idle policy does not restart
 the server. Changing effective launch settings restarts a currently active server.
 

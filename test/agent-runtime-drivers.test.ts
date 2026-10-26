@@ -10,6 +10,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalRequestDetails } from "../src/shared/agent-runtimes.js";
 import { ClaudeCodeDriver } from "../src/daemon/agent-runtimes/claude-code.js";
 import { CodexDriver } from "../src/daemon/agent-runtimes/codex.js";
+import * as discovery from "../src/daemon/agent-runtimes/discovery.js";
+import { AgentRuntimeService } from "../src/daemon/agent-runtimes/service.js";
 import { OpenCodeDriver } from "../src/daemon/agent-runtimes/opencode.js";
 import { createServer, type ServerResponse } from "node:http";
 import type { DriverContext } from "../src/daemon/agent-runtimes/driver-context.js";
@@ -33,6 +35,7 @@ const cleanup: Array<() => Promise<unknown> | void> = [];
 afterEach(async () => {
   setAgentProcessSpawner(undefined);
   for (const close of cleanup.splice(0).reverse()) await close();
+  vi.restoreAllMocks();
 });
 
 interface FakeCli {
@@ -1096,6 +1099,131 @@ describe("Codex adapter", () => {
     }));
   });
 
+  it.each([false, true])(
+    "checks the probe permission profile before offering models (sandbox error=%s)",
+    async (failure) => {
+      const messages: Array<Record<string, any>> = [];
+      fakeCli((message, cli) => {
+        if (typeof message.method !== "string" || message.id === undefined)
+          return;
+        messages.push(message);
+        const params = message.params as Record<string, any>;
+        if (failure && message.method === "thread/start") {
+          cli.send({
+            id: message.id,
+            error: {
+              message:
+                "elevated Windows sandbox requires effective :root read access",
+            },
+          });
+          return;
+        }
+        cli.send({
+          id: message.id,
+          result:
+            message.method === "thread/start"
+              ? {
+                  thread: { id: "probe" },
+                  activePermissionProfile: { id: params.permissions },
+                }
+              : message.method === "model/list"
+                ? { data: [{ id: "fixture-model" }] }
+                : {},
+        });
+      });
+      // Version and sign-in do not use the app-server transport under test.
+      vi.spyOn(discovery, "probeVersion").mockResolvedValue("0.164.0");
+      vi.spyOn(discovery, "probeAuth").mockResolvedValue({
+        status: "signed-in",
+        billing: "subscription",
+      });
+      const ctx = await context();
+      const service = new AgentRuntimeService(
+        ctx.privateDirectory,
+        () => undefined,
+      );
+      cleanup.push(() => service.close());
+      await service.load();
+      const status = await service.update("codex-cli", {
+        enabled: true,
+        binaryPath: process.execPath,
+      });
+      const start = messages.find(
+        (message) => message.method === "thread/start",
+      )!;
+      expect(start.params).toMatchObject({
+        ephemeral: true,
+        config: {
+          permissions: {
+            [start.params.permissions]: {
+              filesystem: {
+                [process.platform === "win32" ? ":root" : ":minimal"]: "read",
+                ":workspace_roots": { ".": "read" },
+              },
+            },
+          },
+        },
+      });
+      if (failure) {
+        expect(status.diagnostics).toEqual([
+          expect.objectContaining({
+            code: "runtime-incompatible",
+            capability: "Windows sandbox filesystem read restrictions",
+            message: expect.stringContaining("effective :root read access"),
+          }),
+        ]);
+        expect((await service.models()).models).toEqual([]);
+        expect(messages.map((message) => message.method)).not.toContain(
+          "model/list",
+        );
+      } else {
+        expect(status.diagnostics).toEqual([]);
+        expect(await service.model("codex-cli", "fixture-model")).toBeDefined();
+        expect(messages.map((message) => message.method)).toContain(
+          "model/list",
+        );
+      }
+      expect(messages.map((message) => message.method)).not.toContain(
+        "turn/start",
+      );
+    },
+  );
+
+  it("reports the exact elevated Windows sandbox error before sending conversation input", async () => {
+    const methods: string[] = [];
+    fakeCli((message, cli) => {
+      if (typeof message.method !== "string" || message.id === undefined)
+        return;
+      methods.push(message.method);
+      cli.send(
+        message.method === "thread/start"
+          ? {
+              id: message.id,
+              error: {
+                message:
+                  "elevated Windows sandbox requires effective :root read access",
+              },
+            }
+          : { id: message.id, result: {} },
+      );
+    });
+    const driver = new CodexDriver(await context());
+    cleanup.push(() => driver.dispose());
+    expect(
+      await driver.runTurn(
+        { text: "must not send", images: [], readOnly: false },
+        recordingSink().sink,
+        new AbortController().signal,
+      ),
+    ).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining(
+        "Local CLI compatibility: Codex's elevated Windows sandbox requires effective :root read access",
+      ),
+    });
+    expect(methods).not.toContain("turn/start");
+  });
+
   it("fails before sending input when the CLI ignores named filesystem permissions", async () => {
     const methods: string[] = [];
     fakeCli((message, cli) => {
@@ -1834,7 +1962,7 @@ describe("Codex adapter", () => {
     ).toMatchObject({
       [String(thread.permissions)]: {
         filesystem: {
-          ":minimal": "read",
+          [process.platform === "win32" ? ":root" : ":minimal"]: "read",
           [canonicalPath("/tmp/secrets")]: "deny",
           ":workspace_roots": { ".": "write" },
         },

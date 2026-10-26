@@ -20,6 +20,12 @@ import {
 const preset = playablePreset("main-menu")!;
 const source = preset.source("Ash Club");
 
+it("names the menu's right-hand placement without changing left-aligned stages", () => {
+  expect(source.html).toContain('class="stage is-right has-backdrop"');
+  expect(source.css).toContain(".stage.is-right");
+  expect(source.css).not.toContain(".stage.is-left");
+});
+
 /** The Main menu's node.js, beside the Project Style module it imports. */
 async function loadMainMenuModule(): Promise<{
   mount: (context: PlayableNodeContext) => () => void;

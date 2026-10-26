@@ -867,6 +867,7 @@ const zhCN: typeof en = {
     viewport: {
       tablet: "平板 · 768px",
       mobile: "手机 · 375px",
+      mobileLandscape: "手机横屏 · 667 × 375",
     },
     previewTitle: "{{name}} 预览",
     project: "项目",
@@ -990,6 +991,7 @@ const zhCN: typeof en = {
       fit: "适应窗口",
       tablet: "平板",
       mobile: "手机",
+      mobileLandscape: "手机横屏",
     },
     cleanup: "后台清理",
     stopAfter: "闲置多久后停止预览",
@@ -1274,6 +1276,7 @@ const zhCN: typeof en = {
     copyCommand: "复制命令",
     copied: "已复制",
     installGuide: "安装指南",
+    sandboxGuide: "Windows 沙箱指南",
     diagnostics: "问题",
     configuration: "配置",
     permissions: "权限",
@@ -1293,6 +1296,7 @@ const zhCN: typeof en = {
       "chatgpt-app": "ChatGPT 桌面版内置",
     },
     diagnostic: {
+      codexWindowsSandbox: "Codex 的 unelevated Windows 沙箱无法执行 OhMyGame 的文件访问限制。请在 Codex 中配置 elevated 沙箱，或在支持的设备和 CLI 上使用 MXC，然后重新检查。",
       notInstalled: "OhMyGame 未找到 {{name}} CLI。如果已经安装，请指定可执行文件路径或重新检查。",
       invalidExecutable: "指定的可执行文件不存在或无法执行。请修正路径，或清空并保存以恢复自动检测。",
       runtimeIncompatible: "{{name}} 不支持所需的 CLI 能力，请更新后重新检查。",
@@ -2742,6 +2746,16 @@ const zhCN: typeof en = {
     loadingScenes: "正在加载场景…",
     noCompile: "项目无法编译",
     code: "互动故事代码",
+  },
+  storyTemplates: {
+    blank: { label: "空白场景", summary: "播放视频或显示图片，然后进入下一幕" },
+    mainMenu: { label: "主菜单", summary: "游戏标题、开始入口、读取存档和设置" },
+    choice: { label: "选项", summary: "通过不同回答走向不同分支" },
+    qte: { label: "快速反应（QTE）", summary: "在限定时间内按下按键，成功或失败" },
+    hotspot: { label: "热点交互", summary: "点击画面中的热点进行探索" },
+    ending: { label: "结局", summary: "故事结束，并提供重新开始入口" },
+    storyMap: { label: "故事地图", summary: "展示玩家已探索的故事分支" },
+    visualNovel: { label: "视觉小说", summary: "逐句呈现角色对话，然后选择回答" },
   },
   storyMenu: {
     addScene: "添加场景",

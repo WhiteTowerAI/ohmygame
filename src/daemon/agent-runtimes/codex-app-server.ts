@@ -1,7 +1,10 @@
 import { AgentProcess, processFailure } from "./process.js";
 import type { AgentUsageLimit } from "../../shared/contracts.js";
 import { record } from "./driver-context.js";
-import { AgentRuntimeCompatibilityError } from "./compatibility.js";
+import {
+  AgentRuntimeCompatibilityError,
+  cliProbeError,
+} from "./compatibility.js";
 
 export const CODEX_APPROVAL_POLICY = {
   granular: {
@@ -36,6 +39,12 @@ export async function checkCodexCompatibility(
     { cwd: directory },
     timeoutMs,
   );
+  // Windows' sandbox requires `:root` read access; `:minimal` is rejected.
+  // The regular conversation applies the same Windows adjustment.
+  const filesystemPermissions: Record<string, unknown> =
+    process.platform === "win32"
+      ? { ":root": "read", ":workspace_roots": { ".": "read" } }
+      : { ":minimal": "read", ":workspace_roots": { ".": "read" } };
   const config: Record<string, unknown> = {
     default_permissions: profile,
     project_root_markers: [],
@@ -44,7 +53,7 @@ export async function checkCodexCompatibility(
     "features.shell_snapshot": false,
     permissions: {
       [profile]: {
-        filesystem: { ":minimal": "read", ":workspace_roots": { ".": "read" } },
+        filesystem: filesystemPermissions,
         network: { enabled: true },
       },
     },
@@ -228,7 +237,7 @@ export class CodexAppServer {
     const error = record(message.error);
     if (error)
       pending.reject(
-        new Error(String(error.message ?? "Codex request failed")),
+        cliProbeError("Codex", String(error.message ?? "Codex request failed")),
       );
     else pending.resolve(message.result);
   }
