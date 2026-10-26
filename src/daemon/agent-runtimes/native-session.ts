@@ -303,6 +303,12 @@ export class NativeCodingSession implements CodingSession {
       throw new Error(
         "Wait for the agent to finish before compacting the session",
       );
+    // A context that has not received this chat yet (another agent or account
+    // held it) would compact to nothing and then be resumed as if it had.
+    if (this.#handoff)
+      throw new Error(
+        "Send a message first so this agent has the conversation, then compact it",
+      );
     const controller = new AbortController();
     let settle!: () => void;
     const done = new Promise<void>((resolve) => {

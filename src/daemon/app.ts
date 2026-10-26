@@ -3142,24 +3142,24 @@ export function createApp(options: AppOptions = {}) {
       const modelRef = await conversations.model(project, conversation);
       const offered = modelRef?.provider === runtime ? await agentRuntimes.offeredModels(runtime, profileId) : undefined;
       const preferred = agentRuntimes.settings.defaultModel()?.model;
-      const replacement = offered && !offered.some((model) => model.id === modelRef!.id)
-        ? offered.find((model) => preferred?.provider === runtime && model.id === preferred.id) ?? offered[0]
+      const model = offered && !offered.some((candidate) => candidate.id === modelRef!.id)
+        ? offered.find((candidate) => preferred?.provider === runtime && candidate.id === preferred.id) ?? offered[0]
         : undefined;
-      const replacementRef: AgentModelRef | undefined = replacement ? { provider: runtime, id: replacement.id } : undefined;
+      const replacement = model && { model, ref: { provider: runtime, id: model.id } satisfies AgentModelRef };
       try {
         await agents.replaceSession(project.id, conversation.summary.id, () => {
-          if (replacementRef) conversations.setModel(project, conversation, replacementRef);
+          if (replacement) conversations.setModel(project, conversation, replacement.ref);
           conversations.setAccountProfile(project, conversation, runtime, profileId);
         });
-        if (!replacement || !replacementRef) return { runtime, profileId };
+        if (!replacement) return { runtime, profileId };
         if (conversation.summary.messageCount > 0) {
           const itemId = randomUUID();
           events.publish(project.id, "conversation.model.changed", {
-            item: { id: itemId, turnId: itemId, type: "modelChange", model: replacementRef, name: replacement.name },
+            item: { id: itemId, turnId: itemId, type: "modelChange", model: replacement.ref, name: replacement.model.name },
           }, { conversationId: conversation.summary.id, turnId: itemId });
         }
-        const effort = nativeEffort(replacement, await conversations.nativeReasoningLevel(project, conversation, replacementRef));
-        return { runtime, profileId, model: replacementRef, ...(effort ? { nativeReasoningLevel: effort } : {}) };
+        const effort = nativeEffort(replacement.model, await conversations.nativeReasoningLevel(project, conversation, replacement.ref));
+        return { runtime, profileId, model: replacement.ref, ...(effort ? { nativeReasoningLevel: effort } : {}) };
       } catch (cause) {
         return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
       }

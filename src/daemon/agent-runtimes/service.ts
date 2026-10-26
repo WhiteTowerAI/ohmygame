@@ -8,8 +8,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { AgentModel, AgentUsageLimit } from "../../shared/contracts.js";
 import {
+  ACCOUNT_RUNTIME_IDS,
   AGENT_RUNTIME_IDS,
   isAccountRuntimeId,
+  isAgentRuntimeId,
   type AccountRuntimeId,
   type AccountProfileIds,
   type AgentRuntimeDiagnostic,
@@ -67,6 +69,17 @@ const NATIVE_INSTRUCTIONS =
   "OhMyGame's own tools (canvas checks, image, video, 3D and audio generation, game playtesting, questionnaire, update_plan and plugin services) come from its ohmygame tool server; your CLI may name them with a prefix such as mcp__ohmygame__ or ohmygame_. In a planning turn, record the plan with update_plan before you finish, rather than writing a plan file or only describing it. The Skills your CLI lists are readable where it lists them, even outside the workspace: read a Skill's files directly when a request calls for it.";
 const MODELS_TTL_MS = 10 * 60_000;
 const MODELS_WAIT_MS = 6_000;
+
+/** A catalog load's result, or undefined when it is still loading after MODELS_WAIT_MS. */
+async function withinModelsWait<T>(load: Promise<T>): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    load,
+    new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), MODELS_WAIT_MS);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
 interface ProbeCache {
@@ -161,7 +174,7 @@ export class AgentRuntimeService {
         await readFile(path.join(this.#root, "limits.json"), "utf8"),
       ) as Record<string, unknown>;
       for (const [id, limits] of Object.entries(stored))
-        if (AGENT_RUNTIME_IDS.some((runtime) => id === runtime || id.startsWith(`${runtime}:`)) && Array.isArray(limits))
+        if ((isAgentRuntimeId(id) || ACCOUNT_RUNTIME_IDS.some((runtime) => id.startsWith(`${runtime}:`))) && Array.isArray(limits))
           this.#limits.set(id, limits.filter(isUsageLimit));
     } catch {
       // No limits reported yet, or a damaged file: they arrive with the next report.
@@ -326,16 +339,10 @@ export class AgentRuntimeService {
     const lists = await Promise.all(
       AGENT_RUNTIME_IDS.map(async (id) => {
         if (!this.settings.get(id).enabled) return [];
-        const load = this.#loadModels(id, isAccountRuntimeId(id) ? profileIds[id] : undefined).catch(() => [] as AgentModel[]);
-        const late = Symbol("late");
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const result = await Promise.race([
-          load,
-          new Promise<typeof late>((resolve) => {
-            timer = setTimeout(() => resolve(late), MODELS_WAIT_MS);
-          }),
-        ]).finally(() => clearTimeout(timer));
-        if (result !== late) return result;
+        const result = await withinModelsWait(
+          this.#loadModels(id, isAccountRuntimeId(id) ? profileIds[id] : undefined).catch(() => [] as AgentModel[]),
+        );
+        if (result) return result;
         loading.push(id);
         return [];
       }),
@@ -362,13 +369,7 @@ export class AgentRuntimeService {
     profileId?: string,
   ): Promise<AgentModel[] | undefined> {
     if (!this.settings.get(id).enabled) return undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const models = await Promise.race([
-      this.#loadModels(id, profileId).catch(() => undefined),
-      new Promise<undefined>((resolve) => {
-        timer = setTimeout(() => resolve(undefined), MODELS_WAIT_MS);
-      }),
-    ]).finally(() => clearTimeout(timer));
+    const models = await withinModelsWait(this.#loadModels(id, profileId).catch(() => undefined));
     return models?.length ? models : undefined;
   }
 
@@ -382,7 +383,7 @@ export class AgentRuntimeService {
     await mkdir(this.#root, { recursive: true, mode: 0o700 });
     const cacheKey = this.#key(id, loginProfileId);
     await this.#logins.get(cacheKey)?.();
-    this.#key(id, loginProfileId); // Deletion may have started while the previous login stopped.
+    if (this.#deleting.has(`${id}:${loginProfileId}`)) throw new Error("Account configuration is being deleted");
     const forget = () => {
       if (!this.#deleting.has(`${id}:${loginProfileId}`)) this.#invalidate(id, loginProfileId);
       this.#logins.delete(cacheKey);

@@ -174,20 +174,18 @@ export class ConversationManager {
     this.open(project, stored).appendCustomEntry("ohmygame-native-reasoning", { version: 1, provider: model.provider, model: model.id, level });
   }
 
+  /**
+   * The branch's account per runtime; a deleted account reads as System default.
+   * Native resume markers carry their account, so a context of another or a
+   * deleted account is never resumed and this read changes nothing.
+   */
   async accountProfiles(project: ProjectState, stored: StoredConversation): Promise<AccountProfileIds> {
     const profiles: AccountProfileIds = {};
     for (const entry of (await this.view(project, stored)).getBranch()) {
       if (entry.type !== "custom" || entry.customType !== "ohmygame-account-profile") continue;
       const data = entry.data as { version?: unknown; runtime?: unknown; profileId?: unknown } | undefined;
-      if (data?.version === 1 && isAccountRuntimeId(data.runtime) && typeof data.profileId === "string") profiles[data.runtime] = data.profileId;
-    }
-    for (const [runtime, profileId] of Object.entries(profiles)) {
-      const id = runtime as AccountRuntimeId;
-      const resolved = this.resolveProfileId(id, profileId);
-      if (resolved !== profileId) {
-        this.setAccountProfile(project, stored, id, resolved);
-        profiles[id] = resolved;
-      }
+      if (data?.version === 1 && isAccountRuntimeId(data.runtime) && typeof data.profileId === "string")
+        profiles[data.runtime] = this.resolveProfileId(data.runtime, data.profileId);
     }
     return profiles;
   }
@@ -197,9 +195,7 @@ export class ConversationManager {
   }
 
   setAccountProfile(project: ProjectState, stored: StoredConversation, runtime: AccountRuntimeId, profileId: string): void {
-    const manager = this.open(project, stored);
-    manager.appendCustomEntry("ohmygame-account-profile", { version: 1, runtime, profileId });
-    manager.appendCustomEntry("ohmygame-native-session", { version: 2, runtime, state: "invalid" });
+    this.open(project, stored).appendCustomEntry("ohmygame-account-profile", { version: 1, runtime, profileId });
   }
 
   async planState(project: ProjectState, stored: StoredConversation): Promise<PlanSessionState> {

@@ -80,8 +80,8 @@ export class AgentRuntimeSettingsStore {
         ids.add(profile.id);
         const directory = path.resolve(profile.configDirectory);
         const managedRoot = path.join(path.dirname(this.#filePath), "agent-runtimes", "account-profiles", runtime);
-        // Migrate profiles created before ownership was recorded. Imports never use this reserved root.
-        const managed = path.dirname(directory) === managedRoot && /^[a-f0-9]{24}$/.test(path.basename(directory)) && profile.managed !== false;
+        // Only a directory the app created, directly inside its reserved root, is removed with its profile.
+        const managed = profile.managed === true && path.dirname(directory) === managedRoot;
         return [{ id: profile.id, name: profile.name, configDirectory: directory, managed }];
       }) : []);
     }

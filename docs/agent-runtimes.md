@@ -145,8 +145,9 @@ directory is signed out with the CLI's logout command in that directory's
 environment before it is removed, since Claude keys its macOS Keychain entry to
 the directory; failures do not block removal. Imports reject the directory System
 default resolves to. Running
-sessions refuse removal. Conversation reads resolve deleted IDs to System default and append an
-invalid native-session marker, including after branch restoration.
+sessions refuse removal. Conversation reads resolve deleted IDs to System default
+without writing, including after branch restoration; the deleted account's ready
+marker no longer matches, so its native session is not resumed.
 
 Caches and quota reports are keyed by runtime and profile. Login invalidates only
 that profile; executable changes invalidate the runtime. Warm catalogs bypass
@@ -155,9 +156,12 @@ Codex server key includes environment and staged Skills, so different homes need
 no additional process pool. Image-provider and external MCP setup independently
 use System default.
 
-Native ready markers include the profile ID. Changing accounts creates a context
-from the bounded history handoff; it cannot resume another account's native
-session. Busy changes are refused, and choosing the current account is a no-op.
+Native ready markers include the profile ID, and the account selection writes no
+marker of its own. Changing accounts creates a context from the bounded history
+handoff; it cannot resume another account's native session. Returning to an
+account before any turn on another one resumes that account's session, since its
+marker is still the latest. Compacting is refused until the handoff has been
+sent, so an empty context is never compacted and then resumed as the chat's. Busy changes are refused, and choosing the current account is a no-op.
 When the target account's readable catalog lacks the chat's model, the same
 replacement persists a model it offers (the new-chat default first) and the route
 returns it. The existing tool policy protects connected

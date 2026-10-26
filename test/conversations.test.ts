@@ -203,14 +203,16 @@ describe("ConversationManager", () => {
     removed = true;
     const reopened = new ConversationManager(undefined, resolve);
     const stored = (await reopened.get(project, chat.summary.id))!;
-    expect(await reopened.accountProfileId(project, stored, "codex-cli")).toBe("system");
     const restored = reopened.open(project, stored);
+    const entries = restored.getBranch().length;
+    expect(await reopened.accountProfileId(project, stored, "codex-cli")).toBe("system");
+    // Reading the fallback writes nothing; the deleted account's marker no longer matches.
+    expect(restored.getBranch()).toHaveLength(entries);
     expect(latestNativeSession(restored.getBranch(), "codex-cli", "system")).toBeUndefined();
-    expect(restored.getBranch().at(-1)).toMatchObject({ type: "custom", customType: "ohmygame-native-session", data: { state: "invalid" } });
     restored.branch(oldLeaf);
     restored.appendCustomEntry("restored-branch", {});
     expect(await reopened.accountProfileId(project, stored, "codex-cli")).toBe("system");
-    expect((await reopened.view(project, stored)).getBranch().at(-1)).toMatchObject({ type: "custom", customType: "ohmygame-native-session", data: { state: "invalid" } });
+    expect(latestNativeSession(restored.getBranch(), "codex-cli", "system")).toBeUndefined();
     expect(restored.getBranch().filter((entry) => entry.type === "message")).toHaveLength(2);
   });
 

@@ -209,6 +209,11 @@ describe("coding agent routes", () => {
       expect(await log()).toEqual(beforeSwitch);
       expect(identity).toHaveBeenCalledTimes(beforeIdentity);
     } finally { clock.mockRestore(); }
+    // Switching away and back with no turn on the other account resumes the same native thread.
+    await turn(first, "Back on work");
+    const back = (await log()).filter((entry) => entry.method === "turn/start").at(-1);
+    expect(back.params.threadId).toBe(turns[3].params.threadId);
+    expect(JSON.stringify(back.params.input)).not.toContain("conversation-handoff");
     expect(beforeSwitch.filter((entry) => entry.method === "account/read").every((entry) => entry.params.refreshToken === false)).toBe(true);
     await call("PATCH", "/agent-runtimes/codex-cli", {defaultProfileId:work.id});
     const newChat = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, {model:{provider:"codex-cli",id:"gpt-test"}})).body;

@@ -164,7 +164,9 @@ new-chat default model if that account offers it, otherwise to the first model
 the account lists, and the timeline records the model change. A catalog that
 cannot be read in time leaves the model unchanged. The next
 message creates a context for the selected account, with a bounded history
-handoff if it has not seen this chat. Other chats keep their accounts. No automatic
+handoff if it has not seen this chat; switching back before a message on the
+other account resumes the earlier context instead. `/compact` waits for that
+first message on the selected account. Other chats keep their accounts. No automatic
 rotation at usage limits is provided.
 
 Use an account row's delete action to remove a profile after confirmation. The
