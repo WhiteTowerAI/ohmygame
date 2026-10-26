@@ -71,6 +71,7 @@ import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager, PreviewCancelledError } from "./preview.js";
 import { ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError } from "./projects.js";
 import { ExampleError, ExampleStore } from "./examples.js";
+import { MODEL_CATALOG_REFRESH_ERROR, ModelCatalogRefresh } from "./model-catalog-refresh.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import { OpenAIImageSettingsStore } from "./openai-image-settings.js";
@@ -645,6 +646,7 @@ export function createApp(options: AppOptions = {}) {
   const publisher = localPublisher ?? new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
+    visitorTokenFile: path.join(dataDirectory, "community-visitor.json"),
   });
   const previews = new PreviewManager(events);
   const checkpoints = new CheckpointStore();
@@ -691,6 +693,7 @@ export function createApp(options: AppOptions = {}) {
       openAIEndpointRegistered = false;
     }
   };
+  const catalogRefresh = new ModelCatalogRefresh((id) => providerEnabled(id) && !providerModelSettings.isCustom(id));
   let modelRuntimePromise: Promise<ModelRuntime> | undefined;
   const getModelRuntime = () => modelRuntimePromise ??= (async () => {
     const runtime = await (options.createModelRuntime ?? (() => ModelRuntime.create({
@@ -698,6 +701,7 @@ export function createApp(options: AppOptions = {}) {
       modelsPath: path.join(piAgentDirectory, "models.json"),
     })))();
     await syncOpenAIEndpoint(runtime);
+    catalogRefresh.schedule(runtime);
     return runtime;
   })();
   const resolveModels = (runtime: ModelRuntime, models: RuntimeModel[]) => {
@@ -734,7 +738,11 @@ export function createApp(options: AppOptions = {}) {
   const modelAuth = new ModelAuthManager(getModelRuntime, {
     // Same ID Pi's own CLI uses, persisted in the agent directory's global settings.
     getDeviceId: () => SettingsManager.create(piAgentDirectory, piAgentDirectory).getOrCreateDeviceId(),
-    onCredentialsChanged: syncOpenAIEndpoint,
+    onCredentialsChanged: async (runtime, providerId) => {
+      await syncOpenAIEndpoint(runtime);
+      catalogRefresh.invalidate(providerId);
+      void catalogRefresh.refresh(runtime, providerId, true).catch(() => {});
+    },
   });
   const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
     ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
@@ -972,7 +980,7 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject(project).join("\n\n"),
       policy: {
         workspacePath: project.workspacePath,
-        neverTouch: [...neverTouchPaths(dataDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)), ...ACCOUNT_RUNTIME_IDS.flatMap((runtime) => agentRuntimes.settings.profiles(runtime)).flatMap((profile) => profile.configDirectory ? [profile.configDirectory, `${profile.configDirectory}.json`] : [])],
+        neverTouch: [...neverTouchPaths(dataDirectory, piAgentDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)), ...ACCOUNT_RUNTIME_IDS.flatMap((runtime) => agentRuntimes.settings.profiles(runtime)).flatMap((profile) => profile.configDirectory ? [profile.configDirectory, `${profile.configDirectory}.json`] : [])],
       },
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
@@ -2293,6 +2301,7 @@ export function createApp(options: AppOptions = {}) {
     try { profiles = request.query.profiles ? JSON.parse(request.query.profiles) : {}; } catch { return reply.code(400).send({ error: "Invalid account profile selections" }); }
     if (!isAccountProfileIds(profiles) || Object.entries(profiles).some(([runtime, id]) => !agentRuntimes.settings.profiles(runtime as "claude-code-cli" | "codex-cli").some((profile) => profile.id === id))) return reply.code(400).send({ error: "Account configuration not found" });
     const runtime = await getModelRuntime();
+    const loadingProviders = catalogRefresh.schedule(runtime);
     const available = resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider)));
     const models = available.filter((model) => providerModelSettings.isVisible(model));
     const hidden = available.filter((model) => !providerModelSettings.isVisible(model));
@@ -2310,6 +2319,7 @@ export function createApp(options: AppOptions = {}) {
     const nativeDefault = nativeDefaults ? findAgentModel(agents.models, nativeDefaults.model) : undefined;
     return {
       models: [...models.map(summary), ...agents.models],
+      ...(loadingProviders.length ? { loadingProviders } : {}),
       ...(agents.loading.length ? { loadingRuntimes: agents.loading } : {}),
       ...(hidden.length ? { hiddenModels: hidden.map(summary) } : {}),
       ...(nativeDefault ? { defaultModel: { provider: nativeDefault.provider, id: nativeDefault.id }, ...(nativeDefaults?.nativeReasoningLevel ? { defaultNativeReasoningLevel: nativeDefaults.nativeReasoningLevel } : {}) } : defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
@@ -2514,6 +2524,7 @@ export function createApp(options: AppOptions = {}) {
     const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
     if (!provider.configured && provider.id !== "codex-cli" && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
     await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
+    catalogRefresh.invalidate(provider.id);
     return { ...provider, enabled: request.body.enabled };
   });
 
@@ -2578,6 +2589,7 @@ export function createApp(options: AppOptions = {}) {
     const volcengineTts = providerId === "volcengine-tts";
     const volcengineSeedAudio = providerId === "volcengine-seed-audio";
     if (!native && !seedance && !minimax && !volcengineTts && !volcengineSeedAudio && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    catalogRefresh.invalidate(providerId);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
       await providerModelSettings.removeProviderSettings(providerId, async () => {
@@ -2758,6 +2770,8 @@ export function createApp(options: AppOptions = {}) {
     const customProvider = await providerModelSettings.customProvider(providerId, catalog);
     const custom = customProvider?.models ?? await providerModelSettings.customModels(providerId);
     return {
+      canRefreshCatalog: catalogRefresh.canRefresh(runtime, providerId),
+      ...(catalogRefresh.refreshing(providerId) ? { refreshingCatalog: true } : {}),
       models: customProvider ? customProvider.models.map((model) => ({
         provider: providerId, providerName: customProvider.name, id: model.id, name: model.name,
         reasoningLevels: modelUsages(model).language ? supportedReasoningLevels(models.find((candidate) => candidate.id === model.id) ?? model) : [],
@@ -2776,7 +2790,20 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models", async (request, reply) => {
     const runtime = await getModelRuntime();
     if (!await hasModelProvider(runtime, request.params.providerId)) return reply.code(404).send({ error: "Provider not found" });
+    catalogRefresh.schedule(runtime, [request.params.providerId]);
     return providerModels(runtime, request.params.providerId);
+  });
+
+  app.post<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models/refresh", async (request, reply) => {
+    const runtime = await getModelRuntime();
+    const { providerId } = request.params;
+    if (!catalogRefresh.canRefresh(runtime, providerId)) return reply.code(400).send({ error: "Connect and enable a built-in provider to refresh its catalog. Network access must be enabled." });
+    try {
+      await catalogRefresh.refresh(runtime, providerId, true);
+      return await providerModels(runtime, providerId);
+    } catch {
+      return reply.code(503).send({ error: MODEL_CATALOG_REFRESH_ERROR });
+    }
   });
 
   app.put<{ Params: { providerId: string }; Body: { ids: string[]; visible: boolean } }>("/settings/models/providers/:providerId/models/visibility", {
@@ -2998,6 +3025,23 @@ export function createApp(options: AppOptions = {}) {
         : undefined);
       const conversation = await conversations.create(project, model, reasoningLevel);
       return reply.code(201).send(conversation.summary);
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string }; Body: { entryId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/branch",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["entryId"], properties: { entryId: { type: "string", minLength: 1, maxLength: 128 } } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      try {
+        const branched = await conversations.branch(project, conversation, request.body.entryId);
+        return reply.code(201).send(branched.summary);
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
     },
   );
 
@@ -3856,6 +3900,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    catalogRefresh.close();
     await pluginIntegrations.close();
     await externalMcp.close();
     codexImages.close();

@@ -7,6 +7,7 @@ export function protocolOperations(protocol: CustomModel3DSettings["protocol"]):
 export const MODEL3D_CONNECTION_ID = "connection";
 /** Processing uses its own API limits, independently of the selected geometry version. */
 export function remeshPolycount(protocol?: CustomModel3DSettings["protocol"]): CustomModel3DSettings["polycount"] {
+  if (protocol === "tripo") return { min: 500, max: 20_000, default: 4_000, presets: [1_000, 4_000, 10_000, 20_000] };
   return { min: 100, max: protocol === "meshy" ? 300_000 : 1_500_000, default: 30_000, presets: [1_000, 4_000, 10_000, 30_000, 100_000, 300_000] };
 }
 /** Tripo has no animation-library endpoint; keep identifiers scoped to the rig version. */

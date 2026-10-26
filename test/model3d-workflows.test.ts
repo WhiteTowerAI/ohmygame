@@ -78,6 +78,19 @@ describe("3D operation contracts", () => {
     expect(new Headers(posts(request)[0]![1]!.headers).has("authorization")).toBe(false);
     expect(request.mock.calls.at(-1)![1]!.headers).toBeUndefined();
   });
+  it.each(["image", "text"] as const)("generates Meshy T2.5 from %s with its own face limits", async (operation) => {
+    const request = meshyService(), provider = new MeshyProvider(() => "key", request, 0);
+    const input = { model: { provider: "meshy", id: "meshy-t2.5" }, operation, images: operation === "image" ? [image] : [], prompt: operation === "text" ? "A knight" : undefined, texture: false };
+    await provider.generate(input);
+    expect(posts(request)[0]![0]).toBe(`https://api.meshy.ai/openapi/${operation === "text" ? "v2/text" : "v1/image"}-to-3d`);
+    expect(JSON.parse(String(posts(request)[0]![1]!.body))).toMatchObject({ ai_model: "meshy-t2.5", model_type: "smart-topology", target_polycount: 15_000 });
+    await provider.generate({ ...input, targetPolycount: 30_000 });
+    expect(JSON.parse(String(posts(request).at(-1)![1]!.body))).toMatchObject({ target_polycount: 30_000 });
+    request.mockClear();
+    await expect(provider.generate({ ...input, targetPolycount: 30_001 })).rejects.toThrow("100 and 30000");
+    await expect(provider.generate({ ...input, operation: "image", images: [image, image] })).rejects.toThrow("exactly one reference image");
+    expect(request).not.toHaveBeenCalled();
+  });
   it("routes Meshy relay libraries and rig status through the configured endpoint", async () => {
     const request = meshyService();
     const provider = new MeshyProvider(() => "relay-key", request, 0, () => true, { baseUrl: "https://relay.test/v1" });
@@ -105,14 +118,36 @@ describe("3D operation contracts", () => {
     expect(retarget).toMatchObject({ out_format: "glb", bake_animation: true, export_with_geometry: true, animate_in_place: true });
     expect(posts(request).map(([url]) => String(url).split("/v3/")[1])).toEqual(["files", "animations/rig-check", "animations/rig", "animations/retarget"]);
   });
-  it("uses creature version/type presets and stops when rig-check finds another rig type", async () => {
+  it.each(["v2.5-20260210", "v3.0-20260909"] as const)("uses %s creature presets and stops when rig-check finds another rig type", async (rigModel) => {
     const request = tripoService(TEST_GLB, "quadruped"), provider = new TripoProvider(() => "key", request, 0);
-    const options = { rigModel: "v2.5-20260210" as const, rigType: "quadruped" as const };
+    const options = { rigModel, rigType: "quadruped" as const };
     expect(await provider.animations(undefined, undefined, options)).toMatchObject([{ id: "preset:quadruped:walk" }]);
     await provider.animate({ model: TEST_GLB, actionIds: ["preset:quadruped:walk"], options });
     request.mockClear();
     await expect(provider.animate({ model: TEST_GLB, actionIds: ["preset:biped:idle"] })).rejects.toThrow("quadruped");
     expect(request.mock.calls.some(([url]) => String(url).endsWith("/animations/rig"))).toBe(false);
+  });
+  it("runs Tripo v3 humanoid presets through the tool and rejects legacy action IDs before upload", async () => {
+    const location = await directory(), library = new AssetLibrary(location); await library.load();
+    const source = await library.add("hero.glb", TEST_GLB), request = tripoService();
+    const provider = new TripoProvider(() => "key", request, 0);
+    const providers = new ProviderModels3D({ runtime: async () => { throw new Error("Native animation needs no custom runtime"); },
+      meshy: { generator: new MeshyProvider(() => undefined), configured: () => false },
+      tripo: { generator: provider, configured: () => true }, customProviders: async () => [],
+      nativeModels: (id) => [...MODEL_3D_PRESETS[id]], isEnabled: () => true, isVisible: () => true, defaultModel: () => undefined });
+    const runner = new ToolRunner(location, { generate: vi.fn() }, providers, undefined, library); await runner.load();
+    const options = { rigModel: "v3.0-20260909" as const, rigType: "biped" as const };
+    try {
+      expect(await provider.animations(undefined, undefined, options)).toContainEqual(expect.objectContaining({ id: "preset:walk" }));
+      await runner.run("animate-3d", { assetId: source.id, model: tripoModel, actionIds: ["preset:idle", "preset:walk"], options });
+      const rig = request.mock.calls.find(([url]) => String(url).endsWith("/animations/rig"))!;
+      expect(JSON.parse(String(rig[1]!.body))).toMatchObject({ model: options.rigModel, rig_type: "biped", spec: "tripo", out_format: "glb" });
+      const retarget = request.mock.calls.find(([url]) => String(url).endsWith("/animations/retarget"))!;
+      expect(JSON.parse(String(retarget[1]!.body))).toMatchObject({ animations: ["preset:idle", "preset:walk"] });
+      request.mockClear();
+      await expect(provider.animate({ model: TEST_GLB, actionIds: ["preset:biped:walk"], options })).rejects.toThrow("selected Tripo rig");
+      expect(request).not.toHaveBeenCalled();
+    } finally { await runner.close(); }
   });
   it("sends the required singular Hyper3D image/model fields and text prompts without images", async () => {
     const request = hyperService(), provider = new Hyper3DProvider(() => "key", request, 0), model = { provider: "hyper3d", id: MODEL_3D_PRESETS.hyper3d[0]!.id };
@@ -131,13 +166,20 @@ describe("3D operation contracts", () => {
   it("uses remesh operation versions and triangle GLB output constraints", async () => {
     const meshy = meshyService(), tripo = tripoService();
     await new MeshyProvider(() => "key", meshy, 0).generate({ model: meshyModel, operation: "remesh", source: TEST_GLB, images: [], targetPolycount: 1000 });
-    await new TripoProvider(() => "key", tripo, 0).generate({ model: tripoModel, operation: "remesh", source: TEST_GLB, images: [], targetPolycount: 300_000 });
+    await new TripoProvider(() => "key", tripo, 0).generate({ model: tripoModel, operation: "remesh", source: TEST_GLB, images: [], targetPolycount: 20_000 });
     expect(JSON.parse(String(posts(meshy)[0]![1]!.body))).toMatchObject({ topology: "triangle", target_formats: ["glb"] });
-    expect(JSON.parse(String(posts(tripo).at(-1)![1]!.body))).toMatchObject({ model: "v3.0", face_limit: 300_000, quad: false, bake: true });
+    expect(JSON.parse(String(posts(tripo).at(-1)![1]!.body))).toMatchObject({ model: "v3.0", face_limit: 20_000, quad: false, bake: true });
     await new MeshyProvider(() => "key", meshy, 0).generate({ model: meshyModel, operation: "remesh", source: TEST_GLB, images: [] });
     await new TripoProvider(() => "key", tripo, 0).generate({ model: tripoModel, operation: "remesh", source: TEST_GLB, images: [] });
     expect(JSON.parse(String(posts(meshy).at(-1)![1]!.body))).toMatchObject({ target_polycount: 30_000 });
-    expect(JSON.parse(String(posts(tripo).at(-1)![1]!.body))).toMatchObject({ face_limit: 30_000 });
+    expect(JSON.parse(String(posts(tripo).at(-1)![1]!.body))).toMatchObject({ face_limit: 4_000 });
+    await new TripoProvider(() => "key", tripo, 0).generate({ model: tripoModel, operation: "remesh", source: TEST_GLB, images: [], targetPolycount: 500 });
+    expect(JSON.parse(String(posts(tripo).at(-1)![1]!.body))).toMatchObject({ face_limit: 500 });
+    tripo.mockClear();
+    for (const targetPolycount of [499, 20_001, 30_000]) {
+      await expect(new TripoProvider(() => "key", tripo, 0).generate({ model: tripoModel, operation: "remesh", source: TEST_GLB, images: [], targetPolycount })).rejects.toThrow("500 and 20000");
+    }
+    expect(tripo).not.toHaveBeenCalled();
   });
   it("queries the three own-key balances", async () => {
     expect(await new MeshyProvider(() => "key", meshyService(), 0).accountBalance()).toEqual({ balance: 123 });

@@ -12,7 +12,6 @@ import {
   BotIcon,
   BoxIcon,
   BoxMinimalisticIcon,
-  BranchingPathsDownIcon,
   ClapperboardIcon,
   ClipboardIcon,
   CloseCircleIcon,
@@ -38,6 +37,7 @@ import {
   HeartIcon,
   HomeIcon,
   InfoCircleIcon,
+  ImportIcon,
   LaptopMinimalisticIcon,
   LayersIcon,
   KeyIcon,
@@ -97,6 +97,21 @@ export const Check = forwardRef<SVGSVGElement, IconProps>(function Check({ size 
   return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("path", { d: "M5 12.5L9.2 16.5L19 7", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }));
 });
 
+/*! Solar Icons by 480 Design (CC BY 4.0): git-branch-linear.
+ * https://github.com/480-Design/Solar-Icon-Set
+ * Source: https://github.com/iconify/icon-sets/blob/master/json/solar.json
+ */
+// Kept inline until @solar-icons/react exports this icon.
+export const GitBranch = forwardRef<SVGSVGElement, IconProps>(function GitBranch({ size = 24, ...props }, ref) {
+  return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", ...props },
+    createElement("g", { fill: "none", stroke: "currentColor", strokeLinecap: "round", strokeWidth: 1.5 },
+      createElement("path", { d: "M9 4.5C9 5.88071 7.88071 7 6.5 7C5.11929 7 4 5.88071 4 4.5C4 3.11929 5.11929 2 6.5 2C7.88071 2 9 3.11929 9 4.5Z" }),
+      createElement("path", { d: "M20.1821 7.5C20.1821 8.88071 19.0628 10 17.6821 10C16.3014 10 15.1821 8.88071 15.1821 7.5C15.1821 6.11929 16.3014 5 17.6821 5C19.0628 5 20.1821 6.11929 20.1821 7.5Z" }),
+      createElement("path", { d: "M9 19.5C9 20.8807 7.88071 22 6.5 22C5.11929 22 4 20.8807 4 19.5C4 18.1193 5.11929 17 6.5 17C7.88071 17 9 18.1193 9 19.5Z" }),
+      createElement("path", { d: "M6.5 17L6.5 7" }),
+      createElement("path", { d: "M17.6821 10C17.6821 12.3383 15.4514 13.5914 12.0878 13.5914C8.72419 13.5914 6.5 14.6747 6.5 17" })));
+});
+
 export const Circle = forwardRef<SVGSVGElement, IconProps>(function Circle({ size = 24, ...props }, ref) {
   return createElement("svg", { ref, width: size, height: size, viewBox: "0 0 24 24", fill: "none", ...props }, createElement("circle", { cx: "12", cy: "12", r: "9", stroke: "currentColor", strokeWidth: "1.5" }));
 });
@@ -153,7 +168,6 @@ export {
   BotIcon as Bot,
   BoxIcon as Box,
   BoxMinimalisticIcon as Package,
-  BranchingPathsDownIcon as GitBranch,
   PenNewSquareIcon as MessageSquarePlus,
   ClapperboardIcon as Clapperboard,
   ClipboardIcon as Clipboard,
@@ -179,6 +193,7 @@ export {
   HistoryIcon as History,
   HomeIcon as House,
   InfoCircleIcon as InfoCircle,
+  ImportIcon as Import,
   LayersIcon as Layers3,
   KeyIcon as Key,
   LoginIcon as LogIn,

@@ -3,6 +3,7 @@ import { ChangeCounts } from "./change-counts.js";
 import { FileDiff } from "./file-diff.js";
 import {
   Check,
+  GitBranch,
   ChevronRight,
   Copy,
   Diskette,
@@ -58,6 +59,8 @@ interface AgentTimelineProps {
   /** Changes whenever the files of the workspace may have changed, so that what the turns show of them is read again. */
   workspaceRevision?: number;
   onAddToChat?: (text: string) => void;
+  onBranch?: (entryId: string) => void;
+  branchDisabled?: boolean;
   waitingForInput?: boolean;
 }
 
@@ -71,7 +74,7 @@ function turnDisplay(turn: ThreadTurn): TurnDisplay {
   return display;
 }
 
-export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onRestore, changeControls, workspaceRevision, onAddToChat, waitingForInput = false }: AgentTimelineProps) {
+export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, projectId = "", workspacePath, onOpenWorkspaceFile, revisionDisabled, onRevise, onRestore, changeControls, workspaceRevision, onAddToChat, onBranch, branchDisabled, waitingForInput = false }: AgentTimelineProps) {
   const [selectionRoot, setSelectionRoot] = useState<HTMLDivElement | null>(null);
   const [editingItemId, setEditingItemId] = useState<string>();
   const [draft, setDraft] = useState("");
@@ -147,6 +150,8 @@ export const AgentTimeline = memo(function AgentTimeline({ turns: sourceTurns, p
                 copiedItemId: copiedAssistantId,
                 latestItemId: latestAssistantId,
                 onCopy: copyAssistant,
+                onBranch,
+                branchDisabled,
               }}
               userControls={{
                 editing: displays[index].user?.id === editingItemId && editingItemId === latestUserId,
@@ -186,6 +191,8 @@ interface UserControls {
 
 interface AssistantControls {
   copiedItemId?: string;
+  onBranch?: (entryId: string) => void;
+  branchDisabled?: boolean;
   latestItemId?: string;
   onCopy: (id: string, text: string) => void;
 }
@@ -252,6 +259,7 @@ function FinalResponse({ projectId, items, artifacts, controls, changes }: {
   const responseId = copyable.at(-1)?.id;
   const text = copyable.map((item) => item.text).join("\n\n");
   const timestamp = copyable.at(-1)?.timestamp;
+  const branchEntryId = copyable.at(-1)?.branchEntryId;
   return (
     <div className={`assistant-response${responseId === controls.latestItemId ? " assistant-response-latest" : ""}`}>
       {items.map((item) => <TimelineItem key={item.id} item={item} />)}
@@ -262,6 +270,7 @@ function FinalResponse({ projectId, items, artifacts, controls, changes }: {
           <button type="button" aria-label={t("timeline.copyResponse")} title={t("common.copy")} onClick={() => controls.onCopy(responseId, text)}>
             {responseId === controls.copiedItemId ? <Check size={13} /> : <Copy size={13} />}
           </button>
+          {controls.onBranch ? <button type="button" aria-label={t("timeline.branchChat")} title={t("timeline.branchChat")} disabled={controls.branchDisabled || !branchEntryId} onClick={() => branchEntryId && controls.onBranch?.(branchEntryId)}><GitBranch size={13} /></button> : null}
           {timestamp ? <time dateTime={new Date(timestamp).toISOString()}>{formatResponseTime(timestamp)}</time> : null}
         </div>
       ) : null}

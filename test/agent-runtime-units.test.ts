@@ -29,6 +29,7 @@ import {
 import { existsSync, realpathSync } from "node:fs";
 import { handoffSummary } from "../src/daemon/agent-runtimes/handoff.js";
 import {
+  canonicalPath,
   judgeApproval,
   neverTouchPaths,
 } from "../src/daemon/agent-runtimes/policy.js";
@@ -53,28 +54,129 @@ const workspace = path.join(
   "p1",
   "workspace",
 );
+// The desktop app's layout: Pi's agent folder sits beside the data folder.
+const piAgentDirectory = path.join(home, "OhMyGame", "pi-agent");
 const policy = {
   workspacePath: workspace,
-  neverTouch: neverTouchPaths(path.join(home, "OhMyGame", "data")),
+  neverTouch: neverTouchPaths(
+    path.join(home, "OhMyGame", "data"),
+    piAgentDirectory,
+  ),
 };
+
+/** A Claude Code session in the workspace, for its sandbox settings. */
+function claudeContext(contextPolicy: DriverContext["policy"]): DriverContext {
+  return {
+    binaryPath: "/usr/bin/claude",
+    workspacePath: workspace,
+    privateDirectory: path.join(os.tmpdir(), "ohmygame-session"),
+    env: {},
+    instructions: "",
+    bridge: new ToolBridge([]),
+    skillDirectories: [],
+    model: "sonnet",
+    policy: contextPolicy,
+  };
+}
 
 it("requires Claude's sandbox when the policy automatically allows confined commands", () => {
   for (const sandboxedCommands of [true, false]) {
-    const context: DriverContext = {
-      binaryPath: "/usr/bin/claude",
-      workspacePath: workspace,
-      privateDirectory: path.join(os.tmpdir(), "ohmygame-session"),
-      env: {},
-      instructions: "",
-      bridge: new ToolBridge([]),
-      skillDirectories: [],
-      model: "sonnet",
-      policy: { ...policy, sandboxedCommands },
-    };
+    const context = claudeContext({ ...policy, sandboxedCommands });
     expect(claudeSandboxSettings(context).sandbox.failIfUnavailable).toBe(
       sandboxedCommands,
     );
   }
+});
+
+describe("Pi's agent folder", () => {
+  const fullAccess = { ...policy, fullAccess: true };
+
+  it.each([
+    "OhMyGame",
+    path.join("Library", "Application Support", "OhMyGame"),
+  ])("refuses its credentials even with full access in %s", (layout) => {
+    const userData = path.join(home, layout);
+    const data = path.join(userData, "data");
+    const directory = path.join(userData, "pi-agent");
+    const context = {
+      workspacePath: path.join(data, "projects", "p1", "workspace"),
+      neverTouch: neverTouchPaths(data, directory),
+    };
+    for (const file of ["auth.json", "models.json"]) {
+      const target = path.join(directory, file);
+      for (const fullAccess of [false, true]) {
+        const current = { ...context, fullAccess };
+        expect(
+          judgeApproval(
+            { kind: "file", tool: "Read", path: target, canAllowSession: true },
+            current,
+          ),
+        ).toBe("deny");
+        for (const command of [
+          `cat "${target}"`,
+          `cat '${target}'`,
+          `cat ${target.replace(/ /g, "\\ ")}`,
+          `/bin/zsh -lc 'cat "${target}"'`,
+          `cat "${userData}"`,
+        ]) {
+          expect(
+            judgeApproval(
+              {
+                kind: "command",
+                tool: "Bash",
+                command,
+                canAllowSession: true,
+              },
+              current,
+            ),
+            command,
+          ).toBe("deny");
+        }
+      }
+    }
+  });
+
+  it("refuses the standalone Pi CLI's folder", () => {
+    expect(
+      judgeApproval(
+        {
+          kind: "file",
+          tool: "Read",
+          path: path.join(home, ".pi", "agent", "auth.json"),
+          canAllowSession: true,
+        },
+        fullAccess,
+      ),
+    ).toBe("deny");
+  });
+
+  it("stays protected when it is inside the data folder", () => {
+    const data = path.join(home, "OhMyGame", "data");
+    const nested = path.join(data, "pi-agent");
+    expect(
+      judgeApproval(
+        {
+          kind: "file",
+          tool: "Read",
+          path: path.join(nested, "auth.json"),
+          canAllowSession: true,
+        },
+        {
+          workspacePath: workspace,
+          neverTouch: neverTouchPaths(data, nested),
+          fullAccess: true,
+        },
+      ),
+    ).toBe("deny");
+  });
+
+  it("is unreadable in Claude Code's sandbox", () => {
+    expect(claudeSandboxSettings(claudeContext(policy)).sandbox).toMatchObject({
+      filesystem: {
+        denyRead: expect.arrayContaining([canonicalPath(piAgentDirectory)]),
+      },
+    });
+  });
 });
 
 describe("coding agent approval policy", () => {

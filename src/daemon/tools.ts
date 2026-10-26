@@ -773,7 +773,7 @@ function validate3DOptions(options: Run3DToolRequest["options"]): void {
   if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some((key) => !["pose", "textureModel", "textureQuality", "rigModel", "rigType", "animateInPlace"].includes(key))) throw new ToolRunError("Invalid 3D options", 400);
   if (options.pose !== undefined && !["a-pose", "t-pose"].includes(options.pose)
     || options.textureQuality !== undefined && !["fast", "standard", "detailed", "extreme"].includes(options.textureQuality)
-    || options.rigModel !== undefined && !["v1.0-20240301", "v2.5-20260210"].includes(options.rigModel)
+    || options.rigModel !== undefined && !["v1.0-20240301", "v2.5-20260210", "v3.0-20260909"].includes(options.rigModel)
     || options.rigType !== undefined && !["biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"].includes(options.rigType)
     || options.animateInPlace !== undefined && typeof options.animateInPlace !== "boolean"
     || options.textureModel !== undefined && (typeof options.textureModel !== "string" || !options.textureModel || options.textureModel.length > 120)) throw new ToolRunError("Unsupported 3D option", 400);

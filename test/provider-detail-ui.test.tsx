@@ -33,7 +33,10 @@ const api = {
     models: [model("gpt-4"), model("gpt-5"), model("gpt-3.5", false)],
     defaultApi: "openai-responses",
     canAddCustomModel: false,
+    canRefreshCatalog: true,
   })),
+  refreshProviderModels: vi.fn(async () => ({})),
+  setProviderModelVisibility: vi.fn<(...args: [string, string[], boolean]) => Promise<ProviderModelSettings>>(),
   listModels: vi.fn(async () => ({
     models: [],
     defaultModel: { provider: "openai", id: "gpt-5" },
@@ -60,6 +63,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const openai: ProviderSummary = {
@@ -138,4 +142,45 @@ it("puts the default model first and keeps hidden models behind a toggle", async
   ).toContain("GPT-5");
   await act(async () => button("Hidden models (1)")!.click());
   expect(rows()).toEqual(["GPT-5", "GPT-4", "GPT-3.5"]);
+});
+
+it("refreshes in the background and preserves the current list when a manual refresh fails", async () => {
+  vi.useFakeTimers();
+  const catalog = await api.getProviderModels();
+  api.getProviderModels.mockResolvedValueOnce({ ...catalog, refreshingCatalog: true });
+  await render();
+  expect(rows()).toEqual(["GPT-5", "GPT-4"]);
+  expect(button("Refresh models")!.disabled).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1_000));
+  expect(button("Refresh models")!.disabled).toBe(false);
+  api.refreshProviderModels.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => button("Refresh models")!.click());
+  expect(api.refreshProviderModels).toHaveBeenCalledWith("openai");
+  expect(rows()).toEqual(["GPT-5", "GPT-4"]);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Your existing models are still available");
+  await act(async () => button("Refresh models")!.click());
+  expect(api.refreshProviderModels).toHaveBeenCalledTimes(2);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("pauses background polling while the user saves model visibility", async () => {
+  vi.useFakeTimers();
+  const catalog = await api.getProviderModels();
+  api.getProviderModels.mockClear();
+  api.getProviderModels.mockResolvedValueOnce({ ...catalog, refreshingCatalog: true });
+  let save!: (settings: ProviderModelSettings) => void;
+  api.setProviderModelVisibility.mockImplementationOnce(() => new Promise((resolve) => { save = resolve; }));
+  await render();
+  await act(async () => button("Edit")!.click());
+  const checkbox = host.querySelector<HTMLInputElement>('.provider-model-row input[type="checkbox"]')!;
+  await act(async () => checkbox.click());
+  expect(api.setProviderModelVisibility).toHaveBeenCalledWith("openai", ["gpt-4"], false);
+  await act(async () => vi.advanceTimersByTimeAsync(1_000));
+  expect(api.getProviderModels).toHaveBeenCalledOnce();
+  const saved = { ...catalog, models: catalog.models.map((model) => model.id === "gpt-4" ? { ...model, visible: false } : model) };
+  api.getProviderModels.mockResolvedValueOnce(saved);
+  await act(async () => save(saved));
+  await act(async () => vi.advanceTimersByTimeAsync(1_000));
+  expect(checkbox.checked).toBe(false);
+  expect(api.getProviderModels).toHaveBeenCalledTimes(2);
 });

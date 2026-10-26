@@ -57,16 +57,15 @@ export class TripoProvider implements Model3DGenerator {
   }
 
   async animations(_signal?: AbortSignal, _model?: unknown, options?: Model3DOptions) {
-    if (options?.rigModel && !["v1.0-20240301", "v2.5-20260210"].includes(options.rigModel)
+    if (options?.rigModel && !["v1.0-20240301", "v2.5-20260210", "v3.0-20260909"].includes(options.rigModel)
       || options?.rigType && !["biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"].includes(options.rigType)
-      || options?.rigModel !== "v2.5-20260210" && options?.rigType && options.rigType !== "biped") throw new Model3DGenerationError("Unsupported Tripo rig version or type", 400);
+      || (options?.rigModel ?? "v1.0-20240301") === "v1.0-20240301" && options?.rigType && options.rigType !== "biped") throw new Model3DGenerationError("Unsupported Tripo rig version or type", 400);
     return tripoActions(options?.rigModel, options?.rigType);
   }
 
   async animate(input: Model3DAnimationInput, signal?: AbortSignal): Promise<Generated3DModel> {
     const rigModel = input.options?.rigModel ?? "v1.0-20240301", rigType = input.options?.rigType ?? "biped";
-    if (rigModel === "v1.0-20240301" && rigType !== "biped") throw new Model3DGenerationError("Tripo rig v1 supports humanoids only", 400);
-    const available = new Set(tripoActions(rigModel, rigType).map((action) => action.id));
+    const available = new Set((await this.animations(undefined, undefined, input.options)).map((action) => action.id));
     if (!input.actionIds.length || input.actionIds.length > MAX_ANIMATION_ACTIONS || input.actionIds.some((action) => typeof action !== "string" || !available.has(action))) throw new Model3DGenerationError("Choose actions from the selected Tripo rig's presets", 400);
     return this.session(signal, async (key, requestSignal) => {
       const source = await this.upload(input.model, "model/gltf-binary", "model.glb", key, requestSignal, input.execution, "source-upload");

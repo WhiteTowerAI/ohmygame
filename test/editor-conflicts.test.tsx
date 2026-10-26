@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Node } from "@xyflow/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import type { EditorCanvas } from "../src/renderer/editor-canvas.js";
-import type { ProjectState } from "../src/shared/contracts.js";
+import type { Model3DOptions, ModelRef, ProjectState } from "../src/shared/contracts.js";
 import { createAssetCanvasDocument } from "../src/shared/asset-canvas.js";
 import type { CanvasBoardDetail, CanvasWorkspaceDetail } from "../src/shared/canvas-workspace.js";
 import type { CanvasDocumentDetail } from "../src/shared/canvas-document.js";
@@ -27,6 +27,7 @@ let canvasFlush: (() => Promise<void>) | undefined;
 let canvasSync: (() => Promise<void>) | undefined;
 const canvasStatus = vi.fn();
 const api = {
+  model3DCatalog: vi.fn(),
   model3DOperations: vi.fn(),
   animationActions: vi.fn(),
   balance: vi.fn(),
@@ -70,7 +71,7 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
   listImageModelCatalog: async () => ({ models: [], providers: [] }),
   listVideoModelCatalog: async () => ({ models: [], providers: [] }),
-  listModel3DCatalog: async () => ({ models: [], providers: [] }),
+  listModel3DCatalog: api.model3DCatalog,
   listModel3DOperations: api.model3DOperations,
   listModel3DAnimations: api.animationActions,
   model3DBalance: api.balance,
@@ -124,6 +125,7 @@ beforeEach(() => {
   localStorage.clear();
   captured.props = undefined;
   canvasFlush = undefined; canvasSync = undefined;
+  api.model3DCatalog.mockResolvedValue({ models: [], providers: [] });
   api.model3DOperations.mockResolvedValue([]);
   api.animationActions.mockResolvedValue([{ id: 0, name: "Idle", category: "Daily", subCategory: "Idle" }]);
   api.balance.mockResolvedValue({ balance: 123 });
@@ -272,9 +274,9 @@ it("loads moves only when a picker opens and retries errors using legacy native 
   expect(document.querySelector('[role="dialog"]')).toBeNull();
 });
 
-it("shows Tripo's real preset names without placeholder preview cards and preserves selection order", async () => {
+it.each(["v2.5-20260210", "v3.0-20260909"] as const)("shows Tripo %s preset names and preserves selection order", async (rigModel) => {
   const tripo = MODEL_3D_MODELS.find((model) => model.provider === "tripo")!;
-  const options = { rigModel: "v2.5-20260210" as const, rigType: "biped" as const };
+  const options = { rigModel, rigType: "biped" as const };
   api.model3DOperations.mockResolvedValue([{ ...tripo, id: MODEL3D_CONNECTION_ID, name: "Tripo", operations: ["animate"] }]);
   api.animationActions.mockResolvedValue(tripoActions(options.rigModel, options.rigType));
   boardDisk.board.nodes = [{ id: "tripo", type: "animate-3d", title: "Original", position: { x: 0, y: 0 },
@@ -293,10 +295,20 @@ it("shows Tripo's real preset names without placeholder preview cards and preser
   expect([...dialog.querySelectorAll(".story-animation-picker-selected button")].map((button) => button.textContent)).toEqual(["Walk", "Idle"]);
   expect(captured.props!.nodes[0]!.data.actionIds).toEqual(["preset:walk", "preset:idle"]);
   expect(api.balance).not.toHaveBeenCalled();
+  if (rigModel === "v2.5-20260210") {
+    await act(async () => (dialog.querySelector('[aria-label="Close move picker"]') as HTMLButtonElement).click());
+    await act(async () => (container.querySelector('[aria-label="Rig version: Creature v2.5"]') as HTMLButtonElement).click());
+    const v3 = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((button) => button.textContent === "Rig v3")!;
+    expect(v3).toBeDefined();
+    await act(async () => v3.click());
+    expect(captured.props!.nodes[0]!.data).toMatchObject({ actionIds: [], model3DOptions: { rigModel: "v3.0-20260909", rigType: "biped" } });
+    expect(container.querySelector('[aria-label="Rig version: Rig v3"]')).not.toBeNull();
+  }
 });
 
-it("keeps Meshy's supplied visual previews in the move picker", async () => {
-  api.model3DOperations.mockResolvedValue([{ ...MODEL_3D_MODELS[0]!, id: MODEL3D_CONNECTION_ID, name: "Meshy", operations: ["animate"] }]);
+it("keeps Meshy's previews and selection stable across catalog polling and identical connection updates", async () => {
+  api.model3DOperations.mockImplementation(async () => structuredClone([{ ...MODEL_3D_MODELS[0]!, id: MODEL3D_CONNECTION_ID, name: "Meshy", operations: ["animate"] }]));
+  api.model3DCatalog.mockResolvedValue({ models: [], providers: [{ provider: "cloud-hyper3d", providerName: "Hyper3D", state: "ready", cloud: { availability: "ready", userId: "user" } }] });
   api.animationActions.mockResolvedValue([{ id: 0, name: "Idle", category: "Daily", subCategory: "Idle", previewUrl: "https://cdn.test/idle.gif" }]);
   boardDisk.board.nodes = [{ id: "meshy", type: "animate-3d", title: "Original", position: { x: 0, y: 0 }, data: { actionIds: [], heightMeters: 1.7 } }];
   await openCanvas("asset-canvas");
@@ -305,6 +317,83 @@ it("keeps Meshy's supplied visual previews in the move picker", async () => {
   const dialog = document.querySelector('[role="dialog"]')!;
   expect(dialog.querySelector(".story-animation-picker-preview img")?.getAttribute("src")).toBe("https://cdn.test/idle.gif");
   expect(dialog.textContent).not.toContain("without visual previews");
+  const preview = dialog.querySelector(".story-animation-picker-preview img");
+  await act(async () => (dialog.querySelector(".story-animation-picker-grid > button") as HTMLButtonElement).click());
+  expect(captured.props!.nodes[0]!.data.actionIds).toEqual([0]);
+  await advance(30_000);
+  expect(api.model3DCatalog).toHaveBeenCalledTimes(2);
+  expect(api.model3DOperations).toHaveBeenCalledTimes(1);
+  expect(api.animationActions).toHaveBeenCalledTimes(1);
+  await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
+  expect(api.model3DOperations).toHaveBeenCalledTimes(2);
+  expect(api.animationActions).toHaveBeenCalledTimes(1);
+  expect(dialog.querySelector(".story-animation-picker-preview img")).toBe(preview);
+  expect(captured.props!.nodes[0]!.data.actionIds).toEqual([0]);
+});
+
+it("polls cloud state only while visible and signed in, without overlapping catalog requests", async () => {
+  const cloudCatalog = { models: [], providers: [{ provider: "cloud-hyper3d", providerName: "Hyper3D", state: "ready", cloud: { availability: "ready", userId: "user" } }] };
+  api.model3DCatalog.mockResolvedValue(cloudCatalog);
+  await openCanvas("asset-canvas");
+  const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  try {
+    await advance(60_000);
+    expect(api.model3DCatalog).toHaveBeenCalledTimes(1);
+    let finish!: (value: typeof cloudCatalog) => void;
+    api.model3DCatalog.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    visibility.mockReturnValue("visible");
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    expect(api.model3DCatalog).toHaveBeenCalledTimes(2);
+    await advance(60_000);
+    expect(api.model3DCatalog).toHaveBeenCalledTimes(2);
+    await act(async () => finish(cloudCatalog));
+    api.model3DCatalog.mockResolvedValue({ models: [], providers: [{ ...cloudCatalog.providers[0], cloud: { availability: "sign_in_required" } }] });
+    await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
+    const calls = api.model3DCatalog.mock.calls.length;
+    await advance(60_000);
+    expect(api.model3DCatalog).toHaveBeenCalledTimes(calls);
+  } finally {
+    visibility.mockRestore();
+  }
+});
+
+it("does not poll local 3D configuration without a signed-in cloud provider", async () => {
+  await openCanvas("asset-canvas");
+  await advance(60_000);
+  expect(api.model3DCatalog).toHaveBeenCalledTimes(1);
+  expect(api.model3DOperations).toHaveBeenCalledTimes(1);
+  await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
+  expect(api.model3DCatalog).toHaveBeenCalledTimes(2);
+  expect(api.model3DOperations).toHaveBeenCalledTimes(2);
+});
+
+it("reloads moves for connection and rig changes, ignores stale results and keeps playback options separate", async () => {
+  const tripo = { provider: "tripo", id: MODEL3D_CONNECTION_ID };
+  const meshy = { provider: "meshy", id: MODEL3D_CONNECTION_ID };
+  api.model3DOperations.mockResolvedValue(["tripo", "meshy"].map((provider) => ({ ...MODEL_3D_MODELS.find((model) => model.provider === provider)!, id: MODEL3D_CONNECTION_ID, operations: ["animate"] })));
+  boardDisk.board.nodes = [{ id: "animation", type: "animate-3d", title: "Original", position: { x: 0, y: 0 }, data: { model: tripo, actionIds: [], heightMeters: 1.7 } }];
+  let finishOld!: (value: Array<{ id: number; name: string; category: string; subCategory: string }>) => void;
+  api.animationActions.mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }));
+  await openCanvas("asset-canvas");
+  await act(async () => captured.props!.onNodesChange!([{ id: "animation", type: "select", selected: true }]));
+  await act(async () => [...container.querySelectorAll("button")].find((button) => button.textContent === "0 moves")!.click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  const change = (model: ModelRef, options?: Model3DOptions) => act(async () => {
+    const data = captured.props!.nodes[0]!.data;
+    (data.animateRuntime as { onChange: (data: unknown) => void }).onChange({ ...data, animateRuntime: undefined, animationModel: model, model3DOptions: options });
+  });
+  const options: Model3DOptions = { rigModel: "v2.5-20260210", rigType: "quadruped" };
+  await change(tripo, options);
+  expect(api.animationActions).toHaveBeenCalledTimes(2);
+  expect(api.animationActions).toHaveBeenLastCalledWith(tripo, options);
+  await act(async () => finishOld([{ id: 99, name: "Stale move", category: "Old", subCategory: "Old" }]));
+  expect(dialog.textContent).toContain("Idle");
+  expect(dialog.textContent).not.toContain("Stale move");
+  await change(tripo, { ...options, animateInPlace: true });
+  expect(api.animationActions).toHaveBeenCalledTimes(2);
+  await change(meshy);
+  expect(api.animationActions).toHaveBeenCalledTimes(3);
+  expect(api.animationActions).toHaveBeenLastCalledWith(meshy, undefined);
 });
 async function openCanvas(type: "web-game" | "asset-canvas") {
   const storage = createCanvasBoardStorage({

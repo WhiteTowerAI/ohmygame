@@ -402,6 +402,12 @@ export async function removeProvider(providerId: string): Promise<void> {
   notifyAgentModelsChanged();
 }
 
+export async function refreshProviderModels(providerId: string): Promise<ProviderModelSettings> {
+  const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/refresh`, { method: "POST" });
+  notifyAgentModelsChanged();
+  return result;
+}
+
 export async function getProviderModels(providerId: string): Promise<ProviderModelSettings> {
   return request(`/settings/models/providers/${encodeURIComponent(providerId)}/models`);
 }
@@ -646,7 +652,7 @@ export function getMyCommunityGames(accessToken: string): Promise<CommunityProfi
   return request("/community/me/games", { headers: communityHeaders(accessToken) });
 }
 
-export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
+export function setCommunityLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
 }
 
@@ -1019,6 +1025,10 @@ export async function createConversation(
     method: "POST",
     body: JSON.stringify({ ...(model ? { model: modelRef(model) } : {}), ...(reasoningLevel ? { reasoningLevel } : {}) }),
   });
+}
+
+export async function branchConversation(projectId: string, conversationId: string, entryId: string): Promise<ConversationSummary> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/branch`, { method: "POST", body: JSON.stringify({ entryId }) });
 }
 
 export async function getConversation(projectId: string, conversationId: string, reset = false): Promise<ConversationDetail> {

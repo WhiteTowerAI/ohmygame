@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { CUSTOM_MODEL_APIS, type CustomProviderModel, type ProviderModelSettings, type ModelRef } from "../shared/contracts.js";
-import { addCustomProviderModel, getCloudQuotas, getProviderModels, listModels, notifyAgentModelsChanged, removeCustomProviderModel, resetProviderModel3D, setProviderModelVisibility, updateProviderModel3D } from "./api.js";
+import { addCustomProviderModel, getCloudQuotas, getProviderModels, refreshProviderModels, listModels, notifyAgentModelsChanged, removeCustomProviderModel, resetProviderModel3D, setProviderModelVisibility, updateProviderModel3D } from "./api.js";
 import { ProviderModel3DForm } from "./provider-model3d-form.js";
 import { Check, ChevronDown, ExternalLink, LoaderCircle, Pencil, Plus, RefreshCw, Search, Trash2, X } from "./icons.js";
 import { SegmentedControl } from "./segmented-control.js";
@@ -26,6 +26,8 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
   const [defaultModel, setDefaultModel] = useState<ModelRef>();
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const providerRef = useRef(providerId);
+  const loadSequence = useRef(0);
+  const updating = useRef(false);
   useEffect(() => {
     let active = true;
     // Only marks the default; the list works without it.
@@ -35,7 +37,9 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
   const reloadRef = useRef<(force?: boolean) => void>(() => {});
   providerRef.current = providerId;
   useEffect(() => {
-    let active = true, sequence = 0;
+    let active = true, canRefresh = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    updating.current = false;
     setSettings(undefined);
     setEditing(false);
     setAdding(false);
@@ -46,26 +50,37 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
     setFilter("all");
     setError(undefined);
     const load = async (force = false) => {
-      const revision = ++sequence;
+      clearTimeout(retry);
+      if (updating.current) { retry = setTimeout(() => { void load(); }, 1_000); return; }
+      const revision = ++loadSequence.current;
       setBusy(true);
       try {
         if (force && additionalProviderId?.startsWith("cloud-")) { await getCloudQuotas(); notifyAgentModelsChanged(); }
+        if (force && canRefresh) {
+          try { await refreshProviderModels(providerId); }
+          catch { if (active && revision === loadSequence.current) setError(t("models.refreshFailed")); return; }
+        }
         const results = await Promise.allSettled([providerId, ...(additionalProviderId ? [additionalProviderId] : [])].map(getProviderModels));
-        if (!active || revision !== sequence) return;
+        if (!active) return;
+        if (revision !== loadSequence.current) { retry = setTimeout(() => { void load(); }, 1_000); return; }
         const loaded = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
         const failure = results.find((result) => result.status === "rejected");
+        canRefresh = loaded[0]?.canRefreshCatalog === true;
         if (loaded.length) setSettings({ ...loaded[0]!, models: loaded.slice().reverse().flatMap((item) => item.models) });
+        if (loaded.some((item) => item.refreshingCatalog)) retry = setTimeout(() => { void load(); }, 1_000);
         setError(failure?.status === "rejected" ? errorMessage(failure.reason) : undefined);
-      } catch (cause) { if (active && revision === sequence) setError(errorMessage(cause)); }
-      finally { if (active && revision === sequence) setBusy(false); }
+      } catch (cause) { if (active && revision === loadSequence.current) setError(errorMessage(cause)); }
+      finally { if (active && revision === loadSequence.current) setBusy(false); }
     };
     reloadRef.current = (force) => { void load(force); };
     void load();
-    return () => { active = false; };
+    return () => { active = false; clearTimeout(retry); };
   }, [providerId, additionalProviderId]);
 
   async function update(operation: () => Promise<ProviderModelSettings>, owner: string | null = providerId): Promise<boolean> {
     const id = providerId;
+    updating.current = true;
+    ++loadSequence.current;
     setBusy(true);
     setError(undefined);
     try {
@@ -80,7 +95,7 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
       if (providerRef.current !== id) return false;
       setError(errorMessage(cause));
       return false;
-    } finally { if (providerRef.current === id) setBusy(false); }
+    } finally { if (providerRef.current === id) { updating.current = false; setBusy(false); } }
   }
 
   const search = query.trim().toLowerCase();
@@ -123,6 +138,7 @@ export function ProviderModels({ providerId, additionalProviderId, sourceLabels,
     <div className="provider-models-heading">
       <h4>{t("models.title")} <small>{settings ? shown : ""}</small></h4>
       {settings ? <div className="provider-models-heading-actions">
+        {settings.canRefreshCatalog ? <button className="settings-secondary-button" type="button" disabled={busy || settings.refreshingCatalog || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)}><RefreshCw size={13} className={busy || settings.refreshingCatalog ? "spin" : undefined} /><span>{t("models.refresh")}</span></button> : null}
         {settings.model3DProtocol ? <button className="settings-secondary-button" type="button" disabled={busy || adding || Boolean(editingModel)} onClick={() => reloadRef.current(true)} title={t("models.reloadTitle")} aria-label={t("models.reloadLabel")}><RefreshCw size={13} className={busy ? "spin" : undefined} /><span>{t("common.reload")}</span></button> : null}
         {(editing || !settings.models.length) && settings.canAddCustomModel ? <button className="settings-secondary-button" type="button" disabled={busy || adding} onClick={onEditModels ?? (() => { setAdding(true); setEditingModel(undefined); setError(undefined); })} aria-expanded={onEditModels ? undefined : adding}>
           <Plus size={13} /><span>{t("models.add")}</span>

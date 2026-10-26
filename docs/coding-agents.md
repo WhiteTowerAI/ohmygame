@@ -192,6 +192,21 @@ Validation includes simulated canvas-to-Library generation, image-toggle
 persistence, failure/cancellation fixtures, and a real image generation with
 Codex 0.163.0-alpha.10.2 on macOS while its conversation agent was disabled.
 
+## Branch in new chat
+
+A completed agent response has **Branch in new chat** immediately to the right
+of Copy. After confirmation, OhMyGame opens a new chat containing the source
+chat's current history through that response, inclusive. Later messages are not
+copied. The source chat is unchanged, and either chat can continue independently.
+This applies to Pi and all supported coding agent CLIs.
+
+![Branch in new chat next to Copy on a completed response](assets/chat-branch-response.png)
+
+Both chats use the same project's current files. Branching a chat does not
+restore older files or create a separate workspace. The new chat receives the
+model and settings recorded at the branch point, clears active
+plan state, and creates its own native CLI context from a history handoff.
+
 ## What OhMyGame keeps
 
 A coding agent session (`NativeCodingSession`) implements the same
@@ -298,10 +313,13 @@ In the project folder an agent works without asking, as OhMyGame's own agent
 does. `judgeApproval` decides each request first:
 
 - **Deny** anything that reaches a CLI sign-in folder (`~/.claude`,
-  `~/.codex`, OpenCode's folders), `~/.ssh` and similar, OhMyGame's data folder,
-  or another project. Paths resolve symlinks, including missing descendants,
+  `~/.codex`, OpenCode's folders, `~/.pi`), `~/.ssh` and similar, OhMyGame's
+  data folder, OhMyGame's own agent folder (`pi-agent`, which holds provider
+  keys and sign-ins and sits beside the data folder in the desktop app), or
+  another project. Paths resolve symlinks, including missing descendants,
   and include custom CLI credential homes. A command reaches a folder when it names it or a folder
-  that holds it, quoted or not.
+  that holds it, including quoted paths containing spaces and paths with
+  backslash-escaped spaces.
 - **Allow** workspace file requests and a small set of simple read commands.
   Claude Code's own tools that touch no file and run no command (`TodoWrite`,
   `Skill`, `Task`, `WebSearch`, `WebFetch` and its background-shell and MCP

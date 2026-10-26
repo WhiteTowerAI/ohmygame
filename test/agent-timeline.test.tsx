@@ -35,6 +35,14 @@ function AgentTimeline({ items, activeTurnId, failedTurnId, cancelledTurnId, ...
 }
 
 describe("AgentTimeline", () => {
+  it("places Branch in new chat immediately after Copy for every persisted completed response", () => {
+    const response: ThreadItem = { id: "response", turnId: "turn-1", type: "agentMessage", text: "Done", status: "completed", phase: "final_answer", branchEntryId: "stored-response" };
+    const html = renderToStaticMarkup(<AgentTimeline items={[user(), response]} onBranch={() => {}} />);
+    expect(html).toMatch(/aria-label="Copy response"[\s\S]*?<\/button><button[^>]*aria-label="Branch in new chat"/);
+    expect(html).not.toMatch(/aria-label="Branch in new chat"[^>]*disabled/);
+    const pending = renderToStaticMarkup(<AgentTimeline items={[user(), { ...response, branchEntryId: undefined }]} onBranch={() => {}} />);
+    expect(pending).toMatch(/aria-label="Branch in new chat"[^>]*disabled/);
+  });
   it("shows per-call line counts only for successful file edits", () => {
     const edit: ThreadItem = { id: "edit-1", turnId: "turn-1", type: "dynamicToolCall", toolCallId: "call-1", tool: "edit", status: "completed", arguments: { path: "game.ts" }, output: "Updated", lineChanges: { added: 3, removed: 1 } };
     const html = renderToStaticMarkup(<AgentTimeline items={[user(), edit]} activeTurnId="turn-1" />);

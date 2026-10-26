@@ -2,7 +2,7 @@ import { language, t } from "./i18n.js";
 import { useEffect, useRef, useState } from "react";
 import type { CommunityGame } from "../shared/contracts.js";
 import type { CommunityGameStats } from "../shared/publish-v1.js";
-import { getExploreGameCover, setCommunityLike } from "./api.js";
+import { ApiError, getExploreGameCover, setCommunityLike } from "./api.js";
 import { useAuth } from "./auth.js";
 import { Eye, Gamepad2, Heart, LoaderCircle } from "./icons.js";
 import { communityProfileHash } from "./routes.js";
@@ -136,15 +136,8 @@ export function GameStats({
   const userId =
     auth.state.status === "signed-in" ? auth.state.user.id : undefined;
   const currentIdentity = useRef({ gameId: game.id, userId });
-  if (
-    currentIdentity.current.gameId !== game.id ||
-    (currentIdentity.current.userId &&
-      currentIdentity.current.userId !== userId)
-  ) {
+  if (currentIdentity.current.gameId !== game.id || currentIdentity.current.userId !== userId) {
     currentIdentity.current = { gameId: game.id, userId };
-  } else {
-    // A click that opens sign-in continues under the newly signed-in account.
-    currentIdentity.current.userId = userId;
   }
   const mounted = useRef(false);
   useEffect(() => {
@@ -156,7 +149,9 @@ export function GameStats({
   const stats = game.stats;
   const currentStats = useRef(stats);
   currentStats.current = stats;
-  const liked = Boolean(userId && stats?.liked);
+  const statsIdentity = useRef({ stats, userId });
+  if (statsIdentity.current.stats !== stats) statsIdentity.current = { stats, userId };
+  const liked = Boolean(statsIdentity.current.userId === userId && stats?.liked);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -167,20 +162,19 @@ export function GameStats({
     if (busy || !stats || !onChange) return;
     setBusy(true);
     setError(undefined);
-    let identity = currentIdentity.current;
+    const identity = currentIdentity.current;
     const isCurrent = () =>
       mounted.current && currentIdentity.current === identity;
     try {
-      const token = await auth.requestAccessToken();
-      if (!token || !mounted.current) return;
-      identity = currentIdentity.current;
-      if (identity.gameId !== game.id || (userId && identity.userId !== userId))
-        return;
+      const token = userId ? await auth.requestAccessToken() : undefined;
+      if ((userId && !token) || !isCurrent()) return;
       const next = await setCommunityLike(game.id, token, !liked);
       if (isCurrent()) onChange({ ...next, viewCount: Math.max(next.viewCount, currentStats.current?.viewCount ?? 0) });
     } catch (cause) {
       if (isCurrent())
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(cause instanceof ApiError && cause.status === 429 ? t("community.likeRateLimited")
+          : cause instanceof ApiError && cause.status === 503 ? t("community.likeUnavailable")
+          : cause instanceof Error ? cause.message : String(cause));
     } finally {
       if (mounted.current) setBusy(false);
     }

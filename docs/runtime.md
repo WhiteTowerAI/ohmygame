@@ -603,13 +603,16 @@ Legacy hidden works remain accessible to their signed-in author through the
 same detail page, with read-only engagement counts. Other visitors cannot read
 their Community details or covers.
 
-View counts measure successful game entry requests, including repeat visits,
-refreshes, and creator visits. The Cloud play server counts GET requests for
+View counts measure deduplicated successful game entries, including creator visits.
+The Cloud play server considers GET requests for
 `/` and `/index.html`, covering desktop iframes, direct shared links, and future
 web Community players with the same `playUrl`. Lists, covers, assets, other HTML
 pages, HEAD requests, missing files, and explicit preloads do not add views.
 The client reads the latest metrics after the game iframe loads; it does not
-send a view mutation or create a visitor identity.
+send a view mutation or create a Community visitor identity. Cloud uses a
+separate signed play cookie for a 10-minute per-browser/game cooldown, a 60-second
+IP/User-Agent fallback for new or unavailable cookies, and a generous shared IP
+quota. Repeated or excessive entries still open normally without adding counts.
 
 Entry HTML is served with `Cache-Control: no-store`; versioned assets retain
 immutable caching. Counts are best effort: a failed counter does not block play,
@@ -617,13 +620,29 @@ and they do not establish that the game finished loading or a human played it.
 Browser history restoration without a new request and offline play are not
 counted. Counts start at zero with the play-count migration, survive publishing
 updates, and reset when a work is unpublished and published as a new game.
-Local debug publishing follows the same entry-counting rule for current snapshots.
+Local debug snapshots count raw entry requests in memory and do not simulate
+Cloud's browser/IP abuse controls. Hosted thresholds and rollout are documented
+in the Cloud Publish contract.
 
 ![Game details display cumulative opens from embedded and shared play](assets/community-view-count.png)
 
-Likes require sign-in, support undo, and are unique per account and work. A
-completed like updates the card, sort order, and profile total together, even
-when an earlier refresh is still in flight.
+Likes work directly on Community cards without sign-in, support undo, and are
+unique per visitor or account and work. The daemon stores a signed visitor
+credential in `community-visitor.json` under its data directory, scoped to the
+Cloud API URL and readable only by the current user on POSIX systems. It is
+never sent to game frames. Public browsing does not create it; the first anonymous
+like does. Signing in explicitly merges that visitor's likes into the account,
+deduplicates existing likes, and clears the credential after acknowledgement.
+Failed merges preserve the credential for retry without blocking public reads;
+signing out creates a new identity only on the next anonymous mutation.
+A completed like updates the card,
+sort order, and profile total together, even when an earlier refresh is still
+in flight. Clearing application data resets the visitor identity; it does not
+remove likes already stored by Cloud. This is browser/app identity, not a
+hardware device guarantee. Cloud applies shared IP and identity rate limits.
+
+![Signed-out players can like games directly from Community cards](assets/community-anonymous-like.png)
+
 Community reads opt in to metrics with `?metrics=true`; older service responses
 without metrics show unavailable counts. Cloud access tokens are forwarded
 transiently and never stored in project files. Local development provides the
@@ -631,7 +650,9 @@ same flows through temporary debug snapshots.
 
 Hosted use requires the Cloud play-count migration and matching API/client rollout.
 The old unique-viewer endpoint and schema are removed. See the Cloud contract
-for deployment and cache-purge instructions.
+for deployment and cache-purge instructions. Anonymous likes additionally need
+the anonymous-likes migration and server-side visitor secret; older Cloud
+deployments still allow public browsing but cannot accept anonymous likes.
 
 The Publish v1 contract is in the
 [`ohmygame-cloud` repository](https://github.com/WhiteTowerAI/ohmygame-cloud/blob/main/docs/publish-v1.md).
