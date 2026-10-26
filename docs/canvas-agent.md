@@ -153,7 +153,12 @@ Three tools supplement ordinary file editing:
   when generation is requested, including necessary media for a game-creation
   request unless the user limits its scope. It shares canvas jobs, cancellation and
   history, materializes output in the project, and writes the output ID back
-  to the node. Changing a file does not start generation.
+  to the node. Changing a file does not start generation. When the node is
+  already generating, for example after the user pressed Generate, the call
+  waits for that job instead of failing. When the node's current output came
+  from identical resolved settings, it returns that output without another paid
+  run; `regenerate: true` asks for a new variation. The canvas Generate button
+  always starts a new run.
 
 ## Migrating Existing Projects
 

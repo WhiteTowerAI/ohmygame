@@ -562,11 +562,15 @@ export function createAgentTools(
   }), defineTool({
     name: "generate_canvas_media",
     label: "Generate Canvas Media",
-    description: "Generate a saved media node using its current prompt, configured model and references. Use it only for a node whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool.",
-    parameters: Type.Object({ boardId: Type.String({ minLength: 1, maxLength: 100 }), nodeId: Type.String({ minLength: 1, maxLength: 120 }) }),
+    description: "Generate a saved media node using its current prompt, configured model and references. Use it only for a node whose generation model is available. A game-creation request includes its needed media unless the user narrows the scope; editing a prompt or reference alone does not request generation. Saves output into the project, updates the node and shares the canvas generation history. Edit ordinary canvas files before calling this tool. If the node is already generating, this waits for that run; if its current output came from the same settings, this returns it without generating again unless regenerate is true.",
+    parameters: Type.Object({
+      boardId: Type.String({ minLength: 1, maxLength: 100 }),
+      nodeId: Type.String({ minLength: 1, maxLength: 120 }),
+      regenerate: Type.Optional(Type.Boolean({ description: "Start a new paid generation even when the node's current output came from the same settings, for example when the user wants another variation." })),
+    }),
     execute: async (_toolCallId, input, signal) => {
       signal?.throwIfAborted();
-      const job = await canvasStore.generateNode(project.id, input.boardId, input.nodeId);
+      const job = await canvasStore.generateNode(project.id, input.boardId, input.nodeId, !input.regenerate);
       const cancel = () => { void canvasStore.cancel(project.id, job.id).catch(() => {}); };
       signal?.addEventListener("abort", cancel, { once: true });
       if (signal?.aborted) cancel();
@@ -583,7 +587,10 @@ export function createAgentTools(
         if (current.status !== "succeeded") throw new Error(current.error || "Generation failed");
         const manifest = await readCanvasAssets(project.workspacePath);
         const paths = current.run?.files.map((file) => file.assetId && manifest.assets[file.assetId]?.path).filter(Boolean) ?? [];
-        return { content: [{ type: "text", text: `Generated media for node ${input.nodeId}. Saved: ${paths.join(", ")}. Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
+        const summary = job.reused === "output"
+          ? `Node ${input.nodeId} already has output from these settings, so nothing new was generated. Existing: ${paths.join(", ")}. Pass regenerate: true only when another variation is wanted.`
+          : `${job.reused === "running" ? `Node ${input.nodeId} was already generating, so this waited for that run instead of starting another.` : `Generated media for node ${input.nodeId}.`} Saved: ${paths.join(", ")}.`;
+        return { content: [{ type: "text", text: `${summary} Inspect or play the relevant output to evaluate the actual result.` }], details: { canvasGeneration: current } };
       } finally { signal?.removeEventListener("abort", cancel); }
     },
   })] : []), ...(playtest?.driver.available && playtest.driver.capabilities.projectTypes.includes(project.type) && (project.type !== "general" || supportsWebPreview(project))
