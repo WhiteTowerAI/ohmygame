@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NodePlayerDefinition } from "../src/shared/playable-player-protocol.js";
+import type { NodeRuntimeSnapshot } from "../src/shared/playable-runtime.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 import {
   PlaytestControls,
@@ -12,6 +13,8 @@ import {
   playtestSeenKey,
   requestPlaytest,
   takePlaytestRequest,
+  requestAskAgent,
+  usePlaytestAskRequests,
   type PlaytestAction,
 } from "../src/renderer/playable-playtest.js";
 
@@ -26,9 +29,10 @@ const definition: NodePlayerDefinition = {
   compiled: { version: 1, nodes: {} },
 };
 const player = vi.fn();
+const getNodeRuntime = vi.fn();
 vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   ...(await original<typeof import("../src/renderer/api.js")>()),
-  getNodeRuntime: async () => ({ available: true, definition }),
+  getNodeRuntime,
 }));
 vi.doMock(path.resolve("src/renderer/playable-assets.ts"), () => ({
   loadPlayableAssets: async () => ({}),
@@ -44,12 +48,14 @@ vi.doMock(
   }),
 );
 const { PlaytestPage } = await import("../src/renderer/playtest.js");
+const { ApiError } = await import("../src/renderer/api.js");
 let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.localStorage.clear();
   player.mockClear();
+  getNodeRuntime.mockReset().mockResolvedValue({ available: true, definition });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -70,7 +76,7 @@ function button(label: string): HTMLButtonElement {
   return found;
 }
 
-async function deliverAction(action: PlaytestAction, projectId = "p") {
+async function deliverAction(action: PlaytestAction | "open", projectId = "p") {
   await act(async () => {
     requestPlaytest(projectId, { action });
     const key = `ohmygame:playtest:request:${projectId}`;
@@ -245,12 +251,12 @@ describe("Playtest window requests", () => {
   it("replays a chosen Scene with fresh session storage and preserves the project's save", async () => {
     window.localStorage.setItem(playtestSaveKey("p"), "saved game");
     window.localStorage.setItem(playtestSeenKey("p"), "explored scenes");
-    requestPlaytest("p", { action: "start", start: { nodeId: "archive" } });
+    requestPlaytest("p", { action: "start", start: { nodeId: "start" } });
     await act(async () => root.render(<PlaytestPage projectId="p" />));
     const initial = player.mock.calls.at(-1)![0];
     expect(initial.preview).toEqual({
       policy: "follow",
-      startNodeId: "archive",
+      startNodeId: "start",
     });
     await deliverAction("replay");
     const replay = player.mock.calls.at(-1)![0];
@@ -268,5 +274,227 @@ describe("Playtest window requests", () => {
       "saved game",
     );
     expect(window.localStorage.getItem(playtestSeenKey("p"))).toBeNull();
+  });
+
+  it("keeps a playing game when the editor only brings Playtest forward", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const calls = player.mock.calls.length;
+    await deliverAction("open");
+    expect(getNodeRuntime).toHaveBeenCalledOnce();
+    expect(player).toHaveBeenCalledTimes(calls);
+  });
+
+  it("lets a window that is still loading finish when the editor brings it forward", async () => {
+    getNodeRuntime.mockReturnValue(new Promise(() => {}));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    await deliverAction("open");
+    expect(getNodeRuntime).toHaveBeenCalledOnce();
+  });
+
+  it("loads the story again for an editor action or when it could not be played", async () => {
+    getNodeRuntime.mockRejectedValueOnce(new Error("The game service is unavailable."));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(player).not.toHaveBeenCalled();
+    await deliverAction("open");
+    expect(getNodeRuntime).toHaveBeenCalledTimes(2);
+    expect(player).toHaveBeenCalled();
+    await deliverAction("replay");
+    expect(getNodeRuntime).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("Playtest that cannot start", () => {
+  const empty: NodePlayerDefinition = {
+    ...definition,
+    graph: { ...definition.graph, nodes: [], edges: [] },
+  };
+
+  function text(): string {
+    return container.textContent ?? "";
+  }
+
+  function action(label: string): HTMLButtonElement {
+    const found = Array.from(container.querySelectorAll("button")).find(
+      (candidate) => candidate.textContent === label,
+    );
+    if (!found) throw new Error(`Missing action: ${label}`);
+    return found;
+  }
+
+  it("says to add a Scene and brings the editor forward instead of starting a story with none", async () => {
+    const showPlaytestEditor = vi.fn(async () => {});
+    vi.stubGlobal("ohMyGameDesktop", { showPlaytestEditor });
+    getNodeRuntime.mockResolvedValue({ available: true, definition: empty });
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(player).not.toHaveBeenCalled();
+    expect(text()).toContain("This story has no Scenes yet");
+    expect(text()).toContain("Add a Scene in the Story editor, then click Playtest again.");
+    await act(async () => action("Open editor").click());
+    expect(showPlaytestEditor).toHaveBeenCalledExactlyOnceWith("p");
+  });
+
+  it("offers to close the window when nothing can bring the editor forward", async () => {
+    getNodeRuntime.mockResolvedValue({ available: false });
+    const close = vi.spyOn(window, "close").mockImplementation(() => {});
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("This story has no Scenes yet");
+    await act(async () => action("Close window").click());
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("plays from the start when the chosen Scene no longer exists", async () => {
+    requestPlaytest("p", { action: "start", start: { nodeId: "deleted" } });
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(player).not.toHaveBeenCalled();
+    expect(text()).toContain("The Scene to play from no longer exists");
+    await act(async () => action("Play from the start").click());
+    expect(player.mock.calls.at(-1)?.[0].preview).toBeUndefined();
+  });
+
+  it("asks the AI to fix a story the service refused", async () => {
+    getNodeRuntime.mockRejectedValue(new ApiError("/: graph.json is not valid JSON.", 400));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("The story can't start");
+    expect(text()).toContain("/: graph.json is not valid JSON.");
+    await act(async () => action("Ask AI to fix").click());
+    const ask = JSON.parse(window.localStorage.getItem("ohmygame:playtest:ask:p")!) as { text: string };
+    expect(ask.text).toBe("Playtest could not start the story. Find the cause and fix it.\n\nError:\n- /: graph.json is not valid JSON.");
+    expect(text()).toContain("Added to the chat in the editor");
+    expect(action("Close window")).toBeTruthy();
+  });
+
+  it("shows a game that stopped while starting the same way", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    await act(async () => player.mock.calls.at(-1)![0].onError("Scene script failed"));
+    expect(text()).toContain("The story can't start");
+    expect(text()).toContain("Scene script failed");
+    const calls = player.mock.calls.length;
+    await act(async () => action("Try again").click());
+    expect(getNodeRuntime).toHaveBeenCalledTimes(2);
+    expect(player.mock.calls.length).toBeGreaterThan(calls);
+    expect(text()).not.toContain("The story can't start");
+  });
+
+  it("tells the AI what the game reported before it stopped while starting", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const props = player.mock.calls.at(-1)![0];
+    await act(async () => props.onDiagnostic("Missing image"));
+    await act(async () => props.onError("Scene script failed"));
+    await act(async () => action("Ask AI to fix").click());
+    const ask = JSON.parse(window.localStorage.getItem("ohmygame:playtest:ask:p")!) as { text: string };
+    expect(ask.text).toBe("Something broke while I was playtesting. Find the cause and fix it.\n\nErrors:\n- Missing image\n- Scene script failed");
+  });
+
+  function snapshot(status: NodeRuntimeSnapshot["status"]): NodeRuntimeSnapshot {
+    return {
+      status,
+      policy: "follow",
+      currentNodeId: "start",
+      backStack: [],
+      state: {},
+      recentSignals: [],
+      reports: [],
+      stateAccess: {},
+      errors: [],
+    } as unknown as NodeRuntimeSnapshot;
+  }
+
+  it("still says the story can't start when a web story reported itself before it started", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const props = player.mock.calls.at(-1)![0];
+    await act(async () => props.onSnapshot(snapshot("starting")));
+    await act(async () => props.onError("Scene script failed"));
+    expect(text()).toContain("The story can't start");
+    expect(text()).not.toContain("The story stopped with an error");
+  });
+
+  it("says the story stopped, not that it could not start, when a running game fails", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const props = player.mock.calls.at(-1)![0];
+    await act(async () => props.onSnapshot(snapshot("running")));
+    await act(async () => props.onError("The save could not be read"));
+    expect(text()).toContain("The story stopped with an error");
+    expect(text()).toContain("The save could not be read");
+    expect(text()).not.toContain("The story can't start");
+    await act(async () => action("Ask AI to fix").click());
+    const ask = JSON.parse(window.localStorage.getItem("ohmygame:playtest:ask:p")!) as { text: string };
+    expect(ask.text).toBe("Something broke while I was playtesting. Find the cause and fix it.\nI was in Node 1.\n\nErrors:\n- The save could not be read");
+    const calls = getNodeRuntime.mock.calls.length;
+    await act(async () => action("Play again").click());
+    expect(getNodeRuntime).toHaveBeenCalledTimes(calls + 1);
+    expect(text()).not.toContain("The story stopped with an error");
+    // The new session has not played yet, so failing now is a failure to start.
+    await act(async () => player.mock.calls.at(-1)![0].onError("Scene script failed"));
+    expect(text()).toContain("The story can't start");
+  });
+
+  it("counts a Scene change as playing, and a page that starts over as not yet playing", async () => {
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    const props = player.mock.calls.at(-1)![0];
+    await act(async () => props.onSnapshot(snapshot("transitioning")));
+    await act(async () => props.onSnapshot(snapshot("starting")));
+    await act(async () => props.onError("Scene script failed"));
+    expect(text()).toContain("The story can't start");
+    await act(async () => action("Try again").click());
+    const next = player.mock.calls.at(-1)![0];
+    await act(async () => next.onSnapshot(snapshot("transitioning")));
+    await act(async () => next.onError("Scene script failed"));
+    expect(text()).toContain("The story stopped with an error");
+  });
+
+  it("tries again after a failure that may pass, keeping the chosen Scene", async () => {
+    getNodeRuntime.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    requestPlaytest("p", { action: "start", start: { nodeId: "start" } });
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("Playtest couldn't load the story");
+    await act(async () => action("Try again").click());
+    expect(player.mock.calls.at(-1)?.[0].preview).toEqual({ policy: "follow", startNodeId: "start" });
+  });
+
+  it("does not blame the story's files for a request the service refused for another reason", async () => {
+    getNodeRuntime.mockRejectedValue(new ApiError("Unauthorized", 401));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("Playtest couldn't load the story");
+    expect(text()).not.toContain("Ask AI to fix");
+  });
+
+  it("offers only to close the window for a project that no longer exists", async () => {
+    vi.stubGlobal("ohMyGameDesktop", { showPlaytestEditor: vi.fn() });
+    getNodeRuntime.mockRejectedValue(new ApiError("Project not found", 404));
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("This project is no longer available");
+    expect(Array.from(container.querySelectorAll("button"), (item) => item.textContent)).toEqual(["Close window"]);
+  });
+
+  it("translates the explanation and actions into Chinese", async () => {
+    await i18next.changeLanguage("zh-CN");
+    getNodeRuntime.mockResolvedValue({ available: true, definition: empty });
+    await act(async () => root.render(<PlaytestPage projectId="p" />));
+    expect(text()).toContain("这个故事还没有场景");
+    expect(action("关闭窗口")).toBeTruthy();
+    expect(document.title).toBe("Playtest - Playtest");
+  });
+});
+
+describe("Ask AI to fix from Playtest", () => {
+  function Editor({ onAsk }: { onAsk: (text: string) => void }) {
+    usePlaytestAskRequests("p", onAsk);
+    return null;
+  }
+
+  it("takes a request sent just before the editor opened, but not an old one", async () => {
+    requestAskAgent("p", "Fix the start");
+    const onAsk = vi.fn();
+    await act(async () => root.render(<Editor onAsk={onAsk} />));
+    expect(onAsk).toHaveBeenCalledExactlyOnceWith("Fix the start");
+    expect(window.localStorage.getItem("ohmygame:playtest:ask:p")).toBeNull();
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    window.localStorage.setItem("ohmygame:playtest:ask:p", JSON.stringify({ text: "Old", id: Date.now() - 120_000 }));
+    const later = vi.fn();
+    await act(async () => root.render(<Editor onAsk={later} />));
+    expect(later).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("ohmygame:playtest:ask:p")).toBeNull();
   });
 });

@@ -147,7 +147,7 @@ const mutants = [
     id: "E1",
     file: "src/desktop/window.ts",
     feature: "Renderer navigation restriction",
-    before: "if (withoutHash(url) !== rendererTarget) event.preventDefault();",
+    before: "if (!isRendererPage(url, rendererTarget)) event.preventDefault();",
     after: "",
     verify: "desktop",
   },

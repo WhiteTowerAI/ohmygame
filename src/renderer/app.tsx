@@ -32,6 +32,7 @@ export function App() {
   const [initialPrompt, setInitialPrompt] = useState<{ generation: number; conversationId: string; prompt: string; mentions: PluginMention[]; images: PromptImage[]; mode: PromptMode; attachments?: PromptAttachment[] }>();
   const [initialDraft, setInitialDraft] = useState<{ conversationId: string; draft: ComposerDraft }>();
   const [initialCanvasNode, setInitialCanvasNode] = useState<{ projectId: string; nodeId: string }>();
+  const [playtestEditorProjectId, setPlaytestEditorProjectId] = useState<string>();
   const creationGate = usePluginIntegrationGate();
 
   // Provider catalogs are slow; load them now so asset canvas quick starts open without waiting.
@@ -43,6 +44,13 @@ export function App() {
     window.addEventListener(MODELS_CHANGED_EVENT, refresh);
     return () => window.removeEventListener(MODELS_CHANGED_EVENT, refresh);
   }, [serviceGeneration]);
+
+  // A Playtest window that cannot play asks for its project's editor.
+  const routeProjectId = route.page === "project" ? route.projectId : undefined;
+  useEffect(() => window.ohMyGameDesktop?.onShowPlaytestEditor?.((projectId) => {
+    if (projectId !== routeProjectId) openProject(projectId);
+    setPlaytestEditorProjectId(projectId);
+  }), [routeProjectId]);
 
   if ((route.page === "home" || onboarding.replaying) && onboarding.state?.status === "pending") {
     return <Onboarding step={onboarding.state.step}
@@ -86,6 +94,8 @@ export function App() {
       initialDraft={initialDraft && initialDraft.conversationId === route.conversationId ? initialDraft.draft : undefined}
       initialCanvasNodeId={initialCanvasNode?.projectId === route.projectId ? initialCanvasNode.nodeId : undefined}
       onInitialCanvasNodeHandled={() => setInitialCanvasNode(undefined)}
+      showStoryMap={playtestEditorProjectId === route.projectId}
+      onStoryMapShown={() => setPlaytestEditorProjectId(undefined)}
       onInitialPromptHandled={clearInitialPrompt}
       onInitialDraftHandled={() => setInitialDraft(undefined)}
       onOpenConversation={(conversationId, replace = false) => navigateToConversation(route.projectId, conversationId, replace)}

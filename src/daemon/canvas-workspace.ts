@@ -561,7 +561,7 @@ export class CanvasStore {
   }
   async #execute(id: string, job: StoredJob, prepared: RunToolRequest, controller: AbortController) {
     try {
-      const run = await this.tools.runPrepared(job.toolId, prepared, controller.signal, job.recoveryId ?? job.id); controller.signal.throwIfAborted();
+      const run = await this.tools.runPrepared(job.toolId, prepared, controller.signal, { recoveryId: job.recoveryId ?? job.id, projectId: id }); controller.signal.throwIfAborted();
       const output = run.files[0];
       if (!output?.assetId) throw new CanvasError("Generation returned no Library asset", 502);
       await withCanvasLock(this.#project(id).workspacePath, async () => {

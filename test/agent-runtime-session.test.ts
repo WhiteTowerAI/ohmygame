@@ -660,7 +660,7 @@ describe("coding agent sessions", () => {
     await expect(run.result).rejects.toThrow("not signed in");
     expect(
       received.find((event) => event.type === "agent.error")?.data,
-    ).toEqual({ error: "Claude Code exited with code 1: not signed in" });
+    ).toEqual({ error: "Claude Code exited with code 1: not signed in", diagnostics: { provider: "claude-code-cli", model: "sonnet" } });
   });
 
   it("asks the person and remembers an answer for the conversation", async () => {

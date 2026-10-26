@@ -398,7 +398,6 @@ interface AgentManagerOptions {
     changed(project: ProjectState, from: string, to: string): Promise<TurnChanges>;
   };
   errorDiagnostics?: () => NonNullable<ThreadItemError["diagnostics"]>;
-  onRunFailed?: (error: ThreadItemError, scope: { projectId: string; conversationId: string; turnId: string }) => void;
 }
 
 interface UndoneChanges {
@@ -2195,8 +2194,7 @@ export class AgentManager {
       console.warn("Could not save agent failure diagnostics");
     }
     this.#setState(projectId, active.conversationId, { status: "error", error: error.message });
-    this.events.publish(projectId, "agent.error", { error: error.message }, eventScope(active));
-    this.options.onRunFailed?.(error, { projectId, conversationId: active.conversationId, turnId: active.turnId });
+    this.events.publish(projectId, "agent.error", { error: error.message, ...(error.code ? { code: error.code } : {}), ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) }, eventScope(active));
   }
 
   #setState(projectId: string, conversationId: string, state: ConversationAgentState): void {

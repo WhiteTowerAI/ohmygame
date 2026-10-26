@@ -1,3 +1,5 @@
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const electron = vi.hoisted(() => ({
@@ -26,7 +28,14 @@ vi.mock("electron", () => ({
         if (event === "will-navigate") this.onNavigate = handler;
       }),
       setAudioMuted: vi.fn(),
+      mainFrame: { url: "http://127.0.0.1:43120/" },
+      ipc: {
+        on: vi.fn((channel: string, handler: (event: { senderFrame: unknown; returnValue?: unknown }) => void) => {
+          this.ipcHandlers.set(channel, handler);
+        }),
+      },
     };
+    readonly ipcHandlers = new Map<string, (event: { senderFrame: unknown; returnValue?: unknown }) => void>();
     readonly once = vi.fn();
     readonly loadURL = vi.fn(async () => {});
     readonly setAspectRatio = vi.fn();
@@ -135,9 +144,59 @@ describe("desktop window", () => {
     window.onNavigate?.(allowed, "http://127.0.0.1:43120/");
     expect(allowed.preventDefault).not.toHaveBeenCalled();
 
-    const rejected = { preventDefault: vi.fn() };
-    window.onNavigate?.(rejected, "https://untrusted.example/");
-    expect(rejected.preventDefault).toHaveBeenCalledOnce();
+    for (const url of ["https://untrusted.example/", "http://127.0.0.1:43120/other.html", ""]) {
+      const rejected = { preventDefault: vi.fn() };
+      window.onNavigate?.(rejected, url);
+      expect(rejected.preventDefault).toHaveBeenCalledOnce();
+    }
+  });
+
+  it.each([
+    ["HTTP", { rendererUrl: "http://127.0.0.1:43120" }, "http://127.0.0.1:43120/"],
+    ["file", { rendererFile: path.resolve("renderer index.html") }, pathToFileURL(path.resolve("renderer index.html")).href],
+  ] as const)("gives the daemon runtime only to its own %s page, not its command line", async (_kind, renderer, pageUrl) => {
+    let handlerBeforeLoad = false;
+    await createDesktopWindow({
+      runtime: { url: "http://127.0.0.1:43110", token: "secret-token" },
+      preloadPath: "/tmp/preload.cjs",
+      ...renderer,
+      beforeLoad: (created) => {
+        handlerBeforeLoad = (created as unknown as { ipcHandlers: Map<string, unknown> }).ipcHandlers.has("ohmygame:desktop-runtime");
+      },
+    });
+    const window = electron.windows[0] as {
+      options: { webPreferences: Record<string, unknown> };
+      webContents: { mainFrame: { url: string } };
+      ipcHandlers: Map<string, (event: { senderFrame: unknown; returnValue?: unknown }) => void>;
+    };
+
+    expect(JSON.stringify(window.options)).not.toContain("secret-token");
+    expect(window.options.webPreferences.additionalArguments).toBeUndefined();
+    expect(handlerBeforeLoad).toBe(true);
+    const answer = window.ipcHandlers.get("ohmygame:desktop-runtime")!;
+
+    window.webContents.mainFrame.url = pageUrl;
+    const page = { senderFrame: window.webContents.mainFrame, returnValue: undefined as unknown };
+    answer(page);
+    expect(page.returnValue).toEqual({ url: "http://127.0.0.1:43110", token: "secret-token" });
+
+    window.webContents.mainFrame.url = `${pageUrl}#/playtest/project`;
+    const route = { senderFrame: window.webContents.mainFrame, returnValue: undefined as unknown };
+    answer(route);
+    expect(route.returnValue).toEqual({ url: "http://127.0.0.1:43110", token: "secret-token" });
+
+    for (const url of ["https://untrusted.example/", new URL("other.html", pageUrl).href, ""]) {
+      window.webContents.mainFrame.url = url;
+      const redirected = { senderFrame: window.webContents.mainFrame, returnValue: undefined as unknown };
+      answer(redirected);
+      expect(redirected.returnValue).toBeNull();
+    }
+
+    for (const senderFrame of [{ url: pageUrl }, null]) {
+      const embedded = { senderFrame, returnValue: undefined as unknown };
+      answer(embedded);
+      expect(embedded.returnValue).toBeNull();
+    }
   });
 
   it("mutes a hidden window, such as a thumbnail capture", async () => {

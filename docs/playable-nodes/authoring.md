@@ -390,6 +390,21 @@ When something breaks, a short note says so and offers **Ask AI to fix**, which
 brings the editor forward on that Scene and fills the chat with where the player was,
 the Exits they took, and the errors, ready to send.
 
+A story with no Scenes has nothing to play: Playtest stays closed and the
+editor says to add a Scene first. When the Playtest window cannot start the
+story, it says why in place of the game and offers the way forward for that
+case: **Open editor**, which brings the editor forward on the Story map
+(**Close window** in a browser, which returns to the editor's tab);
+**Play from the start** when the Scene chosen with **Play from here** was
+deleted; **Ask AI to fix** when the story's files keep it from starting; and
+**Try again** when loading failed or the game stopped while starting. A game
+that stops with an error after it has started says so instead of claiming it
+could not start, and offers **Ask AI to fix**, with what the player was doing,
+and **Play again**. Clicking Playtest in the editor loads the story again in a
+window that could not play it, so fixing the cause and clicking Playtest is
+enough. A window that plays
+keeps its game when Playtest brings it forward.
+
 Playtest also remembers which Scenes the author has seen and which Exits
 they took, across replays, as players' games do; a [Story map](#story-map)
 shows it. **Forget seen Scenes**, in the same editor menu, starts that record

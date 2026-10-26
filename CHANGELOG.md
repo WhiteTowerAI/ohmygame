@@ -4,6 +4,45 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.4.13] - 2026-10-23
+
+### Added
+
+- Export any project as a ZIP with its settings, cover, and workspace, and import
+  it as a new project on another computer. Interactive Story exports include
+  referenced Library assets, and older Story project ZIPs remain importable.
+  ([#355](https://github.com/WhiteTowerAI/ohmygame/pull/355) by @xuhongbo)
+- Drop, paste, or upload text documents, CSV/TSV tables, and more image, audio,
+  video, and 3D formats into the canvas. Keep other files, including source,
+  fonts, and ZIPs, as project file nodes with a desktop file-location action.
+  ([#380](https://github.com/WhiteTowerAI/ohmygame/pull/380) by @dogxii,
+  [#381](https://github.com/WhiteTowerAI/ohmygame/pull/381) by @dogxii)
+- Confirm folder imports before copying files, with choices to preserve the
+  directory structure as one folder node, import files separately, or cancel.
+  Repeated file and folder names are kept without overwriting existing imports.
+  ([#382](https://github.com/WhiteTowerAI/ohmygame/pull/382) by @dogxii)
+
+### Changed
+
+- Claude Code, Codex, and OpenCode now load your existing CLI settings, Hooks,
+  MCP servers, Skills, and instructions while retaining OhMyGame's selected
+  permissions. OpenCode requires version 2.1.0 or newer in the 2.x series;
+  upgrade v1 before using it. If OpenCode reports saved project grants, remove
+  those grants in OpenCode and check again.
+  ([#376](https://github.com/WhiteTowerAI/ohmygame/pull/376) by @dogxii)
+- Community view counts now measure successful game-entry requests, including
+  repeat visits, refreshes, and direct shared links, rather than unique visitors.
+  Counts start at zero with the matching Cloud migration and survive updates to
+  the same published game. Hosted deployments need the matching Cloud API and
+  play-count migration.
+  ([#353](https://github.com/WhiteTowerAI/ohmygame/pull/353) by @dogxii)
+
+### Fixed
+
+- Keep Library and Community controls, plugin cards, and external-agent actions
+  usable in narrow windows, including long plugin names and translated labels.
+  ([#372](https://github.com/WhiteTowerAI/ohmygame/pull/372) by @dogxii)
+
 ## [0.0.0-beta.4.12] - 2026-10-22
 
 ### Added

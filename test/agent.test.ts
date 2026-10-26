@@ -1146,9 +1146,8 @@ describe("AgentManager", () => {
       session.emit({ type: "auto_retry_end", success: false, attempt: 1, finalError });
     });
     const events = new RuntimeEventBus();
-    const onRunFailed = vi.fn();
     const manager = new AgentManager(events, {
-      createSession: async () => session, onRunFailed,
+      createSession: async () => session,
       errorDiagnostics: () => ({ network: { source: "manual", proxyUrl: "http://user:secret@localhost:7890" } }),
     });
     const project = createProject();
@@ -1156,8 +1155,10 @@ describe("AgentManager", () => {
     await expect(manager.prompt(project, conversation, "Build").result).rejects.toThrow("Connection error.");
     const retry = events.since(project.id).findLast((event) => event.type === "item.completed" && event.data.item.type === "retry");
     expect(retry).toMatchObject({ data: { item: { status: "failed", error: { code: "connection_reset", diagnostics: { retryAttempts: 1, provider: "deepseek", network: { source: "manual", proxyUrl: "http://localhost:7890/" } } } } } });
-    expect(onRunFailed).toHaveBeenCalledWith(expect.objectContaining({ code: "connection_reset" }), expect.objectContaining({ conversationId: conversation.summary.id }));
-    expect(onRunFailed).toHaveBeenCalledOnce();
+    expect(events.since(project.id).filter((event) => event.type === "agent.error")).toMatchObject([{
+      conversationId: conversation.summary.id,
+      data: { error: "Connection error.", code: "connection_reset", diagnostics: { retryAttempts: 1, provider: "deepseek", network: { source: "manual", proxyUrl: "http://localhost:7890/" } } },
+    }]);
     const saved = session.appendCustomEntry.mock.calls.findLast(([type]) => type === AGENT_ERROR_ENTRY)?.[1];
     const history = conversationItems([
       sessionMessage("user", { role: "user", content: "Build", timestamp: 1 }),
@@ -1201,11 +1202,11 @@ describe("AgentManager", () => {
       session.emit({ type: "message_end", message: success } as never);
       session.emit({ type: "auto_retry_end", success: true, attempt: 1 });
     });
-    const onRunFailed = vi.fn();
-    const manager = new AgentManager(new RuntimeEventBus(), { createSession: async () => session, onRunFailed });
+    const events = new RuntimeEventBus();
+    const manager = new AgentManager(events, { createSession: async () => session });
     const project = createProject();
     await expect(manager.prompt(project, createConversation(project), "Build").result).resolves.toBe("completed");
-    expect(onRunFailed).not.toHaveBeenCalled();
+    expect(events.since(project.id).some((event) => event.type === "agent.error")).toBe(false);
     expect(session.appendCustomEntry.mock.calls.some(([type]) => type === AGENT_ERROR_ENTRY)).toBe(false);
     await manager.close();
   });

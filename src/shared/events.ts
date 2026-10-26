@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
 import type { RuntimeEvent, RuntimeEventData, RuntimeEventType } from "./contracts.js";
 
+// A symbol cannot collide with a project ID.
+const ALL_PROJECTS = Symbol("all projects");
+
 export class RuntimeEventBus {
   readonly #emitter = new EventEmitter();
   readonly #events: RuntimeEvent[] = [];
@@ -36,6 +39,7 @@ export class RuntimeEventBus {
       for (const oldEvent of dropped) this.#markDropped(oldEvent.projectId, oldEvent.id);
     }
     this.#emitter.emit(projectId, event);
+    this.#emitter.emit(ALL_PROJECTS, event);
     return event;
   }
 
@@ -53,6 +57,12 @@ export class RuntimeEventBus {
 
   expireThrough(projectId: string, eventId: number): void {
     this.#markDropped(projectId, eventId);
+  }
+
+  /** Every project's events, for observers such as the activity log. */
+  subscribeAll(listener: (event: RuntimeEvent) => void): () => void {
+    this.#emitter.on(ALL_PROJECTS, listener);
+    return () => this.#emitter.off(ALL_PROJECTS, listener);
   }
 
   subscribe(projectId: string, listener: (event: RuntimeEvent) => void): () => void {

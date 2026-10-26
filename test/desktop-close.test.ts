@@ -6,7 +6,7 @@ const host = vi.hoisted(() => ({
   ipcEvents: new Map<string, (...args: any[]) => void>(),
   handlers: new Map<string, (...args: any[]) => any>(),
   windowEvents: new Map<string, (...args: any[]) => void>(),
-  sender: { id: 1, send: vi.fn() },
+  sender: { id: 1, send: vi.fn(), on: vi.fn() },
   thumbnails: [] as Array<{ webContents: { id: number }; destroy: ReturnType<typeof vi.fn> }>,
   stopped: vi.fn(async () => {}),
   quit: vi.fn(), relaunch: vi.fn(), close: vi.fn(),
@@ -35,6 +35,12 @@ vi.doMock(path.resolve("src/desktop/network.ts"), () => ({
 }));
 vi.doMock(path.resolve("src/desktop/daemon-process.ts"), () => ({
   startDaemon: async () => ({ runtime: { url: "http://127.0.0.1:12345", token: "test" }, stop: host.stopped }),
+}));
+vi.doMock(path.resolve("src/desktop/log-file.ts"), () => ({
+  RotatingLogFile: class { line() {} write() {} flush() {} close() {} stream() { return { write() {}, flush() {} }; } },
+}));
+vi.doMock(path.resolve("src/desktop/console-log.ts"), async (importOriginal) => ({
+  ...(await importOriginal<object>()), recordConsole: vi.fn(), recordUncaughtErrors: vi.fn(),
 }));
 vi.doMock(path.resolve("src/desktop/external-mcp-install.ts"), () => ({ installExternalMcpLauncher: vi.fn(async () => undefined), markExternalMcpApp: vi.fn(async () => async () => {}) }));
 vi.doMock(path.resolve("src/desktop/oauth.ts"), () => ({
@@ -84,7 +90,7 @@ beforeEach(async () => {
 afterEach(() => { process.argv.splice(process.argv.lastIndexOf("--built-renderer"), 1); vi.useRealTimers(); });
 
 const settle = async () => { await vi.advanceTimersByTimeAsync(0); };
-function acknowledge(error?: string, sender = host.sender, id?: number) {
+function acknowledge(error?: string, sender: { id: number; send: unknown } = host.sender, id?: number) {
   const sent = host.sender.send.mock.calls.findLast(([channel]) => channel === "ohmygame:prepare-close")!;
   host.ipcEvents.get("ohmygame:ready-to-close")!({ sender }, id ?? sent[1], error);
 }

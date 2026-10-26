@@ -94,6 +94,8 @@ interface ProjectShellProps {
   initialDraft?: ComposerDraft;
   initialCanvasNodeId?: string;
   onInitialCanvasNodeHandled?: () => void;
+  showStoryMap?: boolean;
+  onStoryMapShown?: () => void;
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
@@ -116,6 +118,8 @@ export function ProjectShell({
   initialDraft,
   initialCanvasNodeId,
   onInitialCanvasNodeHandled,
+  showStoryMap,
+  onStoryMapShown,
   onInitialPromptHandled,
   onInitialDraftHandled,
   onOpenConversation,
@@ -158,7 +162,8 @@ export function ProjectShell({
   const [designContext, setDesignContext] = useState<PromptContext>();
   const [dismissedDesign, setDismissedDesign] = useState<string>();
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
-  usePlaytestAskRequests(state.project?.id, requestPrompt);
+  // The chat takes the request once its conversation is open.
+  usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
   const modelCatalog = useAgentModels({ agentRuntimes: true });
   const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
@@ -985,6 +990,8 @@ export function ProjectShell({
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
       /></Suspense> : <PlayableEditorWorkspace
         project={project}
+        showStoryMap={showStoryMap}
+        onStoryMapShown={onStoryMapShown}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         designOpen={designOpen}
         onDesignOpenChange={changeWorkspaceView}

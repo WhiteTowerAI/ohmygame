@@ -69,23 +69,23 @@ vi.doMock(path.resolve("src/renderer/game-studio-home.tsx"), () => ({
     </>
   ),
 }));
+let shellProps: ComponentProps<
+  typeof import("../src/renderer/project-shell.js").ProjectShell
+>;
 vi.doMock(path.resolve("src/renderer/project-shell.tsx"), () => ({
-  ProjectShell: ({
-    onHome,
-    homeLabel,
-    onOpenConversation,
-    onViewChange,
-  }: ComponentProps<
-    typeof import("../src/renderer/project-shell.js").ProjectShell
-  >) => (
-    <>
-      <button onClick={onHome}>{homeLabel}</button>
-      <button onClick={() => onOpenConversation("second")}>
-        Another conversation
-      </button>
-      <button onClick={() => onViewChange?.("design")}>Design</button>
-    </>
-  ),
+  ProjectShell: (props: typeof shellProps) => {
+    shellProps = props;
+    const { onHome, homeLabel, onOpenConversation, onViewChange } = props;
+    return (
+      <>
+        <button onClick={onHome}>{homeLabel}</button>
+        <button onClick={() => onOpenConversation("second")}>
+          Another conversation
+        </button>
+        <button onClick={() => onViewChange?.("design")}>Design</button>
+      </>
+    );
+  },
 }));
 
 const { App } = await import("../src/renderer/app.js");
@@ -175,5 +175,33 @@ describe("project return flow", () => {
     expect(
       container.querySelector('[role="menuitem"].is-active')!.textContent,
     ).toBe("Name");
+  });
+});
+
+describe("Playtest asking for its editor", () => {
+  it("opens the project unless it is already open", async () => {
+    let show: ((projectId: string) => void) | undefined;
+    vi.stubGlobal("ohMyGameDesktop", {
+      onShowPlaytestEditor: (listener: (projectId: string) => void) => {
+        show = listener;
+        return () => {
+          show = undefined;
+        };
+      },
+    });
+    await act(async () => root.render(<App />));
+    await act(async () => show!("garden"));
+    expect(window.location.hash).toBe("#/projects/garden");
+    expect(shellProps.showStoryMap).toBe(true);
+    await act(async () => shellProps.onStoryMapShown?.());
+    expect(shellProps.showStoryMap).toBe(false);
+    await click("Another conversation");
+    await act(async () => show!("garden"));
+    expect(window.location.hash).toBe("#/projects/garden/conversations/second");
+    expect(shellProps.showStoryMap).toBe(true);
+    await act(async () => shellProps.onStoryMapShown?.());
+    await click("Back to General Game");
+    await click("Open recent project");
+    expect(shellProps.showStoryMap).toBe(false);
   });
 });

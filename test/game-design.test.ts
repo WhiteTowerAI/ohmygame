@@ -44,6 +44,20 @@ async function waitForJob(store: CanvasStore, projectId: string) {
   return (await store.jobs(projectId))[0]!;
 }
 describe("Markdown design workspace", () => {
+  it("logs Canvas preparation failures once and preserves the error when logging fails", async () => {
+    const failure = new ImageGenerationError("Provider is disabled", 400);
+    const resolve = vi.fn().mockRejectedValueOnce(failure).mockImplementation(async (_tool, input) => input);
+    const { store, tools, project, boardId, node } = await runtime(fakeGenerator, "asset-canvas", resolve);
+    const info = vi.fn(), warn = vi.fn(() => { throw new Error("Logger failed"); });
+    tools.setLogger({ info, warn });
+    await expect(store.generateNode(project.id, boardId, node.id)).rejects.toBe(failure);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: project.id, toolId: "generate-image", error: failure.message }), "Generation failed");
+    expect(info).not.toHaveBeenCalled();
+    await store.generateNode(project.id, boardId, node.id);
+    expect((await waitForJob(store, project.id)).status).toBe("succeeded");
+    expect(info).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ projectId: project.id, toolId: "generate-image" }), "Generation succeeded");
+    expect(warn).toHaveBeenCalledOnce();
+  });
   it("persists node sizes in layout files and merges resizing with content edits", async () => {
     const { store, project, boardId } = await runtime();
     const detail = await store.board(project.id, boardId);
@@ -681,7 +695,7 @@ describe("Markdown design workspace", () => {
     const run = vi.spyOn(tools, "runPrepared").mockResolvedValue({ id: "animation-run", toolId: "animate-3d", createdAt: "now", files: [{ name: output.name, mediaType: "model/gltf-binary", assetId: output.id }] });
     await store.generateNode(project.id, boardId, animation.id);
     expect((await waitForJob(store, project.id)).status).toBe("succeeded");
-    expect(run).toHaveBeenCalledWith("animate-3d", expect.objectContaining({ assetId: source.id, actionIds: [0], heightMeters: 1.7 }), expect.any(AbortSignal), expect.any(String));
+    expect(run).toHaveBeenCalledWith("animate-3d", expect.objectContaining({ assetId: source.id, actionIds: [0], heightMeters: 1.7 }), expect.any(AbortSignal), { recoveryId: expect.any(String), projectId: project.id });
     const manifest = await readCanvasAssets(project.workspacePath);
     await writeFile(path.join(project.workspacePath, "assets/wrong.png"), "image");
     manifest.assets[source.id]!.path = "assets/wrong.png";

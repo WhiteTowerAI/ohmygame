@@ -1259,7 +1259,7 @@ export interface RuntimeEventData {
   "item.reasoning.textDelta": { itemId: string; delta: string };
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
-  "agent.error": { error: string };
+  "agent.error": { error: string; code?: ThreadItemErrorCode; diagnostics?: AgentErrorDiagnostics };
   "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.steered": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.removed": Record<string, never>;
