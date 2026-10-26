@@ -91,26 +91,48 @@ it("requires Claude's sandbox when the policy automatically allows confined comm
 describe("Pi's agent folder", () => {
   const fullAccess = { ...policy, fullAccess: true };
 
-  it("refuses its credentials even with full access", () => {
+  it.each([
+    "OhMyGame",
+    path.join("Library", "Application Support", "OhMyGame"),
+  ])("refuses its credentials even with full access in %s", (layout) => {
+    const userData = path.join(home, layout);
+    const data = path.join(userData, "data");
+    const directory = path.join(userData, "pi-agent");
+    const context = {
+      workspacePath: path.join(data, "projects", "p1", "workspace"),
+      neverTouch: neverTouchPaths(data, directory),
+    };
     for (const file of ["auth.json", "models.json"]) {
-      const target = path.join(piAgentDirectory, file);
-      expect(
-        judgeApproval(
-          { kind: "file", tool: "Read", path: target, canAllowSession: true },
-          fullAccess,
-        ),
-      ).toBe("deny");
-      expect(
-        judgeApproval(
-          {
-            kind: "command",
-            tool: "Bash",
-            command: `cat ${target}`,
-            canAllowSession: true,
-          },
-          fullAccess,
-        ),
-      ).toBe("deny");
+      const target = path.join(directory, file);
+      for (const fullAccess of [false, true]) {
+        const current = { ...context, fullAccess };
+        expect(
+          judgeApproval(
+            { kind: "file", tool: "Read", path: target, canAllowSession: true },
+            current,
+          ),
+        ).toBe("deny");
+        for (const command of [
+          `cat "${target}"`,
+          `cat '${target}'`,
+          `cat ${target.replace(/ /g, "\\ ")}`,
+          `/bin/zsh -lc 'cat "${target}"'`,
+          `cat "${userData}"`,
+        ]) {
+          expect(
+            judgeApproval(
+              {
+                kind: "command",
+                tool: "Bash",
+                command,
+                canAllowSession: true,
+              },
+              current,
+            ),
+            command,
+          ).toBe("deny");
+        }
+      }
     }
   });
 

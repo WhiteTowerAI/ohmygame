@@ -302,8 +302,14 @@ const SAFE_OUTSIDE = [
 ].map((root) => path.resolve(root));
 
 function commandPaths(command: string, workspace: string): string[] {
-  // Quotes are dropped first, so a path inside `sh -c '…'` or a quoted argument is seen too.
-  const words = command.replace(/["'`]/g, " ").split(/[\s;&|()<>]+/);
+  // Keep the source scan for paths inside shell wrappers, and complete quoted
+  // or escaped arguments for paths containing spaces. Neither evaluates shell code.
+  const words = new Set(command.replace(/["'`]/g, " ").split(/[\s;&|()<>]+/));
+  // Scan each quote style independently, including double quotes inside `sh -c '…'`.
+  for (const quoted of [/"([^"]*)"/g, /'([^']*)'/g])
+    for (const match of command.matchAll(quoted)) words.add(match[1]!);
+  for (const match of command.matchAll(/(?:\\[\s\S]|[^\s;&|()<>"'`\\])+/g))
+    words.add(match[0].replace(/\\([ \t])/g, "$1"));
   const paths: string[] = [];
   for (const raw of words) {
     const word = raw.replace(/^[A-Za-z_][A-Za-z0-9_]*=/, "");

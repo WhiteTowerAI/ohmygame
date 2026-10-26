@@ -248,7 +248,8 @@ does. `judgeApproval` decides each request first:
   keys and sign-ins and sits beside the data folder in the desktop app), or
   another project. Paths resolve symlinks, including missing descendants,
   and include custom CLI credential homes. A command reaches a folder when it names it or a folder
-  that holds it, quoted or not.
+  that holds it, including quoted paths containing spaces and paths with
+  backslash-escaped spaces.
 - **Allow** workspace file requests and a small set of simple read commands.
   Claude Code's own tools that touch no file and run no command (`TodoWrite`,
   `Skill`, `Task`, `WebSearch`, `WebFetch` and its background-shell and MCP
