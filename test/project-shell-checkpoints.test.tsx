@@ -271,6 +271,25 @@ describe("checkpoints in the project shell", () => {
     expect(daemon.requests.some((request) => request.route.endsWith("/model") && request.method === "PUT")).toBe(false);
   });
 
+  it("refreshes the account picker after a profile is deleted in settings", async () => {
+    let removed = false;
+    const chat = detail("turn");
+    chat.settings = { model: { provider: "codex-cli", id: "gpt-test" }, accountProfiles: { "codex-cli": "work" } };
+    const daemon = await openProject((route) => {
+      if (route === "/agent-runtimes/codex-cli/profiles") return Response.json([
+        { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription" } },
+        { id: "personal", name: "Personal", auth: { status: "signed-in", billing: "subscription" } },
+        ...(!removed ? [{ id: "work", name: "Work", auth: { status: "signed-in", billing: "subscription" } }] : []),
+      ]);
+    }, chat);
+    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("Work");
+    removed = true;
+    await act(async () => window.dispatchEvent(new Event("ohmygame-models-changed")));
+    await settle();
+    expect(container.querySelector('[aria-label^="Codex account:"]')?.textContent).toBe("System default");
+    expect(daemon.requests.some((request) => request.route.endsWith("/account-profile") && request.method === "PUT")).toBe(false);
+  });
+
   it("retains the initial message after cancelling plugin setup and allows sending it after connection", async () => {
     let ready = false;
     const handled = vi.fn();

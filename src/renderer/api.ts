@@ -320,6 +320,10 @@ export function addAccountProfile(runtime: AccountRuntimeId, name: string, confi
   return request(`/agent-runtimes/${runtime}/profiles`, { method: "POST", body: JSON.stringify({ name, ...(configDirectory ? { configDirectory } : {}) }) });
 }
 
+export function deleteAccountProfile(runtime: AccountRuntimeId, profileId: string): Promise<void> {
+  return request(`/agent-runtimes/${runtime}/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" });
+}
+
 export function setConversationAccountProfile(projectId: string, conversationId: string, runtime: AccountRuntimeId, profileId: string): Promise<{ profileId: string }> {
   return request(`/projects/${projectId}/conversations/${conversationId}/account-profile`, { method: "PUT", body: JSON.stringify({ runtime, profileId }) });
 }

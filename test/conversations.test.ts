@@ -188,6 +188,32 @@ describe("ConversationManager", () => {
     expect(await conversations.accountProfiles(project, chat)).toEqual({"claude-code-cli":"personal","codex-cli":"work"});
   });
 
+  it("falls back from deleted accounts after restart and when restoring an old branch", async () => {
+    const project = await createProject();
+    let removed = false;
+    const resolve = (_runtime: unknown, id: string) => removed && id === "work" ? "system" : id;
+    const conversations = new ConversationManager(undefined, resolve);
+    const chat = await conversations.create(project);
+    const manager = conversations.open(project, chat);
+    appendCompletedTurn(manager, "Hello", "Shared history");
+    conversations.setAccountProfile(project, chat, "codex-cli", "work");
+    manager.appendCustomEntry("ohmygame-native-session", { version: 2, runtime: "codex-cli", profileId: "work", state: "ready", sessionId: "work-thread" });
+    const oldLeaf = manager.getLeafId()!;
+    expect(latestNativeSession(manager.getBranch(), "codex-cli", "work")?.sessionId).toBe("work-thread");
+    removed = true;
+    const reopened = new ConversationManager(undefined, resolve);
+    const stored = (await reopened.get(project, chat.summary.id))!;
+    expect(await reopened.accountProfileId(project, stored, "codex-cli")).toBe("system");
+    const restored = reopened.open(project, stored);
+    expect(latestNativeSession(restored.getBranch(), "codex-cli", "system")).toBeUndefined();
+    expect(restored.getBranch().at(-1)).toMatchObject({ type: "custom", customType: "ohmygame-native-session", data: { state: "invalid" } });
+    restored.branch(oldLeaf);
+    restored.appendCustomEntry("restored-branch", {});
+    expect(await reopened.accountProfileId(project, stored, "codex-cli")).toBe("system");
+    expect((await reopened.view(project, stored)).getBranch().at(-1)).toMatchObject({ type: "custom", customType: "ohmygame-native-session", data: { state: "invalid" } });
+    expect(restored.getBranch().filter((entry) => entry.type === "message")).toHaveLength(2);
+  });
+
   it("normalizes deterministic fallback titles", () => {
     expect(defaultConversationTitle("   ")).toBe("New conversation");
     expect(defaultConversationTitle("hello\n    world")).toBe("hello world");

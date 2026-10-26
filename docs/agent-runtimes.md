@@ -137,7 +137,12 @@ default does not change existing chats.
 The service passes `CLAUDE_CONFIG_DIR` or `CODEX_HOME` to login, discovery and
 inference. Explicit Claude profiles omit ambient OAuth tokens. Managed Codex
 homes are created with file-backed credentials; imported homes keep their native
-settings. Credentials remain CLI-owned.
+settings. Credentials remain CLI-owned. Each profile records `managed` ownership;
+only directories directly inside the runtime's reserved account folder may be
+deleted. Removing a profile resets its new-chat default, stops idle sessions and
+pending sign-ins, waits for probes to finish, and erases its caches. Running
+sessions refuse removal. Conversation reads resolve deleted IDs to System default and append an
+invalid native-session marker, including after branch restoration.
 
 Caches and quota reports are keyed by runtime and profile. Login invalidates only
 that profile; executable changes invalidate the runtime. Warm catalogs bypass

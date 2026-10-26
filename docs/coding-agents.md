@@ -131,6 +131,19 @@ message creates a context for the selected account, with a bounded history
 handoff if it has not seen this chat. Other chats keep their accounts. No automatic
 rotation at usage limits is provided.
 
+Use an account row's delete action to remove a profile after confirmation. The
+confirmation states whether its files will be removed: app-created profiles delete
+their managed configuration directory (including sign-in and native history),
+while imported profiles only disconnect from OhMyGame and keep their files.
+System default cannot be deleted. Deleting the new-chat default resets it to
+System default. Existing chats, including restored branches, fall back to System
+default when next read and discard the deleted account's native resume context;
+the shared conversation history remains available for a fresh handoff. Deletion
+is refused during a turn or session startup; finish or cancel the work first.
+Idle sessions and pending sign-in processes stop before managed files are removed.
+
+![Account removal confirmation stating that managed files will be deleted (sample data)](assets/coding-agent-account-delete.png)
+
 Switching saves the selection locally and reads previously reported usage without
 creating a native session. Model catalogs are cached per account for ten minutes;
 a valid catalog is returned without another auth probe. A cold or expired catalog
@@ -469,6 +482,9 @@ back to the defaults. Credentials remain in the CLI's own store.
 | `GET /agent-runtimes`                                     | Status of every agent; `?recheck=1` probes again                       |
 | `PATCH /agent-runtimes/:id`                               | `enabled`, `permissionMode`, `binaryPath`         |
 | `POST /agent-runtimes/:id/recheck`                        | Probe one agent again                                                  |
+| `GET /agent-runtimes/:id/profiles`, `POST /agent-runtimes/:id/profiles` | List or add Claude Code/Codex account configurations |
+| `DELETE /agent-runtimes/:id/profiles/:profileId` | Remove an account; managed files are deleted, imported files kept |
+| `PUT /projects/:p/conversations/:c/account-profile` | Select an account for the conversation |
 | `POST /agent-runtimes/:id/login`                          | Start the CLI's sign-in; returns a browser URL or a command            |
 | `PUT /projects/:p/conversations/:c/reasoning`             | Select a native effort/variant string                                  |
 | `PUT /models/default`, `POST /projects/:p/conversations`  | Take `nativeReasoningLevel` for a native model, never `reasoningLevel` |

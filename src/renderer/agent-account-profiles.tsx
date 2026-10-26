@@ -3,9 +3,13 @@ import type {
   AccountRuntimeId,
   AgentAccountProfileStatus,
 } from "../shared/agent-runtimes.js";
-import { addAccountProfile, listAccountProfiles } from "./api.js";
+import {
+  addAccountProfile,
+  deleteAccountProfile,
+  listAccountProfiles,
+} from "./api.js";
 import { AgentUsageInline } from "./agent-usage.js";
-import { ChevronDown, RotateCcw, Plus, RefreshCw, X } from "./icons.js";
+import { ChevronDown, RotateCcw, Plus, RefreshCw, Trash2, X } from "./icons.js";
 import { t } from "./i18n.js";
 
 /** Named references to CLI-owned configuration directories, with the CLI's own sign-in flow. */
@@ -14,16 +18,19 @@ export function AgentAccountProfiles({
   defaultProfileId,
   onDefault,
   onLogin,
+  onRemoved,
   disabled,
 }: {
   runtime: AccountRuntimeId;
   defaultProfileId: string;
   onDefault: (id: string) => Promise<void>;
   onLogin: (id: string) => Promise<void>;
+  onRemoved: () => Promise<void>;
   disabled: boolean;
 }) {
   const [profiles, setProfiles] = useState<AgentAccountProfileStatus[]>([]);
   const [adding, setAdding] = useState(false);
+  const [deleting, setDeleting] = useState<AgentAccountProfileStatus>();
   const [name, setName] = useState("");
   const [directory, setDirectory] = useState("");
   const [working, setWorking] = useState(false);
@@ -188,10 +195,67 @@ export function AgentAccountProfiles({
               >
                 {signedOut ? t("common.signIn") : <RotateCcw size={14} />}
               </button>
+              {profile.id !== "system" ? (
+                <button
+                  className="icon-button settings-provider-setting-edit settings-provider-delete"
+                  type="button"
+                  aria-label={t("codingAgents.profileDelete", { name: label })}
+                  title={t("codingAgents.profileDelete", { name: label })}
+                  aria-expanded={deleting?.id === profile.id}
+                  disabled={busy}
+                  onClick={() => {
+                    setDeleting(profile);
+                    setError(undefined);
+                  }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              ) : null}
             </div>
           );
         })}
       </div>
+      {deleting ? (
+        <div
+          className="settings-provider-delete-confirmation"
+          role="group"
+          aria-label={t("codingAgents.profileDelete", { name: deleting.name })}
+        >
+          <span>
+            {t(
+              deleting.managed
+                ? "codingAgents.profileDeleteManaged"
+                : "codingAgents.profileDeleteImported",
+              { name: deleting.name },
+            )}
+          </span>
+          <button
+            className="settings-danger-button"
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                await deleteAccountProfile(runtime, deleting.id);
+                setProfiles((current) =>
+                  current.filter((profile) => profile.id !== deleting.id),
+                );
+                setDeleting(undefined);
+                await onRemoved();
+              })
+            }
+          >
+            {t(working ? "common.deleting" : "common.delete")}
+          </button>
+          <button
+            className="settings-secondary-button"
+            type="button"
+            disabled={busy}
+            onClick={() => setDeleting(undefined)}
+          >
+            {t("common.cancel")}
+          </button>
+        </div>
+      ) : null}
       {adding ? (
         <form className="agent-account-profile-form" onSubmit={add}>
           <div className="settings-detail-inline">

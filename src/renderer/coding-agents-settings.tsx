@@ -349,7 +349,10 @@ export function CodingAgentDetail({
           </div>
         ) : null}
       </div>
-      {isAccountRuntimeId(agent.id) ? <AgentAccountProfiles key={agent.id} runtime={agent.id} defaultProfileId={agent.defaultProfileId ?? "system"} onDefault={(defaultProfileId) => update({ defaultProfileId })} onLogin={signIn} disabled={busy !== undefined} /> : null}
+      {isAccountRuntimeId(agent.id) ? <AgentAccountProfiles key={agent.id} runtime={agent.id} defaultProfileId={agent.defaultProfileId ?? "system"} onDefault={(defaultProfileId) => update({ defaultProfileId })} onLogin={signIn} onRemoved={async () => {
+        setAgent((await listAgentRuntimes()).find((item) => item.id === id));
+        notifyAgentModelsChanged();
+      }} disabled={busy !== undefined} /> : null}
       {login ? <LoginHint login={login} /> : null}
       {agent.installed && agent.id !== "opencode-cli" ? (
         // OpenCode bills each model provider; its account has no quota of its own.

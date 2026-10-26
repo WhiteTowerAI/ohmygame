@@ -135,6 +135,8 @@ export class AgentRuntimeService {
   >();
   /** Each account's quota windows as last reported; they outlive the conversation that reported them. */
   #limits = new Map<string, AgentUsageLimit[]>();
+  #deleting = new Set<string>();
+  #logins = new Map<string, () => Promise<void>>();
   #limitWrites: Promise<void> = Promise.resolve();
   readonly #root: string;
 
@@ -166,6 +168,10 @@ export class AgentRuntimeService {
   /** Keeps the latest quota windows across restarts, since Claude Code reports them only during a conversation. */
   #recordLimits(id: string, limits: AgentUsageLimit[]): void {
     this.#limits.set(id, limits);
+    this.#recordLimitsCache();
+  }
+
+  #recordLimitsCache(): void {
     this.#limitWrites = this.#limitWrites
       .then(async () => {
         await mkdir(this.#root, { recursive: true, mode: 0o700 });
@@ -199,6 +205,7 @@ export class AgentRuntimeService {
     recheck = false,
     profileId?: string,
   ): Promise<AgentRuntimeStatus> {
+    profileId = isAccountRuntimeId(id) ? this.#profileId(id, profileId) : undefined;
     const cacheKey = this.#key(id, profileId);
     if (recheck) this.#invalidate(id);
     const revision = this.#revisions.get(cacheKey);
@@ -341,7 +348,13 @@ export class AgentRuntimeService {
     const loginProfileId = isAccountRuntimeId(id) ? this.#profileId(id, profileId) : undefined;
     const env = await this.#environment(id, binary.path, loginProfileId);
     await mkdir(this.#root, { recursive: true, mode: 0o700 });
-    const forget = () => this.#invalidate(id, loginProfileId);
+    const cacheKey = this.#key(id, loginProfileId);
+    await this.#logins.get(cacheKey)?.();
+    this.#key(id, loginProfileId); // Deletion may have started while the previous login stopped.
+    const forget = () => {
+      if (!this.#deleting.has(`${id}:${loginProfileId}`)) this.#invalidate(id, loginProfileId);
+      this.#logins.delete(cacheKey);
+    };
     const location = id === "claude-code-cli" ? ["CLAUDE_CONFIG_DIR", env.CLAUDE_CONFIG_DIR] : id === "codex-cli" ? ["CODEX_HOME", env.CODEX_HOME] : undefined;
     const loginCommand = location?.[1]
       ? process.platform === "win32"
@@ -356,8 +369,10 @@ export class AgentRuntimeService {
           void server.stop();
         },
       });
+      const stopLogin = () => server.stop();
+      this.#logins.set(cacheKey, stopLogin);
       setTimeout(() => {
-        void server.stop();
+        if (this.#logins.get(cacheKey) === stopLogin) { forget(); void server.stop(); }
       }, LOGIN_TIMEOUT_MS).unref();
       try {
         await server.initialize();
@@ -369,6 +384,7 @@ export class AgentRuntimeService {
           ? { url: started.authUrl }
           : { command: loginCommand };
       } catch (cause) {
+        forget();
         await server.stop();
         throw cause;
       }
@@ -392,6 +408,7 @@ export class AgentRuntimeService {
             if (!found) resolve({ command: loginCommand });
           },
         });
+        this.#logins.set(cacheKey, () => child.stop());
         setTimeout(() => {
           if (!found) {
             found = true;
@@ -409,6 +426,7 @@ export class AgentRuntimeService {
   async createSession(
     request: NativeSessionRequest,
   ): Promise<NativeCodingSession> {
+    request = { ...request, profileId: isAccountRuntimeId(request.runtime) ? this.#profileId(request.runtime, request.profileId) : undefined };
     const settings = this.settings.get(request.runtime);
     const cacheKey = this.#key(request.runtime, request.profileId);
     const definition = AGENT_RUNTIME_DEFINITIONS[request.runtime];
@@ -658,6 +676,7 @@ export class AgentRuntimeService {
 
   #profileId(runtime: AccountRuntimeId, profileId?: string): string {
     const selected = profileId ?? this.settings.get(runtime).defaultProfileId ?? "system";
+    if (this.#deleting.has(`${runtime}:${selected}`)) throw new Error("Account configuration is being deleted");
     if (!this.settings.profiles(runtime).some((profile) => profile.id === selected)) throw new Error("Account configuration not found");
     return selected;
   }
@@ -688,6 +707,9 @@ export class AgentRuntimeService {
       const info = await stat(directory).catch(() => undefined);
       if (!info?.isDirectory()) throw new Error("Choose an existing configuration directory");
       directory = await realpath(directory);
+      const managedRoot = await realpath(path.join(this.#root, "account-profiles")).catch(() => path.join(this.#root, "account-profiles"));
+      if (directory === managedRoot || directory.startsWith(`${managedRoot}${path.sep}`))
+        throw new Error("Managed account directories cannot be imported");
     }
     try {
       if (!configDirectory) {
@@ -695,16 +717,49 @@ export class AgentRuntimeService {
         // A managed Codex home gets its own file-backed sign-in; do not edit imported configurations.
         if (runtime === "codex-cli") await writeFile(path.join(directory, "config.toml"), 'cli_auth_credentials_store = "file"\n', { mode: 0o600, flag: "wx" });
       }
-      return await this.settings.addProfile(runtime, name, directory);
+      return await this.settings.addProfile(runtime, name, directory, !configDirectory);
     } catch (cause) {
       if (!configDirectory) await rm(directory, { recursive: true, force: true });
       throw cause;
     }
   }
 
+  async removeAccountProfile(runtime: AccountRuntimeId, profileId: string, releaseSessions: () => Promise<void>): Promise<void> {
+    if (profileId === "system") throw new Error("System default cannot be deleted");
+    const profile = this.settings.profiles(runtime).find((profile) => profile.id === profileId);
+    if (!profile) throw new Error("Account configuration not found");
+    const cacheKey = this.#key(runtime, profileId);
+    const deletingKey = `${runtime}:${profileId}`;
+    const pending = [this.#probing.get(cacheKey), this.#modelLoads.get(cacheKey)];
+    const stopLogin = this.#logins.get(cacheKey);
+    this.#deleting.add(deletingKey);
+    try {
+      await releaseSessions();
+      await stopLogin?.();
+      this.#logins.delete(cacheKey);
+      await Promise.allSettled(pending);
+      // Invalidate before removing the registry entry; late probes cannot repopulate its cache.
+      this.#invalidate(runtime, profileId);
+      if (profile.managed) {
+        const managedRoot = path.join(this.#root, "account-profiles", runtime);
+        if (!profile.configDirectory || path.dirname(profile.configDirectory) !== managedRoot)
+          throw new Error("Managed account directory is outside its reserved folder");
+        await rm(profile.configDirectory, { recursive: true, force: true });
+        // Claude also keeps a configuration file beside its configuration directory.
+        if (runtime === "claude-code-cli") await rm(`${profile.configDirectory}.json`, { force: true });
+      }
+      await this.settings.removeProfile(runtime, profileId);
+      this.#limits.delete(cacheKey);
+      this.#recordLimitsCache();
+    } finally {
+      this.#deleting.delete(deletingKey);
+    }
+  }
+
   #invalidate(id: AgentRuntimeId, profileId?: string): void {
-    const keys = profileId !== undefined ? [this.#key(id, profileId)]
-      : isAccountRuntimeId(id) ? this.settings.profiles(id).map((profile) => this.#key(id, profile.id)) : [id];
+    const key = (profile: string) => profile === "system" ? id : `${id}:${profile}`;
+    const keys = profileId !== undefined ? [key(profileId)]
+      : isAccountRuntimeId(id) ? this.settings.profiles(id).map((profile) => key(profile.id)) : [id];
     for (const key of keys) {
       this.#revisions.set(key, (this.#revisions.get(key) ?? 0) + 1);
       this.#probes.delete(key);
@@ -755,6 +810,7 @@ export class AgentRuntimeService {
     recheck: boolean,
     profileId?: string,
   ): Promise<ProbeCache | undefined> {
+    profileId = isAccountRuntimeId(id) ? this.#profileId(id, profileId) : undefined;
     const cacheKey = this.#key(id, profileId);
     const cached = this.#probes.get(cacheKey);
     if (
@@ -834,6 +890,7 @@ export class AgentRuntimeService {
   }
 
   #loadModels(id: AgentRuntimeId, profileId?: string): Promise<AgentModel[]> {
+    profileId = isAccountRuntimeId(id) ? this.#profileId(id, profileId) : undefined;
     const cacheKey = this.#key(id, profileId);
     const running = this.#modelLoads.get(cacheKey);
     if (running) return running;

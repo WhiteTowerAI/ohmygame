@@ -60,6 +60,7 @@ import {
   setConversationModel,
   setConversationAccountProfile,
   listAccountProfiles,
+  MODELS_CHANGED_EVENT,
   setConversationReasoning,
   startPreview,
   subscribeToProject,
@@ -171,7 +172,8 @@ export function ProjectShell({
   // The chat takes the request once its conversation is open.
   usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
   const accountRuntime = isAccountRuntimeId(state.settings.model?.provider) ? state.settings.model.provider : undefined;
-  const selectedProfileId = accountRuntime ? state.settings.accountProfiles?.[accountRuntime] ?? "system" : "system";
+  const storedProfileId = accountRuntime ? state.settings.accountProfiles?.[accountRuntime] ?? "system" : "system";
+  const selectedProfileId = accountProfiles.length && !accountProfiles.some((profile) => profile.id === storedProfileId) ? "system" : storedProfileId;
   const modelCatalog = useAgentModels({ agentRuntimes: true, accountProfiles: state.conversation ? { "claude-code-cli": state.settings.accountProfiles?.["claude-code-cli"] ?? "system", "codex-cli": state.settings.accountProfiles?.["codex-cli"] ?? "system" } : undefined });
   useEffect(() => {
     setAccountProfiles([]);
@@ -180,7 +182,8 @@ export function ProjectShell({
     const load = () => void listAccountProfiles(accountRuntime).then((profiles) => { if (!disposed) setAccountProfiles(profiles); }).catch(() => {});
     load();
     window.addEventListener("focus", load);
-    return () => { disposed = true; window.removeEventListener("focus", load); };
+    window.addEventListener(MODELS_CHANGED_EVENT, load);
+    return () => { disposed = true; window.removeEventListener("focus", load); window.removeEventListener(MODELS_CHANGED_EVENT, load); };
   }, [accountRuntime]);
   const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);

@@ -168,6 +168,7 @@ const IDLE_PROCESS_MS = 10 * 60_000;
  */
 export class NativeCodingSession implements CodingSession {
   readonly runtime: AgentRuntimeId;
+  get profileId(): string | undefined { return this.options.profileId; }
   readonly sessionManager: SessionManager;
   readonly emitsInitialUserMessage = true;
   readonly messages: unknown[] = [];
@@ -409,16 +410,16 @@ export class NativeCodingSession implements CodingSession {
     return this.options.skills?.() ?? [];
   }
 
-  dispose(): void {
+  dispose(): void | Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
     clearTimeout(this.#idleTimer);
     this.#running?.controller.abort();
-    // Keep generated config/Skills until the process has actually stopped.
-    void Promise.resolve(this.#driver.dispose())
-      .finally(() => this.options.dispose?.())
-      .catch(() => {});
     this.#listeners.clear();
+    // Keep generated config/Skills until the process has actually stopped.
+    return Promise.all([this.#idleStop, this.#driver.dispose()])
+      .finally(() => this.options.dispose?.())
+      .then(() => {}, () => {});
   }
 
   /** Records the usage the agent reported for its context. */

@@ -50,6 +50,7 @@ export interface CodingSession {
   readonly model?: RuntimeModel;
   /** The coding agent CLI that runs this session; absent for OhMyGame's own agent. */
   readonly runtime?: AgentRuntimeId;
+  readonly profileId?: string;
   /** Whether prompt() emits message_start for its initial user message. */
   readonly emitsInitialUserMessage?: boolean;
   readonly sessionManager?: Pick<SessionManager, "appendCustomEntry" | "getBranch"> & Partial<Pick<SessionManager, "branch">>;
@@ -62,7 +63,7 @@ export interface CodingSession {
   clearQueue?(): { steering: string[]; followUp: string[] };
   navigateTree?(targetId: string, options?: { summarize?: boolean }): Promise<{ editorText?: string; cancelled: boolean }>;
   abort(): Promise<void>;
-  dispose(): void;
+  dispose(): void | Promise<void>;
   subscribe(listener: (event: AgentSessionEvent) => void): () => void;
   setModel?(model: RuntimeModel): Promise<void>;
   readonly thinkingLevel?: AgentReasoningLevel;
@@ -491,6 +492,7 @@ export class AgentManager {
   readonly #steeringPrompts = new Map<string, QueuedPrompt[]>();
   readonly #queueMutations = new Map<string, Promise<void>>();
   readonly #revisions = new Set<string>();
+  readonly #sessionDisposals = new Map<CodingSession, Promise<void>>();
   /** The projects whose files a restore, an undo or a put-back is changing. No turn starts in them meanwhile. */
   readonly #puttingBack = new Set<string>();
   readonly #turnEndsRecorded = new Map<string, number>();
@@ -601,6 +603,18 @@ export class AgentManager {
         !this.#sessionLoads.has(key)
       )
         this.#forgetConversation(key);
+  }
+
+  /** Reject removal during startup/work, then stop the profile's idle processes before deleting files. */
+  async releaseAccountProfileSessions(runtime: AgentRuntimeId, profileId: string): Promise<void> {
+    const matches = (session: CodingSession) => session.runtime === runtime && (session.profileId ?? "system") === profileId;
+    const sessions = [...this.#sessions].filter(([, managed]) => matches(managed.session));
+    await Promise.all(sessions.flatMap(([key]) => this.#activeTurns.get(key)?.ended ? [this.#turnClosed(key)] : []));
+    // An unconstructed session does not yet expose its account. Retry once startup finishes.
+    if (this.#sessionLoads.size || sessions.some(([key]) => this.#activeTurns.has(key) || this.#revisions.has(key)))
+      throw new Error("Wait for the agent to finish before deleting this account configuration");
+    await Promise.all(sessions.map(([key]) => this.#forgetConversation(key)));
+    await Promise.all([...this.#sessionDisposals].flatMap(([session, stopped]) => matches(session) ? [stopped] : []));
   }
 
   /** The coding agent running a conversation's loaded session, if any; undefined for OhMyGame's own agent. */
@@ -2256,12 +2270,14 @@ export class AgentManager {
     return !!runtime && managed.runtimeRevision !== (this.#runtimeRevisions.get(runtime) ?? 0);
   }
 
-  #forgetConversation(key: string): void {
+  #forgetConversation(key: string): void | Promise<void> {
     const managed = this.#sessions.get(key);
     if (!managed) return;
     managed.unsubscribe();
-    managed.session.dispose();
     this.#sessions.delete(key);
+    const stopped = Promise.resolve(managed.session.dispose()).catch(() => {}).finally(() => this.#sessionDisposals.delete(managed.session));
+    this.#sessionDisposals.set(managed.session, stopped);
+    return stopped;
   }
 }
 

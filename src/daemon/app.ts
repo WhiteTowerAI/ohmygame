@@ -634,7 +634,7 @@ export function createApp(options: AppOptions = {}) {
   const library = new AssetLibrary(dataDirectory);
   const projects = new ProjectManager(dataDirectory, library);
   const attachments = new AgentAttachmentStore();
-  const conversations = new ConversationManager(conversationImages);
+  const conversations = new ConversationManager(conversationImages, (runtime, id) => agentRuntimes.settings.resolveProfileId(runtime, id));
   const agentPlaytests = new Map<string, OwnedPlaytestDriver>();
   const publishing = new Set<string>();
   const playerDirectory = options.interactiveStoryPlayerDirectory ?? path.join(repositoryRoot, "dist", "player");
@@ -2299,7 +2299,8 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Querystring: { runtimes?: string; profiles?: string } }>("/models", async (request, reply) => {
     let profiles: unknown = {};
     try { profiles = request.query.profiles ? JSON.parse(request.query.profiles) : {}; } catch { return reply.code(400).send({ error: "Invalid account profile selections" }); }
-    if (!isAccountProfileIds(profiles) || Object.entries(profiles).some(([runtime, id]) => !agentRuntimes.settings.profiles(runtime as "claude-code-cli" | "codex-cli").some((profile) => profile.id === id))) return reply.code(400).send({ error: "Account configuration not found" });
+    if (!isAccountProfileIds(profiles)) return reply.code(400).send({ error: "Invalid account profile selections" });
+    for (const runtime of ACCOUNT_RUNTIME_IDS) if (profiles[runtime]) profiles[runtime] = agentRuntimes.settings.resolveProfileId(runtime, profiles[runtime]);
     const runtime = await getModelRuntime();
     const loadingProviders = catalogRefresh.schedule(runtime);
     const available = resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider)));
@@ -3428,6 +3429,8 @@ export function createApp(options: AppOptions = {}) {
       await projects.touch(project.id);
       let turn;
       try {
+        // Another chat may have finished inference while its final checkpoint is still closing.
+        await agents.turnsClosed(project.id);
         turn = agents.prompt(
           project,
           conversation,
@@ -3625,6 +3628,19 @@ export function createApp(options: AppOptions = {}) {
       for (const runtime of ["claude-code-cli", "codex-cli", "opencode-cli"] as const) agents.releaseRuntimeSessions(runtime);
       return reply.code(201).send(profile);
     } catch (cause) { return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) }); }
+  });
+
+  app.delete<{ Params: { runtimeId: string; profileId: string } }>("/agent-runtimes/:runtimeId/profiles/:profileId", async (request, reply) => {
+    const { runtimeId, profileId } = request.params;
+    if (!isAccountRuntimeId(runtimeId)) return reply.code(404).send({ error: "Account configurations are not supported for this coding agent" });
+    if (profileId === "system") return reply.code(400).send({ error: "System default cannot be deleted" });
+    if (!agentRuntimes.settings.profiles(runtimeId).some((profile) => profile.id === profileId)) return reply.code(404).send({ error: "Account configuration not found" });
+    try {
+      await agentRuntimes.removeAccountProfile(runtimeId, profileId, () => agents.releaseAccountProfileSessions(runtimeId, profileId));
+      return reply.code(204).send();
+    } catch (cause) {
+      return reply.code(409).send({ error: cause instanceof Error ? cause.message : String(cause) });
+    }
   });
 
   app.get<{ Querystring: { recheck?: string } }>("/agent-runtimes", async (request) => agentRuntimes.statuses(request.query.recheck === "1"));

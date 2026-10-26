@@ -78,7 +78,11 @@ export class AgentRuntimeSettingsStore {
           typeof profile.name !== "string" || !profile.name.trim() ||
           typeof profile.configDirectory !== "string" || !path.isAbsolute(profile.configDirectory)) return [];
         ids.add(profile.id);
-        return [{ id: profile.id, name: profile.name, configDirectory: path.resolve(profile.configDirectory) }];
+        const directory = path.resolve(profile.configDirectory);
+        const managedRoot = path.join(path.dirname(this.#filePath), "agent-runtimes", "account-profiles", runtime);
+        // Migrate profiles created before ownership was recorded. Imports never use this reserved root.
+        const managed = path.dirname(directory) === managedRoot && /^[a-f0-9]{24}$/.test(path.basename(directory)) && profile.managed !== false;
+        return [{ id: profile.id, name: profile.name, configDirectory: directory, managed }];
       }) : []);
     }
     if (!runtimes || typeof runtimes !== "object") return;
@@ -113,15 +117,29 @@ export class AgentRuntimeSettingsStore {
     return [{ id: "system", name: "System default" }, ...(this.#profiles.get(runtime) ?? [])].map((profile) => ({ ...profile }));
   }
 
-  async addProfile(runtime: AccountRuntimeId, name: string, configDirectory: string): Promise<AgentAccountProfile> {
+  async addProfile(runtime: AccountRuntimeId, name: string, configDirectory: string, managed = false): Promise<AgentAccountProfile> {
     if (!name.trim() || name.trim().length > 80) throw new Error("Choose an account configuration name (1–80 characters)");
     if (!path.isAbsolute(configDirectory)) throw new Error("The configuration directory must be absolute");
     const directory = path.resolve(configDirectory);
     if ((this.#profiles.get(runtime) ?? []).some((profile) => profile.configDirectory === directory)) throw new Error("This configuration directory is already connected");
-    const profile = { id: randomUUID(), name: name.trim(), configDirectory: directory };
+    const profile = { id: randomUUID(), name: name.trim(), configDirectory: directory, managed };
     this.#profiles.set(runtime, [...(this.#profiles.get(runtime) ?? []), profile]);
     await this.#persist();
     return profile;
+  }
+
+  resolveProfileId(runtime: AccountRuntimeId, profileId: string): string {
+    return this.profiles(runtime).some((profile) => profile.id === profileId) ? profileId : "system";
+  }
+
+  async removeProfile(runtime: AccountRuntimeId, profileId: string): Promise<void> {
+    if (profileId === "system") throw new Error("System default cannot be deleted");
+    const profiles = this.#profiles.get(runtime) ?? [];
+    if (!profiles.some((profile) => profile.id === profileId)) throw new Error("Account configuration not found");
+    this.#profiles.set(runtime, profiles.filter((profile) => profile.id !== profileId));
+    if (this.get(runtime).defaultProfileId === profileId)
+      this.#settings.set(runtime, { ...this.get(runtime), defaultProfileId: "system" });
+    await this.#persist();
   }
 
   defaultModel(): AgentRuntimeDefault | undefined {

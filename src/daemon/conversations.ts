@@ -20,7 +20,10 @@ export class ConversationManager {
   readonly #pending = new Map<string, { stored: StoredConversation; manager: SessionManager; titled: boolean }>();
   readonly #cache: ConversationCache;
 
-  constructor(images?: ConversationImageStore) { this.#cache = new ConversationCache(images); }
+  constructor(
+    images?: ConversationImageStore,
+    private readonly resolveProfileId: (runtime: AccountRuntimeId, profileId: string) => string = (_runtime, id) => id,
+  ) { this.#cache = new ConversationCache(images); }
 
   forget(project: ProjectState): void {
     for (const [id, pending] of this.#pending) if (pending.stored.summary.projectId === project.id) this.#pending.delete(id);
@@ -178,6 +181,14 @@ export class ConversationManager {
       const data = entry.data as { version?: unknown; runtime?: unknown; profileId?: unknown } | undefined;
       if (data?.version === 1 && isAccountRuntimeId(data.runtime) && typeof data.profileId === "string") profiles[data.runtime] = data.profileId;
     }
+    for (const [runtime, profileId] of Object.entries(profiles)) {
+      const id = runtime as AccountRuntimeId;
+      const resolved = this.resolveProfileId(id, profileId);
+      if (resolved !== profileId) {
+        this.setAccountProfile(project, stored, id, resolved);
+        profiles[id] = resolved;
+      }
+    }
     return profiles;
   }
 
@@ -186,7 +197,9 @@ export class ConversationManager {
   }
 
   setAccountProfile(project: ProjectState, stored: StoredConversation, runtime: AccountRuntimeId, profileId: string): void {
-    this.open(project, stored).appendCustomEntry("ohmygame-account-profile", { version: 1, runtime, profileId });
+    const manager = this.open(project, stored);
+    manager.appendCustomEntry("ohmygame-account-profile", { version: 1, runtime, profileId });
+    manager.appendCustomEntry("ohmygame-native-session", { version: 2, runtime, state: "invalid" });
   }
 
   async planState(project: ProjectState, stored: StoredConversation): Promise<PlanSessionState> {

@@ -17055,6 +17055,6 @@ button {
 .chat-account-selector .canvas-chip[aria-expanded="true"] { background: var(--menu-hover); }
 @media (max-width: 640px) {
   .agent-account-profiles .provider-model-row { flex-wrap: wrap; }
-  .agent-account-profiles .provider-model-row > label { flex-basis: calc(100% - 64px); }
+  .agent-account-profiles .provider-model-row > label { flex-basis: calc(100% - 96px); }
   .agent-account-profiles .agent-usage-inline { order: 1; flex-basis: 100%; padding-left: 24px; justify-content: flex-start; }
 }

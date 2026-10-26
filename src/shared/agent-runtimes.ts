@@ -96,6 +96,8 @@ export interface AgentAccountProfile {
   name: string;
   /** Absent for the existing system CLI configuration. */
   configDirectory?: string;
+  /** Only app-created directories may be removed with the profile. */
+  managed?: boolean;
 }
 
 export interface AgentAccountProfileStatus extends AgentAccountProfile {

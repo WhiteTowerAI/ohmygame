@@ -3,7 +3,7 @@ import path from "node:path";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { AgentRuntimeStatus } from "../src/shared/agent-runtimes.js";
+import type { AgentAccountProfileStatus, AgentRuntimeStatus } from "../src/shared/agent-runtimes.js";
 import type { AgentModelCatalog } from "../src/shared/contracts.js";
 
 const agent = (
@@ -34,11 +34,12 @@ const api = {
       ...change,
     }),
   ),
-  listAccountProfiles: vi.fn(async () => [
+  listAccountProfiles: vi.fn(async (): Promise<AgentAccountProfileStatus[]> => [
     { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription" } },
     { id: "work", name: "Work", auth: { status: "signed-out", billing: "unknown" } },
   ]),
   loginAgentRuntime: vi.fn(async () => ({ command: "fixture-cli login" })),
+  deleteAccountProfile: vi.fn(async (_runtime: string, _id: string) => {}),
   addAccountProfile: vi.fn(async (_runtime: string, name: string, configDirectory?: string) => ({ id: "new-account", name, configDirectory })),
   listAgentRuntimes: vi.fn(async () => [
     agent("claude-code-cli", "Claude Code", true),
@@ -444,4 +445,38 @@ it("selects the default account directly from its row", async () => {
   expect(api.updateAgentRuntime).toHaveBeenCalledWith("codex-cli", { defaultProfileId: "work" });
   expect(choice.checked).toBe(true);
   expect(choice.closest("label")?.textContent).toContain("Default");
+});
+
+it.each([true, false])("confirms account deletion with managed=%s and resets the selected default", async (managed) => {
+  api.listAgentRuntimes.mockResolvedValueOnce([{ ...agent("codex-cli", "Codex", true), defaultProfileId: "work" }]);
+  api.listAccountProfiles.mockResolvedValueOnce([
+    { id: "system", name: "System default", auth: { status: "signed-in", billing: "subscription" } },
+    { id: "work", name: "Work", configDirectory: "/fixture/work", managed, auth: { status: "signed-out", billing: "unknown" } },
+  ]);
+  await act(async () => root.render(<AgentsSettings view={{ page: "agent", id: "codex-cli" }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />));
+  const buttons = () => [...host.querySelectorAll<HTMLButtonElement>("button")];
+  expect(buttons().some((button) => button.getAttribute("aria-label") === "Delete System default account")).toBe(false);
+  const remove = buttons().find((button) => button.getAttribute("aria-label") === "Delete Work account")!;
+  await act(async () => remove.click());
+  const confirmation = () => host.querySelector<HTMLElement>(".settings-provider-delete-confirmation")!;
+  expect(confirmation().textContent).toContain(managed ? "sign-in files and native history will be removed" : "existing CLI directory and files will be kept");
+  expect(api.deleteAccountProfile).not.toHaveBeenCalled();
+  await act(async () => [...confirmation().querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Cancel")!.click());
+  expect(confirmation()).toBeNull();
+  await act(async () => remove.click());
+  await act(async () => confirmation().querySelector<HTMLButtonElement>(".settings-danger-button")!.click());
+  expect(api.deleteAccountProfile).toHaveBeenCalledWith("codex-cli", "work");
+  expect(host.querySelector<HTMLInputElement>('input[aria-label="Use System default for new chats"]')?.checked).toBe(true);
+  expect(buttons().some((button) => button.getAttribute("aria-label") === "Delete Work account")).toBe(false);
+  expect(confirmation()).toBeNull();
+});
+
+it("keeps the account and displays the error when deletion is refused", async () => {
+  api.deleteAccountProfile.mockRejectedValueOnce(new Error("Wait for the agent to finish"));
+  await act(async () => root.render(<AgentsSettings view={{ page: "agent", id: "claude-code-cli" }} onViewChange={vi.fn()} onOpenProviders={vi.fn()} />));
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Delete Work account"]')!.click());
+  await act(async () => host.querySelector<HTMLButtonElement>(".settings-danger-button")!.click());
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("Wait for the agent to finish");
+  expect(host.querySelector('button[aria-label="Delete Work account"]')).not.toBeNull();
+  expect(host.querySelector(".settings-provider-delete-confirmation")).not.toBeNull();
 });

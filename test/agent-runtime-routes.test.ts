@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ConversationManager } from "../src/daemon/conversations.js";
@@ -76,7 +76,7 @@ require("node:readline").createInterface({input:process.stdin}).on("line", line 
   send({id:m.id,result});
   if (m.method === "account/login/start") setTimeout(() => send({method:"account/login/completed",params:{loginId:"test-login",success:true}}),10);
   if (m.method === "turn/interrupt") send({method:"turn/completed",params:{threadId:m.params.threadId,turn:{id:m.params.turnId,status:"interrupted"}}});
-  if (m.method === "turn/start" && !JSON.stringify(m.params.input).includes("hold busy")) {
+  if (m.method === "turn/start" && !m.params.input.some(item => item.type === "text" && item.text.trim() === "hold busy")) {
     const threadId = m.params.threadId;
     send({method:"item/completed",params:{threadId,item:{id:"answer-"+next,type:"agentMessage",text:"Account reply",phase:"final_answer"}}});
     send({method:"turn/completed",params:{threadId,turn:{id:result.turn.id,status:"completed"}}});
@@ -161,7 +161,7 @@ describe("coding agent routes", () => {
     };
     const first = await create(personal.id), second = await create(personal.id), third = await create(work.id);
     const turn = async (base: string, prompt = "Hello") => {
-      expect((await call("POST", `${base}/turns`, {prompt})).status).toBe(202);
+      expect(await call("POST", `${base}/turns`, {prompt})).toMatchObject({ status: 202 });
       await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
     };
     const log = async () => (await readFile(codex+".log", "utf8")).trim().split("\n").map((line) => JSON.parse(line));
@@ -216,6 +216,117 @@ describe("coding agent routes", () => {
     await call("POST", `${second}/turns/${busy.body.turnId}/cancel`);
     await vi.waitFor(async () => expect((await call<ConversationDetail>("GET", second)).body.agent.status).toBe("idle"));
 
+  });
+
+  it.skipIf(process.platform === "win32")("pins default-account discovery while a different default is being saved", async () => {
+    const { dataDirectory } = await start();
+    const codex = path.join(dataDirectory, "codex-default-fixture");
+    await writeFile(codex, FAKE_CODEX, { mode: 0o700 });
+    const service = new AgentRuntimeService(dataDirectory, () => undefined);
+    await service.settings.load();
+    const personalDir = path.join(dataDirectory, "personal"), workDir = path.join(dataDirectory, "work");
+    await mkdir(personalDir); await mkdir(workDir);
+    const personal = await service.addAccountProfile("codex-cli", "Personal", personalDir);
+    const work = await service.addAccountProfile("codex-cli", "Work", workDir);
+    await service.settings.update("codex-cli", { enabled: true, binaryPath: codex, defaultProfileId: personal.id });
+    const models = service.models(), status = service.status("codex-cli");
+    await service.settings.update("codex-cli", { defaultProfileId: work.id });
+    expect((await models).models.find((model) => model.provider === "codex-cli")?.name).toBe("Codex personal");
+    expect((await status).auth.account).toBe("personal@example.com");
+    expect((await service.models()).models.find((model) => model.provider === "codex-cli")?.name).toBe("Codex work");
+  });
+
+  it.skipIf(process.platform === "win32")("stops an unfinished sign-in before deleting its managed home", async () => {
+    const { call, dataDirectory } = await start();
+    const codex = path.join(dataDirectory, "codex-login-fixture");
+    await writeFile(codex, FAKE_CODEX.replace('if (m.method === "account/login/start") setTimeout', 'if (false) setTimeout'), { mode: 0o700 });
+    await call("PATCH", "/agent-runtimes/codex-cli", { binaryPath: codex });
+    const profile = (await call<AgentAccountProfile>("POST", "/agent-runtimes/codex-cli/profiles", { name: "Signing in" })).body;
+    expect((await call("POST", `/agent-runtimes/codex-cli/login?profileId=${profile.id}`)).status).toBe(200);
+    const records = (await readFile(`${codex}.log`, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    const pid = records.find((record) => record.method === "account/login/start").pid;
+    expect((await call("DELETE", `/agent-runtimes/codex-cli/profiles/${profile.id}`)).status).toBe(204);
+    expect(() => process.kill(pid, 0)).toThrow();
+    expect(await stat(profile.configDirectory!).catch(() => undefined)).toBeUndefined();
+  });
+
+  it.each(["claude-code-cli", "codex-cli"] as const)("deletes managed %s files, preserves imports and resets defaults", async (runtime) => {
+    const { call, dataDirectory } = await start();
+    await call("PATCH", `/agent-runtimes/${runtime}`, { binaryPath: path.join(dataDirectory, "missing-cli") });
+    const managed = (await call<AgentAccountProfile>("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Managed" })).body;
+    expect(managed.managed).toBe(true);
+    await writeFile(path.join(managed.configDirectory!, "auth.json"), "managed credentials");
+    if (runtime === "claude-code-cli") await writeFile(`${managed.configDirectory}.json`, "managed CLI state");
+    await call("PATCH", `/agent-runtimes/${runtime}`, { defaultProfileId: managed.id });
+    expect((await call("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Alias", configDirectory: managed.configDirectory })).status).toBe(400);
+    expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/system`)).status).toBe(400);
+    expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/missing`)).status).toBe(404);
+    expect((await call("DELETE", `/agent-runtimes/opencode-cli/profiles/${managed.id}`)).status).toBe(404);
+    expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/${managed.id}`)).status).toBe(204);
+    expect(await stat(managed.configDirectory!).catch(() => undefined)).toBeUndefined();
+    if (runtime === "claude-code-cli") expect(await stat(`${managed.configDirectory}.json`).catch(() => undefined)).toBeUndefined();
+    const importedDirectory = path.join(dataDirectory, "imported");
+    await mkdir(importedDirectory);
+    await writeFile(path.join(importedDirectory, "auth.json"), "existing credentials");
+    await writeFile(`${importedDirectory}.json`, "existing CLI state");
+    const imported = (await call<AgentAccountProfile>("POST", `/agent-runtimes/${runtime}/profiles`, { name: "Imported", configDirectory: importedDirectory })).body;
+    expect(imported.managed).toBe(false);
+    expect((await call("DELETE", `/agent-runtimes/${runtime}/profiles/${imported.id}`)).status).toBe(204);
+    expect(await readFile(path.join(importedDirectory, "auth.json"), "utf8")).toBe("existing credentials");
+    expect(await readFile(`${importedDirectory}.json`, "utf8")).toBe("existing CLI state");
+    const reopened = new AgentRuntimeSettingsStore(dataDirectory);
+    await reopened.load();
+    expect(reopened.get(runtime).defaultProfileId).toBe("system");
+    expect(reopened.profiles(runtime)).toEqual([{ id: "system", name: "System default" }]);
+  });
+
+  it.skipIf(process.platform === "win32")("refuses deletion of a running account and falls back without resuming its native context", async () => {
+    const { call, dataDirectory } = await start();
+    const codex = path.join(dataDirectory, "codex-delete-fixture");
+    await writeFile(codex, FAKE_CODEX, { mode: 0o700 });
+    await call("PATCH", "/agent-runtimes/codex-cli", { binaryPath: codex, enabled: true });
+    const profile = (await call<AgentAccountProfile>("POST", "/agent-runtimes/codex-cli/profiles", { name: "Work" })).body;
+    await call("PATCH", "/agent-runtimes/codex-cli", { defaultProfileId: profile.id });
+    const project = (await call<ProjectState>("POST", "/projects", {})).body;
+    const create = async () => {
+      const chat = (await call<ConversationSummary>("POST", `/projects/${project.id}/conversations`, { model: { provider: "codex-cli", id: "gpt-test" } })).body;
+      return `/projects/${project.id}/conversations/${chat.id}`;
+    };
+    const base = await create(), untouched = await create();
+    const turn = (prompt: string) => call<{ turnId: string }>("POST", `${base}/turns`, { prompt });
+    const wait = () => vi.waitFor(async () => expect((await call<ConversationDetail>("GET", base)).body.agent.status).toBe("idle"));
+    expect((await turn("Hello")).status).toBe(202);
+    await wait();
+    const running = await turn("hold busy");
+    // Status is set before the CLI receives its turn; wait at the protocol boundary too.
+    await vi.waitFor(async () => expect(await readFile(`${codex}.log`, "utf8")).toContain("hold busy"));
+    const removal = `/agent-runtimes/codex-cli/profiles/${profile.id}`;
+    expect((await call("DELETE", removal)).status).toBe(409);
+    expect((await stat(profile.configDirectory!)).isDirectory()).toBe(true);
+    expect((await call<ConversationDetail>("GET", base)).body.settings.accountProfiles?.["codex-cli"]).toBe(profile.id);
+    // Work on this account must not block removal of a different account.
+    const idle = (await call<AgentAccountProfile>("POST", "/agent-runtimes/codex-cli/profiles", { name: "Unused" })).body;
+    expect((await call("DELETE", `/agent-runtimes/codex-cli/profiles/${idle.id}`)).status).toBe(204);
+    await call("POST", `${base}/turns/${running.body.turnId}/cancel`);
+    await wait();
+    expect((await call("DELETE", removal)).status).toBe(204);
+    for (const chat of [base, untouched]) {
+      expect((await call<ConversationDetail>("GET", chat)).body.settings.accountProfiles).toBeUndefined();
+      expect((await call("GET", `${chat}/context-usage`)).status).toBe(200);
+    }
+    const staleCatalog = await call<AgentModelCatalog>("GET", `/models?runtimes=1&profiles=${encodeURIComponent(JSON.stringify({ "codex-cli": profile.id }))}`);
+    expect(staleCatalog.status).toBe(200);
+    expect(staleCatalog.body.models.find((model) => model.provider === "codex-cli")).toBeDefined();
+    expect((await call("PUT", `${base}/account-profile`, { runtime: "codex-cli", profileId: profile.id })).status).toBe(400);
+    expect((await turn("Continue after deletion")).status).toBe(202);
+    await wait();
+    const records = (await readFile(`${codex}.log`, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    const lastTurn = records.filter((record) => record.method === "turn/start").at(-1);
+    expect(lastTurn.home).not.toBe(profile.configDirectory);
+    expect(JSON.stringify(lastTurn.params.input)).toContain("conversation-handoff");
+    expect(records.filter((record) => record.home === lastTurn.home && record.method === "thread/resume")).toHaveLength(0);
+    expect(await stat(profile.configDirectory!).catch(() => undefined)).toBeUndefined();
+    expect(await readFile(path.join(dataDirectory, "agent-runtimes", "limits.json"), "utf8")).not.toContain(profile.id);
   });
 
   it("creates private Codex homes before login and retains both runtimes' profile defaults after restart", async () => {
