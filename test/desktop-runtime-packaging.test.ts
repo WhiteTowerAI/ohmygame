@@ -21,12 +21,11 @@ const {
 } = require("app-builder-lib/out/fileMatcher.js");
 
 describe("desktop runtime packaging", () => {
-  it("includes the generated story resources in the application", async () => {
+  it.each(["dist/story-web/resources.json", "dist/multiplayer-sdk/resources.json", "dist/multiplayer-server/service.js"])("includes runtime resource %s in the application", async (relative) => {
     const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-story-packaging-"));
     try {
       const config = parse(await readFile("electron-builder.yml", "utf8")) as Configuration;
-      const relative = "dist/story-web/resources.json";
-      await mkdir(path.join(directory, "dist/story-web"), { recursive: true });
+      await mkdir(path.dirname(path.join(directory, relative)), { recursive: true });
       await writeFile(path.join(directory, relative), "story resources");
       const destination = path.join(directory, "app");
       const matchers = getFileMatchers(config, "files", destination, {
@@ -41,7 +40,7 @@ describe("desktop runtime packaging", () => {
       await createPackage(destination, archive);
       // ASAR's promise can resolve before its output stream has finished writing.
       await vi.waitFor(() => {
-        expect(extractFile(archive, path.join("dist", "story-web", "resources.json")).toString()).toBe("story resources");
+        expect(extractFile(archive, relative).toString()).toBe("story resources");
       });
     } finally {
       await rm(directory, { recursive: true, force: true });

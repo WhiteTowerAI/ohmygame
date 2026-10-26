@@ -20,6 +20,9 @@ import type { CanvasStore } from "./canvas-workspace.js";
 import { readCanvasAssets } from "./canvas-assets.js";
 import { AUDIO_VOICE_ID_MAX_LENGTH, AUDIO_VOICE_ID_PATTERN } from "../shared/audio.js";
 import { inspectPluginDraft } from "./plugin-draft.js";
+import { installMultiplayerWorkspace } from "./multiplayer-workspace.js";
+import type { LocalGameAdapterId } from "./local-multiplayer.js";
+import type { MultiplayerManifestConfig } from "../shared/multiplayer-protocol.js";
 
 const PI_TOOL_NAMES: Record<ToolId, string> = {
   "generate-image": "generate_image",
@@ -83,6 +86,7 @@ export function createAgentTools(
   playtest?: { driver: GameRuntimeAdapter; resolveOpenTarget: () => Promise<GameUseOpenTarget> },
   searchWeb?: SearchWeb,
   canvasStore?: CanvasStore,
+  configureMultiplayer?: (adapterId: LocalGameAdapterId) => Promise<MultiplayerManifestConfig>,
 ): PiToolDefinition[] {
   const saveGeneratedAudio = async (
     toolId: "generate-speech" | "generate-sound-effect" | "generate-music",
@@ -109,7 +113,22 @@ export function createAgentTools(
       };
     } finally { await tools.removeRun(run.id); }
   };
-  return [defineTool({
+  return [...(configureMultiplayer && (project.type === "web-game" || project.type === "general") ? [defineTool({
+    name: "multiplayer_setup",
+    label: "Set up multiplayer",
+    description: "Set up local Colyseus multiplayer: start the daemon-owned loopback backend and write the browser SDK, deployment manifest and integration guide into this Web Game. Choose the matching server rules; unsupported game rules need a server adapter, never a PeerJS/WebRTC fallback. Rooms last until OhMyGame stops. This does not deploy a public backend or publish the game.",
+    parameters: Type.Object({ adapterId: Type.Union([Type.Literal("gomoku"), Type.Literal("stones"), Type.Literal("arena")]) }),
+    execute: async (_toolCallId, input, signal) => {
+      signal?.throwIfAborted();
+      const config = await configureMultiplayer(input.adapterId);
+      signal?.throwIfAborted();
+      const result = await installMultiplayerWorkspace(project, config);
+      return {
+        content: [{ type: "text" as const, text: `Local Colyseus backend is running at ${config.serverUrl}. Read ${result.guidePath}, import the SDK from ${result.sdkPath}/client.js, and load ${result.manifestPath} at runtime. Integrate the game with authoritative snapshots and commands, then test with two independent guests. This is a local playtest deployment; public publishing requires a public backend.` }],
+        details: { multiplayer: result },
+      };
+    },
+  })] : []), defineTool({
     name: "questionnaire",
     label: "Ask Questions",
     description: "Ask the user up to three high-impact clarifying questions when their answer is necessary to produce a correct plan. Do not ask for information you can discover from the project.",

@@ -102,6 +102,11 @@ choices. See [runtime.md](docs/runtime.md) for these boundaries.
 - Browser development does not provide Electron's `game_use` playtest tool.
   Use `bun run dev:desktop` for desktop windows and agent playtesting.
 
+For local multiplayer games, the agent can call `multiplayer_setup` to start a
+daemon-owned Colyseus backend and write its SDK/configuration into the game.
+Local validation needs no cloud deployment. See [multiplayer integration](docs/multiplayer.md)
+for two-player testing, supported game rules, and the separate public publishing requirements.
+
 Browser development stores project data under `.data/`. Desktop development
 uses the app's user-data directory. Set `OHMYGAME_DATA_DIR` and
 `PI_CODING_AGENT_DIR` to separate temporary directories when a manual test needs

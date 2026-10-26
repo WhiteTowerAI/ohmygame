@@ -6,6 +6,8 @@ import { Client, type Room } from "@colyseus/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMultiplayerServer } from "../src/multiplayer-server/service.js";
 import { MultiplayerClient } from "../src/renderer/multiplayer-client.js";
+import { isGomokuState } from "../src/shared/gomoku.js";
+import { LocalMultiplayerRuntime } from "../src/daemon/local-multiplayer.js";
 import {
   multiplayerRoomType,
   type MultiplayerManifestConfig,
@@ -63,6 +65,7 @@ describe.sequential("multiplayer service over HTTP and WebSocket", () => {
     { ...config, deploymentId: "v2" },
     { ...config, gameId: "private", roomPolicy: "invite-only" as const },
     { ...config, gameId: "arena", mode: "realtime" as const },
+    { ...config, gameId: "gomoku", adapterId: "gomoku", maxClients: 2 },
   ];
   async function start() {
     service = createMultiplayerServer({
@@ -224,6 +227,44 @@ describe.sequential("multiplayer service over HTTP and WebSocket", () => {
     expect(first.snapshot!.state.winnerPlayerId).toBe(first.ready!.playerId);
   });
 
+  it("synchronizes Gomoku, rejects invalid moves, declares a winner and resets on the server", async () => {
+    const [black, white] = await match(deployments[4]!);
+    const send: typeof command = async (...args) => {
+      await new Promise(resolve => setTimeout(resolve, 120));
+      return command(...args);
+    };
+    expect(isGomokuState(black.snapshot!.state.game)).toBe(true);
+    expect((await send(white, "action", { action: "move", point: { r: 0, c: 0 } })).result.error?.code).toBe("not_your_turn");
+    expect((await send(black, "action", { action: "move", point: { r: -1, c: 0 } })).result.accepted).toBe(false);
+    expect((await send(black, "action", { action: "move", point: { r: 0, c: 0 }, board: [] })).result.accepted).toBe(false);
+    let firstMove: TurnCommand | undefined;
+    for (let column = 0; column < 5; column++) {
+      const move = await send(black, "action", { action: "move", point: { r: 7, c: column } });
+      expect(move.result.accepted).toBe(true);
+      firstMove ??= move.value;
+      await wait(() => expect(white.snapshot!.sequence).toBe(move.result.sequence));
+      if (column === 0) {
+        expect((await send(white, "action", { action: "move", point: { r: 7, c: 0 } })).result.accepted).toBe(false);
+        expect((await send(black, "action", firstMove.payload, firstMove)).result.sequence).toBe(move.result.sequence);
+      }
+      if (column < 4) {
+        const reply = await send(white, "action", { action: "move", point: { r: 8, c: column } });
+        expect(reply.result.accepted).toBe(true);
+        await wait(() => expect(black.snapshot!.sequence).toBe(reply.result.sequence));
+      }
+    }
+    expect(white.snapshot!.state.winnerPlayerId).toBe(black.ready!.playerId);
+    expect(white.snapshot!.state.phase).toBe("finished");
+    expect(white.snapshot!.state.game?.winningLine).toHaveLength(5);
+    expect((await send(white, "action", { action: "reset" })).result.accepted).toBe(false);
+    const reset = await send(black, "action", { action: "reset" });
+    expect(reset.result.accepted).toBe(true);
+    await wait(() => expect(white.snapshot!.sequence).toBe(reset.result.sequence));
+    expect(white.snapshot!.state.game?.history).toEqual([]);
+    expect(white.snapshot!.state.game?.blackWins).toBe(1);
+    expect(white.snapshot!.state.currentPlayerId).toBe(black.ready!.playerId);
+  });
+
   it("protects invitations, snapshots, deployments and single control ownership", async () => {
     const privateConfig = deployments[2]!;
     const ownerTransport = await transport();
@@ -278,6 +319,7 @@ describe.sequential("multiplayer service over HTTP and WebSocket", () => {
       owner.ready!.inviteCode,
     );
     expect(joined.snapshot!.state.players).toHaveLength(2);
+    await wait(() => expect(owner.snapshot!.sequence).toBe(joined.snapshot!.sequence));
     expect(await command(joined, "close").then((r) => r.result.accepted)).toBe(
       false,
     );
@@ -397,5 +439,39 @@ describe.sequential("multiplayer service over HTTP and WebSocket", () => {
     await start();
     const client = await transport();
     await expect(client.joinById(roomId, joinOptions(arena))).rejects.toThrow();
+  });
+
+  it("starts one loopback service for local games and connects two independent SDK guests", async () => {
+    await service.stop();
+    const runtime = new LocalMultiplayerRuntime();
+    const clients: MultiplayerClient[] = [];
+    try {
+      const [gomoku, stones] = await Promise.all([runtime.configure("local-board", "gomoku"), runtime.configure("local-stones", "stones")]);
+      expect(gomoku.serverUrl).toBe(stones.serverUrl);
+      expect(await runtime.configure("local-board", "gomoku")).toEqual(gomoku);
+      const owner = new MultiplayerClient({ manifest: gomoku, allowLocalhost: true, storage: memoryStorage(), identityStorage: memoryStorage() });
+      const guestStorage = memoryStorage();
+      const guestIdentityStorage = memoryStorage();
+      const guest = new MultiplayerClient({ manifest: gomoku, allowLocalhost: true, storage: guestStorage, identityStorage: guestIdentityStorage });
+      clients.push(owner, guest);
+      await owner.createRoom();
+      await wait(() => expect(owner.roomCode).toMatch(/^[A-F0-9]{16}$/));
+      await guest.joinRoom({ roomCode: owner.roomCode });
+      await wait(() => expect(owner.snapshot?.state.players).toHaveLength(2));
+      await wait(() => expect(guest.playerId).toBeTruthy());
+      expect(guest.playerId).not.toBe(owner.playerId);
+      owner.sendCommand("start");
+      await wait(() => expect(guest.snapshot?.state.phase).toBe("playing"));
+      owner.sendCommand("action", { action: "move", point: { r: 7, c: 7 } });
+      await wait(() => expect(guest.snapshot?.state.game?.history).toEqual([{ r: 7, c: 7 }]));
+      guest.dispose();
+      const restored = new MultiplayerClient({ manifest: gomoku, allowLocalhost: true, storage: guestStorage, identityStorage: guestIdentityStorage });
+      clients.push(restored);
+      expect(await restored.reconnect()).toBe(true);
+      await wait(() => expect(restored.snapshot?.state.game?.history).toHaveLength(1));
+    } finally {
+      for (const client of clients) client.dispose();
+      await runtime.close();
+    }
   });
 });

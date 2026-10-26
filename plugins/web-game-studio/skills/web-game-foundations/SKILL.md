@@ -27,6 +27,14 @@ Use this skill for architecture decisions or cross-cutting changes. For focused 
 
 Use these boundaries in proportion to the project. A small game does not need an enterprise framework, but its rules should not become inseparable from rendering callbacks.
 
+## Multiplayer
+
+For OhMyGame online play, use Colyseus rooms and WebSocket with server-authoritative rules. Call `multiplayer_setup` when available for local tests; it starts a daemon-owned loopback backend and writes `src/ohmygame/client.js`, an integration guide, `multiplayer.json`, and `public/manifest.json`. Read that guide before implementing the game. No cloud deployment is needed for local validation.
+
+Choose the actual server rules adapter: `gomoku`, `stones`, or `arena`. Other rules require a registered server adapter; an SDK connection does not turn arbitrary local game rules into multiplayer. If the service, adapter, or tool is unavailable, report the missing setup. Do not silently use PeerJS, WebRTC, public signaling/STUN/TURN servers, or client-authoritative boards as substitutes. Honor an explicitly requested alternative stack and explain that the platform's Colyseus publishing checks do not support it.
+
+Load the runtime manifest, send player intent through the SDK, and render authoritative snapshots. Handle room creation, joining, waiting for another player, rejected commands, disconnect, refresh, and connection timeout. Test two independent guests, including an invalid action and reconnect. Use session-scoped guest identities for two-tab local tests. Local rooms end when the daemon stops; rerun setup after restarting it. Public publishing requires a separately hosted HTTPS backend and an immutable deployment whose rules and configuration match the game.
+
 ## Before Implementation
 
 For a new or substantially changed game, establish:

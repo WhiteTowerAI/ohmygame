@@ -293,6 +293,9 @@ interface MultiplayerGameAdapter<State, Command> {
 
 ## 17. 本仓库实现与运行
 
+本地游戏接入请先看 [Multiplayer game integration](multiplayer.md)。现在可由 agent 调用 `multiplayer_setup`，自动启动 daemon 管理的本机 Colyseus 服务、写入 SDK 和 manifest，并选择 `gomoku`、`stones` 或 `arena` 规则。五子棋使用服务端规则校验和 WebSocket；本地双客户端验证不需要部署云端后端。以下 Railway/HTTPS 配置用于公开发布，不能理解为本地测试的前置条件。
+
+
 当前实现提供独立 Colyseus 服务、浏览器客户端、SQLite 回合快照和命令结果、游客令牌及 Supabase Auth 验证。示例适配器有两个：回合制的 21 石子和实时的中心竞速。服务器验证命令与输入；客户端只渲染权威快照。交互故事的 Node Runtime 尚无通用的服务器游戏规则适配器，因此交互故事发布仍是单人，不能通过设置一个 manifest 把任意故事自动变成多人游戏。
 
 先运行 `bun run build:host` 和 `bun run build:player`。准备一份只由运营者写入的部署注册文件，内容是 `MultiplayerManifestConfig[]`。每个部署 ID 保持不可变；发布配置的 `serverUrl` 使用公开 HTTPS 源地址，Railway 的代理负责 TLS 和 WebSocket 转发。服务端要求 Node.js 22.19 或更新版本，并使用单实例和持久卷：

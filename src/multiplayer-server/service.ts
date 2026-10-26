@@ -12,6 +12,7 @@ import {
 import { MultiplayerAuth, type MultiplayerAuthOptions } from "./auth.js";
 import { RoomStore, type StoredRoom } from "./store.js";
 import { GameRoom, ROOM_IDLE_MS } from "./turn-room.js";
+import { resolveGameAdapter, type GameAdapter } from "./adapters.js";
 
 export interface MultiplayerServerOptions {
   deployments: MultiplayerManifestConfig[];
@@ -22,6 +23,8 @@ export interface MultiplayerServerOptions {
   publicAddress?: string;
   maxRooms?: number;
   logger?: boolean;
+  allowLocalhost?: boolean;
+  adapters?: Record<string, GameAdapter>;
 }
 
 /** Fixed windows are bounded and also used for WebSocket upgrades. */
@@ -50,16 +53,19 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
   const host = options.host ?? "0.0.0.0";
   const port = options.port ?? 43130;
   const maxRooms = options.maxRooms ?? 100;
+  if (options.allowLocalhost && !["127.0.0.1", "::1", "localhost"].includes(host))
+    throw new Error("Local multiplayer must listen on a loopback address.");
   if (!Number.isInteger(maxRooms) || maxRooms < 1)
     throw new Error("maxRooms must be a positive integer.");
   const deployments = new Map<string, MultiplayerManifestConfig>();
   for (const config of options.deployments) {
     if (
-      !isMultiplayerManifestConfig(config) ||
+      !isMultiplayerManifestConfig(config, { allowLocalhost: options.allowLocalhost }) ||
       deployments.has(multiplayerRoomType(config))
     )
       throw new Error("Invalid or duplicate multiplayer deployment.");
     deployments.set(multiplayerRoomType(config), config);
+    resolveGameAdapter(config, options.adapters);
   }
   const auth = new MultiplayerAuth(options.auth);
   const store = new RoomStore(options.databasePath);
@@ -268,12 +274,13 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
       });
     },
   });
-  for (const config of deployments.values()) {
+  function defineDeployment(config: MultiplayerManifestConfig) {
     class DeploymentRoom extends GameRoom {
       protected services = {
         config,
         store,
         restoring,
+        adapter: resolveGameAdapter(config, options.adapters),
         reserve: (roomId: string) => {
           if (activeRooms.size >= maxRooms) return false;
           activeRooms.add(roomId);
@@ -298,10 +305,25 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
       .define(multiplayerRoomType(config), DeploymentRoom)
       .on("dispose", (room) => activeRooms.delete(room.roomId));
   }
+  for (const config of deployments.values()) defineDeployment(config);
   let started = false;
+  let closed = false;
   return {
     server,
     host,
+    registerLocalDeployment(config: MultiplayerManifestConfig) {
+      if (!options.allowLocalhost || !isMultiplayerManifestConfig(config, { allowLocalhost: true }))
+        throw new Error("Dynamic registration is only available for local testing.");
+      const key = multiplayerRoomType(config);
+      const previous = deployments.get(key);
+      if (previous) {
+        if (!sameMultiplayerConfig(previous, config)) throw new Error("A deployment is immutable. Use a new deployment ID.");
+        return;
+      }
+      resolveGameAdapter(config, options.adapters);
+      deployments.set(key, config);
+      defineDeployment(config);
+    },
     get port(): number {
       const address = transport.server?.address();
       return typeof address === "object" && address ? address.port : port;
@@ -339,6 +361,8 @@ export function createMultiplayerServer(options: MultiplayerServerOptions) {
       }
     },
     async stop() {
+      if (closed) return;
+      closed = true;
       draining = true;
       if (started) {
         await server.gracefullyShutdown(false);

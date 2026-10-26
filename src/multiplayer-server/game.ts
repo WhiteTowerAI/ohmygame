@@ -54,6 +54,8 @@ export function createGameAdapter(
             "The owner can start when at least two players are connected.",
           );
       } else {
+        if (command.type !== "take" && command.type !== "pass")
+          throw new Error("This game does not support that action.");
         if (mode !== "turn-based" || state.phase !== "playing")
           throw new Error("The room is not playing a turn-based game.");
         if (state.currentPlayerId !== playerId)

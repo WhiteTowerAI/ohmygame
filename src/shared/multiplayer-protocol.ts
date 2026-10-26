@@ -17,6 +17,8 @@ export interface MultiplayerManifestConfig {
   roomPolicy: MultiplayerRoomPolicy;
   maxClients: number;
   reconnectSeconds: number;
+  /** Immutable server-side rules registered for this deployment. */
+  adapterId?: string;
 }
 
 /** Explicit reference runtime; authored Web Games render their own adapter. */
@@ -67,17 +69,24 @@ export const MULTIPLAYER_MANIFEST_SCHEMA = {
     roomPolicy: { enum: ["invite-or-public", "public", "invite-only"] },
     maxClients: { type: "integer", minimum: 2, maximum: 32 },
     reconnectSeconds: { type: "integer", minimum: 0, maximum: 3600 },
+    adapterId: identifier,
   },
 } as const;
 
 export function isMultiplayerManifestConfig(
   value: unknown,
+  options: { allowLocalhost?: boolean } = {},
 ): value is MultiplayerManifestConfig {
-  if (!Check(MULTIPLAYER_MANIFEST_SCHEMA, value)) return false;
+  const schema = options.allowLocalhost ? {
+    ...MULTIPLAYER_MANIFEST_SCHEMA,
+    properties: { ...MULTIPLAYER_MANIFEST_SCHEMA.properties, serverUrl: { type: "string" } },
+  } : MULTIPLAYER_MANIFEST_SCHEMA;
+  if (!Check(schema, value)) return false;
   try {
     const url = new URL((value as MultiplayerManifestConfig).serverUrl);
     return (
-      url.protocol === "https:" &&
+      (url.protocol === "https:" || (options.allowLocalhost === true && url.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) &&
       !!url.hostname &&
       !url.username &&
       !url.password &&
@@ -120,8 +129,8 @@ export type CreateRoomOptions = JoinRoomOptions;
 export interface TurnCommand {
   commandId: string;
   expectedSequence: number;
-  type: "start" | "take" | "pass" | "close" | "kick";
-  payload?: { count?: number; playerId?: string };
+  type: "start" | "take" | "pass" | "close" | "kick" | "action";
+  payload?: { count?: number; playerId?: string; [key: string]: unknown };
 }
 export interface RealtimeInput {
   inputId: number;
@@ -143,6 +152,8 @@ export interface MultiplayerGameState {
   remaining: number;
   turnDeadline: number;
   players: MultiplayerPlayer[];
+  /** Serializable data owned and validated by the deployment's rules adapter. */
+  game?: Record<string, unknown>;
 }
 /** Adapters run only on the service; clients submit intent, never final state. */
 export interface MultiplayerGameAdapter<State, Command> {
@@ -150,6 +161,8 @@ export interface MultiplayerGameAdapter<State, Command> {
   validateCommand(state: State, playerId: string, command: Command): void;
   applyCommand(state: State, playerId: string, command: Command): State;
   onDisconnect?(state: State, playerId: string): void;
+  onTurnTimeout?(state: State, now: number): State;
+  step?(state: State, inputs: ReadonlyMap<string, { input: RealtimeInput; at: number }>, now: number): State;
 }
 export type MultiplayerEventType =
   | "room.ready"
@@ -214,8 +227,9 @@ export function isTurnCommand(value: unknown): value is TurnCommand {
     !isSequence(value.expectedSequence)
   )
     return false;
-  if (!["start", "take", "pass", "close", "kick"].includes(String(value.type)))
+  if (!["start", "take", "pass", "close", "kick", "action"].includes(String(value.type)))
     return false;
+  if (value.type === "action") return isRecord(value.payload);
   if (value.type === "take")
     return (
       isRecord(value.payload) &&
@@ -314,6 +328,7 @@ export function isMultiplayerSnapshot(
     isSequence(state.remaining) &&
     typeof state.turnDeadline === "number" &&
     Number.isFinite(state.turnDeadline) &&
+    (state.game === undefined || isRecord(state.game)) &&
     Array.isArray(state.players) &&
     state.players.length <= 32 &&
     state.players.every(

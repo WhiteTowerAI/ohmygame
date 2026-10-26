@@ -45,16 +45,22 @@ export class ArtifactBuilder {
     return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer);
   }
 
+  /** Only the authenticated local debug publisher may use a loopback backend. */
+  async createLocal(project: ProjectState, cover?: Buffer, multiplayer?: MultiplayerManifestConfig): Promise<Buffer> {
+    return this.#create(project, cover, PUBLISH_ARTIFACT_MAX_BYTES, multiplayer, true);
+  }
+
   async buildInteractiveStory(project: ProjectState): Promise<Buffer> {
     if (project.type !== "interactive-story") throw new PublishError("Build requires an Interactive Story project");
     return this.#create(project);
   }
 
-  async #create(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig): Promise<Buffer> {
+  async #create(project: ProjectState, cover?: Buffer, maxBytes?: number, multiplayer?: MultiplayerManifestConfig, localTesting = false): Promise<Buffer> {
     let temporary: string | undefined;
     try {
       if (project.type === "interactive-story" && multiplayer) throw new PublishError("Interactive Stories do not have a multiplayer adapter. Use a Web Game with a server adapter.");
       let source: string;
+      let declared: unknown;
       if (project.type === "interactive-story" && await isWebStory(project.workspacePath)) {
         temporary = await prepareWebStory(project);
         source = temporary;
@@ -65,12 +71,17 @@ export class ArtifactBuilder {
         const workspacePath = isWebRuntimeProjectType(project.type)
           ? await publishStartupDirectory(project)
           : project.workspacePath;
+        declared = (await readOptionalManifest(workspacePath, "multiplayer.json")).multiplayer;
+        const dependencies = await readPackageJson(workspacePath);
+        if ([...Object.keys(dependencies?.dependencies ?? {}), ...Object.keys(dependencies?.devDependencies ?? {})].some(name => name === "peerjs" || name.startsWith("@peerjs/")))
+          throw new PublishError("This game uses PeerJS. OhMyGame multiplayer requires Colyseus and a registered server rules adapter. Migrate the game before publishing.");
         source = await prepareSource(workspacePath, (child) => this.#running.set(project.id, child), project);
       }
       if (project.type !== "interactive-story") {
-        const configured = await readMultiplayerConfig(source, multiplayer);
+        await assertSupportedNetworking(source);
+        const configured = await readMultiplayerConfig(source, multiplayer, declared, localTesting);
         if (configured) {
-          await checkMultiplayerDeployment(configured);
+          await checkMultiplayerDeployment(configured, localTesting);
           if (multiplayer) {
             temporary = await mkdtemp(path.join(tmpdir(), "ohmygame-multiplayer-build-"));
             await cp(source, temporary, { recursive: true });
@@ -125,39 +136,57 @@ export class ArtifactBuilder {
   }
 }
 
-async function readOptionalManifest(source: string): Promise<Record<string, unknown>> {
+async function readOptionalManifest(source: string, filename = "manifest.json"): Promise<Record<string, unknown>> {
   try {
-    const value: unknown = JSON.parse(await readFile(path.join(source, "manifest.json"), "utf8"));
+    const value: unknown = JSON.parse(await readFile(path.join(source, filename), "utf8"));
     if (!isRecord(value)) throw new Error();
     return value;
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw new PublishError("manifest.json must contain a JSON object.");
+    throw new PublishError(`${filename} must contain a JSON object.`);
   }
 }
 
-async function readMultiplayerConfig(source: string, requested?: MultiplayerManifestConfig): Promise<MultiplayerManifestConfig | undefined> {
+async function readMultiplayerConfig(source: string, requested?: MultiplayerManifestConfig, declared?: unknown, localTesting = false): Promise<MultiplayerManifestConfig | undefined> {
   const manifest = await readOptionalManifest(source);
+  if (declared !== undefined && manifest.multiplayer === undefined)
+    throw new PublishError("The build dropped the multiplayer manifest. Copy public/manifest.json into the published output.");
   const value = requested ?? manifest.multiplayer;
   if (value === undefined) return undefined;
-  if (!isMultiplayerManifestConfig(value)) throw new PublishError("The multiplayer configuration is invalid.");
+  const options = { allowLocalhost: localTesting };
+  if (!isMultiplayerManifestConfig(value, options)) throw new PublishError("The multiplayer configuration is invalid. Public publishing requires an HTTPS Colyseus backend; loopback URLs are only for local testing.");
+  for (const other of [declared, manifest.multiplayer]) {
+    if (other !== undefined && (!isMultiplayerManifestConfig(other, options) || !sameMultiplayerConfig(value, other)))
+      throw new PublishError("The source, build and requested multiplayer deployments do not match.");
+  }
   if (manifest.runtime === "playable-nodes") throw new PublishError("Interactive Stories do not have a multiplayer adapter.");
   return value;
 }
 
 /** A published deployment must already exist on the trusted game service. */
-async function checkMultiplayerDeployment(config: MultiplayerManifestConfig): Promise<void> {
+async function checkMultiplayerDeployment(config: MultiplayerManifestConfig, localTesting = false): Promise<void> {
   const trustedServerUrl = process.env.MULTIPLAYER_PUBLISH_SERVER_URL?.replace(/\/$/, "");
-  if (!trustedServerUrl || config.serverUrl.replace(/\/$/, "") !== trustedServerUrl) {
+  const local = localTesting && config.serverUrl.startsWith("http:") && isMultiplayerManifestConfig(config, { allowLocalhost: true });
+  if (!local && (!trustedServerUrl || config.serverUrl.replace(/\/$/, "") !== trustedServerUrl)) {
     throw new PublishError("Multiplayer publishing requires a configured game service URL.");
   }
   try {
     const url = new URL(`/v1/games/${encodeURIComponent(config.gameId)}/deployments/${encodeURIComponent(config.deploymentId)}`, config.serverUrl);
     const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(5_000) });
     const value: unknown = response.ok ? await response.json() : undefined;
-    if (!isMultiplayerManifestConfig(value) || !sameMultiplayerConfig(config, value)) throw new Error("The registered deployment does not match.");
+    if (!isMultiplayerManifestConfig(value, { allowLocalhost: local }) || !sameMultiplayerConfig(config, value)) throw new Error("The registered deployment does not match.");
   } catch (cause) {
     throw new PublishError(`Multiplayer deployment check failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+  }
+}
+
+/** Catch the known default-stack regression, including games importing PeerJS from a CDN. */
+async function assertSupportedNetworking(source: string): Promise<void> {
+  for (const file of await filesIn(source)) {
+    if (!/\.(?:html|[cm]?js)$/i.test(file)) continue;
+    const text = await readFile(path.join(source, file), "utf8");
+    if (/\b(?:0\.peerjs\.com|turn\.peerjs\.com)\b|(?:unpkg\.com|cdn\.jsdelivr\.net)[^\s"'`<>]*\bpeerjs\b/i.test(text))
+      throw new PublishError("The build includes PeerJS networking. Use the Colyseus SDK and declare its multiplayer deployment before publishing.");
   }
 }
 

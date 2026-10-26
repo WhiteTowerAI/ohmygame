@@ -13,6 +13,42 @@ import {
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("publish archives", () => {
+  const localConfig = {
+    enabled: true as const, mode: "turn-based" as const, gameId: "gomoku", deploymentId: "local-v1",
+    protocolVersion: 1 as const, serverUrl: "http://127.0.0.1:43130", authPolicy: "anonymous" as const,
+    roomPolicy: "invite-or-public" as const, maxClients: 2, reconnectSeconds: 120, adapterId: "gomoku",
+  };
+  const projectAt = (workspacePath: string) => ({ id: "local-board", name: "Board", type: "web-game" as const, updatedAt: new Date(0).toISOString(), workspacePath, preview: { status: "stopped" as const } });
+
+  it("rejects PeerJS dependencies and CDN builds without a multiplayer declaration", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-peerjs-publish-"));
+    await writeFile(path.join(directory, "index.html"), '<script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>');
+    await expect(new ArtifactBuilder().create(projectAt(directory))).rejects.toThrow(/PeerJS networking/);
+    await writeFile(path.join(directory, "package.json"), JSON.stringify({ dependencies: { peerjs: "1.5.5" } }));
+    await expect(new ArtifactBuilder().create(projectAt(directory))).rejects.toThrow(/uses PeerJS/);
+  });
+
+  it("requires the build to retain the declared multiplayer deployment", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-missing-multiplayer-"));
+    await writeFile(path.join(directory, "index.html"), "board");
+    await writeFile(path.join(directory, "multiplayer.json"), JSON.stringify({ multiplayer: localConfig }));
+    await expect(new ArtifactBuilder().createLocal(projectAt(directory))).rejects.toThrow(/dropped the multiplayer manifest/);
+    await writeFile(path.join(directory, "manifest.json"), JSON.stringify({ multiplayer: { ...localConfig, deploymentId: "other" } }));
+    await expect(new ArtifactBuilder().createLocal(projectAt(directory))).rejects.toThrow(/do not match/);
+  });
+
+  it("checks local deployments for debug snapshots while rejecting them for public publishing", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-local-multiplayer-"));
+    await writeFile(path.join(directory, "index.html"), "board");
+    await writeFile(path.join(directory, "manifest.json"), JSON.stringify({ multiplayer: localConfig }));
+    const builder = new ArtifactBuilder();
+    await expect(builder.create(projectAt(directory))).rejects.toThrow(/HTTPS Colyseus backend/);
+    const fetchDeployment = vi.fn(async () => Response.json(localConfig));
+    vi.stubGlobal("fetch", fetchDeployment);
+    await expect(builder.createLocal(projectAt(directory))).resolves.toBeInstanceOf(Buffer);
+    expect(fetchDeployment).toHaveBeenCalledWith(new URL("http://127.0.0.1:43130/v1/games/gomoku/deployments/local-v1"), expect.objectContaining({ redirect: "error" }));
+  });
+
   it("requires a trusted, matching multiplayer deployment for a Web Game", async () => {
     const workspacePath = await mkdtemp(path.join(tmpdir(), "ohmygame-multiplayer-publish-"));
     await writeFile(path.join(workspacePath, "index.html"), "game");

@@ -92,4 +92,15 @@ describe("multiplayer protocol", () => {
     expect(normalizeDisplayName(" ")).toBe("Guest");
     expect(normalizeDisplayName("x".repeat(100))).toHaveLength(40);
   });
+
+  it("allows loopback HTTP only when local testing is explicitly enabled", () => {
+    for (const serverUrl of ["http://127.0.0.1:43130", "http://localhost:43130", "http://[::1]:43130"]) {
+      const local = { ...manifest, serverUrl, adapterId: "gomoku", maxClients: 2 };
+      expect(isMultiplayerManifestConfig(local)).toBe(false);
+      expect(isMultiplayerManifestConfig(local, { allowLocalhost: true })).toBe(true);
+    }
+    for (const serverUrl of ["http://192.168.1.2:43130", "http://127.0.0.1.evil.test", "http://user@localhost:43130", "http://localhost:43130/other"]) {
+      expect(isMultiplayerManifestConfig({ ...manifest, serverUrl }, { allowLocalhost: true })).toBe(false);
+    }
+  });
 });

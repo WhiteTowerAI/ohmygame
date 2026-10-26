@@ -28,6 +28,10 @@ describe("OhMyGame system prompt", () => {
     expect(text).toContain("OhMyGame owns the dev server");
     expect(text).toContain("inside an iframe of any size");
     expect(text).toContain("__OHMYGAME_PLAYTEST__");
+    expect(text).toContain("Colyseus + WebSocket");
+    expect(text).toContain("multiplayer_setup");
+    expect(text).toContain("Do not silently substitute PeerJS");
+    expect(text).toContain("needs no cloud deployment");
     expect(text).toContain("the workspace root");
     expect(text).toContain('a "dev" script and a "build" script');
     expect(text).toContain("--host 127.0.0.1 --port <port> --strictPort");
@@ -41,6 +45,7 @@ describe("OhMyGame system prompt", () => {
     const text = prompt({ type: "general", webPreviewEnabled: true, startupDirectory: "client", startupScript: "start", packageManager: "pnpm", workspaceLocation: "external" });
 
     expect(text).toContain("use game-studio when available");
+    expect(text).toContain("multiplayer_setup");
     expect(text).toContain("Applications, tools, and content");
     expect(text).toContain("Web preview is enabled by the user");
     expect(text).toContain("the client/ folder of the workspace, run with pnpm");

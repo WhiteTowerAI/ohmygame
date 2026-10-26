@@ -35,6 +35,7 @@ When a required asset cannot be generated because the tool is unavailable or fai
 Read only the specialist skills needed for the request:
 
 - Architecture, engine choice, state, input, save, or performance boundaries: `../web-game-foundations/SKILL.md`
+- Online rooms, cross-device play, or networking: read the Multiplayer section in `../web-game-foundations/SKILL.md`; use the platform's Colyseus service and `multiplayer_setup` for local tests.
 - Phaser 2D runtime work: `../phaser-2d-game/SKILL.md`
 - Plain Three.js runtime work: `../three-webgl-game/SKILL.md`
 - React-hosted Three.js work: `../react-three-fiber-game/SKILL.md`

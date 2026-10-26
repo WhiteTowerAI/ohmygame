@@ -83,6 +83,8 @@ trimming, the shared preview controls, encoding, and the Library record.
 [agent](playable-nodes/agent.md) describes agent context and tools.
 [vision](playable-nodes/vision.md) preserves the rationale for the redesign.
 
+[Multiplayer game integration](multiplayer.md) covers the agent setup tool, local Colyseus playtests, the browser SDK, server rules adapters, and publication checks.
+
 ## Contribution and repository policies
 
 | Document                                           | Purpose                                                                            |

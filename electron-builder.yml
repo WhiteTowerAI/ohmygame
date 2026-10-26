@@ -20,6 +20,8 @@ files:
   - dist/daemon/**/*.js
   - dist/shared/**/*.js
   - dist/story-web/resources.json
+  - dist/multiplayer-server/**/*.js
+  - dist/multiplayer-sdk/resources.json
   - dist/renderer/**/*
   - dist/player/**/*
   - "!node_modules/typebox/build/**/*.mjs"

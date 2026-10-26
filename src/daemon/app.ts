@@ -41,6 +41,7 @@ import { AgentRuntimeService } from "./agent-runtimes/service.js";
 import { neverTouchPaths } from "./agent-runtimes/policy.js";
 import { skillFolders } from "./agent-runtimes/skills.js";
 import { appendSystemPromptForProject } from "./agent-prompts.js";
+import { LocalMultiplayerRuntime } from "./local-multiplayer.js";
 import { isAgentRuntimeId, nativeEffort, type AgentRuntimeId, type AnswerApprovalRequest, type UpdateAgentRuntimeRequest } from "../shared/agent-runtimes.js";
 import { ConversationManager, sessionDirectory, type StoredConversation } from "./conversations.js";
 import { ConversationImageStore } from "./conversation-images.js";
@@ -605,6 +606,7 @@ export function createApp(options: AppOptions = {}) {
   const publishing = new Set<string>();
   const playerDirectory = options.interactiveStoryPlayerDirectory ?? path.join(repositoryRoot, "dist", "player");
   const artifacts = new ArtifactBuilder(library, playerDirectory);
+  const localMultiplayer = new LocalMultiplayerRuntime();
   const playableDrafts = new PlayableDraftServer((project) => artifacts.preparePlayableDraft(project));
   const examples = new ExampleStore(options.examplesDirectory, (workspacePath, exampleId) => artifacts.preparePlayableExample(workspacePath, exampleId));
   const localPublisher = options.localDebug ? new LocalPublisher() : undefined;
@@ -862,6 +864,7 @@ export function createApp(options: AppOptions = {}) {
       } : undefined,
       webSearch.enabled() ? (input, signal) => webSearch.search(conversation.summary.id, input, signal) : undefined,
       canvasStore,
+      (adapterId) => localMultiplayer.configure(project.id, adapterId),
     );
   };
   /** A conversation run by a coding agent CLI, kept in the same session file and checkpoints as Pi's. */
@@ -3437,7 +3440,9 @@ export function createApp(options: AppOptions = {}) {
       try {
         const result = await publisher.publish(
           project,
-          await artifacts.create(project, await projectCover(project.id), request.body.multiplayer),
+          await (localPublisher && request.body.accessToken === LOCAL_DEBUG_ACCESS_TOKEN
+            ? artifacts.createLocal(project, await projectCover(project.id), request.body.multiplayer)
+            : artifacts.create(project, await projectCover(project.id), request.body.multiplayer)),
           request.body.accessToken,
           { title: request.body.title.trim(), description: request.body.description?.trim() },
         );
@@ -3570,6 +3575,7 @@ export function createApp(options: AppOptions = {}) {
     options.playtestDriver?.close();
     await conversationImages.flush();
     await previews.stopAll();
+    await localMultiplayer.close();
     await artifacts.close();
     await playableDrafts.close();
     await examples.close();

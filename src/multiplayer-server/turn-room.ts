@@ -17,13 +17,15 @@ import {
 } from "../shared/multiplayer-protocol.js";
 import { MultiplayerRoomState } from "../shared/multiplayer-state.js";
 import type { MultiplayerIdentity } from "./auth.js";
-import { createGameAdapter, nextTurn, stepArena, TICK_MS } from "./game.js";
+import { nextTurn, TICK_MS } from "./game.js";
+import type { GameAdapter } from "./adapters.js";
 import type { RoomStore, StoredRoom } from "./store.js";
 
 export interface RoomServices {
   config: MultiplayerManifestConfig;
   store: RoomStore;
   restoring: Map<string, StoredRoom>;
+  adapter: GameAdapter;
   reserve(roomId: string): boolean;
 }
 export const ROOM_IDLE_MS = 30 * 60 * 1000;
@@ -70,7 +72,7 @@ export class GameRoom extends Room {
           deploymentId: config.deploymentId,
           mode: config.mode,
           sequence: 0,
-          state: createGameAdapter(config.mode).initialState(),
+          state: this.services.adapter.initialState(),
           serverTime: new Date(now).toISOString(),
         },
         members: [],
@@ -326,7 +328,7 @@ export class GameRoom extends Room {
       return;
     }
     try {
-      const adapter = createGameAdapter(this.services.config.mode);
+      const adapter = this.services.adapter;
       adapter.validateCommand(this.record.snapshot.state, id, value);
       const state = adapter.applyCommand(this.record.snapshot.state, id, value);
       const members = this.record.members.map((member) => ({ ...member }));
@@ -346,7 +348,7 @@ export class GameRoom extends Room {
           ? "room.closed"
           : state.phase === "finished"
             ? "room.finished"
-            : value.type === "take" || value.type === "pass"
+            : value.type === "take" || value.type === "pass" || value.type === "action"
               ? "turn.changed"
               : "state.updated";
       this.commit(
@@ -370,7 +372,7 @@ export class GameRoom extends Room {
     } catch (cause) {
       reject(
         this.record.snapshot.state.currentPlayerId !== id &&
-          (value.type === "take" || value.type === "pass")
+          (value.type === "take" || value.type === "pass" || value.type === "action")
           ? "not_your_turn"
           : "invalid_command",
         cause instanceof Error ? cause.message : "The command failed.",
@@ -402,7 +404,7 @@ export class GameRoom extends Room {
     )
       return;
     const now = Date.now();
-    const state = stepArena(this.record.snapshot.state, this.playerInputs, now);
+    const state = this.services.adapter.step!(this.record.snapshot.state, this.playerInputs, now);
     if (JSON.stringify(state) === JSON.stringify(this.record.snapshot.state))
       return;
     // Realtime games close on service restart, so only the terminal state needs a disk write.
@@ -429,8 +431,9 @@ export class GameRoom extends Room {
       this.record.snapshot.state.phase === "playing" &&
       now >= this.record.snapshot.state.turnDeadline
     ) {
-      const state = structuredClone(this.record.snapshot.state);
-      nextTurn(state, now);
+      let state = structuredClone(this.record.snapshot.state);
+      if (this.services.adapter.onTurnTimeout) state = this.services.adapter.onTurnTimeout(state, now);
+      else nextTurn(state, now);
       this.commit(
         state,
         "turn.changed",
