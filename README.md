@@ -2,7 +2,9 @@
 
 <img src="docs/assets/banner.webp" alt="OhMyGame — the open-source studio for making games with AI" width="100%" />
 
-**Your own one-person game studio.** Everything you need to make games with AI, in one app. Bring your own key.
+**Your own one-person game studio.** Everything you need to make games with AI, in one app.
+
+**Make a game. Ship it everywhere. Earn from it.**
 
 <p>
   <a href="https://ohmygame.ai/download/mac"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for macOS" /></a>
@@ -41,7 +43,10 @@ Updated during release preparation; see docs/maintaining.md. -->
     story isn't limited to fixed node types.
   - **Bring your own agent:** Claude Code, Codex, or OpenCode can run the
     conversation, or you can bring OhMyGame to them.
-  - **Plugins:** Godot, Unity, Blender, WeChat Mini Games, and more.
+  - **Plugins:** build in Godot, Unity, Unreal Engine, or Cocos Creator; make
+    assets in Blender, Aseprite, or Tiled; ship to WeChat Mini Games, Douyin
+    Mini Games, or TapTap, and
+    [earn from your game](#-publish-and-earn-one-link-or-the-platforms-where-players-pay).
 
 ## What it is
 
@@ -95,13 +100,26 @@ your games can use.
 
 https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 
-### 🔗 Publish: one link, playable anywhere
+### 🔗 Publish and earn: one link, or the platforms where players pay
 
 Sign in and publish: OhMyGame builds your game and gives it a link anyone can
 play in the browser. Republishing updates the same link. Published games are
 listed in the in-app Community, where you can play what others have made,
 sort by latest, most viewed, or most liked, visit creators' profiles, and like
 the games you enjoy.
+
+A one-person studio should pay for itself. Beyond the Community, plugins take
+your game to the platforms where players pay.
+
+| Ship to                                 | Earn from                | How                                                            |
+| --------------------------------------- | ------------------------ | -------------------------------------------------------------- |
+| WeChat Mini Games, Douyin Mini Games    | Ads, in-app purchases    | [Platform plugins](#-plugins-connect-with-more-game-dev-tools) |
+| TapTap                                  | Downloads, in-app purchases | TapTap Maker plugin                                         |
+| Steam and other stores                  | Sales                    | Export from Godot or Unity with their plugins                  |
+| itch.io, Poki, CrazyGames               | Sales, ad revenue share  | Upload your Web Game build                                     |
+
+**Your game, your revenue.** OhMyGame takes no cut of what your game earns.
+<!-- TODO(confirm): no revenue share; ads/IAP setup in the mini-game plugins. -->
 
 ### 🧑‍💻 Bring your own agent
 

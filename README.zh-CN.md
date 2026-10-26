@@ -4,6 +4,8 @@
 
 **你的一人游戏工作室。** 用 AI 做游戏需要的一切，都在一个应用里。使用你自己的模型密钥。
 
+**做游戏，上架，赚钱。一个人就够了。**
+
 <p>
   <a href="https://ohmygame.ai/download/mac"><img src="https://img.shields.io/badge/Download-macOS%20(Apple%20silicon)-000000?style=for-the-badge&logo=apple&logoColor=white" alt="下载 macOS 版" /></a>
   <a href="https://ohmygame.ai/download/windows"><img src="https://img.shields.io/badge/Download-Windows%20x64-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="下载 Windows 版" /></a>
@@ -39,7 +41,9 @@ https://github.com/user-attachments/assets/4d5805fe-92a2-40b4-a232-c7452f9a796a
     不受固定节点类型的限制。
   - **带上你自己的 Agent：** 用 Claude Code、Codex 或 OpenCode 来运行对话，
     也可以把 OhMyGame 接进它们。
-  - **插件：** Godot、Unity、Blender、微信小游戏等。
+  - **插件：** 在 Godot、Unity、Unreal Engine 或 Cocos Creator 里开发；用 Blender、
+    Aseprite 或 Tiled 做素材；上架微信小游戏、抖音小游戏或 TapTap，
+    [让游戏帮你赚钱](#-发布和变现一个链接或者玩家付费的平台)。
 
 ## 这是什么
 
@@ -82,12 +86,25 @@ https://github.com/user-attachments/assets/3cb982e8-a4a8-4715-bf3c-df4e41e7855b
 
 https://github.com/user-attachments/assets/5a35964d-87b3-4153-8b1b-fc6deced5bb3
 
-### 🔗 发布：一个链接，随处可玩
+### 🔗 发布和变现：一个链接，或者玩家付费的平台
 
 登录后即可发布：OhMyGame 会构建你的游戏，并生成一个任何人都能在浏览器里打开就玩的链接。
 重新发布会更新同一个链接。发布的游戏会出现在应用内的社区（Community）里，
 你可以在那里玩到别人做的游戏，按最新、最多浏览或最多点赞排序，查看创作者主页，
 给喜欢的游戏点赞。
+
+一人工作室，就该能养活自己。除了社区，插件还能把你的游戏送上玩家愿意付费的平台。
+一个人做微信、抖音小游戏，靠广告和内购就能变现。
+
+| 上架到                     | 怎么赚钱           | 怎么做                                            |
+| -------------------------- | ------------------ | ------------------------------------------------- |
+| 微信小游戏、抖音小游戏     | 广告、内购         | [平台插件](#-插件连接更多游戏开发工具)            |
+| TapTap                     | 下载、内购         | TapTap Maker 插件                                 |
+| Steam 等商店               | 买断               | 通过 Godot 或 Unity 插件导出                      |
+| itch.io、Poki、CrazyGames  | 付费下载、广告分成 | 直接上传网页游戏的构建产物                        |
+
+**游戏是你的，收入也是你的。** OhMyGame 不从你的游戏收入里抽成。
+<!-- TODO(confirm)：不抽成；小游戏插件里的广告、内购接入流程。 -->
 
 ### 🧑‍💻 带上你自己的 Agent
 
