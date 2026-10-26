@@ -80,6 +80,7 @@ export class ToolRunner {
   readonly #jobs = new Map<string, ToolJobRecord>();
   #jobWrites = Promise.resolve();
   #closed = false;
+  #log?: GenerationLogger;
 
   constructor(
     dataDirectory: string,
@@ -91,6 +92,11 @@ export class ToolRunner {
     private readonly audioGenerator?: AudioGenerator,
   ) {
     this.#runsDirectory = path.join(dataDirectory, "tools", "runs");
+  }
+
+  /** Where finished generations are logged; the daemon passes its logger. */
+  setLogger(log: GenerationLogger): void {
+    this.#log = log;
   }
 
   async load(): Promise<void> {
@@ -178,14 +184,16 @@ export class ToolRunner {
 
   async #execute(job: ToolJobRecord): Promise<void> {
     try {
-      await this.#saveJobs();
-      if (!job.prepared) {
-        job.input = await this.prepare(job.toolId, job.input!, job.context?.projectId);
-        job.prepared = true;
-      }
-      await this.#saveJobs();
-      job.model = selectedModel(job.toolId, job.input!);
-      job.run = await this.runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId);
+      job.run = await this.#withGenerationLog(job.toolId, () => job.input!, job.controller.signal, job.context?.projectId, async () => {
+        await this.#saveJobs();
+        if (!job.prepared) {
+          job.input = await this.#prepare(job.toolId, job.input!, job.context?.projectId);
+          job.prepared = true;
+        }
+        await this.#saveJobs();
+        job.model = selectedModel(job.toolId, job.input!);
+        return this.#runPrepared(job.toolId, job.input!, job.controller.signal, job.recoveryId);
+      });
       if (job.run.files.length && job.run.files.every((file) => file.assetId)) {
         await this.removeRun(job.run.id);
       }
@@ -220,16 +228,66 @@ export class ToolRunner {
   }
 
   async run(toolId: string, input: RunToolRequest, signal?: AbortSignal, projectId?: string): Promise<ToolRun> {
-    return this.runPrepared(toolId, await this.prepare(toolId, input, projectId), signal);
+    let prepared = input;
+    return this.#withGenerationLog(toolId, () => prepared, signal, projectId, async () => {
+      prepared = await this.#prepare(toolId, input, projectId);
+      return this.#runPrepared(toolId, prepared, signal, randomUUID());
+    });
   }
 
   async prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
+    const started = Date.now();
+    try {
+      return await this.#prepare(toolId, input, projectId);
+    } catch (cause) {
+      this.#recordGeneration(toolId, () => input, projectId, started, "failed", cause instanceof Error ? cause.message : String(cause));
+      throw cause;
+    }
+  }
+
+  async #prepare(toolId: string, input: RunToolRequest, projectId?: string): Promise<RunToolRequest> {
     if (!isToolId(toolId)) throw new ToolRunError("Tool not found", 404);
     return this.resolveInput ? this.resolveInput(toolId, input, projectId) : input;
   }
 
   /** Executes an input whose model and generation options have already been resolved. */
-  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, recoveryId: string = randomUUID()): Promise<ToolRun> {
+  async runPrepared(toolId: string, input: RunToolRequest, signal?: AbortSignal, options: { recoveryId?: string; projectId?: string } = {}): Promise<ToolRun> {
+    const { recoveryId = randomUUID(), projectId } = options;
+    return this.#withGenerationLog(toolId, () => input, signal, projectId, () => this.#runPrepared(toolId, input, signal, recoveryId));
+  }
+
+  async #withGenerationLog(toolId: string, input: () => RunToolRequest, signal: AbortSignal | undefined, projectId: string | undefined, execute: () => Promise<ToolRun>): Promise<ToolRun> {
+    const started = Date.now();
+    let status: "succeeded" | "failed" | "cancelled" = "succeeded";
+    let error: string | undefined;
+    let run: ToolRun | undefined;
+    try {
+      run = await execute();
+      return run;
+    } catch (cause) {
+      status = signal?.aborted || cause instanceof Error && cause.name === "AbortError" ? "cancelled" : "failed";
+      error = cause instanceof Error ? cause.message : String(cause);
+      throw cause;
+    } finally {
+      this.#recordGeneration(toolId, input, projectId, started, status, error, run?.model);
+    }
+  }
+
+  #recordGeneration(toolId: string, input: () => RunToolRequest, projectId: string | undefined, started: number, status: "succeeded" | "failed" | "cancelled", error?: string, runModel?: ModelRef): void {
+    try {
+      const model = runModel ?? selectedModel(toolId, input());
+      const outcome = {
+        toolId,
+        ...(model ? { model: `${model.provider}/${model.id}` } : {}),
+        ...(projectId ? { projectId } : {}),
+        durationMs: Date.now() - started,
+      };
+      if (status === "failed") this.#log?.warn({ ...outcome, error }, "Generation failed");
+      else this.#log?.info(outcome, status === "cancelled" ? "Generation cancelled" : "Generation succeeded");
+    } catch { /* Logging must not change the result or prevent job persistence. */ }
+  }
+
+  async #runPrepared(toolId: string, input: RunToolRequest, signal: AbortSignal | undefined, recoveryId: string): Promise<ToolRun> {
     if (toolId === "image-to-3d") {
       assertOnlyKeys(input, ["images", "model", "targetPolycount", "texture", "pbr", "operation", "prompt", "sourceAssetId", "options"]);
       return this.#run3D(input as Run3DToolRequest, signal, await model3DJournal(path.join(this.#runsDirectory, "../model3d-tasks"), recoveryId)).catch(model3DToolError);
@@ -715,7 +773,7 @@ function validate3DOptions(options: Run3DToolRequest["options"]): void {
   if (!options || typeof options !== "object" || Array.isArray(options) || Object.keys(options).some((key) => !["pose", "textureModel", "textureQuality", "rigModel", "rigType", "animateInPlace"].includes(key))) throw new ToolRunError("Invalid 3D options", 400);
   if (options.pose !== undefined && !["a-pose", "t-pose"].includes(options.pose)
     || options.textureQuality !== undefined && !["fast", "standard", "detailed", "extreme"].includes(options.textureQuality)
-    || options.rigModel !== undefined && !["v1.0-20240301", "v2.5-20260210"].includes(options.rigModel)
+    || options.rigModel !== undefined && !["v1.0-20240301", "v2.5-20260210", "v3.0-20260909"].includes(options.rigModel)
     || options.rigType !== undefined && !["biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"].includes(options.rigType)
     || options.animateInPlace !== undefined && typeof options.animateInPlace !== "boolean"
     || options.textureModel !== undefined && (typeof options.textureModel !== "string" || !options.textureModel || options.textureModel.length > 120)) throw new ToolRunError("Unsupported 3D option", 400);
@@ -732,4 +790,9 @@ function validateOperationOptions(options: Run3DToolRequest["options"], operatio
 function model3DToolError(cause: unknown): never {
   if (cause instanceof Model3DGenerationError) throw new ToolRunError(cause.message, cause.statusCode);
   throw cause;
+}
+
+interface GenerationLogger {
+  info(details: object, message: string): void;
+  warn(details: object, message: string): void;
 }

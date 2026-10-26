@@ -1,5 +1,6 @@
 import {
   chmod,
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -38,6 +39,7 @@ printf '__OHMYGAME_PATH__%s__OHMYGAME_PATH__' "$(/bin/cat '${shellPathFile}')"
     { mode: 0o700 },
   );
   vi.stubEnv("PATH", "");
+  vi.stubEnv("LOCALAPPDATA", path.join(root, "local"));
   vi.stubEnv("SHELL", shell);
   vi.spyOn(os, "homedir").mockReturnValue(home);
   vi.spyOn(environment, "commonBinaryDirectories").mockReturnValue([]);
@@ -227,6 +229,80 @@ it("reports a found CLI that cannot start as a probe failure, not a missing inst
     false,
   );
 });
+
+it.skipIf(process.platform !== "win32").each([
+  ["nested", "bin"],
+  ["hoisted", "bin"],
+  ["legacy", "codex"],
+])(
+  "finds the Windows npm native executable in the %s layout",
+  async (layout, folder) => {
+    AGENT_RUNTIME_DEFINITIONS["codex-cli"].bundledPaths = {};
+    vi.stubEnv("LOCALAPPDATA", path.join(root, "local"));
+    const bin = path.join(root, "npm prefix with spaces");
+    const packageRoot = path.join(bin, "node_modules", "@openai", "codex");
+    const arch = process.arch === "arm64" ? "arm64" : "x64";
+    const target = `${arch === "arm64" ? "aarch64" : "x86_64"}-pc-windows-msvc`;
+    const vendor =
+      layout === "nested"
+        ? path.join(
+            packageRoot,
+            "node_modules",
+            "@openai",
+            `codex-win32-${arch}`,
+          )
+        : layout === "hoisted"
+          ? path.join(bin, "node_modules", "@openai", `codex-win32-${arch}`)
+          : packageRoot;
+    const binary = path.join(vendor, "vendor", target, folder, "codex.exe");
+    await mkdir(path.dirname(binary), { recursive: true });
+    await copyFile(process.execPath, binary);
+    const shim = path.join(bin, "codex.cmd");
+    await writeFile(shim, "@echo This shell shim must never run\r\n");
+    await writeFile(path.join(bin, "codex.ps1"), "throw 'Must never run'");
+    vi.stubEnv("PATH", bin);
+    expect(await resolveBinary("codex-cli")).toMatchObject({
+      path: binary,
+      source: "path",
+    });
+    expect(await resolveBinary("codex-cli", shim)).toMatchObject({
+      path: binary,
+      source: "manual",
+    });
+    expect(
+      await resolveBinary("codex-cli", path.join(bin, "codex.ps1")),
+    ).toMatchObject({ path: binary, source: "manual" });
+    expect(
+      await resolveBinary("codex-cli", path.join(root, "missing", "codex.cmd")),
+    ).toBeUndefined();
+    // A package without its native optional dependency remains unavailable.
+    await rm(binary);
+    expect(await resolveBinary("codex-cli", shim)).toBeUndefined();
+  },
+);
+
+it.skipIf(process.platform !== "win32")(
+  "discovers a versioned Windows desktop installation outside PATH",
+  async () => {
+    AGENT_RUNTIME_DEFINITIONS["codex-cli"].bundledPaths = {};
+    const local = path.join(root, "local");
+    vi.stubEnv("LOCALAPPDATA", local);
+    const binary = path.join(
+      local,
+      "OpenAI",
+      "Codex",
+      "bin",
+      "installation-id",
+      "codex.exe",
+    );
+    await mkdir(path.dirname(binary), { recursive: true });
+    await copyFile(process.execPath, binary);
+    expect(await resolveBinary("codex-cli")).toMatchObject({
+      path: binary,
+      source: "codex-app",
+    });
+  },
+);
 
 it.skipIf(process.platform === "win32")("does not return an old status after the chosen executable changes during a probe", async () => {
   const old = await install(path.join(root, "old", "codex"));

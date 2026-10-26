@@ -3,7 +3,7 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { filterModels, groupModelsByProvider, ModelSelector } from "../src/renderer/model-selector.js";
+import { filterModels, groupModelsByProvider, ModelSelector, useAgentModels } from "../src/renderer/model-selector.js";
 import type { AgentModel, AgentReasoningLevel } from "../src/shared/contracts.js";
 import { PROVIDER_ICONS } from "../src/renderer/provider-icons.js";
 
@@ -74,7 +74,26 @@ describe("ModelSelector interaction", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  it("quietly reloads a pending Pi catalog while keeping existing models available", async () => {
+    vi.useFakeTimers();
+    const next = { ...model, id: "new-model", name: "New model" };
+    const fetchModels = vi.fn().mockResolvedValueOnce({ models: [model], defaultReasoningLevel: "medium", loadingProviders: ["openai"] })
+      .mockResolvedValueOnce({ models: [model, next], defaultReasoningLevel: "medium" });
+    vi.stubGlobal("fetch", async (url: string) => Response.json(url.endsWith("/health") ? { status: "ok" } : await fetchModels()));
+    function Catalog() {
+      const catalog = useAgentModels();
+      return <output>{catalog.status}: {catalog.models.map((item) => item.name).join(", ")}</output>;
+    }
+    await act(async () => root.render(<Catalog />));
+    expect(container.textContent).toBe("ready: GPT Test");
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(container.textContent).toBe("ready: GPT Test, New model");
+    expect(fetchModels).toHaveBeenCalledTimes(2);
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    expect(fetchModels).toHaveBeenCalledTimes(2);
+  });
 
   it("keeps CLI brand icons in group headings and updates the model button when switching agents", async () => {
     const available: AgentModel[] = [

@@ -11,12 +11,14 @@ export const MODEL_3D_CATALOG_DOCS: Record<Native3DProviderId, string> = {
   tripo: "https://developers.tripo3d.ai/en/docs/models-and-versions",
   hyper3d: "https://docs.hyper3d.ai/en/api-specification/rodin-gen2-5",
 };
-export const MODEL_3D_CATALOG_REVIEWED = "2026-10-10";
+export const MODEL_3D_CATALOG_REVIEWED = "2026-10-23";
 
 /** Documented image-generation versions. Saved defaults override these definitions. */
 export const MODEL_3D_PRESETS: Record<Native3DProviderId, readonly Model3DDefinition[]> = {
   meshy: [
     { id: "meshy-t2", name: "Meshy T2", settings: defaultModel3DSettings("smart-topology") },
+    { id: "meshy-t2.5", name: "Meshy T2.5", settings: { ...defaultModel3DSettings("smart-topology"),
+      polycount: { min: 100, max: 30_000, default: 15_000, presets: [1_000, 4_000, 10_000, 15_000, 30_000] } } },
     { id: "meshy-7.1", name: "Meshy 7.1", settings: { ...defaultModel3DSettings(), operation: "multi-image-to-3d", maxReferenceImages: 4 } },
     ...["meshy-7", "meshy-6", "meshy-6-lite", "latest"].map((id) => ({ id,
       name: id === "latest" ? "Meshy Latest" : id === "meshy-7" ? "Meshy 7 (deprecated)" : id.replace("meshy-", "Meshy ").replace("-lite", " Lite"),

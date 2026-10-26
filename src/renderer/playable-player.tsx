@@ -56,6 +56,13 @@ export interface NodePlayerProps {
   onPickCancel?: () => void;
   onSnapshot?: (snapshot: NodeRuntimeSnapshot) => void;
   onDiagnostic?: (error: string) => void;
+  /**
+   * Called when the game cannot start. The caller then shows the error
+   * itself; without it, the player shows the message over the stage.
+   */
+  onError?: (error: string) => void;
+  /** Shown until the game starts. */
+  loadingLabel?: string;
   /** The Node's background video as it plays, or undefined when it has none; requires `preview`. */
   onMedia?: (media: PlayableMediaState | undefined) => void;
   /** Set to a function that sends commands to the background video while the preview runs. */
@@ -81,6 +88,8 @@ export function NodePlayer({
   onPickCancel,
   onSnapshot,
   onDiagnostic = reportDiagnostic,
+  onError,
+  loadingLabel = "Loading...",
   onMedia,
   mediaControl,
 }: NodePlayerProps) {
@@ -144,6 +153,10 @@ export function NodePlayer({
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
   }, [instanceId, onDiagnostic, onPick, onTextEdit, onMove, onPickCancel, onSnapshot, onMedia, saveKey, storage, seenKey, seenStorage, preferencesKey]);
+
+  useEffect(() => {
+    if (error !== undefined) onError?.(error);
+  }, [error]);
 
   // A new session starts with no video until the frame reports one.
   useEffect(() => {
@@ -267,9 +280,9 @@ export function NodePlayer({
           />
         </div>
         {!ready && !error ? (
-          <div className="playable-player-status">Loading...</div>
+          <div className="playable-player-status">{loadingLabel}</div>
         ) : null}
-        {error ? (
+        {error && !onError ? (
           <div className="playable-player-status is-error" role="alert">
             {error}
           </div>

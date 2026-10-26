@@ -54,6 +54,8 @@ export interface AgentModelCatalog {
   hiddenModels?: AgentModel[];
   /** Coding agents whose models were still loading; asking again a little later lists them. */
   loadingRuntimes?: AgentRuntimeId[];
+  /** Pi catalogs refreshing in the background; existing models remain available. */
+  loadingProviders?: string[];
   defaultModel?: AgentModelRef;
   defaultReasoningLevel: AgentReasoningLevel;
   defaultNativeReasoningLevel?: string;
@@ -133,7 +135,7 @@ export interface Model3DOptions {
   pose?: "a-pose" | "t-pose";
   textureModel?: string;
   textureQuality?: "fast" | "standard" | "detailed" | "extreme";
-  rigModel?: "v1.0-20240301" | "v2.5-20260210";
+  rigModel?: "v1.0-20240301" | "v2.5-20260210" | "v3.0-20260909";
   rigType?: "biped" | "quadruped" | "hexapod" | "octopod" | "serpentine" | "aquatic";
   animateInPlace?: boolean;
 }
@@ -258,6 +260,8 @@ export interface CustomProviderModel {
 }
 
 export interface ProviderModelSettings {
+  canRefreshCatalog?: boolean;
+  refreshingCatalog?: boolean;
   catalogDocsUrl?: string;
   models: Array<AgentModel & { visible: boolean; custom: boolean; capabilities?: ProviderCapability[];
     source?: "preset" | "custom" | "cloud"; model3d?: Model3DDefinition; description?: string }>;
@@ -749,6 +753,8 @@ export type ThreadItem = (
       id: string;
       turnId: string;
       type: "agentMessage";
+      /** Persisted message at which a new independent chat can branch. */
+      branchEntryId?: string;
       text: string;
       status: Extract<ItemStatus, "inProgress" | "completed" | "cancelled" | "interrupted" | "failed">;
       phase?: AgentMessagePhase;
@@ -1267,7 +1273,7 @@ export interface RuntimeEventData {
   "item.reasoning.textDelta": { itemId: string; delta: string };
   "agent.completed": Record<string, never>;
   "agent.cancelled": Record<string, never>;
-  "agent.error": { error: string };
+  "agent.error": { error: string; code?: ThreadItemErrorCode; diagnostics?: AgentErrorDiagnostics };
   "prompt.queued": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.steered": { prompt: string; mentions?: PluginMention[]; references: PromptReference[]; images?: PromptImage[]; attachments?: ConversationAttachment[] };
   "prompt.removed": Record<string, never>;

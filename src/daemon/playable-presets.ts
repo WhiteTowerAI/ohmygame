@@ -1,5 +1,6 @@
 import type { PlayableSignal, PlayableStoryOptions } from "../shared/playable-nodes.js";
 import { VISUAL_NOVEL_SHARED_FILES, visualNovelSource } from "./playable-visual-novel.js";
+import { withPlayableTemplateArtwork } from "./playable-template-artwork.js";
 
 /**
  * Presets are starting points, not Node types: the chosen name is never
@@ -36,6 +37,8 @@ export interface PlayablePreset {
   source: (title: string, id?: string) => { html: string; css: string; javascript: string; files?: Record<string, string> };
   /** Shared files the source imports, keyed by workspace path. Added only when the project lacks them. */
   sharedFiles?: Record<string, string>;
+  /** Bundled binary files to copy once, keyed by workspace path. */
+  sharedFileCopies?: Record<string, string>;
 }
 
 export function playablePreset(id: string): PlayablePreset | undefined {
@@ -48,7 +51,7 @@ function signal(id: string, label: string): PlayableSignal {
   return { id, label };
 }
 
-export const PLAYABLE_PRESETS: PlayablePreset[] = [
+const BASE_PLAYABLE_PRESETS: PlayablePreset[] = [
   {
     id: "blank",
     label: "Blank",
@@ -69,11 +72,11 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
     story: { hidden: true },
     source: (title) => ({
       html: [
-        '<main class="stage is-left has-backdrop">',
+        '<main class="stage is-right has-backdrop">',
         '  <div class="backdrop is-warm" data-media="backdrop"></div>',
-        '  <p class="eyebrow rise">A new case</p>',
+        '  <p class="eyebrow rise">Last service</p>',
         `  <h1 class="title is-display rise" style="--delay: 0.15s">${escapeHtml(title)}</h1>`,
-        '  <p class="tagline rise" style="--delay: 0.3s">Shanghai, 1937</p>',
+        '  <p class="tagline rise" style="--delay: 0.3s">One more ride home</p>',
         '  <ul class="menu">',
         '    <li class="rise" style="--delay: 0.5s"><button type="button" class="action" data-signal="start" data-new-game>Start</button></li>',
         '    <li class="rise" style="--delay: 0.6s"><button type="button" class="action" data-continue>Continue <small>No save yet</small></button></li>',
@@ -99,6 +102,10 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
       ].join("\n"),
       css: [
         STYLE_IMPORT,
+        "/* Keep the menu on the empty side of the Last Bus illustration. */",
+        ".stage.is-right { place-content: center end; justify-items: start; text-align: start; }",
+        ".stage.is-right > .title { font-size: 7cqw; }",
+        "",
         "/* Load and Settings open over the menu, between the black bars. */",
         ".menu-panel {",
         "  position: absolute;",
@@ -299,12 +306,11 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         '  <div class="backdrop is-lamp" data-media="backdrop"></div>',
         `  <p class="eyebrow hud rise">${escapeHtml(title)}</p>`,
         '  <div class="choices">',
-        '    <button type="button" class="option rise" style="--delay: 0.6s" data-signal="option-a"><kbd>1</kbd>I had no choice.</button>',
-        '    <button type="button" class="option rise" style="--delay: 0.7s" data-signal="option-b"><kbd>2</kbd>Who else would come?</button>',
+        '    <button type="button" class="option rise" style="--delay: 0.6s" data-signal="option-a"><kbd>1</kbd>Call back.</button>',
+        '    <button type="button" class="option rise" style="--delay: 0.7s" data-signal="option-b"><kbd>2</kbd>Put away the phone.</button>',
         "  </div>",
         '  <div class="subtitle rise">',
-        '    <p class="speaker">STRANGER</p>',
-        '    <p class="line">"You came alone. That was brave."</p>',
+        '    <p class="line">An unfamiliar number. Who could be calling this late?</p>',
         "  </div>",
         "</main>",
         "",
@@ -360,7 +366,7 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "    </svg>",
         '    <button type="button" class="key" data-press>Space</button>',
         "  </div>",
-        '  <p class="title rise" style="--delay: 0.15s">Jump!</p>',
+        '  <p class="title rise" style="--delay: 0.15s">Press the bell!</p>',
         "</main>",
         "",
       ].join("\n"),
@@ -426,8 +432,8 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         '<main class="stage has-backdrop">',
         '  <div class="backdrop is-room" data-media="backdrop"></div>',
         `  <p class="eyebrow hud rise">${escapeHtml(title)}</p>`,
-        '  <button type="button" class="hotspot" data-signal="door" style="left: 26%; top: 49%;"><span>Door</span></button>',
-        '  <button type="button" class="hotspot" data-signal="window" style="left: 67%; top: 33%;"><span>Window</span></button>',
+        '  <button type="button" class="hotspot" data-signal="door" style="left: 83%; top: 48%;"><span>Door</span></button>',
+        '  <button type="button" class="hotspot" data-signal="window" style="left: 20%; top: 32%;"><span>Window</span></button>',
         '  <div class="subtitle rise" style="--delay: 0.2s">',
         '    <p class="line">Look around.</p>',
         "  </div>",
@@ -591,10 +597,6 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
         "  letter-spacing: 0.3em;",
         "}",
         "",
-        ".story-map-node.is-ending {",
-        "  border-color: var(--color-accent);",
-        "}",
-        "",
         ".story-map-node small {",
         "  color: var(--color-accent-ink);",
         "  font-size: 0.8cqw;",
@@ -714,6 +716,8 @@ export const PLAYABLE_PRESETS: PlayablePreset[] = [
     sharedFiles: VISUAL_NOVEL_SHARED_FILES,
   },
 ];
+
+export const PLAYABLE_PRESETS = BASE_PLAYABLE_PRESETS.map(withPlayableTemplateArtwork);
 
 /**
  * Blank: a background that emits `next` when its video ends or the player

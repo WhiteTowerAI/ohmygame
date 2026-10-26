@@ -396,6 +396,9 @@ describe("Visual Novel Template", () => {
     const result = await addPlayableNode(workspacePath, { preset: "visual-novel", id: "chapter-1" });
     expect(result.files).toContain("nodes/chapter-1/script.txt");
     expect(result.signals).toEqual(["option-a", "option-b", "title"]);
+    const script = await readFile(path.join(workspacePath, "nodes/chapter-1/script.txt"), "utf8");
+    expect(script).toContain("The rain had not stopped since noon.");
+    expect(script).not.toContain("@show stranger center");
     for (const [relative, content] of Object.entries(VISUAL_NOVEL_SHARED_FILES)) {
       expect(await readFile(path.join(workspacePath, relative), "utf8")).toBe(content);
     }

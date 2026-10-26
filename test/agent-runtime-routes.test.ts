@@ -1,14 +1,16 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { ConversationManager } from "../src/daemon/conversations.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/daemon/app.js";
 import * as environment from "../src/daemon/agent-runtimes/environment.js";
+import * as discovery from "../src/daemon/agent-runtimes/discovery.js";
 import {
   isAgentRuntimeId,
   type AgentRuntimeStatus,
 } from "../src/shared/agent-runtimes.js";
-import type { AgentModelCatalog } from "../src/shared/contracts.js";
+import type { AgentModelCatalog, ConversationDetail, ConversationSummary, ProjectState } from "../src/shared/contracts.js";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 beforeEach(() => {
@@ -81,10 +83,119 @@ async function start(source = FAKE_CLAUDE) {
   await call("PATCH", "/agent-runtimes/opencode-cli", {
     binaryPath: path.join(dataDirectory, "missing-opencode"),
   });
-  return { app, call, claude };
+  return { app, call, claude, dataDirectory };
 }
 
 describe("coding agent routes", () => {
+  it.skipIf(process.platform !== "win32").each(["codex.cmd", "codex.ps1"])(
+    "resolves a manually selected %s through the settings API without running the shim",
+    async (name) => {
+      const { call, dataDirectory } = await start();
+      const prefix = path.join(dataDirectory, "npm prefix with spaces");
+      const arch = process.arch === "arm64" ? "arm64" : "x64";
+      const target = arch === "arm64" ? "aarch64" : "x86_64";
+      const native = path.join(
+        prefix,
+        "node_modules",
+        "@openai",
+        `codex-win32-${arch}`,
+        "vendor",
+        `${target}-pc-windows-msvc`,
+        "bin",
+        "codex.exe",
+      );
+      await mkdir(path.dirname(native), { recursive: true });
+      await writeFile(native, "Native fixture; probes are simulated");
+      const shim = path.join(prefix, name);
+      await writeFile(shim, "This shell shim must never run");
+      const version = vi
+        .spyOn(discovery, "probeVersion")
+        .mockResolvedValue("0.164.0");
+      const auth = vi
+        .spyOn(discovery, "probeAuth")
+        .mockResolvedValue({ status: "signed-in", billing: "subscription" });
+      const response = await call<AgentRuntimeStatus>(
+        "PATCH",
+        "/agent-runtimes/codex-cli",
+        { binaryPath: shim },
+      );
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        configuredBinaryPath: shim,
+        binaryPath: native,
+        binarySource: "manual",
+        installed: true,
+        diagnostics: [],
+      });
+      expect(version).toHaveBeenCalledWith(
+        native,
+        "codex-cli",
+        expect.any(Object),
+      );
+      expect(auth).toHaveBeenCalledWith(
+        native,
+        "codex-cli",
+        expect.any(Object),
+      );
+      version.mockClear();
+      auth.mockClear();
+      await rm(native);
+      const missing = await call<AgentRuntimeStatus>(
+        "PATCH",
+        "/agent-runtimes/codex-cli",
+        { binaryPath: shim },
+      );
+      expect(missing.status).toBe(200);
+      expect(missing.body).toMatchObject({
+        configuredBinaryPath: shim,
+        installed: false,
+        diagnostics: [expect.objectContaining({ code: "invalid-executable" })],
+      });
+      expect(version).not.toHaveBeenCalled();
+      expect(auth).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["codex-cli", "unsupported.cmd"],
+    ["codex-cli", "unsupported.ps1"],
+    ["codex-cli", "codex.bat"],
+    ["claude-code-cli", "codex.cmd"],
+    ["claude-code-cli", "codex.ps1"],
+  ])(
+    "rejects unsupported scripts for %s: %s before saving settings",
+    async (runtime, name) => {
+      const { call, dataDirectory } = await start();
+      const script = path.join(dataDirectory, name);
+      await writeFile(script, "This script must never run");
+      const before = await call<AgentRuntimeStatus>(
+        "PATCH",
+        `/agent-runtimes/${runtime}`,
+        {
+          binaryPath: path.join(dataDirectory, "missing-cli"),
+        },
+      );
+      const response = await call("PATCH", `/agent-runtimes/${runtime}`, {
+        binaryPath: script,
+      });
+      expect(response.status).toBe(400);
+      const after = await call<AgentRuntimeStatus>(
+        "PATCH",
+        `/agent-runtimes/${runtime}`,
+        { enabled: false },
+      );
+      expect(after.body.configuredBinaryPath).toBe(
+        before.body.configuredBinaryPath,
+      );
+      expect(
+        await discovery.resolveBinary(
+          runtime as "codex-cli" | "claude-code-cli",
+          script,
+        ),
+      ).toBeUndefined();
+    },
+  );
+
   it.skipIf(process.platform === "win32")("persists the optional media step and completes setup using only a CLI", async () => {
     const { call, claude } = await start();
     expect((await call("PUT", "/settings/onboarding", { status: "pending", step: "media" })).status).toBe(200);
@@ -97,6 +208,25 @@ describe("coding agent routes", () => {
     expect((await call("PUT", "/settings/onboarding", { status: "completed", step: "media" })).status).toBe(409);
   });
 
+  it("branches a completed stored response through the API and rejects invalid targets", async () => {
+    const { call } = await start();
+    const project = (await call<ProjectState>("POST", "/projects", {})).body;
+    const conversations = new ConversationManager();
+    const source = await conversations.create(project);
+    const session = conversations.open(project, source);
+    session.appendMessage({ role: "user", content: "Question", timestamp: Date.now() } as never);
+    const entryId = session.appendMessage({ role: "assistant", content: [{ type: "text", text: "Answer" }], stopReason: "stop", timestamp: Date.now() } as never);
+    const base = `/projects/${project.id}/conversations/${source.summary.id}`;
+    const detail = (await call<ConversationDetail>("GET", base)).body;
+    expect(detail.turns.flatMap((turn) => turn.items).find((item) => item.type === "agentMessage")).toMatchObject({ branchEntryId: entryId });
+    const branched = await call<ConversationSummary>("POST", `${base}/branch`, { entryId });
+    expect(branched.status).toBe(201);
+    expect(branched.body.id).not.toBe(source.summary.id);
+    expect(branched.body.messageCount).toBe(2);
+    expect((await call("POST", `${base}/branch`, { entryId: "missing" })).status).toBe(400);
+    expect((await call("POST", `${base}/branch`, {})).status).toBe(400);
+    expect((await call("POST", `/projects/${project.id}/conversations/missing/branch`, { entryId })).status).toBe(404);
+  });
   it.skipIf(process.platform === "win32")("accepts models returned by Claude initialize without requesting list_models", async () => {
     const { call, claude } = await start(
       FAKE_CLAUDE.replace('=== "list_models"', '=== "initialize"'),

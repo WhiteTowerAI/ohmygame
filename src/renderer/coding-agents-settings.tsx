@@ -572,6 +572,24 @@ function Diagnostic({
             <CommandText command={diagnostic.command} />
           </>
         ) : null}
+        {agent.id === "codex-cli" &&
+        diagnostic.capability ===
+          "Windows sandbox filesystem read restrictions" ? (
+          <>
+            {" "}
+            <button
+              type="button"
+              className="coding-agent-link"
+              onClick={() =>
+                void openModelAuthExternal(
+                  "https://learn.chatgpt.com/docs/windows/windows-sandbox",
+                )
+              }
+            >
+              {t("codingAgents.sandboxGuide")}
+            </button>
+          </>
+        ) : null}
       </span>
     </div>
   );
@@ -684,6 +702,11 @@ function diagnosticText(
     case "invalid-executable":
       return t("codingAgents.diagnostic.invalidExecutable");
     case "runtime-incompatible":
+      if (
+        agent.id === "codex-cli" &&
+        diagnostic.capability === "Windows sandbox filesystem read restrictions"
+      )
+        return t("codingAgents.diagnostic.codexWindowsSandbox");
       if (
         agent.id === "opencode-cli" &&
         diagnostic.capability ===

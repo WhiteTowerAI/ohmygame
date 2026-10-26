@@ -97,7 +97,7 @@
 
 @font-face {
   font-family: "Jersey 20";
-  src: url("./assets/home/jersey-20.ttf") format("truetype");
+  src: url("./assets/home/jersey-20.woff2") format("woff2");
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -105,7 +105,7 @@
 
 @font-face {
   font-family: Inter;
-  src: url("./assets/sidebar/inter-500.ttf") format("truetype");
+  src: url("./assets/sidebar/inter-500.woff2") format("woff2");
   font-style: normal;
   font-weight: 500;
   font-display: swap;
@@ -113,7 +113,7 @@
 
 @font-face {
   font-family: Inter;
-  src: url("./assets/sidebar/inter-600.ttf") format("truetype");
+  src: url("./assets/sidebar/inter-600.woff2") format("woff2");
   font-style: normal;
   font-weight: 600;
   font-display: swap;
@@ -121,7 +121,7 @@
 
 @font-face {
   font-family: Inter;
-  src: url("./assets/sidebar/inter-700.ttf") format("truetype");
+  src: url("./assets/sidebar/inter-700.woff2") format("woff2");
   font-style: normal;
   font-weight: 700;
   font-display: swap;
@@ -2745,6 +2745,36 @@ select.settings-search-input {
   color: var(--text);
 }
 
+.settings-diagnostics-panel {
+  gap: 16px;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.settings-diagnostics-panel p {
+  max-width: 520px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.settings-diagnostics-panel > .settings-error {
+  color: var(--danger);
+}
+
+.settings-diagnostics-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-diagnostics-actions .settings-secondary-button {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
 @media (max-width: 560px) {
   .settings-account-row {
     align-items: flex-start;
@@ -4180,6 +4210,38 @@ button.home-nav-item-active:hover {
   background: var(--surface-raised);
   color: var(--text);
   cursor: pointer;
+}
+.projects-import-region {
+  position: relative;
+  min-height: calc(100dvh - 80px);
+}
+.projects-drop-overlay {
+  position: absolute;
+  inset: 8px 0 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px;
+  border: 1px dashed var(--theme-accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  color: var(--text);
+  font-size: 14px;
+  text-align: center;
+  pointer-events: none;
+}
+.projects-drop-message {
+  position: sticky;
+  top: 50dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transform: translateY(-50%);
+}
+.projects-drop-overlay svg {
+  color: var(--theme-accent);
 }
 .projects-notice {
   margin: 12px 0 0;
@@ -9259,11 +9321,12 @@ button {
   }
 }
 
-.story-canvas-pointer .react-flow__pane {
+/* Outrank React Flow's .react-flow__pane.draggable/.selection, which load after ours. */
+.story-canvas.story-canvas-pointer .react-flow__pane {
   cursor: default;
 }
 
-.story-canvas-pan .react-flow__pane {
+.story-canvas.story-canvas-pan .react-flow__pane {
   cursor: grab;
 }
 
@@ -13253,11 +13316,11 @@ button {
   opacity: 0.42;
 }
 
-.icon-button[data-tooltip] {
+[data-tooltip] {
   position: relative;
 }
 
-.icon-button[data-tooltip]::after {
+[data-tooltip]::after {
   position: absolute;
   z-index: 100;
   top: calc(100% + 8px);
@@ -13279,7 +13342,7 @@ button {
   content: attr(data-tooltip);
 }
 
-.icon-button[data-tooltip]:is(:hover, :focus-visible)::after {
+[data-tooltip]:is(:hover, :focus-visible)::after {
   visibility: visible;
   opacity: 1;
 }
@@ -15470,6 +15533,11 @@ button {
   color: var(--danger);
 }
 
+.route-loading {
+  height: 100dvh;
+  background: var(--canvas);
+}
+
 .fatal-state {
   display: flex;
   min-height: 100dvh;
@@ -17017,6 +17085,91 @@ button {
   background: #e8b563;
   color: #1b1408;
   font-weight: 600;
+}
+
+/* Playtest cannot start: what is wrong and the way forward, on the game's dark stage. */
+.playtest-problem {
+  display: grid;
+  justify-items: center;
+  align-self: center;
+  justify-self: center;
+  gap: 8px;
+  width: min(420px, calc(100vw - 32px));
+  padding: 24px;
+  color: #a5a7ad;
+  font-family: Inter, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+.playtest-problem > svg {
+  color: #e8b563;
+}
+.playtest-problem h1 {
+  margin: 0;
+  color: #eceef2;
+  font-size: 15px;
+  font-weight: 600;
+}
+.playtest-problem p {
+  margin: 0;
+}
+.playtest-problem .playtest-problem-detail {
+  max-width: 100%;
+  max-height: 96px;
+  overflow: auto;
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgb(255 255 255 / 6%);
+  color: #8a8e96;
+  font: 11px/1.45 "SF Mono", Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.playtest-problem-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.playtest-problem-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 999px;
+  background: transparent;
+  color: #eceef2;
+  font: inherit;
+  cursor: pointer;
+}
+.playtest-problem-actions button:hover {
+  background: #262a31;
+}
+/* Once Ask AI is sent, the next action leads. */
+.playtest-problem-actions button:first-child,
+.playtest-problem-sent + button {
+  border-color: transparent;
+  background: #e8b563;
+  color: #1b1408;
+  font-weight: 600;
+}
+.playtest-problem-actions button:first-child:hover,
+.playtest-problem-sent + button:hover {
+  background: #f0c47b;
+}
+.playtest-problem-actions button:focus-visible {
+  outline: 2px solid #e8b563;
+  outline-offset: 2px;
+}
+.playtest-problem-sent {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  color: #eceef2;
 }
 
 

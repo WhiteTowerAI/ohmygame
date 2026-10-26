@@ -101,6 +101,10 @@ export interface CreatePublishDeploymentResult {
 
 export type PublishErrorCode =
   | "authentication_required"
+  | "visitor_invalid"
+  | "rate_limited"
+  | "origin_not_allowed"
+  | "unavailable"
   | "not_found"
   | "validation_failed"
   | "conflict"

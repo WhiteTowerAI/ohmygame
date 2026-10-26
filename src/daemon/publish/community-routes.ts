@@ -111,7 +111,7 @@ export function registerCommunityRoutes(
 
   app.put<{
     Params: { gameId: string };
-    Body: { liked: boolean; accessToken: string };
+    Body: { liked: boolean; accessToken?: string };
   }>(
     "/community/games/:gameId/like",
     {
@@ -119,7 +119,7 @@ export function registerCommunityRoutes(
         body: {
           type: "object",
           additionalProperties: false,
-          required: ["accessToken", "liked"],
+          required: ["liked"],
           properties: { ...authenticatedBody, liked: { type: "boolean" } },
         },
       },

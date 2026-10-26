@@ -1,3 +1,4 @@
+import { diagnosticsFileName } from "../shared/diagnostics.js";
 import type { StoryLibraryMediaResult, StoryUpgradeResult, StoryUpgradeStatus } from "../shared/story-web.js";
 import { PROJECT_ARCHIVE_CONTENT_TYPE } from "../shared/project-archive.js";
 import type { CommunityGameStats, CommunityGamesQuery, CommunityProfile } from "../shared/publish-v1.js";
@@ -145,6 +146,10 @@ declare global {
       revealPluginSkill: (pluginId: string, skillId: string) => Promise<void>;
       selectPluginDirectory: () => Promise<string | undefined>;
       selectProjectDirectory: () => Promise<string | undefined>;
+      /** Older desktop builds do not write log files. */
+      openLogsDirectory?: () => Promise<void>;
+      /** Builds the diagnostics ZIP without the background service, for when it is not running. */
+      exportDiagnostics?: () => Promise<Uint8Array<ArrayBuffer>>;
       clipboard: {
         files: () => Promise<DesktopClipboardFile[]>;
         paste: () => Promise<void>;
@@ -166,6 +171,10 @@ declare global {
       openPlayableNode?: (projectId: string, nodeId: string) => Promise<void>;
       /** Called in the main window when a Playtest asks to open a Node. */
       onOpenPlayableNode?: (listener: (projectId: string, nodeId: string) => void) => () => void;
+      /** Called from a Playtest window that cannot play: brings the project's editor forward. */
+      showPlaytestEditor?: (projectId: string) => Promise<void>;
+      /** Called in the main window when a Playtest asks for its project's editor. */
+      onShowPlaytestEditor?: (listener: (projectId: string) => void) => () => void;
       agentPlaytests?: {
         state: () => Promise<PlaytestWatchState>;
         setVisible: (visible: boolean) => Promise<PlaytestWatchState>;
@@ -379,6 +388,12 @@ export async function saveCustomProvider(settings: SaveCustomProviderRequest, pr
 export async function removeProvider(providerId: string): Promise<void> {
   await request(`/settings/models/providers/${encodeURIComponent(providerId)}`, { method: "DELETE" });
   notifyAgentModelsChanged();
+}
+
+export async function refreshProviderModels(providerId: string): Promise<ProviderModelSettings> {
+  const result = await request<ProviderModelSettings>(`/settings/models/providers/${encodeURIComponent(providerId)}/models/refresh`, { method: "POST" });
+  notifyAgentModelsChanged();
+  return result;
 }
 
 export async function getProviderModels(providerId: string): Promise<ProviderModelSettings> {
@@ -625,7 +640,7 @@ export function getMyCommunityGames(accessToken: string): Promise<CommunityProfi
   return request("/community/me/games", { headers: communityHeaders(accessToken) });
 }
 
-export function setCommunityLike(gameId: string, accessToken: string, liked: boolean): Promise<CommunityGameStats> {
+export function setCommunityLike(gameId: string, accessToken: string | undefined, liked: boolean): Promise<CommunityGameStats> {
   return request(`/community/games/${encodeURIComponent(gameId)}/like`, { method: "PUT", body: JSON.stringify({ accessToken, liked }) });
 }
 
@@ -693,6 +708,29 @@ export async function retryToolJob(jobId: string): Promise<ToolJob> {
 export async function publishProject(projectId: string, accessToken: string, metadata: Omit<PublishProjectRequest, "accessToken">): Promise<PublishResult> {
   const body: PublishProjectRequest = { accessToken, ...metadata };
   return request(`/projects/${projectId}/publish`, { method: "POST", body: JSON.stringify(body) });
+}
+
+/**
+ * A ZIP of the redacted desktop logs and system information, for bug reports.
+ * When the background service cannot build it, the desktop app builds one
+ * with the logs and the service's status.
+ */
+export async function exportDiagnostics(): Promise<{ blob: Blob; fileName: string }> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(apiUrl("/diagnostics/export"), { method: "POST", headers: runtimeHeaders(), signal: controller.signal });
+    if (!response.ok) throw await responseError(response);
+    const fileName = /filename="([^"]+)"/.exec(response.headers.get("content-disposition") ?? "")?.[1];
+    return { blob: await response.blob(), fileName: fileName ?? diagnosticsFileName(new Date()) };
+  } catch (cause) {
+    const desktopExport = window.ohMyGameDesktop?.exportDiagnostics;
+    if (!desktopExport) throw cause;
+    const bytes = await desktopExport();
+    return { blob: new Blob([bytes], { type: "application/zip" }), fileName: diagnosticsFileName(new Date()) };
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export async function buildInteractiveStory(projectId: string, version?: string): Promise<Blob> {
@@ -975,6 +1013,10 @@ export async function createConversation(
     method: "POST",
     body: JSON.stringify({ ...(model ? { model: modelRef(model) } : {}), ...(reasoningLevel ? { reasoningLevel } : {}) }),
   });
+}
+
+export async function branchConversation(projectId: string, conversationId: string, entryId: string): Promise<ConversationSummary> {
+  return request(`/projects/${projectId}/conversations/${conversationId}/branch`, { method: "POST", body: JSON.stringify({ entryId }) });
 }
 
 export async function getConversation(projectId: string, conversationId: string, reset = false): Promise<ConversationDetail> {

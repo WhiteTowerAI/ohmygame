@@ -37,6 +37,15 @@ and where it was found. With several installations, the newest version wins;
 equal versions keep discovery order. A manually selected executable takes
 precedence even when another installation is newer.
 
+On Windows, discovery also checks Codex's versioned desktop installations under
+`%LOCALAPPDATA%/OpenAI/Codex/bin` and the native executable inside npm installations
+on PATH or in the usual npm folder. Selecting an npm `codex.cmd` or `codex.ps1`
+path resolves its adjacent package's native executable; the shell shim is never
+executed. Both current platform packages and older `vendor/` layouts are supported.
+Other `.cmd`, `.bat`, and `.ps1` scripts are rejected before settings are saved.
+A Codex shim whose native package is missing is reported as an unavailable
+manual installation and is never executed or replaced with another installation.
+
 An undetected CLI is not necessarily uninstalled. Choose its absolute executable
 path for a custom installation, or leave the path field empty and save to restore
 automatic discovery. An unavailable manual path is reported explicitly rather
@@ -45,6 +54,25 @@ login shell's PATH and probe caches, so installing a CLI or changing shell setup
 does not normally require restarting OhMyGame. Discovery, CLI startup, protocol
 compatibility and sign-in are separate checks; finding a bundled CLI does not
 guarantee that its version supports OhMyGame's integration.
+
+If Codex is found and signed in but offers no models, check the diagnostics on
+its detail page. Model discovery first verifies the permission profile by
+starting an ephemeral thread without a prompt. On Windows, the probe,
+conversations, and image generation use `:root` read access because the elevated
+sandbox rejects `:minimal` access. Protected paths remain explicitly denied.
+If thread creation still reports `elevated Windows sandbox requires effective
+:root read access`, OhMyGame identifies a compatibility failure before requesting
+the model catalog; update Codex and check its sandbox configuration.
+Windows' legacy `unelevated` sandbox can also reject filesystem read restrictions.
+OhMyGame reports this as a Windows sandbox compatibility issue and links to the
+[Codex Windows sandbox guide](https://learn.chatgpt.com/docs/windows/windows-sandbox).
+For the legacy sandbox error, configure the `elevated` sandbox in Codex
+(including its administrator-approved setup), or use MXC with a supported device
+and CLI, then choose **Check again**.
+OhMyGame does not change the saved sandbox configuration. The Windows profile
+permits general filesystem reads while preserving explicit protected-path denies
+and workspace write restrictions. A successful model probe still
+requires a real conversation test on the target Windows installation.
 
 ![Codex settings showing the desktop-bundled executable and automatic detection](assets/codex-cli-discovery.png)
 
@@ -136,6 +164,21 @@ using its own tools.
 Validation includes simulated canvas-to-Library generation, image-toggle
 persistence, failure/cancellation fixtures, and a real image generation with
 Codex 0.163.0-alpha.10.2 on macOS while its conversation agent was disabled.
+
+## Branch in new chat
+
+A completed agent response has **Branch in new chat** immediately to the right
+of Copy. After confirmation, OhMyGame opens a new chat containing the source
+chat's current history through that response, inclusive. Later messages are not
+copied. The source chat is unchanged, and either chat can continue independently.
+This applies to Pi and all supported coding agent CLIs.
+
+![Branch in new chat next to Copy on a completed response](assets/chat-branch-response.png)
+
+Both chats use the same project's current files. Branching a chat does not
+restore older files or create a separate workspace. The new chat receives the
+model and settings recorded at the branch point, clears active
+plan state, and creates its own native CLI context from a history handoff.
 
 ## What OhMyGame keeps
 
@@ -243,10 +286,13 @@ In the project folder an agent works without asking, as OhMyGame's own agent
 does. `judgeApproval` decides each request first:
 
 - **Deny** anything that reaches a CLI sign-in folder (`~/.claude`,
-  `~/.codex`, OpenCode's folders), `~/.ssh` and similar, OhMyGame's data folder,
-  or another project. Paths resolve symlinks, including missing descendants,
+  `~/.codex`, OpenCode's folders, `~/.pi`), `~/.ssh` and similar, OhMyGame's
+  data folder, OhMyGame's own agent folder (`pi-agent`, which holds provider
+  keys and sign-ins and sits beside the data folder in the desktop app), or
+  another project. Paths resolve symlinks, including missing descendants,
   and include custom CLI credential homes. A command reaches a folder when it names it or a folder
-  that holds it, quoted or not.
+  that holds it, including quoted paths containing spaces and paths with
+  backslash-escaped spaces.
 - **Allow** workspace file requests and a small set of simple read commands.
   Claude Code's own tools that touch no file and run no command (`TodoWrite`,
   `Skill`, `Task`, `WebSearch`, `WebFetch` and its background-shell and MCP
@@ -351,8 +397,9 @@ subscription to metered billing; Claude Code keeps `CLAUDE_CODE_OAUTH_TOKEN`,
 which is a subscription sign-in. The daemon's token and `OHMYGAME_*` variables
 never reach a CLI. The executable is resolved to an absolute path from the
 person's choice, PATH, the login shell's PATH, usual install folders, and known
-bundled copies such as ChatGPT's Codex. On Windows only `.exe` programs are
-used, because Node cannot start `.cmd`/`.bat` shims without a shell. An
+bundled copies such as ChatGPT's Codex. On Windows only native `.exe` programs
+are started; supported Codex npm shims resolve to the packaged executable because
+Node cannot start `.cmd`/`.bat` shims without a shell. An
 explicit path wins; automatic
 discovery chooses the newest SemVer, including prerelease ordering, and retries
 failed version probes. Recheck also invalidates successful probes. Catalog

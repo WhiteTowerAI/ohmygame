@@ -311,7 +311,20 @@ vignette, and film grain over the background, dialogue as subtitles, answers
 as dark bars across the screen, a ring for timed presses, and pulsing dots
 for hotspots. Sizes follow the screen width (`cqw`), so a Scene looks the
 same at any size. Until the author sets a background, each Template shows a
-placeholder picture chosen by a class on its `.backdrop`.
+still from Last Bus: the cover, bus stop, phone, cabin, stop bell, or store
+interior. Small project-owned stylesheets under `shared/templates/` reference
+separate WebP files under `shared/templates/lastbus/`, copied only on first use.
+Their `data-template-artwork` selector scopes the illustration and zero
+letterbox to that Scene; other Scenes keep their own Project Style. Replacing
+the WebP changes the illustration without editing CSS. Setting an image or
+video background in the editor replaces the illustration.
+
+The artwork was generated and developed by the OhMyGame team and is provided
+under Apache License 2.0. Template creation also copies `NOTICE.txt` and
+`LICENSE.txt` into `shared/templates/lastbus/`; project archives retain these
+files. Keep the applicable notices when redistributing the artwork. Adding
+another Template supplies missing notices to an existing project without
+overwriting its existing files.
 
 Project Style is how two different screens, such as the Ash Club menu and
 archive, stay recognizably part of one game.
@@ -389,6 +402,21 @@ window controls and dragging use a native title bar outside the game surface.
 When something breaks, a short note says so and offers **Ask AI to fix**, which
 brings the editor forward on that Scene and fills the chat with where the player was,
 the Exits they took, and the errors, ready to send.
+
+A story with no Scenes has nothing to play: Playtest stays closed and the
+editor says to add a Scene first. When the Playtest window cannot start the
+story, it says why in place of the game and offers the way forward for that
+case: **Open editor**, which brings the editor forward on the Story map
+(**Close window** in a browser, which returns to the editor's tab);
+**Play from the start** when the Scene chosen with **Play from here** was
+deleted; **Ask AI to fix** when the story's files keep it from starting; and
+**Try again** when loading failed or the game stopped while starting. A game
+that stops with an error after it has started says so instead of claiming it
+could not start, and offers **Ask AI to fix**, with what the player was doing,
+and **Play again**. Clicking Playtest in the editor loads the story again in a
+window that could not play it, so fixing the cause and clicking Playtest is
+enough. A window that plays
+keeps its game when Playtest brings it forward.
 
 Playtest also remembers which Scenes the author has seen and which Exits
 they took, across replays, as players' games do; a [Story map](#story-map)
@@ -483,9 +511,9 @@ already uses the Project Style, its expected Signals, a one-line summary
 for the author, and a brief that tells the Agent what the author usually
 wants next. The brief is not shown to the author. Each Template's picture in
 **Add a Scene** is a capture of the Scene it creates: the starter source
-with the default Project Style and no background. The Story map's shows a
-sample story partly played, since a new one has nothing seen to show, and
-the Visual Novel's shows its first line of dialogue.
+with the default Project Style and its bundled Last Bus artwork. The Story
+map picture shows a sample story partly played, since a new one has nothing
+seen to show, and the Visual Novel picture shows its first line of dialogue.
 
 | Template  | Starter content                                        | Starter Signals        |
 | --------- | ------------------------------------------------------ | ---------------------- |

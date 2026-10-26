@@ -265,6 +265,7 @@ export function conversationItems(entries: readonly SessionEntry[], markInterrup
             id: `${entry.id}:assistant:${index}`,
             turnId,
             type: "agentMessage",
+            ...(phase === "final_answer" && (message.stopReason === "stop" || message.stopReason === "length") ? { branchEntryId: entry.id } : {}),
             text,
             status: threadItemStatus(message.stopReason),
             ...(phase ? { phase } : {}),
@@ -398,7 +399,6 @@ interface AgentManagerOptions {
     changed(project: ProjectState, from: string, to: string): Promise<TurnChanges>;
   };
   errorDiagnostics?: () => NonNullable<ThreadItemError["diagnostics"]>;
-  onRunFailed?: (error: ThreadItemError, scope: { projectId: string; conversationId: string; turnId: string }) => void;
 }
 
 interface UndoneChanges {
@@ -1950,6 +1950,18 @@ export class AgentManager {
         this.events.publish(projectId, "checkpoint.created", { checkpointId: entry.id }, eventScope(active));
       }
     } else if (event.type === "message_end" && isAssistantMessage(event.message)) {
+      const responseIds = [...active.assistantItemIds.values()];
+      const sessionManager = this.#sessions.get(conversationKey(projectId, conversationId))?.session.sessionManager;
+      queueMicrotask(() => {
+        const entry = sessionManager?.getBranch().findLast((entry) => entry.type === "message" && entry.message === event.message);
+        if (!entry) return;
+        for (const id of responseIds) {
+          const item = active.items.get(id);
+          if (item?.type === "agentMessage" && item.status === "completed" && item.phase === "final_answer") {
+            this.#updateItem(projectId, active, { ...item, branchEntryId: entry.id });
+          }
+        }
+      });
       const status = threadItemStatus(event.message.stopReason);
       active.lastError = event.message.stopReason === "error" ? this.#turnError(active, assistantMessageError(event.message)) : undefined;
       for (const [contentIndex, itemId] of active.assistantItemIds) {
@@ -2195,8 +2207,7 @@ export class AgentManager {
       console.warn("Could not save agent failure diagnostics");
     }
     this.#setState(projectId, active.conversationId, { status: "error", error: error.message });
-    this.events.publish(projectId, "agent.error", { error: error.message }, eventScope(active));
-    this.options.onRunFailed?.(error, { projectId, conversationId: active.conversationId, turnId: active.turnId });
+    this.events.publish(projectId, "agent.error", { error: error.message, ...(error.code ? { code: error.code } : {}), ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) }, eventScope(active));
   }
 
   #setState(projectId: string, conversationId: string, state: ConversationAgentState): void {

@@ -306,6 +306,9 @@ directly to the model providers you choose. Publishing requires an OhMyGame
 account and uploads only your game's static build. Release builds check for
 updates and send anonymous usage events (PostHog, no session recording) and
 crash reports (Sentry, no personal data). Builds from source send no telemetry.
+The desktop app keeps redacted logs on your machine; they leave it only if you
+export them from **Settings → About → Diagnostics** and share the file. See
+[logs and diagnostics](docs/diagnostics.md).
 
 ## Roadmap
 

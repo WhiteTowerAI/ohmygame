@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { ChevronDown, History, InfoCircle, LoaderCircle, Play, RotateCcw, Sparkles, X } from "./icons.js";
+import { ChevronDown, History, InfoCircle, LoaderCircle, Pencil, Play, RotateCcw, Sparkles, X } from "./icons.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
 import type { PlayableDebugRecord } from "../shared/playable-debug.js";
 import { playableNodeById } from "../shared/playable-graph.js";
@@ -19,7 +19,8 @@ export interface PlaytestStart {
 }
 
 export type PlaytestAction = "replay" | "forget-seen";
-export type PlaytestRequest = { action: "start"; start: PlaytestStart } | { action: PlaytestAction };
+/** `open` only brings Playtest forward, and loads the story again if the window could not play it. */
+export type PlaytestRequest = { action: "start"; start: PlaytestStart } | { action: PlaytestAction | "open" };
 
 const requestKey = (projectId: string) => `ohmygame:playtest:request:${projectId}`;
 
@@ -39,7 +40,7 @@ export function takePlaytestRequest(projectId: string): PlaytestRequest | undefi
   window.localStorage.removeItem(key);
   try {
     const request = JSON.parse(raw) as Partial<PlaytestRequest> | null;
-    if (request?.action === "replay" || request?.action === "forget-seen") return { action: request.action };
+    if (request?.action === "replay" || request?.action === "forget-seen" || request?.action === "open") return { action: request.action };
     if (request?.action === "start" && typeof request.start?.nodeId === "string") {
       return { action: "start", start: { nodeId: request.start.nodeId } };
     }
@@ -149,21 +150,34 @@ export function requestAskAgent(projectId: string, text: string): void {
   window.localStorage.setItem(askKey(projectId), JSON.stringify({ text, id: Date.now() }));
 }
 
-/** Calls `onAsk` in the editor whenever its Playtest window hands over a request. */
+/** How long a request waits for an editor that is still opening. */
+const ASK_WAIT_MS = 60_000;
+
+/**
+ * Calls `onAsk` in the editor whenever its Playtest window hands over a
+ * request, including one sent just before the editor opened, since Playtest
+ * can bring the editor forward with the request.
+ */
 export function usePlaytestAskRequests(projectId: string | undefined, onAsk: (text: string) => void): void {
   const handler = useRef(onAsk);
   handler.current = onAsk;
   useEffect(() => {
     if (!projectId) return;
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== askKey(projectId) || event.newValue === null) return;
+    const take = (value: string, waiting: boolean) => {
       window.localStorage.removeItem(askKey(projectId));
       try {
-        const request = JSON.parse(event.newValue) as { text?: unknown };
+        const request = JSON.parse(value) as { text?: unknown; id?: unknown };
+        if (waiting && !(typeof request.id === "number" && Date.now() - request.id < ASK_WAIT_MS)) return;
         if (typeof request.text === "string") handler.current(request.text);
       } catch {
         // Not a request this editor wrote.
       }
+    };
+    const waiting = window.localStorage.getItem(askKey(projectId));
+    if (waiting !== null) take(waiting, true);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== askKey(projectId) || event.newValue === null) return;
+      take(event.newValue, false);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -209,4 +223,71 @@ export function askToFixPlaytest(graph: NodeGraph, record: PlayableDebugRecord |
   }
   lines.push("", "Errors:", ...errors.slice(-RECENT_LIMIT).map((error) => `- ${error}`));
   return lines.join("\n");
+}
+
+/**
+ * Why Playtest cannot play the story, with the service's message when there
+ * is one: `stopped` is a game that had started; every other kind never did.
+ */
+export interface PlaytestProblemState {
+  kind: "no-scenes" | "missing-start" | "not-found" | "invalid" | "unavailable" | "stopped";
+  detail?: string;
+}
+
+/**
+ * What the Playtest window shows instead of the game when the story cannot
+ * start or stops: what is wrong, and the way forward for that case. Without a way to
+ * reach the editor, closing the window takes its place.
+ */
+export function PlaytestProblem({ problem, onOpenEditor, onRetry, onPlayFromStart, onAskAgent, onClose }: {
+  problem: PlaytestProblemState;
+  onOpenEditor?: () => void;
+  onRetry: () => void;
+  onPlayFromStart: () => void;
+  /** Hands the problem to the AI; the page knows what the player was doing. */
+  onAskAgent: () => void;
+  onClose: () => void;
+}) {
+  const [sent, setSent] = useState(false);
+  useEffect(() => setSent(false), [problem.kind, problem.detail]);
+  const { title, body } = {
+    "no-scenes": { title: t("playtest.noScenesTitle"), body: t("playtest.noScenesBody") },
+    "missing-start": { title: t("playtest.missingStartTitle"), body: t("playtest.missingStartBody") },
+    "not-found": { title: t("playtest.notFoundTitle"), body: t("playtest.notFoundBody") },
+    invalid: { title: t("playtest.invalidTitle"), body: t("playtest.invalidBody") },
+    unavailable: { title: t("playtest.unavailableTitle"), body: t("playtest.unavailableBody") },
+    stopped: { title: t("playtest.stoppedTitle"), body: t("playtest.stoppedBody") },
+  }[problem.kind];
+
+  const close = <button key="close" type="button" onClick={onClose}><X size={13} /><span>{t("playtest.closeWindow")}</span></button>;
+  const editor = onOpenEditor
+    ? <button key="editor" type="button" onClick={onOpenEditor}><Pencil size={13} /><span>{t("playtest.openEditor")}</span></button>
+    : close;
+  const retry = <button key="retry" type="button" onClick={onRetry}><RotateCcw size={13} /><span>{t("playtest.tryAgain")}</span></button>;
+  const ask = sent
+    ? <span key="ask" className="playtest-problem-sent">{t("playtest.addedToChat")}</span>
+    : <button key="ask" type="button" onClick={() => { onAskAgent(); setSent(true); }}><Sparkles size={13} /><span>{t("playtest.askFix")}</span></button>;
+  const actions = {
+    "no-scenes": [editor],
+    "missing-start": [<button key="start" type="button" onClick={onPlayFromStart}><Play size={13} /><span>{t("playtest.playFromStart")}</span></button>, editor],
+    "not-found": [close],
+    invalid: [ask, retry, editor],
+    unavailable: [retry, editor],
+    stopped: [ask, <button key="again" type="button" onClick={onRetry}><RotateCcw size={13} /><span>{t("playtest.playAgain")}</span></button>, editor],
+  }[problem.kind];
+
+  return <main className="playable-player-page">
+    <section className="playtest-problem" role="alert" aria-labelledby="playtest-problem-title">
+      <InfoCircle size={20} />
+      <h1 id="playtest-problem-title">{title}</h1>
+      <p>{body}</p>
+      {problem.detail ? <p className="playtest-problem-detail">{problem.detail}</p> : null}
+      <div className="playtest-problem-actions">{actions}</div>
+    </section>
+  </main>;
+}
+
+/** The chat request behind "Ask AI to fix" when the story could not start at all. */
+export function askToFixPlaytestStart(error: string): string {
+  return ["Playtest could not start the story. Find the cause and fix it.", "", "Error:", `- ${error}`].join("\n");
 }

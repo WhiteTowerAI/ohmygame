@@ -34,6 +34,11 @@ for `Intl` and `toLocale*` formatting.
 - Content from outside the app: examples, plugin and skill descriptions,
   Community games, provider and model names.
 
+Built-in Scene template names and summaries in **Add a Scene** and the canvas
+context menu use `storyTemplates.*` translations in the renderer. Template
+IDs and the daemon's English descriptions stay unchanged for agent context;
+unknown templates display the name and summary supplied by their catalog.
+
 Provider authentication translates standard `Sign in with …` and `… API key`
 method labels and the SDK's matching `Enter … API key` prompt in the renderer.
 Brand names stay intact. Other provider instructions, including multi-step

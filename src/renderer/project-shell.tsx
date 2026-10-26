@@ -35,6 +35,7 @@ import {
   cancelPlan,
   compactConversation,
   createConversation,
+  branchConversation,
   getConversation,
   getConversationContextUsage,
   getConversationCapabilities,
@@ -94,6 +95,8 @@ interface ProjectShellProps {
   initialDraft?: ComposerDraft;
   initialCanvasNodeId?: string;
   onInitialCanvasNodeHandled?: () => void;
+  showStoryMap?: boolean;
+  onStoryMapShown?: () => void;
   onInitialPromptHandled?: () => void;
   onInitialDraftHandled?: () => void;
   onOpenConversation: (conversationId: string, replace?: boolean) => void;
@@ -116,6 +119,8 @@ export function ProjectShell({
   initialDraft,
   initialCanvasNodeId,
   onInitialCanvasNodeHandled,
+  showStoryMap,
+  onStoryMapShown,
   onInitialPromptHandled,
   onInitialDraftHandled,
   onOpenConversation,
@@ -158,7 +163,8 @@ export function ProjectShell({
   const [designContext, setDesignContext] = useState<PromptContext>();
   const [dismissedDesign, setDismissedDesign] = useState<string>();
   // "Ask AI to fix" in the Playtest window lands in this chat, ready to send.
-  usePlaytestAskRequests(state.project?.id, requestPrompt);
+  // The chat takes the request once its conversation is open.
+  usePlaytestAskRequests(state.conversation ? state.project?.id : undefined, requestPrompt);
   const modelCatalog = useAgentModels({ agentRuntimes: true });
   const effectiveModel = findAgentModel(modelCatalog.hiddenModels ?? [], state.settings.model) ?? preferredAgentModel(modelCatalog.models, state.settings.model, modelCatalog.defaultModel);
   const initialPromptAttempted = useRef(false);
@@ -712,6 +718,18 @@ export function ProjectShell({
     }
   }
 
+  async function branchChat(entryId: string) {
+    if (!project || !conversation || creatingConversation || !window.confirm(t("timeline.branchConfirm"))) return;
+    setCreatingConversation(true);
+    dispatch({ type: "notice", message: undefined });
+    try {
+      const created = await branchConversation(project.id, conversation.id, entryId);
+      onOpenConversation(created.id);
+    } catch (error) {
+      dispatch({ type: "notice", message: errorMessage(error) });
+    } finally { setCreatingConversation(false); }
+  }
+
   async function changeReasoning(level: AgentReasoningLevel) {
     if (!project || !conversation || agentBusy || modelChanging) return;
     setModelChanging(true);
@@ -842,6 +860,8 @@ export function ProjectShell({
                 changeControls={turnChanges}
                 workspaceRevision={workspaceRevision}
                 onAddToChat={addToChat}
+                onBranch={branchChat}
+                branchDisabled={creatingConversation || state.connection !== "open"}
               />
               </ErrorBoundary>
             </Activity>
@@ -985,6 +1005,8 @@ export function ProjectShell({
         onToggleChat={() => setAgentCollapsed((collapsed) => !collapsed)}
       /></Suspense> : <PlayableEditorWorkspace
         project={project}
+        showStoryMap={showStoryMap}
+        onStoryMapShown={onStoryMapShown}
         onProjectUpdated={(updated) => dispatch({ type: "project-updated", project: updated })}
         designOpen={designOpen}
         onDesignOpenChange={changeWorkspaceView}

@@ -4,6 +4,52 @@ User-visible changes are collected here when maintainers prepare a release.
 Older versions are documented in
 [GitHub Releases](https://github.com/WhiteTowerAI/ohmygame/releases).
 
+## [0.0.0-beta.4.14] - 2026-10-26
+
+### Added
+
+- Create a new chat from a completed agent response, carrying the conversation
+  through that response into an independent chat.
+  ([#404](https://github.com/WhiteTowerAI/ohmygame/pull/404) by @dogxii)
+- Drop a project ZIP onto the Projects page to import it as a new project.
+  ([#389](https://github.com/WhiteTowerAI/ohmygame/pull/389) by @dogxii)
+- Like Community games directly from their cards without signing in.
+  ([#397](https://github.com/WhiteTowerAI/ohmygame/pull/397) by @dogxii)
+- Export a diagnostics ZIP with redacted desktop logs and system information
+  from Settings → About.
+  ([#354](https://github.com/WhiteTowerAI/ohmygame/pull/354) by @xuhongbo)
+- Add refreshed, localized Story scene templates with bundled Last Bus artwork
+  copied into each project that uses it.
+  ([#379](https://github.com/WhiteTowerAI/ohmygame/pull/379) by @82228,
+  [#411](https://github.com/WhiteTowerAI/ohmygame/pull/411) by @xinyang6879)
+
+### Changed
+
+- Refresh configured Pi model catalogs in the background and offer a manual
+  refresh in provider settings.
+  ([#392](https://github.com/WhiteTowerAI/ohmygame/pull/392) by @dogxii)
+- Update bundled 3D model versions and provider operation limits, including
+  Meshy T2.5 and Tripo v3.
+  ([#391](https://github.com/WhiteTowerAI/ohmygame/pull/391) by @dogxii)
+- Load non-home screens on demand to reduce the initial renderer payload.
+  ([#394](https://github.com/WhiteTowerAI/ohmygame/pull/394) by @dogxii,
+  [#393](https://github.com/WhiteTowerAI/ohmygame/pull/393) by @dogxii)
+
+### Fixed
+
+- Keep Meshy animation selections and previews stable while the 3D catalog
+  refreshes, and use Canvas node titles for downloaded media filenames.
+  ([#395](https://github.com/WhiteTowerAI/ohmygame/pull/395) by @dogxii,
+  [#398](https://github.com/WhiteTowerAI/ohmygame/pull/398) by @dogxii)
+- Explain why a Story cannot start and provide a path back to its editor.
+  ([#367](https://github.com/WhiteTowerAI/ohmygame/pull/367) by @xuhongbo)
+- Improve Windows Codex discovery and sandbox diagnostics, protect Pi credential
+  folders from coding agents, and keep the daemon access token off the renderer
+  command line.
+  ([#409](https://github.com/WhiteTowerAI/ohmygame/pull/409) by @82228,
+  [#359](https://github.com/WhiteTowerAI/ohmygame/pull/359) by @xuhongbo,
+  [#363](https://github.com/WhiteTowerAI/ohmygame/pull/363) by @xuhongbo)
+
 ## [0.0.0-beta.4.13] - 2026-10-23
 
 ### Added

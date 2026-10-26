@@ -18,6 +18,7 @@ vi.doMock(path.resolve("src/renderer/auth.tsx"), () => ({
 }));
 vi.doMock(path.resolve("src/renderer/api.ts"), () => ({
   getExploreGameCover: mocks.cover,
+  ApiError: class extends Error {},
   setCommunityLike: mocks.like,
 }));
 const { GameGrid, GameTile, GameStats } =
@@ -152,6 +153,21 @@ describe("Community covers", () => {
 });
 
 describe("Community like identity", () => {
+  it("lets a signed-out visitor unlike from a card without opening the game or sign-in", async () => {
+    mocks.auth.state = { status: "signed-out", user: { id: "viewer" } };
+    mocks.like.mockResolvedValue({ viewCount: 4, likeCount: 1, liked: false });
+    const onOpen = vi.fn();
+    const onStatsChange = vi.fn();
+    await act(async () => root.render(<GameTile game={game} onOpen={onOpen} onStatsChange={onStatsChange} />));
+    const button = container.querySelector<HTMLButtonElement>('[aria-label="Unlike Example"]')!;
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => button.click());
+    expect(mocks.auth.requestAccessToken).not.toHaveBeenCalled();
+    expect(mocks.like).toHaveBeenCalledWith("game", undefined, false);
+    expect(onStatsChange).toHaveBeenCalledWith("game", { viewCount: 4, likeCount: 1, liked: false });
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it("discards errors from the previous account and clears the liked display on sign-out", async () => {
     let reject!: (error: Error) => void;
     mocks.like.mockReturnValue(

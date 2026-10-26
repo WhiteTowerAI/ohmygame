@@ -113,13 +113,16 @@ interface CopiedPlayableNode {
  * It speaks the editor's words (Scene, Exit, Variables); code and
  * graph.json keep the engine's (Node, Signal, State).
  */
-export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
+export function PlayableEditorWorkspace({ project, agentBusy, publishing, workspaceRevision = 0, openFileRequest, showStoryMap = false, onStoryMapShown, onPublish, publishDialog, onOpenPublish, onClosePublish, chatOnRight = false, chatCollapsed = false, onHome, homeLabel = t("navigation.backTo", { page: t("sidebar.projects") }), onToggleChat, onChatContextChange, onAskAgent, onSendToAgent, designOpen = false, onDesignOpenChange, onDesignSaveReady, onDesignContextChange, onProjectUpdated }: {
   project: ProjectState;
   onProjectUpdated?: (project: ProjectState) => void;
   agentBusy: boolean;
   publishing: boolean;
   workspaceRevision?: number;
   openFileRequest?: { path: string; id: number };
+  /** A Playtest navigation request, kept until the saved editor layout has loaded. */
+  showStoryMap?: boolean;
+  onStoryMapShown?: () => void;
   onPublish: (details: PublishDetails) => Promise<boolean>;
   publishDialog?: "open" | "success";
   onOpenPublish: () => void;
@@ -220,6 +223,15 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     setWorkspaceView("canvas");
     openNode(nodeId);
   }), [projectId]);
+
+  // Apply Playtest navigation after loading, so the saved Code tab cannot override it.
+  const showTab = useRef<(tab: "canvas" | "design" | "code") => void>(() => {});
+  useEffect(() => {
+    if (!showStoryMap || phase === "loading") return;
+    setOpenedNodeId(undefined);
+    showTab.current("canvas");
+    onStoryMapShown?.();
+  }, [showStoryMap, phase]);
 
   // Whether the open Scene has a background the editor can set, and whether it shows anything yet.
   const [backdrop, setBackdrop] = useState<"missing" | "set">();
@@ -981,6 +993,11 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   /** Saves the project, sends any requested action, and opens or focuses Playtest. */
   async function startPlaytest(request?: PlaytestRequest): Promise<void> {
     if (!codebase || building || playtesting) return;
+    // A story with no Scenes has nothing to play, so the editor says so instead of opening Playtest.
+    if (!codebase.graph.nodes.length) {
+      setNotice(t("storyEditor.playtestNeedsScene"));
+      return;
+    }
     setPlaytesting(true);
     if (request?.action !== "start") clearSelection();
     const desktop = window.ohMyGameDesktop;
@@ -995,7 +1012,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
       }
       await save(codebase);
       if (playtest?.closed) return;
-      if (request) requestPlaytest(projectId, request);
+      requestPlaytest(projectId, request ?? { action: "open" });
       if (desktop) {
         await desktop.openPlaytest(projectId, codebase.graph.viewport);
       } else if (playtest) {
@@ -1090,23 +1107,24 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     ...(onDesignOpenChange ? [{ id: "design" as const, label: t("workspace.tab.design"), icon: FileText }] : []),
     { id: "code", label: t("workspace.tab.code"), icon: Code2 },
   ];
+  showTab.current = (tab) => {
+    const navigate = () => {
+      if (tab !== "design") {
+        if (tab === "code") clearSelection();
+        setWorkspaceView(tab);
+      }
+      onDesignOpenChange?.(tab === "design");
+    };
+    if (designOpen && designLeave.current) designLeave.current(navigate);
+    else navigate();
+  };
   const renderNavigation = () => <div className={`viewer-navigation${chatOnRight ? " is-chat-right" : ""}`}>
     {chatOnRight && onHome ? (
       <WorkspaceBackButton onClick={onHome} label={homeLabel} icon={ArrowLeft} />
     ) : null}
     <WorkspaceTabs
       tabs={tabs} active={designOpen ? "design" : workspaceView}
-      onChange={(tab) => {
-        const navigate = () => {
-          if (tab !== "design") {
-            if (tab === "code") clearSelection();
-            setWorkspaceView(tab);
-          }
-          onDesignOpenChange?.(tab === "design");
-        };
-        if (designOpen && designLeave.current) designLeave.current(navigate);
-        else navigate();
-      }}
+      onChange={showTab.current}
     />
   </div>;
 

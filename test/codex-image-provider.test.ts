@@ -258,6 +258,14 @@ describe("Codex CLI image provider", () => {
         "mcp_servers.external.enabled": false,
         "features.shell_tool": false,
         "features.multi_agent": false,
+        permissions: {
+          "ohmygame-image": {
+            filesystem: {
+              [process.platform === "win32" ? ":root" : ":minimal"]: "read",
+              ":workspace_roots": { ".": "read" },
+            },
+          },
+        },
       },
     });
     expect(

@@ -4,6 +4,7 @@ import {
   access,
   constants,
   mkdir,
+  readdir,
   realpath,
   rm,
   stat,
@@ -50,6 +51,14 @@ export interface ResolvedBinary {
   signature: string;
 }
 
+/** Only these Windows npm shims can be resolved without executing a script. */
+export function isCodexNpmShim(binaryPath: string): boolean {
+  return (
+    process.platform === "win32" &&
+    /^codex\.(?:cmd|ps1)$/i.test(path.basename(binaryPath))
+  );
+}
+
 /**
  * Finds a CLI's executable: the one the person chose, or else the newest of
  * those on PATH, the login shell's PATH, the usual install folders and the
@@ -63,6 +72,12 @@ export async function resolveBinary(
   override?: string,
   recheck = false,
 ): Promise<ResolvedBinary | undefined> {
+  if (
+    override &&
+    /\.(?:cmd|bat|ps1)$/i.test(override) &&
+    !(id === "codex-cli" && isCodexNpmShim(override))
+  )
+    return undefined;
   if (recheck) await loginShellPath(true);
   if (recheck)
     for (const key of versionCache.keys())
@@ -81,6 +96,41 @@ export async function resolveBinary(
           }),
         ),
       ];
+  // npm exposes a shell shim on Windows, but ships the native CLI inside the
+  // package. Resolve that known layout without running the shim through cmd.
+  if (id === "codex-cli" && process.platform === "win32") {
+    if (override && isCodexNpmShim(override)) {
+      if (!(await stat(override).catch(() => undefined))?.isFile())
+        return undefined;
+      candidates.splice(
+        0,
+        candidates.length,
+        ...windowsNpmCodexCandidates(path.dirname(override), "manual"),
+      );
+    } else if (!override) {
+      const directories = new Map(
+        candidates.map((candidate) => [
+          path.dirname(candidate.path),
+          candidate.source,
+        ]),
+      );
+      for (const [directory, source] of directories)
+        candidates.push(...windowsNpmCodexCandidates(directory, source));
+      const local = process.env.LOCALAPPDATA;
+      if (local) {
+        const bin = path.join(local, "OpenAI", "Codex", "bin");
+        const entries = await readdir(bin, { withFileTypes: true }).catch(
+          () => [],
+        );
+        for (const entry of entries)
+          if (entry.isDirectory())
+            candidates.push({
+              path: path.join(bin, entry.name, "codex.exe"),
+              source: "codex-app",
+            });
+      }
+    }
+  }
   const found: ResolvedBinary[] = [];
   const seen = new Set<string>();
   for (const candidate of candidates) {
@@ -116,6 +166,28 @@ export async function resolveBinary(
       best = index;
   }
   return found[best];
+}
+
+function windowsNpmCodexCandidates(
+  directory: string,
+  source: AgentRuntimeBinarySource,
+): Array<{ path: string; source: AgentRuntimeBinarySource }> {
+  const arch = process.arch === "arm64" ? "arm64" : "x64";
+  const target = `${arch === "arm64" ? "aarch64" : "x86_64"}-pc-windows-msvc`;
+  const root = path.join(directory, "node_modules", "@openai", "codex");
+  const platformPackage = `codex-win32-${arch}`;
+  // npm may nest or hoist the optional platform package. Older releases kept
+  // vendor/ in the main package and used codex/ instead of bin/.
+  return [
+    path.join(root, "node_modules", "@openai", platformPackage),
+    path.join(directory, "node_modules", "@openai", platformPackage),
+    root,
+  ].flatMap((packageRoot) =>
+    ["bin", "codex"].map((folder) => ({
+      path: path.join(packageRoot, "vendor", target, folder, "codex.exe"),
+      source,
+    })),
+  );
 }
 
 const versionCache = new Map<

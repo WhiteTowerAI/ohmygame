@@ -25,7 +25,10 @@ import path from "node:path";
 import { isWebStory } from "./story-web-project.js";
 import { fileURLToPath } from "node:url";
 import { ModelRuntime, SettingsManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, { LogController, type FastifyReply, type FastifyRequest } from "fastify";
+import { daemonLoggerOptions, logFailedRequests } from "./request-log.js";
+import { ActivityLog } from "./activity-log.js";
+import { diagnosticSection, registerDiagnosticsRoutes } from "./diagnostics.js";
 import { AGENT_REASONING_LEVELS, IMAGE_ASPECT_RATIOS, IMAGE_MAX_REFERENCE_IMAGES, IMAGE_OUTPUT_COUNTS, IMAGE_RESOLUTIONS, IMAGE_SIZES, PROJECT_TYPE_IDS, TOOL_IDS, VIDEO_ASPECT_RATIOS, VIDEO_RESOLUTIONS, type AgentModelRef, type AgentReasoningLevel, type AnswerQuestionnaireRequest, type AssetCanvasTextGenerationRequest, type ConversationAgentSettings, type ConversationCapabilities, type ConversationDetail, type CreateConversationRequest, type CreateLibraryImageRequest, type CreateProjectRequest, type LibraryUploadMediaType, type MediaModelDefaults, type ModelAuthMethod, type ProjectRunSettings, type ProjectState, type ProjectType, type PromptImage, type PromptRequest, type PublishProjectRequest, type RenameConversationRequest, type ReviseLastPromptRequest, type RunToolRequest, type RunVideoToolRequest, type RuntimeEvent, type SetConversationModelRequest, type SetConversationReasoningRequest, type UpdateAgentDefaultsRequest } from "../shared/contracts.js";
 import { findAgentModel, preferredAgentModel } from "../shared/agent-models.js";
 import { isWebRuntimeProjectType, pluginProjectType, supportsWebPreview, webPreviewSettingsChanged } from "../shared/project-runtime.js";
@@ -68,6 +71,7 @@ import { LOCAL_DEBUG_ACCESS_TOKEN } from "../shared/local-debug.js";
 import { PreviewManager, PreviewCancelledError } from "./preview.js";
 import { ProjectAssetError, ProjectManager, ProjectLibraryReferenceError, ProjectWorkspaceError } from "./projects.js";
 import { ExampleError, ExampleStore } from "./examples.js";
+import { MODEL_CATALOG_REFRESH_ERROR, ModelCatalogRefresh } from "./model-catalog-refresh.js";
 import { ModelAuthError, ModelAuthManager } from "./model-auth.js";
 import { ModelEndpointSettingsStore } from "./model-endpoint-settings.js";
 import { OpenAIImageSettingsStore } from "./openai-image-settings.js";
@@ -156,6 +160,8 @@ export interface AppOptions {
   dataDirectory?: string;
   piAgentDirectory?: string;
   logger?: boolean;
+  /** Where the desktop app writes the logs a diagnostics export includes. */
+  logDirectory?: string;
   accessToken?: string;
   allowedOrigins?: string[];
   publishApiUrl?: string;
@@ -639,6 +645,7 @@ export function createApp(options: AppOptions = {}) {
   const publisher = localPublisher ?? new RemotePublisher({
     apiUrl: options.publishApiUrl ?? process.env.CLOUD_API_URL ?? process.env.PUBLISH_API_URL ?? "http://127.0.0.1:43130",
     fetch: options.publishFetch,
+    visitorTokenFile: path.join(dataDirectory, "community-visitor.json"),
   });
   const previews = new PreviewManager(events);
   const checkpoints = new CheckpointStore();
@@ -685,6 +692,7 @@ export function createApp(options: AppOptions = {}) {
       openAIEndpointRegistered = false;
     }
   };
+  const catalogRefresh = new ModelCatalogRefresh((id) => providerEnabled(id) && !providerModelSettings.isCustom(id));
   let modelRuntimePromise: Promise<ModelRuntime> | undefined;
   const getModelRuntime = () => modelRuntimePromise ??= (async () => {
     const runtime = await (options.createModelRuntime ?? (() => ModelRuntime.create({
@@ -692,6 +700,7 @@ export function createApp(options: AppOptions = {}) {
       modelsPath: path.join(piAgentDirectory, "models.json"),
     })))();
     await syncOpenAIEndpoint(runtime);
+    catalogRefresh.schedule(runtime);
     return runtime;
   })();
   const resolveModels = (runtime: ModelRuntime, models: RuntimeModel[]) => {
@@ -728,7 +737,11 @@ export function createApp(options: AppOptions = {}) {
   const modelAuth = new ModelAuthManager(getModelRuntime, {
     // Same ID Pi's own CLI uses, persisted in the agent directory's global settings.
     getDeviceId: () => SettingsManager.create(piAgentDirectory, piAgentDirectory).getOrCreateDeviceId(),
-    onCredentialsChanged: syncOpenAIEndpoint,
+    onCredentialsChanged: async (runtime, providerId) => {
+      await syncOpenAIEndpoint(runtime);
+      catalogRefresh.invalidate(providerId);
+      void catalogRefresh.refresh(runtime, providerId, true).catch(() => {});
+    },
   });
   const providerEnabled = (id: string) => id === "hyper3d" || id === "cloud-hyper3d"
     ? providerModelSettings.isEnabled("hyper3d") && providerModelSettings.isEnabled("cloud-hyper3d")
@@ -964,7 +977,7 @@ export function createApp(options: AppOptions = {}) {
       instructions: appendSystemPromptForProject(project).join("\n\n"),
       policy: {
         workspacePath: project.workspacePath,
-        neverTouch: neverTouchPaths(dataDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)),
+        neverTouch: neverTouchPaths(dataDirectory, piAgentDirectory, projects.list().filter((other) => other.id !== project.id).map((other) => other.workspacePath)),
       },
       snapshotBeforeMessage: () => snapshotWorkspace(project),
       turnNotice: () => readWorkspaceNotice(project),
@@ -977,7 +990,6 @@ export function createApp(options: AppOptions = {}) {
       const route = networkSettings.get().active;
       return { network: { source: route.source, ...(route.httpsProxy ? { proxyUrl: route.httpsProxy } : {}) } };
     },
-    onRunFailed: (error, scope) => app.log.warn({ agentError: error, ...scope }, "Agent model request failed"),
     ...(options.createSession ? {} : {
       loadSkills: (project) => loadPiSkills(
         project.workspacePath,
@@ -1033,11 +1045,18 @@ export function createApp(options: AppOptions = {}) {
     for (const project of projects.list()) agents.invalidateProjectSessions(project.id);
   };
   const app = Fastify({
-    logger: options.logger ?? false,
+    logger: options.logger ? daemonLoggerOptions() : false,
+    logController: new LogController({ disableRequestLogging: true }),
     // First-run plugin extraction can exceed Fastify's default 10s on Windows.
     pluginTimeout: 60_000,
     ajv: { customOptions: { coerceTypes: false } },
   });
+  if (options.logger) {
+    logFailedRequests(app);
+    const activity = new ActivityLog(app.log);
+    tools.setLogger(app.log);
+    events.subscribeAll((event) => activity.event(event));
+  }
   projectWrites.install(app);
   const canvasStore = registerCanvasRoutes(app, { projects, library, tools });
   // Selecting or clearing an integration changes the project's preview, tools and prompt.
@@ -2276,6 +2295,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.get<{ Querystring: { runtimes?: string } }>("/models", async (request) => {
     const runtime = await getModelRuntime();
+    const loadingProviders = catalogRefresh.schedule(runtime);
     const available = resolveModels(runtime, (await runtime.getAvailable()).filter((model) => providerEnabled(model.provider)));
     const models = available.filter((model) => providerModelSettings.isVisible(model));
     const hidden = available.filter((model) => !providerModelSettings.isVisible(model));
@@ -2293,6 +2313,7 @@ export function createApp(options: AppOptions = {}) {
     const nativeDefault = nativeDefaults ? findAgentModel(agents.models, nativeDefaults.model) : undefined;
     return {
       models: [...models.map(summary), ...agents.models],
+      ...(loadingProviders.length ? { loadingProviders } : {}),
       ...(agents.loading.length ? { loadingRuntimes: agents.loading } : {}),
       ...(hidden.length ? { hiddenModels: hidden.map(summary) } : {}),
       ...(nativeDefault ? { defaultModel: { provider: nativeDefault.provider, id: nativeDefault.id }, ...(nativeDefaults?.nativeReasoningLevel ? { defaultNativeReasoningLevel: nativeDefaults.nativeReasoningLevel } : {}) } : defaultModel ? { defaultModel: { provider: defaultModel.provider, id: defaultModel.id } } : {}),
@@ -2423,6 +2444,25 @@ export function createApp(options: AppOptions = {}) {
     return [...providers, ...directProviders, codex, ...cloudModels.providersSnapshot(providerEnabled)].sort((left, right) => left.name.localeCompare(right.name));
   };
   app.get("/settings/providers", providerSummaries);
+  registerDiagnosticsRoutes(app, {
+    logDirectory: options.logDirectory,
+    summary: async () => {
+      const [providers, agents, installed, projectTypes] = await Promise.all([
+        diagnosticSection(async () => (await providerSummaries()).filter((provider) => provider.configured)
+          .map(({ id, enabled, custom, capabilities }) => ({ id, enabled: enabled !== false, custom: custom === true, capabilities }))),
+        diagnosticSection(async () => (await agentRuntimes.statuses())
+          .map(({ id, enabled, installed, version, auth }) => ({ id, enabled, installed, ...(version ? { version } : {}), auth: auth.status }))),
+        diagnosticSection(async () => (await plugins.list()).plugins.filter((plugin) => plugin.installed)
+          .map(({ id, version, enabled, beta }) => ({ id, ...(version ? { version } : {}), enabled, ...(beta ? { beta } : {}) }))),
+        diagnosticSection(() => {
+          const counts: Record<string, number> = {};
+          for (const project of projects.list()) counts[project.type] = (counts[project.type] ?? 0) + 1;
+          return counts;
+        }),
+      ]);
+      return { providers, agents, plugins: installed, projects: projectTypes };
+    },
+  });
   app.post("/settings/models/providers/codex-cli/images/recheck", async () => codexImages.recheck(providerEnabled("codex-cli")));
   registerOpenAIImageRoutes(app, openAIImages, imageConnection, options.modelDiscoveryFetch);
   app.get("/settings/onboarding", async () => {
@@ -2478,6 +2518,7 @@ export function createApp(options: AppOptions = {}) {
     const hyper3d = provider.id === "hyper3d" || provider.id === "cloud-hyper3d";
     if (!provider.configured && provider.id !== "codex-cli" && !hyper3d && !("managed" in provider && provider.managed)) return reply.code(400).send({ error: "Connect the provider before enabling it" });
     await providerModelSettings.setEnabled(hyper3d ? ["hyper3d", "cloud-hyper3d"] : provider.id, request.body.enabled);
+    catalogRefresh.invalidate(provider.id);
     return { ...provider, enabled: request.body.enabled };
   });
 
@@ -2542,6 +2583,7 @@ export function createApp(options: AppOptions = {}) {
     const volcengineTts = providerId === "volcengine-tts";
     const volcengineSeedAudio = providerId === "volcengine-seed-audio";
     if (!native && !seedance && !minimax && !volcengineTts && !volcengineSeedAudio && !runtime.getProvider(providerId)) throw new ModelAuthError("Model provider not found", 404);
+    catalogRefresh.invalidate(providerId);
     const previousEndpoint = providerId === "openai" ? openAIEndpoint.override() : undefined;
     try {
       await providerModelSettings.removeProviderSettings(providerId, async () => {
@@ -2722,6 +2764,8 @@ export function createApp(options: AppOptions = {}) {
     const customProvider = await providerModelSettings.customProvider(providerId, catalog);
     const custom = customProvider?.models ?? await providerModelSettings.customModels(providerId);
     return {
+      canRefreshCatalog: catalogRefresh.canRefresh(runtime, providerId),
+      ...(catalogRefresh.refreshing(providerId) ? { refreshingCatalog: true } : {}),
       models: customProvider ? customProvider.models.map((model) => ({
         provider: providerId, providerName: customProvider.name, id: model.id, name: model.name,
         reasoningLevels: modelUsages(model).language ? supportedReasoningLevels(models.find((candidate) => candidate.id === model.id) ?? model) : [],
@@ -2740,7 +2784,20 @@ export function createApp(options: AppOptions = {}) {
   app.get<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models", async (request, reply) => {
     const runtime = await getModelRuntime();
     if (!await hasModelProvider(runtime, request.params.providerId)) return reply.code(404).send({ error: "Provider not found" });
+    catalogRefresh.schedule(runtime, [request.params.providerId]);
     return providerModels(runtime, request.params.providerId);
+  });
+
+  app.post<{ Params: { providerId: string } }>("/settings/models/providers/:providerId/models/refresh", async (request, reply) => {
+    const runtime = await getModelRuntime();
+    const { providerId } = request.params;
+    if (!catalogRefresh.canRefresh(runtime, providerId)) return reply.code(400).send({ error: "Connect and enable a built-in provider to refresh its catalog. Network access must be enabled." });
+    try {
+      await catalogRefresh.refresh(runtime, providerId, true);
+      return await providerModels(runtime, providerId);
+    } catch {
+      return reply.code(503).send({ error: MODEL_CATALOG_REFRESH_ERROR });
+    }
   });
 
   app.put<{ Params: { providerId: string }; Body: { ids: string[]; visible: boolean } }>("/settings/models/providers/:providerId/models/visibility", {
@@ -2961,6 +3018,23 @@ export function createApp(options: AppOptions = {}) {
         : undefined);
       const conversation = await conversations.create(project, model, reasoningLevel);
       return reply.code(201).send(conversation.summary);
+    },
+  );
+
+  app.post<{ Params: { projectId: string; conversationId: string }; Body: { entryId: string } }>(
+    "/projects/:projectId/conversations/:conversationId/branch",
+    { schema: { body: { type: "object", additionalProperties: false, required: ["entryId"], properties: { entryId: { type: "string", minLength: 1, maxLength: 128 } } } } },
+    async (request, reply) => {
+      const project = projects.get(request.params.projectId);
+      if (!project) return reply.code(404).send({ error: "Project not found" });
+      const conversation = await conversations.get(project, request.params.conversationId);
+      if (!conversation) return reply.code(404).send({ error: "Conversation not found" });
+      try {
+        const branched = await conversations.branch(project, conversation, request.body.entryId);
+        return reply.code(201).send(branched.summary);
+      } catch (cause) {
+        return reply.code(400).send({ error: cause instanceof Error ? cause.message : String(cause) });
+      }
     },
   );
 
@@ -3768,6 +3842,7 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.addHook("onClose", async () => {
+    catalogRefresh.close();
     await pluginIntegrations.close();
     await externalMcp.close();
     codexImages.close();

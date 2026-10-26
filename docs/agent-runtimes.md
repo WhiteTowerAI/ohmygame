@@ -156,6 +156,21 @@ without reasoning. Replaying them as tool calls taught Pi the CLI's tool names
 and argument shapes; in a probe the text form made the next Pi turn call no
 foreign tools and cut the replayed history by about a third.
 
+### Chat branches
+
+Chat branching copies the active session path through a completed assistant
+message into an independent file using `SessionManager.createBranchedSession`.
+It preserves inline images, compaction and settings metadata and resets active
+plan state. The final assistant message makes copied native markers stale; the
+new header records the source session, so no additional invalidation or
+provenance entries are needed. Both chats use the project's current files.
+
+Live branch points are attached by persisted message identity after `message_end`
+through existing item events, without text matching or another history request.
+Tests cover exact cutoffs, repeated reply text, image and settings preservation,
+source immutability and independent native context. Branching needs no account
+configuration feature.
+
 ## Checkpoints, queues, and cancellation
 
 Extract/reuse `recordCheckpoint` at the existing Pi checkpoint boundary:

@@ -1,0 +1,12 @@
+Last Bus template artwork
+Copyright 2026 OhMyGame contributors
+
+The artwork was generated and developed by the OhMyGame team.
+Source: the team's Last Bus (末班) project archive, 末班 (项目).zip.
+This notice covers the eight bundled scene illustrations and the template
+preview captures derived from them.
+
+Licensed under the Apache License, Version 2.0. See LICENSE.txt for the full
+terms governing use, modification, commercial use, and redistribution.
+Keep the applicable license and attribution notices when redistributing
+these assets or derivative works, as required by that license.

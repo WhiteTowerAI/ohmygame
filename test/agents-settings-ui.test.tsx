@@ -380,3 +380,31 @@ it("does not label a failed CLI probe as a successful installation check", async
   );
   expect(host.textContent).toContain("CLI check failed");
 });
+
+it("explains a Windows sandbox incompatibility instead of reporting an empty model catalog", async () => {
+  api.listAgentRuntimes.mockResolvedValueOnce([
+    {
+      ...agent("codex-cli", "Codex", true),
+      diagnostics: [
+        {
+          code: "runtime-incompatible",
+          capability: "Windows sandbox filesystem read restrictions",
+          message: "Codex sandbox cannot enforce read restrictions",
+        },
+      ],
+    },
+  ]);
+  await act(async () =>
+    root.render(
+      <AgentsSettings
+        view={{ page: "agent", id: "codex-cli" }}
+        onViewChange={vi.fn()}
+        onOpenProviders={vi.fn()}
+      />,
+    ),
+  );
+  expect(host.textContent).toContain("unelevated Windows sandbox");
+  expect(host.textContent).toContain("Set up the elevated sandbox");
+  expect(host.textContent).toContain("Windows sandbox guide");
+  expect(host.textContent).not.toContain("Codex did not list its models");
+});
