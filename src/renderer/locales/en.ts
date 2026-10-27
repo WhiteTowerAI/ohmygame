@@ -11,11 +11,12 @@ const en = {
   canvasInteraction: {
     addContext: "Add context",
     continueFromNode: "Use this node to create",
-    canvasReference: "Canvas reference",
+    canvasReference: "Pick from canvas",
     expandPrompt: "Expand prompt editor",
     promptEditor: "Prompt editor",
     disconnect: "Disconnect nodes",
     referenceMode: "Select reference nodes",
+    referenceModeHint: "Click a node to add or remove it · {{count}} linked",
     returnToNode: "Return to node",
     removeReference: "Remove reference: {{name}}",
     selectReference: "Select reference: {{name}}",

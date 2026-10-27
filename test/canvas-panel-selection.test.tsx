@@ -260,6 +260,7 @@ it("selects and removes canvas references through the same semantic connection, 
   expect(flowNode("image").data.promptSource).toEqual({ type: "node", nodeId: "text" });
   expect(captured.props!.edges).toContainEqual(expect.objectContaining({ source: "text", target: "image" }));
   expect(flowNode("text").className).toBe("canvas-reference-selected");
+  expect(container.querySelector(".canvas-reference-mode span")?.textContent).toBe("Click a node to add or remove it · 1 linked");
   expect(flowNode("image").selected).toBe(true);
   expect(flowNode("text").selected).toBe(false);
   await act(async () => clickText());

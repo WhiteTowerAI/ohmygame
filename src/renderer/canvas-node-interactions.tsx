@@ -2,7 +2,6 @@ import {
   createContext,
   useContext,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -17,10 +16,11 @@ import {
   Position,
   getBezierPath,
   useNodeId,
-  useViewport,
+  useStore,
   type EdgeProps,
+  type ReactFlowState,
 } from "@xyflow/react";
-import { Maximize, Plus, Scissors, X } from "./icons.js";
+import { Maximize, MousePointer2, Plus, Scissors, X } from "./icons.js";
 import { t } from "./i18n.js";
 
 export const CANVAS_CONNECTION_DRAG_THRESHOLD = 4;
@@ -42,6 +42,8 @@ export const CanvasInteractions = createContext<
   | undefined
 >(undefined);
 
+const selectZoom = (state: ReactFlowState) => state.transform[2];
+
 /** Handle bounds anchor edges to the node; the icon and pointer area extend outside. */
 export function CanvasPort({
   type,
@@ -54,7 +56,8 @@ export function CanvasPort({
 }) {
   const nodeId = useNodeId();
   const actions = useContext(CanvasInteractions);
-  const { zoom } = useViewport();
+  // Subscribe to zoom only, so panning does not re-render every port.
+  const zoom = useStore(selectZoom);
   const pointer = useRef<
     { x: number; y: number; dragged: boolean } | undefined
   >(undefined);
@@ -127,7 +130,7 @@ export function CanvasPort({
       }}
     >
       <span className="canvas-port-icon">
-        <Plus size={12} />
+        <Plus size={14} />
       </span>
     </Handle>
   );
@@ -142,7 +145,7 @@ function CanvasReferenceEdge(props: EdgeProps) {
     clearTimeout(timer.current);
     if (hover === "ready") return;
     setHover("waiting");
-    timer.current = setTimeout(() => setHover("ready"), 550);
+    timer.current = setTimeout(() => setHover("ready"), 300);
   };
   const exit = () => {
     clearTimeout(timer.current);
@@ -207,39 +210,10 @@ export function CanvasComposer({
   const [expanded, setExpanded] = useState(false);
   const actions = useContext(CanvasInteractions);
   const nodeId = useNodeId();
-  const anchor = useRef<HTMLDivElement>(null);
   const editor = useRef<HTMLDivElement>(null);
   const expandButton = useRef<HTMLButtonElement>(null);
   const restoreFocus = useRef(true);
   const close = () => setExpanded(false);
-  useLayoutEffect(() => {
-    if (expanded) return;
-    const element = anchor.current;
-    if (!element) return;
-    const update = () => {
-      // Convert the viewport overflow back into canvas units. The card stays anchored to its node.
-      // Clear the previous clamp before measuring, including a zero-width hidden viewport.
-      element.style.removeProperty("--canvas-composer-max-width");
-      let rect = element.getBoundingClientRect();
-      if (window.innerWidth <= 24 || !rect.width || !element.offsetWidth)
-        return;
-      const scale = rect.width / element.offsetWidth;
-      element.style.setProperty(
-        "--canvas-composer-max-width",
-        `${Math.max(0, window.innerWidth - 24) / scale}px`,
-      );
-      rect = element.getBoundingClientRect();
-      const shift =
-        (Math.max(0, 12 - rect.left) -
-          Math.max(0, rect.right - window.innerWidth + 12)) /
-        scale;
-      if (editor.current)
-        editor.current.style.transform = `translateX(${shift}px)`;
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [expanded, children]);
   useEffect(() => {
     if (actions?.hidden) close();
   }, [actions?.hidden]);
@@ -282,46 +256,52 @@ export function CanvasComposer({
       first?.focus();
     }
   };
+  const pickLabel = t("canvasInteraction.canvasReference");
+  const expandLabel = t(
+    expanded ? "canvas.backToCanvas" : "canvasInteraction.expandPrompt",
+  );
   const content = (
     <div
       ref={editor}
       className={`${className} canvas-composer${expanded ? " is-expanded" : ""}`}
     >
       <div className="canvas-composer-toolbar">
+        {expanded ? (
+          <strong>{t("canvasInteraction.promptEditor")}</strong>
+        ) : null}
         {nodeId && actions?.canPickReferences(nodeId) ? (
           <button
             type="button"
+            title={pickLabel}
+            aria-label={pickLabel}
             onClick={() => {
               restoreFocus.current = false;
               close();
               actions.pickReferences(nodeId);
             }}
           >
-            {t("canvasInteraction.canvasReference")}
+            <MousePointer2 size={14} />
+            {expanded ? <span>{pickLabel}</span> : null}
           </button>
         ) : null}
         <button
           ref={expanded ? undefined : expandButton}
           type="button"
-          title={t(
-            expanded ? "canvas.backToCanvas" : "canvasInteraction.expandPrompt",
-          )}
-          aria-label={t(
-            expanded ? "canvas.backToCanvas" : "canvasInteraction.expandPrompt",
-          )}
+          title={expandLabel}
+          aria-label={expandLabel}
           onClick={() => {
             restoreFocus.current = true;
             setExpanded(!expanded);
           }}
         >
-          {expanded ? <X size={15} /> : <Maximize size={15} />}
+          {expanded ? <X size={15} /> : <Maximize size={14} />}
         </button>
       </div>
       {children}
     </div>
   );
   return (
-    <div ref={anchor} className="canvas-composer-anchor">
+    <div className="canvas-composer-anchor">
       {expanded
         ? createPortal(
             <div

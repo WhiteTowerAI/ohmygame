@@ -179,34 +179,56 @@
 
 /* Handle bounds end at the node edge; the icon and hit area sit outside it. */
 .story-node .react-flow__handle.canvas-port { width: 16px; height: 16px; border: 0; border-radius: 50%; background: transparent; cursor: crosshair; z-index: 5; }
-.story-node .canvas-port.react-flow__handle-left { left: 8px; --canvas-port-offset: -20px; }
-.story-node .canvas-port.react-flow__handle-right { right: 8px; --canvas-port-offset: 20px; }
+.story-node .canvas-port.react-flow__handle-left { left: 8px; --canvas-port-offset: calc(var(--canvas-port-size) / -2); }
+.story-node .canvas-port.react-flow__handle-right { right: 8px; --canvas-port-offset: calc(var(--canvas-port-size) / 2); }
 .story-node .canvas-port::before { content: ""; position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; width: var(--canvas-port-size); height: var(--canvas-port-size); transform: translate(-50%, -50%); border-radius: 50%; }
-.canvas-port-icon { position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; display: grid; place-items: center; width: 16px; height: 16px; transform: translate(-50%, -50%); border: 1px solid var(--theme-accent); border-radius: 50%; background: var(--theme-accent); color: var(--surface); opacity: 0; pointer-events: none; transition: opacity 120ms; }
-.canvas-port:is(:hover, :active, :focus-visible, .connectingfrom, .connectingto) .canvas-port-icon { opacity: 1; }
+.canvas-port-icon { position: absolute; left: calc(50% + var(--canvas-port-offset)); top: 50%; display: grid; place-items: center; width: calc(var(--canvas-port-size) / 2); height: calc(var(--canvas-port-size) / 2); translate: -50% -50%; scale: 0.6; border: 1px solid var(--border); border-radius: 50%; background: var(--surface-raised); color: var(--text-muted); box-shadow: var(--menu-shadow); opacity: 0; pointer-events: none; transition: opacity 120ms, scale 120ms, background-color 120ms, color 120ms; }
+/* Hovering a node, or selecting only it, shows where it connects; the port under the pointer takes the accent. */
+:is(.react-flow__node:hover, .has-single-selection .react-flow__node.selected) .canvas-port-icon { opacity: 1; scale: 1; }
+.canvas-port:is(:hover, :active, :focus-visible, .connectingfrom, .connectingto) .canvas-port-icon { opacity: 1; scale: 1.15; border-color: var(--theme-accent); background: var(--theme-accent); color: var(--accent-ink); }
+.canvas-port-icon > svg { width: 64%; height: 64%; }
 .canvas-port[aria-disabled="true"] { pointer-events: none; }
+.canvas-port[aria-disabled="true"] .canvas-port-icon { display: none; }
 .canvas-port:focus-visible { outline: none; }
-.canvas-port:focus-visible .canvas-port-icon { outline: 2px solid var(--theme-accent); outline-offset: 3px; }
+.canvas-port:focus-visible .canvas-port-icon { outline: 2px solid var(--theme-accent); outline-offset: 2px; }
 .canvas-edge-pulse { fill: none; stroke: var(--theme-accent); stroke-width: 3; stroke-dasharray: 6 18; pointer-events: none; animation: canvas-edge-flow 1.2s linear infinite; }
 @keyframes canvas-edge-flow { to { stroke-dashoffset: -48; } }
-.canvas-edge-disconnect { position: absolute; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; pointer-events: all; color: var(--text); background: var(--surface-raised); border: 1px solid var(--border); border-radius: 50%; box-shadow: var(--menu-shadow); cursor: pointer; }
+.canvas-edge-disconnect { position: absolute; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; pointer-events: all; color: var(--text-muted); background: var(--surface-raised); border: 1px solid var(--border); border-radius: 50%; box-shadow: var(--menu-shadow); cursor: pointer; }
 .canvas-edge-disconnect:is(:hover, :focus-visible) { color: var(--danger); border-color: var(--danger); }
-.canvas-composer-anchor { position: relative; left: 50%; transform: translateX(-50%); width: max(100%, 440px); max-width: var(--canvas-composer-max-width, calc(100vw - 32px)); }
-.canvas-composer-toolbar { display: flex; align-items: center; margin-bottom: 8px; gap: 8px; }
-.canvas-composer-toolbar > button:last-child { margin-left: auto; }
-.canvas-composer-toolbar button, .canvas-reference-mode button { display: inline-flex; align-items: center; justify-content: center; min-height: 26px; padding: 4px 7px; border: 0; border-radius: 5px; background: transparent; color: var(--text-muted); cursor: pointer; font: inherit; font-size: 11px; }
+
+/* Composer tools sit in the corner so they add no row above the prompt. */
+.canvas-composer-anchor { position: relative; left: 50%; translate: -50% 0; width: max(100%, 440px); max-width: calc(100vw - 32px); }
+.canvas-composer { position: relative; }
+.canvas-composer-toolbar { position: absolute; z-index: 2; top: 8px; right: 8px; display: flex; align-items: center; gap: 2px; }
+.canvas-composer-toolbar + * { padding-right: 56px; }
+.canvas-composer-toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 24px; height: 24px; padding: 0 5px; border: 0; border-radius: 6px; background: transparent; color: var(--text-faint); cursor: pointer; font: inherit; font-size: 12px; }
 .canvas-composer-toolbar button:is(:hover, :focus-visible) { background: var(--surface-hover); color: var(--text); }
-.canvas-composer-backdrop { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 24px; background: #0007; }
+.canvas-composer-backdrop { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 24px; background: rgb(0 0 0 / 38%); backdrop-filter: blur(2px); }
 .canvas-composer-backdrop > section { width: min(900px, 100%); min-width: 0; }
-.canvas-composer.is-expanded { margin: 0; max-height: calc(100dvh - 48px); overflow: auto; padding: 18px; }
+.canvas-composer.is-expanded { margin: 0; max-height: calc(100dvh - 48px); overflow: auto; padding: 14px 18px 16px; border-radius: 14px; }
+.canvas-composer.is-expanded > .canvas-composer-toolbar { position: static; margin: 0 -6px 12px 0; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.canvas-composer.is-expanded > .canvas-composer-toolbar > strong { margin-right: auto; color: var(--text); font-size: 13px; font-weight: 600; }
+.canvas-composer.is-expanded > .canvas-composer-toolbar button { height: 28px; padding: 0 8px; }
+.canvas-composer.is-expanded > .canvas-composer-toolbar + * { padding-right: 0; }
 .canvas-composer.is-expanded > textarea, .canvas-composer.is-expanded .video-reference-prompt textarea { min-height: min(45dvh, 420px); font-size: 14px; line-height: 1.7; resize: vertical; }
 .canvas-composer.is-expanded .video-mention-menu { top: 32px; bottom: auto; }
-.canvas-reference-mode { position: absolute; z-index: 10; top: 48px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; max-width: calc(100% - 24px); padding: 8px 12px; border: 1px solid var(--theme-accent); border-radius: 9px; background: var(--surface-raised); box-shadow: var(--menu-shadow); font-size: 12px; }
-.canvas-reference-mode button { flex-shrink: 0; color: var(--text); background: var(--surface-hover); }
-.canvas-reference-candidate { cursor: crosshair !important; }
-.canvas-reference-selected { outline: 2px solid var(--theme-accent); border-radius: 10px; cursor: pointer !important; }
-:is(.canvas-reference-candidate, .canvas-reference-unavailable)::after { content: ""; position: absolute; inset: 0; z-index: 6; border-radius: 10px; background: rgb(0 0 0 / 48%); pointer-events: none; }
-.canvas-reference-unavailable::after { background: rgb(0 0 0 / 68%); }
-:is(.canvas-reference-candidate, .canvas-reference-selected, .canvas-reference-unavailable) .story-node { pointer-events: none; }
-@media (prefers-reduced-motion: reduce) { .canvas-edge-pulse { animation: none; } .canvas-port-icon { transition: none; } }
-@media (max-width: 600px) { .canvas-composer-anchor { width: max(100%, 340px); } .canvas-reference-mode { width: calc(100% - 24px); } }
+
+/* Reference selection keeps pickable nodes readable and fades only what cannot connect. */
+.canvas-reference-mode { position: absolute; z-index: 10; top: 14px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 10px; width: max-content; max-width: calc(100% - 24px); padding: 6px 6px 6px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised); box-shadow: var(--menu-shadow); font-size: 12px; }
+.canvas-reference-mode > svg { flex-shrink: 0; color: var(--theme-accent); }
+.canvas-reference-mode > div { display: flex; min-width: 0; flex-direction: column; margin-right: 6px; line-height: 1.35; }
+.canvas-reference-mode strong { font-weight: 600; }
+.canvas-reference-mode span { overflow: hidden; color: var(--text-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-reference-mode button { flex-shrink: 0; height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: var(--surface-hover); color: var(--text); cursor: pointer; font: inherit; }
+.canvas-reference-mode button.is-primary { background: var(--theme-accent); color: var(--accent-ink); }
+.canvas-reference-mode button:focus-visible { outline: 2px solid var(--theme-accent); outline-offset: 2px; }
+.react-flow__node:is(.canvas-reference-candidate, .canvas-reference-selected, .canvas-reference-target)::after { content: ""; position: absolute; inset: -6px; z-index: 6; border-radius: 14px; pointer-events: none; transition: box-shadow 120ms, background-color 120ms; }
+.react-flow__node.canvas-reference-candidate { cursor: pointer; }
+.react-flow__node.canvas-reference-candidate:is(:hover, :focus-visible)::after { box-shadow: 0 0 0 2px color-mix(in srgb, var(--theme-accent) 55%, transparent); background: color-mix(in srgb, var(--theme-accent) 5%, transparent); }
+.react-flow__node.canvas-reference-selected { cursor: pointer; }
+.react-flow__node.canvas-reference-selected::after { box-shadow: 0 0 0 2px var(--theme-accent); background: color-mix(in srgb, var(--theme-accent) 8%, transparent); }
+.react-flow__node.canvas-reference-target::after { outline: 2px dashed color-mix(in srgb, var(--theme-accent) 50%, transparent); }
+.react-flow__node.canvas-reference-unavailable { opacity: 0.35; filter: grayscale(1); cursor: not-allowed; }
+.react-flow__node:is(.canvas-reference-candidate, .canvas-reference-selected, .canvas-reference-unavailable) .story-node { pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .canvas-edge-pulse { animation: none; } .canvas-port-icon, .react-flow__node::after { transition: none; } }
+@media (max-width: 600px) { .canvas-composer-anchor { width: max(100%, 340px); } .canvas-reference-mode { width: calc(100% - 24px); } .canvas-reference-mode > div > span { display: none; } }

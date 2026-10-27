@@ -12,11 +12,12 @@ const zhCN: typeof en = {
   canvasInteraction: {
     addContext: "添加上下文",
     continueFromNode: "引用此节点创建",
-    canvasReference: "画布参考",
+    canvasReference: "从画布选择",
     expandPrompt: "展开提示词编辑器",
     promptEditor: "提示词编辑器",
     disconnect: "断开节点连接",
     referenceMode: "选择参考节点",
+    referenceModeHint: "点击节点添加或移除 · 已连接 {{count}} 个",
     returnToNode: "返回节点",
     removeReference: "移除参考：{{name}}",
     selectReference: "选择参考：{{name}}",

@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
   LoaderCircle,
   Maximize,
+  MousePointer2,
   Music2,
   Package,
   Pause,
@@ -992,8 +993,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
 
   function startReferenceSelection(nodeId: string): void {
     if (!canPickReferences(nodeId)) return;
-    setPortMenu(undefined); setReferenceTargetId(nodeId); activateNode(nodeId);
-    setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId })));
+    setPortMenu(undefined); setReferenceTargetId(nodeId); selectOnlyNode(nodeId);
     canvasElement.current?.focus();
   }
 
@@ -1001,8 +1001,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const id = referenceTargetId;
     setReferenceTargetId(undefined);
     if (!id) return;
-    activateNode(id);
-    setNodes((current) => current.map((node) => ({ ...node, selected: node.id === id })));
+    selectOnlyNode(id);
     const element = canvasElement.current?.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
     element?.focus({ preventScroll: true });
   }
@@ -1059,13 +1058,12 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       const relation = connectionRelation(source, target, OUTPUT_HANDLE, [...current, candidate], libraryAssets, imageModels, model3DModels);
       if (!relation) return;
       const width = isResizableCanvasNodeType(candidate.type) ? RESIZABLE_CANVAS_NODE_SIZES[candidate.type].width : MEDIA_NODE_MAX_WIDTH;
-      candidate.position = snapCanvasPosition({ x: menu.type === "source" ? anchor.position.x + (anchor.measured?.width ?? 440) + 120 : anchor.position.x - width - 120, y: anchor.position.y });
       // Keep the continuation near its source without covering existing nodes or their composers.
-      let overlaps;
-      do {
-        overlaps = current.filter((node) => candidate.position.x < node.position.x + (node.measured?.width ?? MEDIA_NODE_MAX_WIDTH) + 24 && candidate.position.x + width + 24 > node.position.x && candidate.position.y < node.position.y + (node.measured?.height ?? 400) + 180 && candidate.position.y + 480 > node.position.y);
-        if (overlaps.length) candidate.position.y = snapCanvasPosition({ x: candidate.position.x, y: Math.max(...overlaps.map((node) => node.position.y + (node.measured?.height ?? 400))) + 200 }).y;
-      } while (overlaps.length);
+      candidate.position = placeInOpenSpace(
+        snapCanvasPosition({ x: menu.type === "source" ? anchor.position.x + (anchor.measured?.width ?? 440) + 120 : anchor.position.x - width - 120, y: anchor.position.y }),
+        { width, height: 460 },
+        current.map((node) => ({ ...node.position, width: node.measured?.width ?? MEDIA_NODE_MAX_WIDTH, height: (node.measured?.height ?? 400) + 160 })),
+      );
       commitPendingHistory();
       setNodes(connectCanvasNodes([...current.map((node) => ({ ...node, selected: false })), { ...candidate, selected: true }], source.id, target.id, relation));
       setMarqueeSelectedIds(new Set());
@@ -1225,11 +1223,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       for (const node of imported) {
         // Keep imported files near the drop point while leaving space for selected node controls.
         const { width, height } = footprint(node);
-        let overlaps;
-        do {
-          overlaps = occupied.filter((rect) => node.position.x < rect.x + rect.width + 20 && node.position.x + width + 20 > rect.x && node.position.y < rect.y + rect.height + 20 && node.position.y + height + 20 > rect.y);
-          if (overlaps.length) node.position.y = snapCanvasPosition({ x: node.position.x, y: Math.max(...overlaps.map((rect) => rect.y + rect.height)) + 40 }).y;
-        } while (overlaps.length);
+        node.position = placeInOpenSpace(node.position, { width, height }, occupied);
         occupied.push({ ...node.position, width, height });
       }
       // Publish before a waiting board switch flushes the canvas.
@@ -1360,13 +1354,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
     const saved = await saveTrimmedVideo(video, trim, { name, ...(globalAssets.some((asset) => asset.id === libraryAssetId) ? { libraryAssetId } : {}) });
     setLibraryAssets((current) => [{ ...saved, assetId: saved.id, path: saved.name }, ...current]);
     const source = nodesRef.current.find((node) => node.id === viewed.nodeId);
-    const position = { x: (source?.position.x ?? 0) + (source?.measured?.width ?? 440) + 60, y: source?.position.y ?? 0 };
     const occupied = nodesRef.current.map((node) => ({ ...node.position, width: node.measured?.width ?? 440, height: node.measured?.height ?? 520 }));
-    let overlaps;
-    do {
-      overlaps = occupied.filter((rect) => position.x < rect.x + rect.width + 20 && position.x + 460 > rect.x && position.y < rect.y + rect.height + 20 && position.y + 540 > rect.y);
-      if (overlaps.length) position.y = snapCanvasPosition({ x: position.x, y: Math.max(...overlaps.map((rect) => rect.y + rect.height)) + 40 }).y;
-    } while (overlaps.length);
+    const position = placeInOpenSpace({ x: (source?.position.x ?? 0) + (source?.measured?.width ?? 440) + 60, y: source?.position.y ?? 0 }, { width: 440, height: 520 }, occupied);
     addAssetNode(saved, snapCanvasPosition(position));
     setViewedAsset(undefined);
   }
@@ -1404,6 +1393,11 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       next.delete(nodeId);
       return next;
     });
+  }
+
+  function selectOnlyNode(nodeId: string): void {
+    activateNode(nodeId);
+    setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId })));
   }
 
   async function generateTextNode(node: AssetCanvasFlowNode, model: AgentModelRef, reasoningLevel: AgentReasoningLevel): Promise<void> {
@@ -1802,8 +1796,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       portsDisabled: Boolean(referenceTargetId) || resolving || conflicted || hidden,
       openPort: (nodeId, type, position) => {
         if (nodeBusy(nodeId)) return;
-        activateNode(nodeId);
-        setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId })));
+        selectOnlyNode(nodeId);
         setPortMenu({ nodeId, type, position });
       },
       canPickReferences,
@@ -1846,9 +1839,10 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
           }}>
           {overlay}
           {referenceTargetId ? <div className="canvas-reference-mode nodrag nowheel" role="region" aria-label={t("canvasInteraction.referenceMode")}>
-            <span role="status">{t("canvasInteraction.referenceMode")}</span>
-            <button type="button" onClick={() => { const target = nodes.find((node) => node.id === referenceTargetId); if (target) void flowInstance.current?.fitView({ nodes: [target], maxZoom: 1, duration: 200, padding: 0.5 }); }}>{t("canvasInteraction.returnToNode")}</button>
-            <button type="button" onClick={finishReferenceSelection}>{t("common.done")}</button>
+            <MousePointer2 size={15} />
+            <div><strong role="status">{t("canvasInteraction.referenceMode")}</strong><span>{t("canvasInteraction.referenceModeHint", { count: linkedSources.size })}</span></div>
+            <button type="button" onClick={() => { if (referenceTarget) void flowInstance.current?.fitView({ nodes: [referenceTarget], maxZoom: 1, duration: 200, padding: 0.5 }); }}>{t("canvasInteraction.returnToNode")}</button>
+            <button type="button" className="is-primary" onClick={finishReferenceSelection}>{t("common.done")}</button>
           </div> : null}
           {fileDropActive ? <div className="canvas-file-drop-overlay"><Upload size={18} /><span>{t("assetCanvas.dropFiles")}</span></div> : importingAssets ? <div className="canvas-file-import-status" role="status"><LoaderCircle size={13} className="spin" /><span>{t("assetCanvas.importing")}</span></div> : null}
           {phase === "loading" ? <div className="story-canvas-state">{t("assetCanvas.loading")}</div> : null}
@@ -1903,9 +1897,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
               onNodeDoubleClick={(event, node) => { if (!referenceTargetId && eventWithin(event, ".story-media-stage")) openViewer(node); }}
               onPaneClick={() => { setCanvasContextMenu(undefined); setPortMenu(undefined); if (!referenceTargetId) clearSelection(); }}
               onNodeContextMenu={(_event, node) => {
-                if (referenceTargetId) return;
-                activateNode(node.id);
-                setNodes((current) => current.map((candidate) => ({ ...candidate, selected: candidate.id === node.id })));
+                if (!referenceTargetId) selectOnlyNode(node.id);
               }}
               onNodesDelete={(deleted) => {
                 removeCanvasNodes(new Set(deleted.map((node) => node.id)));
@@ -1922,8 +1914,8 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
             />
           ) : null}
           {portMenu && portNode ? <CanvasContextMenu screenPosition={portMenu.position} label={t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")} onClose={() => setPortMenu(undefined)}>
-            <div>{t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")}</div>
-            {portMenu.type === "target" ? <button type="button" role="menuitem" onClick={() => startReferenceSelection(portMenu.nodeId)}>{t("canvasInteraction.canvasReference")}</button> : null}
+            <div className="story-canvas-context-menu-label">{t(portMenu.type === "target" ? "canvasInteraction.addContext" : "canvasInteraction.continueFromNode")}</div>
+            {portMenu.type === "target" ? <button type="button" role="menuitem" onClick={() => startReferenceSelection(portMenu.nodeId)}><MousePointer2 size={14} /><span>{t("canvasInteraction.canvasReference")}</span></button> : null}
             {portOptions.map(({ action, label, icon: Icon }) => <button key={action.type} type="button" role="menuitem" onClick={() => void addConnectedNode(action.type)}><Icon size={14} /><span>{label}</span></button>)}
             {!portOptions.length ? <span>{t("canvasInteraction.noCompatibleNodes")}</span> : null}
           </CanvasContextMenu> : null}
@@ -3904,6 +3896,16 @@ function nodeModel3DConfig(node: Pick<AssetCanvasFlowNode, "type" | "data">, mod
   if (node.type !== "model-3d") return DEFAULT_MODEL_3D_CONFIG;
   const config = node.data.model3DConfig;
   return normalizeModel3DConfig(config, nodeModel3D(node, models), node.data.model3DOperation);
+}
+
+/** Move a new node down past occupied rectangles, keeping a 20px gap, until it sits in open space. */
+function placeInOpenSpace(position: { x: number; y: number }, size: { width: number; height: number }, occupied: { x: number; y: number; width: number; height: number }[]): { x: number; y: number } {
+  const next = { ...position };
+  for (;;) {
+    const overlaps = occupied.filter((rect) => next.x < rect.x + rect.width + 20 && next.x + size.width + 20 > rect.x && next.y < rect.y + rect.height + 20 && next.y + size.height + 20 > rect.y);
+    if (!overlaps.length) return next;
+    next.y = snapCanvasPosition({ x: next.x, y: Math.max(...overlaps.map((rect) => rect.y + rect.height)) + 40 }).y;
+  }
 }
 
 /** Apply the same semantic edit for a drag, canvas picker, or continuation node. */
