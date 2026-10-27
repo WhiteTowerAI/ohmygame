@@ -46,9 +46,9 @@ describe("template project reference", () => {
     expect(created.projectId).toBe("project-1");
     const saved = (canvas.saveCanvasBoard.mock.calls[0]?.[1] as CanvasBoardDetail | undefined)?.board;
     const groups = saved?.nodes.filter((node) => node.type === "group");
-    expect(groups).toHaveLength(1);
+    expect(groups).toHaveLength(template === "pixel-art" ? 5 : 1);
     expect(saved?.nodes.filter((node) => node.type !== "text" && node.type !== "group")
-      .every((node) => node.parentId === groups?.[0]?.id)).toBe(true);
+      .every((node) => groups?.some((group) => group.id === node.parentId))).toBe(true);
     expect(created.outputNodeIds.map((id) => {
       const node = saved?.nodes.find((candidate) => candidate.id === id);
       return node?.type === "image" ? node.data.assetId : undefined;
@@ -67,7 +67,7 @@ describe("template project reference", () => {
     const uploaded = api.uploadLibraryAsset.mock.calls.map(([file]) => (file as File).name);
     expect(uploaded).toEqual([...new Set([
       ...(template === "character-sheet" ? [] : ["character-sheet"]),
-      ...(template === "quick-reskin" ? ["clothing"] : []),
+      ...(template === "quick-reskin" ? ["clothing"] : template === "pixel-art" ? ["rpg-character"] : []),
       ...expected,
     ])].map((sample) => `${sample}.webp`));
   });

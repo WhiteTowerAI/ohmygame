@@ -19,12 +19,16 @@ describe("canvas character image tools", () => {
       characterAssetPrompt("pixel knight"),
     );
     const sheet = characterAssetPrompt("pixel knight");
-    expect(sheet).toContain("four clearly separated panels");
+    expect(sheet).toContain("largest visual element");
     expect(sheet).toContain(
-      "3-by-3 grid of nine head-and-shoulders expressions",
+      "three distinct facial expressions",
     );
     expect(sheet).toContain("front, side, and back full-body views");
     expect(sheet).toContain("repeated views of the same character");
+    expect(sheet).toContain("Avoid repeated similar portraits");
+    expect(sheet).toContain("equipment detail close-ups");
+    expect(sheet).toContain("No text, no labels, no watermark");
+    expect(characterAssetPrompt("")).toContain("messy dark brown hair");
     expect(
       characterAssetPrompt(
         "Create a production-ready 2D game character asset from this description: pixel knight\n\nShow exactly one full-body character, centered and completely visible.",
@@ -40,7 +44,7 @@ describe("canvas character image tools", () => {
     );
   });
 
-  it("chooses the widest supported character sheet ratio at the current resolution", () => {
+  it("prefers 16:9 for character sheets at the current resolution", () => {
     const model: ImageModel = {
       provider: "google",
       id: "character-sheet",
@@ -60,7 +64,7 @@ describe("canvas character image tools", () => {
     };
     expect(preferredCharacterSheetOption(model, "2K")).toEqual({
       resolution: "2K",
-      aspectRatio: "21:9",
+      aspectRatio: "16:9",
     });
     expect(
       preferredCharacterSheetOption(

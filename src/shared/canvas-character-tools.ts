@@ -14,7 +14,8 @@ export function preferredCharacterSheetOption(
       return width! / height!;
     };
     return (
-      aspect(b.aspectRatio) - aspect(a.aspectRatio) ||
+      Math.abs(Math.log(aspect(a.aspectRatio) / (16 / 9))) -
+      Math.abs(Math.log(aspect(b.aspectRatio) / (16 / 9))) ||
       Number(b.resolution === resolution) -
         Number(a.resolution === resolution) ||
       Number(b.resolution === "1K") - Number(a.resolution === "1K")
@@ -35,7 +36,8 @@ export function characterAssetPrompt(description: string): string {
         .split("\n\nShow exactly one full-body character")[0]!
         .trim()
     : prompt;
-  return `${newPrefix} ${subject}\n\nMake one wide landscape image divided into four clearly separated panels, read left to right. Panel 1: one complete full-body neutral standing view. Panel 2: a large waist-up portrait with a clearly visible face and outfit details. Panel 3: a 3-by-3 grid of nine head-and-shoulders expressions. Panel 4: a turnaround with complete front, side, and back full-body views, plus a few matching head close-ups from different angles. These are repeated views of the same character, not different people. Keep the face, hairstyle, body proportions, clothing, colors, accessories, and art style consistent across every panel; only the requested view or expression should change. Show complete figures without cropping, give each view enough space to read, and use clean plain backgrounds with visible gutters between panels. Do not add text, labels, unrelated props, extra characters, or a scene.`;
+  const character = subject || "a young male fantasy RPG adventurer with messy dark brown hair, a dark charcoal scarf, brown leather armor, belts, and boots";
+  return `${newPrefix} ${character}\n\nCreate a professional 16:9 fantasy RPG character reference sheet with a clear visual hierarchy: character reference → main character illustration → turnaround, expressions, and detail references. On the left, show one large detailed upper-body character portrait as the largest visual element, occupying roughly half the sheet. Arrange the smaller supporting references around it on the right: three consistent front, side, and back full-body views, a small grid of three distinct facial expressions, and a few useful costume, accessory, or equipment detail close-ups. Avoid repeated similar portraits or redundant head angles; every supporting view must serve a distinct production purpose. These are repeated views of the same character, not different people. Maintain identical facial features, hairstyle, costume details, colors, and proportions across every view. Use high-quality Japanese anime-inspired game concept art, clean linework, and a soft neutral gray background unless the supplied description or reference specifies another art style. Keep the composition organized and readable at thumbnail size, with clear spacing and complete turnaround figures. No text, no labels, no watermark, no unrelated props, and no extra characters.`;
 }
 
 export function continuousActionsPrompt(action: string): string {

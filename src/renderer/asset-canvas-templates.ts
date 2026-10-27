@@ -41,6 +41,12 @@ export function templateGuideInfo(instruction?: string): { template: AssetCanvas
 
 const SEQUENCE_PRESETS = ["continuous-sequence", "consistent-sequence"] as const;
 const PIXEL_IMAGE_PRESETS = CANVAS_IMAGE_PRESETS.filter((preset) => !["free", "continuous-sequence", "consistent-sequence", "character-sheet", "quick-reskin"].includes(preset));
+const PIXEL_CATEGORIES = [
+  { key: "characters", presets: ["side-view-character", "rpg-character", "portrait"] },
+  { key: "creatures", presets: ["monster", "animal"] },
+  { key: "environments", presets: ["scene", "terrain", "building"] },
+  { key: "items", presets: ["prop", "icon"] },
+] as const;
 
 export function templateImagePresets(template?: AssetCanvasTemplate): readonly CanvasImagePreset[] {
   if (template === "free-sequence") return SEQUENCE_PRESETS;
@@ -59,7 +65,7 @@ export function createTemplatePresetNode(
   sourceNodeId?: string,
 ): Extract<AssetCanvasNode, { type: "image" }> {
   const model = template === "pixel-art" || template === "free-sequence" || template === "quick-reskin"
-    ? imageModels.find((candidate) => candidate.supportsReferenceImage && (candidate.maxReferenceImages ?? 16) >= (template === "quick-reskin" ? 2 : 1))
+    ? imageModels.find((candidate) => candidate.supportsReferenceImage && (candidate.maxReferenceImages ?? 16) >= (template === "quick-reskin" || template === "pixel-art" ? 2 : 1))
     : imageModels[0];
   const option = preset === "character-sheet"
     ? preferredCharacterSheetOption(model)
@@ -151,11 +157,12 @@ export function createAssetCanvasTemplateDocument(
 
   function finish(focusNodeId: string) {
     const examples = nodes.filter((node) => node.id !== guide.id);
-    const left = Math.min(...examples.map((node) => node.position.x)) - 28;
-    const top = Math.min(...examples.map((node) => node.position.y)) - 54;
+    const roots = examples.filter((node) => !node.parentId);
+    const left = Math.min(...roots.map((node) => node.position.x)) - 28;
+    const top = Math.min(...roots.map((node) => node.position.y)) - 54;
     // Leave room for the largest media preview and its label; cards size to content.
-    const right = Math.max(...examples.map((node) => node.position.x + 440)) + 28;
-    const bottom = Math.max(...examples.map((node) => node.position.y + 400)) + 28;
+    const right = Math.max(...roots.map((node) => node.position.x + (node.width ?? 440))) + 28;
+    const bottom = Math.max(...roots.map((node) => node.position.y + (node.height ?? 400))) + 28;
     const group: AssetCanvasNode = {
       id: crypto.randomUUID(),
       type: "group",
@@ -166,8 +173,8 @@ export function createAssetCanvasTemplateDocument(
     };
     document.nodes = [guide, group, ...examples.map((node) => ({
       ...node,
-      parentId: group.id,
-      position: { x: node.position.x - left, y: node.position.y - top },
+      parentId: node.parentId ?? group.id,
+      position: node.parentId ? node.position : { x: node.position.x - left, y: node.position.y - top },
     }))];
     document.editorLayout.nodes = Object.fromEntries(document.nodes.map((node) => [
       node.id,
@@ -193,21 +200,43 @@ export function createAssetCanvasTemplateDocument(
     return node;
   }
 
-  if (template === "pixel-art" || template === "character-sheet") {
-    const presets = template === "pixel-art" ? PIXEL_IMAGE_PRESETS : ["character-sheet"] as const;
-    const source = template === "pixel-art" ? referenceNode() : undefined;
-    if (source) nodes.push(source);
-    for (const [index, preset] of presets.entries()) {
-      const image = createTemplatePresetNode(template, preset, imageModels, {
-        x: (source ? 1100 : 560) + (index % 2) * 520,
-        y: 80 + Math.floor(index / 2) * 640,
-      }, source?.id);
-      image.data.prompt = canvasImagePresetPrompt(preset, prompt, template === "pixel-art" ? "pixel" : undefined, source ? 1 : 0);
-      image.data.promptExpanded = true;
-      if (preset !== "free") sampleImages.set(image.id, preset);
-      nodes.push(image);
-      outputNodeIds.push(image.id);
+  if (template === "pixel-art") {
+    const source = referenceNode();
+    const style = imageNode(1080, 80);
+    style.title = t("assetCanvasTemplates.styleReference");
+    style.data.sourceInput = true;
+    style.data.sourceInputLabel = style.title;
+    sampleImages.set(style.id, "rpg-character");
+    nodes.push(source, style);
+    for (const [row, category] of PIXEL_CATEGORIES.entries()) {
+      const group: AssetCanvasNode = {
+        id: crypto.randomUUID(), type: "group",
+        position: { x: 560, y: 700 + row * 700 },
+        width: 1536, height: 640,
+        data: { name: t(`assetCanvasTemplates.pixel-art.categories.${category.key}`) },
+      };
+      nodes.push(group);
+      for (const [column, preset] of category.presets.entries()) {
+        const image = createTemplatePresetNode(template, preset, imageModels, { x: 28 + column * 520, y: 54 }, source.id);
+        image.parentId = group.id;
+        image.data.images = [{ type: "node", nodeId: source.id }, { type: "node", nodeId: style.id }];
+        image.data.prompt = `${canvasImagePresetPrompt(preset, prompt, "pixel", 2)}\n\nUse the first reference for character identity or subject details where relevant. Use the second reference only for palette, pixel scale, shading, and visual style; do not copy its subject into unrelated assets.`;
+        image.data.promptExpanded = true;
+        sampleImages.set(image.id, preset);
+        nodes.push(image);
+        outputNodeIds.push(image.id);
+      }
     }
+    return finish(outputNodeIds[0]!);
+  }
+
+  if (template === "character-sheet") {
+    const image = createTemplatePresetNode(template, "character-sheet", imageModels, { x: 560, y: 80 });
+    image.data.prompt = canvasImagePresetPrompt("character-sheet", prompt, undefined, 0);
+    image.data.promptExpanded = true;
+    sampleImages.set(image.id, "character-sheet");
+    nodes.push(image);
+    outputNodeIds.push(image.id);
     return finish(outputNodeIds[0]!);
   }
 
@@ -243,8 +272,8 @@ export function createAssetCanvasTemplateDocument(
   } else {
     for (const [index, action] of ACTIONS.entries()) {
       const image = imageNode(
-        1100 + (index % 2) * 520,
-        80 + Math.floor(index / 2) * 640,
+        1100 + (index % 3) * 520,
+        80 + Math.floor(index / 3) * 640,
       );
       image.title = t(`assetCanvasTemplates.actions.${action.key}`);
       sampleImages.set(image.id, action.key);

@@ -39,7 +39,7 @@ describe("asset canvas templates", () => {
     expect(document.nodes.find((node) => node.id === focusNodeId)).toBeDefined();
     expect(document.nodes.filter((node) => node.type === "text")).toHaveLength(1);
     const groups = document.nodes.filter((node) => node.type === "group");
-    expect(groups).toHaveLength(1);
+    expect(groups).toHaveLength(template === "pixel-art" ? 5 : 1);
     const group = groups[0]!;
     expect(document.nodes[1]).toBe(group);
     expect(group.data.name).toBe("Template examples");
@@ -47,13 +47,14 @@ describe("asset canvas templates", () => {
     expect(group.width).toBeLessThanOrEqual(4096);
     expect(group.height).toBeLessThanOrEqual(4096);
     const examples = document.nodes.slice(2);
-    expect(examples).toHaveLength(outputNodeIds.length + (template === "character-sheet" ? 0 : template === "quick-reskin" ? 2 : 1));
+    expect(examples).toHaveLength(outputNodeIds.length + (template === "pixel-art" ? 6 : template === "character-sheet" ? 0 : template === "quick-reskin" ? 2 : 1));
     for (const node of examples) {
-      expect(node.parentId).toBe(group.id);
+      const parent = document.nodes.find((candidate) => candidate.id === node.parentId)!;
+      expect(parent.type).toBe("group");
       expect(node.position.x).toBeGreaterThanOrEqual(28);
       expect(node.position.y).toBeGreaterThanOrEqual(54);
-      expect(node.position.x + 440).toBeLessThanOrEqual(group.width! - 28);
-      expect(node.position.y + 400).toBeLessThanOrEqual(group.height! - 28);
+      expect(node.position.x + (node.width ?? 440)).toBeLessThanOrEqual(parent.width! - 28);
+      expect(node.position.y + (node.height ?? 400)).toBeLessThanOrEqual(parent.height! - 28);
     }
     for (const id of [...sampleImages.keys(), ...outputNodeIds]) {
       expect(examples.some((node) => node.id === id)).toBe(true);
@@ -66,6 +67,37 @@ describe("asset canvas templates", () => {
         ...(node.height ? { height: node.height } : {}),
       });
     }
+  });
+
+
+  it("organizes pixel outputs into four category rows below two reference inputs", () => {
+    const { document, outputNodeIds } = createAssetCanvasTemplateDocument("pixel-art", [reference]);
+    const groups = document.nodes.filter((node) => node.type === "group").filter((node) => node.parentId);
+    expect(groups.map((node) => node.data.name)).toEqual(["Characters", "Creatures", "Environments", "Items"]);
+    expect(groups.map((group) => document.nodes.filter((node) => node.parentId === group.id).map((node) => node.type === "image" && node.data.presetId)))
+      .toEqual([["side-view-character", "rpg-character", "portrait"], ["monster", "animal"], ["scene", "terrain", "building"], ["prop", "icon"]]);
+    expect(groups.every((group, index) => index === 0 || group.position.y > groups[index - 1]!.position.y + groups[index - 1]!.height!)).toBe(true);
+    const inputs = document.nodes.filter((node) => node.type === "image" && node.data.sourceInput);
+    expect(inputs.map((node) => node.title)).toEqual(["Character reference", "Style reference"]);
+    expect(inputs.every((node) => node.position.y < groups[0]!.position.y)).toBe(true);
+    for (const id of outputNodeIds) {
+      const output = document.nodes.find((node) => node.id === id)!;
+      expect(output.type === "image" && output.data.images).toEqual(inputs.map((node) => ({ type: "node", nodeId: node.id })));
+    }
+    const singleReference = { ...reference, id: "single", maxReferenceImages: 1 };
+    const unsupported = createAssetCanvasTemplateDocument("pixel-art", [singleReference]);
+    expect(unsupported.document.nodes.filter((node) => unsupported.outputNodeIds.includes(node.id)).every((node) => node.type === "image" && !node.data.model)).toBe(true);
+  });
+
+  it("lays out actions in two rows of idle/walk/run and attack/hurt/down", () => {
+    const { document, outputNodeIds, sampleImages } = createAssetCanvasTemplateDocument("action-set", [reference]);
+    const outputs = outputNodeIds.map((id) => document.nodes.find((node) => node.id === id)!);
+    expect(outputs.map((node) => sampleImages.get(node.id))).toEqual(["idle", "walk", "run", "attack", "hurt", "down"]);
+    expect(outputs.slice(0, 3).map((node) => node.position.y)).toEqual([54, 54, 54]);
+    expect(outputs.slice(3).map((node) => node.position.y)).toEqual([694, 694, 694]);
+    expect(outputs.slice(0, 3).map((node) => node.position.x)).toEqual(outputs.slice(3).map((node) => node.position.x));
+    expect(outputs[0]!.position.x).toBeLessThan(outputs[1]!.position.x);
+    expect(outputs[1]!.position.x).toBeLessThan(outputs[2]!.position.x);
   });
 
   it("recognizes saved legacy guides without rewriting boards", () => {
@@ -86,7 +118,7 @@ describe("asset canvas templates", () => {
       },
     });
     const output = document.nodes.find((node) => node.id === outputNodeIds[0]);
-    expect(output?.type === "image" && output.data.prompt).toContain("four clearly separated panels");
+    expect(output?.type === "image" && output.data.prompt).toContain("largest visual element");
     expect(output?.type === "image" && output.data.prompt).toContain("Create a production-ready 2D game character reference sheet");
   });
 
@@ -127,10 +159,12 @@ describe("asset canvas templates", () => {
     }
   });
 
-  it("pixel assets share one reference input and use a reference-capable model", () => {
+  it("pixel assets share character and style references and use a model supporting both", () => {
     const { document, outputNodeIds } = createAssetCanvasTemplateDocument("pixel-art", [textOnly, reference]);
     const source = document.nodes.find((node) => node.type === "image" && node.data.sourceInput);
     expect(source).toBeDefined();
+    const style = document.nodes.find((node) => node.title === "Style reference");
+    expect(style).toMatchObject({ type: "image", data: { sourceInput: true } });
     expect(outputNodeIds).toHaveLength(10);
     for (const id of outputNodeIds) {
       expect(document.nodes.find((node) => node.id === id)).toMatchObject({
@@ -139,7 +173,7 @@ describe("asset canvas templates", () => {
           model: { provider: "example", id: "reference" },
           promptExpanded: true,
           prompt: expect.stringContaining("Render in pixel art"),
-          images: [{ type: "node", nodeId: source?.id }],
+          images: [{ type: "node", nodeId: source?.id }, { type: "node", nodeId: style?.id }],
         },
       });
     }
@@ -149,7 +183,7 @@ describe("asset canvas templates", () => {
     expect(fromLibrary.outputNodeIds.every((id) => fromLibrary.document.nodes.find((node) => node.id === id)?.type === "image")).toBe(true);
     for (const id of fromLibrary.outputNodeIds) {
       expect(fromLibrary.document.nodes.find((node) => node.id === id)).toMatchObject({
-        type: "image", data: { images: [{ type: "node", nodeId: librarySource?.id }] },
+        type: "image", data: { images: expect.arrayContaining([{ type: "node", nodeId: librarySource?.id }]) },
       });
     }
   });
@@ -191,7 +225,7 @@ describe("asset canvas templates", () => {
     expect(isAssetCanvasDocument(pixel.document)).toBe(true);
     expect(isAssetCanvasDocument(sequences.document)).toBe(true);
     for (const template of [pixel, sequences]) {
-      const positions = template.document.nodes.filter((node) => node.type === "image" && !node.data.sourceInput).map((node) => node.position);
+      const positions = template.document.nodes.filter((node) => node.type === "image" && !node.data.sourceInput).map((node) => canvasAbsolutePosition(node, template.document.nodes));
       expect(new Set(positions.map(({ x, y }) => `${x},${y}`)).size).toBe(positions.length);
     }
     for (const id of sequences.outputNodeIds) {

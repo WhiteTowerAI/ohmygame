@@ -2141,7 +2141,7 @@ export function CanvasBoardEditor({ project, initialNodeId, onInitialNodeHandled
       data: node.type === "image"
         ? { ...node.data, imageRuntime: { ...referenceRuntime,
           template: templateBoard,
-          models: node.data.quickReskinMode === "person-clothing"
+          models: node.data.quickReskinMode === "person-clothing" || (templateBoard === "pixel-art" && !node.data.sourceInput && (node.data.images?.length ?? 0) >= 2)
             ? imageModels.filter((model) => model.supportsReferenceImage && (model.maxReferenceImages ?? IMAGE_MAX_REFERENCE_IMAGES) >= 2)
             : node.data.presetId === "quick-reskin" || (templateBoard && (node.data.sourceInput || templateBoard === "pixel-art" || templateBoard === "action-set" || node.data.presetId === "continuous-sequence" || node.data.presetId === "consistent-sequence")) ? imageModels.filter((model) => model.supportsReferenceImage && model.maxReferenceImages !== 0) : imageModels,
           ...(node.data.quickReskinMode === "person-clothing" ? { slotLabels: [t("assetCanvasTemplates.quickReskinPerson"), t("assetCanvasTemplates.quickReskinClothing")] } : {}),

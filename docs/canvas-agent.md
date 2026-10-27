@@ -8,8 +8,8 @@ The agent shows final media deliverables on the relevant board, reusing existing
 nodes and asset IDs. Local media can reference existing project-relative paths.
 
 Creation templates appear beside Explore as five example cards: Pixel game assets,
-Character reference sheet, Quick reskin, Character sequences, and Character action
-set. Each opens an Asset Canvas board with a visible introduction text node, an
+Character reference sheet, Character outfits & skins, Character continuous scenes,
+and Character action set. Each opens an Asset Canvas board with a visible introduction text node, an
 editable image generator, and a separate image upload node where a reference is
 required. Opening a template does not start generation. The user describes or
 uploads input on the canvas and generates there. Image input panels follow the
@@ -17,34 +17,40 @@ same selection behavior as other image nodes.
 
 Introduction nodes reuse the existing `text` node type, carry an
 `asset-canvas-template:<id>` instruction marker, and show example art and output
-guidance. Character reference sheet and Quick reskin introductions show text
-guidance only. The other introductions and all five launcher covers reuse the
+guidance. Character reference sheet and Character outfits & skins introductions
+show text guidance only. The other introductions and all five launcher covers reuse the
 bundled example images shown on the template's image nodes. Multiple
 asset types, sequence modes, and actions appear together in grids; individual
 images fit in full without cropping. Introduction panels size to their content, including on saved
 boards with an older fixed introduction height, so all guidance is visible without
 extra space below it.
-Pixel game assets opens with one shared
-image reference node and ten separate image nodes, one for each pixel style.
-Each output uses the shared image as its reference. Character sequences opens with separate
-continuous-action and consistent-scene image nodes. Both templates lay out all
+Pixel game assets opens with character and style reference inputs at the top,
+followed by four category groups: Characters (side-view, RPG, portrait), Creatures
+(monster, animal), Environments (scene, terrain, building), and Items (prop, icon).
+Each row contains the corresponding generators, all linked to both references.
+The image model must accept at least two reference images. Character continuous
+scenes opens with separate continuous-action and consistent-scene image nodes. Both templates lay out all
 their nodes when the board is created; the examples in the introduction do not
-add nodes. Character sheets and quick reskin are separate templates. Quick reskin
-has separate person and clothing image inputs and a prefilled editable prompt;
-its image model must accept two references. Older quick reskin nodes keep their
+add nodes. Character sheets and Character outfits & skins are separate templates.
+The latter has separate person and clothing image inputs and a prefilled editable prompt;
+its image model must accept two references. Older reskin nodes keep their
 single-image behavior. Pixel art, character sheets, and character sequence
 generators show their complete editable prompt in the node; generation sends
 that prompt as written. Their image references remain linked to the shared
 reference input. The two character sequence modes share one image reference per
-board. Character sequences produce a static 4×3 action sheet or 3×3 scene grid. Action set has six
-prepared prompts, each producing one static action sheet from the same reference.
+board. Character continuous scenes produce a static 4×3 action sheet or 3×3 scene
+grid. Action set has six prepared prompts, each producing one static action sheet from the same reference.
+Its examples are arranged in two rows: idle, walk, run; then attack, hurt, down.
 New template projects show bundled example images on every image node. Pixel game
-assets, quick reskin, character sequences, and action set use a bundled character
-sheet in their replaceable reference node; quick reskin also includes a clothing
-example. Each output node displays the image matching its preset or action.
-Character sheets have no reference node. Generation only runs when requested and
-an image model is available. Each new template board places all example inputs
+assets, Character outfits & skins, Character continuous scenes, and action set
+use a bundled character sheet in their replaceable reference node. Pixel assets
+also include a style example; Character outfits & skins include a clothing example. Each output node displays the image matching its preset or action.
+Character sheets have no reference node. They prefer a 16:9 output with a
+dominant main portrait on the left and smaller front/side/back turnaround, three
+distinct expressions, and costume or equipment details on the right. Generation
+only runs when requested and an image model is available. Each new template board places all example inputs
 and outputs inside one group named **Template examples** (localized in the UI).
+Pixel assets contain the four category subgroups within this outer group.
 The introduction stays outside the group. Grouping preserves the node references
 and their positions on the canvas.
 Model, resolution, aspect ratio, and prompt controls stay in the shared image
