@@ -1,48 +1,4 @@
-/**
- * The default Project Style: shared theme tokens and components that every
- * Node imports, so screens stay recognizably part of one game. It is ordinary
- * project source, copied into new projects and edited freely afterwards.
- */
-export const PLAYABLE_PROJECT_STYLE_FILES: Record<string, string> = {
-  "shared/style/theme.css": `/* Project Style tokens. Every Node imports this file, so changing a value
-   here restyles the whole game. Sizes are in cqw (hundredths of the screen
-   width), so a screen looks the same at any size. */
-:host {
-  container-type: size;
-  --color-ink: #efe9dc;
-  --color-muted: #b3ada3;
-  --color-page: #0b0b0d;
-  --color-panel: #17171a;
-  --color-accent: #b8322a;
-  --color-accent-ink: #e0483b;
-  --color-shade: rgb(8 8 10 / 0.72);
-  --color-line: #ffffff2e;
-  --font-body: "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
-  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --text-eyebrow: 1.05cqw;
-  --text-body: 1.6cqw;
-  --text-line: 2cqw;
-  --text-action: 1.7cqw;
-  --text-title: 4.5cqw;
-  --text-display: 9cqw;
-  --space-1: 0.6cqw;
-  --space-2: 1.2cqw;
-  --space-3: 2cqw;
-  --space-4: 3.2cqw;
-  --edge: 8cqw;
-  /* Black bars above and below the picture; 0 turns them off. */
-  --letterbox: 4.2cqw;
-  --radius: 0.3cqw;
-
-  display: block;
-  width: 100%;
-  height: 100%;
-  color: var(--color-ink);
-  font-family: var(--font-body);
-}
-`,
-  "shared/style/components.css": `/* Shared components. Import this file from a Node's style.css and use the
+/* Shared components. Import this file from a Node's style.css and use the
    class names in its HTML. */
 @import "./theme.css";
 
@@ -523,7 +479,7 @@ kbd,
   from { opacity: 0; letter-spacing: 0.6em; }
 }
 
-/* A Node's background: the one \`.backdrop\` element, full screen behind the
+/* A Node's background: the one `.backdrop` element, full screen behind the
    stage's content. Its data-asset and data-type name a declared Asset, which
    showBackdrop() in components.js shows. Until one is set it shows a
    placeholder picture picked by a class: is-night, is-warm, is-lamp,
@@ -680,104 +636,3 @@ kbd,
   }
 }
 
-`,
-  "shared/style/components.js": `/**
- * Shows the Node's background: the one \`.backdrop\` element, whose
- * \`data-asset\` and \`data-type\` ("image" or "video") name a declared
- * Asset. A video plays once with sound and stops on its last frame. The
- * editor sets the two attributes itself, so change the background there
- * rather than adding media elements. Call it from mount().
- *
- * @param {object} context the Node context passed to mount
- * @returns {{ video?: HTMLVideoElement, shown: boolean, cleanup: () => void }}
- */
-export function showBackdrop(context) {
-  const backdrop = context.root.querySelector('[data-media="backdrop"]');
-  const assetId = backdrop?.getAttribute("data-asset");
-  if (!backdrop || !assetId) return { shown: false, cleanup: () => {} };
-  const url = context.assets.url(assetId);
-  if (backdrop.getAttribute("data-type") !== "video") {
-    const image = document.createElement("img");
-    image.src = url;
-    image.alt = "";
-    backdrop.append(image);
-    return { shown: true, cleanup: () => image.remove() };
-  }
-  const video = document.createElement("video");
-  video.src = url;
-  video.playsInline = true;
-  backdrop.append(video);
-  // Where sound may not start on its own, play muted rather than stay black.
-  const started = Promise.resolve(video.play?.()).catch(() => {
-    video.muted = true;
-    return video.play?.();
-  }).then(() => true, () => false);
-  return {
-    video,
-    /** Whether the video started playing, with or without sound. */
-    started,
-    shown: true,
-    cleanup: () => {
-      video.pause();
-      video.remove();
-    },
-  };
-}
-
-/**
- * Shows the background and emits a Signal when the player moves on. A video
- * plays to its end, as in an interactive film: clicking does not cut it
- * short, and a \`[data-skip]\` button shows only when the player has seen the
- * Scene before. An image, or no background, waits for a click, and so does a
- * video that cannot play, so the player is never stuck. A \`.continue-hint\`
- * shows only while a click moves on. This is Node content, not a Runtime
- * feature, so change or replace it freely.
- *
- * @param {object} context the Node context passed to mount
- * @param {object} options
- * @param {string} options.signal the Signal to emit when the player moves on
- * @returns {() => void} cleanup
- */
-export function playScene(context, { signal }) {
-  const stage = context.root.querySelector('[data-media="backdrop"]')?.parentElement ?? context.root;
-  const backdrop = showBackdrop(context);
-  const hint = stage.querySelector(".continue-hint");
-  const skip = stage.querySelector("[data-skip]");
-
-  let finished = false;
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    void context.navigation.emit(signal);
-  };
-  let playing = Boolean(backdrop.video);
-  const update = () => {
-    if (hint) hint.hidden = playing;
-    if (skip) skip.hidden = !(playing && context.story.seenBefore);
-  };
-  const stopped = () => {
-    playing = false;
-    update();
-  };
-  const click = () => {
-    if (!playing) finish();
-  };
-  backdrop.video?.addEventListener("ended", finish);
-  backdrop.video?.addEventListener("error", stopped);
-  void backdrop.started?.then((started) => {
-    if (!started) stopped();
-  });
-  skip?.addEventListener("click", finish);
-  stage.addEventListener("click", click);
-  update();
-
-  return () => {
-    backdrop.video?.removeEventListener("ended", finish);
-    backdrop.video?.removeEventListener("error", stopped);
-    skip?.removeEventListener("click", finish);
-    stage.removeEventListener("click", click);
-    backdrop.cleanup();
-  };
-}
-`,
-};

@@ -14,7 +14,7 @@ import {
   writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { buildPlayableProject } from "../src/daemon/playable-project.js";
-import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
+import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-presets.js";
 import { EDITOR_LAYOUT_SCHEMA } from "../src/shared/editor-layout-schema.js";
 import { fitPlayableLayout, freePlayablePosition, type NodeCodebase, type NodeEditorLayout } from "../src/shared/playable-codebase.js";
 import { PLAYABLE_GRAPH_SCHEMA } from "../src/shared/playable-graph-schema.js";

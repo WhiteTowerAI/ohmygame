@@ -1,332 +1,4 @@
 /**
- * The Visual Novel Template: a Scene that plays its own script, line by line,
- * over its background. The player and its look are ordinary shared project
- * source under `shared/vn/`, added the first time a project gets a Visual
- * Novel Scene and edited freely afterwards, like the Project Style. Each Scene
- * keeps its lines in `nodes/<id>/script.txt`.
- */
-
-/** Shared files a Visual Novel Scene imports, written only when missing. */
-export const VISUAL_NOVEL_SHARED_FILES: Record<string, string> = {
-  "shared/vn/characters.json": `{
-  "stranger": {
-    "name": "Stranger",
-    "color": "#e0483b",
-    "looks": {}
-  }
-}
-`,
-  "shared/vn/player.css": `/* The Visual Novel player: sprites, the dialogue box, answers, the quick menu,
-   and the log. Every Visual Novel Scene imports this file, so changing it
-   restyles them all. Answers use the Project Style's .choices and .option. */
-@import "../style/components.css";
-
-.vn {
-  --letterbox: 0cqw;
-  --vn-box: rgb(10 10 14 / 0.78);
-
-  position: relative;
-  width: 100%;
-  height: 100%;
-  cursor: default;
-  user-select: none;
-}
-
-.vn .backdrop::after {
-  background: linear-gradient(transparent 55%, rgb(0 0 0 / 0.45));
-}
-
-/* A background from the script hides the placeholder picture. */
-.vn .backdrop:has(> img, > video)::before {
-  display: none;
-}
-
-/* Characters stand on the bottom edge, at the left, centre, or right. */
-.vn-sprites {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.vn-sprite {
-  position: absolute;
-  bottom: 0;
-  height: 92%;
-  transform: translateX(-50%);
-  transition: left 0.35s, filter 0.25s, opacity 0.3s;
-  animation: vn-fade 0.3s both;
-}
-
-.vn-sprite.is-left { left: 24%; }
-.vn-sprite.is-center { left: 50%; }
-.vn-sprite.is-right { left: 76%; }
-
-.vn-sprite > img {
-  display: block;
-  height: 100%;
-}
-
-/* While someone else speaks, the others step back. */
-.vn.has-speaker .vn-sprite:not(.is-speaking) {
-  filter: brightness(0.6);
-}
-
-/* A figure in a hat, drawn for a character with no picture yet. */
-.vn-sprite.is-placeholder {
-  height: 70%;
-  aspect-ratio: 0.6;
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 100'><g fill='%23050506'><path d='M18 17C19 7 23 3 30 3S41 7 42 17Z'/><ellipse cx='30' cy='17' rx='21' ry='2.4'/><ellipse cx='30' cy='28' rx='10' ry='12'/><rect x='25' y='37' width='10' height='10'/><path d='M0 100L2 62C4 54 14 50 24 47H36C46 50 56 54 58 62L60 100Z'/></g></svg>") bottom / contain no-repeat;
-}
-
-/* The dialogue box along the bottom, with the speaker's name above it. */
-.vn-box {
-  position: absolute;
-  left: 6cqw;
-  right: 6cqw;
-  bottom: 2.4cqw;
-  box-sizing: border-box;
-  min-height: 12cqw;
-  padding: 2.4cqw 3cqw 3cqw;
-  border: 1px solid var(--color-line);
-  border-radius: calc(var(--radius) * 3);
-  background: var(--vn-box);
-  backdrop-filter: blur(0.4cqw);
-}
-
-.vn-box[hidden] {
-  display: none;
-}
-
-.vn-name {
-  position: absolute;
-  left: 2.4cqw;
-  top: 0;
-  margin: 0;
-  padding: 0.5cqw 1.6cqw;
-  border-radius: var(--radius);
-  background: var(--vn-speaker, var(--color-accent));
-  color: #fff;
-  font-size: var(--text-body);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  transform: translateY(-55%);
-}
-
-.vn-name:empty {
-  display: none;
-}
-
-.vn-text {
-  margin: 0;
-  font-size: var(--text-line);
-  line-height: 1.65;
-  letter-spacing: 0.04em;
-  white-space: pre-wrap;
-}
-
-/* Shown when the line is complete and a click moves on. */
-.vn-next {
-  position: absolute;
-  right: 2.4cqw;
-  bottom: 1.4cqw;
-  color: var(--color-muted);
-  font-size: var(--text-body);
-  animation: hint-blink 1.6s ease-in-out infinite;
-}
-
-.vn-next[hidden] {
-  display: none;
-}
-
-/* The quick menu, small along the box's bottom edge. */
-.vn-menu {
-  position: absolute;
-  right: 7cqw;
-  bottom: 0.4cqw;
-  display: flex;
-  gap: 1.6cqw;
-}
-
-.vn-menu button {
-  border: 0;
-  padding: 0.3cqw 0;
-  background: none;
-  color: var(--color-muted);
-  font: inherit;
-  font-size: var(--text-eyebrow);
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.vn-menu button:hover,
-.vn-menu button:focus-visible,
-.vn-menu button[aria-pressed="true"] {
-  outline: none;
-  color: var(--color-accent-ink);
-}
-
-.vn-menu button[aria-disabled="true"] {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.vn .choices {
-  z-index: 1;
-}
-
-/* An answer whose Exit goes nowhere yet. A filter, since the entrance animation holds opacity. */
-.vn .option[aria-disabled="true"] {
-  filter: opacity(0.35);
-  cursor: default;
-}
-
-/* Save, Load, Log, and Settings open over everything. */
-.vn-panel {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: var(--space-2);
-  padding: 3.2cqw 10cqw 2.6cqw;
-  background: rgb(6 6 8 / 0.92);
-}
-
-.vn-panel[hidden] {
-  display: none;
-}
-
-.vn-panel h2 {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: var(--text-eyebrow);
-  font-weight: 400;
-  letter-spacing: 0.4em;
-  text-transform: uppercase;
-}
-
-.vn-panel-body {
-  display: grid;
-  min-height: 0;
-}
-
-.vn-panel .action {
-  justify-self: center;
-}
-
-.vn-log {
-  overflow: auto;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  scrollbar-width: thin;
-}
-
-.vn-log li {
-  display: grid;
-  grid-template-columns: 12cqw 1fr;
-  gap: var(--space-2);
-  padding: var(--space-1) 0;
-  font-size: var(--text-body);
-  line-height: 1.6;
-}
-
-.vn-log li > b {
-  color: var(--vn-speaker, var(--color-accent-ink));
-  text-align: right;
-}
-
-/* Slots in a grid: number, when, and the line the game was saved on. */
-.vn-slots {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-auto-rows: 1fr;
-  gap: var(--space-2);
-}
-
-.vn-slot {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: auto 1fr;
-  gap: 0.3cqw var(--space-2);
-  align-content: start;
-  min-width: 0;
-  padding: var(--space-2);
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius);
-  background: rgb(255 255 255 / 0.03);
-  color: var(--color-ink);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-
-.vn-slot:hover:not(:disabled),
-.vn-slot:focus-visible {
-  outline: none;
-  border-color: var(--color-accent);
-}
-
-.vn-slot:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.vn-slot b {
-  grid-row: span 2;
-  color: var(--color-accent-ink);
-  font-family: var(--font-display);
-  font-size: var(--text-line);
-}
-
-.vn-slot small {
-  color: var(--color-muted);
-  font-size: var(--text-eyebrow);
-}
-
-.vn-slot span {
-  overflow: hidden;
-  font-size: var(--text-eyebrow);
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Settings: a slider per preference, with its value. */
-.vn-settings {
-  display: grid;
-  align-content: center;
-  gap: var(--space-3);
-  width: 60cqw;
-  justify-self: center;
-}
-
-.vn-settings label {
-  display: grid;
-  grid-template-columns: 14cqw 1fr 6cqw;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-body);
-}
-
-.vn-settings input {
-  width: 100%;
-  accent-color: var(--color-accent);
-}
-
-.vn-settings output {
-  color: var(--color-muted);
-  text-align: right;
-}
-
-@keyframes vn-fade {
-  from {
-    opacity: 0;
-  }
-}
-`,
-  "shared/vn/player.js": `/**
  * Visual Novel player. A Visual Novel Scene keeps its lines in script.txt and
  * mounts with playScript(context, script). Characters are listed once in
  * characters.json: an ID, the name players see, the name's colour, and
@@ -343,7 +15,7 @@ export const VISUAL_NOVEL_SHARED_FILES: Record<string, string> = {
  *   @sfx <asset>           play a sound once
  *   @set <key> = <value>   also += and -=; <key> is a Variable
  *   who: words             a line of dialogue; <who> is a character ID or any name
- *   words                  narration; start with \\ to keep a leading "name:"
+ *   words                  narration; start with \ to keep a leading "name:"
  *   ? words -> <exit>      an answer; consecutive answers are asked together
  *   ? [trust >= 3] words -> <exit> {trust += 1}
  *   -> <exit>              leave the Scene; -> [key] <exit> only when key holds
@@ -394,7 +66,7 @@ const SKIP_DELAY = 70;
 
 const POSITIONS = ["left", "center", "right"];
 const NAME = "[A-Za-z0-9][A-Za-z0-9._-]*";
-const CONDITION = "(?:\\\\[([^\\\\]]+)\\\\]\\\\s*)?";
+const CONDITION = "(?:\\[([^\\]]+)\\]\\s*)?";
 
 /**
  * Reads a script into steps. Throws with the line number at the first line
@@ -406,7 +78,7 @@ export function parseScript(text) {
   const steps = [];
   // Answers and an exit that always leaves end the Scene; nothing may follow.
   let closed;
-  const lines = text.split(/\\r?\\n/);
+  const lines = text.split(/\r?\n/);
   for (let index = 0; index < lines.length; index += 1) {
     const number = index + 1;
     const line = lines[index].trim();
@@ -437,11 +109,11 @@ export function parseScript(text) {
 }
 
 function readLine(line, fail) {
-  if (line.startsWith("\\\\")) return { kind: "say", text: line.slice(1).trim() };
+  if (line.startsWith("\\")) return { kind: "say", text: line.slice(1).trim() };
   if (line.startsWith("@")) return readCommand(line, fail);
   if (line.startsWith("?")) {
-    const match = new RegExp("^\\\\?\\\\s*" + CONDITION + "(.+?)\\\\s*->\\\\s*(" + NAME + ")\\\\s*(?:\\\\{([^}]*)\\\\})?$").exec(line);
-    if (!match) fail("an answer is written \\"? words -> exit\\".");
+    const match = new RegExp("^\\?\\s*" + CONDITION + "(.+?)\\s*->\\s*(" + NAME + ")\\s*(?:\\{([^}]*)\\})?$").exec(line);
+    if (!match) fail("an answer is written \"? words -> exit\".");
     return {
       kind: "answer",
       when: match[1] ? readCondition(match[1], fail) : undefined,
@@ -451,17 +123,17 @@ function readLine(line, fail) {
     };
   }
   if (line.startsWith("->")) {
-    const match = new RegExp("^->\\\\s*" + CONDITION + "(" + NAME + ")$").exec(line);
-    if (!match) fail("an exit is written \\"-> exit\\".");
+    const match = new RegExp("^->\\s*" + CONDITION + "(" + NAME + ")$").exec(line);
+    if (!match) fail("an exit is written \"-> exit\".");
     return { kind: "exit", when: match[1] ? readCondition(match[1], fail) : undefined, signal: match[2] };
   }
-  const spoken = /^([^\\s:：]{1,24})\\s*[:：]\\s*(.+)$/.exec(line);
+  const spoken = /^([^\s:：]{1,24})\s*[:：]\s*(.+)$/.exec(line);
   if (spoken) return { kind: "say", who: spoken[1], text: spoken[2] };
   return { kind: "say", text: line };
 }
 
 function readCommand(line, fail) {
-  const [command, ...words] = line.slice(1).split(/\\s+/);
+  const [command, ...words] = line.slice(1).split(/\s+/);
   const name = (word, what) => {
     if (!word || !new RegExp("^" + NAME + "$").test(word)) fail("@" + command + " needs " + what + ".");
     return word;
@@ -498,8 +170,8 @@ function readCommand(line, fail) {
 }
 
 function readEffect(text, fail) {
-  const match = new RegExp("^(" + NAME + ")\\\\s*(\\\\+=|-=|=)\\\\s*(.+)$").exec(text.trim());
-  if (!match) fail("a change is written \\"key = value\\", \\"key += 1\\", or \\"key -= 1\\".");
+  const match = new RegExp("^(" + NAME + ")\\s*(\\+=|-=|=)\\s*(.+)$").exec(text.trim());
+  if (!match) fail("a change is written \"key = value\", \"key += 1\", or \"key -= 1\".");
   const value = readValue(match[3], fail);
   if (match[2] !== "=" && typeof value !== "number") fail(match[2] + " needs a number.");
   return { key: match[1], op: match[2], value };
@@ -509,7 +181,7 @@ function readCondition(text, fail) {
   const trimmed = text.trim();
   const bare = new RegExp("^(!?)(" + NAME + ")$").exec(trimmed);
   if (bare) return { key: bare[2], op: bare[1] ? "falsy" : "truthy" };
-  const match = new RegExp("^(" + NAME + ")\\\\s*(==|!=|>=|<=|>|<)\\\\s*(.+)$").exec(trimmed);
+  const match = new RegExp("^(" + NAME + ")\\s*(==|!=|>=|<=|>|<)\\s*(.+)$").exec(trimmed);
   if (!match) fail("a condition is written [key >= 3], [key], or [!key].");
   return { key: match[1], op: match[2], value: readValue(match[3], fail) };
 }
@@ -519,9 +191,9 @@ function readValue(text, fail) {
   if (value === "true") return true;
   if (value === "false") return false;
   if (value === "null") return null;
-  if (/^-?\\d+(?:\\.\\d+)?$/.test(value)) return Number(value);
-  if (/^"(?:[^"\\\\]|\\\\.)*"$/.test(value)) return JSON.parse(value);
-  fail("\\"" + value + "\\" is not a number, true, false, null, or \\"quoted text\\".");
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) return Number(value);
+  if (/^"(?:[^"\\]|\\.)*"$/.test(value)) return JSON.parse(value);
+  fail("\"" + value + "\" is not a number, true, false, null, or \"quoted text\".");
 }
 /**
  * Plays a script over the Scene's background. Call it from mount() and
@@ -868,7 +540,7 @@ export function playScript(context, script, options = {}) {
 
   function character(id, line) {
     const found = characters[id];
-    if (!found) throw new Error("script.txt line " + line + ": \\"" + id + "\\" is not in shared/vn/characters.json.");
+    if (!found) throw new Error("script.txt line " + line + ": \"" + id + "\" is not in shared/vn/characters.json.");
     return found;
   }
 
@@ -878,7 +550,7 @@ export function playScript(context, script, options = {}) {
     if (!names.length) return undefined;
     const name = look ?? ("default" in looks ? "default" : names[0]);
     const asset = looks[name];
-    if (!asset) throw new Error("script.txt line " + line + ": " + id + " has no look \\"" + name + "\\" in shared/vn/characters.json.");
+    if (!asset) throw new Error("script.txt line " + line + ": " + id + " has no look \"" + name + "\" in shared/vn/characters.json.");
     context.assets.url(asset);
     return asset;
   }
@@ -1013,46 +685,4 @@ function buildInterface(stage) {
   close.type = "button";
   close.textContent = LABELS.close;
   return { backdrop, sprites, choices, box, name, text, next, buttons, panel, panelTitle, panelBody, close };
-}
-`,
-};
-
-/** A Visual Novel Scene's own files, keyed by file name inside `nodes/<id>/`. */
-export function visualNovelSource(_title: string, id?: string): {
-  html: string;
-  css: string;
-  javascript: string;
-  files: Record<string, string>;
-} {
-  return {
-    html: [
-      '<main class="vn has-backdrop">',
-      '  <div class="backdrop is-room" data-media="backdrop"></div>',
-      "</main>",
-      "",
-    ].join("\n"),
-    css: '@import "../../shared/style/components.css";\n@import "../../shared/vn/player.css";\n',
-    javascript: [
-      'import { playScript } from "../../shared/vn/player.js";',
-      'import script from "./script.txt";',
-      "",
-      "export function mount(context) {",
-      ...(id
-        ? [`  return playScript(context, script, { source: ${JSON.stringify(`nodes/${id}/script.txt`)} });`]
-        : ["  return playScript(context, script);"]),
-      "}",
-      "",
-    ].join("\n"),
-    files: {
-      "script.txt": [
-        "# One step per line. shared/vn/player.js lists every command.",
-        "The rain had not stopped since noon.",
-        "stranger: You came alone. That was brave.",
-        "stranger: Or foolish. We will find out which.",
-        "? I had no choice. -> option-a",
-        "? Who else would come? -> option-b",
-        "",
-      ].join("\n"),
-    },
-  };
 }

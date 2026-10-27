@@ -18,7 +18,7 @@ const layoutStory = await (async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "ohmygame-story-layout-"));
   try {
     const file = path.join(directory, "layout.mjs");
-    await writeFile(file, playablePreset("story-map")!.source("Story map").files!["layout.js"]!);
+    await writeFile(file, playablePreset("story-map")!.source("Story map", "story-map").files!["layout.js"]!);
     return (await import(pathToFileURL(file).href)).layoutStory as (graph: NodeGraph, options?: LayoutOptions) => StoryLayout;
   } finally {
     await rm(directory, { recursive: true, force: true });

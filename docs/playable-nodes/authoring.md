@@ -155,6 +155,14 @@ A Template (Preset) is starter content plus instructions for the Agent. It is
 not stored as a type, and a Scene created from "Main menu" can later become
 anything.
 
+Template content is ordinary files under `src/daemon/assets/story-templates/`:
+`project/` is the Project Style every story starts with, `<id>/scene/` is the
+Scene a Template creates, and `<id>/project/` holds shared files the Template
+adds when a project lacks them. `{{title}}` in a Scene's HTML becomes its
+title and `{{id}}` its ID. `src/daemon/playable-presets.ts` keeps each
+Template's name, summary, brief, and Signals. The files are copied into
+projects as they are, so Prettier skips them.
+
 ## Scene Workbench
 
 Opening a Scene shows its Workbench: a live preview that fills the page, with

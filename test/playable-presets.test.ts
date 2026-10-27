@@ -11,8 +11,7 @@ import {
   writeNodeCodebase,
 } from "../src/daemon/playable-codebase.js";
 import { validatePlayableProject } from "../src/daemon/playable-project.js";
-import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, playablePreset } from "../src/daemon/playable-presets.js";
-import { PLAYABLE_PROJECT_STYLE_FILES } from "../src/daemon/playable-style.js";
+import { PLAYABLE_PRESETS, PLAYABLE_PRESET_IDS, PLAYABLE_PROJECT_STYLE_FILES, playablePreset } from "../src/daemon/playable-presets.js";
 import { playableBackdrop } from "../src/shared/playable-backdrop.js";
 import { createStarterCodebaseWithScene } from "./playable-fixture.js";
 
@@ -32,7 +31,7 @@ describe("Playable Presets", () => {
   it("describes every Preset with starter source that imports the Project Style", () => {
     expect(PLAYABLE_PRESETS.map((preset) => preset.id)).toEqual([...PLAYABLE_PRESET_IDS]);
     for (const preset of PLAYABLE_PRESETS) {
-      const source = preset.source("Ash Club");
+      const source = preset.source("Ash Club", "ash-club");
       expect(preset.brief.length).toBeGreaterThan(20);
       expect(preset.summary.length).toBeGreaterThan(10);
       expect(preset.summary.length).toBeLessThan(60);
@@ -63,7 +62,7 @@ describe("Playable Presets", () => {
   });
 
   it("escapes the title in starter HTML", () => {
-    expect(playablePreset("ending")!.source('<script>"x"').html).toContain(
+    expect(playablePreset("ending")!.source('<script>"x"', "ending").html).toContain(
       "&lt;script&gt;&quot;x&quot;",
     );
   });

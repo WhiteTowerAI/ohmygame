@@ -14,8 +14,7 @@ import {
   type NodeEditorLayout,
 } from "../shared/playable-codebase.js";
 import type { NodeGraph } from "../shared/playable-nodes.js";
-import { blankSource } from "./playable-presets.js";
-import { PLAYABLE_PROJECT_STYLE_FILES } from "./playable-style.js";
+import { blankSource, PLAYABLE_PROJECT_STYLE_FILES } from "./playable-presets.js";
 import { installStoryRuntime, isWebStory, storyWebIndexHtml } from "./story-web-project.js";
 import { listWorkspaceFiles } from "./workspace.js";
 
