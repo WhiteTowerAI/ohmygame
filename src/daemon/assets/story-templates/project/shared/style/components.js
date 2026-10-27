@@ -42,7 +42,7 @@ export function showBackdrop(context) {
 }
 
 /**
- * Shows the background and emits a Signal when the player moves on. A video
+ * Shows the background and moves on when the player is done with it. A video
  * plays to its end, as in an interactive film: clicking does not cut it
  * short, and a `[data-skip]` button shows only when the player has seen the
  * Scene before. An image, or no background, waits for a click, and so does a
@@ -52,10 +52,13 @@ export function showBackdrop(context) {
  *
  * @param {object} context the Node context passed to mount
  * @param {object} options
- * @param {string} options.signal the Signal to emit when the player moves on
+ * @param {string} [options.signal] the Signal to emit when the player moves on
+ * @param {(context: object) => void} [options.onDone] runs instead of emitting,
+ *   for a Scene that goes back to the one that opened it:
+ *   `onDone: (context) => context.navigation.back()`
  * @returns {() => void} cleanup
  */
-export function playScene(context, { signal }) {
+export function playScene(context, { signal, onDone } = {}) {
   const stage = context.root.querySelector('[data-media="backdrop"]')?.parentElement ?? context.root;
   const backdrop = showBackdrop(context);
   const hint = stage.querySelector(".continue-hint");
@@ -65,7 +68,8 @@ export function playScene(context, { signal }) {
   const finish = () => {
     if (finished) return;
     finished = true;
-    void context.navigation.emit(signal);
+    if (onDone) onDone(context);
+    else void context.navigation.emit(signal);
   };
   let playing = Boolean(backdrop.video);
   const update = () => {

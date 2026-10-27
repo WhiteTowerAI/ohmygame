@@ -102,7 +102,7 @@ class FakeElement {
 let playResult = () => Promise.resolve();
 
 /** Mounts a Scene whose background has the given attributes, as the editor writes them, with Blank's hint and Skip. */
-async function mountScene(attributes: Record<string, string>, { seenBefore = false } = {}) {
+async function mountScene(attributes: Record<string, string>, { seenBefore = false, back = false } = {}) {
   const { playScene } = await loadSceneModule();
   const previous = globalThis.document;
   globalThis.document = { createElement: (tag: string) => new FakeElement(tag) } as unknown as Document;
@@ -118,10 +118,14 @@ async function mountScene(attributes: Record<string, string>, { seenBefore = fal
     root,
     assets: { url: (id: string) => `blob:${id}` },
     story: { seenBefore },
-    navigation: { emit: async (signal: string) => { emitted.push(signal); } },
+    navigation: {
+      emit: async (signal: string) => { emitted.push(signal); },
+      back: async () => { emitted.push("(back)"); },
+    },
   };
   try {
-    const cleanup = playScene(context, { signal: "next" }) as () => void;
+    const options = back ? { onDone: (scene: typeof context) => scene.navigation.back() } : { signal: "next" };
+    const cleanup = playScene(context, options) as () => void;
     // Lets the video's play() attempts settle.
     await new Promise((resolve) => setTimeout(resolve, 0));
     return { scene, backdrop, hint, skip, emitted, cleanup, click: () => scene.listeners.get("click")!() };
@@ -193,6 +197,14 @@ describe("playScene", () => {
     expect(skip.hidden).toBe(true);
     click();
     expect(emitted).toEqual(["next"]);
+  });
+
+  it("goes back instead of emitting when the Scene passes onDone", async () => {
+    const { backdrop, emitted, click } = await mountScene({ "data-asset": "look", "data-type": "video" }, { back: true });
+    click();
+    expect(emitted).toEqual([]);
+    backdrop.children[0]!.listeners.get("ended")!();
+    expect(emitted).toEqual(["(back)"]);
   });
 
   it("shows nothing over an empty background and moves on with a click", async () => {

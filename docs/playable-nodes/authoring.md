@@ -700,7 +700,9 @@ not by Scene code. A published game never has them.
 
 "Advance when the video ends" is Scene content, not a Runtime feature. The
 Project Style includes a small `playScene()` component that shows the
-Scene's background and emits a given Signal when the player moves on:
+Scene's background and emits a given Signal when the player moves on. A Scene
+another Scene opened with Allow Back can pass `onDone` instead, such as
+`(context) => context.navigation.back()`, to return there:
 
 - A video plays to its end, as in an interactive film. A click does not cut
   it short. Over a video the player has seen before
