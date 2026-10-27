@@ -2729,7 +2729,7 @@ const zhCN: typeof en = {
     upgradeDetail:
       "升级会添加 index.html 和 story/ 下的故事运行时，把用到的资源库素材复制进项目，并改写浏览器无法直接加载的导入。升级可以撤销。",
     upgrade: "升级",
-    upgraded: "这个故事现在作为独立的网页运行。",
+    upgraded: "这个故事已升级为独立的网页运行。如果发现问题，可以撤销升级。",
     libraryMedia:
       "这个故事仍在使用资源库里的素材，发布后的网页无法访问它们：{{assets}}。请把它们复制进项目，或者替换掉。",
     copyLibraryMedia: "复制进项目",

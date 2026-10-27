@@ -147,6 +147,8 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
   const [writeVersion] = useState(() => workspaceVersion(projectId));
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [upgrade, setUpgrade] = useState<StoryUpgradeStatus>();
+  /** The project whose story the editor already tried to upgrade on opening, and whether that failed. */
+  const autoUpgrade = useRef<{ projectId: string; failed: boolean } | undefined>(undefined);
   const [notice, setNotice] = useState<string>();
   const [graphMeta, setGraphMeta] = useState<GraphMeta>();
   const [nodes, setNodes] = useState<PlayableFlowNode[]>([]);
@@ -298,17 +300,30 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     };
   }, [projectId, workspaceRevision]);
 
-  // A story from before web stories is offered the upgrade; a fresh upgrade can be taken back.
+  // A story from before web stories is upgraded once the editor has it open;
+  // one whose author took the upgrade back is offered it instead. A fresh
+  // upgrade can be taken back.
   useEffect(() => {
     let disposed = false;
     void getStoryUpgrade(projectId).then((status) => { if (!disposed) setUpgrade(status); }).catch(() => {});
     return () => { disposed = true; };
   }, [projectId, workspaceRevision]);
 
-  async function runUpgrade(): Promise<void> {
+  useEffect(() => {
+    if (phase !== "ready" || !upgrade || upgrade.web || upgrade.declined || autoUpgrade.current?.projectId === projectId) return;
+    const attempt = { projectId, failed: false };
+    autoUpgrade.current = attempt;
+    void runUpgrade(true).catch(() => {
+      attempt.failed = true;
+      // Show the offer, so the author can try again.
+      setUpgrade((current) => current && { ...current });
+    });
+  }, [phase, upgrade, projectId]);
+
+  async function runUpgrade(automatic = false): Promise<void> {
     // Unsaved edits go first; the upgrade then reloads every editor.
     if (codebase) await save(codebase);
-    await upgradeStory(projectId);
+    await upgradeStory(projectId, automatic);
     setUpgrade(await getStoryUpgrade(projectId));
   }
 
@@ -1185,12 +1200,12 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">{t("storyEditor.loadingScenes")}</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
-          {phase === "ready" && upgrade && !upgrade.web ? <CanvasNotice
+          {phase === "ready" && upgrade && !upgrade.web && (upgrade.declined || (autoUpgrade.current?.projectId === projectId && autoUpgrade.current.failed)) ? <CanvasNotice
             className="story-upgrade-notice"
             message={t("storyEditor.upgradeOffer")}
             detail={t("storyEditor.upgradeDetail")}
             actionLabel={t("storyEditor.upgrade")}
-            onAction={runUpgrade}
+            onAction={() => runUpgrade()}
           /> : null}
           {phase === "ready" && upgrade?.web && upgrade.libraryAssets?.length ? <CanvasNotice
             className="story-upgrade-notice"

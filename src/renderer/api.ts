@@ -808,8 +808,12 @@ export async function getStoryUpgrade(projectId: string): Promise<StoryUpgradeSt
   return request(`/projects/${projectId}/interactive-story/upgrade`);
 }
 
-export async function upgradeStory(projectId: string): Promise<StoryUpgradeResult> {
-  return request(`/projects/${projectId}/interactive-story/upgrade`, { method: "POST" });
+/** `automatic` when the editor upgrades the story on opening it, rather than the author asking. */
+export async function upgradeStory(projectId: string, automatic = false): Promise<StoryUpgradeResult> {
+  return request(`/projects/${projectId}/interactive-story/upgrade`, {
+    method: "POST",
+    ...(automatic ? { body: JSON.stringify({ automatic: true }) } : {}),
+  });
 }
 
 /** Keeps the upgrade, so it is no longer offered to be taken back. */

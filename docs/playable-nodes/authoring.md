@@ -25,15 +25,20 @@ replace the whole interface.
 ## Upgrading a story
 
 Interactive Stories play as their own web page (see
-[runtime.md](runtime.md#page-and-lifecycle)). A story made before that plays
-in OhMyGame's sandbox, and the Story canvas shows a notice at the top:
-"This story plays in the old sandbox. Upgrade it to play as its own web page,
-which the AI can change entirely, from saving to music," with **Upgrade** and
-the details of what it does. Upgrading takes a checkpoint first; the notice
-then says the story plays as its own page and offers **Undo upgrade**.
-Closing the notice keeps the upgrade for good, and Undo upgrade is no longer
-offered. Unsaved edits are saved before either, and every
-editor reloads after.
+[runtime.md](runtime.md#page-and-lifecycle)). A story made before that played
+in OhMyGame's sandbox. The Story editor upgrades it the first time it opens
+it, once the canvas has loaded; the upgrade takes a checkpoint first, and the
+Agent is told OhMyGame made it. The notice at the top of the canvas then says
+the story was upgraded and offers **Undo upgrade**. Closing the notice keeps
+the upgrade for good, and Undo upgrade is no longer offered. Unsaved edits are
+saved before either, and every editor reloads after.
+
+After Undo upgrade, the story stays in the sandbox and is not upgraded on its
+own again. The canvas instead shows "This story plays in the old sandbox.
+Upgrade it to play as its own web page, which the AI can change entirely,
+from saving to music," with **Upgrade** and the details of what it does. The
+same offer shows when an automatic upgrade fails, for example while the Agent
+is still working.
 
 Upgrading copies the Library media the story uses into the project. A
 published story cannot reach media left in the Library, such as one the

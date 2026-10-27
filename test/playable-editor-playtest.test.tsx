@@ -16,6 +16,9 @@ const codebase = createStarterCodebaseWithScene("Playtest", {
 /** What the editor loads from disk. */
 let disk = codebase;
 const update = vi.fn(async () => ({ revision: "saved" }));
+/** How the daemon describes the story's upgrade to a web story. */
+let upgradeStatus: { web: boolean; declined?: true } = { web: false };
+const upgradeStory = vi.fn(async () => ({ copiedAssets: [], missingAssets: [], rewritten: [], changed: [] }));
 let move!: (
   event: unknown,
   viewport: { x: number; y: number; zoom: number },
@@ -43,7 +46,8 @@ vi.doMock(path.resolve("src/renderer/api.ts"), async (original) => ({
   listPlayablePresets: async () => ({ presets: [] }),
   listPlayableThumbnails: async () => ({}),
   getPlayableValidation: async () => ({ issues: [] }),
-  getStoryUpgrade: async () => ({ web: false }),
+  getStoryUpgrade: async () => ({ ...upgradeStatus }),
+  upgradeStory,
   updateNodeCodebase: update,
 }));
 vi.doMock(path.resolve("src/renderer/playable-node-workbench.tsx"), () => ({
@@ -55,6 +59,8 @@ let root: ReturnType<typeof createRoot>, container: HTMLDivElement;
 
 beforeEach(async () => {
   disk = codebase;
+  upgradeStatus = { web: false };
+  upgradeStory.mockClear();
   vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   window.localStorage.clear();
@@ -254,4 +260,20 @@ it("applies a pending Story map request after loading the saved Code tab, then c
       .activeTab,
   ).toBe("canvas");
   expect(onStoryMapShown).toHaveBeenCalledTimes(2);
+});
+
+it("upgrades a story from before web stories once, when the editor has it open", async () => {
+  expect(upgradeStory).toHaveBeenCalledExactlyOnceWith("p", true);
+  await renderWorkspace({ workspaceRevision: 1 });
+  expect(upgradeStory).toHaveBeenCalledOnce();
+});
+
+it("offers the upgrade instead to an author who took it back", async () => {
+  await act(async () => root.unmount());
+  container.remove();
+  upgradeStatus = { web: false, declined: true };
+  upgradeStory.mockClear();
+  await renderEditor();
+  expect(upgradeStory).not.toHaveBeenCalled();
+  expect(container.querySelector(".story-upgrade-notice")).not.toBeNull();
 });

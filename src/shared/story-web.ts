@@ -3,6 +3,8 @@ export interface StoryUpgradeStatus {
   web: boolean;
   /** Set while the upgrade can still be taken back. */
   upgradedAt?: string;
+  /** The author took an upgrade back, so the story is not upgraded on its own again. */
+  declined?: true;
   /** A web story's Asset IDs still in the Library; they must be in the project to publish. */
   libraryAssets?: string[];
 }

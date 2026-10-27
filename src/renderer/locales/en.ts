@@ -2803,7 +2803,7 @@ const en = {
     upgradeDetail:
       "Upgrading adds index.html and the story runtime under story/, copies the Library media it uses into the project, and updates imports the browser cannot load. You can undo it.",
     upgrade: "Upgrade",
-    upgraded: "This story now plays as its own web page.",
+    upgraded: "This story was upgraded to play as its own web page. If something looks wrong, undo the upgrade.",
     libraryMedia:
       "This story still takes media from the Library, which a published web story cannot reach: {{assets}}. Copy them into the project, or replace them.",
     copyLibraryMedia: "Copy into project",

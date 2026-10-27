@@ -26,8 +26,9 @@ project preview or as static files. Editor tooling (preview policy, element
 picking, capture, diagnostics) is injected by the preview and never changes
 what node code sees, and never ships with the game.
 
-Stories made before web stories play the same Runtime in OhMyGame's sandbox
-until the author upgrades them; see [Sandboxed stories](#sandboxed-stories).
+Stories made before web stories are upgraded when the Story editor opens
+them; until then, or after the author takes the upgrade back, they play the
+same Runtime in OhMyGame's sandbox. See [Sandboxed stories](#sandboxed-stories).
 
 ## Project files
 
@@ -416,12 +417,15 @@ for the Agent to merge.
 A story without `index.html` and `story/` plays in OhMyGame's sandbox: an
 iframe with exactly `sandbox="allow-scripts"`, an opaque origin, and a CSP
 that denies network. The Runtime there talks to its host by messages, and the
-compiler bundles each node into one module. The Story editor offers
-**Upgrade**, which takes a checkpoint, copies the Library assets the story
+compiler bundles each node into one module. The Story editor upgrades such
+a story when it opens it, and offers **Upgrade** after an author took one
+back. Upgrading takes a checkpoint, copies the Library assets the story
 uses into `assets/library/`, rewrites imports a browser cannot load,
 adds `index.html` and `story/`, and replaces `AGENTS.md` and `README.md` if
 they are still as OhMyGame wrote them. **Undo upgrade** takes back the files
-changed between the two checkpoints.
+changed between the two checkpoints and leaves
+`.ohmygame/story-upgrade-declined`, so the editor does not upgrade the story
+on its own again; upgrading by hand removes it.
 
 ## Save and session
 

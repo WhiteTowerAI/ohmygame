@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { ProjectState } from "../shared/contracts.js";
@@ -14,6 +14,8 @@ import { writeWorkspaceNotice } from "./workspace-notice.js";
 
 /** The last upgrade's snapshots, so the author can take it back. Editor cache; never published. */
 const UPGRADE_RECORD = path.join(".ohmygame", "story-upgrade.json");
+/** Left when the author takes an upgrade back, so opening the story does not upgrade it again. */
+const UPGRADE_DECLINED = path.join(".ohmygame", "story-upgrade-declined");
 
 interface UpgradeRecord {
   before: string;
@@ -23,8 +25,9 @@ interface UpgradeRecord {
 
 /**
  * Upgrading a sandboxed Interactive Story to a web story, and taking the
- * upgrade back. Both run with the workspace to themselves and tell editors
- * and the Agent what changed, as Undo does.
+ * upgrade back. The editor upgrades a story when it opens it, unless the
+ * author took an upgrade back. Both run with the workspace to themselves and
+ * tell editors and the Agent what changed, as Undo does.
  */
 export function registerStoryWebRoutes(
   app: FastifyInstance,
@@ -83,20 +86,35 @@ export function registerStoryWebRoutes(
       const web = await isWebStory(project.workspacePath);
       const record = web ? await readRecord(project.workspacePath) : undefined;
       const library = web ? await libraryAssets(project.workspacePath) : [];
-      return { web, ...(record ? { upgradedAt: record.at } : {}), ...(library.length ? { libraryAssets: library } : {}) };
+      const declined = !web && await exists(path.join(project.workspacePath, UPGRADE_DECLINED));
+      return {
+        web,
+        ...(record ? { upgradedAt: record.at } : {}),
+        ...(library.length ? { libraryAssets: library } : {}),
+        ...(declined ? { declined: true as const } : {}),
+      };
     }));
 
-  app.post<{ Params: { projectId: string } }>("/projects/:projectId/interactive-story/upgrade", async (request, reply) =>
+  app.post<{ Params: { projectId: string }; Body: { automatic?: boolean } | undefined }>("/projects/:projectId/interactive-story/upgrade", {
+    schema: {
+      body: { type: "object", nullable: true, additionalProperties: false, properties: { automatic: { type: "boolean" } } },
+    },
+  }, async (request, reply) =>
     send(reply, async (): Promise<StoryUpgradeResult> => {
       const project = story(request.params.projectId);
+      const automatic = request.body?.automatic === true;
       assertIdle(project.id);
       if (await isWebStory(project.workspacePath)) throw new Error("This story is already a web story.");
+      if (automatic && await exists(path.join(project.workspacePath, UPGRADE_DECLINED)))
+        throw new Error("The author took an upgrade of this story back; only they can upgrade it again.");
       const before = await snapshot(project);
       const upgrade = await writes.exclusive(project.id, () => upgradeToWebStory(project.workspacePath, libraryFile));
       const after = await snapshot(project);
       await writeRecord(project.workspacePath, { before, after, at: new Date().toISOString() });
+      await rm(path.join(project.workspacePath, UPGRADE_DECLINED), { force: true });
       const changed = (await checkpoints.diff(project, before, after)).map((change) => change.path);
-      await announce(project, changed, `The user upgraded this Interactive Story to a web story. It now plays as its own page: index.html loads the story runtime under story/, which reads graph.json and loads each Scene's files as they are. Library assets it used were copied under assets/library/. Read AGENTS.md before changing it. Changed workspace paths: ${JSON.stringify(changed)}.`);
+      const who = automatic ? "OhMyGame upgraded this Interactive Story to a web story when the user opened it" : "The user upgraded this Interactive Story to a web story";
+      await announce(project, changed, `${who}. It now plays as its own page: index.html loads the story runtime under story/, which reads graph.json and loads each Scene's files as they are. Library assets it used were copied under assets/library/. Read AGENTS.md before changing it. Changed workspace paths: ${JSON.stringify(changed)}.`);
       return {
         copiedAssets: upgrade.copiedAssets,
         missingAssets: upgrade.missingAssets,
@@ -136,6 +154,8 @@ export function registerStoryWebRoutes(
       if (!record) throw new Error("There is no upgrade to take back.");
       const result = await writes.exclusive(project.id, () => checkpoints.undo(project, { before: record.before, after: record.after }));
       await rm(path.join(project.workspacePath, UPGRADE_RECORD), { force: true });
+      await mkdir(path.join(project.workspacePath, path.dirname(UPGRADE_DECLINED)), { recursive: true });
+      await writeFile(path.join(project.workspacePath, UPGRADE_DECLINED), `${new Date().toISOString()}\n`);
       await announce(project, result.changed, `The user took back the upgrade of this Interactive Story to a web story; it plays in the sandbox again. Inspect the current files before continuing. Changed workspace paths: ${JSON.stringify(result.changed)}.`);
       return { changed: result.changed };
     }));
@@ -149,6 +169,15 @@ async function readRecord(workspacePath: string): Promise<UpgradeRecord | undefi
       : undefined;
   } catch {
     return undefined;
+  }
+}
+
+async function exists(file: string): Promise<boolean> {
+  try {
+    await stat(file);
+    return true;
+  } catch {
+    return false;
   }
 }
 

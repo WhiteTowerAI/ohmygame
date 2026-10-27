@@ -2239,8 +2239,9 @@ describe("Playable Nodes projects", () => {
     expect(await status()).toEqual({ web: false });
     expect((await app.inject({ method: "GET", url: `/projects/${project.id}/playable` })).json().web).toBeUndefined();
 
-    const upgraded = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade` });
-    expect(upgraded.statusCode).toBe(200);
+    // The editor upgrades a story from before web stories when it opens it.
+    const upgraded = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade`, payload: { automatic: true } });
+    expect(upgraded.statusCode, upgraded.body).toBe(200);
     expect(upgraded.json()).toMatchObject({ copiedAssets: [], missingAssets: [] });
     expect(upgraded.json().changed).toEqual(expect.arrayContaining(["index.html", "story/story-web/runtime.js"]));
     expect(await status()).toMatchObject({ web: true, upgradedAt: expect.any(String) });
@@ -2269,7 +2270,9 @@ describe("Playable Nodes projects", () => {
 
     const undone = await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade/undo` });
     expect(undone.statusCode).toBe(200);
-    expect(await status()).toEqual({ web: false });
+    // Taking it back stops the editor upgrading it again; the author still can.
+    expect(await status()).toEqual({ web: false, declined: true });
+    expect((await app.inject({ method: "POST", url: `/projects/${project.id}/interactive-story/upgrade`, payload: { automatic: true } })).statusCode).toBe(409);
     await expect(readFile(path.join(project.workspacePath, "index.html"))).rejects.toThrow();
     expect(await readFile(path.join(project.workspacePath, "nodes/chapter/node.js"), "utf8")).toContain('import script from "./script.txt";');
 
