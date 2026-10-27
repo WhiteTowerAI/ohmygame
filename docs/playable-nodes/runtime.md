@@ -313,7 +313,7 @@ State.
 
 ## Background video clips
 
-A Scene may put `data-clip-start="3.2"` and `data-clip-end="8.75"` on its
+A node may put `data-clip-start="3.2"` and `data-clip-end="8.75"` on its
 single `[data-media="backdrop"][data-type="video"][data-asset]` element.
 These are finite, non-negative seconds in the original Asset, not offsets
 in the edited clip. Start defaults to zero; absent End means the file's
@@ -325,7 +325,7 @@ are source issues in both draft and publish validation.
 The shared surface host observes videos created inside this background, before
 calling authored `mount()`. It seeks to Start after metadata loads and
 pauses at End, displaying a frame just inside the selected range. It sends
-one ordinary `ended` event for an early end; Scene code still decides which
+one ordinary `ended` event for an early end; node code still decides which
 Signal to emit, if any. A video with `loop` loops inside the range instead.
 The controller is removed on lifecycle abort, destroy, or failed mount.
 Videos without these attributes retain their existing playback behavior.
@@ -493,7 +493,7 @@ kept with the save, so Continue and a loaded slot bring it back, and
 `restart()` stops it. `sound(assetId)` plays an Asset once.
 
 While a Node's own `<video>` or `<audio>` plays with sound, such as a
-cinematic Scene's background, the music turns down to a quarter and comes
+cinematic node's background, the music turns down to a quarter and comes
 back when it stops. The page listens for that on each Node's ShadowRoot,
 so it needs nothing from Node code. Node media plays at the sound volume.
 
@@ -533,15 +533,15 @@ interface Seen {
 }
 ```
 
-The Runtime does not lay the story out. A story map is an ordinary Scene:
+The Runtime does not lay the story out. A story map is an ordinary node:
 the Story map Template reads `graph.json`, lays the story out in its own
-`layout.js`, and marks what `seen()` says the player reached. Which Scenes
+`layout.js`, and marks what `seen()` says the player reached. Which nodes
 are off the map, their names, and which count as endings are constants in
 its `node.js`; see [authoring.md](authoring.md#story-map).
 
 `context.story.seenBefore` is `true` when the player entered the node before
 this visit, earlier in the same game or in another one. A node is marked seen
-only once it has mounted, so on a first visit it is `false`. Scenes use it to
+only once it has mounted, so on a first visit it is `false`. Nodes use it to
 offer skipping what the player has already watched. The `report` preview
 policy always gives `false`.
 
@@ -562,7 +562,7 @@ The Runtime accepts a navigation policy:
   `signal`, `back`, `restart`, and `continue`. Nothing it previews adds to
   what the player has seen, `story.seen()` gives every node and edge, so
   the author previews a whole story map, and `story.seenBefore` is
-  `false`, so a Scene previews as it first appears.
+  `false`, so a node previews as it first appears.
 
 The Workbench preview may also start with a **preview state**: `initialState`
 with author-chosen overrides, validated against the declared keys.
@@ -617,7 +617,7 @@ pointing at where the text starts on its line, as the Visual Novel player does
 for script lines. Capture uses the desktop host's page capture of the preview
 frame, for thumbnails too.
 
-## Scene sources
+## Node sources
 
 The story's page loads each node's files as they are, so nothing is built.
 OhMyGame checks every node's files the way the page will load them and

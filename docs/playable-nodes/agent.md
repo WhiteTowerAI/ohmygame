@@ -15,7 +15,7 @@ and the tools it uses to verify results.
   content. The OhMyGame Runtime source is open for understanding edge cases,
   but projects never copy or modify it.
 - **Verify, don't assume.** A change is finished when validation passes,
-  including every Scene's source check, and the affected route has been
+  including every node's source check, and the affected route has been
   exercised in the Runtime.
 - **Stay in scope.** A request about one node changes that node, plus the
   graph entries and shared files it genuinely needs.
@@ -158,7 +158,7 @@ only where they override the style.
 connect to it with a `push` edge from where the player opens it, such as a
 Main menu's `story-map` Exit, a pause button, or an ending. In its
 `node.js`, list menus and other screens outside the story in `OFF_MAP`,
-check that `isEnding` picks the right endings, and name Scenes for players
+check that `isEnding` picks the right endings, and name nodes for players
 in `LABELS`. The map is that node's own code: `layout.js` lays the story out
 from `graph.json`, and `context.story.seen()` gives what the player has seen.
 
@@ -217,7 +217,7 @@ Validates the graph and checks every node's files and what they import, the way 
 ```
 
 It returns the same issues as the validation endpoint, each with `phase`,
-`code`, `path`, `message`, and the surface when known, including Scene
+`code`, `path`, `message`, and the surface when known, including node
 source issues. The Agent fixes every issue before finishing. `publish` mode
 additionally requires every Signal other than navigation ones to be
 connected and every source file to exist.
@@ -242,7 +242,7 @@ perform the interaction, confirm the expected Signal and target in
 
 ## Turn review
 
-Turn review is not built yet ([design](authoring.md#multi-node-agent-changes)). Until
+Turn review is not built yet ([design](authoring.md#multi-scene-agent-changes)). Until
 then the Agent makes the complete change in one turn and summarizes it at the
 end: nodes created or changed, Signals and edges added, Variables added,
 assets generated or declared, and what was verified.
