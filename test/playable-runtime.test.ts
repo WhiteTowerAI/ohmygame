@@ -932,22 +932,11 @@ describe("NodeRuntime preview tooling", () => {
     ]);
   });
 
-  it("starts at a chosen Node with validated preview State", async () => {
-    const { runtime, host } = createRuntime({
-      startNodeId: "archive",
-      previewState: { hasKey: true },
-    });
+  it("starts at a chosen Node", async () => {
+    const { runtime, host } = createRuntime({ startNodeId: "archive" });
     await runtime.start();
 
     expect(host.events).toEqual(["mount:archive"]);
-    expect(runtime.snapshot().state).toEqual({
-      hasKey: true,
-      clues: [],
-      profile: { name: "" },
-    });
-    expect(() => createRuntime({ previewState: { unknown: 1 } })).toThrowError(
-      expect.objectContaining({ code: "unknown-state-key" }),
-    );
     expect(() => createRuntime({ startNodeId: "nowhere" })).toThrowError(
       expect.objectContaining({ code: "unknown-node" }),
     );
@@ -984,7 +973,6 @@ function createRuntime(
     onError?: (error: unknown) => void;
     policy?: NodeRuntimeOptions["policy"];
     startNodeId?: string;
-    previewState?: NodeRuntimeOptions["previewState"];
   } = {},
 ): {
   runtime: NodeRuntime;
@@ -1011,7 +999,6 @@ function createRuntime(
       onError: options.onError,
       policy: options.policy,
       startNodeId: options.startNodeId,
-      previewState: options.previewState,
     }),
   };
 }

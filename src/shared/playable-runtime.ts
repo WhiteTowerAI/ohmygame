@@ -145,8 +145,6 @@ export interface NodeRuntimeOptions {
   policy?: NodeRuntimePolicy;
   /** Node to enter instead of `entryNodeId`. */
   startNodeId?: string;
-  /** Overrides applied to `initialState` for this session; keys must be declared. */
-  previewState?: JsonObject;
   now?: () => Date;
   onError?: (error: unknown) => void;
   /** Called whenever the diagnostics snapshot may have changed. */
@@ -346,13 +344,7 @@ export class NodeRuntime {
         );
       this.#navigation = { currentNodeId: options.startNodeId, backStack: [] };
     }
-    this.#state = options.previewState
-      ? patchPlayableState(
-          options.graph.initialState,
-          options.graph.initialState,
-          options.previewState,
-        )
-      : createPlayableState(options.graph.initialState);
+    this.#state = createPlayableState(options.graph.initialState);
   }
 
   async start(): Promise<void> {

@@ -1,4 +1,4 @@
-import type { JsonObject, NodeGraph } from "./playable-nodes.js";
+import type { NodeGraph } from "./playable-nodes.js";
 import type { PlayableTranslate } from "./playable-move.js";
 import type { PlayablePickResult } from "./playable-picker.js";
 import type { NodeRuntimePolicy, NodeRuntimeSnapshot } from "./playable-runtime.js";
@@ -39,7 +39,6 @@ export type NodeRuntimeResponse =
 export interface PlayablePreviewOptions {
   policy?: NodeRuntimePolicy;
   startNodeId?: string;
-  previewState?: JsonObject;
   /** Plays no music or sounds, such as for a thumbnail capture. */
   silent?: true;
 }
