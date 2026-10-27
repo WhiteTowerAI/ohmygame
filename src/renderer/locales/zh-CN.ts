@@ -899,6 +899,7 @@ const zhCN: typeof en = {
     new: "新建素材画布",
     newHint: "从空白工作流开始",
     quickStart: "快速开始",
+    audio: "音频",
     recent: "最近的画布",
     none: "还没有素材画布",
     loading: "正在加载素材画布",

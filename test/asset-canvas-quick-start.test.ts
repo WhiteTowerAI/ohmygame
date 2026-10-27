@@ -25,7 +25,6 @@ const GPT_IMAGE = imageModel("openrouter", "openai/gpt-image-2.5-flare");
 const NANO_BANANA = imageModel("openrouter", "google/gemini-3.1-flash-image", [{ resolution: "2K", aspectRatio: "16:9" }]);
 const SEEDANCE_MINI = videoModel("bytedance/seedance-2.0-mini");
 const SEEDANCE_25 = videoModel("bytedance/seedance-2.5");
-const OFFICIAL_SEEDANCE_20 = videoModel("doubao-seedance-2-0-260128", "volcengine-ark");
 const OFFICIAL_SEEDANCE_25 = videoModel("dreamina-seedance-2-5-260628", "byteplus-modelark");
 
 const PROJECT: ProjectState = {
@@ -54,7 +53,7 @@ describe("Asset Canvas quick start", () => {
 
   it("lists generic starters first, then every model starter", () => {
     expect(quickStart.ASSET_CANVAS_QUICK_STARTS.map((item) => item.label)).toEqual([
-      "Image", "Video", "3D", "GPT Image 2.5", "Nano Banana 2", "Seedance 2.0", "Seedance 2.5",
+      "Image", "Video", "3D", "Audio", "GPT Image 2.5", "Nano Banana 2", "Seedance 2.5",
     ]);
   });
 
@@ -107,24 +106,24 @@ describe("Asset Canvas quick start", () => {
     }) }));
   });
 
-  it.each([
-    ["seedance-2.0", OFFICIAL_SEEDANCE_20],
-    ["seedance-2.5", OFFICIAL_SEEDANCE_25],
-  ])("recognizes official models for the %s starter", async (starterKey, model) => {
-    api.listVideoModels.mockResolvedValue([model]);
+  it("recognizes official models for the Seedance 2.5 starter", async () => {
+    api.listVideoModels.mockResolvedValue([OFFICIAL_SEEDANCE_25]);
 
-    await createAssetCanvasQuickStart(starter(starterKey));
+    await createAssetCanvasQuickStart(starter("seedance-2.5"));
 
     expect(api.saveCanvasBoard).toHaveBeenCalledWith(PROJECT.id, expect.objectContaining({ board: expect.objectContaining({
-      nodes: [expect.objectContaining({ type: "video", data: expect.objectContaining({ model: { provider: model.provider, id: model.id } }) })],
+      nodes: [expect.objectContaining({ type: "video", data: expect.objectContaining({ model: { provider: OFFICIAL_SEEDANCE_25.provider, id: OFFICIAL_SEEDANCE_25.id } }) })],
     }) }));
   });
 
-  it("creates a generic starter without a model when none is configured", async () => {
-    await createAssetCanvasQuickStart(starter("image"));
+  it.each([
+    ["image", "image"],
+    ["audio", "audio-scene"],
+  ])("creates the %s starter without a model when none is configured", async (starterKey, type) => {
+    await createAssetCanvasQuickStart(starter(starterKey));
 
     expect(api.saveCanvasBoard).toHaveBeenCalledWith(PROJECT.id, expect.objectContaining({ board: expect.objectContaining({
-      nodes: [expect.objectContaining({ type: "image", data: expect.not.objectContaining({ model: expect.anything() }) })],
+      nodes: [expect.objectContaining({ type, data: expect.not.objectContaining({ model: expect.anything() }) })],
     }) }));
   });
 

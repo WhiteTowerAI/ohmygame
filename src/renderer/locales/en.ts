@@ -917,6 +917,7 @@ const en = {
     new: "New asset canvas",
     newHint: "Start with an empty workflow",
     quickStart: "Quick start",
+    audio: "Audio",
     recent: "Recent canvases",
     none: "No asset canvases yet",
     loading: "Loading asset canvases",
