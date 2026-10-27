@@ -176,6 +176,8 @@ export interface StoryWebUpgrade {
   missingAssets: string[];
   /** Node and shared files whose imports were rewritten for the browser. */
   rewritten: string[];
+  /** Fields of an older graph.json that the upgrade removed, such as `shell`. */
+  removedGraphFields: string[];
   runtime: StoryRuntimeInstall;
 }
 
@@ -191,9 +193,10 @@ export async function upgradeToWebStory(
 ): Promise<StoryWebUpgrade> {
   const graphText = await readText(workspacePath, "graph.json");
   if (graphText === undefined) throw new Error("This project has no graph.json.");
-  const graph = JSON.parse(graphText) as NodeGraph;
+  const { graph, removed: removedGraphFields } = withoutLegacyGraphFields(JSON.parse(graphText) as Record<string, unknown>);
   // Check the shipped runtime before copying media or rewriting project code.
   await storyWebRuntimeModules();
+  if (removedGraphFields.length) await writeText(workspacePath, "graph.json", `${JSON.stringify(graph, null, 2)}\n`);
   const { copiedAssets, missingAssets } = await copyLibraryAssets(workspacePath, libraryFile);
 
   const rewritten: string[] = [];
@@ -211,7 +214,27 @@ export async function upgradeToWebStory(
     const current = await readText(workspacePath, relative);
     if (current !== undefined && PROJECT_GUIDE_UPGRADES[relative].includes(hash(current))) await writeText(workspacePath, relative, content);
   }
-  return { copiedAssets, missingAssets, rewritten, runtime };
+  return { copiedAssets, missingAssets, rewritten, removedGraphFields, runtime };
+}
+
+/**
+ * The earliest stories drew a `shell` over every Scene, with Exits of its own
+ * and `destinations` for them. Neither exists any more, and graph.json is
+ * refused while it has them, so upgrading drops them along with the shell's
+ * connections. The shell's files stay where they are.
+ */
+function withoutLegacyGraphFields(value: Record<string, unknown>): { graph: NodeGraph; removed: string[] } {
+  const { shell, destinations, ...rest } = value;
+  const removed = [...(shell !== undefined ? ["shell"] : []), ...(destinations !== undefined ? ["destinations"] : [])];
+  const shellIsNode = Array.isArray(rest.nodes) && rest.nodes.some((node) => isRecord(node) && node.id === "shell");
+  if (shell !== undefined && !shellIsNode && Array.isArray(rest.edges)) {
+    rest.edges = rest.edges.filter((edge) => !(isRecord(edge) && isRecord(edge.source) && edge.source.nodeId === "shell"));
+  }
+  return { graph: rest as unknown as NodeGraph, removed };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Asset IDs the story still takes from the Library rather than the project. */

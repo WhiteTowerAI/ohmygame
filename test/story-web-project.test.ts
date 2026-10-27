@@ -141,6 +141,28 @@ describe("upgrading a sandboxed story", () => {
     await expect(buildPlayableProject(root, "draft")).resolves.toBeDefined();
   });
 
+  it("drops the earliest stories' shell and destinations, so their graph can be read again", async () => {
+    const root = await legacyProject();
+    const graph = JSON.parse(await read(root, "graph.json"));
+    const start = graph.nodes[0].id;
+    graph.shell = { source: { html: "shell/index.html", css: "shell/style.css", javascript: "shell/shell.js" }, assets: [], signals: [{ id: "home", label: "Home" }] };
+    graph.destinations = { home: start };
+    graph.edges.push({ id: "shell-home", source: { nodeId: "shell", signal: "home" }, targetNodeId: start, mode: "replace" });
+    await writeFile(path.join(root, "graph.json"), JSON.stringify(graph));
+    await mkdir(path.join(root, "shell"));
+    await writeFile(path.join(root, "shell", "index.html"), "<nav>Home</nav>");
+
+    const upgrade = await upgradeToWebStory(root, async () => undefined);
+
+    expect(upgrade.removedGraphFields).toEqual(["shell", "destinations"]);
+    const upgraded = JSON.parse(await read(root, "graph.json"));
+    expect(upgraded.shell).toBeUndefined();
+    expect(upgraded.destinations).toBeUndefined();
+    expect(upgraded.edges.map((edge: { id: string }) => edge.id)).not.toContain("shell-home");
+    expect(await read(root, "shell/index.html")).toBe("<nav>Home</nav>");
+    await expect(buildPlayableProject(root, "draft")).resolves.toBeDefined();
+  });
+
   it("gives Scenes added to a web story browser imports", async () => {
     const root = await workspace();
     await createNodeCodebase(root, createStarterCodebaseWithScene("Story", { width: 1280, height: 720 }));

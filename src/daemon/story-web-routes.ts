@@ -86,7 +86,7 @@ export function registerStoryWebRoutes(
       const upgrade = await writes.exclusive(project.id, () => upgradeToWebStory(project.workspacePath, libraryFile));
       const after = await snapshot(project);
       const changed = (await checkpoints.diff(project, before, after)).map((change) => change.path);
-      await announce(project, changed, `OhMyGame upgraded this Interactive Story to a web story when the user opened it. It now plays as its own page: index.html loads the story runtime under story/, which reads graph.json and loads each Scene's files as they are. Library assets it used were copied under assets/library/. Read AGENTS.md before changing it. Changed workspace paths: ${JSON.stringify(changed)}.`);
+      await announce(project, changed, `OhMyGame upgraded this Interactive Story to a web story when the user opened it. It now plays as its own page: index.html loads the story runtime under story/, which reads graph.json and loads each Scene's files as they are. Library assets it used were copied under assets/library/. Read AGENTS.md before changing it.${legacyNote(upgrade.removedGraphFields)} Changed workspace paths: ${JSON.stringify(changed)}.`);
       return {
         copiedAssets: upgrade.copiedAssets,
         missingAssets: upgrade.missingAssets,
@@ -109,4 +109,12 @@ export function registerStoryWebRoutes(
       if (changed.length) await announce(project, changed, `Library media this story used were copied into the project under assets/library/, and graph.json now points at them: ${JSON.stringify(copied.copiedAssets)}.`);
       return { ...copied, changed };
     }));
+}
+
+/** What the Agent is told about fields of an older graph.json the upgrade removed. */
+function legacyNote(removed: string[]): string {
+  if (!removed.includes("shell")) {
+    return removed.length ? " graph.json no longer has `destinations`, which nothing used any more." : "";
+  }
+  return ` graph.json no longer has ${removed.map((field) => `\`${field}\``).join(" or ")}: the story's former shell, drawn over every Scene, is no longer shown, and its connections were removed. Its files are still under shell/; to bring its interface back, make it a shared component that each Scene imports, with that Scene's Signals and edges (see AGENTS.md).`;
 }

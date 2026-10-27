@@ -308,8 +308,10 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
     return () => { disposed = true; };
   }, [projectId, workspaceRevision]);
 
+  // The earliest stories' graph.json cannot even be read before the upgrade
+  // fixes it, so a canvas that failed to load upgrades too.
   useEffect(() => {
-    if (phase !== "ready" || !upgrade || upgrade.web || upgrading.current === projectId) return;
+    if (phase === "loading" || !upgrade || upgrade.web || upgrading.current === projectId) return;
     upgrading.current = projectId;
     void runUpgrade();
   }, [phase, upgrade, projectId]);
@@ -1188,7 +1190,7 @@ export function PlayableEditorWorkspace({ project, agentBusy, publishing, worksp
         <div className="interactive-story-canvas">
           {phase === "loading" ? <div className="story-canvas-state">{t("storyEditor.loadingScenes")}</div> : null}
           {phase === "error" ? <div className="story-canvas-state story-canvas-state-error">{notice}</div> : null}
-          {phase === "ready" && upgrade && !upgrade.web && upgradeError !== undefined ? <CanvasNotice
+          {phase !== "loading" && upgrade && !upgrade.web && upgradeError !== undefined ? <CanvasNotice
             className="story-upgrade-notice"
             tone="warning"
             message={t("storyEditor.upgradeFailed", { error: upgradeError })}
